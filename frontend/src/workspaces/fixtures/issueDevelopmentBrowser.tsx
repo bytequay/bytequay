@@ -38,14 +38,9 @@ import '../../css/issues.css';
 import '../../css/home.css';
 import '../../css/pulls.css';
 import '../../css/reference-card.css';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, runScenarios, changeInput, settle, element, button as findButton } from '../../fixtures/harness';
 
-function button(host: HTMLElement, label: string): HTMLButtonElement {
-  const found = [...host.querySelectorAll<HTMLButtonElement>('button')]
-    .find(candidate => candidate.textContent?.trim() === label || candidate.getAttribute('aria-label') === label);
-  assert(found !== undefined, `Missing button: ${label}`);
-  return found;
-}
+const button = (host: HTMLElement, label: string) => findButton(label, host);
 function dialogSelect(host: HTMLElement, label: string): HTMLSelectElement {
   const found = [...host.querySelectorAll<HTMLLabelElement>('.bq-confirm-dialog__choice')]
     .find(candidate => candidate.textContent?.startsWith(label))?.querySelector('select');
@@ -201,8 +196,7 @@ async function refreshAndCancel(): Promise<void> {
     flushSync(() => root.render(<AgentTasksView workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge}
       onOpenTask={() => {}} onOpenReview={() => {}} />));
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
-    assert(input !== null, 'Composer input is available');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'Composer input is available');
     changeInput(input, 'Keep my additional instructions'); await settle();
     f.issue = { ...f.issue, title: 'Updated issue title', body: 'Updated issue description', updatedAt: '2026-09-03T00:00:00Z' };
     button(host, 'Refresh issue').click(); await settle();
@@ -305,8 +299,7 @@ export async function mountIssueConversation(running = false): Promise<{ x: numb
 
 export async function verifyIssuePreview(): Promise<void> {
   await settle();
-  const preview = document.querySelector<HTMLElement>('.ref-card');
-  assert(preview !== null, 'Hover must open source preview');
+  const preview = element<HTMLElement>('.ref-card', document, 'Hover must open source preview');
   assert(preview.querySelector('h2')?.textContent === 'Acceptance criteria' && preview.querySelector('.ref-card__title')?.textContent === 'Fix upload timeout',
     'Preview must show title and render Markdown headings');
   assert(preview.querySelector('ul li') !== null && preview.querySelector('pre code') !== null && preview.textContent?.includes('existing upload API') === true,
@@ -537,7 +530,7 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const cases: Array<[string, () => Promise<void>]> = [
+  return runScenarios([
     ['Another attempt opens the composer over an ended task and names it', anotherAttempt],
     ['Work without a source opens the composer with its title and names the work', workAttempt],
     ['A decided start sends itself once, with its source, and is left to the user when blocked', decidedStart],
@@ -547,11 +540,5 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],
     ['Completed task retains source link after cache removal', retainedSource],
     ['Attention actions keep source navigation and launch separate', runAttentionActions],
-  ];
-  const results: { name: string; error?: string }[] = [];
-  for (const [name, scenario] of cases) {
-    try { await scenario(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  }
-  return results;
+  ]);
 }

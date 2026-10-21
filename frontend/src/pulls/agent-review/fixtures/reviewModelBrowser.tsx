@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
-import { assert, settle } from '../../../fixtures/harness';
+import { element as fixtureElement, assert, settle } from '../../../fixtures/harness';
 import { NO_AGENT_CAPABILITIES } from '../../../agents/capabilities';
 import type { ModelProviderDto } from '../../../types';
 import ReviewActivity from '../ReviewActivity';
@@ -59,8 +59,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     codex.click(); await settle();
     assert(selections.length === 1 && selections[0].laneId === 'codex' && selections[0].model === 'gpt-review', 'Save the new provider with its model');
     button('Model and effort for the next message').click(); await settle();
-    const modelMenu = host.querySelector<HTMLButtonElement>('[role="menuitem"]');
-    assert(modelMenu !== null, 'Shared model menu is open');
+    const modelMenu = fixtureElement<HTMLButtonElement>('[role="menuitem"]', host, 'Shared model menu is open');
     modelMenu.click(); await settle();
     const choice = [...host.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(item => item.textContent?.trim() === 'Other');
     assert(choice !== undefined, 'The new provider models are offered');

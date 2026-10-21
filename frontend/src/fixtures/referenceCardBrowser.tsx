@@ -16,7 +16,7 @@ import { createFixtureRoot } from './reactFixture';
 import ReferenceCard, { type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import MarkdownBody from '../pulls/MarkdownBody';
 import type { GitHubIssuePreviewDto } from '../types';
-import { assert, settle } from './harness';
+import { assert, settle, element } from './harness';
 import '../css/reference-card.css';
 import '../css/pulls.css';
 
@@ -44,8 +44,7 @@ export async function run(): Promise<boolean> {
   try {
     flushSync(() => root.render(<ReferenceCard hover={hover} item={item} body="Details are unavailable." />));
     await settle();
-    const card = document.querySelector<HTMLElement>('.ref-card');
-    assert(card !== null, 'Missing hover card');
+    const card = element<HTMLElement>('.ref-card', document, 'Missing hover card');
     const rect = card.getBoundingClientRect();
     assert(Math.abs(rect.bottom - (anchor.top - 6)) < 12,
       `A short hover card must sit immediately above its link (card=${rect.top}-${rect.bottom}, anchor=${anchor.top}, viewport=${window.innerHeight})`);
@@ -53,8 +52,7 @@ export async function run(): Promise<boolean> {
     flushSync(() => root.render(<MarkdownBody
       body="- Fixes https://github.com/trinodb/trino/pull/31252" repository="trinodb/trino" />));
     await settle();
-    const link = host.querySelector<HTMLAnchorElement>('.md-reference');
-    assert(link !== null, 'Missing issue reference');
+    const link = element<HTMLAnchorElement>('.md-reference', host, 'Missing issue reference');
     assert(link.textContent?.includes('Delta Lake checkpoint writer drops files with deletion vectors #31252') === true,
       'The issue title and number must replace the URL label');
     assert(link.href === 'https://github.com/trinodb/trino/issues/31252', 'The link must point to the issue');

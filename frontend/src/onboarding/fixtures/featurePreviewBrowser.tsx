@@ -13,7 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
-import { assert, settle, until } from '../../fixtures/harness';
+import { assert, settle, until, element } from '../../fixtures/harness';
 import { SettingsCard, SettingsRow, Toggle } from '../../settings/primitives';
 import FeaturePreview, { type PreviewFeature } from '../FeaturePreview';
 import '../../css/base.css';
@@ -72,7 +72,7 @@ export async function playback(reduced: boolean) {
   const previews = [...host.querySelectorAll<HTMLElement>('.setup-preview')];
   const running = (preview: HTMLElement) => preview.getAnimations({ subtree: true }).some(animation => animation.playState === 'running');
   for (const preview of previews) {
-    const button = preview.querySelector('button'); assert(button !== null, 'Each preview needs playback controls');
+    const button = element<HTMLElementTagNameMap['button']>('button', preview, 'Each preview needs playback controls');
     assert(button.textContent?.trim() === (reduced ? 'Play preview' : 'Pause preview'), 'The initial playback label must follow reduced motion');
     assert(button.getAttribute('aria-pressed') === String(!reduced), 'The control must expose whether the preview is playing');
     assert(running(preview) === !reduced, 'Only previews without reduced motion may autoplay');
@@ -87,8 +87,7 @@ export async function playback(reduced: boolean) {
 
 export async function featuresLayout() {
   await settle();
-  const assistant = host.querySelector<HTMLElement>('[data-feature="assistant"]');
-  assert(assistant !== null, 'The Features step must include Assistant');
+  const assistant = element<HTMLElement>('[data-feature="assistant"]', host, 'The Features step must include Assistant');
   const image = assistant?.querySelector('img');
   const picture = image?.parentElement;
   const caption = assistant?.querySelector('figcaption');

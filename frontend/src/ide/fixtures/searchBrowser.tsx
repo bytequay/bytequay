@@ -28,7 +28,7 @@ import { SearchProviderType, TextSearchMatch, SearchRange, type ISearchResultPro
 import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model';
 import { languages, Uri } from 'monaco-editor';
 import Search from '../Search';
-import { assert, settle, changeInput } from '../../fixtures/harness';
+import { assert, settle, changeInput, element } from '../../fixtures/harness';
 
 export async function verifySearch() {
   const host = document.createElement('div'); host.className = 'ide-workbench is-dark';
@@ -138,7 +138,7 @@ export async function verifySearch() {
     files: [...sources.keys(), 'core/query-engine/pom.xml', 'tools/go.mod', 'rust/Cargo.toml'].map(path => ({ path, changedInPr: false, addedInPr: false, onlyInWorkingCopy: false, uncommitted: false })) }} />));
   const popup = () => host.querySelector<HTMLElement>('.ide-search-popup');
   const rows = () => [...host.querySelectorAll<HTMLButtonElement>('.ide-search-row')];
-  const input = () => { const value = host.querySelector<HTMLInputElement>('[aria-label="Search query"]'); assert(value !== null, 'Search input is present'); return value; };
+  const input = () => { const value = element<HTMLInputElement>('[aria-label="Search query"]', host, 'Search input is present'); return value; };
   const until = async (predicate: () => boolean, message: string) => {
     for (let attempt = 0; attempt < 160; attempt++) { if (predicate()) return; await new Promise(resolve => setTimeout(resolve, 50)); }
     throw new Error(`${message}: ${popup()?.textContent ?? 'No search popup'}`);

@@ -19,7 +19,7 @@ import type { Bridge, PullRequestDetailDto } from '../../../types';
 import type { TaskDiscussionDto } from '../../../agents/discussions/contracts';
 import type { AgentEventEnvelope } from '../../../agents/events';
 import { agentTurn, createPreviewBridge } from '../../../agents/fixtures/previewBridge';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import PullsScreen from '../../PullsScreen';
 import ReviewTaskScreen from '../../../agents/ReviewTaskScreen';
 import { runningReviewFixture } from './review';
@@ -153,12 +153,10 @@ export async function run(local = false): Promise<string> {
     const conversation = host.querySelector('.agr-workspace-conversation');
     assert(conversation !== null && tab() === null, 'Subagents must remain a conversation destination until clicked');
     assert(!conversation.textContent?.includes('Tracing the blocked writer.'), 'Child messages must stay out of the root transcript');
-    const input = host.querySelector<HTMLTextAreaElement>('.agt-compose__input');
-    assert(input !== null, 'The review composer must remain available');
+    const input = fixtureElement<HTMLTextAreaElement>('.agt-compose__input', host, 'The review composer must remain available');
     changeInput(input, 'Keep this unsent question'); await settle();
     const route = window.location.hash;
-    const icon = chip('Abort contract', conversation).querySelector('svg');
-    assert(icon !== null, 'The agent chip must contain its icon');
+    const icon = fixtureElement<Element>('svg', chip('Abort contract', conversation), 'The agent chip must contain its icon');
     icon.dispatchEvent(new MouseEvent('click', { bubbles: true })); await settle();
     assert(tab()?.textContent?.includes('Subagents 3') && tab()?.querySelector('[aria-pressed="true"]') !== null,
       'Clicking the icon must open and select the counted Subagents tab');
@@ -204,11 +202,9 @@ export async function run(local = false): Promise<string> {
     const offset = (node.textContent ?? '').indexOf(quote);
     window.getSelection()?.setBaseAndExtent(node, offset, node, offset + quote.length);
     document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); await settle();
-    const ask = conversation.querySelector<HTMLButtonElement>('.agt-disc-pill');
-    assert(ask !== null, 'Review text selection must offer Ask about this');
+    const ask = fixtureElement<HTMLButtonElement>('.agt-disc-pill', conversation, 'Review text selection must offer Ask about this');
     ask.click(); await settle();
-    const question = conversation.querySelector<HTMLTextAreaElement>('[aria-label="Ask about this passage"]');
-    assert(question !== null, 'The shared passage composer must open');
+    const question = fixtureElement<HTMLTextAreaElement>('[aria-label="Ask about this passage"]', conversation, 'The shared passage composer must open');
     changeInput(question, 'How does cancellation do that?'); await settle();
     conversation.querySelector<HTMLButtonElement>('.agt-disc-pop [aria-label="Ask"]')?.click(); await settle();
     assert(opens === 1 && panel()?.textContent?.includes('Cancellation closes the writer.'), 'The saved discussion must open in the side panel');

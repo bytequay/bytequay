@@ -13,15 +13,14 @@
  */
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
-import { prDetail } from './pullRequest';
+import { timelineActivity, timelineComment, prDetail } from './pullRequest';
 import type { Bridge, DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../../types';
 import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
-import { reviewFixture } from '../agent-review/fixtures/review';
+import { reviewDraftFixture, reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 import { DETAIL_REFRESH_INTERVAL } from '../usePullRequestDetail';
-import { EMPTY_TIMELINE_PAYLOAD } from '../model';
 import type { ReviewDraftDto, ReviewDraftItemDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
@@ -30,10 +29,8 @@ const stored = prDetail({
   mergeable: null, mergeableState: null, author: 'alice', updatedAt: '2026-01-01T00:00:00Z',
   baseRef: 'master', body: 'Implementation',
   reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
-  recentActivity: [{ githubId: 61, eventType: 'review_thread', actor: 'alice', timestamp: null, body: 'Existing discussion',
-    payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',
-      comments: [{ githubId: 61, actor: 'alice', actorAvatarUrl: null, actorBot: false, timestamp: null, body: 'Existing discussion',
-        htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } }],
+  recentActivity: [timelineActivity({ githubId: 61, actor: 'alice', timestamp: null, body: 'Existing discussion' }, { path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',
+      comments: [timelineComment({ githubId: 61, actor: 'alice', timestamp: null, body: 'Existing discussion', reviewId: 50 })] })],
 });
 const files: DiffFileDto[] = [{ filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' }];
 const commits: DiffCommitDto[] = [
@@ -53,8 +50,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   let detail = stored;
   let reviewedReads = 0;
   // The review has no draft yet, so the sheet loads one; every review leaves through it.
-  let saved: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: '', event: 'COMMENT', reviewPublication: null, items: [],
-    postedSummaryFindingIds: [], version: 0, updatedAt: '2026-09-07T00:00:00Z' };
+  let saved: ReviewDraftDto = reviewDraftFixture({ repo: stored.repo, number: stored.number, version: 0, updatedAt: '2026-09-07T00:00:00Z' });
   const added: Parameters<Bridge['addReviewDraftComment']>[3][] = [];
   const submissions: Parameters<Bridge['submitReviewDraft']>[] = [];
   let polls: (() => void)[] = [];
@@ -143,12 +139,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(host.querySelector('[aria-label="Changes source"]') === null,
       'A linked PR must expose a single Changes view without a source selector');
     for (let attempt = 0; attempt < 30 && host.querySelector('[aria-label="Add a comment on new line 1"]') === null; attempt++) await settle();
-    const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
-    assert(add !== null, 'The diff must offer the inline comment gutter');
+    const add = fixtureElement<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]', host, 'The diff must offer the inline comment gutter');
     add.click();
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-    assert(input !== null, 'Selecting a line must open a composer');
+    const input = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'Selecting a line must open a composer');
     changeInput(input, 'Keep this pending review');
     await settle();
     button('Add to review').click();
@@ -172,16 +166,14 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await refreshed({ ...detail, additions: 2, updatedAt: '2026-01-02T00:00:00Z' });
     assert(await staged(), 'A background detail refresh must keep the staged review');
 
-    const range = host.querySelector<HTMLInputElement>('[aria-label="Select two: two"]');
-    assert(range !== null, 'The diff must offer its commit picker');
+    const range = fixtureElement<HTMLInputElement>('[aria-label="Select two: two"]', host, 'The diff must offer its commit picker');
     range.click();
     for (let attempt = 0; attempt < 30 && host.querySelector('[aria-label="Deselect two: two"]') === null; attempt++) await settle();
     assert(await staged(), 'Narrowing the diff to selected commits must keep the staged review');
 
     button('PR #').click(); await settle();
     button('Reply').click(); await settle();
-    const reply = host.querySelector<HTMLTextAreaElement>('[aria-label="Reply to review thread"]');
-    assert(reply !== null, 'Existing review threads must offer a reply editor');
+    const reply = fixtureElement<HTMLTextAreaElement>('[aria-label="Reply to review thread"]', host, 'Existing review threads must offer a reply editor');
     changeInput(reply, 'Include this reply in my review'); await settle();
     button('Add to review').click(); await settle();
     assert(submissions.length === 0 && host.textContent?.includes('Include this reply in my review'),
@@ -194,8 +186,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(pendingMessage?.querySelector('.user-avatar-trigger strong')?.textContent === 'bob'
       && pendingMessage.querySelector('.lrc-message__menu') === null, 'Pending replies must use the normal author row without a Remove menu');
     button('Reply').click(); await settle();
-    const extraReply = host.querySelector<HTMLTextAreaElement>('[aria-label="Reply to review thread"]');
-    assert(extraReply !== null, 'The thread can stage another reply');
+    const extraReply = fixtureElement<HTMLTextAreaElement>('[aria-label="Reply to review thread"]', host, 'The thread can stage another reply');
     changeInput(extraReply, 'Remove only this reply'); await settle();
     button('Add to review').click(); await settle();
     const remove = host.querySelector<HTMLButtonElement>('.lrc__foot [aria-label="Remove pending reply 2"]');
@@ -208,10 +199,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     button('Submit review').click(); await settle();
     const submit = host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary');
     assert(submit !== null && !submit.disabled, 'WorkBench Summary must open the shared review dialog with the staged comment');
-    const card = host.querySelector('.pr-review-sheet__pending .pr-thread-comment');
-    assert(card !== null, 'The pending comment must appear in the review sheet');
-    const edit = card.querySelector<HTMLButtonElement>('.pr-review-sheet__edit');
-    assert(edit !== null, 'Pending comments must offer Edit beside Remove');
+    const card = fixtureElement<Element>('.pr-review-sheet__pending .pr-thread-comment', host, 'The pending comment must appear in the review sheet');
+    const edit = fixtureElement<HTMLButtonElement>('.pr-review-sheet__edit', card, 'Pending comments must offer Edit beside Remove');
     edit.click(); await settle();
     let editor = card.querySelector<HTMLTextAreaElement>('[aria-label="Edit pending review comment"]');
     assert(editor !== null && editor.value === 'Keep this pending review' && submit.disabled,
@@ -254,10 +243,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function runDraftCommentEdit(): Promise<string> {
-  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 4,
+  let draft: ReviewDraftDto = reviewDraftFixture({ repo: stored.repo, number: stored.number, body: 'Review summary', version: 4,
     updatedAt: '2026-09-07T00:00:00Z', items: [{ id: 'draft-comment', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
       path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: 'Original finding', included: true,
-      published: false, publication: null }] };
+      published: false, publication: null }] });
   let currentReview = reviewFixture({ draft });
   const edits: Parameters<Bridge['editReviewDraftComment']>[] = [];
   let saveError: string | null = 'The draft changed. Try again.';
@@ -354,13 +343,8 @@ export async function runDraftCommentEdit(): Promise<string> {
     } })) };
     currentReview = { ...currentReview, draft };
     flushSync(render); await settle();
-    const confirm = () => {
-      const node = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Confirmed not posted');
-      assert(node !== undefined, 'Unconfirmed comments must offer explicit recovery');
-      return node;
-    };
-    const summary = host.querySelector<HTMLTextAreaElement>('[aria-label="Review comment"]');
-    assert(summary !== null, 'Review summary must remain editable');
+    const confirm = () => textButton('Confirmed not posted', host, 'Unconfirmed comments must offer explicit recovery');
+    const summary = fixtureElement<HTMLTextAreaElement>('[aria-label="Review comment"]', host, 'Review summary must remain editable');
     changeInput(summary, 'Review summary with retries'); await settle();
     assert(button('.pr-review-sheet__footer .is-primary').disabled && confirmations.length === 0 && published === 0,
       'An uncertain comment must never be retried on opening the sheet');
@@ -394,11 +378,11 @@ export async function runConfirmedPublication(): Promise<string> {
     for (const summary of [false, true]) {
       const finding = { ...reviewFixture().findings[0], state: 'OPEN' as const };
       const uncertain: NonNullable<ReviewDraftDto['reviewPublication']> = { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: finding.updatedAt };
-      const draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: 'Review summary', event: 'COMMENT',
-        reviewPublication: summary ? uncertain : null, postedSummaryFindingIds: [], version: 4, updatedAt: finding.updatedAt,
+      const draft: ReviewDraftDto = reviewDraftFixture({ repo: stored.repo, number: stored.number, body: 'Review summary',
+        reviewPublication: summary ? uncertain : null, version: 4, updatedAt: finding.updatedAt,
         items: summary ? [] : [{ id: 'confirmed-finding', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
           path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: finding.body, included: true,
-          published: false, publication: uncertain }] };
+          published: false, publication: uncertain }] });
       let currentReview = reviewFixture({ findings: [finding], draft });
       let savedReview = currentReview;
       let reads = 0;
@@ -446,8 +430,7 @@ export async function runApprovalCommitBinding(): Promise<string> {
   const { host, root, dispose } = createFixtureRoot('main');
   const submissions: Parameters<Bridge['submitReviewDraft']>[] = [];
   let writes = 0;
-  let draft: ReviewDraftDto = { repo: stored.repo, number: stored.number, body: '', event: 'APPROVE', reviewPublication: null,
-    items: [], postedSummaryFindingIds: [], version: 0, updatedAt: review.createdAt };
+  let draft: ReviewDraftDto = reviewDraftFixture({ repo: stored.repo, number: stored.number, event: 'APPROVE', version: 0, updatedAt: review.createdAt });
   const bridge = {
     saveReviewDraft: async (_repo, _number, version, body, event) => { writes++; return (draft = { ...draft, body, event, version: version + 1 }); },
     submitReviewDraft: async (...request) => { submissions.push(request); },

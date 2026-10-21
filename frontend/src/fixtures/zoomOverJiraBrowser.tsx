@@ -21,7 +21,7 @@ import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { jiraRoute, notifyJiraChanged, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
 import { jiraDetail, jiraIssue } from '../jira/fixtures/jira';
 import type { Bridge, InAppBrowserState, RepositoryIssueSnapshotDto, WorkspaceDto } from '../types';
-import { assert, changeInput, settle, until } from './harness';
+import { assert, changeInput, settle, until, runScenarios } from './harness';
 import '../index.css';
 
 const connection: JiraConnection = {
@@ -262,17 +262,10 @@ async function localWorkAndTasksOverEpic(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  for (const [name, scenario] of [
+  const results = await runScenarios([
     ['links open tickets, issues and web pages on top of whatever opened them', ticketLinksOverThePage],
     ['Home Jira rows open and start tickets on top of Home', homeRowsOverHome],
     ['Local Epic cards and task links retain the underlying layers', localWorkAndTasksOverEpic],
-  ] as const) {
-    try {
-      await scenario();
-      results.push({ name });
-    }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  }
+  ]);
   return results;
 }

@@ -13,17 +13,16 @@
  */
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
-import { prDetail } from './pullRequest';
+import { timelineActivity, timelineComment, prDetail } from './pullRequest';
 import type { ReactNode } from 'react';
 import type { Bridge, PullTimelineCommentDto } from '../../types';
-import { assert, settle, until } from '../../fixtures/harness';
+import { element as fixtureElement, assert, settle, until } from '../../fixtures/harness';
 import PullOverview from '../PullOverview';
 import { remotePullRequest } from '../PullsScreen';
 import ReviewCommentIndex, { commentIndexTarget } from '../ReviewCommentIndex';
 import AgentReviewTab from '../agent-review/AgentReviewTab';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import type { LocalReviewThreadDto } from '../local-review/types';
-import { EMPTY_TIMELINE_PAYLOAD } from '../model';
 import '../../css/base.css';
 import '../../css/agent-review.css';
 import '../../css/commits.css';
@@ -40,22 +39,17 @@ const local: LocalReviewThreadDto = {
     createdAt: timestamp, turnId: null, queuedInputId: null, messageEventId: null, deliveryState: null, deliveryError: null })),
 };
 const localReview = { threads: [local], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} };
-const comment = (githubId: number, actor: string, actorBot: boolean, body: string): PullTimelineCommentDto => ({
-  githubId, actor, actorBot, body, actorAvatarUrl: null, timestamp, htmlUrl: null, reviewId: 2,
-  inReplyToId: githubId === 4 ? 3 : null, reactions: [],
-});
+const comment = (githubId: number, actor: string, actorBot: boolean, body: string): PullTimelineCommentDto => (timelineComment({ githubId, actor, actorBot, body, timestamp, reviewId: 2, inReplyToId: githubId === 4 ? 3 : null }));
 const detail = prDetail({
   repo: base.repo, number: base.number, title: 'Review nested field lookup', htmlUrl: null,
   mergeable: null, mergeableState: null, author: 'alice', createdAt: timestamp, updatedAt: timestamp,
   baseRef: 'master', body: 'Resolve nested fields safely.\n\n'.repeat(12),
   additions: 12, deletions: 4, viewerCanWrite: false,
   recentActivity: [
-    { actor: 'alice', eventType: 'commented', timestamp, body: 'Please check the nested field lookup.', githubId: 1, payload: EMPTY_TIMELINE_PAYLOAD },
-    { actor: 'reviewer[bot]', eventType: 'reviewed', timestamp, body: 'One issue needs attention.', githubId: 2,
-      payload: { ...EMPTY_TIMELINE_PAYLOAD, actorBot: true, state: 'COMMENTED' } },
-    { actor: 'reviewer[bot]', eventType: 'review_thread', timestamp, body: null, githubId: 30,
-      payload: { ...EMPTY_TIMELINE_PAYLOAD, resolved: false, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
-        comments: [comment(3, 'reviewer[bot]', true, 'Preserve the leaf field ID.'), comment(4, 'alice', false, 'Fixed the lookup.')] } },
+    timelineActivity({ actor: 'alice', eventType: 'commented', timestamp, body: 'Please check the nested field lookup.', githubId: 1 }),
+    timelineActivity({ actor: 'reviewer[bot]', eventType: 'reviewed', timestamp, body: 'One issue needs attention.', githubId: 2 }, { actorBot: true, state: 'COMMENTED' }),
+    timelineActivity({ actor: 'reviewer[bot]', timestamp, githubId: 30 }, { resolved: false, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
+        comments: [comment(3, 'reviewer[bot]', true, 'Preserve the leaf field ID.'), comment(4, 'alice', false, 'Fixed the lookup.')] }),
   ],
 });
 const review = { ...base, findings: base.findings.map((finding, index) => ({ ...finding, state: index === 1 ? 'RESOLVED' as const : index === 2 ? 'WITHDRAWN' as const : 'OPEN' as const })),
@@ -120,8 +114,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         assert(host.querySelector('[role="tooltip"]') !== null, 'Keyboard focus must show the same preview');
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle();
         assert(host.querySelector('[role="tooltip"]') === null, 'Escape must dismiss the preview');
-        const thread = host.querySelector<HTMLDetailsElement>('.pr-inline-thread');
-        assert(thread !== null, 'The review thread must exist');
+        const thread = fixtureElement<HTMLDetailsElement>('.pr-inline-thread', host, 'The review thread must exist');
         thread.open = false;
         marker('Fixed the lookup.').click(); await settle();
         assert(thread.open && document.activeElement?.textContent?.includes('Fixed the lookup.') === true,
@@ -193,8 +186,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           </article>)}
         </ReviewCommentIndex></Surface>;
         const list = () => {
-          const element = host.querySelector<HTMLOListElement>('.review-comment-index ol');
-          assert(element !== null, 'The scrollable marker list must exist');
+          const element = fixtureElement<HTMLOListElement>('.review-comment-index ol', host, 'The scrollable marker list must exist');
           return element;
         };
         const visible = () => {

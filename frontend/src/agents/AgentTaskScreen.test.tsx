@@ -13,6 +13,7 @@
  */
 
 import { readFileSync } from 'node:fs';
+import type { ComponentProps } from 'react';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
@@ -22,7 +23,7 @@ import { CI_RUN } from './fixtures/ciAutofix';
 import { runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 import type { TaskDiscussions } from './discussions/useTaskDiscussions';
 import type { LocalReviewThreadDto } from '../pulls/local-review/types';
-import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
+import { providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
 import { PlanSteps } from './AgentConversation';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
@@ -32,7 +33,8 @@ import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { pr, prDetail } from '../pulls/fixtures/pullRequest';
 import { EMPTY_TIMELINE_PAYLOAD } from '../pulls/model';
-import { agentTurn as turn, previewTask, TASK_BODY_NOOPS } from './fixtures/previewBridge';
+import { agentTurn as turn, previewTask } from './fixtures/previewBridge';
+import { renderTaskBody, type TaskBodyProps } from './fixtures/taskBody';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import type {
   AgentCapabilitiesDto,
@@ -113,6 +115,10 @@ const listProps = {
   onOpenSettings: () => {},
 };
 
+function renderList(tasks: AgentTaskDto[], props: Partial<ComponentProps<typeof AgentTaskList>> = {}): string {
+  return renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} {...props} />);
+}
+
 function task(id: string, state: string, title: string): AgentTaskDto {
   return { ...previewTask('workspace-1', id), state, title };
 }
@@ -129,15 +135,11 @@ function body(
   turnChoice: Record<string, boolean> = allTurnsOpen(state),
   previews: Record<string, AttachmentPreview> = {},
 ): string {
-  return renderToStaticMarkup(
-    <AgentTaskBody
-      state={{ ...initialAgentTaskState(), capabilities: CAPABILITIES, ...state }}
-      activityChoice={activityChoice}
-      turnChoice={turnChoice}
-      previews={previews}
-      models={MODELS}
-      {...TASK_BODY_NOOPS}
-    />);
+  return renderBody({ capabilities: CAPABILITIES, ...state }, { activityChoice, turnChoice, previews });
+}
+
+function renderBody(state: Partial<AgentTaskState>, props: TaskBodyProps = {}): string {
+  return renderTaskBody(state, { models: MODELS, ...props });
 }
 
 const css = readFileSync(resolve(process.cwd(), 'src/css/agents.css'), 'utf8');
@@ -262,8 +264,7 @@ describe('agent task layout', () => {
     expect(declarations('.agt-compose__row')).toContain('align-items: center');
     expect(declarations('.agt-attach')).not.toContain('align-self: flex-end');
 
-    const markup = renderToStaticMarkup(
-      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
+    const markup = renderList([]);
     expect(markup).not.toContain('Branch the task starts from');
     expect(markup).toContain('placeholder="Let&#x27;s ship something"');
   });
@@ -321,8 +322,7 @@ describe('agent task layout', () => {
     expect(displayModelName('Claude Opus 4.1')).toBe('Claude Opus 4.1');
     const codex = { ...task('t-1', 'OPEN', 'x'), defaults: { model: 'gpt-5.6-sol', effort: 'low', permissionPolicy: 'AUTO' } };
     const models: ModelOptionDto[] = [{ id: 'gpt-5.6-sol', name: 'GPT-5.6-Sol', description: 'Reliable.', efforts: ['low'], defaultEffort: 'low', inputModalities: ['text'] }];
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody state={{ ...initialAgentTaskState(), task: codex, connection: 'open' }} models={models} {...TASK_BODY_NOOPS} />);
+    const markup = renderBody({ task: codex, connection: 'open' }, { models });
     expect(markup).toContain('5.6 Sol');
     expect(markup).not.toContain('GPT-5.6-Sol');
   });
@@ -334,13 +334,7 @@ describe('agent task list', () => {
       ...task('t-3', 'OPEN', 'Stuck work'),
       mutationClaim: { kind: 'RECOVERY', ownerId: 'launch-1', acquiredAt: '2026-08-20T10:00:00Z' },
     };
-    const markup = renderToStaticMarkup(
-      <AgentTaskList
-        {...listProps}
-        tasks={[task('t-1', 'OPEN', 'Rename the widget'), task('t-2', 'COMPLETED', 'Old work'), reserved]}
-        loading={false}
-        error={null}
-        />);
+    const markup = renderList([task('t-1', 'OPEN', 'Rename the widget'), task('t-2', 'COMPLETED', 'Old work'), reserved]);
 
     // Asserting the separator too: a JSX text node does not interpret \\u escapes, so a
     // hand-written one renders literally and only an exact match catches it.
@@ -358,8 +352,7 @@ describe('agent task list', () => {
   });
 
   it('offers the ready provider and catalog model as real controls', () => {
-    const markup = renderToStaticMarkup(
-      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
+    const markup = renderList([]);
 
     // Creation selects a real ready lane.
     expect(markup).toContain('Codex');
@@ -373,16 +366,7 @@ describe('agent task list', () => {
 
   it('refuses to offer creation when the provider has no model to run', () => {
     // The backend rejects a blank model, so an empty catalog must block the button, not the POST.
-    const markup = renderToStaticMarkup(
-      <AgentTaskList
-        {...listProps}
-        models={[]}
-        selection={null}
-        blocker={creationBlocker(readyCatalog([]), 'codex', null)}
-        tasks={[]}
-        loading={false}
-        error={null}
-      />);
+    const markup = renderList([], { models: [], selection: null, blocker: creationBlocker(readyCatalog([]), 'codex', null) });
 
     expect(markup).toMatch(/<button[^>]*class="agt-send"[^>]*disabled/);
     expect(markup).toContain('No Codex model is available yet');
@@ -441,18 +425,14 @@ describe('agent task list', () => {
   });
 
   it('shows loading, empty and error states rather than an unexplained blank list', () => {
-    expect(renderToStaticMarkup(
-      <AgentTaskList {...listProps} tasks={[]} loading error={null} />))
+    expect(renderList([], { loading: true }))
       .toContain('Loading agent tasks\u2026');
-    expect(renderToStaticMarkup(
-      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />))
+    expect(renderList([]))
       .toContain('No tasks yet.');
     // A live list must not promise fixture behaviour.
-    expect(renderToStaticMarkup(
-      <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />))
+    expect(renderList([]))
       .not.toContain('never runs an agent');
-    expect(renderToStaticMarkup(
-      <AgentTaskList {...listProps} tasks={[]} loading={false} error="backend refused" />))
+    expect(renderList([], { error: 'backend refused' }))
       .toContain('backend refused');
   });
 });
@@ -513,7 +493,7 @@ describe('one arrow', () => {
     expect(folded).toContain('<button type="button" class="agt-picker__chip"');
     expect(folded).toMatch(/agt-picker__chip[^>]*>[^]*?<svg[^>]*class="[^"]*chev is-open"/);
     expect(folded).not.toMatch(/[›⌄]/);
-    expect(renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[task('t-1', 'OPEN', 'x')]} loading={false} error={null} />))
+    expect(renderList([task('t-1', 'OPEN', 'x')]))
       .not.toMatch(/[›⌄]/);
   });
 });
@@ -533,7 +513,7 @@ describe('agent prose', () => {
 
 describe('truthful task controls', () => {
   it('shows no permission chip in either composer', () => {
-    const list = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
+    const list = renderList([]);
     const drafting = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), connection: 'open', composer: 'x' });
     expect(list).toContain('aria-label="Provider: Codex"');
     expect(list).not.toContain('>Auto<');
@@ -543,10 +523,6 @@ describe('truthful task controls', () => {
 });
 
 describe('agent task side panel', () => {
-  const props = {
-    models: MODELS,
-    ...TASK_BODY_NOOPS,
-  };
   const state = {
     ...initialAgentTaskState(),
     task: task('t-1', 'OPEN', 'x'),
@@ -555,13 +531,12 @@ describe('agent task side panel', () => {
   };
 
   it('offers Tears of time for any task with a worktree, before or after a pull request exists', () => {
-    const render = (extra: Partial<AgentTaskDto>, pulls: PullRequestDto[] = []) => renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...state, task: { ...state.task, interactive: true, checkoutRemovedAt: null, ...extra } }}
-        panelOpen panelTab="review"
-        pullRequests={pulls}
-        {...props}
-      />);
+    const render = (extra: Partial<AgentTaskDto>, pulls: PullRequestDto[] = []) => renderBody({
+      ...state, task: { ...state.task, interactive: true, checkoutRemovedAt: null, ...extra },
+    }, {
+      panelOpen: true, panelTab: 'review',
+      pullRequests: pulls,
+    });
     expect(render({})).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Tears of time/);
     expect(render({}, [pullRequest(482, 'Fix preview output limit')])).toContain('Tears of time');
     expect(render({ checkoutRemovedAt: '2026-08-21T10:00:00Z' })).toMatch(/<button[^>]*disabled=""[^>]*>[^]*?Tears of time/);
@@ -575,8 +550,10 @@ describe('agent task side panel', () => {
       createdAt: `2026-10-0${id}T00:00:00Z`, updatedAt: '2026-10-09T00:00:00Z', messages: [] });
     const localReview = { threads: [thread('1', '1'.repeat(40)), thread('2', '1'.repeat(40)), thread('3', '2'.repeat(40))],
       onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} };
-    const markup = renderToStaticMarkup(<AgentTaskBody state={{ ...state, task: { ...state.task, interactive: true } }} panelOpen panelTab="review"
-      pullRequests={[pull]} localReview={localReview} {...props} />);
+    const markup = renderBody({ ...state, task: { ...state.task, interactive: true } }, {
+      panelOpen: true, panelTab: 'review',
+      pullRequests: [pull], localReview,
+    });
     expect(markup).toMatch(/All rounds<span>3<\/span>.*Last round<span>1<\/span>.*Round 1<span>2<\/span>/);
     expect(markup).toContain('Round 2 · head 2222222 · 1 new');
     expect(markup.match(/<div hidden="">/g)).toHaveLength(2);
@@ -600,32 +577,29 @@ describe('agent task side panel', () => {
     // The panel header is replaced when a task has a pull request, so a tab registered in that
     // header's own list would vanish here. This asserts it lives in the shared top-level slot instead.
     const destinations = (markup: string) => markup.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1] ?? '';
-    const withPullRequest = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="review" discussions={discussions} utilityTabs={['discussions']}
-        pullRequests={[pullRequest(482, 'Fix preview output limit')]} {...props} />);
+    const withPullRequest = renderBody(state, {
+      panelOpen: true, panelTab: 'review', discussions, utilityTabs: ['discussions'],
+      pullRequests: [pullRequest(482, 'Fix preview output limit')],
+    });
     expect(destinations(withPullRequest)).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
     expect(destinations(withPullRequest)).toContain('aria-label="Close Discussions"');
 
-    const withoutPullRequest = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="review" discussions={discussions} utilityTabs={['discussions']} pullRequests={[]} {...props} />);
+    const withoutPullRequest = renderBody(state, { panelOpen: true, panelTab: 'review', discussions, utilityTabs: ['discussions'], pullRequests: [] });
     expect(destinations(withoutPullRequest)).toMatch(/<button[^>]*aria-pressed="false"[^>]*>[^]*?Discussions/);
 
     // Until the conversation opens it there is no tab, and no hook means none can be opened.
-    expect(renderToStaticMarkup(<AgentTaskBody state={state} panelOpen discussions={discussions} pullRequests={[]} {...props} />))
+    expect(renderBody(state, { panelOpen: true, discussions, pullRequests: [] }))
       .not.toContain('Discussions');
-    expect(renderToStaticMarkup(<AgentTaskBody state={state} panelOpen utilityTabs={['discussions']} pullRequests={[]} {...props} />))
+    expect(renderBody(state, { panelOpen: true, utilityTabs: ['discussions'], pullRequests: [] }))
       .not.toContain('Discussions');
   });
 
   it('keeps PR overview separate from the WorkBench tools', () => {
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={state}
-        panelOpen
-        pullRequests={[{ ...pullRequest(482, 'Fix preview output limit'), additions: 12, deletions: 3 }]}
-        onOpenPullRequest={() => {}}
-        {...props}
-      />);
+    const markup = renderBody(state, {
+      panelOpen: true,
+      pullRequests: [{ ...pullRequest(482, 'Fix preview output limit'), additions: 12, deletions: 3 }],
+      onOpenPullRequest: () => {},
+    });
     expect(markup).toContain('aria-label="Show or hide the side panel"');
     expect(markup).toContain('aria-label="Pull request #482"');
     // PR and WorkBench are the only top-level destinations.
@@ -657,8 +631,7 @@ describe('agent task side panel', () => {
 
   it('opens the task pull request from one chip above the composer', () => {
     const draft = [pullRequest(31105, 'Clean up nits in Delta Lake', 'open', true)];
-    const chip = (extra: object = {}) => renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={draft} {...extra} {...props} />);
+    const chip = (extra: object = {}) => renderBody(state, { pullRequests: draft, ...extra });
     // Both task composers show the state mark and number, with the title only on hover.
     const closed = chip();
     expect(closed).toMatch(/<button type="button" class="agt-pr-chip" aria-pressed="false" title="#31105 Clean up nits in Delta Lake">/);
@@ -671,7 +644,7 @@ describe('agent task side panel', () => {
     expect(chip({ panelOpen: true })).toContain('class="agt-pr-chip" aria-pressed="true"');
     expect(chip({ panelOpen: true, panelTab: 'changes' })).toContain('class="agt-pr-chip" aria-pressed="false"');
     // A branch without a pull request has nothing to open.
-    expect(renderToStaticMarkup(<AgentTaskBody state={state} {...props} />)).not.toContain('agt-pr-chip');
+    expect(renderBody(state)).not.toContain('agt-pr-chip');
     // The pill keeps its own width and ring; the dock's flex column would otherwise stretch it.
     expect(declarations('.agt-pr-chip')).toContain('align-self: flex-start');
     expect(declarations('.agt-pr-chip')).toContain('border-radius: 999px');
@@ -679,8 +652,7 @@ describe('agent task side panel', () => {
   });
 
   it('keeps the subagent list unchanged under its own tab', () => {
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="agents" utilityTabs={['agents']} pullRequests={[]} {...props} />);
+    const markup = renderBody(state, { panelOpen: true, panelTab: 'agents', utilityTabs: ['agents'], pullRequests: [] });
     expect(markup).toContain('aria-label="Subagents"');
     expect(markup).toMatch(/<button[^>]*aria-pressed="true"[^>]*>[^]*?Subagents/);
     expect(markup.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1]).toContain('aria-label="Close Subagents"');
@@ -696,8 +668,7 @@ describe('agent task side panel', () => {
   it('keeps a background pull-request failure out of the transcript and subagents', () => {
     const pullRequestError = 'Could not refresh the branch pull request.';
     for (const panel of [{ panelOpen: false }, { panelOpen: true, panelTab: 'agents' as const }]) {
-      const markup = renderToStaticMarkup(
-        <AgentTaskBody state={state} pullRequestError={pullRequestError} {...panel} {...props} />);
+      const markup = renderBody(state, { pullRequestError, ...panel });
       expect(markup).not.toContain(pullRequestError);
       expect(markup).not.toContain('class="agt-notice"');
     }
@@ -705,15 +676,12 @@ describe('agent task side panel', () => {
 
   it.each(['pr', 'files'] as const)('retains the cached pull request and task error after a failed lookup on %s', (panelTab) => {
     const pullRequestError = 'Could not refresh the branch pull request.';
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...state, notice: 'The message could not be sent.' }}
-        panelOpen panelTab={panelTab}
-        pullRequests={[pullRequest(482, 'Fix preview output limit')]}
-        pullRequestError={pullRequestError}
-        onRefreshPullRequests={() => {}}
-        {...props}
-      />);
+    const markup = renderBody({ ...state, notice: 'The message could not be sent.' }, {
+      panelOpen: true, panelTab,
+      pullRequests: [pullRequest(482, 'Fix preview output limit')],
+      pullRequestError,
+      onRefreshPullRequests: () => {},
+    });
     expect(markup).toContain('PR #482');
     expect(markup).toContain(pullRequestError);
     expect(markup).toContain('>Retry</button>');
@@ -724,13 +692,11 @@ describe('agent task side panel', () => {
 
   it.each(['pr', 'files'] as const)('does not report an empty branch when the lookup failed on %s', (panelTab) => {
     const pullRequestError = 'Could not refresh the branch pull request.';
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={state} panelOpen panelTab={panelTab} pullRequests={[]}
-        pullRequestError={pullRequestError} pullRequestLoading
-        onRefreshPullRequests={() => {}}
-        {...props}
-      />);
+    const markup = renderBody(state, {
+      panelOpen: true, panelTab, pullRequests: [],
+      pullRequestError, pullRequestLoading: true,
+      onRefreshPullRequests: () => {},
+    });
     expect(markup).toContain(pullRequestError);
     expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Retrying…<\/button>/);
     expect(markup).not.toContain('No pull request yet');
@@ -740,13 +706,11 @@ describe('agent task side panel', () => {
   });
 
   it('waits for the first pull-request lookup before reporting an empty branch', () => {
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen pullRequests={[]} pullRequestLoading {...props} />);
+    const markup = renderBody(state, { panelOpen: true, pullRequests: [], pullRequestLoading: true });
     expect(markup).toContain('Checking for a pull request…');
     expect(markup).not.toContain('No pull request yet');
     // A later lookup refreshes underneath the answer the panel already shows.
-    const rechecking = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen pullRequests={[]} pullRequestLoading pullRequestChecked {...props} />);
+    const rechecking = renderBody(state, { panelOpen: true, pullRequests: [], pullRequestLoading: true, pullRequestChecked: true });
     expect(rechecking).not.toContain('Checking for a pull request…');
     expect(rechecking).toContain('No pull request yet');
   });
@@ -756,8 +720,7 @@ describe('agent task side panel', () => {
       ...state,
       capabilities: { ...CAPABILITIES, nestedAgentActivity: false },
     };
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody state={claudeState} panelOpen panelTab="agents" utilityTabs={['agents']} pullRequests={[]} {...props} />);
+    const markup = renderBody(claudeState, { panelOpen: true, panelTab: 'agents', utilityTabs: ['agents'], pullRequests: [] });
 
     expect(markup).toContain('aria-label="Pull request"');
     expect(markup).not.toContain('Subagents');
@@ -766,22 +729,18 @@ describe('agent task side panel', () => {
   });
 
   it('reads the task pull request in the panel instead of a list that navigates away', () => {
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={state}
-        panelOpen
-        pullRequests={[pullRequest(482, 'Fix preview output limit'), pullRequest(480, 'Earlier attempt', 'merged')]}
-        onOpenPullRequest={() => {}}
-        {...props}
-      />);
+    const markup = renderBody(state, {
+      panelOpen: true,
+      pullRequests: [pullRequest(482, 'Fix preview output limit'), pullRequest(480, 'Earlier attempt', 'merged')],
+      onOpenPullRequest: () => {},
+    });
     // One pull request, the one the branch still has open, and no row that leaves the task.
     expect(markup).toContain('#482 Fix preview output limit');
     expect(markup).not.toContain('Earlier attempt');
     expect(markup).not.toContain('title="Open this pull request"');
     expect(markup).not.toContain('on this task&#x27;s branch');
     // Changes reads the same pull request's diff; findings still open on the full-width surface.
-    const changes = renderToStaticMarkup(
-      <AgentTaskBody state={state} panelOpen panelTab="files" pullRequests={[]} {...props} />);
+    const changes = renderBody(state, { panelOpen: true, panelTab: 'files', pullRequests: [] });
     expect(changes).toContain('aria-label="Changes"');
     expect(changes).toContain('this task&#x27;s branch has no pull request');
   });
@@ -801,26 +760,24 @@ describe('agent task side panel', () => {
       loading: false,
       error: null,
     };
-    const withoutDetail = renderToStaticMarkup(
-      <AgentTaskBody
-        state={state} panelOpen panelTab={panelTab} pullRequests={[pr]}
-        onAskAgent={async () => {}}
-        pullRequestChanges={changes}
-        {...props} />);
-    const withDetail = renderToStaticMarkup(
-      <AgentTaskBody
-        state={state} panelOpen panelTab={panelTab} pullRequests={[pr]}
-        onAskAgent={async () => {}}
-        pullRequestChanges={changes}
-        pullRequestDetail={{
-          detail: reviewedDetail(),
-          loading: false,
-          error: null,
-          refresh: async () => {},
-          update: () => {},
-          replace: () => {},
-        }}
-        {...props} />);
+    const withoutDetail = renderBody(state, {
+      panelOpen: true, panelTab, pullRequests: [pr],
+      onAskAgent: async () => {},
+      pullRequestChanges: changes,
+    });
+    const withDetail = renderBody(state, {
+      panelOpen: true, panelTab, pullRequests: [pr],
+      onAskAgent: async () => {},
+      pullRequestChanges: changes,
+      pullRequestDetail: {
+        detail: reviewedDetail(),
+        loading: false,
+        error: null,
+        refresh: async () => {},
+        update: () => {},
+        replace: () => {},
+      },
+    });
     // Both render the diff; only the one holding a detail can place the thread that is on it.
     expect(withoutDetail).toContain('src/Example.java');
     expect(withDetail).not.toContain('Changes source');
@@ -833,31 +790,30 @@ describe('agent task side panel', () => {
   });
 
   it('keeps commit selection available after a comparison fails', () => {
-    const markup = renderToStaticMarkup(<AgentTaskBody
-      state={state} panelOpen panelTab="files"
-      pullRequests={[pullRequest(482, 'Fix preview output limit')]}
-      pullRequestChanges={{
+    const markup = renderBody(state, {
+      panelOpen: true, panelTab: 'files',
+      pullRequests: [pullRequest(482, 'Fix preview output limit')],
+      pullRequestChanges: {
         files: [], allFiles: [], selectCommit: () => {}, loading: false, error: 'Comparison failed',
         commits: [{ sha: 'abcdef1', parentSha: 'abcdef0', message: 'Fix output', author: 'alice', authoredAt: null }],
-      }}
-      pullRequestCommitRange={{ start: 0, end: 0 }}
-      {...props} />);
+      },
+      pullRequestCommitRange: { start: 0, end: 0 },
+    });
     expect(markup).toContain('role="alert">Comparison failed');
     expect(markup).toContain('All commits');
     expect(markup).toContain('aria-label="Deselect abcdef1: Fix output"');
   });
 
   it('does not offer private code comments on a completed task', () => {
-    const markup = renderToStaticMarkup(<AgentTaskBody
-      state={{ ...state, task: { ...state.task, state: 'COMPLETED' } }}
-      onAskAgent={async () => {}}
-      panelOpen panelTab="files"
-      pullRequests={[pullRequest(482, 'Fix preview output limit')]}
-      pullRequestChanges={{ files: [{
+    const markup = renderBody({ ...state, task: { ...state.task, state: 'COMPLETED' } }, {
+      onAskAgent: async () => {},
+      panelOpen: true, panelTab: 'files',
+      pullRequests: [pullRequest(482, 'Fix preview output limit')],
+      pullRequestChanges: { files: [{
         filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 0,
         patch: '@@ -1,1 +1,2 @@\n line one\n+line two',
-      }], allFiles: [], selectCommit: () => {}, commits: [], loading: false, error: null }}
-      {...props} />);
+      }], allFiles: [], selectCommit: () => {}, commits: [], loading: false, error: null },
+    });
     expect(markup).toContain('src/Example.java');
     expect(markup).not.toContain('aria-label="Add a comment on new line 2"');
   });
@@ -877,14 +833,11 @@ describe('agent task side panel', () => {
         },
       },
     };
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={branched}
-        panelOpen
-        pullRequests={[]}
-        repository="trinodb/trino"
-        {...props}
-      />);
+    const markup = renderBody(branched, {
+      panelOpen: true,
+      pullRequests: [],
+      repository: 'trinodb/trino',
+    });
     expect(markup).toContain('No pull request yet');
     expect(markup).toContain('<code>reuse-resolved-field-index</code>');
     expect(markup).toContain('<strong>trinodb/trino</strong>');
@@ -893,25 +846,21 @@ describe('agent task side panel', () => {
 
   it('offers a re-check only while the branch has no pull request of its own', () => {
     const check = { panelOpen: true, onRefreshPullRequests: () => {} };
-    const idle = renderToStaticMarkup(<AgentTaskBody state={state} pullRequests={[]} {...check} {...props} />);
+    const idle = renderBody(state, { pullRequests: [], ...check });
     expect(idle).toMatch(/<button type="button" class="agt-nopr__check" title="[^"]*">Check again<\/button>/);
     // Without a re-check to run — a busy task, or a static render — the button says so.
-    const busy = renderToStaticMarkup(<AgentTaskBody state={state} panelOpen pullRequests={[]} {...props} />);
+    const busy = renderBody(state, { panelOpen: true, pullRequests: [] });
     expect(busy).toMatch(/class="agt-nopr__check" disabled=""/);
-    const checking = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[]} pullRequestLoading pullRequestChecked {...check} {...props} />);
+    const checking = renderBody(state, { pullRequests: [], pullRequestLoading: true, pullRequestChecked: true, ...check });
     expect(checking).toMatch(/class="agt-nopr__check" disabled=""[^>]*>Checking…<\/button>/);
     // An open pull request replaces the empty state entirely.
-    const opened = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[pullRequest(482, 'Fix preview output limit', 'open', true)]} {...check} {...props} />);
+    const opened = renderBody(state, { pullRequests: [pullRequest(482, 'Fix preview output limit', 'open', true)], ...check });
     expect(opened).not.toContain('Check again');
     // A merged one is what the task delivered, so it replaces the empty state as well.
-    const merged = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'merged')]} {...check} {...props} />);
+    const merged = renderBody(state, { pullRequests: [pullRequest(480, 'Earlier attempt', 'merged')], ...check });
     expect(merged).not.toContain('Check again');
     // A closed, unmerged one leaves the branch without one.
-    const closed = renderToStaticMarkup(
-      <AgentTaskBody state={state} pullRequests={[pullRequest(480, 'Earlier attempt', 'closed')]} {...check} {...props} />);
+    const closed = renderBody(state, { pullRequests: [pullRequest(480, 'Earlier attempt', 'closed')], ...check });
     expect(closed).toMatch(/<button type="button" class="agt-nopr__check" title="/);
   });
 
@@ -949,13 +898,7 @@ describe('agent task side panel', () => {
 describe('agent task detail', () => {
   it('offers the header title as the rename control while a short name is generated', () => {
     const provisional = { ...task('t-1', 'OPEN', 'Investigate the flaky preview'), titleSource: 'PROVISIONAL' };
-    const renamable = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: provisional }}
-        models={MODELS}
-        onRename={() => {}}
-        {...TASK_BODY_NOOPS}
-      />);
+    const renamable = renderBody({ task: provisional }, { onRename: () => {} });
     expect(renamable).toMatch(/<button[^>]*class="agt-title is-provisional"[^>]*>Investigate the flaky preview</);
     expect(renamable).toContain('while a short name is generated');
 
@@ -1136,22 +1079,17 @@ describe('agent task detail', () => {
       capabilities: CAPABILITIES,
       signInCommand: null,
     };
-    const renderAuth = (fresh: boolean, failed = authTurn) => renderToStaticMarkup(
-      <AgentTaskBody
-        state={{
-          ...initialAgentTaskState(),
-          task: task('t-1', 'OPEN', 'Authentication'),
-          turn: failed,
-          events,
-          connection: 'open',
-          capabilities: CAPABILITIES,
-        }}
-        models={MODELS}
-        provider="Codex"
-        providerStatus={ready}
-        providerStatusFresh={fresh}
-        {...TASK_BODY_NOOPS}
-      />);
+    const renderAuth = (fresh: boolean, failed = authTurn) => renderBody({
+      task: task('t-1', 'OPEN', 'Authentication'),
+      turn: failed,
+      events,
+      connection: 'open',
+      capabilities: CAPABILITIES,
+    }, {
+      provider: 'Codex',
+      providerStatus: ready,
+      providerStatusFresh: fresh,
+    });
 
     const stale = renderAuth(false);
     expect(stale).toContain('Codex sign-in required');
@@ -1173,9 +1111,9 @@ describe('agent task detail', () => {
 
   it('keeps a removed DeepSeek key task readable and blocks another turn', () => {
     const oldTask = { ...task('t-1', 'OPEN', 'Saved work'), laneId: 'deepseek-key-old' };
-    const markup = renderToStaticMarkup(<AgentTaskBody
-      state={{ ...initialAgentTaskState(), task: oldTask, events, connection: 'open', capabilities: NO_AGENT_CAPABILITIES }}
-      models={[]} provider="DeepSeek" keyRemoved onOpenSettings={() => {}} {...TASK_BODY_NOOPS} />);
+    const markup = renderBody({ task: oldTask, events, connection: 'open', capabilities: NO_AGENT_CAPABILITIES }, {
+      models: [], provider: 'DeepSeek', keyRemoved: true, onOpenSettings: () => {},
+    });
 
     expect(markup).toContain('DeepSeek key removed');
     expect(markup).toContain('Its transcript and checkout remain available');
@@ -1189,9 +1127,11 @@ describe('agent task detail', () => {
     const invalid = providerStatus('AUTHENTICATION_REQUIRED', {
       laneId: 'deepseek-key-123', diagnostic: 'DeepSeek rejected this API key', signInCommand: null,
     });
-    const markup = renderToStaticMarkup(<AgentTaskBody
-      state={{ ...initialAgentTaskState(), task: { ...task('t-1', 'OPEN', 'Key issue'), laneId: invalid.laneId }, connection: 'open', capabilities: NO_AGENT_CAPABILITIES }}
-      models={[]} provider="DeepSeek · personal" providerStatus={invalid} onOpenSettings={() => {}} {...TASK_BODY_NOOPS} />);
+    const markup = renderBody({
+      task: { ...task('t-1', 'OPEN', 'Key issue'), laneId: invalid.laneId }, connection: 'open', capabilities: NO_AGENT_CAPABILITIES,
+    }, {
+      models: [], provider: 'DeepSeek · personal', providerStatus: invalid, onOpenSettings: () => {},
+    });
 
     expect(markup).toContain('DeepSeek key needs attention');
     expect(markup).toContain('Open Models settings');
@@ -1201,16 +1141,14 @@ describe('agent task detail', () => {
   });
 
   it('offers sign-in only where a lane is unauthenticated and a terminal can be opened', () => {
-    const render = (readiness: AgentProviderReadiness, onSignIn?: () => void) => renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'Provider blocked'), connection: 'open', capabilities: CAPABILITIES }}
-        models={MODELS}
-        provider="Claude"
-        providerStatus={providerStatus(readiness)}
-        onSignInProvider={onSignIn}
-        onOpenSettings={() => {}}
-        {...TASK_BODY_NOOPS}
-      />);
+    const render = (readiness: AgentProviderReadiness, onSignIn?: () => void) => renderBody({
+      task: task('t-1', 'OPEN', 'Provider blocked'), connection: 'open', capabilities: CAPABILITIES,
+    }, {
+      provider: 'Claude',
+      providerStatus: providerStatus(readiness),
+      onSignInProvider: onSignIn,
+      onOpenSettings: () => {},
+    });
 
     const offered = render('AUTHENTICATION_REQUIRED', () => {});
     expect(offered).toContain('>Sign in<');
@@ -1231,21 +1169,16 @@ describe('agent task detail', () => {
     ['UNSUPPORTED', 'Claude is unsupported', 'Report an issue', 'Detected CLI version: 2.1.259', 'Check again'],
     ['TEMPORARILY_UNAVAILABLE', 'Claude is unavailable', 'Check again', 'provider readiness diagnostic', 'Check again'],
   ] as const)('blocks a new turn and shows the typed %s remedy', (readiness, heading, remedy, detail, checkAction) => {
-    const markup = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{
-          ...initialAgentTaskState(),
-          task: task('t-1', 'OPEN', 'Provider blocked'),
-          connection: 'open',
-          composer: 'keep this draft',
-          capabilities: CAPABILITIES,
-        }}
-        models={MODELS}
-        provider="Claude"
-        providerStatus={providerStatus(readiness)}
-        onOpenSettings={() => {}}
-        {...TASK_BODY_NOOPS}
-      />);
+    const markup = renderBody({
+      task: task('t-1', 'OPEN', 'Provider blocked'),
+      connection: 'open',
+      composer: 'keep this draft',
+      capabilities: CAPABILITIES,
+    }, {
+      provider: 'Claude',
+      providerStatus: providerStatus(readiness),
+      onOpenSettings: () => {},
+    });
 
     expect(markup).toContain(heading);
     expect(markup).toContain(remedy);
@@ -1719,13 +1652,7 @@ describe('agent task detail', () => {
     const state: AgentTaskState = {
       ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), connection: 'open', capabilities: CAPABILITIES, composer: 'Screenshot details', sending: true,
     };
-    const render = (attaching: boolean) => renderToStaticMarkup(
-      <AgentTaskBody
-        state={state}
-        attaching={attaching}
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+    const render = (attaching: boolean) => renderBody(state, { attaching });
     const loadingImage = render(true);
     expect(loadingImage).not.toMatch(/<textarea[^>]*disabled/);
     expect(loadingImage).toMatch(/aria-label="Send message"[^>]*disabled/);
@@ -1795,23 +1722,11 @@ describe('agent task detail', () => {
     expect(nextVision).toMatch(/<button[^>]*class="agt-compose__chip"(?![^>]*disabled)[^>]*title="Runs after this turn finishes"/);
 
     // A sent message shows its image once the bytes arrived, and says so when they never will.
-    const ready = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}
-        previews={{ 'attachment-1': { status: 'ready', url: 'blob:preview' } }}
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+    const ready = renderBody({ task: vision, events, connection: 'open' }, { previews: { 'attachment-1': { status: 'ready', url: 'blob:preview' } } });
     expect(ready).toContain('<img class="agt-image" src="blob:preview" alt="flow.png"');
     expect(ready).toMatch(/<button[^>]*aria-label="Preview image flow.png"/);
 
-    const gone = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: vision, events, connection: 'open' }}
-        previews={{ 'attachment-1': { status: 'unavailable' } }}
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+    const gone = renderBody({ task: vision, events, connection: 'open' }, { previews: { 'attachment-1': { status: 'unavailable' } } });
     expect(gone).toContain('flow.png · unavailable');
   });
 
@@ -1856,27 +1771,19 @@ describe('agent task detail', () => {
     // Two agents are still working, so the barrier says what Send and Complete are waiting for.
     expect(closed).toContain('2 subagents are still working — Send, queued messages, and Complete unlock when every agent and command finishes.');
 
-    const panel = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), ...state }}
-        panelOpen
-        panelTab="agents"
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+    const panel = renderBody(state, {
+      panelOpen: true,
+      panelTab: 'agents',
+    });
     expect(panel).toContain('aria-label="Subagents"');
     expect(panel).toContain('Active · 2');
     expect(panel).toContain('run the persistence tests');
 
-    const opened = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), ...state }}
-        panelOpen
-        panelTab="agents"
-        openAgent="child-1"
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+    const opened = renderBody(state, {
+      panelOpen: true,
+      panelTab: 'agents',
+      openAgent: 'child-1',
+    });
     // The child's own answer is inspectable, and getting there is a filter, not a route.
     expect(opened).toContain('aria-label="Agent: History tests"');
     expect(opened).toContain('3 tests failed');
@@ -1890,15 +1797,11 @@ describe('agent task detail', () => {
       { ...events[1], eventId: 'child-answer', source, type: 'assistant_message', payload: { messageKind: 'ANSWER', phase: 'FINAL', text: 'SUBAGENT_UI_OK: 323' } },
       { ...events[1], eventId: 'child-completed', source, type: 'lifecycle', payload: { phase: 'AGENT_COMPLETED', message: 'Agent completed' } },
     ];
-    const opened = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: task('t-1', 'OPEN', 'x'), events: childEvents, connection: 'open', capabilities: CAPABILITIES }}
-        panelOpen
-        panelTab="agents"
-        openAgent="child-answer"
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+    const opened = renderBody({ task: task('t-1', 'OPEN', 'x'), events: childEvents, connection: 'open', capabilities: CAPABILITIES }, {
+      panelOpen: true,
+      panelTab: 'agents',
+      openAgent: 'child-answer',
+    });
     expect(opened).toContain('SUBAGENT_UI_OK: 323');
     expect(opened).not.toContain('Activity expired');
     expect(opened).not.toContain('retention window');
@@ -1927,29 +1830,19 @@ describe('agent task detail', () => {
         }],
       },
     };
-    const props = {
-      models: MODELS,
-      ...TASK_BODY_NOOPS,
-    };
-    const listed = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: completed, connection: 'open', capabilities: CAPABILITIES }}
-        panelOpen
-        panelTab="agents"
-        {...props}
-      />);
+    const listed = renderBody({ task: completed, connection: 'open', capabilities: CAPABILITIES }, {
+      panelOpen: true,
+      panelTab: 'agents',
+    });
     expect(listed).toContain('Range probe');
     expect(listed).toContain('expired');
     expect(listed).toContain('Aug 20');
 
-    const opened = renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: completed, connection: 'open', capabilities: CAPABILITIES }}
-        panelOpen
-        panelTab="agents"
-        openAgent="child-gone"
-        {...props}
-      />);
+    const opened = renderBody({ task: completed, connection: 'open', capabilities: CAPABILITIES }, {
+      panelOpen: true,
+      panelTab: 'agents',
+      openAgent: 'child-gone',
+    });
     // The steps are gone; what was kept is still shown, and nothing is reconstructed.
     expect(opened).toContain('Activity expired');
     expect(opened).toContain('Result — kept');
@@ -1975,7 +1868,7 @@ describe('agent task detail', () => {
     const markup = body({ connection: 'reconnecting', lastSequence: 214 });
 
     expect(markup).toContain('agt-conn is-reconnecting');
-    // The resume point is the load-bearing part: "catching up" alone asks for faith.
+    // The resume point is the load-bearing part: 'catching up' alone asks for faith.
     expect(markup).toContain('catching up from event 214');
     expect(markup).toContain('Nothing is lost');
   });
@@ -2032,7 +1925,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
   };
 
   it('draws today as cards, busiest first, and older tasks as rows under Yesterday and Earlier this week', () => {
-    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} />);
+    const markup = renderList(rows, { now: noon });
 
     expect(markup).toMatch(/role="tab" aria-selected="true" class="agt-tab is-active">Active<span class="agt-tab__count">4</);
     expect(markup).toMatch(/role="tab" aria-selected="false" title="Completed tasks archive automatically after 7 days"[^>]*>Archived<span class="agt-tab__count">1</);
@@ -2065,7 +1958,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
   });
 
   it('shows only shelved tasks on the archived tab, with restore and no composer', () => {
-    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} initialTab="archived" />);
+    const markup = renderList(rows, { now: noon, initialTab: 'archived' });
 
     expect(section(markup, 'Older')).toContain('Explain the query planner');
     expect(markup).not.toContain('trino issue reading');
@@ -2073,7 +1966,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     expect(markup).not.toContain('aria-label="Describe a task"');
     expect(markup).not.toContain('+ New task');
 
-    const empty = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows.slice(0, 2)} loading={false} error={null} now={noon} initialTab="archived" />);
+    const empty = renderList(rows.slice(0, 2), { now: noon, initialTab: 'archived' });
     expect(empty).toContain('Nothing archived');
     expect(empty).toContain('completed tasks move here after 7 days');
   });
@@ -2085,7 +1978,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     };
     const tasks = rows.map((row) => ({ ...row, pullRequest: pullRequests[row.id] ?? null }));
     const changes = { 't-yesterday': { uncommitted: true, commits: 2 } };
-    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={tasks} loading={false} error={null} now={noon} changes={changes} />);
+    const markup = renderList(tasks, { now: noon, changes });
 
     expect(markup).toMatch(/class="agt-item-row__title">trino issue reading<\/span>.*?<span class="card-link" title="Refactor a minor issue"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31101<\/span><\/span>/);
     expect(markup).toContain('<span class="card-link" title="Fix preview output limit"><span class="card-src is-pr">');
@@ -2099,7 +1992,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
       't-yesterday': { uncommitted: false, commits: 1 },
       't-wed': { uncommitted: true, commits: 3 },
     };
-    const markup = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} changes={changes} />);
+    const markup = renderList(rows, { now: noon, changes });
     const change = (title: string) => markup.match(new RegExp(`>${title}<.*?class="agt-item-change">(.*?)</span>`))?.[1];
 
     expect(change('hello')).toBe('No changes');
@@ -2125,7 +2018,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
       cherryPickItem(execution),
       ciFixItem({ ...CI_RUN, updatedAt: at(2) }),
     ];
-    const all = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} items={items} loading={false} error={null} now={noon} />);
+    const all = renderList(rows, { items, now: noon });
 
     expect(all).toMatch(/>Active<span class="agt-tab__count">7</);
     expect(typeTab(all, 'All')).toEqual({ selected: true, count: 7, needsYou: true });
@@ -2143,26 +2036,19 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     // Only agent tasks select, archive and delete.
     expect(all.match(/aria-label="Select /g)).toHaveLength(4);
 
-    const reviews = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} items={items} loading={false} error={null} now={noon}
-      initialType="review" onOpenReviewWorkspace={() => {}} />);
+    const reviews = renderList(rows, { items, now: noon, initialType: 'review', onOpenReviewWorkspace: () => {} });
     expect(reviews.match(/class="card agt-item-card"/g)).toHaveLength(1);
     expect(reviews).toContain('title="View inside workspace"');
     expect(reviews).not.toContain('>hello<');
     expect(reviews).toContain('>+ Review a pull request</button>');
 
-    const cherryPicks = renderToStaticMarkup(<AgentTaskList {...listProps} tasks={rows} loading={false} error={null} now={noon} initialType="cherry" />);
+    const cherryPicks = renderList(rows, { now: noon, initialType: 'cherry' });
     expect(cherryPicks).toContain('No tasks of this type yet.');
     expect(cherryPicks).toContain('>+ New cherry-pick</button>');
   });
 
   it('offers Archive or Restore in the task header beside Complete', () => {
-    const render = (open: AgentTaskDto) => renderToStaticMarkup(
-      <AgentTaskBody
-        state={{ ...initialAgentTaskState(), capabilities: CAPABILITIES, task: open, connection: 'open' }}
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-        onArchive={() => {}}
-      />);
+    const render = (open: AgentTaskDto) => renderBody({ capabilities: CAPABILITIES, task: open, connection: 'open' }, { onArchive: () => {} });
 
     const active = render(task('t-1', 'OPEN', 'x'));
     expect(active).toMatch(/<button[^>]*class="agt-headbtn is-shelf"[^>]*title="Archive"[^>]*aria-label="Archive"[^>]*><svg[^]*?<\/svg><\/button>/);
@@ -2176,12 +2062,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
 
   it('offers a global pin on open and completed task details and displays the current visit action', () => {
     for (const state of ['OPEN', 'COMPLETED']) {
-      const markup = renderToStaticMarkup(<AgentTaskBody
-        state={{ ...initialAgentTaskState(), task: task('t-1', state, 'Fix upload timeout'), connection: 'open' }}
-        attentionStatus="Prompted"
-        models={MODELS}
-        {...TASK_BODY_NOOPS}
-      />);
+      const markup = renderBody({ task: task('t-1', state, 'Fix upload timeout'), connection: 'open' }, { attentionStatus: 'Prompted' });
       expect(markup).toContain('aria-label="Pin Fix upload timeout"');
       expect(markup).toContain('class="attention-visit-status" role="status">Prompted</span>');
     }

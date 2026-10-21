@@ -23,10 +23,28 @@ import { runCiAutofixScenarios } from './ciAutofixBrowser';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { runDevelopmentDeliveryScenarios } from './developmentDeliveryBrowser';
 import { automationForSubmission, LOCAL_COMMITS_ONLY } from '../developmentAutomation';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/agents.css';
 
+
+function installPullRequestBridge(bridge: ReturnType<typeof createPreviewBridge>): () => void {
+  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    ...bridge,
+    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    fetchPrDiffFiles: async (): Promise<[]> => [],
+    fetchPrDiffCommits: async (): Promise<[]> => [],
+    getUserProfile: async (): Promise<null> => null,
+    findAgentReview: async (): Promise<null> => null,
+  } });
+  return () => {
+    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
+    else Object.defineProperty(window, 'bridge', originalBridge);
+  };
+}
 
 async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
@@ -39,17 +57,14 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   flushSync(() => root.render(<Harness />));
   try {
     await settle();
-    const menu = host.querySelector('summary');
-    assert(menu !== null, 'Automation must be visible before Send is enabled');
+    const menu = element('summary', host, 'Automation must be visible before Send is enabled');
     menu.click();
     await settle();
-    const localOnly = host.querySelector<HTMLInputElement>('.is-local input');
-    assert(localOnly !== null, 'Keeping commits local must be a separate submission control');
+    const localOnly = element<HTMLInputElement>('.is-local input', host, 'Keeping commits local must be a separate submission control');
     assert(host.textContent?.includes('Keep commits local for this turn') === true, 'Local publication must explain that commits are still created');
     localOnly.click();
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
-    assert(input !== null, 'Task composer must exist');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'Task composer must exist');
     changeInput(input, 'Inspect the change locally');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('.agt-send');
@@ -97,8 +112,7 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
     const ciOption = [...host.querySelectorAll<HTMLLabelElement>('.agt-automation-option')]
       .find(label => label.textContent?.includes('Auto CI fix'))?.querySelector<HTMLInputElement>('input');
     assert(ciOption !== undefined && ciOption !== null && ciOption.checked, 'DeepSeek must start with saved Auto CI fix enabled');
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
-    assert(input !== null, 'DeepSeek task composer must exist');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'DeepSeek task composer must exist');
     changeInput(input, 'Fix failing checks');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('.agt-send');
@@ -181,8 +195,7 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
   flushSync(() => root.render(<Harness />));
   try {
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
-    assert(input !== null, 'Task composer must exist');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'Task composer must exist');
     const press = (shiftKey: boolean): void => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', shiftKey, bubbles: true, cancelable: true }));
     };
@@ -213,17 +226,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
 async function developerFeedback(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
-  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
-  Object.defineProperty(window, 'bridge', { configurable: true, value: {
-    ...bridge,
-    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    fetchPrDiffFiles: async (): Promise<[]> => [],
-    fetchPrDiffCommits: async (): Promise<[]> => [],
-    getUserProfile: async (): Promise<null> => null,
-    findAgentReview: async (): Promise<null> => null,
-  } });
+  const restoreBridge = installPullRequestBridge(bridge);
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
@@ -273,8 +276,7 @@ async function developerFeedback(): Promise<{ name: string; error?: string }[]> 
   catch (error) { return [{ name: 'Developer feedback', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     dispose();
-    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
-    else Object.defineProperty(window, 'bridge', originalBridge);
+    restoreBridge();
   }
 }
 
@@ -316,8 +318,7 @@ async function stopPreservesTask(): Promise<{ name: string; error?: string }[]> 
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'An active task must allow drafting the next message');
+    const input = element<HTMLTextAreaElement>('textarea', host, 'An active task must allow drafting the next message');
     changeInput(input, 'Continue with the smaller change');
     await settle();
     for (let attempt = 0; attempt < 2; attempt++) {
@@ -385,8 +386,7 @@ async function stopWaitingCi(): Promise<{ name: string; error?: string }[]> {
     assert(host.querySelector('.agt-state .agt-spin') === null && host.querySelector('.agt-stop-square') === null,
       'CI waiting must not show a running agent spinner or square Stop');
     assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'CI automation · Waiting for CI', 'Waiting CI needs its own automation pill');
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(input !== null, 'Waiting CI must allow drafting');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'Waiting CI must allow drafting');
     changeInput(input, 'Continue with another change');
     await settle();
     const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]');
@@ -453,8 +453,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
     await settle();
     assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'Reload and Enter must not start competing work');
     assert(host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]')?.disabled === true, 'Complete must wait for automation');
-    const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop automation"]');
-    assert(stop !== null, 'Owned task must offer Stop automation through the existing stop flow');
+    const stop = element<HTMLButtonElement>('button[aria-label="Stop automation"]', host, 'Owned task must offer Stop automation through the existing stop flow');
     stop.click();
     await settle();
     assert(document.body.textContent?.includes('keeps the task open') === true, 'Stop must explain that the task is preserved');
@@ -483,17 +482,7 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
 
 async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
-  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
-  Object.defineProperty(window, 'bridge', { configurable: true, value: {
-    ...bridge,
-    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    fetchPrDiffFiles: async (): Promise<[]> => [],
-    fetchPrDiffCommits: async (): Promise<[]> => [],
-    getUserProfile: async (): Promise<null> => null,
-    findAgentReview: async (): Promise<null> => null,
-  } });
+  const restoreBridge = installPullRequestBridge(bridge);
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null };
@@ -545,8 +534,7 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
     }
     const settled = lookups();
     assert(settled > 0, 'A settled task must look up its branch pull requests once');
-    const input = host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'Composer must exist');
+    const input = element<HTMLTextAreaElement>('textarea', host, 'Composer must exist');
     changeInput(input, 'Keep this draft');
     task = { ...task, version: task.version + 1 };
     emit('DEVELOPMENT_AUTOMATION_UPDATED');
@@ -575,8 +563,7 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
     assert(lookups() > afterTurn, 'Final automation settlement without another turn must refresh the task PR list');
     assert(input.value === 'Keep this draft', 'Lookups must preserve the composer draft');
 
-    const panel = host.querySelector<HTMLButtonElement>('[aria-label="Show or hide the side panel"]');
-    assert(panel !== null, 'The side panel toggle must exist');
+    const panel = element<HTMLButtonElement>('[aria-label="Show or hide the side panel"]', host, 'The side panel toggle must exist');
     const afterAutomation = lookups();
     for (let click = 0; click < 3; click++) {
       panel.click();
@@ -596,24 +583,13 @@ async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name
   catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     dispose();
-    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
-    else Object.defineProperty(window, 'bridge', originalBridge);
+    restoreBridge();
   }
 }
 
 async function pausedPullRequestLookup(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
-  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
-  Object.defineProperty(window, 'bridge', { configurable: true, value: {
-    ...bridge,
-    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
-    fetchPrDiffFiles: async (): Promise<[]> => [],
-    fetchPrDiffCommits: async (): Promise<[]> => [],
-    getUserProfile: async (): Promise<null> => null,
-    findAgentReview: async (): Promise<null> => null,
-  } });
+  const restoreBridge = installPullRequestBridge(bridge);
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
   const task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null };
@@ -653,8 +629,7 @@ async function pausedPullRequestLookup(): Promise<{ name: string; error?: string
   catch (error) { return [{ name: 'Paused pull request check', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     dispose();
-    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
-    else Object.defineProperty(window, 'bridge', originalBridge);
+    restoreBridge();
   }
 }
 
@@ -701,8 +676,7 @@ async function worktreeVersionRefresh(conflictAfterRefresh = false): Promise<{ n
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'The idle task must expose its composer');
+    const input = element<HTMLTextAreaElement>('textarea', host, 'The idle task must expose its composer');
     const draft = 'Keep this draft after saving\nthen explain the test result.';
     changeInput(input, draft); await settle();
     const initialReads = taskReads;

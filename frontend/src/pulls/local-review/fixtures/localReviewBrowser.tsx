@@ -31,19 +31,14 @@ import '../../../css/base.css';
 import '../../../css/markdown-editor.css';
 import '../../../css/pulls.css';
 import '../../../css/agent-review.css';
-import { reviewFixture } from '../../agent-review/fixtures/review';
+import { reviewDraftFixture, reviewFixture } from '../../agent-review/fixtures/review';
 import type { ReviewMessageDto } from '../../agent-review/contracts';
 import LocalReviewThreadCard from '../LocalReviewThreadCard';
 import { findingConversation, localReviewConversation } from '../conversation';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../types';
 import { useLocalReviewThreads, type LocalReviewBridgePort } from '../useLocalReviewThreads';
-import { assert, changeInput, settle, until } from '../../../fixtures/harness';
+import { runScenarios, textButton, element as fixtureElement, assert, changeInput, settle, until } from '../../../fixtures/harness';
 
-function button(host: HTMLElement, text: string) {
-  const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent === text);
-  assert(value !== undefined, `Missing ${text} button`);
-  return value;
-}
 function initialThread(): LocalReviewThreadDto {
   return { id: 'local-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1', repo: 'owner/repo', number: 17,
     path: 'src/Example.java', side: 'RIGHT', startLine: null, line: 2, baseSha: '1111111', headSha: '2222222',
@@ -84,13 +79,12 @@ async function replyAndResolve(): Promise<void> {
     'Private threads must retain their local tone and destination on the shared frame');
     assert(host.querySelectorAll('.lrc-message').length === 2 && host.textContent?.includes('You') === true && host.textContent?.includes('Agent') === true,
       'User and agent messages must share the local card\'s message rows');
-    button(host, 'Reply').click();
+    textButton('Reply', host).click();
     await settle();
-    let input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
-    assert(input !== null, 'Reply must open the normal inline editor');
+    let input = fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]', host, 'Reply must open the normal inline editor');
     input.focus();
     assert(getComputedStyle(input).borderTopColor === 'rgb(9, 105, 218)', 'A focused reply must draw the editor’s blue border');
-    const cancel = button(host, 'Cancel');
+    const cancel = textButton('Cancel', host);
     cancel.focus();
     assert(cancel.matches(':focus-visible') && getComputedStyle(cancel).outlineStyle === 'solid' && getComputedStyle(cancel).outlineWidth === '2px',
       'A keyboard-focused footer button must show the editor’s focus ring');
@@ -103,7 +97,7 @@ async function replyAndResolve(): Promise<void> {
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
     await settle();
     assert(host.querySelector('textarea') === null, 'Escape must close an empty reply');
-    button(host, 'Reply').click();
+    textButton('Reply', host).click();
     await settle();
     input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
     assert(input !== null, 'Reply must reopen the inline editor');
@@ -115,8 +109,8 @@ async function replyAndResolve(): Promise<void> {
     disabledReason = 'A run is using this working copy.';
     render();
     await settle();
-    const blocked = button(host, 'Reply to agent');
-    assert(blocked.disabled && blocked.title === disabledReason && !input.disabled && !button(host, 'Cancel').disabled
+    const blocked = textButton('Reply to agent', host);
+    assert(blocked.disabled && blocked.title === disabledReason && !input.disabled && !textButton('Cancel', host).disabled
       && host.querySelector('.pull-diff-review [role="status"]')?.textContent === disabledReason
       && host.querySelector('.pr-local-review__note') === null,
     'A blocked reply must keep editing available and carry its reason as a title and a visible status');
@@ -126,22 +120,22 @@ async function replyAndResolve(): Promise<void> {
     disabledReason = null;
     render();
     await settle();
-    button(host, 'Preview').click();
+    textButton('Preview', host).click();
     await settle();
-    button(host, 'Reply to agent').click();
+    textButton('Reply to agent', host).click();
     await settle();
     assert(host.querySelector('[role="alert"]')?.textContent === 'Could not save reply' && input.value === 'Please keep the validation',
       'Failed reply must retain the draft and show its error');
-    button(host, 'Reply to agent').click();
+    textButton('Reply to agent', host).click();
     await settle();
     assert(host.querySelector('textarea') === null && host.querySelectorAll('.lrc-message').length === 4,
       'Accepted reply and agent answer must appear in the same saved thread');
-    button(host, 'Resolve').click();
+    textButton('Resolve', host).click();
     await settle();
     const resolved = host.querySelector<HTMLDetailsElement>('.lrc');
     assert(resolved !== null && !resolved.open && resolved.querySelector('.lrc__resolved')?.textContent === 'Resolved', 'Resolution must fold the local card');
     resolved.querySelector('summary')?.click();
-    button(host, 'Reopen').click();
+    textButton('Reopen', host).click();
     await settle();
     assert(resolutions === 2 && host.querySelector<HTMLDetailsElement>('.lrc')?.open === true && host.querySelector('.lrc__resolved') === null,
       'The user must be able to reopen a local thread');
@@ -172,10 +166,10 @@ async function savedRetry(): Promise<void> {
   try {
     assert(host.textContent?.includes('Not sent') === true && host.querySelector('[role="alert"]')?.textContent === 'The agent is unavailable',
       'A saved unsent message must expose its delivery failure');
-    const retry = button(host, 'Retry');
+    const retry = textButton('Retry', host);
     retry.click(); retry.click();
     await settle();
-    assert(retries === 1 && button(host, 'Retrying…').disabled, 'A retry in flight must not dispatch twice');
+    assert(retries === 1 && textButton('Retrying…', host).disabled, 'A retry in flight must not dispatch twice');
     finish();
     await settle();
     assert(host.querySelectorAll('.lrc-message').length === 1 && host.textContent?.includes('queued') === true
@@ -209,8 +203,8 @@ async function pendingThreadResponse(): Promise<void> {
       setDelivery(state);
       const reason = state === 'QUEUED' ? 'Your comment is queued. You can reply when the agent finishes.'
         : 'Agent responding';
-      const reply = button(card, 'Reply');
-      const resolve = button(card, 'Resolve');
+      const reply = textButton('Reply', card);
+      const resolve = textButton('Resolve', card);
       assert(reply.disabled && reply.title === reason && resolve.disabled && resolve.title === reason
         && card.querySelector('[role="status"]')?.textContent === reason,
       `${state} feedback must explain why replying and resolving are unavailable`);
@@ -226,30 +220,29 @@ async function pendingThreadResponse(): Promise<void> {
         'The response indicator must fill the footer background and respect reduced motion');
       }
       reply.click(); resolve.click(); await settle();
-      assert(card.querySelector('textarea') === null && resolutions === 0 && !button(other, 'Reply').disabled && !button(other, 'Resolve').disabled,
+      assert(card.querySelector('textarea') === null && resolutions === 0 && !textButton('Reply', other).disabled && !textButton('Resolve', other).disabled,
         'Only the waiting discussion must block replying and resolving');
     }
     setDelivery('COMPLETED');
-    assert(!button(card, 'Resolve').disabled && card.querySelector('.pr-local-review__progress') === null,
+    assert(!textButton('Resolve', card).disabled && card.querySelector('.pr-local-review__progress') === null,
       'Completion must release resolution and remove the light sweep');
-    button(card, 'Resolve').click(); await settle();
+    textButton('Resolve', card).click(); await settle();
     assert(Number(resolutions) === 1, 'A completed response must allow resolution again');
-    button(card, 'Reply').click(); await settle();
-    const input = card.querySelector('textarea');
-    assert(input !== null, 'Completion must make replies available again');
+    textButton('Reply', card).click(); await settle();
+    const input = fixtureElement<HTMLTextAreaElement>('textarea', card, 'Completion must make replies available again');
     changeInput(input, 'Keep my follow-up draft'); await settle();
     setDelivery('RUNNING');
-    assert(input.disabled && input.value === 'Keep my follow-up draft' && button(card, 'Reply to agent').disabled
-      && button(card, 'Better words').disabled && !button(card, 'Cancel').disabled
+    assert(input.disabled && input.value === 'Keep my follow-up draft' && textButton('Reply to agent', card).disabled
+      && textButton('Better words', card).disabled && !textButton('Cancel', card).disabled
       && card.querySelector('.pr-local-review__progress[role="status"]')?.textContent === 'Agent responding'
       && card.querySelector('.pull-diff-review__status') === null,
     'A discussion becoming active must disable an already-open editor without discarding its draft');
     input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
-    button(card, 'Reply to agent').click(); await settle();
+    textButton('Reply to agent', card).click(); await settle();
     assert(replies === 0, 'Neither keyboard nor button submission may send while the agent is answering');
     for (const state of ['COMPLETED', 'FAILED', 'CANCELLED', 'INTERRUPTED', 'UNSENT', 'PAUSED', 'REMOVED', 'ABANDONED']) {
       setDelivery(state);
-      assert(!input.disabled && input.value === 'Keep my follow-up draft' && !button(card, 'Reply to agent').disabled
+      assert(!input.disabled && input.value === 'Keep my follow-up draft' && !textButton('Reply to agent', card).disabled
         && !card.querySelector('[role="status"]')?.textContent && card.querySelector('.pr-local-review__progress') === null,
       `${state} feedback must release the editor and retain its draft`);
     }
@@ -274,7 +267,7 @@ async function interruptedResend(): Promise<void> {
   try {
     assert(host.textContent?.includes('interrupted') === true && host.querySelector('[role="alert"]')?.textContent === 'Backend restarted',
       'An interrupted message must say why it got no answer');
-    button(host, 'Send again').click();
+    textButton('Send again', host).click();
     await settle();
     assert(resends === 1 && !Array.from(host.querySelectorAll('button')).some(value => value.textContent === 'Send again'),
       'A running message must not offer to send it again');
@@ -340,13 +333,12 @@ async function independentLearningCards(): Promise<void> {
     return card;
   };
   const ask = async (id: string, question: string) => {
-    button(section(id), 'Ask reviewer').click();
+    textButton('Ask reviewer', section(id)).click();
     await settle();
-    const input = section(id).querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'Each card must open its own question composer');
+    const input = fixtureElement<HTMLTextAreaElement>('textarea', section(id), 'Each card must open its own question composer');
     changeInput(input, question);
     await settle();
-    button(section(id), 'Ask reviewer').click();
+    textButton('Ask reviewer', section(id)).click();
     await settle();
   };
   render();
@@ -400,13 +392,12 @@ async function reviewOwnedLocalDiscussion(): Promise<void> {
   try {
     await settle();
     saved = { ...saved, taskVersion: 9 };
-    button(host, 'Reply').click();
+    textButton('Reply', host).click();
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'Review-owned discussions must allow private replies');
+    const input = fixtureElement<HTMLTextAreaElement>('textarea', host, 'Review-owned discussions must allow private replies');
     changeInput(input, 'Explain this code without changing it');
     await settle();
-    button(host, 'Reply to agent').click();
+    textButton('Reply to agent', host).click();
     await settle();
     assert(replies === 1 && host.querySelector('[role="alert"]') === null && host.textContent?.includes('Explain this code without changing it') === true,
       'Review-owned tasks must accept local replies without the interactive task endpoint');
@@ -510,15 +501,14 @@ async function developmentLearningRefresh(): Promise<void> {
     await settle();
     assert(visible() === commitId && outline[1].getAttribute('aria-current') === 'true',
       'Picking a commit in the outline must show only that commit and its card');
-    button(card(commitId), 'Ask agent').click();
+    textButton('Ask agent', card(commitId)).click();
     await settle();
-    const blockedInput = card(commitId).querySelector<HTMLTextAreaElement>('textarea');
-    assert(blockedInput !== null, 'Each implementation card must open a question editor');
+    const blockedInput = fixtureElement<HTMLTextAreaElement>('textarea', card(commitId), 'Each implementation card must open a question editor');
     learningDisabled = 'The agent is reconnecting.';
     render();
     await settle();
-    const blockedAsk = button(card(commitId), 'Ask agent');
-    assert(!blockedInput.disabled && !button(card(commitId), 'Cancel').disabled && blockedAsk.disabled && blockedAsk.title === learningDisabled
+    const blockedAsk = textButton('Ask agent', card(commitId));
+    assert(!blockedInput.disabled && !textButton('Cancel', card(commitId)).disabled && blockedAsk.disabled && blockedAsk.title === learningDisabled
       && card(commitId).querySelector('[role="status"]')?.textContent === learningDisabled,
     'A blocked question must keep editing and Cancel available and carry its reason as a title and a visible status');
     blockedInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
@@ -527,13 +517,12 @@ async function developmentLearningRefresh(): Promise<void> {
     learningDisabled = null;
     render();
     await settle();
-    button(card(commitId), 'Ask agent').click();
+    textButton('Ask agent', card(commitId)).click();
     await settle();
-    const input = card(commitId).querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'Each implementation card must allow a scoped question');
+    const input = fixtureElement<HTMLTextAreaElement>('textarea', card(commitId), 'Each implementation card must allow a scoped question');
     changeInput(input, 'Why capture the snapshot before writing?');
     await settle();
-    button(card(commitId), 'Ask agent').click();
+    textButton('Ask agent', card(commitId)).click();
     await settle();
     const discussion = host.querySelector<HTMLElement>('[data-local-review-thread]');
     assert(questions === 1 && discussion?.querySelectorAll('.lrc-message').length === 3
@@ -605,13 +594,13 @@ async function sharedReviewEditor(): Promise<void> {
       assert(editor.scrollWidth <= editor.clientWidth + 1, 'The editor and wrapped toolbar must fit a narrow card');
       assert(editor.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
         && editor.textContent?.includes('Private — only you and the agent') === false, 'Private questions must show a disabled Private label in the editor bar');
-      const previewTab = button(editor, 'Preview');
+      const previewTab = textButton('Preview', editor);
       previewTab.scrollIntoView({ block: 'center' });
       const previewBounds = previewTab.getBoundingClientRect();
       assert([previewBounds.left + 2, previewBounds.left + previewBounds.width / 2, previewBounds.right - 2]
         .every(x => document.elementFromPoint(x, previewBounds.top + previewBounds.height / 2) === previewTab),
       `The private label must not cover the Preview tab at ${width}px`);
-      const privateBounds = button(editor, 'Private').getBoundingClientRect();
+      const privateBounds = textButton('Private', editor).getBoundingClientRect();
       const editorBounds = editor.getBoundingClientRect();
       assert(width === 240 || Math.abs(privateBounds.left + privateBounds.width / 2 - editorBounds.left - editorBounds.width / 2) < 1
         && previewBounds.right <= privateBounds.left,
@@ -622,21 +611,21 @@ async function sharedReviewEditor(): Promise<void> {
       editor.querySelector<HTMLButtonElement>('[aria-label="Bold"]')?.click();
       await settle();
       assert(input.value === 'Review this **snapshot**', 'The shared toolbar must format the selected text');
-      button(editor, 'Preview').click(); await settle();
+      textButton('Preview', editor).click(); await settle();
       assert(input.hidden && editor.querySelector('.markdown-body strong')?.textContent === 'snapshot', 'Preview must render Markdown while retaining the editor');
-      button(editor, 'Write').click(); await settle();
+      textButton('Write', editor).click(); await settle();
       assert(!input.hidden && document.activeElement === input && input.value === 'Review this **snapshot**', 'Write must restore the same focused text input');
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       assert(submissions.length === 1 && !submissions[0].outgoing && cancellations === 1, 'Keyboard submit and cancel must retain their private callbacks');
       render(true); await settle();
-      assert(input.disabled && button(editor, 'Cancel').disabled && button(editor, 'Ask agent').disabled
+      assert(input.disabled && textButton('Cancel', editor).disabled && textButton('Ask agent', editor).disabled
         && editor.querySelector<HTMLButtonElement>('[aria-label="Bold"]')?.disabled === true,
       'A busy request must disable editing and duplicate actions like the diff editor');
       render(false, true); await settle();
       const suggestion = '```suggestion\nnew value\n```';
       changeInput(input, suggestion); await settle();
-      button(editor, 'Preview').click(); await settle();
+      textButton('Preview', editor).click(); await settle();
       const preview = editor.querySelector('.pull-diff-review__preview');
       assert(preview?.querySelectorAll('.md-suggestion__row.is-del').length === 2
         && preview.querySelector('.md-suggestion__number')?.textContent === '12', 'Outgoing preview must preserve the exact two-line suggestion base');
@@ -647,7 +636,7 @@ async function sharedReviewEditor(): Promise<void> {
       assert(notice !== null && actions !== null && editor.lastElementChild === notice
         && notice.getBoundingClientRect().top >= actions.getBoundingClientRect().bottom,
       'The outgoing notice must be at the bottom below the buttons at every card width');
-      button(editor, 'Post now').click();
+      textButton('Post now', editor).click();
       assert(Number(submissions.length) === 2 && submissions[1].outgoing && submissions[1].body === suggestion,
         'Only an explicit outgoing action may pass the original suggestion fence to its callback');
     }
@@ -722,11 +711,10 @@ async function pendingReviewerQuestion(): Promise<void> {
     };
     try {
       flushSync(() => root.render(<Surface />));
-      button(host, 'Ask reviewer').click(); await settle();
-      const input = host.querySelector('textarea');
-      assert(input !== null, 'The question editor must open');
+      textButton('Ask reviewer', host).click(); await settle();
+      const input = fixtureElement<HTMLTextAreaElement>('textarea', host, 'The question editor must open');
       changeInput(input, draft); await settle();
-      const submit = button(host.querySelector('.agr-composer') as HTMLElement, 'Ask reviewer');
+      const submit = textButton('Ask reviewer', host.querySelector('.agr-composer') as HTMLElement);
       submit.click(); submit.click(); await settle();
       assert(requests.length === 1, 'Repeated clicks must not send a question twice');
       assert(host.querySelector('textarea') === null && host.querySelector('[role="status"]')?.textContent === 'Sending…',
@@ -744,7 +732,7 @@ async function pendingReviewerQuestion(): Promise<void> {
       requests[1].resolve(); await settle();
       assert(host.querySelector('.agr-composer, [role="status"], [role="alert"]') === null,
         'Success must close the editor and remove the sending status and error');
-      button(host, 'Ask reviewer').click(); await settle();
+      textButton('Ask reviewer', host).click(); await settle();
       assert(host.querySelector('textarea')?.value === '', 'The next question must start with an empty draft');
     }
     finally { dispose(); }
@@ -794,14 +782,14 @@ async function pendingFindingResponse(): Promise<void> {
       for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED']) {
         setResponse(state);
         for (const label of actionLabels) {
-          assert(button(card, label).disabled && !button(unrelated, label).disabled,
+          assert(textButton(label, card).disabled && !textButton(label, unrelated).disabled,
             `Only the finding with a pending response must block ${label}`);
-          button(card, label).click();
+          textButton(label, card).click();
         }
         await settle();
         assert(card.querySelector('textarea') === null && writes === 0 && navigations === 0,
           'Blocked controls must not open an editor, perform a mutation or navigate');
-        assert(getComputedStyle(button(card, 'Post comment now')).color === getComputedStyle(button(card, 'Resolve')).color,
+        assert(getComputedStyle(textButton('Post comment now', card)).color === getComputedStyle(textButton('Resolve', card)).color,
           'The primary publish action must also look disabled');
         const progress = card.querySelector<HTMLElement>('.pr-local-review__progress');
         assert((progress !== null) === (state !== 'QUEUED') && unrelated.querySelector('.pr-local-review__progress') === null,
@@ -818,45 +806,45 @@ async function pendingFindingResponse(): Promise<void> {
       }
       for (const state of ['COMPLETED', 'FAILED', 'CANCELLED', null]) {
         setResponse(state);
-        assert(actionLabels.every(label => !button(card, label).disabled) && card.querySelector('.pr-local-review__progress') === null,
+        assert(actionLabels.every(label => !textButton(label, card).disabled) && card.querySelector('.pr-local-review__progress') === null,
           'Ending the response must release the finding controls and remove the glow');
       }
       const checkPendingEditor = async (openLabel: string, submitLabel: string) => {
-        button(card, openLabel).click(); await settle();
+        textButton(openLabel, card).click(); await settle();
         const input = card.querySelector('textarea');
         assert(input !== null, `An idle finding must still allow ${openLabel}`);
         changeInput(input, 'Keep my draft'); await settle();
         setResponse('RUNNING');
         const pendingLabel = openLabel === 'Ask reviewer' ? 'Queue question' : submitLabel;
-        assert(button(card, pendingLabel).disabled && !button(card, 'Cancel').disabled && input.value === 'Keep my draft',
+        assert(textButton(pendingLabel, card).disabled && !textButton('Cancel', card).disabled && input.value === 'Keep my draft',
           `An already-open ${openLabel} editor must retain its draft while a response blocks submission`);
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
-        button(card, pendingLabel).click(); await settle();
+        textButton(pendingLabel, card).click(); await settle();
         assert(writes === 0, `Neither keyboard nor button submission may ${submitLabel} while the reviewer is answering`);
         setResponse(null);
-        assert(!button(card, submitLabel).disabled && input.value === 'Keep my draft', 'Completion must restore the retained draft');
-        button(card, 'Cancel').click(); await settle();
+        assert(!textButton(submitLabel, card).disabled && input.value === 'Keep my draft', 'Completion must restore the retained draft');
+        textButton('Cancel', card).click(); await settle();
       };
       for (const [openLabel, submitLabel] of [['Ask reviewer', 'Ask reviewer'], ['Resolve', 'Resolve locally'],
         ['Post comment now', 'Post now'], ...(projection === 'review' ? [['Request fix', 'Send to developer']] : [])]) {
         await checkPendingEditor(openLabel, submitLabel);
       }
-      review = { ...review, draft: { repo: review.repo, number: review.number, body: '', event: 'COMMENT', reviewPublication: null,
-        postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING',
+      review = { ...review, draft: reviewDraftFixture({ repo: review.repo, number: review.number,
+        updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING',
           findingId: finding.id, findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine,
-          startLine: finding.startLine, commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] } };
+          startLine: finding.startLine, commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] }) };
       setResponse('RUNNING');
-      assert(button(card, 'Edit').disabled && button(card, 'Remove').disabled, 'Saved draft actions must also wait for the response');
-      button(card, 'Edit').click(); button(card, 'Remove').click(); await settle();
+      assert(textButton('Edit', card).disabled && textButton('Remove', card).disabled, 'Saved draft actions must also wait for the response');
+      textButton('Edit', card).click(); textButton('Remove', card).click(); await settle();
       assert(writes === 0 && card.querySelector('textarea') === null, 'A pending response must block draft editing and removal');
       setResponse(null);
-      assert(!button(card, 'Remove').disabled, 'Completion must release draft removal');
+      assert(!textButton('Remove', card).disabled, 'Completion must release draft removal');
       await checkPendingEditor('Edit', 'Save');
       review = { ...review, findings: [{ ...finding, state: 'RESOLVED' }, other] };
       setResponse('RUNNING');
-      assert(button(card, 'Reopen').disabled, 'Reopening must also wait for the finding’s response');
+      assert(textButton('Reopen', card).disabled, 'Reopening must also wait for the finding’s response');
       setResponse(null);
-      assert(!button(card, 'Reopen').disabled, 'Reopening must become available when the response ends');
+      assert(!textButton('Reopen', card).disabled, 'Reopening must become available when the response ends');
     }
     finally {
       dispose();
@@ -869,10 +857,10 @@ async function editFindingInPlace(): Promise<void> {
   for (const projection of ['review', 'changes'] as const) {
     let review = reviewFixture({ messages: [] });
     const finding = review.findings[0];
-    review = { ...review, draft: { repo: review.repo, number: review.number, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1,
+    review = { ...review, draft: reviewDraftFixture({ repo: review.repo, number: review.number,
       updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING', findingId: finding.id,
         findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
-        commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] } };
+        commitId: finding.validatedHeadSha, body: 'My saved comment', included: true, published: false, publication: null }] }) };
     const { host, root, dispose } = createFixtureRoot();
     let saves = 0;
     const render = () => flushSync(() => root.render(<ReviewFindingCard review={review} finding={finding} projection={projection}
@@ -888,24 +876,24 @@ async function editFindingInPlace(): Promise<void> {
       render();
       const location = host.querySelector('.agr-draft')?.parentElement;
       assert(location !== null && location !== undefined, 'The outgoing comment must be visible');
-      button(host, 'Edit').click(); await settle();
+      textButton('Edit', host).click(); await settle();
       const input = location.querySelector<HTMLTextAreaElement>('[aria-label="Outgoing comment text"]');
       assert(input?.value === 'My saved comment' && document.activeElement === input,
         'Edit must open and focus the saved text in the outgoing comment location');
       assert(host.querySelector('.agr-draft, .lrc__foot') === null && host.querySelectorAll('textarea').length === 1,
         'The editor must replace the outgoing box without adding a second editor below');
       changeInput(input, 'Discard this edit'); await settle();
-      button(host, 'Cancel').click(); await settle();
+      textButton('Cancel', host).click(); await settle();
       assert(location.querySelector('.agr-draft__body')?.textContent === 'My saved comment' && saves === 0 && host.querySelector('textarea') === null,
         'Cancel must restore the saved comment in the same location');
-      button(host, 'Edit').click(); await settle();
+      textButton('Edit', host).click(); await settle();
       const reopened = location.querySelector('textarea');
       assert(reopened?.value === 'My saved comment', 'Reopening must discard canceled changes');
       changeInput(reopened, 'My edited comment'); await settle();
-      button(host, 'Save').click(); await settle();
+      textButton('Save', host).click(); await settle();
       assert(location.querySelector('textarea')?.value === 'My edited comment' && location.querySelector('[role="alert"]')?.textContent === 'Could not save the edit',
         'Failed saves must retain the inline editor and show its error beside it');
-      button(host, 'Save').click(); await settle();
+      textButton('Save', host).click(); await settle();
       assert(location.querySelector('.agr-draft__body')?.textContent === 'My edited comment' && host.querySelector('textarea, [role="alert"]') === null,
         'Save must restore the updated outgoing comment in place');
       assert(review.findings[0] === finding, 'Editing outgoing text must leave the agent finding unchanged');
@@ -930,8 +918,7 @@ async function copyConversations(): Promise<void> {
   const thread = { ...initialThread(), resolved: true };
   const noMutation = async () => { throw new Error('Copy must not send, resolve or publish'); };
   const clickCopy = () => {
-    const control = host.querySelector<HTMLButtonElement>('.pr-copy-button');
-    assert(control !== null, 'The card header must offer Copy conversation');
+    const control = fixtureElement<HTMLButtonElement>('.pr-copy-button', host, 'The card header must offer Copy conversation');
     control.click();
   };
   try {
@@ -1032,13 +1019,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Outgoing finding comments edit in place in Summary and Changes', editFindingInPlace],
     ['Copy retains full private conversations and reports clipboard failures', copyConversations],
   ];
-  const results: { name: string; error?: string }[] = [];
   try {
-    for (const [name, scenario] of cases) {
-      try { await scenario(); results.push({ name }); }
-      catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-    }
+    return await runScenarios(cases);
   }
   finally { Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
-  return results;
 }

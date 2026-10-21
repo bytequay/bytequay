@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 
-import type { PullRequestDetailDto, PullRequestDto } from '../../types';
+import type { PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../../types';
+import { EMPTY_TIMELINE_PAYLOAD } from '../model';
 
 /** A pull request at rest; a test sets only the fields its case turns on. */
 export function pr(overrides: Partial<PullRequestDto>): PullRequestDto {
@@ -79,6 +80,39 @@ export function prDetail(overrides: Partial<PullRequestDetailDto>): PullRequestD
     checkRuns: [],
     unavailableSections: [],
     viewerCanWrite: true,
+    ...overrides,
+  };
+}
+
+type TimelineActivity = PullRequestDetailDto['recentActivity'][number];
+
+export function timelineActivity(
+  overrides: Partial<Omit<TimelineActivity, 'payload'>> = {},
+  payload: Partial<PullTimelinePayloadDto> = {},
+): TimelineActivity {
+  return {
+    actor: 'bob',
+    eventType: 'review_thread',
+    timestamp: '2026-08-20T09:35:00Z',
+    body: null,
+    githubId: 4,
+    ...overrides,
+    payload: { ...EMPTY_TIMELINE_PAYLOAD, reactions: [], comments: [], ...payload },
+  };
+}
+
+export function timelineComment(overrides: Partial<PullTimelineCommentDto> = {}): PullTimelineCommentDto {
+  return {
+    githubId: 99,
+    actor: 'bob',
+    actorAvatarUrl: null,
+    actorBot: false,
+    timestamp: '2026-08-20T09:35:00Z',
+    body: 'Please update this.',
+    htmlUrl: null,
+    reviewId: 9,
+    inReplyToId: null,
+    reactions: [],
     ...overrides,
   };
 }

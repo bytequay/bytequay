@@ -22,7 +22,7 @@ import { jiraAttentionItem } from '../../jira/attention';
 import type { JiraRelatedIssue } from '../../jira/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 import { epicIdentity, type EpicItem } from '../epics';
 import '../../css/base.css';
 import '../../css/window-drag.css';
@@ -51,11 +51,7 @@ const work = (id: string, epicId: string, state: WorkItemDto['state']): WorkItem
   updatedAt: '2026-10-01T08:00:00Z', priority: 'NORMAL', blockedBy: [], epicId, epicRank: 0 });
 const ICEBERG_WORK = ['DONE', 'WORKING', 'PLANNED', 'DROPPED'].map((state, index) => work(`iceberg-${index}`, 'ISSUE:github.com:24918', state as WorkItemDto['state']));
 
-function element<T extends HTMLElement = HTMLElement>(selector: string): T {
-  const found = document.querySelector<T>(selector);
-  assert(found !== null, `Missing ${selector}`);
-  return found;
-}
+
 async function mouse(type: string, x: number, y: number): Promise<void> {
   await window.epicInput({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1 });
   await settle();

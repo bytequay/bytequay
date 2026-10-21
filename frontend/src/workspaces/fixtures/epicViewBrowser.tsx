@@ -19,7 +19,7 @@ import { useUnmarkEpic } from '../useUnmarkEpic';
 import type { CreateWorkItem, EpicChildDto, EpicRecordDto, WorkItemDecision, WorkItemDto, GoalItemDto } from '../../workitems/contracts';
 import { issueAttentionItem } from '../../home/attention';
 import type { Bridge } from '../../types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element, button as findButton } from '../../fixtures/harness';
 import '../../css/base.css';
 
 const NOW = '2026-10-01T08:00:00Z';
@@ -35,16 +35,8 @@ const CANDIDATE = link('ISSUE', 'trinodb/trino#24977', '#24977', 'IDLE', 'Open')
 const child = (number: number, title: string, status: string): EpicChildDto => ({
   identity: `ISSUE:github.com:${number}`, kind: 'ISSUE', key: `trinodb/trino#${number}`, label: `#${number}`, title, status, closed: status === 'Closed', url: null });
 
-function element<T extends HTMLElement = HTMLElement>(selector: string, root: ParentNode = document): T {
-  const found = root.querySelector<T>(selector);
-  assert(found !== null, `Missing ${selector}`);
-  return found;
-}
-function button(label: string): HTMLButtonElement {
-  const found = [...document.querySelectorAll('button')].find(value => value.getAttribute('aria-label') === label || value.textContent?.trim() === label);
-  assert(found !== undefined, `Missing button ${label}`);
-  return found;
-}
+
+const button = (label: string) => findButton(label, document, `Missing button ${label}`);
 function rows(): HTMLElement[] {
   return [...document.querySelectorAll<HTMLElement>('.epic-view > .item-list .epic-row')];
 }

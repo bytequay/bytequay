@@ -15,7 +15,7 @@
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { flushSync } from 'react-dom';
 import type { Bridge, PullRequestConflictsDto } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
+import { element as fixtureElement, assert, settle } from '../../fixtures/harness';
 import PullRequestConflictFiles from '../PullRequestConflictFiles';
 import '../../css/base.css';
 import '../../css/pulls.css';
@@ -37,8 +37,7 @@ export async function run(): Promise<string> {
   const reply = (files: string[]): PullRequestConflictsDto => ({ baseRef: 'release/next', files });
   const paths = () => [...host.querySelectorAll('li code')].map(node => node.textContent);
   const button = () => {
-    const value = host.querySelector<HTMLButtonElement>('button');
-    assert(value !== null, 'Refresh files button exists');
+    const value = fixtureElement<HTMLButtonElement>('button', host, 'Refresh files button exists');
     return value;
   };
   try {

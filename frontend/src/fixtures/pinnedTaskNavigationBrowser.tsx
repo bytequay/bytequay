@@ -18,7 +18,7 @@ import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { setPinned } from '../home/pinned';
 import type { Bridge, WorkspaceDto } from '../types';
 import { workspaceFixture } from '../workspaces/fixtures/workspace';
-import { assert, until } from './harness';
+import { assert, until, element } from './harness';
 import '../css/base.css';
 
 const taskLayer = () => document.querySelector<HTMLElement>('[role="dialog"][aria-label="Task"]');
@@ -69,8 +69,7 @@ export async function run(): Promise<{ name: string }[]> {
   const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
   const openPin = (label: string): void => {
-    const button = document.querySelector<HTMLButtonElement>(`[aria-label="Pinned navigation"] button[aria-label="${label}"]`);
-    assert(button !== null, `Saved pin is visible: ${label}`);
+    const button = element<HTMLButtonElement>(`[aria-label="Pinned navigation"] button[aria-label="${label}"]`, document, `Saved pin is visible: ${label}`);
     button.click();
   };
   const closeTask = (): void => {

@@ -14,7 +14,7 @@
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import '../../index.css';
-import { changeInput } from '../../fixtures/harness';
+import { changeInput, element, runScenarios } from '../../fixtures/harness';
 import type { WorkItemDto } from '../../workitems/contracts';
 import type { ReviewDraftDto } from '../../pulls/agent-review/contracts';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
@@ -160,8 +160,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
 }
 
 function type(host: HTMLElement, text: string): HTMLTextAreaElement {
-  const input = host.querySelector<HTMLTextAreaElement>('.assistant-float textarea');
-  assert(input !== null, 'The composer must show');
+  const input = element<HTMLTextAreaElement>('.assistant-float textarea', host, 'The composer must show');
   changeInput(input, text);
   return input;
 }
@@ -208,8 +207,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     await settle();
     enter(type(view.host, 'What should I look at first?'));
     await settle();
-    const talk = view.host.querySelector<HTMLElement>('.assistant-talk');
-    assert(talk !== null, 'Sending shows the conversation');
+    const talk = element<HTMLElement>('.assistant-talk', view.host, 'Sending shows the conversation');
     const order = [...talk.querySelectorAll('.agt-user, .assistant-reply, .assistant-receipt')].map(node => node.className);
     assert(JSON.stringify(order) === JSON.stringify(['agt-user', 'assistant-reply', 'assistant-receipt', 'assistant-receipt is-refused']), `The day in order: ${JSON.stringify(order)}`);
     const refusal = talk.querySelector<HTMLElement>('.assistant-receipt.is-refused');
@@ -247,8 +245,7 @@ async function answersWithTheTasksButtons(): Promise<void> {
   const view = mount();
   try {
     await settle();
-    const allow = view.host.querySelector<HTMLButtonElement>('.assistant-card button[aria-label="Allow once: Run the focused Maven test"]');
-    assert(allow !== null, 'The approval shows the task’s own buttons');
+    const allow = element<HTMLButtonElement>('.assistant-card button[aria-label="Allow once: Run the focused Maven test"]', view.host, 'The approval shows the task’s own buttons');
     allow.click();
     await settle();
     assert(JSON.stringify(view.calls.resolved) === JSON.stringify([['a1', 'ALLOW', null, null]]), `Allow once reaches the task: ${JSON.stringify(view.calls.resolved)}`);
@@ -309,8 +306,7 @@ async function movesWithTheKeyboard(): Promise<void> {
     assert(top(view.host)?.textContent?.includes('Expose snapshot id in metadata') === true, 'The newest card leads All');
     assert(view.host.querySelectorAll('.assistant-peek').length === 2 && view.host.querySelector('.assistant-more')?.textContent === '3 more· View all',
       `At most three cards show: ${view.host.querySelector('.assistant-more')?.textContent}`);
-    const input = view.host.querySelector<HTMLTextAreaElement>('.assistant-float textarea');
-    assert(input !== null, 'The composer shows');
+    const input = element<HTMLTextAreaElement>('.assistant-float textarea', view.host, 'The composer shows');
     await key(input, 'Tab');
     assert(document.activeElement?.textContent === 'All6', 'Tab from the composer lands on the selected pill');
     await key(document.activeElement, 'Tab');
@@ -383,8 +379,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     await settle();
     enter(type(view.host, 'What is waiting on me?'));
     await settle();
-    const list = view.host.querySelector<HTMLElement>('.assistant-talk .assistant-items');
-    assert(list !== null, 'The list shows in the conversation');
+    const list = element<HTMLElement>('.assistant-talk .assistant-items', view.host, 'The list shows in the conversation');
     assert(list.querySelector('.assistant-items__title')?.textContent === 'Waiting on you' && list.querySelector('.assistant-items__count')?.textContent === '6',
       'Its header names it and counts what ByteQuay still holds');
     const switches = [...list.querySelectorAll<HTMLButtonElement>('.assistant-items__head .card-iconbtn')];
@@ -784,19 +779,14 @@ async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  for (const [name, scenario] of [['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
+  return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
     ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady],
-    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff]] as const) {
-    try { await scenario(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  }
-  return results;
+    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff]]);
 }
 
 const receiptsView = (): AssistantViewDto => {

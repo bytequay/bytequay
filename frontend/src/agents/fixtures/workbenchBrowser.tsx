@@ -31,7 +31,7 @@ import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBrid
 import type { TaskDiscussionDto } from '../discussions/contracts';
 import type { AgentTaskDto, Bridge } from '../../types';
 import type { CodeHostRef, WorktreeChangesDto, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 
 export async function run(keepMounted = false, showChanges = false, zoomChanges = false): Promise<string> {
@@ -105,8 +105,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     assert(host.textContent?.includes('Review changes') === true, 'Local tasks must offer a separate reviewer before creating a PR');
     const summary = host.querySelector('.agr-development-learning');
     click('Changes'); await settle();
-    const picker = host.querySelector<HTMLSelectElement>('[aria-label="Change scope or commit"]');
-    assert(picker !== null, 'Local Changes must load without PR details');
+    const picker = element<HTMLSelectElement>('[aria-label="Change scope or commit"]', host, 'Local Changes must load without PR details');
     assert(host.querySelector('[aria-label="Changes source"]') === null && picker.closest('.pull-detail__header') !== null,
       'Local Changes must keep its scope control in the header without a source selector');
     assert(host.querySelectorAll('.pull-changes__toolbar').length === 1, 'Changes must have exactly one toolbar');
@@ -132,8 +131,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     click('Changes'); await settle();
     assert(host.querySelector<HTMLSelectElement>('[aria-label="Change scope or commit"]')?.value === 'commit:commit123', 'Returning to Changes must retain the selected commit');
     assert(requests.every(item => item.host.kind === 'task' && item.host.taskId === task.id), 'Local exploration must stay on the development worktree');
-    const divider = host.querySelector<HTMLElement>('[aria-label="Resize side panel"]');
-    assert(divider !== null, 'Task WorkBench must retain its resizable panel');
+    const divider = element<HTMLElement>('[aria-label="Resize side panel"]', host, 'Task WorkBench must retain its resizable panel');
     const start = divider.getBoundingClientRect().left;
     divider.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: start }));
     window.dispatchEvent(new MouseEvent('mousemove', { clientX: start + 500 }));

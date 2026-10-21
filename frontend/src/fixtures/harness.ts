@@ -48,3 +48,37 @@ export function changeInput(input: HTMLTextAreaElement | HTMLInputElement, value
   Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }
+
+export function element<T extends Element = HTMLElement>(selector: string, root: ParentNode = document, message = `Missing ${selector}`): T {
+  const found = root.querySelector<T>(selector);
+  assert(found !== null, message);
+  return found;
+}
+
+export function button(label: string, root: ParentNode = document, message = `Missing button: ${label}`): HTMLButtonElement {
+  const found = [...root.querySelectorAll<HTMLButtonElement>('button')]
+    .find(candidate => candidate.textContent?.trim() === label || candidate.getAttribute('aria-label') === label);
+  assert(found !== undefined, message);
+  return found;
+}
+
+export function textButton(label: string, root: ParentNode = document, message = `Missing ${label} button`): HTMLButtonElement {
+  const found = [...root.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent === label);
+  assert(found !== undefined, message);
+  return found;
+}
+
+/** Runs in order and records each failure without preventing the next scenario from exercising its own setup. */
+export async function runScenarios(
+  scenarios: readonly (readonly [string, () => unknown])[],
+  afterEach?: () => void | Promise<void>,
+): Promise<{ name: string; error?: string }[]> {
+  const results: { name: string; error?: string }[] = [];
+  for (const [name, run] of scenarios) {
+    try { await run(); results.push({ name }); }
+    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    const cleanup = afterEach?.();
+    if (cleanup) await cleanup;
+  }
+  return results;
+}

@@ -21,7 +21,7 @@ import type { AgentQueuedInputDto, AgentStreamMessage, AgentTaskDto, AgentTurnDt
 import { remotePullRequest } from '../PullsScreen';
 import type { CreateLocalReviewRequest } from '../local-review/contracts';
 import type { LocalReviewMessageDto, LocalReviewThreadDto } from '../local-review/types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { runScenarios, element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 
 function button(host: HTMLElement, text: string): HTMLButtonElement {
   const result = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.textContent?.trim() === text);
@@ -212,8 +212,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
   const render = () => flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     render(); await settle();
-    const composer = host.querySelector<HTMLTextAreaElement>('[aria-label="Message the agent"]');
-    assert(composer !== null, 'Live task must load its normal composer');
+    const composer = fixtureElement<HTMLTextAreaElement>('[aria-label="Message the agent"]', host, 'Live task must load its normal composer');
     changeInput(composer, 'Keep my unrelated draft'); await settle();
     const attach = host.querySelector<HTMLButtonElement>('[aria-label="Attach an image"]');
     assert(attach !== null && !attach.disabled, 'Fixture must exercise a retained image attachment');
@@ -229,11 +228,9 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       && !host.querySelector('.agt-panel .pull-diff-file')?.textContent?.includes('Unpublished development edit'),
     'Linked Changes must read the published PR without a source selector or another worktree read');
     if (mode === 'published') {
-      const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
-      assert(add !== null, 'The default Changes view must offer the inline comment gutter');
+      const add = fixtureElement<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]', host, 'The default Changes view must offer the inline comment gutter');
       add.click(); await settle();
-      const inline = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-      assert(inline !== null, 'Clicking a published line must open its review composer');
+      const inline = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'Clicking a published line must open its review composer');
       changeInput(inline, 'Please cover this implementation with a test'); await settle();
       const post = button(host, 'Post now');
       assert(!post.disabled && githubWrites === 0, 'A published line must allow posting without writing before the explicit action');
@@ -259,8 +256,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
         'A development summary commit must navigate directly to that published commit');
     }
     else {
-      const choice = host.querySelector<HTMLInputElement>('[aria-label="Select 2222222: Second"]');
-      assert(choice !== null, 'Task must show its real commit picker');
+      const choice = fixtureElement<HTMLInputElement>('[aria-label="Select 2222222: Second"]', host, 'Task must show its real commit picker');
       choice.click(); await settle();
     }
     if (mode === 'queued') {
@@ -271,8 +267,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       history.push(started); notify({ subscriptionId: 'inline', taskId: task.id, kind: 'events', events: [started] }); await settle();
     }
     host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]')?.click(); await settle();
-    const inline = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-    assert(inline !== null, 'Own draft PR must offer the shared private inline composer');
+    const inline = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'Own draft PR must offer the shared private inline composer');
     changeInput(inline, 'Please simplify this implementation'); await settle();
     const send = button(host, 'Send to agent'); send.click(); send.click(); await settle();
     assert(requests.length === 1 && host.querySelector('.is-review-composer [role="status"]')?.textContent === 'Sending…'
@@ -292,8 +287,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     const localCard = host.querySelector<HTMLElement>('.pull-diff-code [data-local-review-thread]');
     assert(localCard !== null && localCard.textContent?.includes(request.body) === true, 'The saved comment must stay at its diff line');
     for (let attempt = 0; attempt < 20 && host.querySelector(`.agt-local-review [data-local-review-thread="${request.id}"]`) === null; attempt++) await settle();
-    const transcriptCard = host.querySelector<HTMLElement>(`.agt-local-review [data-local-review-thread="${request.id}"]`);
-    assert(transcriptCard !== null, 'Task transcript must load the saved private card after the bounded history refresh');
+    const transcriptCard = fixtureElement<HTMLElement>(`.agt-local-review [data-local-review-thread="${request.id}"]`, host, 'Task transcript must load the saved private card after the bounded history refresh');
     assert(transcriptCard.textContent?.includes(request.body) === true
       && transcriptCard.querySelector('.pr-local-review__snapshot')?.textContent?.includes(request.code) === true,
     'Task transcript card must show the human comment and its reference code');
@@ -316,8 +310,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       'Queued delivery must remain associated with its private comment');
     if (mode === 'idle') {
       button(localCard, 'Reply').click(); await settle();
-      const input = localCard.querySelector<HTMLTextAreaElement>('[aria-label="Reply to local review"]');
-      assert(input !== null, 'Local card must allow a follow-up');
+      const input = fixtureElement<HTMLTextAreaElement>('[aria-label="Reply to local review"]', localCard, 'Local card must allow a follow-up');
       assert(localCard.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
         && localCard.textContent?.includes('Private — only you and the agent') === false,
       'A task reply must show the Private label instead of a help text');
@@ -386,11 +379,8 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
 }
 
 export async function runTaskInlineCommentScenarios(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  for (const mode of ['idle', 'queued', 'unsent', 'published'] as const) {
-    const name = mode === 'published' ? 'Task Changes opens the published PR for explicit line comments' : `Live persistent local review: ${mode}`;
-    try { await scenario(mode); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  }
-  return results;
+  return runScenarios((['idle', 'queued', 'unsent', 'published'] as const).map(mode => [
+    mode === 'published' ? 'Task Changes opens the published PR for explicit line comments' : `Live persistent local review: ${mode}`,
+    () => scenario(mode),
+  ]));
 }

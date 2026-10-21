@@ -18,13 +18,13 @@ import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { AgentTaskDto, Bridge } from '../../../types';
 import { parseAgentTask } from '../../../agents/contracts';
 import taskFixture from '../../../agents/fixtures/agent-contracts-v1.json';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import DevelopmentLearningPanel from '../../../agents/DevelopmentLearningPanel';
 import { useLocalReviewThreads } from '../../local-review/useLocalReviewThreads';
 import ReviewSummaryCard from '../ReviewSummaryCard';
 import ReviewFindingCard from '../ReviewFindingCard';
 import { useFindingActions } from '../useFindingActions';
-import { reviewFixture } from './review';
+import { reviewDraftFixture, reviewFixture } from './review';
 import WorktreeChanges from '../../code-tests/WorktreeChanges';
 import type { WorktreeChangesDto } from '../../code-tests/contracts';
 import '../../../css/base.css';
@@ -49,11 +49,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const task: AgentTaskDto = { ...parseAgentTask(taskFixture.task), id: 'developer-task', state: 'OPEN', interactive: true,
     mutationClaim: null, checkoutRemovedAt: null, developmentContinuationUnfinished: false };
   const review = reviewFixture({ number: null, sourceTaskId: task.id, draft: null, pullRequest: null, messages: [] });
-  const button = (label: string) => {
-    const node = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === label);
-    assert(node !== undefined, `Missing ${label}`);
-    return node;
-  };
+  const button = (label: string) => textButton(label, host, `Missing ${label}`);
   const install = (bridge: Partial<Bridge>) => Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   const scenario = async (name: string, run: () => Promise<void>) => {
     try { await run(); results.push({ name }); }
@@ -104,8 +100,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       }
       flushSync(() => root.render(<Surface />)); await settle();
       button('Ask reviewer').click(); await settle();
-      const question = host.querySelector<HTMLTextAreaElement>('textarea');
-      assert(question !== null, 'Reviewer question composer must open');
+      const question = fixtureElement<HTMLTextAreaElement>('textarea', host, 'Reviewer question composer must open');
       changeInput(question, 'Why does this fail?'); await settle(); button('Ask reviewer').click(); await settle();
       assert(questions[0] === review.id && fixes.length === 0, 'A question must go only to the reviewer');
       button('Request fix').click(); await settle(); button('Send to developer').click(); await settle();
@@ -125,10 +120,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       install({
         addReviewDraftFinding: async () => {
           const finding = current.findings[0];
-          const draft: NonNullable<AgentReviewDto['draft']> = { repo: current.repo, number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1,
+          const draft: NonNullable<AgentReviewDto['draft']> = reviewDraftFixture({ repo: current.repo,
             updatedAt: finding.updatedAt, items: [{ id: 'outgoing', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
               commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
-              body: `${finding.title}\n\n${finding.body}`, included: true, published: false, publication: null }] };
+              body: `${finding.title}\n\n${finding.body}`, included: true, published: false, publication: null }] });
           current = { ...current, draft };
           return draft;
         },
@@ -165,12 +160,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     });
     await scenario('Published and withdrawn findings keep their private reviewer conversation open', async () => {
       const finding = { ...review.findings[0], state: 'WITHDRAWN' as const, outdated: true, stateReason: 'Fixed by the latest commit' };
-      const published = reviewFixture({ findings: [finding], messages: reviewFixture().messages.map(message => ({ ...message, findingId: finding.id })), draft: {
-        repo: review.repo, number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt,
+      const published = reviewFixture({ findings: [finding], messages: reviewFixture().messages.map(message => ({ ...message, findingId: finding.id })), draft: reviewDraftFixture({
+        repo: review.repo, updatedAt: finding.updatedAt,
         items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
           commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
           body: finding.body, included: true, published: true, publication: null }],
-      } });
+      }) });
       const questions: Parameters<Bridge['askAgentReview']>[] = [];
       install({ askAgentReview: async (...args) => { questions.push(args); return published; } });
       function Surface() {
@@ -184,8 +179,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       for (const message of ['Why was this withdrawn?', 'Which check confirmed the fix?']) {
         assert(!button('Ask reviewer').disabled, 'Publication and withdrawal must not disable private questions');
         button('Ask reviewer').click(); await settle();
-        const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Ask the reviewer about this finding"]');
-        assert(input !== null, 'The private question composer must open');
+        const input = fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Ask the reviewer about this finding"]', host, 'The private question composer must open');
         changeInput(input, message); await settle(); button('Ask reviewer').click(); await settle();
         assert(JSON.stringify(questions.at(-1)?.slice(0, 4)) === JSON.stringify([published.id, finding.id, finding.revision, message])
           && questions.at(-1)?.[4]?.startsWith('review-ask:') === true, 'Each question must keep the original private finding identity and revision');

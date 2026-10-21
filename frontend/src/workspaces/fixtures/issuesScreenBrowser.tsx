@@ -19,7 +19,7 @@ import type { WorkItemDecision, WorkItemDto } from '../../workitems/contracts';
 import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
 import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import { handledEntry, issueAttentionItem, loadHandled, saveHandled, visibleAttention } from '../../home/attention';
 import { refreshSnoozedItem } from '../../home/useSnoozedAttention';
 import { LayerCovered } from '../../Zoom';
@@ -27,6 +27,22 @@ import { loadPinned } from '../../home/pinned';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
 
+
+function issueReads(issues: () => Issue[], repository = { owner: 'upstream', repo: 'app' }) {
+  return {
+    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues().find(issue => issue.number === number),
+    fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
+      repositoryId: 40, repository, issues: issues(), page: 0, pageSize: 50, totalIssues: issues().length, hasMore: false, syncedAt: null,
+    }),
+    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({
+      repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
+    }),
+    fetchWorkspaceIssueDetail: async (_workspace: string, number: number): Promise<WorkspaceIssueDetailDto> => ({
+      repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
+    }),
+    recordRecentTouch: async () => {},
+  };
+}
 
 async function closeKeepsIssue(): Promise<void> {
   const writes: string[] = [];
@@ -36,21 +52,12 @@ async function closeKeepsIssue(): Promise<void> {
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
   }));
   const repository = { owner: 'upstream', repo: 'app' };
-  const snapshot = (): RepositoryIssueSnapshotDto => ({
-    repositoryId: 40, repository, issues, page: 0, pageSize: 50, totalIssues: issues.length, hasMore: false, syncedAt: null,
-  });
   const metadata: RepositoryMetadataDto = {
     repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
   };
-  const detail = (number: number): WorkspaceIssueDetailDto => ({
-    repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
-  });
   window.bridge = {
-    fetchWorkspaceIssues: async () => snapshot(),
-    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
+    ...issueReads(() => issues, repository),
     getWorkspaceMetadata: async () => metadata,
-    fetchWorkspaceIssueDetail: async (_workspace: string, number: number) => detail(number),
-    recordRecentTouch: async () => {},
     commentWorkspaceIssue: async (_workspace: string, number: number, body: string) => { writes.push(`comment #${number}: ${body}`); },
     // The backend drops a closed issue from the open list, so a reload no longer contains it.
     closeWorkspaceIssue: async (_workspace: string, number: number) => {
@@ -61,8 +68,7 @@ async function closeKeepsIssue(): Promise<void> {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
   const composer = () => {
-    const found = host.querySelector('textarea');
-    assert(found !== null, 'Missing issue composer');
+    const found = element<HTMLElementTagNameMap['textarea']>('textarea', host, 'Missing issue composer');
     return found;
   };
   const type = (value: string) => {
@@ -108,19 +114,8 @@ async function zoomsOneIssue(): Promise<void> {
     htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
   }));
-  const repository = { owner: 'upstream', repo: 'app' };
   window.bridge = {
-    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
-    fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
-      repositoryId: 40, repository, issues, page: 0, pageSize: 50, totalIssues: issues.length, hasMore: false, syncedAt: null,
-    }),
-    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({
-      repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
-    }),
-    fetchWorkspaceIssueDetail: async (_workspace: string, number: number): Promise<WorkspaceIssueDetailDto> => ({
-      repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
-    }),
-    recordRecentTouch: async () => {},
+    ...issueReads(() => issues),
   } as unknown as Bridge;
   let closed = 0;
   const baseHost = document.createElement('div'); document.body.append(baseHost);
@@ -143,8 +138,7 @@ async function zoomsOneIssue(): Promise<void> {
     const body = card.querySelector<HTMLElement>('.pull-detail__body');
     assert(body !== null && body.getBoundingClientRect().bottom <= Math.ceil(box.bottom),
       'The issue body scrolls inside the card instead of running past it');
-    const pin = card.querySelector<HTMLButtonElement>('[aria-label="Pin Issue 8"]');
-    assert(pin !== null, 'An issue zoom offers a pin action');
+    const pin = element<HTMLButtonElement>('[aria-label="Pin Issue 8"]', card, 'An issue zoom offers a pin action');
     pin.click(); await settle();
     assert(loadPinned().some(item => item.key === 'upstream/app#8' && item.target.kind === 'issue' && item.target.workspaceId === 'workspace-1'),
       'The issue pin keeps its workspace route');
@@ -163,7 +157,6 @@ async function epicTabs(): Promise<void> {
     authorAvatarUrl: '', htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isEpic: number === 24, developmentTask: null,
   }));
-  const repository = { owner: 'upstream', repo: 'app' };
   let received = 0;
   const decisions: number[] = [];
   const work = (id: string, title: string, state: WorkItemDto['state'], links: WorkItemDto['links'] = []): WorkItemDto => ({
@@ -171,17 +164,7 @@ async function epicTabs(): Promise<void> {
     history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', blockedBy: [], epicId: issueEpicId(7024),
     epicRank: 0 });
   window.bridge = {
-    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
-    fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
-      repositoryId: 40, repository, issues, page: 0, pageSize: 50, totalIssues: issues.length, hasMore: false, syncedAt: null,
-    }),
-    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({
-      repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
-    }),
-    fetchWorkspaceIssueDetail: async (_workspace: string, number: number): Promise<WorkspaceIssueDetailDto> => ({
-      repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
-    }),
-    recordRecentTouch: async () => {},
+    ...issueReads(() => issues),
     listWorkItems: async () => [work('a', 'Port the Hive reader', 'DONE'),
       work('b', 'Port the Delta reader', 'WORKING', [{ kind: 'TASK', key: 'task-9', label: 'Task', title: 'Port Delta', state: 'IDLE', status: 'Idle',
         blocked: false, url: null, activity: null, addedAt: null }]),
@@ -261,20 +244,13 @@ async function filtersLoadedIssues(): Promise<void> {
   let writes = 0;
   const originalBridge = window.bridge;
   window.bridge = {
-    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
+    ...issueReads(() => issues, repository),
     fetchWorkspaceIssues: async (_workspace: string, page: number): Promise<RepositoryIssueSnapshotDto> => {
       listReads.push(page);
       return { repositoryId: 40, repository,
         issues: page === 0 ? issues : [{ ...issues[0], id: 7070, number: 70, title: 'Found later', author: 'carol', labels: ['correctness', 'later'] }],
         page, pageSize: 50, totalIssues: issues.length + 1, hasMore: page === 0, syncedAt: null };
     },
-    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({
-      repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
-    }),
-    fetchWorkspaceIssueDetail: async (_workspace: string, number: number): Promise<WorkspaceIssueDetailDto> => ({
-      repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
-    }),
-    recordRecentTouch: async () => {},
     closeWorkspaceIssue: async () => { writes++; },
     commentWorkspaceIssue: async () => { writes++; },
     updateWorkspaceIssueMetadata: async () => { writes++; },
@@ -286,14 +262,12 @@ async function filtersLoadedIssues(): Promise<void> {
   const root = createRoot(host);
   const numbers = () => [...host.querySelectorAll('.issues-list .pull-row__title small')].map(row => row.textContent).join();
   const search = async (value: string) => {
-    const field = host.querySelector<HTMLInputElement>('input[type="search"][aria-label="Search issues by title, number, or author"]');
-    assert(field !== null, 'The issue list offers the same search terms as pull requests');
+    const field = element<HTMLInputElement>('input[type="search"][aria-label="Search issues by title, number, or author"]', host, 'The issue list offers the same search terms as pull requests');
     changeInput(field, value);
     await settle();
   };
   const selectLabel = async (value: string) => {
-    const select = host.querySelector<HTMLSelectElement>('select[aria-label="Filter issues by label"]');
-    assert(select !== null, 'The issue list offers a label filter');
+    const select = element<HTMLSelectElement>('select[aria-label="Filter issues by label"]', host, 'The issue list offers a label filter');
     select.value = value;
     select.dispatchEvent(new Event('change', { bubbles: true }));
     await settle();
@@ -336,8 +310,7 @@ async function filtersLoadedIssues(): Promise<void> {
     assert(listReads.join() === '0' && writes === 0, 'Filtering does not fetch pages or change GitHub or issue metadata');
     await selectLabel('correctness');
     await search('@carol');
-    const list = host.querySelector<HTMLElement>('.issues-list');
-    assert(list !== null, 'The issue list stays mounted when no rows match');
+    const list = element<HTMLElement>('.issues-list', host, 'The issue list stays mounted when no rows match');
     list.style.flex = '0 0 280px';
     await settle();
     const bounds = list.getBoundingClientRect();

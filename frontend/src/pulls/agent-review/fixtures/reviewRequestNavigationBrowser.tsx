@@ -26,7 +26,7 @@ import { reviewFixture } from './review';
 import '../../../css/base.css';
 import '../../../css/agents.css';
 import '../../../css/agent-review.css';
-import { assert, settle } from '../../../fixtures/harness';
+import { element as fixtureElement, assert, settle } from '../../../fixtures/harness';
 
 const internal = 'Review frozen scope. Use review_get_context and review_save_summary, review_save_finding and review_finish. Reply privately with review_reply. Selected card: internal context.';
 const base = reviewFixture();
@@ -269,8 +269,7 @@ export async function run(): Promise<string[]> {
     button(pane, `PR #${review.number}`).click(); await settle();
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
     const commitDestination = target(`[data-review-card="${commit.cardId}"]`);
-    const commitDisclosure = commitDestination.querySelector<HTMLDetailsElement>('details');
-    assert(commitDisclosure !== null, 'Commit destination must be expandable');
+    const commitDisclosure = fixtureElement<HTMLDetailsElement>('details', commitDestination, 'Commit destination must be expandable');
     commitDisclosure.open = false;
     pane.querySelector<HTMLElement>('.agr-summary > .review-comment-scroll')?.scrollTo(0, 0);
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
@@ -292,8 +291,7 @@ export async function run(): Promise<string[]> {
     assert(target(`[data-review-card="${current.id}:purpose"]`).textContent?.includes(current.summary.purpose) === true,
       'Returning to the current reply must restore its own report');
     const replyCard = request('turn-reply');
-    const toggle = replyCard.querySelector<HTMLButtonElement>('.agt-review-request__toggle');
-    assert(toggle !== null, 'Reply must have its own disclosure');
+    const toggle = fixtureElement<HTMLButtonElement>('.agt-review-request__toggle', replyCard, 'Reply must have its own disclosure');
     toggle.click(); await settle();
     assert(toggle.getAttribute('aria-expanded') === 'true' && replyCard.innerText.includes(reply.body),
       'The separate disclosure must expose the complete user question');

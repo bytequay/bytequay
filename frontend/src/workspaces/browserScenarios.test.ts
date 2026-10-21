@@ -11,18 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
-import { expect, it } from 'vitest';
-import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/browserFixture';
-
-it('starts issue development through the existing composer and retains source navigation in Chromium', async () => {
-  const results = await runBrowserFixture<ScenarioResult[]>({
-    prefix: 'bytequay-issue-development-',
-    entry: 'src/workspaces/fixtures/issueDevelopmentBrowser.tsx',
-    global: 'IssueDevelopmentTests',
-    styles: true,
-    charset: true,
-    body: `
+testBrowserScenarios([
+  {
+    name: 'starts issue development through the existing composer and retains source navigation in Chromium',
+    expected: 9, timeout: 30_000,
+    fixture: {
+      prefix: 'bytequay-issue-development-',
+      entry: 'src/workspaces/fixtures/issueDevelopmentBrowser.tsx',
+      global: 'IssueDevelopmentTests',
+      styles: true,
+      charset: true,
+      body: `
       window.webContents.debugger.attach('1.3');
       await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
       const results = await window.webContents.executeJavaScript('IssueDevelopmentTests.run()');
@@ -39,7 +40,24 @@ it('starts issue development through the existing composer and retains source na
         await window.webContents.executeJavaScript('IssueDevelopmentTests.unmountIssueConversation()');
       }
     `,
-  });
-  expect(results).toHaveLength(9);
-  expect(results.filter(result => result.error !== undefined)).toEqual([]);
-}, deadline(30_000));
+    },
+  },
+  {
+    name: 'filters loaded issues, keeps a closed issue in view and zooms a named issue in Chromium',
+    expected: 5, timeout: 30_000,
+    fixture: {
+      prefix: 'bytequay-issues-screen-',
+      entry: 'src/workspaces/fixtures/issuesScreenBrowser.tsx',
+      global: 'IssuesScreenTests',
+      styles: true,
+    },
+  },
+  {
+    name: 'edits workspace relationships and opens their folded navigation within the current workspace',
+    expected: 2, timeout: 120_000,
+    fixture: { prefix: 'bytequay-related-',
+      entry: 'src/workspaces/fixtures/relatedWorkspacesBrowser.tsx', global: 'RelatedWorkspacesTests', styles: true, charset: true,
+      width: 1100, height: 850,
+      setup: "window.webContents.on('console-message', event => { if (event.level === 'error') console.error(event.message); });" },
+  },
+]);

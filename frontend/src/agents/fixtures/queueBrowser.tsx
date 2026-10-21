@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { createPreviewBridge } from './previewBridge';
 import type { AgentTurnDto } from '../../types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 
 async function testSteering(): Promise<string> {
@@ -123,8 +123,7 @@ async function testEditing(): Promise<string> {
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={event.taskId} bridge={bridge} onBack={() => {}} />));
     for (let frame = 0; frame < 30 && !host.querySelector('[aria-label="Edit queued message"]'); frame++) await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('.agt-compose__input');
-    assert(input !== null, 'The composer must render');
+    const input = element<HTMLTextAreaElement>('.agt-compose__input', host, 'The composer must render');
     const up = (options: KeyboardEventInit = {}): void => {
       input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true, ...options }));
     };

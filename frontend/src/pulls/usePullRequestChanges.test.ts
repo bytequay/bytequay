@@ -12,15 +12,14 @@
  * limitations under the License.
  */
 
+import { timelineActivity } from './fixtures/pullRequest';
 import { expect, it } from 'vitest';
 import type { PullRequestDetailDto } from '../types';
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { pullRequestDiffRevision } from './usePullRequestChanges';
 
 const payload = { ...EMPTY_TIMELINE_PAYLOAD, commitSha: 'first-sha' };
-const commit: PullRequestDetailDto['recentActivity'][number] = {
-  actor: 'developer', eventType: 'committed', timestamp: '2026-01-01T12:00:00Z', body: null, githubId: null, payload,
-};
+const commit: PullRequestDetailDto['recentActivity'][number] = timelineActivity({ actor: 'developer', eventType: 'committed', timestamp: '2026-01-01T12:00:00Z', githubId: null }, payload);
 const detail = { baseRef: 'main', headRef: 'feature', additions: 5, deletions: 3, changedFiles: 1, recentActivity: [commit] };
 
 it('keeps selected code stable when discussion, reviews, or reactions update', () => {

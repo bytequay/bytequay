@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
 import { taskAttentionItem } from '../../agents/attention';
 import { previewTask } from '../../agents/fixtures/previewBridge';
-import { assert, settle, until } from '../../fixtures/harness';
+import { assert, runScenarios, settle, until, element } from '../../fixtures/harness';
 import { jiraAttentionItem } from '../../jira/attention';
 import { jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto } from '../../types';
@@ -432,14 +432,9 @@ async function latestSummary(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  for (const [name, scenario] of [['viewed until close', viewing], ['successful action status', actions], ['canonical post-write snapshot', canonicalSnapshot],
+  return runScenarios([['viewed until close', viewing], ['successful action status', actions], ['canonical post-write snapshot', canonicalSnapshot],
     ['global pins', pinning], ['timed snoozes', snoozing], ['retained reminders', retainedReminder], ['hover cards', hoverCards],
-    ['latest summary wins', latestSummary], ['persistent own PRs', myPullRequests]] as const) {
-    try { await scenario(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  }
-  return results;
+    ['latest summary wins', latestSummary], ['persistent own PRs', myPullRequests]]);
 }
 
 let preview: ReturnType<typeof mount> | null = null;
@@ -449,8 +444,7 @@ export async function showPreview(): Promise<void> {
   const pinned = { ...item(47), title: 'Fix checkpoint deletion-vector identity' };
   preview = mount([pinned, { ...item(48), title: 'Support the updated connector behavior' }, item(49)]);
   preview.host.style.cssText = 'display:flex;height:100vh;';
-  const attention = preview.host.querySelector<HTMLElement>('.atn-section');
-  assert(attention !== null, 'Attention preview must render');
+  const attention = element<HTMLElement>('.atn-section', preview.host, 'Attention preview must render');
   attention.style.cssText = 'flex:1;min-width:0;padding:24px;';
   await settle();
   button(preview.host, `Pin ${pinned.title}`).click(); await settle();

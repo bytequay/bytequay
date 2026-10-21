@@ -14,7 +14,7 @@
 
 import { createRoot } from 'react-dom/client';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import type { Bridge } from '../../types';
 import type { EpicRecordDto, WorkItemDto, UnifiedWorkItem, WorkItemContextLink } from '../contracts';
 import { EPIC_START, takeEpicStart, type EpicStart } from '../../workspaces/epics';
@@ -290,7 +290,7 @@ export async function localEpic() {
   assert(document.querySelector('[aria-label="Start development of Private connector cleanup"]') === null, 'An Epic is not offered as an executable task');
   assert([...document.querySelectorAll('button')].every(value => value.textContent?.trim() !== 'Start development'), 'The parent detail cannot start development');
   button('Add existing').click(); await settle();
-  const result = document.querySelector<HTMLElement>('.epic-view__results .goal-result'); assert(result !== null, 'Existing local work is available to add');
+  const result = element<HTMLElement>('.epic-view__results .goal-result', document, 'Existing local work is available to add');
   assert(result.textContent?.includes('Fix the Hive parser') === true && !document.querySelector('.epic-view__results')?.textContent?.includes('Earlier local Epic'), 'Epics cannot be nested');
   result.querySelector<HTMLButtonElement>('button')?.click(); await settle(); await settle();
   assert(calls.includes(`assign existing ${epicId}`) && document.querySelector('.epic-view__notice')?.textContent?.includes('Moved here') === true, 'Existing local work moves into this Epic');
@@ -307,7 +307,7 @@ export async function localEpic() {
   assert(document.querySelector('.work-items__publish') !== null && !calls.some(call => call.startsWith('publish')), 'The row publication action opens the preview even when the Epic Work tab was selected');
   button('Create GitHub issue').click(); await settle(); await settle();
   assert(items.find(item => item.id === 'parent')?.work?.isEpic === true && workItems().filter(item => item.epicId === epicId).length === 2, 'Publication preserves the Epic marker and children');
-  const workTab = document.querySelector<HTMLButtonElement>('.epic-tabs button:last-child'); assert(workTab !== null, 'The published local Epic retains its Work tab');
+  const workTab = element<HTMLButtonElement>('.epic-tabs button:last-child', document, 'The published local Epic retains its Work tab');
   workTab.click(); await settle();
   assert(document.querySelector('.epic-view__counts')?.textContent?.includes('0 of 2 done') === true, 'Publication keeps progress under the local identity');
 

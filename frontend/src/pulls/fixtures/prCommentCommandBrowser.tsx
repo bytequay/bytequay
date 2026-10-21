@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { reviewDraftFixture } from '../agent-review/fixtures/review';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { prDetail } from './pullRequest';
 import type { Bridge, DiffCommitDto } from '../../types';
 import type { ReviewDraftDto } from '../agent-review/contracts';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 import { DiscussionComposer } from '../PullOverview';
 import { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import '../../css/base.css';
@@ -38,8 +39,7 @@ export async function run(): Promise<string> {
   let reads = 0;
   const posted: string[] = [];
   let closed = false;
-  const draft = (body: string, version: number): ReviewDraftDto => ({ repo: detail.repo, number: detail.number, body, event: 'COMMENT', reviewPublication: null,
-    items: [], postedSummaryFindingIds: [], version, updatedAt: '2026-09-07T00:00:00Z' });
+  const draft = (body: string, version: number): ReviewDraftDto => (reviewDraftFixture({ repo: detail.repo, number: detail.number, body, version, updatedAt: '2026-09-07T00:00:00Z' }));
   let saved = draft('', 0);
   const bridge = {
     fetchPrDiffCommits: async (repo, number) => {
@@ -58,8 +58,7 @@ export async function run(): Promise<string> {
   document.body.append(host);
   const root = createRoot(host);
   const editor = () => {
-    const input = host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null, 'Composer must exist');
+    const input = fixtureElement<HTMLTextAreaElement>('textarea', host, 'Composer must exist');
     return input;
   };
   const type = async (text: string) => { editor().focus(); changeInput(editor(), text); await settle(); };

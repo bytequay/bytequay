@@ -22,7 +22,7 @@ import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
 import type { WorkItemDto } from '../../workitems/contracts';
 import { ticketEpicId } from '../../workspaces/epics';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
-import { assert, changeInput, settle, until as untilSettled } from '../../fixtures/harness';
+import { assert, changeInput, settle, until as untilSettled, element, runScenarios } from '../../fixtures/harness';
 import { ZOOM_REFERENCE } from '../../githubReference';
 import { loadHandled, visibleAttention } from '../../home/attention';
 import { loadPinned } from '../../home/pinned';
@@ -50,7 +50,7 @@ const button = (label: string, scope: ParentNode = document): HTMLButtonElement 
   assert(found !== undefined, `Missing button: ${label}`); return found;
 };
 const assignButton = (): HTMLButtonElement => {
-  const dialog = document.querySelector('dialog.jira-assignment[open]'); assert(dialog !== null, 'Workspace chooser is open');
+  const dialog = element('dialog.jira-assignment[open]', document, 'Workspace chooser is open');
   return button('Assign workspace', dialog);
 };
 const select = (label: string): HTMLSelectElement => {
@@ -61,7 +61,7 @@ function choose(element: HTMLSelectElement, value: string) { Object.getOwnProper
 // Each test reports its own name, so most waits here go without a message of their own.
 const until = (condition: () => boolean, message = 'UI did not settle') => untilSettled(condition, message);
 const cards = () => document.querySelectorAll('.jira-card');
-const scope = (): HTMLButtonElement => { const found = document.querySelector<HTMLButtonElement>('.jira-scope'); assert(found !== null, 'Scope control exists'); return found; };
+const scope = (): HTMLButtonElement => { const found = element<HTMLButtonElement>('.jira-scope', document, 'Scope control exists'); return found; };
 const menuItem = (text: string): HTMLButtonElement => {
   const found = [...document.querySelectorAll<HTMLButtonElement>('.jira-pop .jira-menu__item')].find(value => value.textContent?.includes(text));
   assert(found !== undefined, `Missing menu item: ${text}`); return found;
@@ -152,15 +152,13 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
 }
 
 export async function run(richDescription: string): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  for (const [name, test] of Object.entries({
+  const results = await runScenarios(Object.entries({
     async 'handles a ticket only after closing and records successful comments and global pins'() {
       await mountPreview();
       const key = `jira:${issue.cloudId}:${issue.id}`;
       assert(document.querySelector('.attention-visit-status') === null && loadHandled()[key] === undefined, 'Opening a ticket names no visit state and keeps its notification');
       button('Refresh ticket').click(); await until(() => !button('Refresh ticket').disabled);
-      const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]');
-      assert(composer !== null, 'Comment composer exists');
+      const composer = element<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]', document, 'Comment composer exists');
       changeInput(composer, 'First reply'); await settle(); button('Send').click();
       await until(() => document.body.textContent?.includes('Connection lost') ?? false);
       issue = { ...issue, updatedAt: '2026-09-26T09:00:00Z' };
@@ -191,9 +189,9 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'renders Jira rich descriptions as headings, tables and formatted code'() {
       await mountPreview(false, true, richDescription);
-      const description = document.querySelector<HTMLElement>('.jira-description .markdown-body'); assert(description !== null, 'Description exists');
+      const description = element<HTMLElement>('.jira-description .markdown-body', document, 'Description exists');
       const heading = description.querySelector('h2'); assert(heading?.textContent === 'Triage data', 'ADF heading retains its level and text');
-      const table = description.querySelector('table'); assert(table !== null, 'ADF table renders as a table');
+      const table = element<HTMLElementTagNameMap['table']>('table', description, 'ADF table renders as a table');
       assert([...table.querySelectorAll('th')].map(cell => cell.textContent).join('|') === 'Metric|Value', 'Table retains its columns');
       assert(table.querySelector('td strong')?.textContent === 'Failures (7d)', 'Table retains bold metrics');
       assert([...table.querySelectorAll('code')].some(code => code.textContent === 'GENERIC_INTERNAL_ERROR'), 'Inline code preserves underscores');
@@ -258,12 +256,12 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'filters assignments across sprint and completed views'() {
       await mountPreview(false, false);
-      const assignment = () => { const value = document.querySelector<HTMLButtonElement>('.jira-mine'); assert(value !== null, 'Assignment filter exists'); return value; };
+      const assignment = () => { const value = element<HTMLButtonElement>('.jira-mine', document, 'Assignment filter exists'); return value; };
       for (const [label, mine, coassigned] of [
         ['Co-assigned to me', false, true], ['Assigned or co-assigned to me', true, true], ['All assignees', false, false], ['Assigned to me', true, false],
       ] as const) {
         assignment().click(); await settle(); calls.length = 0;
-        const menu = document.querySelector('[aria-label="Filter assignment"]'); assert(menu !== null, 'Assignment menu opens');
+        const menu = element('[aria-label="Filter assignment"]', document, 'Assignment menu opens');
         button(label, menu).click();
         await until(() => calls.some(call => call.name === 'issues' && call.args[1] === true));
         const request = calls.find(call => call.name === 'issues')?.args[0] as JiraQuery;
@@ -283,13 +281,13 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       button('Edit fields').click(); await settle();
       const summary = document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Summary"]'); assert(summary !== null && document.activeElement === summary, 'Edit fields starts at the summary');
       assert(document.querySelector('.jira-edit__count')?.textContent === 'No changes' && button('Save').disabled, 'An unchanged form cannot save');
-      const assignee = document.querySelector<HTMLInputElement>('input[aria-label="Assignee"]'); assert(assignee !== null, 'Assignee search exists');
+      const assignee = element<HTMLInputElement>('input[aria-label="Assignee"]', document, 'Assignee search exists');
       assignee.focus(); await settle(); changeInput(assignee, 'unas'); await settle();
       assert([...document.querySelectorAll('.jira-people__option')].map(option => option.textContent).join('|') === 'Unassigned', 'Typing narrows the assignable people');
       press(assignee, 'Enter'); await settle();
       assert(assignee.value === 'Unassigned' && document.querySelector('.jira-people__option') === null, 'Enter picks the highlighted person and closes the list');
       const medium = document.querySelector('.jira-priority-option [aria-label="Priority: Medium"]')?.closest('button'); assert(medium != null, 'Priorities are offered as choices'); medium.click(); await settle();
-      const labels = document.querySelector<HTMLInputElement>('input[aria-label="Labels"]'); assert(labels !== null, 'Label editor exists');
+      const labels = element<HTMLInputElement>('input[aria-label="Labels"]', document, 'Label editor exists');
       changeInput(labels, 'regression'); await settle(); press(labels, 'Enter'); await settle();
       changeInput(labels, 'regression '); await settle(); press(labels, 'Enter'); await settle();
       changeInput(labels, 'flaky test'); await settle();
@@ -310,7 +308,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'requires transition fields and retains a failed comment operation'() {
       await mountPreview();
-      const status = () => { const found = document.querySelector<HTMLButtonElement>('.jira-status-button'); assert(found !== null, 'Status control exists'); return found; };
+      const status = () => { const found = element<HTMLButtonElement>('.jira-status-button', document, 'Status control exists'); return found; };
       status().click(); await settle();
       assert([...document.querySelectorAll('.jira-status-menu .jira-menu__item')].map(item => item.textContent).join('|') === 'In progressStart progress|DoneMark done|DoneComplete with approvals', 'Each transition names the status it moves to');
       menuItem('Complete with approvals').click(); await settle(); assert(button('Complete with approvals').disabled, 'Complex required fields must be completed in Jira'); assert(document.body.textContent?.includes('must be completed in Jira') ?? false, 'Unsupported field explains how to complete the transition');
@@ -320,7 +318,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await until(() => document.querySelector('.jira-status-menu') === null && status().textContent === 'Done', 'The ticket takes its new status');
       status().click(); await settle(); menuItem('Start progress').click(); await until(() => calls.filter(call => call.name === 'transition').length === 2);
       const direct = calls.filter(call => call.name === 'transition')[1]; assert(direct.args[0] === 'start' && JSON.stringify(direct.args[1]) === '{}', 'A transition without a screen moves the ticket at once');
-      const composer = document.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]'); assert(composer !== null, 'Comment composer exists'); changeInput(composer, 'The fix is ready for review.'); await settle(); button('Send').click(); await until(() => document.body.textContent?.includes('Connection lost') ?? false);
+      const composer = element<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]', document, 'Comment composer exists'); changeInput(composer, 'The fix is ready for review.'); await settle(); button('Send').click(); await until(() => document.body.textContent?.includes('Connection lost') ?? false);
       assert(composer.value === 'The fix is ready for review.', 'Failed comment retains draft'); button('Send').click(); await until(() => composer.value === '');
       assert(document.querySelector('.jira-comments article')?.textContent?.includes('The fix is ready for review.') ?? false, 'Newest comment reads first');
       const attempts = calls.filter(call => call.name === 'comment'); assert(attempts.length === 2 && attempts[0].args[1] === attempts[1].args[1], 'Retry retains operation identity');
@@ -329,9 +327,9 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview();
       issue = { ...issue, hasChildren: true, status: { id: 'done', name: 'Done', category: 'done' } }; detail = { ...detail, editableFields: [] };
       button('Refresh ticket').click(); await until(() => button('Edit fields').disabled && !button('Refresh ticket').disabled);
-      const pane = document.querySelector('.jira-detail'); assert(pane !== null, 'Ticket detail exists');
+      const pane = element('.jira-detail', document, 'Ticket detail exists');
       const assignment = () => document.querySelector<HTMLDialogElement>('dialog.jira-assignment[open]');
-      const reply = pane.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]'); assert(reply !== null, 'Comment composer exists'); changeInput(reply, 'Keep my unsent reply.'); await settle();
+      const reply = element<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]', pane, 'Comment composer exists'); changeInput(reply, 'Keep my unsent reply.'); await settle();
       calls.length = 0;
       assert(!button('Assign workspace', pane).disabled, 'Completed parent tickets allow local assignment even without editable Jira fields');
       button('Assign workspace', pane).click(); await until(() => assignment() !== null && !select('Workspace').disabled);
@@ -361,14 +359,14 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       button('Close workspace assignment').click(); await until(() => document.querySelector('.jira-assignment') === null);
       issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' }, task: { id: 'task', workspaceId: 'workspace' } };
       button('Refresh ticket').click(); await until(() => document.querySelector('.jira-side__bytequay')?.textContent?.includes('Set by the linked development task.') ?? false);
-      const fields = document.querySelector('.jira-side__bytequay'); assert(fields !== null, 'ByteQuay fields exist');
+      const fields = element('.jira-side__bytequay', document, 'ByteQuay fields exist');
       assert(fields.textContent?.includes('Workspace') && fields.textContent.includes('Trino'), 'Linked workspace remains visible in Details');
       assert(fields.querySelector('.jira-field-button') === null && !calls.some(call => call.name === 'assign'), 'A linked development task owns its read-only workspace');
       await until(() => fields.querySelector('.jira-task-line')?.textContent === 'PR #42· open', 'Details name the linked task and its pull request');
     },
     async 'assigns a workspace before Epic marking and preserves cancellation and failures'() {
       await mountPreview(false, false);
-      const card = document.querySelector('.jira-card'); assert(card !== null, 'Card exists');
+      const card = element('.jira-card', document, 'Card exists');
       const assignment = () => document.querySelector<HTMLDialogElement>('dialog[aria-label="Assign workspace for ENG-1007"][open]');
       button('Mark ENG-1007 as Epic', card).click(); await until(() => assignment() !== null);
       assert(document.querySelector('.jira-detail') === null, 'Epic action does not also open ticket details');
@@ -390,7 +388,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(assignment() === null && calls.filter(call => call.name === 'assign').length === 2, 'Saved workspace is reused for later Epic actions');
     },
     async 'retains development workspace on cancellation and launches with the saved assignment'() {
-      await mountPreview(); const pane = document.querySelector('.jira-detail'); assert(pane !== null, 'Details exist');
+      await mountPreview(); const pane = element('.jira-detail', document, 'Details exist');
       button('Start development', pane).click(); await until(() => document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"][open]') !== null);
       assert(select('Workspace').value === '', 'Workspace is never inferred from active app state'); assert(document.querySelector('.agt-compose') === null, 'No composer until explicit workspace assignment');
       choose(select('Workspace'), 'workspace'); await settle(); assignButton().click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
@@ -400,7 +398,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       button('Start development', pane).click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
       assert(document.querySelector('dialog[aria-label^="Assign workspace"]') === null && calls.filter(call => call.name === 'assign').length === 1, 'Later development reuses the assigned workspace');
       assert(document.querySelector('.agt-issue-attachment strong')?.textContent === 'ENG-1007', 'Source stays above composer');
-      const instructions = document.querySelector<HTMLTextAreaElement>('.agt-compose textarea'); assert(instructions !== null, 'Task input exists'); changeInput(instructions, 'Implement the ticket and preserve compatibility.'); await settle();
+      const instructions = element<HTMLTextAreaElement>('.agt-compose textarea', document, 'Task input exists'); changeInput(instructions, 'Implement the ticket and preserve compatibility.'); await settle();
       issue = { ...issue, title: 'Updated title from Jira', updatedAt: '2026-09-26T09:00:00Z' };
       button('Refresh development source').click(); await until(() => document.querySelector('.agt-issue-attachment')?.textContent?.includes('Updated title') ?? false);
       assert(instructions.value === 'Implement the ticket and preserve compatibility.', 'Source refresh preserves user instructions');
@@ -463,8 +461,8 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       const browserOpen = async (open: boolean) => { flushSync(() => mounted.render(<LayerCovered.Provider value={open}><JiraScreen /></LayerCovered.Provider>)); await settle(); };
       // App always renders the screen under this provider; adding it later would remount the screen.
       await browserOpen(false); await until(() => document.querySelector('.jira-detail h2') !== null);
-      const pane = document.querySelector<HTMLDialogElement>('dialog.jira-detail'); assert(pane !== null, 'Ticket detail exists');
-      const reply = pane.querySelector<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]'); assert(reply !== null, 'Comment draft exists');
+      const pane = element<HTMLDialogElement>('dialog.jira-detail', document, 'Ticket detail exists');
+      const reply = element<HTMLTextAreaElement>('textarea[placeholder="Write a comment…"]', pane, 'Comment draft exists');
       changeInput(reply, 'Keep this reply while I check Jira.'); await settle();
       button('Open ENG-1007 in Jira', pane).click(); await until(() => calls.some(call => call.name === 'browser' && call.args[0] === jiraIssue.url));
       await browserOpen(true);
@@ -475,14 +473,14 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       choose(select('Workspace'), 'workspace'); await settle();
       await browserOpen(true); assert(document.querySelector('dialog:modal') === null, 'Workspace assignment also releases the embedded browser');
       await browserOpen(false); assert(select('Workspace').value === 'workspace', 'Returning retains the pending workspace choice');
-      const assignment = document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"]'); assert(assignment !== null, 'Workspace assignment remains mounted');
+      const assignment = element('dialog[aria-label="Assign workspace for ENG-1007"]', document, 'Workspace assignment remains mounted');
       const choiceBounds = select('Workspace').getBoundingClientRect();
       assert(assignment.contains(document.activeElement) && assignment.contains(document.elementFromPoint(choiceBounds.left + choiceBounds.width / 2, choiceBounds.top + choiceBounds.height / 2)), 'Restored workspace assignment stays above the underlying ticket');
       assignButton().click(); await until(() => pane.querySelector('.jira-epic-active') !== null);
       button('Epic', pane).click(); await until(() => pane.querySelector('.jira-epic-active') === null);
       button('Start development', pane).click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
-      const launch = document.querySelector<HTMLDialogElement>('dialog[aria-label="Develop ENG-1007"]'); assert(launch !== null, 'Development dialog exists');
-      const instructions = launch.querySelector<HTMLTextAreaElement>('.agt-compose textarea'); assert(instructions !== null, 'Development draft exists');
+      const launch = element<HTMLDialogElement>('dialog[aria-label="Develop ENG-1007"]', document, 'Development dialog exists');
+      const instructions = element<HTMLTextAreaElement>('.agt-compose textarea', launch, 'Development draft exists');
       changeInput(instructions, 'Keep the partition column predicates intact.'); await settle();
       await browserOpen(true); assert(document.querySelector('dialog:modal') === null, 'Both development and underlying ticket release the browser');
       await browserOpen(false);
@@ -496,16 +494,16 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       const columns = [...document.querySelectorAll('.jira-column .jira-group-head__name')].map(value => value.textContent);
       assert(JSON.stringify(columns) === '["To do","In progress","In review","Done"]', 'All four groups are visible together');
       assert([...document.querySelectorAll('.jira-column .jira-status')].map(value => value.textContent).join('|') === 'Awaiting review|Resolved', 'A card names its actual status only where it differs from its column');
-      const card = document.querySelector('.jira-card'); assert(card !== null, 'Card exists');
+      const card = element('.jira-card', document, 'Card exists');
       const title = card.querySelector('.jira-card__title'); assert(title?.textContent === jiraIssue.title && getComputedStyle(title).fontWeight === '400', 'Card title leads, in regular weight');
       assert(card.querySelector('[aria-label="Priority: High"]') !== null && card.querySelector('[aria-label="Assignee: Alex Chen"]')?.textContent === 'AC', 'Card exposes priority and assigned person');
       assert(document.querySelector('[aria-label="Priority: Expedite"]')?.classList.contains('is-neutral') ?? false, 'Tenant-specific priority ID never defines severity');
-      const linked = document.querySelector('.jira-card[aria-label^="ENG-1008:"]'); assert(linked !== null, 'Linked card exists');
+      const linked = element('.jira-card[aria-label^="ENG-1008:"]', document, 'Linked card exists');
       await until(() => linked.querySelector('.jira-task-line')?.textContent === 'PR #42· open', 'A card with a task names its pull request');
       assert(linked.querySelector('[aria-label="View task for ENG-1008"]') !== null, 'A card with a task opens it');
       await filterStatus('In progress'); assert(cards().length === 1 && statusFilter().textContent?.includes('In progress') === true, 'Status filters by workflow group');
       await filterStatus('All'); assert(cards().length === 4, 'All shows every group again');
-      const search = document.querySelector<HTMLInputElement>('input[aria-label="Search tickets"]'); assert(search !== null, 'Search exists');
+      const search = element<HTMLInputElement>('input[aria-label="Search tickets"]', document, 'Search exists');
       press(window, '/'); await settle(); assert(document.activeElement === search, 'Slash jumps to search');
       changeInput(search, 'timestamps'); await settle(); assert(cards().length === 1 && document.querySelector('.jira-count-label')?.textContent === '1 ticket', 'Search narrows the tickets and their count');
       changeInput(search, ''); await settle();
@@ -686,10 +684,10 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'opens the whole card as a centered modal with keyboard and focus restoration'() {
       await mountPreview(false, false);
-      const card = document.querySelector<HTMLElement>('.jira-card'); assert(card !== null, 'Card exists');
+      const card = element<HTMLElement>('.jira-card', document, 'Card exists');
       assert(card.getAttribute('role') === 'button' && card.tabIndex === 0, 'The whole card is one keyboard control');
       for (const selector of ['.jira-avatar', '.jira-priority']) {
-        const target = card.querySelector<HTMLElement>(selector); assert(target !== null, 'Card metadata exists');
+        const target = element<HTMLElement>(selector, card, 'Card metadata exists');
         const bounds = target.getBoundingClientRect();
         assert(target.contains(document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2)), 'Whole-card click target preserves native metadata hover tooltips');
       }
@@ -697,7 +695,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       const cardBounds = card.getBoundingClientRect();
       await clickAt(cardBounds.left + cardBounds.width / 2, cardBounds.bottom - 8);
       await until(() => document.querySelector('dialog.jira-detail[open] h2') !== null, 'Clicking the bottom of the card opens ticket details');
-      const modal = document.querySelector<HTMLDialogElement>('dialog.jira-detail[open]'); assert(modal !== null, 'Whole-card click opens native modal');
+      const modal = element<HTMLDialogElement>('dialog.jira-detail[open]', document, 'Whole-card click opens native modal');
       assert(modal.getAttribute('aria-label') === 'Ticket details' && modal.matches(':modal'), 'Ticket details are an accessible modal');
       await Promise.all(modal.getAnimations().map(animation => animation.finished));
       const bounds = modal.getBoundingClientRect(); const board = document.querySelector('.jira-board')?.getBoundingClientRect();
@@ -732,7 +730,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
 
       button('+ Link ticket').click(); await until(() => document.querySelector<HTMLSelectElement>('select[aria-label="Link relationship"]')?.options.length === 4);
       assert([...select('Link relationship').options].map(option => option.textContent).join('|') === 'Relationship…|blocks|is blocked by|relates to', 'A symmetric link type is offered once');
-      const target = document.querySelector<HTMLInputElement>('input[aria-label="Work item to link"]'); assert(target !== null, 'Link form asks for the other ticket');
+      const target = element<HTMLInputElement>('input[aria-label="Work item to link"]', document, 'Link form asks for the other ticket');
       changeInput(target, 'https://example.atlassian.net/browse/eng-1013'); await settle(); assert(button('Link').disabled, 'A relationship is chosen explicitly');
       choose(select('Link relationship'), '10000:inward'); await settle(); button('Link').click(); await until(() => calls.some(call => call.name === 'link'));
       const linked = calls.find(call => call.name === 'link'); assert(linked?.args[0] === '10000' && linked.args[1] === false && linked.args[2] === 'ENG-1013', 'An inward relation sends the key a pasted link names');
@@ -778,7 +776,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       button('Reply', replyForm).click(); await until(() => document.querySelector('.jira-reply-form') === null);
       assert(calls.filter(call => call.name === 'comment').at(-1)?.args[0] === improved, 'Reply submits the rewritten draft');
 
-      const own = document.querySelector('[aria-label="Comment by Alex Chen"]'); assert(own !== null, 'Sent comment exists');
+      const own = element('[aria-label="Comment by Alex Chen"]', document, 'Sent comment exists');
       button('Edit comment', own).click(); await settle();
       const editForm = own.querySelector<HTMLFormElement>('.jira-comment-edit'); const editor = editForm?.querySelector('textarea');
       assert(editForm != null && editor != null, 'Own comment editor exists');
@@ -807,9 +805,6 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(document.querySelector<HTMLTextAreaElement>('.jira-reply-form textarea')?.value === '', 'Late rewrite cannot enter a reopened reply');
       assert(!calls.some(call => call.name === 'comment' || call.name === 'edit'), 'Rewrite failures and cancellation never write to Jira');
     },
-  })) {
-    try { await test(); results.push({ name }); } catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-    root?.unmount(); root = null;
-  }
+  }), () => { root?.unmount(); root = null; });
   return results;
 }

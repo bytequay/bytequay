@@ -22,7 +22,7 @@ import type { DiffAgentComment } from '../../pulls/PullChanges';
 import type { PullRequestDto } from '../../types';
 import LocalReviewThreadCard from '../../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewThreadDto } from '../../pulls/local-review/types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import ReviewZones from '../ReviewZones';
 import type { IdeRuntime } from '../runtime';
 import '../../css/base.css';
@@ -130,7 +130,7 @@ export async function verifyReviewComments() {
     mouse('mouseup', 4); await settle(); assert(input() === null, 'Escape cancels an in-progress range');
     code.updateOptions({ lineNumbers: line => `<span class="ide-blame-line">Author</span><span class="ide-blame-number">${line}</span>`, lineNumbersMinChars: 20 });
     code.render(true); await settle();
-    const blame = native.querySelector('.ide-blame-line'); assert(blame !== null, 'Blame label must render');
+    const blame = element('.ide-blame-line', native, 'Blame label must render');
     const rect = blame.getBoundingClientRect();
     blame.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, clientX: rect.left + 2, clientY: rect.top + 2 }));
     window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); await settle();
@@ -149,7 +149,7 @@ export async function verifyReviewComments() {
       createdAt: '', updatedAt: '', messages: [{ id: 'message', author: 'USER', body: 'Why is this implementation different? Please explain the tradeoff.',
         createdAt: '', turnId: null, queuedInputId: null, messageEventId: null, deliveryState: null, deliveryError: null }] };
     options.localReview.threads = [thread]; render(); await settle(); await settle();
-    const card = native.querySelector<HTMLElement>('.lrc'); assert(card !== null, 'Saved private threads use the existing local review card');
+    const card = element<HTMLElement>('.lrc', native, 'Saved private threads use the existing local review card');
     assert(card.getBoundingClientRect().width <= 780 && getComputedStyle(card).marginLeft === '0px', 'Inline cards use the shared width and alignment');
     const referenceHost = document.createElement('div'); document.body.append(referenceHost);
     const reference = createRoot(referenceHost);
@@ -160,7 +160,7 @@ export async function verifyReviewComments() {
         const theme = (await themes.getColorThemes()).find(theme => theme.settingsId === (mode === 'dark' ? 'ByteQuay Darcula' : 'ByteQuay IDEA Light'));
         assert(theme !== undefined, 'Workbench theme must exist'); await themes.setColorTheme(theme.id, undefined);
         host.classList.toggle('is-dark', mode === 'dark'); document.documentElement.style.colorScheme = mode; await settle();
-        const standard = referenceHost.querySelector<HTMLElement>('.lrc'); assert(standard !== null, 'Reference card must render');
+        const standard = element<HTMLElement>('.lrc', referenceHost, 'Reference card must render');
         assert(getComputedStyle(card).backgroundColor === getComputedStyle(standard).backgroundColor
           && getComputedStyle(card).borderColor === getComputedStyle(standard).borderColor
           && getComputedStyle(card.querySelector('.lrc__head')!).backgroundColor === getComputedStyle(standard.querySelector('.lrc__head')!).backgroundColor,

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgentReviewDto, ReviewCandidateDto, ReviewCandidateValidationDto, ReviewFindingDto, ReviewRunDto } from '../contracts';
+import type { AgentReviewDto, ReviewCandidateDto, ReviewCandidateValidationDto, ReviewDraftDto, ReviewFindingDto, ReviewRunDto } from '../contracts';
 
 /**
  * One illustrative review, used by the static render harness and the component tests.
@@ -83,12 +83,16 @@ export function explanationRunFixture(overrides: Partial<ReviewRunDto> = {}): Re
     ...overrides };
 }
 
+const FINDING_DEFAULTS = {
+  runId: 'run-1', origin: 'AUTOMATIC', side: 'RIGHT', revision: 1, state: 'OPEN', stateReason: null as ReviewFindingDto['stateReason'],
+  outdated: false, validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904', version: 0,
+} as const;
+
 const FINDINGS: ReviewFindingDto[] = [
   {
+    ...FINDING_DEFAULTS,
     id: 'finding-1',
     label: 'F-1',
-    runId: 'run-1',
-    origin: 'AUTOMATIC',
     title: 'Nested sort-field lookup matches leaf names across struct levels',
     body: '`resolveNestedFieldId` descends by the first path segment, then falls back to matching the remaining path by '
       + 'leaf name anywhere below. With two structs that both contain a `zip` field (`address.zip` and '
@@ -96,7 +100,6 @@ const FINDINGS: ReviewFindingDto[] = [
       + 'then created with a sort order on the wrong column and no error is raised.',
     severity: 'Critical',
     path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java',
-    side: 'RIGHT',
     startLine: 118,
     endLine: 131,
     range: 'R118–R131',
@@ -126,26 +129,18 @@ const FINDINGS: ReviewFindingDto[] = [
         explanation: 'The test was added by the agent and asserts against the original snapshot; the code under test is unchanged.',
       },
     ],
-    revision: 1,
-    state: 'OPEN',
-    stateReason: null,
-    outdated: false,
-    validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
-    version: 0,
     updatedAt: '2026-09-06T16:06:00Z',
     memories: [],
   },
   {
+    ...FINDING_DEFAULTS,
     id: 'finding-2',
     label: 'F-2',
-    runId: 'run-1',
-    origin: 'AUTOMATIC',
     title: 'sorted_by accepts a path through a list element without an error',
     body: 'The new check rejects map paths but only inspects the first segment for lists. A path like `items.price` '
       + '(`items` is a `list<struct>`) passes validation and later fails deep inside Iceberg with an unrelated message.',
     severity: 'Medium',
     path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java',
-    side: 'RIGHT',
     startLine: 2412,
     endLine: 2418,
     range: 'R2412–R2418',
@@ -157,26 +152,18 @@ const FINDINGS: ReviewFindingDto[] = [
       excerpt: '2415  // lists are not checked below the first segment\n2417      field = ((Types.StructType) field.type()).field(segments.get(i));',
       explanation: 'The cast assumes every intermediate field is a struct; a list element would throw a ClassCastException.',
     }],
-    revision: 1,
-    state: 'OPEN',
-    stateReason: null,
-    outdated: false,
-    validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
-    version: 0,
     updatedAt: '2026-09-06T16:09:00Z',
     memories: [],
   },
   {
+    ...FINDING_DEFAULTS,
     id: 'finding-3',
     label: 'F-3',
-    runId: 'run-1',
-    origin: 'AUTOMATIC',
     title: 'Only two-level nesting is tested',
     body: 'The new test creates a struct one level deep. The resolution loop is recursive, so a three-level path '
       + '(`a.b.c`) exercises a branch that currently has no coverage.',
     severity: 'Low',
     path: 'plugin/trino-iceberg/src/test/java/io/trino/plugin/iceberg/TestIcebergNestedSortOrder.java',
-    side: 'RIGHT',
     startLine: 84,
     endLine: 84,
     range: 'R84',
@@ -188,12 +175,6 @@ const FINDINGS: ReviewFindingDto[] = [
       excerpt: '84  assertUpdate("CREATE TABLE " + table + " (id INT, address ROW(zip VARCHAR)) WITH (sorted_by = ARRAY[\'address.zip\'])");',
       explanation: 'Single fixture in the file; no other test references a path with more than one dot.',
     }],
-    revision: 1,
-    state: 'OPEN',
-    stateReason: null,
-    outdated: false,
-    validatedHeadSha: 'd9a0c41a1b2c3d4e5f60718293a4b5c6d7e8f904',
-    version: 0,
     updatedAt: '2026-09-06T16:13:00Z',
     memories: [],
   },
@@ -203,6 +184,14 @@ export function candidateFixture(hypothesis: string, number = 1): ReviewCandidat
   return { number, perspective: 'BEHAVIOR', responsibility: 'R1', hypothesis, evidenceRefs: ['E1'],
     nextCheck: 'Trace the caller and verify the expected behavior.', carriedFindingId: null, originStep: 1,
     originTurnId: 'turn-1', attributedSource: null };
+}
+
+export function reviewDraftFixture(overrides: Partial<ReviewDraftDto> = {}): ReviewDraftDto {
+  return {
+    repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [],
+    reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z',
+    ...overrides,
+  };
 }
 
 export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentReviewDto {

@@ -14,7 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import ReviewFindingCard from './ReviewFindingCard';
-import { reviewFixture } from './fixtures/review';
+import { reviewDraftFixture, reviewFixture } from './fixtures/review';
 import type { AgentReviewDto, ReviewDraftItemDto, ReviewFindingDto, ReviewMessageDto } from './contracts';
 
 const body = 'Guard the empty value.\n\n```suggestion\n    return input.orElseThrow();\n```';
@@ -25,9 +25,7 @@ const draftItem: ReviewDraftItemDto = { id: 'draft-suggestion', source: 'AGENT_F
   body, included: true, published: false, publication: null };
 
 function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review', messages: ReviewMessageDto[] = [], overrides: Partial<AgentReviewDto> = {}) {
-  const review: AgentReviewDto = reviewFixture({ findings: [value], messages, draft: item === undefined ? null : {
-    repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [item], reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: value.updatedAt,
-  }, ...overrides });
+  const review: AgentReviewDto = reviewFixture({ findings: [value], messages, draft: item === undefined ? null : reviewDraftFixture({ items: [item], updatedAt: value.updatedAt }), ...overrides });
   return renderToStaticMarkup(<ReviewFindingCard review={review} finding={value} projection={projection}
     viewerLogin="reviewer" viewerAvatarUrl={null} actions={{
       onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
@@ -69,10 +67,7 @@ describe('finding suggestions', () => {
 
   it('marks a finding accepted when it was posted in the review summary', () => {
     const whole: ReviewFindingDto = { ...finding, state: 'RESOLVED', path: null, side: null, startLine: null, endLine: null, range: null, excerpt: [] };
-    const html = render(whole, undefined, 'review', [], { draft: {
-      repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [], reviewPublication: null,
-      postedSummaryFindingIds: [whole.id], version: 2, updatedAt: whole.updatedAt,
-    } });
+    const html = render(whole, undefined, 'review', [], { draft: reviewDraftFixture({ postedSummaryFindingIds: [whole.id], version: 2, updatedAt: whole.updatedAt }) });
     expect(html).toContain('>Accepted</span><span class="lrc__resolved">');
     expect(html).toContain('Whole change');
     expect(html).toContain('Posted in your review summary');
@@ -182,9 +177,7 @@ describe('finding suggestions', () => {
     expect(html).not.toContain('View in Changes');
 
     const inSummary = renderToStaticMarkup(<ReviewFindingCard projection="review" viewerLogin="reviewer" viewerAvatarUrl={null} finding={whole}
-      review={reviewFixture({ findings: [whole], draft: {
-        repo: 'trinodb/trino', number: 30304, body: `Thanks.\n\n${whole.body}`, event: 'COMMENT', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 2, updatedAt: whole.updatedAt,
-      } })}
+      review={reviewFixture({ findings: [whole], draft: reviewDraftFixture({ body: `Thanks.\n\n${whole.body}`, version: 2, updatedAt: whole.updatedAt }) })}
       actions={{ onAsk: async () => {}, onResolve: async () => {}, onReopen: async () => {}, onAddToReview: async () => {},
         onPostNow: async () => {}, onEditDraft: async () => {}, onRemoveFromReview: async () => {}, onNavigate: () => {} }} />);
     expect(inSummary).toContain('In your review summary');

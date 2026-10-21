@@ -58,6 +58,12 @@ function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home
       onHandledChange={() => {}} onOpen={() => {}} onStartIssue={() => {}} />);
 }
 
+function mockCircle(repositories: string[] = [], member = { githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }): void {
+  vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
+    id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories, members: [member],
+  }] }, loading: false, error: null });
+}
+
 describe('AttentionList', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -74,9 +80,7 @@ describe('AttentionList', () => {
   });
 
   it('shows a private-circle reason and keeps the Circles filter independent from the source tabs', () => {
-    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['trinodb/trino'], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
-    }] }, loading: false, error: null });
+    mockCircle(['trinodb/trino']);
     const items = [issueItem(7), prItem(1)];
     const html = list(items);
     expect(html).toContain('aria-pressed="false">Circles</button>');
@@ -86,9 +90,7 @@ describe('AttentionList', () => {
   });
 
   it('never brings pinned or snoozed team items back through preference', () => {
-    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
-    }] }, loading: false, error: null });
+    mockCircle();
     vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'trinodb/trino#1', title: 'Pinned', target: { kind: 'pull', repo: 'trinodb/trino', number: 1 } }]) } });
     const items = [1, 2, 3].map(number => prItem(number));
     const html = list(items, { [items[1].key]: handledEntry(items[1], 'snooze', Date.now() + 3_600_000, 'soon') });
@@ -96,9 +98,7 @@ describe('AttentionList', () => {
   });
 
   it('names the actual member author without labeling the latest commenter as a teammate', () => {
-    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
-    }] }, loading: false, error: null });
+    mockCircle();
     const html = list([prItem(1, 'review', {
       event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
     })]);
@@ -113,9 +113,7 @@ describe('AttentionList', () => {
   });
 
   it('explains a member review request independently of the PR author', () => {
-    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 2, login: 'bob', name: 'Bob', avatarUrl: '' }],
-    }] }, loading: false, error: null });
+    mockCircle([], { githubId: 2, login: 'bob', name: 'Bob', avatarUrl: '' });
     const html = list([prItem(1, 'review', {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
     })]);
@@ -259,9 +257,7 @@ describe('AttentionList', () => {
   });
 
   it("puts a circle member's review request first in both Homes and leaves out an outsider's newer update", () => {
-    vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{
-      id: 'trusted', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: [], members: [{ githubId: 1, login: 'alice', name: 'Alice', avatarUrl: '' }],
-    }] }, loading: false, error: null });
+    mockCircle();
     vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-08-30T00:00:00Z'));
     const items = [1, 2, 3, 4].map(number => by(prItem(number), 'bob'));
     items.push({ ...prItem(5), updatedAt: '2026-08-24T00:00:00Z' }, { ...by(prItem(6, 'updated'), 'outsider'), updatedAt: '2026-08-29T13:00:00Z' });

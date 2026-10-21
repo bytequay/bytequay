@@ -17,7 +17,7 @@ import App from '../App';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { JIRA_CHANGED, type JiraConnection } from '../jira/contracts';
 import type { Bridge } from '../types';
-import { assert, settle, until } from './harness';
+import { assert, settle, until, element } from './harness';
 import '../css/base.css';
 
 const connected: JiraConnection = {
@@ -83,8 +83,7 @@ export async function run(): Promise<{ name: string }[]> {
     assert(jiraButton() === null, 'Window focus reloads connection visibility');
     await change([connected]);
 
-    const collapse = document.querySelector<HTMLButtonElement>('[aria-label="Collapse sidebar"]');
-    assert(collapse !== null, 'The sidebar can collapse');
+    const collapse = element<HTMLButtonElement>('[aria-label="Collapse sidebar"]', document, 'The sidebar can collapse');
     collapse.click();
     await settle();
     const icon = jiraButton()?.querySelector('svg');

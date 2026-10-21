@@ -20,8 +20,8 @@ import { DiffViewer } from '../../PullChanges';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
 import { mergeReviewFindings } from '../model';
-import { reviewFixture, runningReviewFixture } from './review';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { reviewDraftFixture, reviewFixture, runningReviewFixture } from './review';
+import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 
 
 export async function resolveFinding(projection: 'review' | 'changes'): Promise<void> {
@@ -30,11 +30,11 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
   if (projection === 'review') {
     const running = runningReviewFixture();
     saved = { ...saved, task: running.task, activeTurn: running.activeTurn,
-      draft: { repo: saved.repo, number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: finding.updatedAt,
+      draft: reviewDraftFixture({ repo: saved.repo, updatedAt: finding.updatedAt,
         items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
           commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: 2, startLine: null,
           body: finding.body, included: true, published: true,
-          publication: { state: 'PUBLISHED', remoteReviewId: 1, remoteCommentId: 2, url: null, at: finding.updatedAt } }] } };
+          publication: { state: 'PUBLISHED', remoteReviewId: 1, remoteCommentId: 2, url: null, at: finding.updatedAt } }] }) };
   }
   let listener: Parameters<Bridge['subscribeAgentReview']>[2] = () => {};
   let delayRead = false;
@@ -82,23 +82,16 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
   }
   const { host, root, dispose } = createFixtureRoot();
   const card = () => {
-    const value = host.querySelector<HTMLElement>(`[data-finding-id="${finding.id}"]`);
-    assert(value !== null, 'The finding must render on the selected surface');
+    const value = fixtureElement<HTMLElement>(`[data-finding-id="${finding.id}"]`, host, 'The finding must render on the selected surface');
     return value;
   };
-  const button = (text: string) => {
-    const value = [...card().querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
-    assert(value !== undefined, `Missing ${text} button`);
-    return value;
-  };
+  const button = (text: string) => textButton(text, card());
   const input = () => {
-    const value = card().querySelector<HTMLTextAreaElement>('textarea[aria-label="Resolution reason (optional)"]');
-    assert(value !== null, 'Resolve locally must open an in-app optional reason input');
+    const value = fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Resolution reason (optional)"]', card(), 'Resolve locally must open an in-app optional reason input');
     return value;
   };
   const remember = () => {
-    const value = card().querySelector<HTMLInputElement>('.agr-remember input[type="checkbox"]');
-    assert(value !== null, 'Resolving a finding about a file must offer to remember the reason for it');
+    const value = fixtureElement<HTMLInputElement>('.agr-remember input[type="checkbox"]', card(), 'Resolving a finding about a file must offer to remember the reason for it');
     return value;
   };
   const write = async (text: string) => {

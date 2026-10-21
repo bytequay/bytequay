@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge } from '../../../types';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import { PullDetailHeader } from '../../PullsScreen';
 import { pr } from '../../fixtures/pullRequest';
 import AgentReviewTab from '../AgentReviewTab';
@@ -113,8 +113,7 @@ export async function run() {
       && host.querySelector('.agr-findings__meta')?.textContent?.startsWith('Round 1 · head') === true,
       'Selecting an older round must show its findings and identify the active round');
     button('.agr-finding button', 'Ask reviewer').click(); await settle();
-    const draft = finding.querySelector('textarea');
-    assert(draft !== null, 'Finding discussion must remain available');
+    const draft = fixtureElement<HTMLTextAreaElement>('textarea', finding, 'Finding discussion must remain available');
     changeInput(draft, 'Keep this private draft'); await settle();
     button('.agr-findings__filters button', 'Last round').click(); await settle();
     assert(finding.getBoundingClientRect().height === 0 && others.value === '' && !others.classList.contains('is-selected'),
@@ -122,8 +121,7 @@ export async function run() {
     button('.agr-findings__filters button', 'All rounds').click(); await settle();
     assert(finding.querySelector('textarea')?.value === 'Keep this private draft', 'Switching rounds must retain a finding draft and its card instance');
     button('.agr-explanation.is-commit button', 'Ask reviewer').click(); await settle();
-    const question = commits[0].querySelector('textarea');
-    assert(question !== null, 'The compact question icon must open its own composer');
+    const question = fixtureElement<HTMLTextAreaElement>('textarea', commits[0], 'The compact question icon must open its own composer');
     changeInput(question, 'Explain the boundary'); await settle();
     button('.agr-explanation.is-commit .agr-composer button', 'Queue question').click(); await settle();
     assert(fixture.calls[0] === `${fixture.review.runs[0].id}:commit:${fixture.review.runs[0].commits[0].sha}:rev1:Explain the boundary`,

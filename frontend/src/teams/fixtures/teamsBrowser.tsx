@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import AppSidebar, { type AppPage } from '../../AppSidebar';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element as requiredElement, runScenarios } from '../../fixtures/harness';
 import { pr } from '../../pulls/fixtures/pullRequest';
 import CirclesGrid from '../../home/CirclesGrid';
 import { loadHandled, saveHandled } from '../../home/attention';
@@ -91,16 +91,14 @@ async function click(label: string, host: ParentNode = document) { button(label,
 async function switcher(name?: string): Promise<HTMLElement> {
   document.querySelector<HTMLButtonElement>('.cir-switcher__button')?.click();
   await settled();
-  const menu = document.querySelector<HTMLElement>('.cir-switcher__menu');
-  assert(menu !== null, 'The title must open the circle menu');
+  const menu = requiredElement<HTMLElement>('.cir-switcher__menu', document, 'The title must open the circle menu');
   if (name !== undefined) await click(name, menu);
   return menu;
 }
 const text = () => document.body.textContent ?? '';
 
 async function input(label: string, value: string): Promise<void> {
-  const element = document.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`);
-  assert(element !== null, `Missing input: ${label}`);
+  const element = requiredElement<HTMLInputElement | HTMLTextAreaElement>(`[aria-label="${label}"]`, document, `Missing input: ${label}`);
   changeInput(element, value);
   await settled();
 }
@@ -500,14 +498,9 @@ async function homeCreation() {
 }
 
 export async function run() {
-  const results: { name: string; error?: string }[] = [];
   const scenarios = { firstUse, saveFailure, membersAndUndo, activityWording, insightsDrill, personPanel, needsYou, refreshFailure,
     accountSwitchDuringRefresh, rememberedView, avatarChoice, homeNavigation, homeCreation };
-  for (const [name, scenario] of Object.entries(scenarios)) {
-    try { await scenario(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-    finally { await dispose(); }
-  }
+  const results = await runScenarios(Object.entries(scenarios), dispose);
   return results;
 }
 

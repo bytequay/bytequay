@@ -15,10 +15,10 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge } from '../../../types';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import ReviewFindingCard from '../ReviewFindingCard';
 import { useFindingActions } from '../useFindingActions';
-import { reviewFixture } from './review';
+import { reviewDraftFixture, reviewFixture } from './review';
 import type { ReviewFindingDto } from '../contracts';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
@@ -29,9 +29,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const other: ReviewFindingDto = { ...finding, id: 'other-finding', label: 'F-2', body: 'Describe the provider scope.' };
   const originalFindings = JSON.stringify([finding, other]);
   const originalBody = `Thanks for the change.\n\n${finding.title}\n\n${finding.body}\n\n${other.title}\n\n${other.body}\n\nMy own closing note.`;
-  let saved = reviewFixture({ findings: [finding, other], messages: [], draft: {
-    repo: 'trinodb/trino', number: 30304, body: originalBody, event: 'APPROVE', items: [], reviewPublication: null, postedSummaryFindingIds: [], version: 4, updatedAt: finding.updatedAt,
-  } });
+  let saved = reviewFixture({ findings: [finding, other], messages: [], draft: reviewDraftFixture({ body: originalBody, event: 'APPROVE', version: 4, updatedAt: finding.updatedAt }) });
   const requests: Parameters<Bridge['saveReviewDraft']>[] = [];
   const completions: Array<(failure?: Error) => void> = [];
   const previous = window.bridge;
@@ -71,14 +69,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       viewerLogin="reviewer" viewerAvatarUrl={null} actions={actions} busy={busy} />;
   }
   const { host, root, dispose } = createFixtureRoot();
-  const button = (text: string) => {
-    const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
-    assert(value !== undefined, `Missing ${text} button`);
-    return value;
-  };
+  const button = (text: string) => textButton(text, host);
   const input = () => {
-    const value = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Review summary text"]');
-    assert(value !== null, 'Edit must open the review summary composer');
+    const value = fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Review summary text"]', host, 'Edit must open the review summary composer');
     return value;
   };
   const write = async (text: string) => { changeInput(input(), text); await settle(); };

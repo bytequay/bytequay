@@ -13,9 +13,8 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { pr as pullRequest } from './fixtures/pullRequest';
+import { timelineActivity, timelineComment, pr as pullRequest } from './fixtures/pullRequest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
-import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { parseUnifiedDiff } from '../diffParse';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewFixture } from './agent-review/fixtures/review';
@@ -69,18 +68,11 @@ function reviewComment(overrides: Partial<InlineReviewCommentDto> = {}): InlineR
 }
 
 function reviewActivity(id: number, body: string, payload: Partial<PullTimelinePayloadDto> = {}): PullRequestDetailDto['recentActivity'][number] {
-  return {
-    actor: 'bob', eventType: 'review_thread', timestamp: '2026-08-25T10:00:00Z', body: null, githubId: id,
-    payload: {
-      ...EMPTY_TIMELINE_PAYLOAD,
+  return timelineActivity({ timestamp: '2026-08-25T10:00:00Z', githubId: id }, {
       path: file.filename, diffHunk: file.patch, line: 96, originalLine: 96, side: 'RIGHT',
-      comments: [{
-        githubId: id, actor: 'bob', actorAvatarUrl: 'https://example.com/bob.png', actorBot: false,
-        timestamp: '2026-08-25T10:00:00Z', body, htmlUrl: null, reviewId: 9, inReplyToId: null, reactions: [],
-      }],
+      comments: [timelineComment({ githubId: id, actorAvatarUrl: 'https://example.com/bob.png', timestamp: '2026-08-25T10:00:00Z', body })],
       ...payload,
-    },
-  };
+    });
 }
 
 function reviewThreads(activities: PullRequestDetailDto['recentActivity']): NonNullable<DiffViewerProps['reviewThreads']> {

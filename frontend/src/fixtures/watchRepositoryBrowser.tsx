@@ -21,7 +21,7 @@ import '../css/base.css';
 import '../css/modals.css';
 import AgentReviewTab from '../pulls/agent-review/AgentReviewTab';
 import type { PullRequestDetailDto, RepositorySearchResultDto, WatchRepositoryCommand, WatchRepositoryPreviewDto, WatchRepositoryTopology, WorkspaceDto } from '../types';
-import { assert, settle } from './harness';
+import { assert, settle, element as requiredElement } from './harness';
 
 const repository = { owner: 'octocat', repo: 'project' };
 const result: RepositorySearchResultDto = {
@@ -65,8 +65,7 @@ export async function run(): Promise<string[]> {
     onClose={() => { closes++; root.render(null); }}
   />));
   const click = async (selector: string) => {
-    const element = host.querySelector<HTMLElement>(selector);
-    assert(element !== null, `Missing ${selector}`);
+    const element = requiredElement<HTMLElement>(selector, host, `Missing ${selector}`);
     element.click();
     await settle();
   };
@@ -198,8 +197,7 @@ export async function runStrategies(): Promise<string[]> {
   } satisfies Partial<Window['bridge']> });
   const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const click = async (selector: string) => {
-    const element = host.querySelector<HTMLElement>(selector);
-    assert(element !== null, `Missing ${selector}`);
+    const element = requiredElement<HTMLElement>(selector, host, `Missing ${selector}`);
     element.click();
     await settle();
   };

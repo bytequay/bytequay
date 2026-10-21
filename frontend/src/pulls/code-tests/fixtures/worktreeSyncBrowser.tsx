@@ -20,7 +20,7 @@ import type { AgentReviewDto } from '../../agent-review/contracts';
 import type { PullRequestDetailDto } from '../../../types';
 import type { IdeContext, IdeEvent } from '../../../ide/contracts';
 import { reviewFixture, runningReviewFixture } from '../../agent-review/fixtures/review';
-import { assert, settle } from '../../../fixtures/harness';
+import { textButton, assert, settle } from '../../../fixtures/harness';
 import { parseAgentTask } from '../../../agents/contracts';
 import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import '../../../css/base.css';
@@ -59,10 +59,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     return <CodeTestsTab workspaceId="workspace-1" review={taskHost ? null : review} task={taskHost ? task : null}
       onReviewChange={() => {}} active={active} ownReviewStream={false} bridge={bridge} />;
   }
-  const click = (label: string) => {
-    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === label);
-    assert(button !== undefined, `Missing ${label} button`); button.click();
-  };
+  const click = (label: string) => textButton(label, host).click();
   try {
     flushSync(() => root.render(<Harness />)); await settle();
     assert(checks === 0 && starts === 0, 'A hidden tab must not connect or start tools');

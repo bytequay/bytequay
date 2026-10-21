@@ -13,7 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 import { DiscussionComposer } from '../PullOverview';
 
 export async function run(): Promise<string> {
@@ -26,8 +26,7 @@ export async function run(): Promise<string> {
   const rejected = (event: PromiseRejectionEvent) => { event.preventDefault(); unhandled.push(event.reason); };
   window.addEventListener('unhandledrejection', rejected);
   const editor = () => {
-    const input = host.querySelector('textarea');
-    assert(input !== null, 'The comment draft must be visible');
+    const input = fixtureElement<HTMLTextAreaElement>('textarea', host, 'The comment draft must be visible');
     return input;
   };
   const click = async (label: string) => {

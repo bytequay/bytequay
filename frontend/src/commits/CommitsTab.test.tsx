@@ -26,6 +26,11 @@ import CommitsTab, {
   selectableCommitSources,
 } from './CommitsTab';
 
+function renderCommits(props: Partial<Parameters<typeof CommitsBrowser>[0]> = {}): string {
+  return renderToStaticMarkup(<CommitsBrowser workspace={workspace()} settings={directSettings}
+    onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} {...props} />);
+}
+
 describe('workspace commits tab', () => {
   it('waits for the saved target before reading history or offering cherry-pick', () => {
     const html = renderToStaticMarkup(<CommitsTab workspace={workspace()}
@@ -37,13 +42,7 @@ describe('workspace commits tab', () => {
   });
 
   it('keeps the workspace branch separate from the remote source switcher', () => {
-    const html = renderToStaticMarkup(<CommitsBrowser
-      workspace={workspace()}
-      settings={directSettings}
-      onSourceSelectionChange={() => {}}
-      onOpenPullRequest={() => {}}
-      onOpenSettings={() => {}}
-    />);
+    const html = renderCommits();
 
     expect(html).toContain('cmt-switch__label cmt-mono">Select source</span>');
     expect(html).toContain('Choose a remote source for history and cherry-pick');
@@ -72,14 +71,9 @@ describe('workspace commits tab', () => {
   });
 
   it('keeps a remembered remote source while validating it', () => {
-    const html = renderToStaticMarkup(<CommitsBrowser
-      workspace={workspace()}
-      settings={directSettings}
-      initialSourceSelection={{ source: 'oss' }}
-      onSourceSelectionChange={() => {}}
-      onOpenPullRequest={() => {}}
-      onOpenSettings={() => {}}
-    />);
+    const html = renderCommits({
+      initialSourceSelection: { source: 'oss' },
+    });
 
     expect(html).toContain('cmt-switch__label cmt-mono">oss · ');
     expect(html).toContain('class="cmt-switch__half" title="Read history and cherry-pick from oss · ');
@@ -96,13 +90,10 @@ describe('workspace commits tab', () => {
       topology: 'FORK',
     };
     const targetBranch = overridden ? 'release/479' : 'master';
-    const html = renderToStaticMarkup(<CommitsBrowser
-      workspace={linked}
-      settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: targetBranch, overridden } }}
-      onSourceSelectionChange={() => {}}
-      onOpenPullRequest={() => {}}
-      onOpenSettings={() => {}}
-    />);
+    const html = renderCommits({
+      workspace: linked,
+      settings: { ...directSettings, commitsTarget: { remote: 'upstream', branch: targetBranch, overridden } },
+    });
 
     expect(html).toMatch(new RegExp(`class="cmt-switch__half is-active"[^>]*title="Cherry-pick target: upstream/project · upstream/${targetBranch}"[^>]*aria-pressed="true"`));
     expect(html).toContain('class="cmt-switch__half" title="Read history and cherry-pick from upstream · master"');
@@ -115,13 +106,7 @@ describe('workspace commits tab', () => {
   });
 
   it('uses the existing Lucide icons throughout the commit toolbar', () => {
-    const html = renderToStaticMarkup(<CommitsBrowser
-      workspace={workspace()}
-      settings={directSettings}
-      onSourceSelectionChange={() => {}}
-      onOpenPullRequest={() => {}}
-      onOpenSettings={() => {}}
-    />);
+    const html = renderCommits();
 
     expect(html).toContain('lucide-refresh-cw');
     expect(html).toContain('lucide-search');
@@ -145,23 +130,20 @@ describe('workspace commits tab', () => {
     { initialSourceSelection: { source: 'upstream' } },
     { initialRepo: 'workspace' as const },
   ])('opens the selected target when the source browser is inactive: %j', selection => {
-    const html = renderToStaticMarkup(<CommitsBrowser
-      workspace={{ ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' }}
-      settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: 'master', overridden: false } }}
-      {...selection}
-      onSourceSelectionChange={() => {}}
-      onOpenPullRequest={() => {}}
-      onOpenSettings={() => {}}
-    />);
+    const html = renderCommits({
+      workspace: { ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' },
+      settings: { ...directSettings, commitsTarget: { remote: 'upstream', branch: 'master', overridden: false } },
+      ...selection,
+    });
 
     expect(html).not.toContain('read-only');
     expect(html).toMatch(/class="cmt-switch__half is-active"[^>]*aria-pressed="true"/);
   });
 
   it('uses the direct repository target branch without an upstream prefix', () => {
-    const html = renderToStaticMarkup(<CommitsBrowser workspace={workspace()}
-      settings={{ ...directSettings, commitsTarget: { remote: 'origin', branch: 'release/1', overridden: true } }}
-      onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
+    const html = renderCommits({
+      settings: { ...directSettings, commitsTarget: { remote: 'origin', branch: 'release/1', overridden: true } },
+    });
 
     expect(html).toContain('title="Cherry-pick target: example/project · release/1"');
     expect(html).toContain('cmt-switch__label cmt-mono">project · release/1</span>');
@@ -169,10 +151,11 @@ describe('workspace commits tab', () => {
   });
 
   it('opens the source for a cherry-pick while retaining a separate configured destination', () => {
-    const html = renderToStaticMarkup(<CommitsBrowser
-      workspace={{ ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' }}
-      settings={{ ...directSettings, commitsTarget: { remote: 'upstream', branch: 'release/479', overridden: true } }}
-      initialRepo="upstream" onSourceSelectionChange={() => {}} onOpenPullRequest={() => {}} onOpenSettings={() => {}} />);
+    const html = renderCommits({
+      workspace: { ...workspace(), upstreamRepositoryId: 200, upstreamDefaultBranch: 'master', topology: 'FORK' },
+      settings: { ...directSettings, commitsTarget: { remote: 'upstream', branch: 'release/479', overridden: true } },
+      initialRepo: "upstream",
+    });
 
     expect(html).toMatch(/class="cmt-switch__half is-active"[^>]*title="Read history and cherry-pick from upstream · /);
     expect(html).toContain('cmt-switch__label cmt-mono">example/project · release/479</span>');

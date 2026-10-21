@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge } from '../../../types';
 import type { ReviewCardFocus } from '../../../agents/ReviewRequestCard';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
 import { explanationRunFixture, reviewFixture } from './review';
@@ -60,8 +60,7 @@ export async function run() {
       onSelectCommit={(sha, snapshot) => diffs.push(`${sha}:${snapshot?.headSha}`)} />;
   }
   const refresh = () => {
-    const button = host.querySelector<HTMLButtonElement>('[aria-label="Refresh change intention and commit summaries"]');
-    assert(button !== null, 'Refresh must be a labeled native button');
+    const button = fixtureElement<HTMLButtonElement>('[aria-label="Refresh change intention and commit summaries"]', host, 'Refresh must be a labeled native button');
     return button;
   };
   try {

@@ -19,7 +19,7 @@ import type { WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import SettingsWindow from '../SettingsWindow';
 import '../../css/base.css';
 import '../../css/settings-window.css';
-import { assert, changeInput } from '../../fixtures/harness';
+import { assert, changeInput, element } from '../../fixtures/harness';
 
 const settle = () => new Promise<void>(resolve => setTimeout(() => requestAnimationFrame(() => resolve()), 0));
 
@@ -133,15 +133,13 @@ function fixture(reads: string[], onExit: () => void = () => {}, section: 'ws-re
     },
     menu: () => host.querySelector<HTMLElement>('.setw-menu'),
     async type(label: string, value: string) {
-      const input = host.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`);
-      assert(input !== null, `Input ${label} must be available`);
+      const input = element<HTMLInputElement>(`input[aria-label="${label}"]`, host, `Input ${label} must be available`);
       changeInput(input, value);
       await settle();
     },
     /** Drags the sidebar's right edge the way a person would. */
     async dragBoundary(byPixels: number) {
-      const handle = host.querySelector('.app-sidebar__resize');
-      assert(handle !== null, 'The sidebar must have a resize handle');
+      const handle = element('.app-sidebar__resize', host, 'The sidebar must have a resize handle');
       const from = handle.getBoundingClientRect().left;
       handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientX: from }));
       window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: from + byPixels }));
@@ -282,10 +280,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(view.host.querySelector('.app-sidebar__resize') !== null, 'The shared resize handle must be present');
 
     // The pane scrolls inside .app-content rather than pushing past it.
-    const pane = view.host.querySelector('.setw-scroll');
-    assert(pane !== null, 'The settings content pane must be present');
-    const content = view.host.querySelector('.app-content');
-    assert(content !== null, 'Settings must sit in the shell content area');
+    const pane = element('.setw-scroll', view.host, 'The settings content pane must be present');
+    const content = element('.app-content', view.host, 'Settings must sit in the shell content area');
     assert(
       Math.round(pane.getBoundingClientRect().bottom) <= Math.round(content.getBoundingClientRect().bottom),
       'The settings pane must not overflow the content area',

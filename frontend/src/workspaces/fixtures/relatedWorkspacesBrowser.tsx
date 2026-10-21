@@ -19,7 +19,7 @@ import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { relatedWorkspaceRoute, workspaceRoute } from '../model';
 import type { Bridge, WorkspaceDto, WorkspaceRelationshipDto } from '../../types';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import '../../index.css';
 import '../../css/settings-window.css';
 
@@ -76,8 +76,7 @@ async function settingsScenario() {
     await click('Apache Iceberg');
     assert(button('Dependency').getAttribute('aria-checked') === 'false', 'Type requires an explicit choice');
     await click('Dependency');
-    const guidance = view.host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(guidance !== null, 'Guidance input');
+    const guidance = element<HTMLTextAreaElement>('textarea', view.host, 'Guidance input');
     changeInput(guidance, 'For connector behavior, read Iceberg. Version is in pom.xml.');
     await settle();
     view.reject(true);
@@ -97,8 +96,7 @@ async function settingsScenario() {
     assert(!row.open, 'Clicking again folds its links');
     await click('Edit Apache Iceberg');
     await click('Fork');
-    const backport = view.host.querySelector<HTMLInputElement>('input[type="checkbox"]');
-    assert(backport !== null, 'Fork exposes a default backport source');
+    const backport = element<HTMLInputElement>('input[type="checkbox"]', view.host, 'Fork exposes a default backport source');
     backport.click(); await settle();
     await click('Save');
     assert(view.host.textContent?.includes('Default backport source → Trino'), 'Default backport direction is saved and shown');

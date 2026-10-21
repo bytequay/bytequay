@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import ReviewComments from '../ReviewComments';
 import { reviewCommentCards, type ReviewCommentTarget } from '../reviewCommentModel';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/pulls.css';
 import '../../css/agent-review.css';
@@ -40,7 +40,7 @@ export async function run() {
       onComment={() => { composed = true; }} onClose={() => { closed = true; }} />
   </div>));
   const click = async (selector: string) => {
-    const button = host.querySelector<HTMLButtonElement>(selector); assert(button !== null, `Missing ${selector}`);
+    const button = element<HTMLButtonElement>(selector, host, `Missing ${selector}`);
     flushSync(() => button.click()); await settle();
   };
   const count = () => host.querySelectorAll('[data-comment-id]').length;
@@ -60,12 +60,12 @@ export async function run() {
   assert(count() === 0 && host.textContent?.includes('No review comments in this file.'), 'Files without comments have an empty state');
   selectedPath = null; render(); await settle();
   assert(host.textContent?.includes('Select a file'), 'No editor selection has a useful empty state');
-  const tab = host.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]'); assert(tab !== null, 'A tab is selected');
+  const tab = element<HTMLButtonElement>('[role="tab"][aria-selected="true"]', host, 'A tab is selected');
   tab.focus(); flushSync(() => tab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))); await settle();
   assert(count() === cards.length && document.activeElement?.getAttribute('aria-selected') === 'true', 'Arrow keys select and focus the other tab');
-  const panel = host.querySelector('aside'); assert(panel !== null, 'Panel is visible');
+  const panel = element<HTMLElementTagNameMap['aside']>('aside', host, 'Panel is visible');
   panel.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); assert(closed, 'Escape closes the comment panel');
-  const list = host.querySelector<HTMLElement>('.ide-comments__list'); assert(list !== null, 'Cards have a scrollable list');
+  const list = element<HTMLElement>('.ide-comments__list', host, 'Cards have a scrollable list');
   assert(list.scrollHeight > list.clientHeight && getComputedStyle(list).overflowY === 'auto', 'Long review lists scroll inside the panel');
   assert(list.getBoundingClientRect().right <= window.innerWidth, 'Cards stay within the editor viewport');
   failed = false; await click('.ide-comments__jump');

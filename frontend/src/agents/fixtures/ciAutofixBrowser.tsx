@@ -19,7 +19,7 @@ import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 
 function pressEnter(input: HTMLTextAreaElement) { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
 
@@ -84,8 +84,7 @@ async function ciReplyAndOwnership(steering = false): Promise<{ name: string; er
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    const sourceInput = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(sourceInput !== null, 'Source composer must remain visible during CI');
+    const sourceInput = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'Source composer must remain visible during CI');
     changeInput(sourceInput, 'Continue development later');
     await settle();
     pressEnter(sourceInput);
@@ -267,8 +266,7 @@ async function finishedCiRouting(): Promise<{ name: string; error?: string }> {
     assert(runReads === 0, 'Finished CI must not start another recovery poll');
     assert(!host.textContent?.includes('View CI Autofix history') && !host.textContent?.includes('Previous CI Autofix run'), 'Finished CI must not add history controls or summaries');
     assert(!host.textContent?.includes(task.developmentCi?.summary ?? 'missing summary'), 'The removed CI run summary must not remain above the composer');
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(input !== null, 'A completed CI run must leave the source composer available');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'A completed CI run must leave the source composer available');
     changeInput(input, '@');
     await settle();
     const option = host.querySelector<HTMLButtonElement>('[role="option"]');
@@ -322,8 +320,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(input !== null, 'Source composer must remain available for drafting');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'Source composer must remain available for drafting');
     changeInput(input, 'Please @ci continue after this delivery');
     await settle();
     assert(host.querySelector('.agt-automation-progress__pill')?.textContent === 'Automation active', 'Historical green must not label a new continuation CI passed');
@@ -369,8 +366,7 @@ async function deleteReferences(): Promise<{ name: string; error?: string }> {
     selection={null} draft="" blocker="No model" onDraftChange={() => {}} onSelectProvider={() => {}} onSelectModel={() => {}}
     onCreate={() => {}} onOpenTask={() => {}} onDelete={async () => { deleted = true; }} />));
   try {
-    const remove = host.querySelector<HTMLButtonElement>('button[aria-label="Delete task: CI delivery task"]');
-    assert(remove !== null, 'Settled source task must offer Delete');
+    const remove = element<HTMLButtonElement>('button[aria-label="Delete task: CI delivery task"]', host, 'Settled source task must offer Delete');
     remove.click();
     await settle();
     const dialog = document.querySelector('dialog');

@@ -22,7 +22,7 @@ import type { AgentEventEnvelope } from '../events';
 import { agentTaskReducer, historyAfter, historyBefore, initialAgentTaskState } from '../model';
 import { projectTranscript } from '../transcript';
 import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBridge';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, element, runScenarios } from '../../fixtures/harness';
 
 declare global {
   interface Window {
@@ -162,11 +162,9 @@ async function longCommandConversation(): Promise<void> {
   try {
     flushSync(() => root.render(<Conversation />));
     await settle();
-    const container = host.querySelector<HTMLElement>('.agt-transcript');
-    assert(container !== null, 'The production task transcript is missing');
+    const container = element<HTMLElement>('.agt-transcript', host, 'The production task transcript is missing');
     assert(container.scrollHeight > container.clientHeight + 400, 'The production CSS must constrain and scroll the transcript');
-    const composer = host.querySelector<HTMLElement>('.agt-compose-dock');
-    assert(composer !== null, 'The production task composer is missing');
+    const composer = element<HTMLElement>('.agt-compose-dock', host, 'The production task composer is missing');
     const composerTop = composer.getBoundingClientRect().top;
     assert(composerTop >= host.getBoundingClientRect().top && composer.getBoundingClientRect().bottom <= host.getBoundingClientRect().bottom,
       'A long transcript must leave the composer inside the task viewport');
@@ -195,8 +193,7 @@ async function longCommandConversation(): Promise<void> {
     assert(retainedPassage !== undefined && Math.abs(retainedPassage.getBoundingClientRect().top - readingTop) <= 1, 'Loading earlier command output must keep the current commentary passage in place');
     container.scrollTop = 0;
     await settle();
-    const firstParagraph = container.querySelector<HTMLElement>('.agt-text p');
-    assert(firstParagraph !== null, 'The first commentary should remain in the completed task');
+    const firstParagraph = element<HTMLElement>('.agt-text p', container, 'The first commentary should remain in the completed task');
     const topBeforeLoading = firstParagraph.getBoundingClientRect().top;
     await wheel(-120);
     assert(requests.join() === 'older,older', 'An upward mouse wheel at the top should request the next older page');
@@ -422,8 +419,7 @@ async function sendsWhileOlderHistoryLoads(): Promise<void> {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace" taskId={task.id} bridge={bridge} onBack={() => {}} />));
     await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]') !== null
       && host.textContent?.includes('Message 5000') === true, 'The task should load its latest history');
-    const container = host.querySelector<HTMLElement>('.agt-transcript');
-    assert(container !== null, 'The transcript must exist');
+    const container = element<HTMLElement>('.agt-transcript', host, 'The transcript must exist');
     const scrollOlder = (): void => {
       container.scrollTop = 0;
       container.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));
@@ -433,8 +429,7 @@ async function sendsWhileOlderHistoryLoads(): Promise<void> {
       'Paging earlier should leave the latest history window');
     scrollOlder();
     await until(() => olderReply !== null, 'Another older history request should remain in flight');
-    const input = host.querySelector<HTMLTextAreaElement>('[aria-label="Message the agent"]');
-    assert(input !== null, 'The composer must exist while reading history');
+    const input = element<HTMLTextAreaElement>('[aria-label="Message the agent"]', host, 'The composer must exist while reading history');
     changeInput(input, 'Continue from the latest result');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('[aria-label="Send message"]');
@@ -493,114 +488,110 @@ async function trailingNoticeKeepsRequestAtTop(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  const check = async (name: string, test: () => Promise<void>): Promise<void> => {
-    try { await test(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  };
-  await check('keeps the current passage when scrolling continues during an older-page request', async () => {
-    const view = fixture();
-    try {
-      await view.moveTo(300);
-      assert(view.requests.join() === 'older', 'Scrolling near the top should request one older page');
-      await view.update({ loading: true });
-      await view.moveTo(180);
-      const passage = view.passage();
-      await view.update({ events: page(21, 50), loading: false, after: 'newer' });
-      const movement = view.passage(passage.line).top - passage.top;
-      assert(Math.abs(movement) <= 1, `The passage moved ${movement}px after prepend and eviction`);
-    }
-    finally { view.dispose(); }
-  });
-  await check('uses a surviving visible passage when a newer page replaces the top anchor', async () => {
-    const view = fixture({ events: page(1, 30), before: null, after: 'newer' });
-    try {
-      await settle();
-      const passage = view.passage('28-0');
-      await view.wheel(1);
-      assert(view.requests.join() === 'newer', 'Scrolling at the bottom should request a newer page');
-      await view.update({ loading: true });
-      // Reprojecting a split activity group can change its anchor while later messages survive.
-      await view.update({ events: page(11, 40), loading: false, before: 'older', changedAnchor: 26 });
-      const movement = view.passage(passage.line).top - passage.top;
-      assert(Math.abs(movement) <= 1, `The surviving passage moved ${movement}px after newer-page eviction`);
-    }
-    finally { view.dispose(); }
-  });
-  await check('preserves completed history through repeated adjacent page changes', async () => {
-    const view = fixture({ endedAt: '2026-09-08T01:00:00Z' });
-    try {
-      for (const first of [21, 11]) {
-        await view.moveTo(250);
+  return runScenarios([
+    ['keeps the current passage when scrolling continues during an older-page request', async () => {
+      const view = fixture();
+      try {
+        await view.moveTo(300);
+        assert(view.requests.join() === 'older', 'Scrolling near the top should request one older page');
         await view.update({ loading: true });
+        await view.moveTo(180);
         const passage = view.passage();
-        await view.update({ events: page(first, first + 29), loading: false, after: 'newer' });
+        await view.update({ events: page(21, 50), loading: false, after: 'newer' });
         const movement = view.passage(passage.line).top - passage.top;
-        assert(Math.abs(movement) <= 1, `Completed history moved ${movement}px at page ${first}`);
+        assert(Math.abs(movement) <= 1, `The passage moved ${movement}px after prepend and eviction`);
       }
-    }
-    finally { view.dispose(); }
-  });
-  await check('stops following on a small upward scroll and only resumes at the bottom', async () => {
-    const view = fixture({ before: null });
-    try {
-      await settle();
-      const bottom = view.container.scrollTop;
-      await view.moveTo(bottom - 20);
-      assert(!view.following(), 'An upward wheel gesture should stop following');
-      await view.update({ events: page(31, 60), endedAt: '2026-09-08T01:00:00Z' });
-      assert(!view.following(), 'A layout update within 32px of the bottom must not resume following');
-      assert(view.container.scrollTop === bottom - 20, 'Completion should retain the user scroll position');
-      await view.moveTo(bottom - 10);
-      assert(!view.following(), 'Scrolling down within 32px must not snap the remaining distance');
-      await view.moveTo(bottom);
-      assert(view.following(), 'Reaching the bottom should resume following');
-    }
-    finally { view.dispose(); }
-  });
-  await check('keeps the pending page anchor when the turn completes before the response', async () => {
-    const view = fixture();
-    try {
-      await view.moveTo(300);
-      await view.update({ endedAt: '2026-09-08T01:00:00Z' });
-      await view.moveTo(180);
-      const passage = view.passage();
-      await view.update({ events: page(21, 50), loading: false, after: 'newer' });
-      const movement = view.passage(passage.line).top - passage.top;
-      assert(Math.abs(movement) <= 1, `Completion lost the pending anchor and moved the passage ${movement}px`);
-    }
-    finally { view.dispose(); }
-  });
-  await check('allows another page request after a failed read', async () => {
-    const view = fixture();
-    try {
-      await view.moveTo(300);
-      await view.update({ loading: false });
-      await view.moveTo(180);
-      assert(view.requests.join() === 'older,older', 'A failed page read must not block a subsequent scroll request');
-      const passage = view.passage();
-      await view.update({ events: page(21, 50), loading: false, after: 'newer' });
-      const movement = view.passage(passage.line).top - passage.top;
-      assert(Math.abs(movement) <= 1, `The retry used an old anchor and moved the passage ${movement}px`);
-    }
-    finally { view.dispose(); }
-  });
-  await check('does not resume following when reversing to the bottom during a page request', async () => {
-    const view = fixture();
-    try {
-      const bottom = view.container.scrollTop;
-      await view.moveTo(300);
-      await view.moveTo(bottom);
-      assert(!view.following(), 'Reversing direction must not resume following while an older page is pending');
-      assert(view.requests.join() === 'older', 'Reversing direction must not start a competing page request');
-    }
-    finally { view.dispose(); }
-  });
-  await check('keeps production task messages when paging through thousands of command deltas', longCommandConversation);
-  await check('puts a new request at the top with room for its reply', latestRequestAtTop);
-  await check('keeps a new request at the top while a trailing notice comes and goes', trailingNoticeKeepsRequestAtTop);
-  await check('shows a sent message at once and glides it to the top', sentMessageGlidesToTop);
-  await check('shows Send immediately while an older history read is in flight', sendsWhileOlderHistoryLoads);
-  await check('streams output to someone reading earlier without moving them', streamsWhileReadingEarlier);
-  return results;
+      finally { view.dispose(); }
+    }],
+    ['uses a surviving visible passage when a newer page replaces the top anchor', async () => {
+      const view = fixture({ events: page(1, 30), before: null, after: 'newer' });
+      try {
+        await settle();
+        const passage = view.passage('28-0');
+        await view.wheel(1);
+        assert(view.requests.join() === 'newer', 'Scrolling at the bottom should request a newer page');
+        await view.update({ loading: true });
+        // Reprojecting a split activity group can change its anchor while later messages survive.
+        await view.update({ events: page(11, 40), loading: false, before: 'older', changedAnchor: 26 });
+        const movement = view.passage(passage.line).top - passage.top;
+        assert(Math.abs(movement) <= 1, `The surviving passage moved ${movement}px after newer-page eviction`);
+      }
+      finally { view.dispose(); }
+    }],
+    ['preserves completed history through repeated adjacent page changes', async () => {
+      const view = fixture({ endedAt: '2026-09-08T01:00:00Z' });
+      try {
+        for (const first of [21, 11]) {
+          await view.moveTo(250);
+          await view.update({ loading: true });
+          const passage = view.passage();
+          await view.update({ events: page(first, first + 29), loading: false, after: 'newer' });
+          const movement = view.passage(passage.line).top - passage.top;
+          assert(Math.abs(movement) <= 1, `Completed history moved ${movement}px at page ${first}`);
+        }
+      }
+      finally { view.dispose(); }
+    }],
+    ['stops following on a small upward scroll and only resumes at the bottom', async () => {
+      const view = fixture({ before: null });
+      try {
+        await settle();
+        const bottom = view.container.scrollTop;
+        await view.moveTo(bottom - 20);
+        assert(!view.following(), 'An upward wheel gesture should stop following');
+        await view.update({ events: page(31, 60), endedAt: '2026-09-08T01:00:00Z' });
+        assert(!view.following(), 'A layout update within 32px of the bottom must not resume following');
+        assert(view.container.scrollTop === bottom - 20, 'Completion should retain the user scroll position');
+        await view.moveTo(bottom - 10);
+        assert(!view.following(), 'Scrolling down within 32px must not snap the remaining distance');
+        await view.moveTo(bottom);
+        assert(view.following(), 'Reaching the bottom should resume following');
+      }
+      finally { view.dispose(); }
+    }],
+    ['keeps the pending page anchor when the turn completes before the response', async () => {
+      const view = fixture();
+      try {
+        await view.moveTo(300);
+        await view.update({ endedAt: '2026-09-08T01:00:00Z' });
+        await view.moveTo(180);
+        const passage = view.passage();
+        await view.update({ events: page(21, 50), loading: false, after: 'newer' });
+        const movement = view.passage(passage.line).top - passage.top;
+        assert(Math.abs(movement) <= 1, `Completion lost the pending anchor and moved the passage ${movement}px`);
+      }
+      finally { view.dispose(); }
+    }],
+    ['allows another page request after a failed read', async () => {
+      const view = fixture();
+      try {
+        await view.moveTo(300);
+        await view.update({ loading: false });
+        await view.moveTo(180);
+        assert(view.requests.join() === 'older,older', 'A failed page read must not block a subsequent scroll request');
+        const passage = view.passage();
+        await view.update({ events: page(21, 50), loading: false, after: 'newer' });
+        const movement = view.passage(passage.line).top - passage.top;
+        assert(Math.abs(movement) <= 1, `The retry used an old anchor and moved the passage ${movement}px`);
+      }
+      finally { view.dispose(); }
+    }],
+    ['does not resume following when reversing to the bottom during a page request', async () => {
+      const view = fixture();
+      try {
+        const bottom = view.container.scrollTop;
+        await view.moveTo(300);
+        await view.moveTo(bottom);
+        assert(!view.following(), 'Reversing direction must not resume following while an older page is pending');
+        assert(view.requests.join() === 'older', 'Reversing direction must not start a competing page request');
+      }
+      finally { view.dispose(); }
+    }],
+    ['keeps production task messages when paging through thousands of command deltas', longCommandConversation],
+    ['puts a new request at the top with room for its reply', latestRequestAtTop],
+    ['keeps a new request at the top while a trailing notice comes and goes', trailingNoticeKeepsRequestAtTop],
+    ['shows a sent message at once and glides it to the top', sentMessageGlidesToTop],
+    ['shows Send immediately while an older history read is in flight', sendsWhileOlderHistoryLoads],
+    ['streams output to someone reading earlier without moving them', streamsWhileReadingEarlier],
+  ]);
 }

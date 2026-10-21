@@ -21,7 +21,7 @@ import RecentPalette from '../RecentPalette';
 import { isoDay, parseDay, shiftDay } from '../model';
 import { recentItemTarget } from '../routes';
 import { useRecentTouch } from '../useRecentTouch';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 
 type DayPage = Awaited<ReturnType<Window['bridge']['fetchRecent']>>;
 type Pending = { query: RecentFilterQuery; resolve: (page: DayPage) => void; reject: (error: Error) => void };
@@ -55,8 +55,7 @@ function fixture(active = true) {
   const root = createRoot(host);
   const render = () => flushSync(() => root.render(<RecentPage active={active} onOpenRow={row => openedTargets.push(recentItemTarget(row))} />));
   render();
-  const stream = host.querySelector<HTMLElement>('.rc-stream');
-  assert(stream !== null, 'Recent stream is missing');
+  const stream = element<HTMLElement>('.rc-stream', host, 'Recent stream is missing');
   return {
     host, stream, requests, metadataReads, openedTargets,
     requestCount: () => requests.length,
@@ -190,8 +189,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   });
   await check('debounces typing into a single trimmed query', async view => {
     await view.resolve(0, dayPage(today));
-    const input = view.host.querySelector<HTMLInputElement>('input[type="search"]');
-    assert(input !== null, 'Search input is missing');
+    const input = element<HTMLInputElement>('input[type="search"]', view.host, 'Search input is missing');
     for (const text of ['m', 'mem', ' memory ']) {
       changeInput(input, text);
       await delay(40);

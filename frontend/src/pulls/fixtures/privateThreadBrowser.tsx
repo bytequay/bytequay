@@ -13,7 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
-import { prDetail } from './pullRequest';
+import { timelineActivity, timelineComment, prDetail } from './pullRequest';
 import '../../css/base.css';
 import '../../css/markdown-editor.css';
 import '../../css/pulls.css';
@@ -23,8 +23,7 @@ import { privateThreadSource } from '../PrivateThread';
 import { useTaskDiscussions, type DiscussionBridgePort } from '../../agents/discussions/useTaskDiscussions';
 import { SUMMARY_REQUEST, type AskCommentDiscussionRequest, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import type { Bridge } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
-import { EMPTY_TIMELINE_PAYLOAD } from '../model';
+import { element as fixtureElement, assert, settle } from '../../fixtures/harness';
 import { remotePullRequest } from '../PullsScreen';
 
 const AT = '2026-09-27T00:00:00Z';
@@ -34,12 +33,11 @@ const detail = prDetail({
   mergeable: null, mergeableState: null, author: 'alice', createdAt: AT, updatedAt: AT,
   body: 'Resolves owners.', deletions: 1,
   recentActivity: [
-    { actor: 'bob', eventType: 'reviewed', timestamp: AT, body: null, githubId: 50, payload: { ...EMPTY_TIMELINE_PAYLOAD, state: 'COMMENTED' } },
-    { actor: 'bob', eventType: 'review_thread', timestamp: AT, body: null, githubId: 70, payload: { ...EMPTY_TIMELINE_PAYLOAD,
+    timelineActivity({ eventType: 'reviewed', timestamp: AT, githubId: 50 }, { state: 'COMMENTED' }),
+    timelineActivity({ timestamp: AT, githubId: 70 }, {
       path: 'src/Owner.java', line: 3, originalLine: 3, side: 'RIGHT',
-      comments: [{ githubId: ROOT, actor: 'bob', actorAvatarUrl: null, actorBot: false, timestamp: AT, body: 'Rename `helper` to `resolveOwner`.',
-        htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } },
-    { actor: 'alice', eventType: 'commented', timestamp: AT, body: 'Thanks, renaming it now.', githubId: 80, payload: EMPTY_TIMELINE_PAYLOAD },
+      comments: [timelineComment({ githubId: ROOT, timestamp: AT, body: 'Rename `helper` to `resolveOwner`.', reviewId: 50 })] }),
+    timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: AT, body: 'Thanks, renaming it now.', githubId: 80 }),
   ],
 });
 const pr = remotePullRequest(detail, 'alice');
@@ -131,8 +129,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await settle();
       assert(host.querySelector('.pr-private-forward') !== null && host.textContent?.includes('on bob’s comment · only the agent sees this') === true,
         'Ask agent must bring the private thread forward in place');
-      const field = host.querySelector<HTMLTextAreaElement>('[aria-label="Private question to the agent"]');
-      assert(field !== null, 'The private composer did not open');
+      const field = fixtureElement<HTMLTextAreaElement>('[aria-label="Private question to the agent"]', host, 'The private composer did not open');
       field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
       await settle();
       const request = asked[0];

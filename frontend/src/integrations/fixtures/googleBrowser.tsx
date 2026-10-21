@@ -18,7 +18,7 @@ import { useGoogle } from '@bytequay/google/renderer';
 import { GOOGLE_CHANGED, type GoogleChatState, type GoogleStatus } from '@bytequay/google/contracts';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../../githubReference';
 import type { Bridge } from '../../types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element, runScenarios } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/settings-window.css';
 
@@ -100,7 +100,6 @@ function ConnectionNavigation() {
 }
 
 export async function run() {
-  const results: { name: string; error?: string }[] = [];
   const scenarios: Record<string, () => Promise<void>> = {
     async 'sets up Gemini access without changing Google app consent'() {
       await mountPreview(true);
@@ -275,8 +274,8 @@ export async function run() {
       let sent = 0;
       window.bridge.sendGoogleMail = async request => { sent++; assert(request.profile === profile && request.replyId === 'mail-one' && request.to === 'maya@example.com', 'Reply binds account and original message'); return structuredClone(status); };
       button('Reply').click(); await settle();
-      const body = document.querySelector<HTMLTextAreaElement>('[aria-label="Email body"]');
-      assert(body !== null, 'Reply body exists'); changeInput(body, 'Thanks, see you then.'); await settle();
+      const body = element<HTMLTextAreaElement>('[aria-label="Email body"]', document, 'Reply body exists');
+      changeInput(body, 'Thanks, see you then.'); await settle();
       button('Review email').click(); await settle();
       assert(sent === 0 && document.querySelector('[aria-label="Confirm send"]') !== null, 'Review never sends');
       button('Send email').click(); await settle(); await settle();
@@ -289,8 +288,7 @@ export async function run() {
     },
     async 'sends prompts and displays Gemini responses in the page'() {
       await mountPreview();
-      const input = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Gemini"]');
-      assert(input !== null, 'Gemini composer exists');
+      const input = element<HTMLTextAreaElement>('[aria-label="Message Gemini"]', document, 'Gemini composer exists');
       button('Ask Gemini').click(); await settle();
       assert(document.querySelector('.google-chat__context')?.textContent === 'Design review for next week', 'Ask Gemini attaches the open email');
       changeInput(input, 'Has my booking been confirmed?'); await settle();
@@ -340,10 +338,7 @@ export async function run() {
       assert(!button('Reconnect').disabled, 'Cancelled operation releases controls');
     },
   };
-  for (const [name, scenario] of Object.entries(scenarios)) {
-    try { await scenario(); results.push({ name }); }
-    catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
-  }
+  const results = await runScenarios(Object.entries(scenarios));
   root?.unmount();
   return results;
 }

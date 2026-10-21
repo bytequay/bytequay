@@ -14,7 +14,7 @@
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import ReviewActivity from '../../pulls/agent-review/ReviewActivity';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
 import type { AgentPendingApprovalDto, AgentStreamMessage, AgentTaskDto, AgentTurnDto, Bridge } from '../../types';
@@ -89,8 +89,7 @@ async function exercise(surface: 'task' | 'review', verifyCaching: boolean) {
     await settle();
     assert(host.querySelectorAll('.agt-turn').length === 100, `${surface}: all 100 turns must render`);
     assert(payloadReads > 1000, `${surface}: historical payload instrumentation must observe initial projection`);
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(input !== null, `${surface}: composer is missing`);
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, `${surface}: composer is missing`);
     payloadReads = 0;
     const inputMilliseconds: number[] = [];
     const draft = 'Check ordering';
@@ -193,8 +192,7 @@ export async function sendProgress(): Promise<string> {
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={TASK_ID} bridge={bridge} onBack={() => {}} />));
     await until(() => host.textContent?.includes('Earlier answer') === true, 'The real task wrapper must load its history');
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(input !== null, 'The real task wrapper must render its composer');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'The real task wrapper must render its composer');
     changeInput(input, 'Check send progress');
     await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.disabled === false, 'The loaded task must be sendable');
     host.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();
@@ -264,8 +262,7 @@ export async function sendFailures(): Promise<{ name: string; error?: string }[]
     try {
       flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={TASK_ID} bridge={bridge} onBack={() => {}} />));
       await until(() => host.textContent?.includes('Earlier answer') === true, 'Load the task before testing submission failures');
-      const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-      assert(input !== null, 'The task composer must be mounted');
+      const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'The task composer must be mounted');
       changeInput(input, 'Check send failure');
       const send = () => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]');
       await until(() => send()?.disabled === false, 'The task must accept a message');
@@ -337,8 +334,7 @@ export async function firstMessageProgress(): Promise<string> {
     try {
       flushSync(() => root.render(<Creation />));
       await until(() => host.querySelector('textarea[aria-label="Describe a task"]') !== null, `${surface}: creation composer must load`);
-      const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
-      assert(input !== null, `${surface}: creation composer is missing`);
+      const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, `${surface}: creation composer is missing`);
       changeInput(input, 'Start the first task');
       await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send — creates the task"]')?.disabled === false,
         `${surface}: provider and automation settings must enable submission`);
@@ -391,8 +387,7 @@ export async function firstMessageFailures(): Promise<{ name: string; error?: st
     try {
       flushSync(() => root.render(<Creation />));
       await until(() => host.querySelector('textarea[aria-label="Describe a task"]') !== null, 'Load the new-task composer');
-      const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
-      assert(input !== null, 'The composer must exist');
+      const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'The composer must exist');
       changeInput(input, 'Check first-message recovery');
       await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send — creates the task"]')?.disabled === false, 'Enable the first send');
       host.querySelector<HTMLButtonElement>('[aria-label="Send — creates the task"]')?.click();
@@ -439,8 +434,7 @@ export async function sendAfterNavigation(): Promise<{ name: string; error?: str
     try {
       flushSync(() => root.render(screen()));
       await until(() => host.textContent?.includes('Earlier answer') === true, 'Load the first task mount');
-      const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-      assert(input !== null, 'The first composer must exist');
+      const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'The first composer must exist');
       changeInput(input, 'Message before navigation');
       await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.disabled === false, 'The task must accept a draft');
       host.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.click();

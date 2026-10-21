@@ -20,7 +20,7 @@ import type { LocalReviewThreadDto } from '../local-review/types';
 import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
 import { runArchivedCodeScenarios } from '../code-tests/fixtures/archivedCodeBrowser';
 import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 
 export const centre = (element: Element) => {
   const rect = element.getBoundingClientRect();
@@ -49,11 +49,6 @@ export async function realClick(target: Element, shift: boolean) {
   await realMouse('mouseUp', clientX, clientY + 1, modifiers);
 }
 
-function button(host: HTMLElement, text: string) {
-  const result = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
-  assert(result !== undefined, `Missing ${text} button`);
-  return result;
-}
 async function selectLine(host: HTMLElement, side: 'old' | 'new', line: number, shiftKey = false) {
   const target = host.querySelector<HTMLButtonElement>(`[aria-label="Select ${side} line ${line}"]`);
   assert(target !== null, `Missing ${side} line ${line} gutter`);
@@ -61,8 +56,7 @@ async function selectLine(host: HTMLElement, side: 'old' | 'new', line: number, 
   await settle();
 }
 async function writeComment(host: HTMLElement, body: string) {
-  const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-  assert(input !== null, 'Selecting a line must mount the shared Markdown composer');
+  const input = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'Selecting a line must mount the shared Markdown composer');
   changeInput(input, body);
   await settle();
 }
@@ -95,13 +89,13 @@ async function privateComment(reviewMode: 'missing' | 'own PR' | 'reviewable PR'
     await selectLine(host, 'old', 2);
     await selectLine(host, 'old', 3, true);
     await writeComment(host, 'Why did you remove these lines?');
-    button(host, 'Preview').click();
+    textButton('Preview', host).click();
     await settle();
     assert(host.querySelector('.pull-diff-review__preview')?.textContent?.includes('Why did you remove these lines?') === true,
       'Markdown preview must work without GitHub review capability');
     const githubActions = [...host.querySelectorAll('button')].filter(item => item.textContent === 'Post now' || item.textContent === 'Add to review');
     assert(githubActions.length === (reviewMode === 'reviewable PR' ? 2 : 0), 'GitHub actions must follow canReview, independently of private agent feedback');
-    button(host, 'Send to agent').click();
+    textButton('Send to agent', host).click();
     await settle();
     assert(received.length === 1 && pendingChanges === 0, 'Private feedback must bypass the GitHub pending review');
     const left = received[0];
@@ -110,13 +104,12 @@ async function privateComment(reviewMode: 'missing' | 'own PR' | 'reviewable PR'
     assert(left.comment.commitId === '2222222' && left.baseSha === '1111111' && left.code === 'old one\nold two',
       'Deleted code must come from the selected base, without including replacement lines');
     assert(host.querySelector('.pull-diff-review') === null, 'Adding private feedback must close its inline composer');
-    const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 2"]');
-    assert(add !== null, 'Shared plus gutter must remain available');
+    const add = fixtureElement<HTMLButtonElement>('[aria-label="Add a comment on new line 2"]', host, 'Shared plus gutter must remain available');
     add.click();
     await settle();
     await selectLine(host, 'new', 3, true);
     await writeComment(host, 'Explain this implementation');
-    button(host, 'Send to agent').click();
+    textButton('Send to agent', host).click();
     await settle();
     assert(Number(received.length) === 2 && received[1].comment.side === 'RIGHT' && received[1].code === 'new one\nnew two',
       'Clicking the plus and extending the range must quote only the new code');
@@ -138,7 +131,7 @@ async function unchangedContent(): Promise<void> {
         return { oldContent: newContent.replace('new fifth', 'old fifth'), newContent };
       }} />));
     try {
-      button(host, '↕ 3 unmodified lines').click();
+      textButton('↕ 3 unmodified lines', host).click();
       await settle();
       assert(reads.length === 1 && reads[0][0] === file.filename, 'Expanding context must load the selected file once');
       assert(reads[0][1] === (selected ? '1111111' : undefined) && reads[0][2] === (selected ? '2222222' : undefined),
@@ -146,7 +139,7 @@ async function unchangedContent(): Promise<void> {
       await selectLine(host, 'new', 1);
       await selectLine(host, 'new', 6, true);
       await writeComment(host, 'Explain the full selected range');
-      button(host, 'Send to agent').click();
+      textButton('Send to agent', host).click();
       await settle();
       assert(received.length === 1 && received[0].code === newContent, 'Agent context must include loaded unchanged lines throughout the selected range');
       assert(received[0].baseSha === (selected ? '1111111' : null) && received[0].comment.commitId === '2222222',
@@ -162,9 +155,9 @@ async function incrementalContext(): Promise<void> {
   flushSync(() => root.render(<DiffViewer files={[{ ...file, patch: '@@ -451,1 +451,1 @@\n line 451\n@@ -842,1 +842,1 @@\n line 842' }]}
     loadFileContent={async () => ({ oldContent: content, newContent: content })} />));
   const row = (line: number) => host.querySelector(`[data-diff-row="${file.filename}:RIGHT:${line}"]`);
-  const gap = (remaining: number) => button(host, `↕ ${remaining} unmodified lines`).closest('tr');
+  const gap = (remaining: number) => textButton(`↕ ${remaining} unmodified lines`, host).closest('tr');
   const expand = async (remaining: number) => {
-    button(host, `↕ ${remaining} unmodified lines`).click();
+    textButton(`↕ ${remaining} unmodified lines`, host).click();
     await settle();
   };
   try {
@@ -203,16 +196,16 @@ async function asynchronousSubmission(): Promise<void> {
     await selectLine(host, 'old', 2);
     await selectLine(host, 'old', 3, true);
     await writeComment(host, 'Please explain this removal');
-    assert(button(host, 'Send to agent').disabled && button(host, 'Send to agent').title === 'The agent is reconnecting.'
+    assert(textButton('Send to agent', host).disabled && textButton('Send to agent', host).title === 'The agent is reconnecting.'
       && host.querySelector('.pull-diff-review [role="status"]')?.textContent === 'The agent is reconnecting.',
     'Unavailable private submission must give its reason as the action title and to assistive technology');
     assert(host.querySelector<HTMLButtonElement>('.pull-diff-review__bar .pull-diff-review__private')?.disabled === true
       && host.textContent?.includes('Private — only you and the agent') === false,
     'Private submission must show the Private label instead of a help text');
-    button(host, 'Send to agent').click();
+    textButton('Send to agent', host).click();
     assert(requests.length === 0, 'A disabled private action must not submit');
     render(null);
-    const submit = button(host, 'Send to agent');
+    const submit = textButton('Send to agent', host);
     submit.click();
     submit.click();
     await settle();
@@ -229,7 +222,7 @@ async function asynchronousSubmission(): Promise<void> {
     'Failed submission must retain editable feedback and show its error');
     assert(host.querySelector('.pull-diff-review__header')?.textContent?.includes('L2 to L3') === true,
       'Failed submission must retain the same old-line range');
-    button(host, 'Send to agent').click();
+    textButton('Send to agent', host).click();
     await settle();
     assert(Number(requests.length) === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]),
       'Explicit retry must submit the retained comment with its original code context');
@@ -309,13 +302,12 @@ async function pressBelowComposer(): Promise<void> {
     for (const shift of [true, false]) {
       await selectLine(host, 'new', 1);
       assert(heading() === 'Add a comment on line R1', 'Selecting line 1 must open its composer');
-      const target = host.querySelector('[aria-label="Select new line 3"]');
-      assert(target !== null, 'Missing new line 3 gutter');
+      const target = fixtureElement<Element>('[aria-label="Select new line 3"]', host, 'Missing new line 3 gutter');
       await realClick(target, shift);
       assert(heading() === (shift ? 'Add a comment on lines R1 to R3' : 'Add a comment on line R3')
         && host.querySelectorAll('tr.is-selected').length === (shift ? 3 : 1),
       `A ${shift ? 'Shift-click' : 'click'} below an open composer must not drag onto the rows that move under the pointer`);
-      button(host, 'Cancel').click();
+      textButton('Cancel', host).click();
       await settle();
     }
   }

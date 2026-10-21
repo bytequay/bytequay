@@ -18,7 +18,7 @@ import RunPanel from '../RunPanel';
 import type { LocalRunDto, ReviewCodeFilesDto } from '../contracts';
 import type { CodeTestsBridge } from '../CodeTestsTab';
 import { useCodeComments, type CodeCommentsOptions } from '../useCodeComments';
-import { assert, changeInput, settle } from '../../../fixtures/harness';
+import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto } from '../../../types';
 import { reviewFixture } from '../../agent-review/fixtures/review';
 import TestRuns from '../../../ide/TestRuns';
@@ -54,7 +54,7 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
   try {
     flushSync(() => root.render(<Harness />)); await settle();
     host.querySelector<HTMLButtonElement>('[aria-label="Comment on line 3"]')?.click(); await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea'); assert(input !== null, 'A line must open the shared composer');
+    const input = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'A line must open the shared composer');
     changeInput(input, 'Keep this private draft'); await settle();
     host.querySelector('[aria-label="Comment on line 6"]')?.dispatchEvent(new MouseEvent('click', { shiftKey: true, bubbles: true })); await settle();
     assert(host.querySelector('.pull-diff-review__header strong')?.textContent === 'Add a comment on lines R3 to R6', 'Shift-click must extend the retained source range');
@@ -92,14 +92,10 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     const render = () => flushSync(() => root.render(<ArchivedCode active bridge={bridge}
       host={{ kind: 'review', review: { ...review, observedHeadSha: observedHead } }} onReviewChange={() => { throw new Error('Do not rerun the agent review'); }}
       comments={{ ...options, pending, onPendingChange: next => { pending = next; render(); } }} />));
-    const button = (label: string) => {
-      const element = [...host.querySelectorAll('button')].find(button => button.textContent === label);
-      assert(element !== undefined, `Missing ${label}`); return element;
-    };
+    const button = (label: string) => textButton(label, host, `Missing ${label}`);
     const compose = async (line: number, body: string) => {
       host.querySelector<HTMLButtonElement>(`[aria-label="Comment on line ${line}"]`)?.click(); await settle();
-      const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-      assert(input !== null, 'The current source must allow a comment');
+      const input = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'The current source must allow a comment');
       changeInput(input, body); await settle();
     };
     const blocked = () => button('Add to review').disabled && button('Post now').disabled;
@@ -193,8 +189,8 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert(panel('Run').querySelector('[role="treeitem"]')?.textContent?.includes('run-newTest'), 'Passing tests are visible by default');
     assert(!host.querySelector('.ct-run__mode') && !host.textContent?.includes('Launch configuration'), 'Embedded results have no nested Run label or launch configuration');
     const history = (mode: 'Run' | 'Debug') => {
-      const button = panel(mode).querySelector<HTMLButtonElement>('.ct-run__history');
-      assert(button !== null, 'History button must remain available'); flushSync(() => button.click());
+      const button = fixtureElement<HTMLButtonElement>('.ct-run__history', panel(mode), 'History button must remain available');
+      flushSync(() => button.click());
     };
     history('Run'); await settle();
     assert(panel('Run').querySelectorAll('.ct-history__row').length === 1 && !panel('Run').querySelector('.ct-history')?.textContent?.includes('Debug tests'), 'Run history excludes debug executions');

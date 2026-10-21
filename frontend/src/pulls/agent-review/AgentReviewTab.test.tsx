@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest';
 import AgentReviewTab from './AgentReviewTab';
 import ReviewFindingCard from './ReviewFindingCard';
 import ReviewSummaryCard from './ReviewSummaryCard';
-import { candidateFixture, explanationRunFixture, reviewFixture, runningReviewFixture } from './fixtures/review';
+import { reviewDraftFixture, candidateFixture, explanationRunFixture, reviewFixture, runningReviewFixture } from './fixtures/review';
 import { explanationRun, latestRun } from './model';
 import type { AgentReviewDto, ReviewCandidateValidationDto, ReviewDraftDto, ReviewFindingDto, ReviewInvestigationDto, ReviewStepDto } from './contracts';
 import { parseAgentReview } from './contracts';
@@ -74,7 +74,7 @@ function summary(review: AgentReviewDto): string {
 }
 
 function draftWith(items: ReviewDraftDto['items']): ReviewDraftDto {
-  return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z' };
+  return reviewDraftFixture({ items });
 }
 
 describe('starting a review', () => {

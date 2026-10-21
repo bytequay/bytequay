@@ -20,6 +20,7 @@ import TodayList from '../TodayList';
 import { todayKeys, type TodayScope } from '../today';
 import type { TodayAgenda } from '../useTodayAgenda';
 import type { AgendaDto, AgendaItemDto, AgendaTargetDto } from '../../types';
+import { element, runScenarios, button as findButton } from '../../fixtures/harness';
 
 function assert(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -103,11 +104,7 @@ function mount(scope: TodayScope, agenda: AgendaDto = AGENDA, start: (ref: strin
   return { host, marks, starts, render, dispose: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
-function button(host: HTMLElement, label: string): HTMLButtonElement {
-  const found = [...host.querySelectorAll<HTMLButtonElement>('button')].find(candidate => candidate.getAttribute('aria-label') === label || candidate.textContent?.trim() === label);
-  if (!found) throw new Error(`Missing button: ${label}`);
-  return found;
-}
+const button = (host: HTMLElement, label: string) => findButton(label, host);
 
 function zoomed(run: () => void): unknown[] {
   const seen: unknown[] = [];
@@ -178,8 +175,7 @@ async function recapAndSun(): Promise<void> {
   const view = mount('global');
   try {
     assert(!view.host.textContent?.includes('Slipped'), 'The recap starts folded');
-    const recap = view.host.querySelector<HTMLElement>('.today-recap');
-    assert(recap !== null, 'This week must show on the recap day');
+    const recap = element<HTMLElement>('.today-recap', view.host, 'This week must show on the recap day');
     flushSync(() => recap.click());
     assert(view.host.textContent?.includes('Slipped') === true && view.host.textContent.includes('trino-gateway #605'), 'This week must unfold its chips');
     const marked = [...view.host.querySelectorAll<HTMLElement>('.atn-section .item-row')].map(row => row.querySelector('.today-mark') !== null);
@@ -200,12 +196,8 @@ async function foldsWhenDone(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
-  for (const [name, scenario] of [['rows open their work', opensWork], ['marks without opening', marksWithoutOpening], ['recap and sun', recapAndSun],
-    ['folds when done', foldsWhenDone], ['starts work from its row', startsWorkFromItsRow]] as const) {
-    try { await scenario(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
-  }
+  const results = await runScenarios([['rows open their work', opensWork], ['marks without opening', marksWithoutOpening], ['recap and sun', recapAndSun],
+    ['folds when done', foldsWhenDone], ['starts work from its row', startsWorkFromItsRow]]);
   return results;
 }
 

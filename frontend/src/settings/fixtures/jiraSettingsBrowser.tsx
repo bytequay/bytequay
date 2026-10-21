@@ -20,7 +20,7 @@ import AppSidebar from '../../AppSidebar';
 import { JIRA_CHANGED, type JiraConnection, type JiraTokenRequest } from '../../jira/contracts';
 import type { AppPreferencesDto, Bridge, QuietHoursDto } from '../../types';
 import { settingsLocationFromRoute, settingsRoute, type SettingsSection } from '../routes';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element as requiredElement, runScenarios } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/settings-window.css';
 
@@ -50,7 +50,7 @@ const button = (label: string, scope: ParentNode = document) => {
   const result = [...scope.querySelectorAll<HTMLButtonElement>('button')].find(value => value.textContent?.trim() === label || value.getAttribute('aria-label') === label);
   assert(result !== undefined, `Missing button: ${label}`); return result;
 };
-const row = (id: string) => { const value = document.querySelector(`[data-connection-id="${id}"]`); assert(value !== null, `Missing account: ${id}`); return value; };
+const row = (id: string) => { const value = requiredElement(`[data-connection-id="${id}"]`, document, `Missing account: ${id}`); return value; };
 const input = (label: string) => { const element = [...document.querySelectorAll('label')].find(value => value.textContent === label); const result = document.getElementById(element?.htmlFor ?? ''); assert(result instanceof HTMLInputElement, `Missing input: ${label}`); return result; };
 async function settled() { await settle(); await settle(); }
 async function advancePoll(by?: number) {
@@ -106,9 +106,8 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results: { name: string; error?: string }[] = [];
   const changed = () => { changedEvents += 1; }; window.addEventListener(JIRA_CHANGED, changed);
-  for (const [name, test] of Object.entries({
+  const results = await runScenarios(Object.entries({
     async 'keeps an unused Jira integration in its empty state'() {
       await mountPreview([], false);
       assert(document.body.textContent?.includes('No Jira accounts connected') && !document.body.textContent?.includes('Loading accounts'), 'An unused integration finishes loading into its empty state');
@@ -216,7 +215,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     },
     async 'shares confirmed quiet hours through General from both integration pages'() {
       await mountPreview([], false);
-      const fromJira = document.querySelector<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`); assert(fromJira !== null, 'Jira links to General quiet hours'); fromJira.click(); await settled();
+      const fromJira = requiredElement<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`, document, 'Jira links to General quiet hours'); fromJira.click(); await settled();
       assert(document.querySelector('h1')?.textContent === 'General' && document.body.textContent?.includes('GitHub and Jira · this Mac’s local time'), 'Quiet hours describe both integrations and the clock they use');
       assert(button('Quiet hours start').textContent?.includes('11:00 PM') && button('Quiet hours end').textContent?.includes('7:00 AM'), 'Existing saved time boundaries are preserved');
       assert(document.body.textContent?.includes('Manual refresh'), 'Quiet hours leave manual refresh available');
@@ -234,7 +233,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(button('PR details kept ready').textContent?.includes('30 PRs'), 'The default keeps thirty recent PRs ready');
       button('PR details kept ready').click(); await settled(); button('10 PRs').click(); await settled();
       assert(button('PR details kept ready').textContent?.includes('10 PRs'), 'The lower detail warm count persists through the existing preferences API');
-      const fromGithub = document.querySelector<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`); assert(fromGithub !== null, 'GitHub links to the same General setting'); fromGithub.click(); await settled();
+      const fromGithub = requiredElement<HTMLAnchorElement>(`a[href="${settingsRoute('general')}"]`, document, 'GitHub links to the same General setting'); fromGithub.click(); await settled();
       assert(button('Quiet hours start').textContent?.includes('10:30 PM'), 'The confirmed setting persists across navigation');
       const pane = document.querySelector('.setw-page'); assert(pane instanceof HTMLElement && pane.scrollWidth <= pane.clientWidth, 'Quiet hours fit a narrow settings pane');
       button('Jira').click(); await settled(); assert(document.body.textContent?.includes('every 10 minutes'), 'Jira keeps its separate ten-minute refresh cadence');
@@ -247,10 +246,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(button('Pause background refresh during quiet hours').getAttribute('aria-checked') === 'true' && quietHours.enabled, 'The saved setting is not optimistically overwritten on failure');
       assert(!button('Pause background refresh during quiet hours').disabled, 'The user can retry a failed save');
     },
-  })) {
-    try { await test(); results.push({ name }); } catch (cause) { results.push({ name, error: cause instanceof Error ? cause.message : String(cause) }); }
-    finally { dispose(); }
-  }
+  }), () => { dispose(); });
   window.removeEventListener(JIRA_CHANGED, changed);
   return results;
 }

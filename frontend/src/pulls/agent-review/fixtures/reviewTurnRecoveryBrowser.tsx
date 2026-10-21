@@ -19,7 +19,7 @@ import { CHECKING_ACCEPTANCE, UNCONFIRMED_REQUEST } from '../../../agents/contra
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../../agents/events';
 import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import eventFixture from '../../../agents/fixtures/agent-events-v2.json';
-import { assert, changeInput, settle, until } from '../../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle, until } from '../../../fixtures/harness';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto, ReviewMessageDto } from '../contracts';
 import { reviewFixture, runningReviewFixture } from './review';
@@ -37,8 +37,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     payload: { phase: 'TURN_COMPLETED' as const, message: 'Completed' } };
   const button = (label: string) => [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === label);
   const input = () => {
-    const node = host.querySelector<HTMLTextAreaElement>('.agt-compose__input');
-    assert(node !== null, 'The draft must stay editable');
+    const node = fixtureElement<HTMLTextAreaElement>('.agt-compose__input', host, 'The draft must stay editable');
     return node;
   };
   const scenario = async (name: string, test: () => Promise<void>) => {
@@ -348,8 +347,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           },
         });
         if (olderHistory) {
-          const transcript = host.querySelector<HTMLElement>('.agt-transcript');
-          assert(transcript !== null, 'The review transcript must exist');
+          const transcript = fixtureElement<HTMLElement>('.agt-transcript', host, 'The review transcript must exist');
           transcript.style.cssText = 'height: 400px; overflow-y: auto';
           transcript.scrollTop = 0;
           transcript.dispatchEvent(new WheelEvent('wheel', { deltaY: -120, bubbles: true }));

@@ -18,7 +18,7 @@ import CreateEpicDialog, { type CreatedEpic } from '../CreateEpicDialog';
 import type { EpicDraftDto, EpicDraftMessage, EpicDraftReply, UnifiedWorkItem } from '../../workitems/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge } from '../../types';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/agents.css';
 
@@ -34,11 +34,7 @@ const CATALOG = [
   remote('JIRA:5:cloud:77', 'JIRA', 'conn:cloud:77', 'ENG-7', 'Parquet reader'),
 ];
 
-function element<T extends HTMLElement = HTMLElement>(selector: string): T {
-  const found = document.querySelector<T>(selector);
-  assert(found !== null, `Missing ${selector}`);
-  return found;
-}
+
 function button(text: string): HTMLButtonElement {
   const found = [...document.querySelectorAll<HTMLButtonElement>('dialog button')].find(candidate => candidate.textContent?.trim() === text);
   assert(found !== undefined, `Missing the ${text} button`);

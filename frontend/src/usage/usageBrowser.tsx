@@ -15,7 +15,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import UsageMeter from './UsageMeter';
 import type { ProviderUsageDto } from '../types';
-import { assert, settle } from '../fixtures/harness';
+import { assert, settle, element } from '../fixtures/harness';
 import '../css/base.css';
 
 let calls = 0;
@@ -44,8 +44,7 @@ export async function run() {
   flushSync(() => createRoot(host).render(<div style={{ marginTop: 'auto' }}><UsageMeter /></div>));
   await settle();
   assert(calls === 0, 'Closed usage popover must not query providers');
-  const trigger = host.querySelector<HTMLButtonElement>('button');
-  assert(trigger !== null, 'Usage trigger is missing');
+  const trigger = element<HTMLButtonElement>('button', host, 'Usage trigger is missing');
   trigger.focus();
   trigger.click();
   await settle();
@@ -53,8 +52,7 @@ export async function run() {
   assert(document.querySelector('.usage-popover:popover-open') !== null, 'Usage popover did not open');
   const segment = (name: string) => parseFloat(document.querySelector<HTMLElement>('.usage-track .' + name)?.style.width ?? '-1');
   assert(Math.abs(segment('usage-used') - 18) < .1 && Math.abs(segment('usage-room') - 22) < .1, 'Below-pace segments are incorrect');
-  const select = document.querySelector<HTMLSelectElement>('.usage-account');
-  assert(select !== null, 'Account selector is missing');
+  const select = element<HTMLSelectElement>('.usage-account', document, 'Account selector is missing');
   select.value = 'claude'; select.dispatchEvent(new Event('change', { bubbles: true }));
   await settle(); await settle();
   assert(Math.abs(segment('usage-used') - 40) < .1 && Math.abs(segment('usage-over') - 22) < .1, 'Above-pace segments are incorrect');
@@ -74,8 +72,7 @@ export async function run() {
 }
 
 export function checkLayout() {
-  const panel = document.querySelector<HTMLElement>('.usage-popover');
-  assert(panel !== null, 'Missing popover');
+  const panel = element<HTMLElement>('.usage-popover', document, 'Missing popover');
   const rect = panel.getBoundingClientRect();
   assert(rect.left >= 0 && rect.right <= innerWidth && rect.top >= 0 && rect.bottom <= innerHeight, 'Popover leaves viewport');
   assert(panel.scrollWidth === panel.clientWidth, 'Popover content overflows horizontally');

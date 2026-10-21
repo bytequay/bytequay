@@ -19,7 +19,7 @@ import { createPreviewBridge } from './previewBridge';
 import { AgentHomeView } from '../AgentHome';
 import { BackportChainCard } from '../BackportChains';
 import type { BackportChainViewDto, BackportChainRouteDto, CreateAgentTaskRequest, LinkedWorkspaceWorkDto, ModelProviderDto } from '../../types';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/home.css';
 import '../../css/settings-window.css';
@@ -158,8 +158,7 @@ export async function runComposer() {
     const view = mountComposer(surface);
     try {
       await settle();
-      const input = view.host.querySelector<HTMLTextAreaElement>('textarea');
-      assert(input !== null, `${surface}: composer exists`);
+      const input = element<HTMLTextAreaElement>('textarea', view.host, `${surface}: composer exists`);
       const value = () => input.value;
       const type = async (text: string) => {
         input.focus(); input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
@@ -258,8 +257,7 @@ export async function runProviderChoice() {
         assert(input.value === '@backport ' && document.activeElement === input, 'Backport fills and focuses before provider setup');
         assert(!host.textContent?.includes('sign-in required') && !host.textContent?.includes('CLAUDE_CONFIG_DIR'), 'No unsolicited Claude authentication error');
         changeInput(input, '@backport #1234'); await settle();
-        const send = host.querySelector<HTMLButtonElement>('.agt-send');
-        assert(send !== null, 'Send control exists');
+        const send = element<HTMLButtonElement>('.agt-send', host, 'Send control exists');
         let blocked = mode !== 'codex' && mode !== 'claude-ready';
         assert(send.disabled === blocked, 'Only a usable selected provider enables Send');
         let expectedProvider = mode === 'codex' ? codex : claude;

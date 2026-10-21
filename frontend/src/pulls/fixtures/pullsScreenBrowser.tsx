@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { prDetail } from './pullRequest';
+import { timelineActivity, prDetail } from './pullRequest';
 import { EMPTY_TIMELINE_PAYLOAD as payload } from '../model';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
@@ -28,9 +28,9 @@ import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import type { CodeHostRef } from '../code-tests/contracts';
 import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
-import { reviewFixture } from '../agent-review/fixtures/review';
+import { reviewDraftFixture, reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, settle, until } from '../../fixtures/harness';
 import { loadHandled } from '../../home/attention';
 import { setCached } from '../../dataCache';
 
@@ -118,8 +118,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     const firstView = host.querySelector('[aria-label="WorkBench views"] button');
     assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true',
       'Opening WorkBench must select its leftmost Changes tab');
-    const choice = host.querySelector<HTMLInputElement>('[aria-label="Select one: one"]');
-    assert(choice !== null, 'Main PR page must load its commit picker');
+    const choice = fixtureElement<HTMLInputElement>('[aria-label="Select one: one"]', host, 'Main PR page must load its commit picker');
     assert(host.querySelector('[aria-label="Changes source"]') === null,
       'Published Changes must not offer a working-copy source selector');
     const tabs = host.querySelector('[aria-label="WorkBench views"]')?.getBoundingClientRect();
@@ -132,8 +131,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
       && host.querySelector('.pull-changes__toolbar')?.closest('.pull-detail__header') !== null,
       'The published diff must use one shared header toolbar');
     assert(host.querySelector('.pull-file-tree') === null, 'The side panel must start with its changed-file sidebar closed');
-    const picker = host.querySelector<HTMLDetailsElement>('.pull-commit-picker');
-    assert(picker !== null, 'Published Changes must retain the commit picker');
+    const picker = fixtureElement<HTMLDetailsElement>('.pull-commit-picker', host, 'Published Changes must retain the commit picker');
     picker.open = true; await settle();
     const menu = picker.querySelector('.pull-commit-picker__menu')?.getBoundingClientRect();
     const pane = host.querySelector('.pull-detail')?.getBoundingClientRect();
@@ -144,22 +142,17 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     await settle();
     assert(comparisons.length === 1 && comparisons[0][0] === 'base' && comparisons[0][1] === 'one'
       && host.textContent?.includes('selected.txt') === true, 'Main PR commit selection must show the requested comparison');
-    const add = host.querySelector<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]');
-    assert(add !== null, 'Reviewable PR must offer the shared inline composer');
+    const add = fixtureElement<HTMLButtonElement>('[aria-label="Add a comment on new line 1"]', host, 'Reviewable PR must offer the shared inline composer');
     add.click();
     await settle();
-    const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea');
-    assert(input !== null, 'Comment selection must open a composer');
+    const input = fixtureElement<HTMLTextAreaElement>('.pull-diff-review textarea', host, 'Comment selection must open a composer');
     changeInput(input, 'Keep this pending review');
     await settle();
     button('Add to review').click();
     await settle();
     assert(host.querySelector('[aria-label="Submit review, 1 pending review comment"]') !== null, 'Inline review must stage one pending comment');
 
-    detail = { ...detail, updatedAt: '2026-01-02T00:00:00Z', labels: [{ name: 'reviewed-label', color: 'aabbcc' }], recentActivity: [{
-      actor: 'alice', eventType: 'commented', timestamp: '2026-01-02T00:00:00Z', body: 'New timeline discussion', githubId: 99,
-      payload: { ...payload, reactions: [{ content: '+1', count: 1, viewerHasReacted: false }] },
-    }] };
+    detail = { ...detail, updatedAt: '2026-01-02T00:00:00Z', labels: [{ name: 'reviewed-label', color: 'aabbcc' }], recentActivity: [timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-01-02T00:00:00Z', body: 'New timeline discussion', githubId: 99 }, { ...payload, reactions: [{ content: '+1', count: 1, viewerHasReacted: false }] })] };
     await tick();
     assert(host.querySelector<HTMLInputElement>('[aria-label="Deselect one: one"]')?.checked === true && defaultReads === 1,
       'Discussion and reactions must not reset the selected commit or reload all changes');
@@ -181,8 +174,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
       && host.querySelector('[aria-label="Submit review, 1 pending review comment"]') !== null,
     'Changed code must reset its obsolete range while keeping the staged review');
 
-    const zoom = host.querySelector<HTMLButtonElement>('[aria-label="Zoom pull request details"]');
-    assert(zoom !== null, 'The list pane must offer the zoom action');
+    const zoom = fixtureElement<HTMLButtonElement>('[aria-label="Zoom pull request details"]', host, 'The list pane must offer the zoom action');
     zoom.click();
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') !== null && host.querySelector('.pull-detail.is-full') === null
@@ -196,8 +188,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     assert(railed('.pull-detail.zoom-card') >= 220 && railed('.zoom-scrim') >= 220,
       'A zoom layer must start where the browser rail ends');
     document.body.style.removeProperty('--browser-rail-width');
-    const full = host.querySelector<HTMLButtonElement>('[aria-label="Enter full screen"]');
-    assert(full !== null, 'The zoom layer must offer full screen');
+    const full = fixtureElement<HTMLButtonElement>('[aria-label="Enter full screen"]', host, 'The zoom layer must offer full screen');
     full.click();
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card.is-full') !== null && host.querySelector('.zoom-scrim') === null,
@@ -495,14 +486,13 @@ export async function runOverlayChangesStream(): Promise<string> {
 
 export async function runMergeQueueRemoval(keepMounted = false): Promise<string> {
   const detail: PullRequestDetailDto = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true,
-    recentActivity: [{ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-10-17T07:39:43Z',
-      body: null, githubId: 71, payload: { ...payload, mergeQueueRemoval: {
+    recentActivity: [timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-10-17T07:39:43Z', githubId: 71 }, { ...payload, mergeQueueRemoval: {
         reason: 'failed_checks', commitUrl: 'https://github.com/owner/repo/commit/queue-sha',
         failedChecks: [
           { name: 'core-ci / run-ci-tests (integration-6, standard)', url: 'https://github.com/owner/repo/actions/runs/1/job/2' },
           { name: 'run-e2e-test / e2e-tests', url: 'https://github.com/owner/repo/actions/runs/3/job/4' },
         ],
-      } } }],
+      } })],
     checkRuns: [{ githubId: 1, name: 'PR tests', status: 'completed', conclusion: 'success',
       detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'successful' }],
   };
@@ -518,8 +508,7 @@ export async function runMergeQueueRemoval(keepMounted = false): Promise<string>
     assert(host.textContent?.includes('All pull-request checks have passed') === true, 'PR checks must be distinguished from queue checks');
     const toggle = host.querySelector<HTMLButtonElement>('.pr-queue-removal__toggle');
     assert(toggle !== null && toggle.textContent?.trim() === 'View failed checks (2)', 'Queue failures must offer a compact button with the failed count');
-    const link = host.querySelector<HTMLAnchorElement>('.pr-queue-removal li a');
-    assert(link !== null, 'Failed checks must offer direct job links');
+    const link = fixtureElement<HTMLAnchorElement>('.pr-queue-removal li a', host, 'Failed checks must offer direct job links');
     assert(!link.checkVisibility() && toggle.getAttribute('aria-expanded') === 'false', 'Failed checks must start collapsed');
     toggle.click();
     await settle();
@@ -553,8 +542,7 @@ export async function runActionSheetDismissal(): Promise<string> {
   let closes = 0;
   let finishMerge = () => {};
   const merging = new Promise<void>(resolve => { finishMerge = resolve; });
-  const empty: ReviewDraftDto = { repo: detail.repo, number: detail.number, body: '', event: 'COMMENT', reviewPublication: null, items: [],
-    postedSummaryFindingIds: [], version: 0, updatedAt: '2026-09-06T16:20:00Z' };
+  const empty: ReviewDraftDto = reviewDraftFixture({ repo: detail.repo, number: detail.number, version: 0, updatedAt: '2026-09-06T16:20:00Z' });
   Object.assign(window, { bridge: { ...originalBridge, mergePr: () => merging, getReviewDraft: async () => empty } });
   const close = () => { closes++; };
   const escape = (handled = false) => {
@@ -604,10 +592,10 @@ export async function runActionSheetDismissal(): Promise<string> {
 }
 
 export async function runReviewSheet(): Promise<string> {
-  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', reviewPublication: null, postedSummaryFindingIds: [], version: 4, updatedAt: '2026-09-06T16:20:00Z',
+  const draft: ReviewDraftDto = reviewDraftFixture({ version: 4, updatedAt: '2026-09-06T16:20:00Z',
     items: [{ id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, path: 'src/Finding.java', side: 'RIGHT',
       commitId: reviewFixture().findings[0].validatedHeadSha,
-      line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] };
+      line: 12, startLine: null, body: 'Promoted finding text', included: true, published: false, publication: null }] });
   const review = reviewFixture({ draft });
   const detail: PullRequestDetailDto = prDetail({
     id: 9, repo: review.repo, number: review.number, title: 'Sheet', htmlUrl: null,
@@ -834,8 +822,7 @@ export async function runListSearch(): Promise<string> {
     await settle();
   };
   const type = async (value: string) => {
-    const input = host.querySelector<HTMLInputElement>('.pulls-search input');
-    assert(input !== null, 'The list must offer a search box');
+    const input = fixtureElement<HTMLInputElement>('.pulls-search input', host, 'The list must offer a search box');
     changeInput(input, value);
     // The box debounces for 250ms before the filter runs.
     await new Promise(resolve => window.setTimeout(resolve, 320));
@@ -1084,8 +1071,7 @@ export async function runSelectionStability(): Promise<string> {
     const siblingRow = [...host.querySelectorAll('.pull-card')].find(element => element.textContent?.includes(sibling.title));
     const removed: Node[] = [];
     const observer = new MutationObserver(records => records.forEach(record => removed.push(...record.removedNodes)));
-    const list = host.querySelector('.pulls-list__rows');
-    assert(list !== null, 'The list must remain mounted beside the detail pane');
+    const list = fixtureElement<Element>('.pulls-list__rows', host, 'The list must remain mounted beside the detail pane');
     observer.observe(list, { childList: true });
     navigations.length = 0;
     host.querySelector<HTMLButtonElement>('[aria-label="Refresh pull request"]')?.click();
@@ -1332,8 +1318,7 @@ export async function runTitleEdit(): Promise<string> {
     return found;
   };
   const input = () => {
-    const found = host.querySelector<HTMLTextAreaElement>('[aria-label="Pull request title"]');
-    assert(found !== null, 'Title editor must be open');
+    const found = fixtureElement<HTMLTextAreaElement>('[aria-label="Pull request title"]', host, 'Title editor must be open');
     return found;
   };
   const type = async (value: string) => {
@@ -1417,8 +1402,8 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     body: 'Resolves owners.',
     deletions: 1,
     recentActivity: [
-      { actor: 'carol', eventType: 'commented', timestamp: at, body: 'Should this cache be keyed by id?', githubId: 81, payload },
-      { actor: 'alice', eventType: 'commented', timestamp: at, body: 'Good point, checking.', githubId: 82, payload },
+      timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: at, body: 'Should this cache be keyed by id?', githubId: 81 }, payload),
+      timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: at, body: 'Good point, checking.', githubId: 82 }, payload),
     ],
   });
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'development-task'), checkoutRemovedAt: null };
@@ -1549,10 +1534,10 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   setCached(`private-thread-drafts:${repo}#${number}`, undefined);
   const review = reviewFixture({ repo, number, workspaceId: 'workspace-1', runs: [], findings: [] });
   const detail: PullRequestDetailDto = { ...reviewDetail(review), id: number, recentActivity: [
-    { actor: 'carol', eventType: 'commented', timestamp: null, body: 'The caller already handles this exception.', githubId: 8101, payload },
+    timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: null, body: 'The caller already handles this exception.', githubId: 8101 }, payload),
   ] };
   const nextDetail: PullRequestDetailDto = { ...detail, id: number + 1, number: number + 1, title: 'Another pull request', recentActivity: [
-    { actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', githubId: 8102, payload },
+    timelineActivity({ actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', githubId: 8102 }, payload),
   ] };
   const repository = { owner: 'comment-tests', repo: mode };
   const workspace = workspaceFixture({
@@ -1633,8 +1618,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
     assert(condition(), message);
   };
   const field = () => {
-    const input = host.querySelector<HTMLTextAreaElement>('[aria-label="Private question to the agent"]');
-    assert(input !== null, 'The private question must remain editable');
+    const input = fixtureElement<HTMLTextAreaElement>('[aria-label="Private question to the agent"]', host, 'The private question must remain editable');
     return input;
   };
   const type = (value: string) => {

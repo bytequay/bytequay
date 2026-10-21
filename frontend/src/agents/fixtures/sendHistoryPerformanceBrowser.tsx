@@ -14,7 +14,7 @@
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useCallback, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { assert, changeInput, settle, until } from '../../fixtures/harness';
+import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import '../../css/agent-review.css';
 import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
@@ -119,13 +119,11 @@ async function exercise(surface: 'task' | 'review') {
     assert(reads === 3 && readEvents === 3000, 'Mount must read only the bounded recent window');
     const initialBytes = readBytes;
     assert(host.textContent?.includes('Historical request history-0') !== true, 'Old history must not leak into the recent window');
-    const input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]');
-    assert(input !== null, 'The real wrapper must expose its composer');
+    const input = element<HTMLTextAreaElement>('textarea[aria-label="Message the agent"]', host, 'The real wrapper must expose its composer');
     changeInput(input, 'Check this large history');
     await until(() => host.querySelector<HTMLButtonElement>('[aria-label="Send message"]')?.disabled === false, 'The old turn must be sendable');
     // Measure sending from the bottom of an already-open conversation.
-    const transcript = host.querySelector<HTMLElement>('.agt-transcript');
-    assert(transcript !== null, 'The transcript must be mounted');
+    const transcript = element<HTMLElement>('.agt-transcript', host, 'The transcript must be mounted');
     transcript.scrollTop = transcript.scrollHeight;
     transcript.dispatchEvent(new Event('scroll'));
     await settle();

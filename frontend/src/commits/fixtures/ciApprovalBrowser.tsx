@@ -15,7 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { AgentApprovalDecision, AgentApprovalDto, AgentPendingApprovalDto, CherryPickExecution, CiAutofixRunDto, WorkspaceDeliveryStatus } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 import ProgressView from '../ProgressView';
 import '../../css/agents.css';
 import '../../css/commits.css';
@@ -120,8 +120,7 @@ async function forkDeliveryRetry(): Promise<{ name: string; error?: string }> {
     const retry = [...host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Start CI monitor');
     assert(retry !== undefined, `A fork PR must offer the existing CI retry action: ${host.textContent}`);
     retry.click(); await settle();
-    const dialog = host.querySelector('dialog');
-    assert(dialog !== null, 'CI retry requires confirmation');
+    const dialog = element<HTMLElementTagNameMap['dialog']>('dialog', host, 'CI retry requires confirmation');
     assert(dialog.textContent?.includes('force-push with an exact lease'), 'Confirmation describes CI write authority');
     assert(!dialog.textContent?.includes('same-repository'), 'Forks receive the same confirmation');
     assert(writes === 0, 'Opening confirmation must not start CI');

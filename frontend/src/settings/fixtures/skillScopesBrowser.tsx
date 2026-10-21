@@ -17,7 +17,7 @@ import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { parseAgentSkillInput } from '../../agents/contracts';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../../types';
 import SkillsPage from '../SkillsPage';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 
 
 
@@ -76,8 +76,7 @@ function fixture(initial: AgentSkillDto[] = []) {
       await settle();
     },
     async fill(selector: string, value: string) {
-      const input = scope_().querySelector<HTMLInputElement | HTMLTextAreaElement>(selector);
-      assert(input !== null, `Input ${selector} is missing`);
+      const input = element<HTMLInputElement | HTMLTextAreaElement>(selector, scope_(), `Input ${selector} is missing`);
       changeInput(input, value);
       await settle();
     },

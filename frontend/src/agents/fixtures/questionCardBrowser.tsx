@@ -17,7 +17,7 @@ import { BlockView } from '../AgentConversation';
 import type { ApprovalBlock } from '../transcript';
 import '../../css/base.css';
 import '../../css/agents.css';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 
 const QUESTIONS = {
   questions: [
@@ -67,8 +67,7 @@ function options(): HTMLButtonElement[] {
 }
 
 function send(): HTMLButtonElement {
-  const button = host.querySelector<HTMLButtonElement>('.agt-decision.is-allow');
-  assert(button !== null, 'The question card must offer a send button');
+  const button = element<HTMLButtonElement>('.agt-decision.is-allow', host, 'The question card must offer a send button');
   return button;
 }
 

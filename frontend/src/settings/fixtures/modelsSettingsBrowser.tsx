@@ -15,7 +15,7 @@ import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { Bridge, ModelSettingsDto, WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import SettingsWindow from '../SettingsWindow';
 import { entryFor, type SettingsSection } from '../routes';
 import '../../css/base.css';
@@ -89,8 +89,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(view.host.textContent?.includes('default@example.com') === true, 'The signed-in email comes from the CLI, separately from the name');
       const add = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Add Claude account');
       assert(add !== undefined, 'Account setup is available inside the repository'); add.click(); await settle();
-      const input = view.host.querySelector<HTMLInputElement>('[aria-label="Claude account name"]');
-      assert(input !== null, 'Repository setup asks for a name');
+      const input = element<HTMLInputElement>('[aria-label="Claude account name"]', view.host, 'Repository setup asks for a name');
       changeInput(input, 'Work'); await settle();
       const signIn = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Add and sign in');
       assert(signIn?.disabled === true, 'A name alone cannot start sign-in');

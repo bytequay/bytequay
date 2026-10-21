@@ -18,7 +18,7 @@ import { getService, ICodeEditorService } from '@codingame/monaco-vscode-api';
 import { IWorkbenchThemeService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/themes/common/workbenchThemeService.service';
 import { editor, Uri } from 'monaco-editor';
 import type { ReviewCodeFileDto } from '../../pulls/code-tests/contracts';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 import type { IdeRuntime } from '../runtime';
 import LineChanges from '../LineChanges';
 import '../../css/base.css';
@@ -59,8 +59,7 @@ export async function verifyLineChanges() {
       code.render(true); await settle();
       const colors = new Set<string>();
       for (const kind of ['added', 'modified', 'deleted']) {
-        const marker = native.querySelector(`.ct-line-change.is-${kind}`);
-        assert(marker !== null, `${kind} markers must be visible in ${mode}`);
+        const marker = element(`.ct-line-change.is-${kind}`, native, `${kind} markers must be visible in ${mode}`);
         const style = getComputedStyle(marker, '::before'); colors.add(style.backgroundColor);
         assert(style.width === (kind === 'deleted' ? '8px' : '4px') && style.backgroundColor !== 'rgba(0, 0, 0, 0)', 'Gutter bars must have visible dimensions and colors');
       }

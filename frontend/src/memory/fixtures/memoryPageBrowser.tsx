@@ -14,7 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
-import { assert, changeInput, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import type { MemoryDto, MemoryPageDto, MemoryPullDto, StartMemoryHarvestRequest } from '../contracts';
 import type { ContextSpecCandidateDto, ContextSpecCheckDto } from '../../repository-context/contracts';
 import MemoryPage from '../MemoryPage';
@@ -112,8 +112,7 @@ export async function runLearnOne() {
   try {
     await settle();
     view.host.querySelector<HTMLButtonElement>('#mem-tab-learn')?.click(); await settle();
-    const input = view.host.querySelector<HTMLInputElement>('.mem-pull-search input');
-    assert(input !== null, 'The Learn tab has a box to find one pull request');
+    const input = element<HTMLInputElement>('.mem-pull-search input', view.host, 'The Learn tab has a box to find one pull request');
     changeInput(input, 'check');
     changeInput(input, 'checkpoint'); await paused();
     assert(view.searches.length === 1 && view.searches[0] === 'checkpoint', 'Typing searches once, after it pauses');
@@ -137,8 +136,7 @@ export async function runFindings() {
   try {
     await settle();
     view.host.querySelector<HTMLButtonElement>('#mem-tab-specs')?.click(); await settle();
-    const panel = view.host.querySelector<HTMLElement>('#mem-panel-specs');
-    assert(panel !== null, 'Spec checks panel is visible');
+    const panel = element<HTMLElement>('#mem-panel-specs', view.host, 'Spec checks panel is visible');
     const findings = () => panel.querySelectorAll<HTMLElement>('.rcp-finding');
     const button = (host: Element, label: string) => {
       const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === label);
@@ -177,8 +175,7 @@ export async function run() {
   try {
     await settle();
     const tab = (id: string) => {
-      const button = view.host.querySelector<HTMLButtonElement>(`#mem-tab-${id}`);
-      assert(button !== null, 'Tab exists: ' + id);
+      const button = element<HTMLButtonElement>(`#mem-tab-${id}`, view.host, 'Tab exists: ' + id);
       return button;
     };
     const selected = (id: string) => {

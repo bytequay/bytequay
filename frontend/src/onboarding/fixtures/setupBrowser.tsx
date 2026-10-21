@@ -18,7 +18,7 @@ import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { LOCAL_COMMITS_ONLY } from '../../agents/developmentAutomation';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
-import { assert, settle, until } from '../../fixtures/harness';
+import { assert, settle, until, button as findButton } from '../../fixtures/harness';
 import type { AgendaScheduleDto, AppPreferencesDto, Bridge, ModelSettingsDto, SetupPreferencesDto, SetupStep } from '../../types';
 import SetupFlow from '../SetupFlow';
 import { OPEN_SETUP } from '../setup';
@@ -95,10 +95,7 @@ function harness(step: SetupStep = 'APPEARANCE', available = true, connected = f
     ready: () => { models = CATALOG; }, disconnect: () => { connected = false; } };
 }
 
-function button(host: HTMLElement, label: string) {
-  const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === label || button.getAttribute('aria-label') === label);
-  assert(value !== undefined, `Missing button: ${label}`); return value;
-}
+const button = (host: HTMLElement, label: string) => findButton(label, host);
 const title = (host: HTMLElement, text: string) => until(() => host.querySelector('h1')?.textContent === text, `Missing step: ${text}`);
 const click = async (host: HTMLElement, label: string) => { button(host, label).click(); await settle(); };
 

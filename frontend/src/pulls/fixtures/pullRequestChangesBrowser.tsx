@@ -18,7 +18,7 @@ import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { Bridge, DiffCommitDto, DiffFileDto } from '../../types';
 import { DiffViewer, type CommitRange } from '../PullChanges';
 import { usePullRequestChanges, type PullRequestChangesSource } from '../usePullRequestChanges';
-import { assert, settle, until } from '../../fixtures/harness';
+import { textButton, assert, settle, until } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/pulls.css';
 
@@ -56,8 +56,7 @@ async function runHook(): Promise<string[]> {
   }
   const render = () => flushSync(() => root.render(<Harness />));
   const click = (label: string) => {
-    const button = [...host.querySelectorAll('button')].find(entry => entry.textContent === label);
-    assert(button !== undefined, `Missing ${label} button`);
+    const button = textButton(label, host);
     flushSync(() => button.click());
   };
   try {

@@ -27,7 +27,7 @@ import '../../css/base.css';
 import '../../css/pulls.css';
 import '../../css/agents.css';
 import '../../css/agent-review.css';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, element } from '../../fixtures/harness';
 
 const question = "Please provide the Maven command that you used. Why did you compile the tests directly rather than building the Snowflake module first?";
 const body = question + '\n\n' + 'Keep this complete question available when I open the card. '.repeat(12)
@@ -43,13 +43,11 @@ let openedReviews = 0;
 let closedHeight = 0;
 
 function card() {
-  const result = host.querySelector<HTMLElement>('.agt-review-request');
-  assert(result !== null, 'Review request must render a compact card');
+  const result = element<HTMLElement>('.agt-review-request', host, 'Review request must render a compact card');
   return result;
 }
 function toggle() {
-  const result = card().querySelector<HTMLButtonElement>('.agt-review-request__toggle');
-  assert(result !== null, 'Review request must have an independent disclosure button');
+  const result = element<HTMLButtonElement>('.agt-review-request__toggle', card(), 'Review request must have an independent disclosure button');
   return result;
 }
 

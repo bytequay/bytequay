@@ -360,16 +360,24 @@ instruction to continue.
 
 ## Cherry-pick and backport
 
-1. In **Commits → History**, choose the destination and source.
-2. Select commits, then **Cherry-pick**. Check the plan with **Dry run**, then
-   **Start cherry-pick**.
-3. Follow progress in **Commits → Cherry pick**.
-4. Review the result, then **Deliver this generated branch → Push branch** and
+Link related repositories once in repository settings under **Related
+workspaces**. A Fork means your code builds on that repository, so Fork links
+form a repo line, such as an open-source project, its internal fork, and a
+product built on that fork. Every workspace in the line shows it, and agents can
+read and start work anywhere in it.
+
+1. In **Commits → History**, choose a repository upstream in the repo line. Select
+   commits, or open **Pull requests** and pick a merged one.
+2. Choose **Cherry-pick**. Check the plan with **Dry run**, then **Start
+   cherry-pick**, and follow it in **Commits → Cherry pick**.
+3. Review the result, then **Deliver this generated branch → Push branch** and
    **Create pull request**. PR creation also starts the disclosed CI monitor.
 
-For chained backports, set **Related workspaces** in repository settings and
-choose **Backport**. Follow **Tasks → Backport chains**. Each step waits for its
-source PR to merge.
+To carry a pull request down the line, pick it and choose **Backport**, then
+confirm the repositories to include. Each one gets its own cherry-pick and pull
+request after the pull request before it merges. Chains show in **Commits →
+Cherry pick** of every repository they touch; you can also ask an agent with
+`@backport`.
 
 <a id="issues-and-jira"></a>
 

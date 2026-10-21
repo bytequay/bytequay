@@ -159,17 +159,23 @@
           </section>
           <section id="commits-and-backports">
             <h2>Cherry-pick and backport</h2>
+            <p>Link related repositories once in repository settings under
+              <strong>Related workspaces</strong>. A Fork means your code builds on that repository,
+              so Fork links form a repo line, such as an open-source project, its internal fork, and a
+              product built on that fork. Every workspace in the line shows it, and agents can read and
+              start work anywhere in it.</p>
             <ol>
-              <li>In <strong>Commits → History</strong>, choose the destination and source.</li>
-              <li>Select commits, then <strong>Cherry-pick</strong>.
-                Check the plan with <strong>Dry run</strong>, then <strong>Start cherry-pick</strong>.</li>
-              <li>Follow progress in <strong>Commits → Cherry pick</strong>.</li>
+              <li>In <strong>Commits → History</strong>, choose a repository upstream in the repo line.
+                Select commits, or open <strong>Pull requests</strong> and pick a merged one.</li>
+              <li>Choose <strong>Cherry-pick</strong>. Check the plan with <strong>Dry run</strong>,
+                then <strong>Start cherry-pick</strong>, and follow it in <strong>Commits → Cherry pick</strong>.</li>
               <li>Review the result, then <strong>Deliver this generated branch → Push branch</strong>
                 and <strong>Create pull request</strong>. PR creation also starts the disclosed CI monitor.</li>
             </ol>
-            <p>For chained backports, set <strong>Related workspaces</strong> in repository
-              settings and choose <strong>Backport</strong>. Follow
-              <strong>Tasks → Backport chains</strong>. Each step waits for its source PR to merge.</p>
+            <p>To carry a pull request down the line, pick it and choose <strong>Backport</strong>,
+              then confirm the repositories to include. Each one gets its own cherry-pick and pull request
+              after the pull request before it merges. Chains show in <strong>Commits → Cherry pick</strong>
+              of every repository they touch; you can also ask an agent with <code>@backport</code>.</p>
           </section>
           <div class="doc-next">
             <a href="documentation.html">← All guides</a

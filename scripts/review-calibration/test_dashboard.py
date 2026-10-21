@@ -60,6 +60,20 @@ def captions(page):
     return [caption.value for caption in page.caption]
 
 
+def started_by_bytequay(case):
+    """What the desktop's start-up sets for the test's pages: a path of the page's own and a port it picked."""
+    for name, value, default in (("server.baseUrlPath", "lab-session", ""), ("server.port", 49152, 8501)):
+        config.set_option(name, value)
+        case.addCleanup(config.set_option, name, default)
+
+
+def write_fix(runtime, *events):
+    """The log of a ByteQuay task, with only the events the lab reads to find a fix."""
+    log = runtime / "fix-1" / "events.jsonl"
+    log.parent.mkdir(parents=True)
+    log.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+
 class Page(unittest.TestCase):
     """The whole page, run without a browser on the saved example."""
 
@@ -584,17 +598,6 @@ class Page(unittest.TestCase):
         self.assertEqual(([text.value for text in page.markdown if text.value.startswith("##### 1.")], json.loads((self.folder / "record.json").read_text())["suggestions"]),
                          (["##### 1. Make long maven runs shorter"], []))
 
-    def started_by_bytequay(self):
-        """What the desktop's start-up sets: a path of the page's own and a port it picked."""
-        for name, value, default in (("server.baseUrlPath", "lab-session", ""), ("server.port", 49152, 8501)):
-            config.set_option(name, value)
-            self.addCleanup(config.set_option, name, default)
-
-    def write_fix(self, *events):
-        log = self.runtime / "fix-1" / "events.jsonl"
-        log.parent.mkdir(parents=True)
-        log.write_text("".join(json.dumps(event) + "\n" for event in events))
-
     def test_suggestions_tab_hands_its_brief_to_bytequay_only_on_the_page_bytequay_started(self):
         self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
         page = self.page()
@@ -602,7 +605,7 @@ class Page(unittest.TestCase):
         self.assertTrue(brief.startswith("Make long maven runs shorter\n\nWhat the lab saw: "))
         self.assertEqual(brief.splitlines()[-1], f"{suggest.LINE}Make long maven runs shorter")
         self.assertEqual(page.get("link_button"), [], "started from the terminal, ByteQuay would not take the link")
-        self.started_by_bytequay()
+        started_by_bytequay(self)
         page = self.page()
         self.assertEqual(list(page.exception), [])
         (link,) = page.get("link_button")
@@ -614,15 +617,15 @@ class Page(unittest.TestCase):
 
     def test_a_task_started_from_a_brief_is_on_it_and_needs_no_mark(self):
         self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
-        self.started_by_bytequay()
-        self.write_fix({"type": "user_message", "occurredAt": "2026-01-12T09:00:00Z", "payload": {"text": f"edited\n{suggest.LINE}Make long maven runs shorter"}})
+        started_by_bytequay(self)
+        write_fix(self.runtime, {"type": "user_message", "occurredAt": "2026-01-12T09:00:00Z", "payload": {"text": f"edited\n{suggest.LINE}Make long maven runs shorter"}})
         page = self.page()
         self.assertIn(f"A ByteQuay task is on it since {suggest.said(date(2026, 1, 12))}. Completing that task notes the change here.", captions(page))
         self.assertEqual((page.get("link_button"), (self.folder / "changes.json").exists(), (self.folder / "record.json").exists()), ([], False, False))
 
     def test_a_completed_task_started_from_a_brief_notes_the_change_on_its_day(self):
         self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
-        self.write_fix({"type": "user_message", "occurredAt": "2026-01-12T09:00:00Z", "payload": {"text": f"x\n{suggest.LINE}Make long maven runs shorter"}},
+        write_fix(self.runtime, {"type": "user_message", "occurredAt": "2026-01-12T09:00:00Z", "payload": {"text": f"x\n{suggest.LINE}Make long maven runs shorter"}},
                        {"type": "lifecycle", "occurredAt": "2026-01-13T10:00:00Z", "payload": {"phase": "TASK_COMPLETED", "message": "Task completed"}})
         day = datetime.fromisoformat("2026-01-13T10:00:00Z").astimezone().date()
         page = self.page()

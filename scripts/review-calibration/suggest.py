@@ -326,12 +326,17 @@ REPOSITORY = "bytequay/bytequay"  # where every file a suggestion names lives, s
 LINE = "Lab suggestion: "  # starts the last line of a brief, by which the lab finds the task started from it
 
 
-def brief(one, data):
-    """The message of a ByteQuay task that makes this suggestion: what was seen, what to do, where, and the number to watch.
-    Its last line names the suggestion, so the lab can find the task and note the change once the task is completed."""
-    places = "\n".join(f"- `{path}`, look for `{what}`" if path else f"- {what}" for path, what in one.where)
-    return (f"{one.title}\n\nWhat the lab saw: {one.seen}\n\nWhat to do: {one.advice}\n\nWhere:\n{places}\n\n"
-            f"Number to watch, lower is better: {one.watch}, now {now(one.measure(data))}.\n\n"
+def written(title, seen, do, where, watch):
+    """The message of a ByteQuay task that makes a change the lab found: what was seen, what to do, where, and the line that
+    says the number to watch. Its last line names the change, so the lab can find the task and note the change once the task
+    is completed."""
+    return (f"{title}\n\nWhat the lab saw: {seen}\n\nWhat to do: {do}\n\nWhere:\n{where}\n\n{watch}\n\n"
             # A task's worktree holds only what Git tracks, so the brief names CONTRIBUTING.md and not the ignored instruction files.
             "Keep the change small and add or update a test for it. Follow CONTRIBUTING.md. Leave the last line out of code and "
-            f"commit messages.\n\n{LINE}{one.title}")
+            f"commit messages.\n\n{LINE}{title}")
+
+
+def brief(one, data):
+    """The message of a ByteQuay task that makes this suggestion."""
+    places = "\n".join(f"- `{path}`, look for `{what}`" if path else f"- {what}" for path, what in one.where)
+    return written(one.title, one.seen, one.advice, places, f"Number to watch, lower is better: {one.watch}, now {now(one.measure(data))}.")

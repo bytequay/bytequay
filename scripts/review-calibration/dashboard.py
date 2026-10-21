@@ -492,6 +492,17 @@ if get_script_run_ctx(suppress_warning=True):
     read_fixes = st.cache_data(ttl=300, show_spinner=False)(read_fixes)
 
 
+def settle(folder, runtime):
+    """Note the change of each ByteQuay task started from a brief that was completed, on the day it was completed, and return
+    the noted changes with the day each fix still open began, by title. Both pages that hand out briefs call it, so a
+    completed task is noted whichever of them is opened first."""
+    fixes = read_fixes(str(runtime))
+    noted = digest.changes(folder)
+    for title, day in record.unnoted(fixes, noted):
+        noted = digest.note(folder, title, day)
+    return noted, record.on_it(fixes)
+
+
 def task_link(text):
     """The link that has ByteQuay open a task with this text in its own repository's task box, or None when ByteQuay did not
     start this page: only the page it started has a path of its own, which is what `labTask` in the desktop's Lab package
@@ -543,16 +554,11 @@ def suggestions(made, table, folder, runtime):
     except (OSError, KeyError, TypeError, ValueError):
         reviews = None
         st.caption("The saved reviews could not be read, so review runs are left out here.")
-    fixes = read_fixes(str(runtime))
     try:
-        noted = digest.changes(folder)
-        # A ByteQuay task started from a brief notes its change by itself, on the day it was completed.
-        for title, day in record.unnoted(fixes, noted):
-            noted = digest.note(folder, title, day)
+        noted, started = settle(folder, runtime)
     except (OSError, KeyError, TypeError, ValueError):
-        noted = []
+        noted, started = [], {}
         st.caption("The noted changes in `changes.json` could not be read.")
-    started = record.on_it(fixes)
     try:
         marked = record.marks(folder)
     except (OSError, KeyError, TypeError, ValueError):

@@ -15,7 +15,6 @@ import batch
 import cleanup
 import dashboard
 import digest
-import fixer
 import monitor
 import record
 import resources
@@ -48,49 +47,15 @@ def looking(folder):
         st.info(f"The agent is looking: {activity.count(steps, 'model call')} so far, {advisor.STEPS} at most.", icon=":material/hourglass_top:")
 
 
-@st.fragment(run_every=2)
-def fixing(folder):
-    """How a fix plan goes, looked at again every two seconds. Once it ends the whole page runs again, with the plan."""
-    own = fixer.place(folder)
-    running = batch.runner(own) is not None
-    if st.session_state.get("fix_running") and not running:
-        st.session_state["fix_running"] = False
-        st.rerun(scope="app")
-    st.session_state["fix_running"] = running
-    try:
-        made = saved.read(own["folder"], fixer.STATE)
-    except (OSError, ValueError):
-        made = None
-    if made is None:
-        return
-    title = plain(made["title"])
-    if running:
-        st.info(f"The agent is planning how to fix \"{title}\": {activity.count(made['steps'], 'model call')} so far, {fixer.STEPS} at most.",
-                icon=":material/hourglass_top:")
-    elif made["state"] != "done":
-        st.warning(f"The last plan, for \"{title}\", " + {"failed": f"failed: {made['problem']}", "stopped": "was stopped before it finished."}.get(
-            made["state"], "ended before it finished."))
-
-
-def fix(folder, number, title, busy):
-    """The agent's last plan for a risk that Clean up does not carry out, and a button to ask for one."""
-    try:
-        made = fixer.kept(folder, title)
-    except (OSError, ValueError):
-        made = None
-        st.caption("The last plan for this risk could not be read.")
-    if made is not None:
-        with st.expander("How to fix it"):
-            st.caption(f"Planned {dashboard.when(made['ended'])} with {made['model']}, on commit {made['commit'][:9]}: {activity.count(made['steps'], 'model call')}.")
-            st.markdown(plain(made["summary"]))
-            if made["patch"]:
-                st.markdown("**Files.** " + "; ".join(f"`{one['path']}` (+{one['added']} -{one['deleted']})" for one in made["files"]))
-                st.code(made["patch"], language="diff")
-                st.caption("Save it as a file and apply it in the repository's top folder with `git apply`.")
-            st.markdown(f"**Test.** {plain(made['test'])}")
-    if st.button("Plan again" if made else "How to fix", key=f"advice_fix_{number}", disabled=busy):
-        fixer.start(folder, title)
-        st.rerun()
+def fix(one, state, started):
+    """The brief of a ByteQuay task that fixes this risk, and, on the page ByteQuay started, Fix it to open it in that task's
+    box. A task started from it notes the change by itself once it is completed, as a suggestion's does."""
+    text = suggest.written(one["title"], one["seen"], one["do"], one["where"], f"Number to watch: {one['watch']}")
+    with st.expander("Brief for a ByteQuay task"):
+        st.code(text, language=None, wrap_lines=True)
+    link = dashboard.task_link(text)
+    if link and state != "done" and one["title"] not in started:
+        st.link_button("Fix it", link, type="primary", help="Opens a ByteQuay task with this brief in its task box; you read it and send it")
 
 
 def marks(folder, number, title, state):
@@ -105,7 +70,7 @@ def marks(folder, number, title, state):
             st.button("Leave it out", key=f"risk_drop_{number}", on_click=lambda: record.mark(folder, title, "dropped", date.today(), st.session_state.get(f"risk_why_{number}", "")))
 
 
-def found(folder, last, earlier):
+def found(folder, runtime, last, earlier):
     """What the last look found, the gravest first, each with how often the looks before found it and the marks of the
     lab's own suggestions. A risk marked not wanted is left out."""
     if last["state"] != "done":
@@ -117,12 +82,11 @@ def found(folder, last, earlier):
                f"{usage.get('inputTokens', 0):,} tokens in and {usage.get('outputTokens', 0):,} out.")
     st.markdown(plain(last["summary"]))
     try:
-        noted, marked = digest.changes(folder), record.marks(folder)
+        (noted, started), marked = dashboard.settle(folder, runtime), record.marks(folder)
     except (OSError, KeyError, TypeError, ValueError):
-        noted, marked = [], {}
+        noted, started, marked = [], {}, {}
         st.caption("The marks in `record.json` or the changes in `changes.json` could not be read, so every risk is shown as open.")
     before = [look for look in earlier if look["started"] != last["started"]]
-    busy = batch.runner(fixer.place(folder)) is not None or not batch.has_key()
     left_out = 0
     for number, one in enumerate(last["suggestions"]):
         state, day, _ = record.standing(one["title"], marked, noted)
@@ -140,13 +104,15 @@ def found(folder, last, earlier):
             if state == "done":
                 st.caption(f"You noted this change on {suggest.said(day)}. " + (
                     "No look since then yet." if record.gone(one["title"], day, [last]) == "no look since yet" else "This look, after it, still finds it."))
+            elif one["title"] in started:
+                st.caption(f"A ByteQuay task is on it since {suggest.said(started[one['title']])}. Completing that task notes the change here.")
             elif state == "doing":
                 st.caption(f"Being worked on since {suggest.said(day)}.")
             if one["action"] == "clean_up" and st.button("Clean up…", key=f"advice_clean_{number}"):
                 st.session_state["cleanup_confirm"] = True
                 st.caption("Confirm it under Clean up, at the end of the page.")
-            elif one["action"] == "none":
-                fix(folder, number, one["title"], busy)
+            elif one["action"] == "fix":
+                fix(one, state, started)
             marks(folder, number, one["title"], state)
     if left_out:
         st.caption(f"{activity.count(left_out, 'risk')} you marked not wanted {'is' if left_out == 1 else 'are'} left out. "
@@ -158,10 +124,9 @@ def found(folder, last, earlier):
         st.text(last["overview"] or "")
 
 
-def risks(folder):
+def risks(folder, runtime):
     st.subheader("Risks")
     looking(folder)
-    fixing(folder)
     own = advisor.place(folder)
     running = batch.runner(own) is not None
     try:
@@ -175,7 +140,7 @@ def risks(folder):
         earlier = []
         st.caption("The earlier looks could not be read, so every risk is shown as new.")
     if last is not None and not running:
-        found(folder, last, earlier)
+        found(folder, runtime, last, earlier)
     elif not running:
         st.caption("The lab's agent reads the monitor's numbers through read-only tools, finds risks and suggests what to do about each.")
     key = batch.has_key()
@@ -183,8 +148,7 @@ def risks(folder):
         advisor.start(folder)
         st.rerun()
     st.caption("A look sends the monitor's counters and the titles of the last look's suggestions to DeepSeek's API, never a path, a command or a "
-               "task's title, and spends tokens on your key. How to fix sends the risk and the ByteQuay source files the agent reads, as last committed." if key
-               else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
+               "task's title, and spends tokens on your key." if key else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
 NUMBERS = {"memory MB": "%,.0f", "typical MB": "%,.0f", "peak MB": "%,.0f", "CPU cores": "%.2f", "typical CPU": "%.2f", "peak CPU": "%.2f", "threads": "%,.0f", "open files": "%,.0f"}
 
 
@@ -366,11 +330,13 @@ def clean_up(made, folder):
 dashboard.start_page()
 arguments = argparse.ArgumentParser(add_help=False)
 arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
-FOLDER = arguments.parse_known_args()[0].folder
+arguments.add_argument("--runtime", type=Path, default=activity.RUNTIME)
+PARSED = arguments.parse_known_args()[0]
+FOLDER, RUNTIME = PARSED.folder, PARSED.runtime
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Resources")
 st.caption("What ByteQuay takes from this Mac: its Electron app, its Java backend, and the agents it runs with the commands they start.")
-risks(FOLDER)
+risks(FOLDER, RUNTIME)
 live(FOLDER, MODE)
 MADE = over_time(FOLDER, MODE)
 disk(MADE, MODE)

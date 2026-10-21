@@ -1,5 +1,5 @@
 import ast
-from datetime import date
+from datetime import date, datetime
 import logging
 import os
 from pathlib import Path
@@ -8,6 +8,7 @@ import tempfile
 import time
 import unittest
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 import pandas
 from streamlit import config
@@ -19,14 +20,18 @@ import charts
 import cleanup
 import dashboard
 import digest
-import fixer
 import monitor
 import record
 import resources
 import saved
 import suggest
+from test_dashboard import started_by_bytequay, write_fix
 
 PAGE = Path(__file__).with_name("pages") / "Resources.py"
+# A risk a change in ByteQuay fixes, as a look hands it in, and the first message of a task started from its brief.
+FIX = {"title": "Give the backend more heap", "risk": "low", "seen": "It peaked at 1,900 MB of a 2,000 MB heap limit.", "do": "Raise -Xmx.", "where": "dev.sh JVM_ARGS",
+       "watch": "The backend's peak memory", "action": "fix"}
+BRIEF = f"Give the backend more heap\n\n...\n\n{suggest.LINE}Give the backend more heap"
 # As in test_dashboard: outside a running page Streamlit warns on every start that there is no page.
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").addFilter(lambda record: "missing ScriptRunContext" not in record.getMessage())
 MACHINE = {"memory_used": 40 * resources.GB, "memory_total": 64 * resources.GB, "cpu": 2.5, "turns": 1, "tasks": 6, "queued": 2}
@@ -234,14 +239,14 @@ class TestPage(Kept):
         saved.write(advisor.place(self.folder)["folder"], advisor.STATE, {
             "version": 1, "state": "done", "started": "2026-10-15T08:00:00Z", "ended": "2026-10-15T08:02:00Z", "model": "deepseek-v4-pro", "steps": 4,
             "usage": {"inputTokens": 12000, "cachedInputTokens": 8000, "outputTokens": 900, "cost": None}, "summary": "The disk is 91% full; it costs $0 to clean.",
-            "suggestions": [suggestion, suggestion | {"title": "Watch the backend", "risk": "low", "action": "none"}], "overview": "Samples from ...", "problem": None} | changed)
+            "suggestions": [suggestion, FIX], "overview": "Samples from ...", "problem": None} | changed)
 
     def test_what_the_last_look_found_is_shown_and_its_clean_up_asks_to_be_confirmed(self):
         self.found()
         page = self.page()
         said = [text.value for text in page.markdown]
         self.assertIn("The disk is 91% full; it costs \\$0 to clean.", said)  # a dollar sign would start a formula
-        self.assertEqual([text for text in said if text in ("Clean up what nothing uses", "Watch the backend")], ["Clean up what nothing uses", "Watch the backend"])
+        self.assertEqual([text for text in said if text in ("Clean up what nothing uses", "Give the backend more heap")], ["Clean up what nothing uses", "Give the backend more heap"])
         self.assertIn("**Seen.** Retired features hold 29.7 GB.", said)
         self.assertTrue(any("High risk" in text for text in said) and any("Low risk" in text for text in said))
         self.assertTrue(next(caption.value for caption in page.caption if caption.value.startswith("Looked ")).endswith(
@@ -261,50 +266,48 @@ class TestPage(Kept):
         said = lambda: [caption.value for caption in page.caption]
         self.assertTrue({"Earlier looks found it too: 1 of 1.", "New in this look.", "Gone since the look before: Close the idle tasks."} <= set(said()), said())
         page.button(key="risk_doing_1").click().run()
-        self.assertEqual(record.marks(self.folder), {"Watch the backend": ("doing", date.today(), "")})  # the record the lab's own suggestions keep
+        self.assertEqual(record.marks(self.folder), {"Give the backend more heap": ("doing", date.today(), "")})  # the record the lab's own suggestions keep
         self.assertIn(f"Being worked on since {suggest.said(date.today())}.", said())
         page.text_input(key="risk_why_0").input("it runs by itself").run()
         page.button(key="risk_drop_0").click().run()
         self.assertNotIn("Clean up what nothing uses", [text.value for text in page.markdown])
         self.assertIn("1 risk you marked not wanted is left out. Bring one back under What became of them, on the Suggestions tab.", said())
         page.button(key="risk_noted_1").click().run()
-        self.assertEqual(digest.changes(self.folder), [{"day": date.today(), "what": "Watch the backend"}])
+        self.assertEqual(digest.changes(self.folder), [{"day": date.today(), "what": "Give the backend more heap"}])
         self.assertIn(f"You noted this change on {suggest.said(date.today())}. No look since then yet.", said())
 
-    def test_a_risk_clean_up_does_not_carry_out_gets_a_plan_of_how_to_fix_it(self):
+    def test_a_risk_with_a_fix_hands_its_brief_to_bytequay_only_on_the_page_bytequay_started(self):
         self.found()
-        self.assertTrue(self.page().button(key="advice_fix_1").disabled)  # no key
-        with mock.patch.object(batch, "has_key", return_value=True), mock.patch.object(fixer, "start") as started:
-            page = self.page()
-            self.assertEqual([button.key for button in page.button if button.key.startswith("advice_fix")], ["advice_fix_1"])  # Clean up carries out the other
-            page.button(key="advice_fix_1").click().run()
-        self.assertEqual(started.call_args_list, [mock.call(self.folder, "Watch the backend")])
-        patch = "--- a/dev.sh\n+++ b/dev.sh\n@@ -1 +1 @@\n-JVM_ARGS=-Xmx2g\n+JVM_ARGS=-Xmx4g\n"
-        saved.write(fixer.place(self.folder)["folder"] / fixer.PLANS, fixer.named("Watch the backend"), {
-            "version": 1, "state": "done", "title": "Watch the backend", "started": "2026-10-17T08:00:00Z", "ended": "2026-10-17T08:03:00Z", "model": "deepseek-v4-pro",
-            "commit": "0123456789abcdef", "steps": 7, "usage": None, "summary": "Give the backend 4 GB.", "files": [{"path": "dev.sh", "added": 1, "deleted": 1}],
-            "patch": patch, "test": "Run ./dev.sh.", "problem": None})
         page = self.page()
-        self.assertEqual(page.button(key="advice_fix_1").label, "Plan again")
-        self.assertIn(patch.rstrip("\n"), [code.value for code in page.code])  # as the page shows it, without the last line's end
-        self.assertTrue({"Give the backend 4 GB.", "**Files.** `dev.sh` (+1 -1)", "**Test.** Run ./dev.sh."} <= {text.value for text in page.markdown})
-        self.assertTrue(any(caption.value.endswith("with deepseek-v4-pro, on commit 012345678: 7 model calls.") for caption in page.caption))
+        (brief,) = [code.value for code in page.code]  # the clean-up card has none
+        self.assertEqual(brief.splitlines(), ["Give the backend more heap", "", "What the lab saw: It peaked at 1,900 MB of a 2,000 MB heap limit.", "",
+                                              "What to do: Raise -Xmx.", "", "Where:", "dev.sh JVM_ARGS", "", "Number to watch: The backend's peak memory", "",
+                                              "Keep the change small and add or update a test for it. Follow CONTRIBUTING.md. Leave the last line out of code and commit messages.", "", f"{suggest.LINE}Give the backend more heap"])
+        self.assertEqual(page.get("link_button"), [], "started from the terminal, ByteQuay would not take the link")
+        started_by_bytequay(self)
+        page = self.page()
+        (link,) = page.get("link_button")
+        self.assertEqual((link.proto.label, parse_qs(urlsplit(link.proto.url).query)), ("Fix it", {"repository": [suggest.REPOSITORY], "text": [brief]}))
+        self.found(suggestions=[FIX | {"action": "none"}])  # a look kept from before fixes were named
+        page = self.page()
+        self.assertEqual((page.get("link_button"), list(page.code), list(page.exception)), ([], [], []))
 
-    def test_a_running_plan_shows_how_far_it_got_and_one_that_failed_says_why(self):
+    def test_a_task_on_a_risk_hides_fix_it_until_it_is_completed(self):
         self.found()
-        own = fixer.place(self.folder)
-        own["folder"].mkdir(parents=True)
-        held = batch.claim(own)
-        self.addCleanup(held.close)
-        saved.write(own["folder"], fixer.STATE, {"version": 1, "state": "running", "title": "Watch the backend", "steps": 2})
-        with mock.patch.object(batch, "has_key", return_value=True):
-            page = self.page()
-        self.assertIn('The agent is planning how to fix "Watch the backend": 2 model calls so far, 40 at most.', [note.value for note in page.info])
-        self.assertTrue(page.button(key="advice_fix_1").disabled)
-        held.close()
-        saved.write(own["folder"], fixer.STATE, {"version": 1, "state": "failed", "title": "Watch the backend", "steps": 2, "problem": "RuntimeError: the API is down"})
-        self.assertIn('The last plan, for "Watch the backend", failed: RuntimeError: the API is down', [note.value for note in self.page().warning])
+        started_by_bytequay(self)
+        write_fix(self.folder / "runtime", {"type": "user_message", "occurredAt": "2026-10-16T09:00:00Z", "payload": {"text": BRIEF}})
+        page = self.page()
+        self.assertIn(f"A ByteQuay task is on it since {suggest.said(date(2026, 10, 16))}. Completing that task notes the change here.", [caption.value for caption in page.caption])
+        self.assertEqual((page.get("link_button"), (self.folder / "changes.json").exists()), ([], False))
 
+    def test_a_completed_task_on_a_risk_notes_the_change_when_only_this_page_is_opened(self):
+        self.found()
+        write_fix(self.folder / "runtime", {"type": "user_message", "occurredAt": "2026-10-16T09:00:00Z", "payload": {"text": BRIEF}},
+                  {"type": "lifecycle", "occurredAt": "2026-10-17T10:00:00Z", "payload": {"phase": "TASK_COMPLETED", "message": "Task completed"}})
+        day = datetime.fromisoformat("2026-10-17T10:00:00Z").astimezone().date()
+        page = self.page()
+        self.assertEqual(digest.changes(self.folder), [{"day": day, "what": "Give the backend more heap"}])
+        self.assertIn(f"You noted this change on {suggest.said(day)}. No look since then yet.", [caption.value for caption in page.caption])
     def test_a_look_that_failed_says_why(self):
         self.found(state="failed", problem="RuntimeError: the API is down", suggestions=[], summary=None)
         self.assertIn("The last look failed: RuntimeError: the API is down", [note.value for note in self.page().warning])

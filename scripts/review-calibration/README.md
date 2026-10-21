@@ -421,23 +421,10 @@ from the Keychain (`uv run batch.py --store-key`) and sends counters and the
 last look's titles, never a path, a command or a task's title; it ends after
 20 model calls or ten minutes.
 
-A risk that Clean up does not carry out has "How to fix" (`uv run fixer.py
-TITLE` plans one from a terminal). `fixer.py` writes ByteQuay's source as last
-committed (`git archive HEAD`, so nothing git does not keep) into a folder that
-goes when the plan ends, and gives the agent loop the review's three read-only
-tools over it. The agent hands in a summary, its edits (each replaces text
-found exactly once in a file, or makes a new file) and how to test the fix;
-the lab turns the edits into one patch and checks it with `git apply --check`.
-An edit that cannot be made, or a patch that does not apply, goes back to it
-as an error. Nothing in the repository is changed. The card shows the last
-plan, its files, the patch to copy and the test, made against the commit it
-names; `fix/fix.json` keeps the plan that runs or ran last, `fix/plans/` the
-last one that finished for each risk, and `fix/events.jsonl` every model and
-tool call. A model may read on past the loop's last call to hand in, so
-reading ends after 30 model calls, or once the conversation passes 70,000
-tokens, and every read after that tells it to hand in. A plan sends the risk
-and the source files the agent reads to DeepSeek's API; it ends after 40 model
-calls or ten minutes.
+A risk with a fix has the same brief and **Fix it** as a suggestion (see
+Suggestions): it opens a ByteQuay task for the change, a task on it says so on
+the card, and completing that task notes the change, which the looks after it
+then check. Both pages note completed tasks, whichever is opened first.
 
 Below the disk, "Clean up" lists what nothing in the app uses any more, by the
 same rules as the disk count: what removed tasks left in the runtime and among

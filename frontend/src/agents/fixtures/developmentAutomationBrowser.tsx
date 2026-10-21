@@ -58,7 +58,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
   try {
     await settle();
     const chip = element<HTMLButtonElement>('.agt-auto-chip', host, 'Automation must be visible before Send is enabled');
-    assert(chip.getAttribute('aria-label') === 'Automation: CI fix', 'The chip must name the saved default step');
+    assert(chip.getAttribute('aria-label') === 'Automation: Auto-CI fix', 'The chip must name the saved default step');
     assert(chip.querySelectorAll('.agt-auto-chip__step').length === 3, 'The chip must draw one icon per step that is on');
     chip.click();
     await settle();
@@ -72,7 +72,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     assert(!reset.disabled, 'A changed step must enable reset');
     reset.click();
     await settle();
-    assert(chip.getAttribute('aria-label') === 'Automation: CI fix' && reset.disabled, 'Reset must return to the saved default');
+    assert(chip.getAttribute('aria-label') === 'Automation: Auto-CI fix' && reset.disabled, 'Reset must return to the saved default');
     changeInput(slider, '0');
     await settle();
     const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'Task composer must exist');
@@ -88,7 +88,7 @@ async function createLocalTask(): Promise<{ name: string; error?: string }[]> {
     assert(request.defaults.developmentAutomation?.level === 'COMMIT' && request.developmentAutomation?.level === 'COMMIT',
       'The chosen step must be the task’s automation and its first turn’s');
     assert(bridge.commands.filter(command => command.name === 'createAgentTask').length === 1, 'A successful submit must not duplicate creation');
-    assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: CI fix', 'The next task must start from the saved default again');
+    assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: Auto-CI fix', 'The next task must start from the saved default again');
     return [{ name: 'The slider chooses one task’s step, resets to the saved default, and does not carry over' }];
   }
   catch (error) { return [{ name: 'Local publication submission', error: error instanceof Error ? error.message : String(error) }]; }
@@ -117,7 +117,7 @@ async function createDeepSeekTask(): Promise<{ name: string; error?: string }[]>
   flushSync(() => root.render(<Harness />));
   try {
     await settle();
-    assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: CI fix', 'DeepSeek must inherit the saved automation defaults');
+    assert(host.querySelector('.agt-auto-chip')?.getAttribute('aria-label') === 'Automation: Auto-CI fix', 'DeepSeek must inherit the saved automation defaults');
     const input = element<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]', host, 'DeepSeek task composer must exist');
     changeInput(input, 'Fix failing checks');
     await settle();

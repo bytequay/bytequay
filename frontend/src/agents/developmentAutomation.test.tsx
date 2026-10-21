@@ -99,7 +99,7 @@ it('shows a started task’s steps as status tiles with their meaning on hover',
   const html = renderToStaticMarkup(<AutomationControl value={defaults} status={{
     COMMIT: { state: 'done', note: 'committed' }, DRAFT_PR: { state: 'done', note: 'PR opened' }, CI_FIX: { state: 'running', note: 'Fixing CI 2/3' } }} />);
   expect(html).toContain('<span class="agt-auto-chip__step is-done" title="Auto-Commit · committed">');
-  expect(html).toContain('<span class="agt-auto-chip__step is-running" title="CI fix · Fixing CI 2/3">');
+  expect(html).toContain('<span class="agt-auto-chip__step is-running" title="Auto-CI fix · Fixing CI 2/3">');
   expect(html).toContain('agt-auto-chip is-locked');
 });
 
@@ -217,9 +217,9 @@ it('explains stop using the matching active turn policy instead of mutable task 
 it('shows the chosen step with its slider and keeps CI repair for CI steps', () => {
   const preferences = { taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 as const, autoMergeDelayMinutes: 120, theme: 'SYSTEM' as const };
   const page = renderToStaticMarkup(<WorkflowPage value={defaults} providers={[]} preferences={preferences} error={null} onChange={() => {}} onPreferences={() => {}} />);
-  expect(page).toContain('CI fix');
+  expect(page).toContain('Auto-CI fix');
   expect(page).toContain('mark the draft ready');
-  expect(page).toContain('aria-valuetext="CI fix"');
+  expect(page).toContain('aria-valuetext="Auto-CI fix"');
   expect(page).toContain('Same agent as development');
   expect(page).toContain('Each step includes the ones before it.');
   expect(page).not.toContain('Auto-merge delay');
@@ -234,7 +234,7 @@ it('shows the chosen step with its slider and keeps CI repair for CI steps', () 
 
 it('draws one composer icon per step that is on, and locks a started task', () => {
   const composer = renderToStaticMarkup(<AutomationControl value={defaults} defaultValue={LOCAL_COMMITS_ONLY} onChange={() => {}} />);
-  expect(composer).toContain('aria-label="Automation: CI fix"');
+  expect(composer).toContain('aria-label="Automation: Auto-CI fix"');
   expect(composer.match(/agt-auto-chip__step/g)).toHaveLength(3);
   expect(composer).toContain('lucide-chevron-right');
   expect(composer).not.toContain('is-locked');

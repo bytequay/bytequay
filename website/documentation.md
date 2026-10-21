@@ -333,7 +333,7 @@ includes the ones before it:
 - **Auto-Commit:** commits finished work on the task's branch. Nothing leaves
   your Mac.
 - **Auto-Draft PR:** pushes commits and creates or updates a draft PR.
-- **CI fix:** watches CI beside the task after each push. It reruns flaky
+- **Auto-CI fix:** watches CI beside the task after each push. It reruns flaky
   jobs and repairs failures the PR caused. Failures that also fail on the base
   branch are left alone until the next push. Once every check passes, it marks
   the draft PR ready for review. **CI repair agent** follows Development

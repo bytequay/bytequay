@@ -23,7 +23,7 @@ export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = { level: 'COMMIT', c
 export const AUTOMATION_STEPS: readonly { level: AutomationLevel; title: string; description: string }[] = [
   { level: 'COMMIT', title: 'Auto-Commit', description: 'Commit finished work on this task’s branch. Nothing leaves your Mac.' },
   { level: 'DRAFT_PR', title: 'Auto-Draft PR', description: 'Push commits and create or update this task’s draft PR.' },
-  { level: 'CI_FIX', title: 'CI fix', description: 'Repair failing checks, rerun CI, and mark the draft ready when checks pass.' },
+  { level: 'CI_FIX', title: 'Auto-CI fix', description: 'Repair failing checks, rerun CI, and mark the draft ready when checks pass.' },
   { level: 'REVIEW_FIX', title: 'Auto-Review fix', description: 'Fix review comments, reply on each thread, and resolve the threads that were fixed.' },
   { level: 'MERGE', title: 'Auto-merge', description: 'Rebase-merge or join the merge queue once the PR can merge, after the delay set in Settings.' },
 ];

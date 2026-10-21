@@ -9,6 +9,9 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import date, datetime, timedelta
+import json
+from pathlib import Path
+import re
 
 import charts
 import explain
@@ -51,6 +54,55 @@ def standing(title, marked, noted):
     if made:
         return "done", max(made), ""
     return ("doing", day, "") if state == "doing" else ("open", None, "")
+
+
+NAMED = re.compile("^" + re.escape(suggest.LINE) + r"(.+?)\s*$", re.M)
+ENDINGS = {"TASK_COMPLETED": True, "TASK_FAILED": False}
+
+
+def fixes(runtime, zone=None):
+    """The ByteQuay tasks started from a suggestion's brief, as (title, day started, day completed or None), from the task
+    logs. A task is told by the brief's last line in its first message; that line is all of the message that is kept. A task
+    that failed is left out."""
+    found = []
+    for log in sorted(Path(runtime).glob("*/events.jsonl")):
+        first, title, started, ended = True, None, None, None
+        with log.open(encoding="utf-8", errors="replace") as lines:
+            for line in lines:
+                # Only two kinds of line matter, and a test of the text first keeps a read of every log quick.
+                asked, ending = first and '"user_message"' in line, next((phase for phase in ENDINGS if phase in line), None)
+                if not asked and ending is None:
+                    continue
+                try:
+                    event = json.loads(line)
+                    payload, when = event["payload"], datetime.fromisoformat(event["occurredAt"]).astimezone(zone).date()
+                except (ValueError, KeyError, TypeError):
+                    continue
+                if asked and event.get("type") == "user_message":
+                    first, named = False, NAMED.search(str(payload.get("text", "")))
+                    title, started = (named.group(1), when) if named else (None, None)
+                elif payload.get("phase") in ENDINGS:
+                    ended = (ENDINGS[payload["phase"]], when)
+        if title is not None and (ended is None or ended[0]):
+            found.append((title, started, None if ended is None else ended[1]))
+    return found
+
+
+def unnoted(found, noted):
+    """The changes completed fixes made that `changes.json` does not hold yet, as (title, day), each once.
+    ponytail: the day is the day the task was completed; the change reaches agents only once ByteQuay runs it, so the days
+    since may start up to a restart early. If that blurs the checks, take the first turn with a new `setup` instead."""
+    have = {(one["what"], one["day"]) for one in noted}
+    return sorted({(title, completed) for title, _, completed in found if completed is not None} - have)
+
+
+def on_it(found):
+    """The day the first unfinished fix of each suggestion was started, by its title."""
+    started = {}
+    for title, day, completed in found:
+        if completed is None:
+            started[title] = min(day, started.get(title, day))
+    return started
 
 
 def by_setting(window):

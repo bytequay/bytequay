@@ -13,6 +13,7 @@ import subprocess
 import sys
 import threading
 import time as clock
+from urllib.parse import urlencode
 
 import streamlit as st
 from streamlit.runtime.scriptrunner import get_script_run_ctx
@@ -480,9 +481,25 @@ def read_logs(runtime, since=None, until=None):
     return asks, automatic, lines, unanswered
 
 
+def read_fixes(runtime):
+    """The ByteQuay tasks started from a suggestion's brief, kept a few minutes like the asks."""
+    return record.fixes(runtime)
+
+
 # Importing the shared labels from a CLI must not start Streamlit caching.
 if get_script_run_ctx(suppress_warning=True):
     read_logs = st.cache_data(ttl=300, show_spinner=False)(read_logs)
+    read_fixes = st.cache_data(ttl=300, show_spinner=False)(read_fixes)
+
+
+def task_link(text):
+    """The link that has ByteQuay open a task with this text in its own repository's task box, or None when ByteQuay did not
+    start this page: only the page it started has a path of its own, which is what `labTask` in the desktop's Lab package
+    takes. Opened in a new tab, the link reaches ByteQuay, which takes it instead of loading it."""
+    base = st.get_option("server.baseUrlPath").strip("/")
+    if not base:
+        return None
+    return f"http://{HOST}:{st.get_option('server.port')}/{base}/task?" + urlencode({"repository": suggest.REPOSITORY, "text": text})
 
 
 def refresh(folder, runtime, database):
@@ -500,6 +517,7 @@ def refresh(folder, runtime, database):
             except subprocess.TimeoutExpired:
                 problem = "it took more than ten minutes"
         read_logs.clear()
+        read_fixes.clear()
         if problem:
             st.error(f"The data could not be refreshed: {problem}")
 
@@ -525,11 +543,16 @@ def suggestions(made, table, folder, runtime):
     except (OSError, KeyError, TypeError, ValueError):
         reviews = None
         st.caption("The saved reviews could not be read, so review runs are left out here.")
+    fixes = read_fixes(str(runtime))
     try:
         noted = digest.changes(folder)
+        # A ByteQuay task started from a brief notes its change by itself, on the day it was completed.
+        for title, day in record.unnoted(fixes, noted):
+            noted = digest.note(folder, title, day)
     except (OSError, KeyError, TypeError, ValueError):
         noted = []
         st.caption("The noted changes in `changes.json` could not be read.")
+    started = record.on_it(fixes)
     try:
         marked = record.marks(folder)
     except (OSError, KeyError, TypeError, ValueError):
@@ -553,9 +576,17 @@ def suggestions(made, table, folder, runtime):
                 before, since, turns, moved = record.check(one, made, calls, reviews, asks, day, last)
                 st.caption(f"You noted this change on {suggest.said(day)}. {one.watch}: {suggest.number(before)} in the {suggest.BEFORE} days before, "
                            f"{suggest.number(since)} since, over {activity.count(turns, 'turn')}. {record.verdict(moved)}")
+            elif one.title in started:
+                st.caption(f"A ByteQuay task is on it since {suggest.said(started[one.title])}. Completing that task notes the change here.")
             elif state == "doing":
                 st.caption(f"Being worked on since {suggest.said(day)}.")
+            text = suggest.brief(one, data)
+            with st.expander("Brief for a ByteQuay task"):
+                st.code(text, language=None, wrap_lines=True)
             with st.container(horizontal=True):
+                link = task_link(text)
+                if link and state != "done" and one.title not in started:
+                    st.link_button("Fix it", link, type="primary", help="Opens a ByteQuay task with this brief in its task box; you read it and send it")
                 st.button("I changed it again" if state == "done" else "I made this change", key=f"noted_{place}", on_click=digest.note, args=(folder, one.title, date.today()))
                 if state != "done":
                     st.button("Not working on it" if state == "doing" else "Working on it", key=f"doing_{place}", on_click=record.mark,

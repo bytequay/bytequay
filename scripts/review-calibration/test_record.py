@@ -112,5 +112,50 @@ class TestRecord(unittest.TestCase):
         self.assertEqual(record.gone(idle["title"], date(2026, 1, 5), looks, UTC), "still found")
 
 
+def asked(text, at):
+    return {"type": "user_message", "occurredAt": at, "taskId": "t", "payload": {"text": text, "attachments": [], "deliveryKind": "TURN"}}
+
+
+def phase(name, at):
+    return {"type": "lifecycle", "occurredAt": at, "taskId": "t", "payload": {"phase": name, "message": "Task completed"}}
+
+
+BRIEF = f"{MAVEN}\n\nWhat the lab saw: a secret path\n\n{suggest.LINE}{MAVEN}  \n"
+
+
+class TestFixes(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.runtime = Path(directory.name)
+
+    def task(self, name, *events, broken=False):
+        log = self.runtime / name / "events.jsonl"
+        log.parent.mkdir(parents=True)
+        log.write_text(('{"type": "user_message", cut off\n' if broken else "") + "".join(json.dumps(event) + "\n" for event in events))
+
+    def test_a_task_is_known_by_the_last_line_of_its_first_message_and_noted_once_it_is_completed(self):
+        self.task("a-started", asked(BRIEF, "2026-01-05T10:00:00Z"), {"type": "assistant_message", "occurredAt": "2026-01-05T10:01:00Z",
+                                                                       "payload": {"text": "after TASK_COMPLETED"}}, broken=True)
+        self.task("b-completed", asked(BRIEF, "2026-01-06T10:00:00Z"), asked("Also check the tests", "2026-01-06T11:00:00Z"), phase("TASK_COMPLETED", "2026-01-08T09:00:00Z"))
+        self.task("c-failed", asked(BRIEF, "2026-01-06T10:00:00Z"), phase("TASK_FAILED", "2026-01-07T09:00:00Z"))
+        self.task("d-edited", asked(f"{MAVEN}\n\nmy own words about the {suggest.LINE}{MAVEN}", "2026-01-06T10:00:00Z"), phase("TASK_COMPLETED", "2026-01-07T09:00:00Z"))
+        self.task("e-later", asked("Look at the build", "2026-01-06T10:00:00Z"), asked(BRIEF, "2026-01-06T11:00:00Z"), phase("TASK_COMPLETED", "2026-01-07T09:00:00Z"))
+        self.task("f-again", asked(BRIEF, "2026-01-09T10:00:00Z"), phase("TASK_COMPLETED", "2026-01-10T09:00:00Z"))
+        self.task("g-another", asked(f"x\n{suggest.LINE}Shorten what a turn starts with", "2026-01-04T10:00:00Z"))
+        self.task("h-second", asked(BRIEF, "2026-01-07T10:00:00Z"))
+        found = record.fixes(self.runtime, UTC)
+        self.assertEqual(found, [(MAVEN, date(2026, 1, 5), None), (MAVEN, date(2026, 1, 6), date(2026, 1, 8)), (MAVEN, date(2026, 1, 9), date(2026, 1, 10)),
+                                 ("Shorten what a turn starts with", date(2026, 1, 4), None), (MAVEN, date(2026, 1, 7), None)])
+        self.assertNotIn("secret", repr(found))
+        self.assertEqual(record.on_it(found), {MAVEN: date(2026, 1, 5), "Shorten what a turn starts with": date(2026, 1, 4)})
+        self.assertEqual(record.unnoted(found, []), [(MAVEN, date(2026, 1, 8)), (MAVEN, date(2026, 1, 10))])
+        self.assertEqual(record.unnoted(found, [{"day": date(2026, 1, 8), "what": MAVEN}]), [(MAVEN, date(2026, 1, 10))])
+        self.assertEqual(record.unnoted(found + found, [{"day": date(2026, 1, 8), "what": MAVEN}, {"day": date(2026, 1, 10), "what": MAVEN}]), [])
+
+    def test_no_logs_means_no_fixes(self):
+        self.assertEqual(record.fixes(self.runtime / "missing", UTC), [])
+
+
 if __name__ == "__main__":
     unittest.main()

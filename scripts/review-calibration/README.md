@@ -1018,6 +1018,18 @@ dashboard says whether the change helped, made it worse or is not clear yet,
 comparing like with like (see Ranges). Every number a suggestion watches is
 better lower.
 
+Each suggestion also has a brief for a ByteQuay task: the same text, the places
+to change, the number to watch, and a last line `Lab suggestion: <title>`. On
+the page ByteQuay starts (Open Lab), **Fix it** opens that brief in the task
+box of the watched repository `bytequay/bytequay`, where you read and send it.
+While that task is open the suggestion says a task is on it. When the task is
+completed, the dashboard notes the change on that day by itself, so its number
+is checked as if you had pressed "I made this change". The lab finds the task
+by the last line of its first message in the task logs, and keeps nothing else
+of the message. A task that failed, or whose last line was edited away, notes
+nothing. Started from the terminal, the page shows the brief to copy, and
+"I made this change" stays for work done anywhere else.
+
 ## Ranges
 
 `ranges.py` gives a number a 95% range: where it could lie had other tasks

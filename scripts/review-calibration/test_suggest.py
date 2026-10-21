@@ -181,6 +181,19 @@ class TestSuggestions(unittest.TestCase):
         text = " ".join([found.title, found.seen, found.advice, found.watch, *(what for _, what in found.where)])
         for private in ("secret-module", "other-module", "/tmp", "private"):
             self.assertNotIn(private, text)
+        self.assertNotIn("secret-module", suggest.brief(found, made))
+
+    def test_a_brief_holds_what_a_task_needs_and_ends_with_the_line_that_names_it(self):
+        rows = [row(long_runs=[("maven", 330.0), ("maven", 330.0)])]
+        made = data(rows)
+        (found,) = suggest.long_runs(made)
+        text = suggest.brief(found, made)
+        self.assertTrue(text.startswith("Make long maven runs shorter\n\nWhat the lab saw: "))
+        for part in (found.seen, found.advice, f"`{suggest.INSTRUCTIONS}`, look for `compose`", f"- {suggest.RECIPE[1]}",
+                     f"Number to watch, lower is better: {found.watch}, now {suggest.now(found.measure(made))}."):
+            self.assertIn(part, text)
+        self.assertEqual(text.splitlines()[-1], "Lab suggestion: Make long maven runs shorter")
+        self.assertLess(len(text), 20_000, "the desktop takes a brief of at most 20,000 characters")
 
 
 

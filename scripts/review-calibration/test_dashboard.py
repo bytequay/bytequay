@@ -1,5 +1,5 @@
 import ast
-from datetime import date
+from datetime import date, datetime
 import json
 import logging
 import os
@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from urllib.parse import parse_qs, urlsplit
 
 from streamlit import config
 from streamlit.testing.v1 import AppTest
@@ -583,6 +584,54 @@ class Page(unittest.TestCase):
         self.assertEqual(([text.value for text in page.markdown if text.value.startswith("##### 1.")], json.loads((self.folder / "record.json").read_text())["suggestions"]),
                          (["##### 1. Make long maven runs shorter"], []))
 
+    def started_by_bytequay(self):
+        """What the desktop's start-up sets: a path of the page's own and a port it picked."""
+        for name, value, default in (("server.baseUrlPath", "lab-session", ""), ("server.port", 49152, 8501)):
+            config.set_option(name, value)
+            self.addCleanup(config.set_option, name, default)
+
+    def write_fix(self, *events):
+        log = self.runtime / "fix-1" / "events.jsonl"
+        log.parent.mkdir(parents=True)
+        log.write_text("".join(json.dumps(event) + "\n" for event in events))
+
+    def test_suggestions_tab_hands_its_brief_to_bytequay_only_on_the_page_bytequay_started(self):
+        self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
+        page = self.page()
+        (brief,) = [code.value for code in page.tabs[0].code]
+        self.assertTrue(brief.startswith("Make long maven runs shorter\n\nWhat the lab saw: "))
+        self.assertEqual(brief.splitlines()[-1], f"{suggest.LINE}Make long maven runs shorter")
+        self.assertEqual(page.get("link_button"), [], "started from the terminal, ByteQuay would not take the link")
+        self.started_by_bytequay()
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        (link,) = page.get("link_button")
+        address = urlsplit(link.proto.url)
+        self.assertEqual((link.proto.label, address.scheme, address.netloc, address.path), ("Fix it", "http", "127.0.0.1:49152", "/lab-session/task"))
+        self.assertEqual(parse_qs(address.query), {"repository": [suggest.REPOSITORY], "text": [brief]})
+        page.button(key="noted_1").click().run()
+        self.assertEqual(page.get("link_button"), [], "a made change is not fixed again from here")
+
+    def test_a_task_started_from_a_brief_is_on_it_and_needs_no_mark(self):
+        self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
+        self.started_by_bytequay()
+        self.write_fix({"type": "user_message", "occurredAt": "2026-01-12T09:00:00Z", "payload": {"text": f"edited\n{suggest.LINE}Make long maven runs shorter"}})
+        page = self.page()
+        self.assertIn(f"A ByteQuay task is on it since {suggest.said(date(2026, 1, 12))}. Completing that task notes the change here.", captions(page))
+        self.assertEqual((page.get("link_button"), (self.folder / "changes.json").exists(), (self.folder / "record.json").exists()), ([], False, False))
+
+    def test_a_completed_task_started_from_a_brief_notes_the_change_on_its_day(self):
+        self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
+        self.write_fix({"type": "user_message", "occurredAt": "2026-01-12T09:00:00Z", "payload": {"text": f"x\n{suggest.LINE}Make long maven runs shorter"}},
+                       {"type": "lifecycle", "occurredAt": "2026-01-13T10:00:00Z", "payload": {"phase": "TASK_COMPLETED", "message": "Task completed"}})
+        day = datetime.fromisoformat("2026-01-13T10:00:00Z").astimezone().date()
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual(json.loads((self.folder / "changes.json").read_text())["changes"], [{"day": day.isoformat(), "what": "Make long maven runs shorter"}])
+        self.assertTrue(any(text.startswith(f"You noted this change on {suggest.said(day)}.") for text in captions(page)))
+        page.run()
+        self.assertEqual(len(json.loads((self.folder / "changes.json").read_text())["changes"]), 1, "noted once")
+
     def test_suggestions_tab_with_nothing_to_suggest_says_so(self):
         self.save()
         self.assertIn("Nothing in these days passes the limits for a suggestion.", captions(self.page()))
@@ -651,6 +700,18 @@ class TestSource(unittest.TestCase):
         bare = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Expr) and not isinstance(node.value, ast.Call)
                 and not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str))]
         self.assertEqual(bare, [])
+
+
+    def test_the_task_link_is_the_one_the_desktop_takes(self):
+        source = test_suggest.ROOT / "frontend" / "plugins" / "lab" / "src" / "labProcess.ts"
+        if not source.is_file():
+            self.skipTest("the desktop's source is not beside the lab")
+        text = source.read_text()
+        # The desktop starts the page at its own address, then takes only a link under it that names a repository and a text.
+        for part in ("`http://127.0.0.1:${port}/${basePath}/`", "'--port', String(port), '--base-path', basePath", "url.startsWith(`${dashboard.address}task?`)",
+                     "query.get('repository')", "query.get('text')", "const TASK_TEXT_LIMIT = 20_000;"):
+            self.assertIn(part, text)
+        self.assertEqual(dashboard.HOST, "127.0.0.1")
 
 
 class TestStart(unittest.TestCase):

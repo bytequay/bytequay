@@ -762,7 +762,7 @@ public class CiAutofixService
             return finishRun(run, FinishReason.STALE_HEAD, "Pull request head changed outside this CI Autofix run", now);
         }
         if (run.currentTurnId().isPresent()) {
-            return observeCurrentTurn(run, now);
+            return observeCurrentTurn(run, snapshot, now);
         }
         if (!run.attempts().isEmpty() && run.attempts().getLast().descriptionChange().isPresent()) {
             return advanceDescriptionChange(run, snapshot, now);
@@ -846,13 +846,19 @@ public class CiAutofixService
         return store.update(run.updateAttempt(attempt.withTimelineEvent(eventKey, now), now));
     }
 
-    private CiAutofixRun observeCurrentTurn(CiAutofixRun run, Instant now)
+    private CiAutofixRun observeCurrentTurn(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
     {
         AgentTurn turn = turnService.get(TurnId.valueOf(run.currentTurnId().orElseThrow()));
         if (turn.state().active()) {
             return run;
         }
         CiAutofixRun observed = copyFinalMessage(run, turn, now);
+        if (turn.interruptedByRestart()) {
+            Optional<CiAutofixRun> resumed = resumeAfterRestart(observed, turn, snapshot, now);
+            if (resumed.isPresent()) {
+                return resumed.orElseThrow();
+            }
+        }
         observed = switch (turn.state()) {
             case COMPLETED -> observed.clearCurrentTurn(turn.id().toString(), now);
             case FAILED -> observed.pause(
@@ -868,6 +874,31 @@ public class CiAutofixService
             case ACCEPTED, RUNNING -> throw new AssertionError("active turn reached terminal reconciliation");
         };
         return store.update(observed);
+    }
+
+    /**
+     * A restart, not the agent, cut the repair off, so nobody would answer a pause. The same CI task goes on with its
+     * attempt's instructions, in case the provider session did not survive, under a key that starts it at most once.
+     */
+    private Optional<CiAutofixRun> resumeAfterRestart(CiAutofixRun run, AgentTurn interrupted, CiHeadSnapshot snapshot, Instant now)
+    {
+        if (run.attempts().isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            AgentTask task = requireOpenTask(run);
+            inspectWorktree(task, run);
+            ownership.require(run);
+            String prompt = promptBuilder.build(snapshot, run.attempts().getLast(), run.scope().baseRef(), inheritedForPrompt(run, snapshot))
+                    + "\nByteQuay restarted while the previous turn was repairing CI, so the worktree may hold its unfinished changes."
+                    + " Check them and continue this repair.\n";
+            AgentTurn resumed = turnService.start(new StartAgentTurnCommand(task.id(), prompt, ImmutableList.of(), "ci-restart:" + interrupted.id()));
+            return Optional.of(store.update(run.clearCurrentTurn(interrupted.id().toString(), now).linkUserTurn(resumed.id().toString(), now)));
+        }
+        catch (RuntimeException failure) {
+            log.warn("CI Autofix run {} pauses: its repair cannot continue after the restart", run.id(), failure);
+            return Optional.empty();
+        }
     }
 
     private static String authenticationRecovery(CiAutofixRun run)

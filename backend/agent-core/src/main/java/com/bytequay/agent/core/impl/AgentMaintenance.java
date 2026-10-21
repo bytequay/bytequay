@@ -52,7 +52,7 @@ import static java.util.Objects.requireNonNull;
 public final class AgentMaintenance
 {
     private static final System.Logger log = System.getLogger(AgentMaintenance.class.getName());
-    private static final String INTERRUPTION_REASON = "Backend restarted while the turn was active";
+    private static final String INTERRUPTION_REASON = AgentTurn.RESTART_REASON;
     private static final String VERIFIED_STOP_REASON = INTERRUPTION_REASON + "; its provider process is verified stopped";
     private static final String UNVERIFIED_STOP_REASON = INTERRUPTION_REASON + "; a process it started could not be verified stopped, so the worktree stays reserved";
     private static final Duration CLEANUP_RETRY_DELAY = Duration.ofMinutes(1);

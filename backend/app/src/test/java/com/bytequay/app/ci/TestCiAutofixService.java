@@ -966,6 +966,39 @@ class TestCiAutofixService
     }
 
     @Test
+    void continuesARepairThatARestartInterrupted()
+    {
+        CiAutofixRun run = service.start(startCommand("restarted"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.INTERRUPTED, Optional.of(AgentTurn.RESTART_REASON + "; its provider process is verified stopped")));
+        TurnId resumedId = TurnId.random();
+        when(turnService.start(any())).thenReturn(runningTurn(resumedId, "resumed-turn", "ci-restart:" + turnId));
+
+        CiAutofixRun resumed = service.advance(run.id());
+
+        assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
+        assertThat(resumed.currentTurnId()).contains(resumedId.toString());
+        assertThat(resumed.attemptsUsed()).isEqualTo(1);
+        ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turnService, times(2)).start(turn.capture());
+        StartAgentTurnCommand command = turn.getAllValues().getLast();
+        assertThat(command.idempotencyKey()).isEqualTo("ci-restart:" + turnId);
+        assertThat(command.message()).startsWith("Verified current CI context:").contains("ByteQuay restarted while the previous turn was repairing CI");
+    }
+
+    @Test
+    void pausesARestartedRepairThatCannotContinue()
+    {
+        CiAutofixRun run = service.start(startCommand("restart-blocked"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.INTERRUPTED, Optional.of(AgentTurn.RESTART_REASON + "; a process could not be verified stopped")));
+        when(turnService.start(any())).thenThrow(new AgentConflictException("worktree is reserved"));
+
+        CiAutofixRun paused = service.advance(run.id());
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.TURN_INTERRUPTED);
+    }
+
+    @Test
     void waitsForAcceptedAndRunningTurns()
     {
         CiAutofixRun acceptedRun = service.start(startCommand("accepted"));

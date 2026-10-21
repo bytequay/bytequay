@@ -56,6 +56,9 @@ public record AgentTurn(
         List<TurnMemory> memories,
         Optional<String> setup)
 {
+    /** Startup recovery ends every turn it finds still active with a reason starting with this, whatever it then learns about the provider. */
+    public static final String RESTART_REASON = "Backend restarted while the turn was active";
+
     public AgentTurn(
             TurnId id,
             TaskId taskId,
@@ -279,6 +282,12 @@ public record AgentTurn(
     public AgentTurn withVersion(long updatedVersion)
     {
         return toBuilder().version(updatedVersion).build();
+    }
+
+    /** Whether a backend restart, rather than the provider or a timeout, ended this turn. */
+    public boolean interruptedByRestart()
+    {
+        return state == TurnState.INTERRUPTED && terminalReason.filter(reason -> reason.startsWith(RESTART_REASON)).isPresent();
     }
 
     private void requireState(TurnState expected)

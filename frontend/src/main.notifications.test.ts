@@ -164,13 +164,16 @@ it.each(['failed event', 'show throws', 'constructor throws'])('pauses native de
   const attempts = desktop.constructNotification.mock.calls.length;
   expect(attempts).toBe(mode === 'failed event' ? 2 : 1);
   desktop.send.mockClear();
+  vi.mocked(fetch).mockClear();
 
   await vi.advanceTimersByTimeAsync(60_000);
 
   expect(desktop.constructNotification).toHaveBeenCalledTimes(attempts);
   expect(console.warn).toHaveBeenCalledTimes(1);
   expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('paused until restart'), expect.anything());
-  expect(desktop.send.mock.calls.filter(([channel]) => channel === 'prs:attention-updated')).toHaveLength(12);
+  expect(vi.mocked(fetch).mock.calls.filter(([url]) => String(url).endsWith('/prs/attention'))).toHaveLength(12);
+  // Unchanged rows are not sent to the page again.
+  expect(desktop.send.mock.calls.filter(([channel]) => channel === 'prs:attention-updated')).toHaveLength(0);
   expect(fs.existsSync(path.join(desktop.userData, 'pr-notifications.json'))).toBe(false);
 
   // A fresh app session retries undelivered activity and only persists a successful show.

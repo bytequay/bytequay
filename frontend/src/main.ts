@@ -32,6 +32,7 @@ import { BrowserTabs, denyBrowserPermissions, registerBrowserTabIpc } from './br
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
+import { attentionUpdate, type SentAttention } from './attentionUpdates';
 import {
   parseAgentApproval,
   parseAgentAttachment,
@@ -136,6 +137,7 @@ let prNotificationGeneration = 0;
 let prMonitorMutations = 0;
 let nativePrNotificationsDisabled = false;
 let pendingPrNotification: { repo: string; number: number } | null = null;
+let sentAttention: SentAttention = new Map();
 const showingPrNotifications = new Map<number, Notification>();
 
 function notificationState(): PrNotificationState {
@@ -180,7 +182,9 @@ async function pollPrNotifications(): Promise<void> {
   try {
     const prs = await backendJson<PullRequestDto[]>(`${backendBase()}/prs/attention`);
     if (generation !== prNotificationGeneration || prMonitorMutations > 0) return;
-    mainWindow?.webContents.send('prs:attention-updated', prs);
+    const next = attentionUpdate(prs, sentAttention);
+    sentAttention = next.sent;
+    if (next.update !== null) mainWindow?.webContents.send('prs:attention-updated', next.update);
     const state = notificationState();
     if (nativePrNotificationsDisabled || !Notification.isSupported()) return;
     for (const item of pendingPrNotifications(prs, state, Date.now())) {

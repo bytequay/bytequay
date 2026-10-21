@@ -97,6 +97,9 @@ export type PullRequestDto = {
   mentioned?: boolean;
 };
 
+/** An attention poll as main sends it: every row's id in order, and only the rows that changed since the last update. */
+export type PrAttentionUpdate = { ids: number[]; changed: PullRequestDto[] };
+
 export type PullRequestPageDto = {
   pullRequests: PullRequestDto[];
   page: number;
@@ -1685,7 +1688,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   /** Saves marks, replacing any under the same keys, and clears the marks under `removed`, together. */
   changeAttentionMarks: (changes: { saved: AttentionMarkDto[]; removed: string[] }) => Promise<void>;
   setPrAttentionPinned: (keys: string[]) => Promise<void>;
-  onPrAttentionUpdated: (callback: (prs: PullRequestDto[]) => void) => () => void;
+  onPrAttentionUpdated: (callback: (update: PrAttentionUpdate) => void) => () => void;
   onPrNotificationOpen: (callback: (reference: { repo: string; number: number }) => void) => () => void;
   syncPrs: (workspaceId?: string) => Promise<void>;
   onPullRequestsSynced: (callback: () => void) => () => void;

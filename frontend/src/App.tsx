@@ -57,7 +57,8 @@ import {
   settingsRoute,
   type SettingsSection,
 } from './settings/routes';
-import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, SetupPreferencesDto, WorkspaceDto } from './types';
+import type { InAppBrowserState, PullRequestDto, RecentRowDto, RecentWordHitDto, SetupPreferencesDto, WorkspaceDto } from './types';
+import { applyAttentionUpdate } from './attentionUpdates';
 import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
@@ -235,8 +236,22 @@ function AppContent() {
     // A backend that cannot answer yet leaves the lists unmarked; the next mark or read fills them in.
     void reloadHandled().catch(() => {});
     void window.bridge.setPrAttentionPinned?.(loadPinned().map(item => item.key)).catch(() => {});
-    const stopAttention = window.bridge.onPrAttentionUpdated(prs => {
+    // Main sends only the rows that changed; pages still receive the whole list, with unchanged rows kept as they were.
+    let shown: ReadonlyMap<number, PullRequestDto> = new Map();
+    let reading = 0;
+    const publish = (prs: PullRequestDto[]) => {
+      shown = new Map(prs.map(pr => [pr.id, pr]));
       window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: prs }));
+    };
+    const stopAttention = window.bridge.onPrAttentionUpdated(update => {
+      const read = ++reading;
+      const prs = applyAttentionUpdate(shown, update);
+      if (prs !== null) {
+        publish(prs);
+        return;
+      }
+      // An update sent before this page listened, such as before a reload, is missing here: read the whole list once.
+      void window.bridge.fetchAttentionPrs().then(rows => { if (read === reading) publish(rows); }).catch(() => {});
     });
     const stopNotification = window.bridge.onPrNotificationOpen(reference => {
       if (reference.repo.indexOf('/') < 1) return;

@@ -323,7 +323,8 @@ public class DevelopmentFollowupCoordinator
      */
     private void publishReviewReplies(DevelopmentTurnCompletion completion, DevelopmentBaseline baseline, DevelopmentAutomation automation)
     {
-        if (!automation.reviewFix() || completion.turn().developmentResult().filter(report -> !report.reviewReplies().isEmpty()).isEmpty()) {
+        if (!automation.reviewFix()
+                || (completion.turn().developmentResult().filter(report -> !report.reviewReplies().isEmpty()).isEmpty() && !reviewFixes.awaitingPost(completion.task().id()))) {
             return;
         }
         try {

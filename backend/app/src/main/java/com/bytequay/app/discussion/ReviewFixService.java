@@ -207,6 +207,12 @@ public class ReviewFixService
         }
     }
 
+    /** Whether an answer is saved but not posted, which only a delivery that pushes its fix can release. */
+    public boolean awaitingPost(TaskId taskId)
+    {
+        return store.listByTask(taskId.toString()).stream().anyMatch(reply -> reply.waiting() && reply.reply().isPresent() && reply.postStartedAt().isEmpty());
+    }
+
     /** No comment is being fixed and no review thread is open, so review leaves nothing a merge would skip past. */
     public boolean settled(AgentTask task, PullRequest pr)
     {
@@ -253,7 +259,12 @@ public class ReviewFixService
             boolean ended = turn.filter(value -> value.state().terminal()).isPresent() && !task.developmentContinuationUnfinished()
                     && turn.flatMap(AgentTurn::developmentResult).map(DevelopmentResultReport::readyForDelivery).orElse(true);
             if (ended) {
-                requested.forEach(reply -> store.update(reply.failed("The agent finished without answering this comment")));
+                // A restart can end the continuation before it posts; the answers are still in the turn's report.
+                publish(task.id(), turn.orElseThrow().id(), false);
+                Set<Long> ids = requested.stream().map(ReviewFixReply::commentId).collect(toImmutableSet());
+                store.listByTask(task.id().toString()).stream()
+                        .filter(reply -> ids.contains(reply.commentId()) && reply.waiting() && reply.reply().isEmpty())
+                        .forEach(reply -> store.update(reply.failed("The agent finished without answering this comment")));
             }
         }
     }

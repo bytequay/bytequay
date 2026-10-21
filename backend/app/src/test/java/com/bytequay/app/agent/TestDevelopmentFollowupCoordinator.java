@@ -458,6 +458,20 @@ class TestDevelopmentFollowupCoordinator
         verifyNoMoreInteractions(reviewFixes);
     }
 
+    @Test
+    void repliesSavedEarlierArePostedByALaterDeliveryThatPushes()
+    {
+        DevelopmentAutomation reviewFix = new DevelopmentAutomation(true, AutomationLevel.REVIEW_FIX, Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.empty()));
+        when(reviewFixes.awaitingPost(taskId)).thenReturn(true);
+        prepare(local(HEAD, false), local(HEAD, false), reviewFix, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+
+        advance();
+
+        verify(reviewFixes).publish(taskId, source.id(), true);
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
     void unchangedPublishedHeadDoesNotRestartCiWhenDraftStatusChanges(boolean draft)

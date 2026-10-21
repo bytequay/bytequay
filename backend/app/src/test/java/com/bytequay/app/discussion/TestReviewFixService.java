@@ -162,6 +162,34 @@ class TestReviewFixService
     }
 
     @Test
+    void keepsTheAnswersOfATurnWhoseDeliveryARestartCutOff()
+    {
+        cache(thread(10, comment(11L, "bob", false, "Rename it.")), thread(20, comment(21L, "carol", false, "Use a map.")));
+        service.request(task);
+        String key = "review-fix:" + task.id() + ":11";
+        AgentTurn finished = turn(key).markDeliveryStarted(NOW).running(new ProviderTurnRef("provider-turn"), Optional.empty())
+                .withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty(), Optional.empty(), ImmutableList.of(
+                        new ReviewThreadReply(11, "Renamed it.", true), new ReviewThreadReply(21, "A list keeps the order the API promises.", false))))
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
+        when(turns.findTurnByIdempotencyKey(task.id(), key)).thenReturn(Optional.of(finished));
+        when(turnStore.find(finished.id())).thenReturn(Optional.of(finished));
+
+        service.request(task);
+
+        verify(pullRequests).replyToReviewComment(REPO, 12, 20, "A list keeps the order the API promises.");
+        verify(pullRequests, never()).replyToReviewComment(REPO, 12, 10, "Renamed it.");
+        assertThat(service.summary(task.id().toString())).contains(new ReviewFixService.ReviewFixSummary(1, 0, 1, 0));
+        assertThat(service.awaitingPost(task.id())).isTrue();
+
+        // The next delivery that pushes posts the fix's reply, though its own turn answered nothing.
+        service.publish(task.id(), answered(), true);
+
+        verify(pullRequests).replyToReviewComment(REPO, 12, 10, "Renamed it.");
+        verify(pullRequests).setReviewThreadResolved(REPO, 12, 10, true);
+        assertThat(service.awaitingPost(task.id())).isFalse();
+    }
+
+    @Test
     void postsRepliesOnceTheFixIsPushedAndResolvesOnlyTheFixedThreads()
     {
         cache(thread(10, comment(11L, "bob", false, "Rename it.")), thread(20, comment(21L, "carol", false, "Use a map.")));

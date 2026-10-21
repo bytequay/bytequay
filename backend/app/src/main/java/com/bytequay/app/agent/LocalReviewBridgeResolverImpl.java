@@ -21,6 +21,7 @@ import com.bytequay.app.localreview.LocalReviewView;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -33,6 +34,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS;
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_ABSENT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -69,8 +72,7 @@ public class LocalReviewBridgeResolverImpl
                 reply -> service.replyToFindingFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()).map(this::findingReply)
                         .orElseGet(() -> mutation(service.replyFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()))),
                 resolution -> service.resolveFindingFromAgent(taskId, resolution.commentId(), resolution.resolved())
-                        .map(finding -> json(objectMapper.createObjectNode().put("id", finding.id()).put("state", finding.state().name())
-                                .put("resolvedBy", resolvedBy(taskId, finding).orElse(null))))
+                        .map(finding -> json(new FindingResolution(finding.id(), finding.state(), resolvedBy(taskId, finding))))
                         .orElseGet(() -> mutation(service.resolveFromAgent(taskId, resolution.commentId(), resolution.resolved(), resolution.operationKey()))),
                 development ? LocalReviewBridge.INSTRUCTION + LocalReviewBridge.FINDINGS_INSTRUCTION : LocalReviewBridge.INSTRUCTION));
     }
@@ -228,18 +230,15 @@ public class LocalReviewBridgeResolverImpl
 
     private ObjectNode findingMessage(String taskId, ReviewMessage message, int limit)
     {
-        ObjectNode result = objectMapper.createObjectNode()
-                .put("id", message.id())
-                .put("author", message.developerTaskId().isPresent() ? "DEVELOPER" : message.author() == ReviewMessage.Author.USER ? "USER" : "REVIEWER")
-                .put("createdAt", message.createdAt().toString());
-        message.developerTaskId().ifPresent(developer -> result.put("developer", developer.equals(taskId) ? "THIS_TASK" : "ANOTHER_TASK"));
-        excerpt(result, "body", message.body(), limit);
-        return result;
+        return objectMapper.valueToTree(new MessageContext(message.id(),
+                message.developerTaskId().isPresent() ? "DEVELOPER" : message.author() == ReviewMessage.Author.USER ? "USER" : "REVIEWER",
+                message.createdAt().toString(), message.developerTaskId().map(developer -> developer.equals(taskId) ? "THIS_TASK" : "ANOTHER_TASK"),
+                clip(message.body(), limit), message.body().length() > limit));
     }
 
     private String findingReply(ReviewMessage reply)
     {
-        return json(objectMapper.createObjectNode().put("id", reply.findingId().orElseThrow()).put("latestMessageId", reply.id()));
+        return json(new FindingReply(reply.findingId().orElseThrow(), reply.id()));
     }
 
     private ObjectNode anchor(LocalReviewView thread)
@@ -265,12 +264,8 @@ public class LocalReviewBridgeResolverImpl
 
     private ObjectNode message(LocalReviewView.Message message, int limit)
     {
-        ObjectNode result = objectMapper.createObjectNode()
-                .put("id", message.id())
-                .put("author", message.author().name())
-                .put("createdAt", message.createdAt().toString());
-        excerpt(result, "body", message.body(), limit);
-        return result;
+        return objectMapper.valueToTree(new MessageContext(message.id(), message.author().name(), message.createdAt().toString(), Optional.empty(),
+                clip(message.body(), limit), message.body().length() > limit));
     }
 
     private static void excerpt(ObjectNode result, String field, String value, int limit)
@@ -286,15 +281,8 @@ public class LocalReviewBridgeResolverImpl
 
     private String mutation(LocalReviewView thread)
     {
-        ObjectNode result = objectMapper.createObjectNode()
-                .put("id", thread.id())
-                .put("resolved", thread.resolved())
-                .put("version", thread.version())
-                .put("messageCount", thread.messages().size());
-        if (!thread.messages().isEmpty()) {
-            result.put("latestMessageId", thread.messages().getLast().id());
-        }
-        return json(result);
+        return json(new CommentMutation(thread.id(), thread.resolved(), thread.version(), thread.messages().size(),
+                thread.messages().isEmpty() ? Optional.empty() : Optional.of(thread.messages().getLast().id())));
     }
 
     private String json(Object value)
@@ -306,4 +294,13 @@ public class LocalReviewBridgeResolverImpl
             throw new IllegalStateException("Unable to encode local review comments", failure);
         }
     }
+
+    private record MessageContext(
+            String id, String author, String createdAt, @JsonInclude(NON_ABSENT) Optional<String> developer, String body, boolean bodyTruncated) {}
+
+    private record FindingReply(String id, String latestMessageId) {}
+
+    private record FindingResolution(String id, ReviewFinding.State state, @JsonInclude(ALWAYS) Optional<String> resolvedBy) {}
+
+    private record CommentMutation(String id, boolean resolved, long version, int messageCount, @JsonInclude(NON_ABSENT) Optional<String> latestMessageId) {}
 }

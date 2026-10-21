@@ -78,7 +78,10 @@ class TestLocalReviewBridgeResolverImpl
         assertThat(mapper.readTree(bridge.list().apply(Optional.of("comment-1"), 0)).path("code").asText()).isEqualTo("selected code");
         assertThatThrownBy(() -> bridge.list().apply(Optional.of("foreign-comment"), 0))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("is available to this task");
-        assertThat(mapper.readTree(bridge.reply().apply(new LocalReviewBridge.Reply("comment-1", "Answer", "reply-1"))).path("id").asText()).isEqualTo("comment-1");
+        JsonNode replied = mapper.readTree(bridge.reply().apply(new LocalReviewBridge.Reply("comment-1", "Answer", "reply-1")));
+        assertThat(replied.path("id").asText()).isEqualTo("comment-1");
+        assertThat(replied.path("messageCount").intValue()).isZero();
+        assertThat(replied.has("latestMessageId")).isFalse();
         assertThat(mapper.readTree(bridge.resolve().apply(new LocalReviewBridge.Resolution("comment-1", false, "reopen-1"))).has("operations")).isFalse();
         verify(service).replyFromAgent("task-1", "comment-1", "Answer", "reply-1");
         verify(service).resolveFromAgent("task-1", "comment-1", false, "reopen-1");
@@ -139,6 +142,8 @@ class TestLocalReviewBridgeResolverImpl
         assertThat(detail.path("omittedEvidenceCount").intValue()).isZero();
         assertThat(detail.path("messages")).extracting(message -> message.path("author").asText()).containsExactly("USER", "REVIEWER", "DEVELOPER", "DEVELOPER");
         assertThat(detail.path("messages")).extracting(message -> message.path("developer").asText()).containsExactly("", "", "ANOTHER_TASK", "THIS_TASK");
+        assertThat(detail.at("/messages/0/developer").isMissingNode()).isTrue();
+        assertThat(detail.at("/messages/0/createdAt").asText()).isEqualTo(Instant.EPOCH.toString());
         assertThat(mapper.readTree(bridge.list().apply(Optional.of("finding-1"), 0)).path("stateReason").asText()).isEqualTo("Reason");
 
         when(service.replyToFindingFromAgent("task-1", "finding-2", "Fixed in abc1234", "reply-1")).thenReturn(Optional.of(discussion.getLast()));
@@ -318,20 +323,24 @@ class TestLocalReviewBridgeResolverImpl
         LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
 
         String summary = bridge.list().apply(Optional.empty(), 0);
+        JsonNode summaryNode = mapper.readTree(summary);
         assertThat(summary.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
-        assertThat(mapper.readTree(summary).at("/comments/0/id").asText()).isEqualTo("comment-499");
-        assertThat(mapper.readTree(summary).path("omittedCommentCount").intValue()).isGreaterThan(0);
-        assertThat(mapper.readTree(summary).at("/comments/0/latestMessage/bodyTruncated").booleanValue()).isTrue();
+        assertThat(summaryNode.at("/comments/0/id").asText()).isEqualTo("comment-499");
+        assertThat(summaryNode.path("omittedCommentCount").intValue()).isGreaterThan(0);
+        assertThat(summaryNode.at("/comments/0/latestMessage/bodyTruncated").booleanValue()).isTrue();
         String detail = bridge.list().apply(Optional.of("comment-499"), 0);
+        JsonNode detailNode = mapper.readTree(detail);
         assertThat(detail.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
-        assertThat(mapper.readTree(detail).path("codeTruncated").booleanValue()).isTrue();
-        assertThat(mapper.readTree(detail).path("omittedMessageCount").intValue()).isGreaterThan(0);
-        assertThat(mapper.readTree(detail).path("messages").get(mapper.readTree(detail).path("messages").size() - 1).path("id").asText()).isEqualTo("message-199");
-        assertThat(mapper.readTree(detail).at("/messages/0/bodyTruncated").booleanValue()).isTrue();
+        assertThat(detailNode.path("codeTruncated").booleanValue()).isTrue();
+        assertThat(detailNode.path("omittedMessageCount").intValue()).isGreaterThan(0);
+        assertThat(detailNode.path("messages").get(detailNode.path("messages").size() - 1).path("id").asText()).isEqualTo("message-199");
+        assertThat(detailNode.at("/messages/0/bodyTruncated").booleanValue()).isTrue();
+        assertThat(detailNode.at("/messages/0/developer").isMissingNode()).isTrue();
         String mutation = bridge.reply().apply(new LocalReviewBridge.Reply("comment-499", "Answer", "reply-1"));
+        JsonNode mutationNode = mapper.readTree(mutation);
         assertThat(mutation.length()).isLessThan(500);
-        assertThat(mapper.readTree(mutation).path("latestMessageId").asText()).isEqualTo("message-199");
-        assertThat(mapper.readTree(mutation).has("messages")).isFalse();
+        assertThat(mutationNode.path("latestMessageId").asText()).isEqualTo("message-199");
+        assertThat(mutationNode.has("messages")).isFalse();
     }
 
     private static AgentReview review(String id, Optional<String> sourceTaskId)

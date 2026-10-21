@@ -45,6 +45,7 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.agent.spi.ToolSchemas;
 import com.bytequay.agent.spi.WorkItemBridge;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -94,6 +95,7 @@ import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_ABSENT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Comparator.comparing;
@@ -1514,61 +1516,47 @@ public final class PermissionBroker
             allowWrite.addAll(gitRoots.subList(1, gitRoots.size()));
         }
         allowWrite.addAll(BuildCacheRoots.temporary(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
-        ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
-        sandbox.put("enabled", true)
-                .put("failIfUnavailable", true)
-                .put("autoAllowBashIfSandboxed", !gitHubCommands && !reviewSession && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK)
-                // Native Auto mode reviews retries first; unresolved requests use the permission callback.
-                .put("allowUnsandboxedCommands", allowUnsandboxedRetry)
-                .put("excludedCommands", unsandboxedMaven(scope) ? UNSANDBOXED_MAVEN : ImmutableList.of())
-                .put("filesystem", ImmutableMap.of(
-                        // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
-                        // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one; BuildCacheRoots grants it.
-                        "allowWrite", allowWrite.build(),
-                        "denyRead", denyRead.build(),
-                        // The task runtime directory holds the CI logs, the event log, and this
-                        // settings file. The agent reads its attachments from there and must not
-                        // be able to rewrite the evidence its own work is judged on.
-                        // A read-only session is rooted at a real checkout and its Bash is
-                        // auto-approved, so denying the worktree here is the whole containment
-                        // boundary rather than a second line of defence. A text-only worktree is
-                        // already inside the runtime directory, and need not exist on disk.
-                        "denyWrite", access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY || access == SessionAccess.TOOLS_ONLY
-                                ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
-                                : ImmutableList.of(runtimeDirectory.toString())));
+        // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
+        // The runtime directory holds CI logs, the event log, and these settings; the agent must not rewrite its evidence.
+        // A read-only session's Bash is auto-approved, so denying the worktree is its containment boundary.
+        // A text-only worktree is already inside the runtime directory, and need not exist on disk.
+        SandboxFilesystem filesystem = new SandboxFilesystem(
+                allowWrite.build(),
+                denyRead.build(),
+                access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY || access == SessionAccess.TOOLS_ONLY
+                        ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
+                        : ImmutableList.of(runtimeDirectory.toString()));
         if (scope.unattended() || access.restricted()) {
             deny.add("WebFetch", "WebSearch");
         }
-        sandbox.put("network", scope.buildNetwork()
-                ? ImmutableMap.of(
-                        "allowedDomains", ImmutableList.of("*"),
-                        "allowLocalBinding", true,
-                        // Build tools such as Testcontainers connect directly to Docker, without invoking its CLI.
-                        "allowUnixSockets", ImmutableList.of("/var/run/docker.sock", "~/.docker/run/docker.sock", "~/.orbstack/run/docker.sock"))
-                : ImmutableMap.of("allowedDomains", ImmutableList.of()));
-        ImmutableMap.Builder<String, Object> permissions = ImmutableMap.<String, Object>builder()
-                .put("deny", deny.build());
-        ImmutableMap.Builder<String, Object> settings = ImmutableMap.<String, Object>builder()
-                .put("autoMemoryEnabled", false)
-                .put("permissions", permissions.buildOrThrow())
-                .put("sandbox", sandbox.buildOrThrow());
+        // Build tools such as Testcontainers connect directly to Docker, without invoking its CLI.
+        SandboxNetwork network = scope.buildNetwork()
+                ? new SandboxNetwork(ImmutableList.of("*"), Optional.of(true), Optional.of(ImmutableList.of(
+                        "/var/run/docker.sock", "~/.docker/run/docker.sock", "~/.orbstack/run/docker.sock")))
+                : new SandboxNetwork(ImmutableList.of(), Optional.empty(), Optional.empty());
+        Sandbox sandbox = new Sandbox(
+                true,
+                true,
+                !gitHubCommands && !reviewSession && permissionPolicy != AgentPermissionPolicy.CHERRY_PICK,
+                // Native Auto mode reviews retries first; unresolved requests use the permission callback.
+                allowUnsandboxedRetry,
+                unsandboxedMaven(scope) ? UNSANDBOXED_MAVEN : ImmutableList.of(),
+                filesystem,
+                network);
+        Optional<AutoMode> autoMode = Optional.empty();
         if (gitHubCommands) {
             // Native allow rules must not skip review, and native exceptions must not waive ByteQuay's authorization scope.
-            settings.put("autoMode", ImmutableMap.of(
-                    "classifyAllShell", true,
-                    "hard_deny", ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));
+            autoMode = Optional.of(new AutoMode(true, Optional.empty(), ImmutableList.<String>builder()
+                    .add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));
         }
         else if (reviewSession) {
-            settings.put("autoMode", ImmutableMap.of(
-                    "classifyAllShell", true,
-                    "environment", ImmutableList.of("$defaults", AgentCommandPolicy.reviewInstructions()),
-                    "hard_deny", ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.reviewRestrictions()).build()));
+            autoMode = Optional.of(new AutoMode(true, Optional.of(ImmutableList.of("$defaults", AgentCommandPolicy.reviewInstructions())),
+                    ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.reviewRestrictions()).build()));
         }
         // A hook sees agent_id on a child's tool call; the MCP request itself carries nothing that identifies the caller.
-        childGate.ifPresent(gate -> settings.put("hooks", ImmutableMap.of("PreToolUse", ImmutableList.of(ImmutableMap.of(
-                "matcher", CHILD_GATE_MATCHER,
-                "hooks", ImmutableList.of(ImmutableMap.of("type", "command", "command", "'" + gate.toString().replace("'", "'\\''") + "'")))))));
-        return objectMapper.writeValueAsString(settings.buildOrThrow());
+        Optional<Hooks> hooks = childGate.map(gate -> new Hooks(ImmutableList.of(new HookMatcher(CHILD_GATE_MATCHER,
+                ImmutableList.of(new CommandHook("command", "'" + gate.toString().replace("'", "'\\''") + "'"))))));
+        return objectMapper.writeValueAsString(new ClaudeSettings(false, new Permissions(deny.build()), sandbox, autoMode, hooks));
     }
 
     /** How Claude must run Maven for the sandbox settings {@link #register} writes; empty when Maven stays sandboxed. */
@@ -1707,6 +1695,34 @@ public final class PermissionBroker
             requireNonNull(googleWorkspace, "googleWorkspace is null");
         }
     }
+
+    @JsonInclude(NON_ABSENT)
+    private record ClaudeSettings(boolean autoMemoryEnabled, Permissions permissions, Sandbox sandbox, Optional<AutoMode> autoMode, Optional<Hooks> hooks) {}
+
+    private record Permissions(List<String> deny) {}
+
+    private record Sandbox(
+            boolean enabled,
+            boolean failIfUnavailable,
+            boolean autoAllowBashIfSandboxed,
+            boolean allowUnsandboxedCommands,
+            List<String> excludedCommands,
+            SandboxFilesystem filesystem,
+            SandboxNetwork network) {}
+
+    private record SandboxFilesystem(List<String> allowWrite, List<String> denyRead, List<String> denyWrite) {}
+
+    @JsonInclude(NON_ABSENT)
+    private record SandboxNetwork(List<String> allowedDomains, Optional<Boolean> allowLocalBinding, Optional<List<String>> allowUnixSockets) {}
+
+    @JsonInclude(NON_ABSENT)
+    private record AutoMode(boolean classifyAllShell, Optional<List<String>> environment, @JsonProperty("hard_deny") List<String> hardDeny) {}
+
+    private record Hooks(@JsonProperty("PreToolUse") List<HookMatcher> preToolUse) {}
+
+    private record HookMatcher(String matcher, List<CommandHook> hooks) {}
+
+    private record CommandHook(String type, String command) {}
 
     private record McpConfiguration(@JsonProperty("mcpServers") Map<String, McpServer> servers)
     {

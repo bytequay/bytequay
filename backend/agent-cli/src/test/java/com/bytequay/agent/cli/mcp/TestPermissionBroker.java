@@ -34,7 +34,6 @@ import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.agent.spi.WorkItemBridge;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -1189,9 +1188,7 @@ class TestPermissionBroker
                 ImmutableMap.of(),
                 Optional.empty(),
                 ImmutableList.of())) {
-            ObjectNode retry = objectMapper.createObjectNode()
-                    .put("command", "mvn test")
-                    .put("dangerouslyDisableSandbox", true);
+            Map<String, Object> retry = ImmutableMap.of("command", "mvn test", "dangerouslyDisableSandbox", true);
             assertThat(permission(broker, token(registration), "Bash", retry))
                     .isEqualTo("allow");
             assertThat(requestedApproval.get().title()).isEqualTo("Allow Claude unsandboxed command");
@@ -1253,9 +1250,7 @@ class TestPermissionBroker
                 .isEqualTo("deny");
         assertThat(permission(broker, token, "Bash", "command", "git cherry-pick --continue"))
                 .isEqualTo("deny");
-        ObjectNode unsandboxed = objectMapper.createObjectNode()
-                .put("command", "mvn test")
-                .put("dangerouslyDisableSandbox", true);
+        Map<String, Object> unsandboxed = ImmutableMap.of("command", "mvn test", "dangerouslyDisableSandbox", true);
         assertThat(permission(broker, token, "Bash", unsandboxed)).isEqualTo("deny");
     }
 
@@ -1325,9 +1320,7 @@ class TestPermissionBroker
         assertThat(permission(broker, token, "Bash", "command", chain)).isEqualTo("deny");
         assertThat(approval.get().detail()).contains(chain);
         assertThat(approval.get().sandboxed()).isTrue();
-        ObjectNode retry = objectMapper.createObjectNode()
-                .put("command", "mvn test")
-                .put("dangerouslyDisableSandbox", true);
+        Map<String, Object> retry = ImmutableMap.of("command", "mvn test", "dangerouslyDisableSandbox", true);
         assertThat(permission(broker, token, "Bash", retry)).isEqualTo("deny");
         assertThat(approval.get().title()).isEqualTo("Allow Claude unsandboxed command");
         assertThat(approval.get().sandboxed()).isFalse();
@@ -1529,8 +1522,10 @@ class TestPermissionBroker
                                     .isEqualTo(canRetryOutsideSandbox);
                             assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
                             boolean ciBuildNetwork = policy == AgentPermissionPolicy.CI_AUTOFIX && access == SessionAccess.FULL;
-                            assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean())
-                                    .isEqualTo((policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL) || ciBuildNetwork);
+                            assertThat(settings.at("/sandbox/network/allowLocalBinding"))
+                                    .isEqualTo((policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL) || ciBuildNetwork
+                                            ? objectMapper.valueToTree(true)
+                                            : objectMapper.missingNode());
                             boolean dockerAccess = access == SessionAccess.FULL && policy != AgentPermissionPolicy.CHERRY_PICK;
                             assertThat(settings.at("/sandbox/network/allowUnixSockets"))
                                     .isEqualTo(dockerAccess
@@ -1551,6 +1546,8 @@ class TestPermissionBroker
                                 assertThat(settings.at("/permissions/deny")).isEmpty();
                                 assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
+                                assertThat(settings.at("/autoMode/environment").isMissingNode()).isTrue();
+                                assertThat(settings.path("hooks").isMissingNode()).isTrue();
                             }
                             else {
                                 // An attended review reads remotes with the stored Git and gh login and never writes to them.
@@ -1686,21 +1683,15 @@ class TestPermissionBroker
     private String permission(PermissionBroker broker, String token, String toolName, String field, String value)
             throws Exception
     {
-        return permission(broker, token, toolName, objectMapper.createObjectNode().put(field, value));
+        return permission(broker, token, toolName, ImmutableMap.of(field, value));
     }
 
-    private String permission(PermissionBroker broker, String token, String toolName, JsonNode input)
+    private String permission(PermissionBroker broker, String token, String toolName, Map<String, ?> input)
             throws Exception
     {
-        ObjectNode arguments = objectMapper.createObjectNode().put("tool_name", toolName);
-        arguments.set("input", input);
-        ObjectNode params = objectMapper.createObjectNode().put("name", "permission_prompt");
-        params.set("arguments", arguments);
-        ObjectNode request = objectMapper.createObjectNode()
-                .put("jsonrpc", "2.0")
-                .put("id", 10)
-                .put("method", "tools/call");
-        request.set("params", params);
+        JsonNode request = objectMapper.valueToTree(ImmutableMap.of(
+                "jsonrpc", "2.0", "id", 10, "method", "tools/call",
+                "params", ImmutableMap.of("name", "permission_prompt", "arguments", ImmutableMap.of("tool_name", toolName, "input", input))));
         String result = broker.handle(token, request).body().orElseThrow().at("/result/content/0/text").asText();
         return objectMapper.readTree(result).get("behavior").asText();
     }

@@ -69,6 +69,7 @@ import com.bytequay.core.review.ReviewThreadVerdict;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.review.ReviewVerification;
 import com.bytequay.core.store.PullRequestTaskStore;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -112,6 +113,8 @@ import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.EXPLAIN;
 import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.ALWAYS;
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_ABSENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
@@ -1357,19 +1360,16 @@ public class ReviewTools
                     .put("note", "This review has no pull request discussion to follow up, or the user's GitHub login is not known.");
         }
         OwnThreads found = own.orElseThrow();
-        List<ObjectNode> entries = found.listed().stream().map(thread -> {
-            ObjectNode entry = objectMapper.createObjectNode().put("threadId", thread.id()).put("path", bounded(thread.path(), 1000))
-                    .put("line", thread.line().map(String::valueOf).orElse("")).put("resolved", thread.resolved()).put("outdated", thread.outdated())
-                    .put("commentCount", thread.comments()).put("opening", thread.opening()).put("lastCommentBy", bounded(thread.lastActor(), 200))
-                    .put("lastCommentAt", thread.lastAt().map(Instant::toString).orElse("")).put("awaitingReply", thread.awaitingReply());
-            return entry;
-        }).collect(toImmutableList());
+        List<OwnThreadEntry> entries = found.listed().stream().map(thread -> new OwnThreadEntry(
+                thread.id(), bounded(thread.path(), 1000), thread.line().map(String::valueOf).orElse(""), thread.resolved(), thread.outdated(),
+                thread.comments(), thread.opening(), bounded(thread.lastActor(), 200), thread.lastAt().map(Instant::toString).orElse(""), thread.awaitingReply()))
+                .collect(toImmutableList());
         String provenance = pullRequestProvenance(call, found.number(), found.read());
-        retainPageEvidence(call, call.review().repo() + "#" + found.number() + " thread started by " + found.login(), ignored -> provenance, entries);
+        List<ObjectNode> retained = retainPageEvidence(call, call.review().repo() + "#" + found.number() + " thread started by " + found.login(), ignored -> provenance, entries);
         ObjectNode node = pullRequestSource(call, found.number(), found.read()).put("login", found.login()).put("omittedThreads", found.omitted())
                 .put("note", "Threads the user started. Read each with kind thread before judging it; resolved does not mean addressed. "
                         + "Give every listed thread a verdict in review_finish threadVerdicts.");
-        node.putPOJO("threads", entries);
+        node.putPOJO("threads", retained);
         return node;
     }
 
@@ -1711,8 +1711,7 @@ public class ReviewTools
             }
             return entry;
         }).collect(toImmutableList());
-        retainPageEvidence(call, call.review().repo() + "#" + number + " activity", ignored -> provenance, entries);
-        node.putPOJO("items", entries);
+        node.putPOJO("items", retainPageEvidence(call, call.review().repo() + "#" + number + " activity", ignored -> provenance, entries));
         return node;
     }
 
@@ -1770,37 +1769,31 @@ public class ReviewTools
                 .put("page", page).put("pages", Math.max(1, (checks.size() + CHECK_PAGE - 1) / CHECK_PAGE))
                 .put("totalItems", checks.size()).put("omittedItems", checks.size() - (to - from)).put("truncated", from > 0 || to < checks.size());
         String provenance = pullRequestProvenance(call, number, read);
-        List<ObjectNode> entries = checks.subList(from, to).stream().map(check -> {
-            ObjectNode entry = objectMapper.createObjectNode()
-                    .put("name", bounded(Optional.ofNullable(check.name()).orElse(""), 200))
-                    .put("status", bounded(Optional.ofNullable(check.status()).orElse(""), 100))
-                    .put("conclusion", bounded(Optional.ofNullable(check.conclusion()).orElse(""), 100))
-                    .put("category", bounded(Optional.ofNullable(check.category()).orElse(""), 100))
-                    .put("detailsUrl", bounded(Optional.ofNullable(check.detailsUrl()).orElse(""), 1000))
-                    .put("startedAt", check.startedAt() == null ? "" : check.startedAt().toString())
-                    .put("completedAt", check.completedAt() == null ? "" : check.completedAt().toString());
-            if (check.githubId() != null) {
-                entry.put("id", check.githubId());
-            }
-            return entry;
-        }).collect(toImmutableList());
-        retainPageEvidence(call, call.review().repo() + "#" + number + " check", ignored -> provenance, entries);
-        node.putPOJO("checks", entries);
+        List<CheckEntry> entries = checks.subList(from, to).stream().map(check -> new CheckEntry(
+                bounded(Optional.ofNullable(check.name()).orElse(""), 200), bounded(Optional.ofNullable(check.status()).orElse(""), 100),
+                bounded(Optional.ofNullable(check.conclusion()).orElse(""), 100), bounded(Optional.ofNullable(check.category()).orElse(""), 100),
+                bounded(Optional.ofNullable(check.detailsUrl()).orElse(""), 1000), Optional.ofNullable(check.startedAt()).map(Instant::toString).orElse(""),
+                Optional.ofNullable(check.completedAt()).map(Instant::toString).orElse(""), Optional.ofNullable(check.githubId())))
+                .collect(toImmutableList());
+        node.putPOJO("checks", retainPageEvidence(call, call.review().repo() + "#" + number + " check", ignored -> provenance, entries));
         return node;
     }
 
-    private void retainPageEvidence(Call call, String source, Function<ObjectNode, String> provenance, List<ObjectNode> entries)
+    private <T> List<ObjectNode> retainPageEvidence(Call call, String source, Function<T, String> provenance, List<T> entries)
     {
         if (entries.isEmpty()) {
-            return;
+            return ImmutableList.of();
         }
+        ImmutableList.Builder<ObjectNode> result = ImmutableList.builder();
         ReviewRun current = store.findRun(call.run().id()).orElse(call.run());
-        for (ObjectNode entry : entries) {
+        for (T entry : entries) {
+            ObjectNode node = objectMapper.valueToTree(entry);
             String ref = "E" + (current.evidence().size() + 1);
-            current = current.withEvidence(ref, new ReviewEvidence(ref, source, provenance.apply(entry), bounded(entry.toString(), MAX_EXCERPT), ""), now());
-            entry.put("evidenceRef", ref);
+            current = current.withEvidence(ref, new ReviewEvidence(ref, source, provenance.apply(entry), bounded(node.toString(), MAX_EXCERPT), ""), now());
+            result.add(node.put("evidenceRef", ref));
         }
         store.updateRun(current);
+        return result.build();
     }
 
     private JsonNode commitPullRequests(Call call)
@@ -1828,29 +1821,26 @@ public class ReviewTools
                 || read.items().stream().map(SelectedCommitPullRequestReader.Item::sha).distinct().count() != read.items().size()) {
             throw new ReviewInvalidRequestException("shas: the selected association response does not match the requested commit IDs");
         }
-        List<ObjectNode> items = read.items().stream().map(item -> objectMapper.createObjectNode()
-                .put("sha", item.sha())
-                .put("pullRequestNumber", item.pullRequestNumber().orElse(null))
-                .put("pullRequestTitle", item.pullRequestTitle().map(title -> bounded(title, MAX_TITLE)).orElse(null))
-                .put("pullRequestUrl", item.pullRequestUrl().map(url -> bounded(url, 2000)).orElse(null))
-                .put("checkedAt", item.checkedAt().map(Instant::toString).orElse(null))
-                .put("lookupAttempted", item.lookupAttempted()).put("lookupFailed", item.lookupFailed()).put("persisted", item.persisted())
-                .put("status", item.pullRequestNumber().isPresent() ? "MAPPED" : item.lookupFailed() ? "LOOKUP_FAILED"
+        List<CommitPullRequestEntry> items = read.items().stream().map(item -> new CommitPullRequestEntry(
+                item.sha(), item.pullRequestNumber(), item.pullRequestTitle().map(title -> bounded(title, MAX_TITLE)),
+                item.pullRequestUrl().map(url -> bounded(url, 2000)), item.checkedAt().map(Instant::toString),
+                item.lookupAttempted(), item.lookupFailed(), item.persisted(), item.pullRequestNumber().isPresent() ? "MAPPED" : item.lookupFailed() ? "LOOKUP_FAILED"
                         : item.checkedAt().isPresent() ? "CHECKED_NO_SINGLE_MERGED_PR" : "UNKNOWN"))
                 .collect(toImmutableList());
         String limitation = "checkedAt can describe an earlier cached observation; status alone does not establish a fresh provider check. "
                 + "A checked negative means no single merged PR under the existing association policy and can be ambiguous; "
                 + "provider reads consider at most 100 candidates. Association is not proof of a whole PR final diff or why it merged.";
         Instant readAt = now();
-        retainPageEvidence(call, call.review().repo() + " commit-to-PR association", item -> "Repository " + call.review().repo() + "; repositoryId=" + repositoryId
-                + "; exactSha=" + item.path("sha").asText() + "; observation=" + (item.path("lookupAttempted").asBoolean() ? "selected lookup" : "stored enrichment read")
-                + "; readAt=" + readAt + "; checkedAt=" + item.path("checkedAt").asText("unknown") + "; lookupAttempted=" + item.path("lookupAttempted").asBoolean()
-                + "; lookupFailed=" + item.path("lookupFailed").asBoolean() + "; persisted=" + item.path("persisted").asBoolean() + "; " + limitation, items);
+        List<ObjectNode> entries = retainPageEvidence(call, call.review().repo() + " commit-to-PR association",
+                item -> "Repository " + call.review().repo() + "; repositoryId=" + repositoryId
+                        + "; exactSha=" + item.sha() + "; observation=" + (item.lookupAttempted() ? "selected lookup" : "stored enrichment read")
+                        + "; readAt=" + readAt + "; checkedAt=" + item.checkedAt().orElse("unknown") + "; lookupAttempted=" + item.lookupAttempted()
+                        + "; lookupFailed=" + item.lookupFailed() + "; persisted=" + item.persisted() + "; " + limitation, items);
         List<String> gaps = read.gaps().stream().limit(MAX_COMMIT_ASSOCIATION_GAPS).map(gap -> bounded(gap, 1000)).collect(toImmutableList());
         ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo()).put("repositoryId", repositoryId)
                 .put("readAt", readAt.toString()).put("maxCommits", SelectedCommitPullRequestReader.MAX_COMMITS).put("maxProviderCandidates", 100)
                 .put("source", "selected-commit-pull-request").put("note", limitation).put("omittedGaps", read.gaps().size() - gaps.size());
-        node.putPOJO("items", items);
+        node.putPOJO("items", entries);
         node.putPOJO("gaps", gaps);
         return node;
     }
@@ -2447,6 +2437,16 @@ public class ReviewTools
 
     /** The user's threads on one pull request read: the first {@code listed} of them, and how many more were left out. */
     private record OwnThreads(String login, int number, SelectedPullRequestReader.Read read, List<ReviewOwnThreads.Thread> listed, int omitted) {}
+
+    private record OwnThreadEntry(String threadId, String path, String line, boolean resolved, boolean outdated, int commentCount,
+            String opening, String lastCommentBy, String lastCommentAt, boolean awaitingReply) {}
+
+    private record CheckEntry(String name, String status, String conclusion, String category, String detailsUrl, String startedAt, String completedAt,
+            @JsonInclude(NON_ABSENT) Optional<Long> id) {}
+
+    @JsonInclude(ALWAYS)
+    private record CommitPullRequestEntry(String sha, Optional<Integer> pullRequestNumber, Optional<String> pullRequestTitle, Optional<String> pullRequestUrl,
+            Optional<String> checkedAt, boolean lookupAttempted, boolean lookupFailed, boolean persisted, String status) {}
 
     private record Replay(String key, String digest, Optional<JsonNode> result) {}
 

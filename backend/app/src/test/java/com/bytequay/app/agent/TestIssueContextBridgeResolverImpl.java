@@ -136,6 +136,9 @@ class TestIssueContextBridgeResolverImpl
         assertThat(context.at("/cachedMetadata/differsFromAcceptedDescription").asBoolean()).isTrue();
         assertThat(context.at("/cachedTimeline/truncated").asBoolean()).isTrue();
         assertThat(context.at("/cachedTimeline/events/0/body").asText()).hasSize(2_000);
+        assertThat(context.at("/cachedTimeline/events/0/event").asText()).isEqualTo("commented");
+        assertThat(context.at("/cachedTimeline/events/0/createdAt").asText()).isEqualTo(NOW.toString());
+        assertThat(context.at("/cachedTimeline/events/0/updatedAt").asText()).isEqualTo(NOW.toString());
         assertThat(bridge.instruction()).contains("Jira", "Do not fetch", "untrusted");
         when(jira.issue("connection", "cloud", "10001")).thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND));
         JsonNode retained = mapper.readTree(bridge.read().get());
@@ -167,6 +170,29 @@ class TestIssueContextBridgeResolverImpl
         assertThat(context.at("/cachedTimeline/events/0/body").asText()).hasSize(2_000);
         assertThat(context.at("/cachedTimeline/events/0/bodyTruncated").asBoolean()).isTrue();
         assertThat(context.path("source").asText()).contains("no remote request");
+    }
+
+    @Test
+    void timelineOmitsMissingTimestampAndKeepsEmptyBodyAndNullPayloadFields()
+            throws Exception
+    {
+        when(details.find(2, 7)).thenReturn(Optional.of(new RepositoryIssueDetail(2, 7,
+                ImmutableList.of(new PrTimelineEvent(null, "commented", null, null, null, Optional.empty())), "", ImmutableList.of(), Optional.empty())));
+
+        JsonNode context = mapper.readTree(resolver.resolve(taskId.toString()).orElseThrow().read().get());
+        assertThat(context.at("/cachedTimeline/events/0")).isEqualTo(mapper.readTree("""
+                {
+                  "event": "commented",
+                  "actor": null,
+                  "body": "",
+                  "bodyTruncated": false,
+                  "label": null,
+                  "state": null,
+                  "sourceTitle": null,
+                  "sourceUrl": null,
+                  "milestone": null
+                }
+                """));
     }
 
     @Test

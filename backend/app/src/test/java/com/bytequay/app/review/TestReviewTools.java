@@ -392,11 +392,16 @@ class TestReviewTools
 
         assertThat(result.path("repositoryId").asLong()).isEqualTo(1);
         assertThat(result.at("/items/0/status").asText()).isEqualTo("UNKNOWN");
+        assertThat(result.at("/items/0/pullRequestNumber").isNull()).isTrue();
+        assertThat(result.at("/items/0/pullRequestTitle").isNull()).isTrue();
+        assertThat(result.at("/items/0/pullRequestUrl").isNull()).isTrue();
         assertThat(result.at("/items/0/checkedAt").isNull()).isTrue();
         assertThat(result.at("/items/1/status").asText()).isEqualTo("LOOKUP_FAILED");
         assertThat(result.at("/items/1/lookupFailed").asBoolean()).isTrue();
         assertThat(result.at("/items/1/persisted").asBoolean()).isFalse();
         assertThat(store.runUpdates()).isEqualTo(1);
+        ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(result.at("/items/0/evidenceRef").asText());
+        assertThat(evidence.provenance()).contains("checkedAt=unknown", "observation=stored enrichment read");
     }
 
     @Test
@@ -577,6 +582,22 @@ class TestReviewTools
         assertThat(beyondEnd.path("page").asInt()).isEqualTo(Integer.MAX_VALUE);
         assertThat(store.runUpdates()).isEqualTo(writes + 2);
         verifyNoInteractions(pullRequests, repositories, issues);
+    }
+
+    @Test
+    void checksWithoutProviderMetadataKeepEmptyTextAndOmitTheId()
+    {
+        PullRequestDetail.CheckRun check = new PullRequestDetail.CheckRun(null, null, null, null, null, null, null, null, null);
+        PullRequestDetail detail = pullRequestDetail(42, "Metadata", ImmutableList.of(), ImmutableList.of(check), ImmutableList.of());
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.CHECKS)).thenReturn(selected(detail, Optional.of(HEAD_SHA), false));
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "checks")).at("/checks/0");
+
+        assertThat(result.has("id")).isFalse();
+        ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(result.path("evidenceRef").asText());
+        assertThat(evidence.excerpt()).isEqualTo("""
+                {"name":"","status":"","conclusion":"","category":"","detailsUrl":"","startedAt":"","completedAt":""}
+                """.strip());
     }
 
     @ParameterizedTest

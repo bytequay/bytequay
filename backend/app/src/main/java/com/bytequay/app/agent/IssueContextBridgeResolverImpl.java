@@ -43,8 +43,8 @@ import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
@@ -56,7 +56,9 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.IntStream;
 
+import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_ABSENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -180,37 +182,27 @@ public class IssueContextBridgeResolverImpl
         Optional<Epic> record = epics.find(epicId).filter(found -> found.workspaceId().equals(current.workspaceId()));
         record.flatMap(Epic::concludedAt).ifPresent(at -> epic.put("concludedAt", at.toString()).put("outcome", record.orElseThrow().outcome()));
         record.flatMap(Epic::childrenReadAt).ifPresent(at -> epic.put("childrenReadAt", at.toString()));
-        ArrayNode children = epic.putArray("children");
-        record.map(Epic::children).orElseGet(ImmutableList::of).stream().limit(MAXIMUM_EPIC_ENTRIES)
-                .forEach(child -> children.addObject().put("reference", child.label()).put("title", child.title()).put("status", child.status()));
+        epic.set("children", objectMapper.valueToTree(record.map(Epic::children).orElseGet(ImmutableList::of).stream().limit(MAXIMUM_EPIC_ENTRIES)
+                .map(child -> new EpicChildContext(child.label(), child.title(), child.status())).collect(toImmutableList())));
         List<WorkItem> work = workItems.list(current.workspaceId()).stream().filter(item -> item.epicId().equals(current.epicId()))
                 .sorted(Comparator.comparingLong(WorkItem::epicRank).thenComparing(WorkItem::createdAt)).collect(toImmutableList());
         Map<String, String> titles = work.stream().collect(toImmutableMap(WorkItem::id, WorkItem::title));
         // Its own item in full even when the list is cut short before it.
-        epic.set("currentWork", work(current, work.stream().map(WorkItem::id).collect(toImmutableList()).indexOf(current.id()) + 1, titles, true));
+        epic.set("currentWork", objectMapper.valueToTree(work(current, work.stream().map(WorkItem::id).collect(toImmutableList()).indexOf(current.id()) + 1, titles, true)));
         epic.put("workCount", work.size());
         epic.put("workTruncated", work.size() > MAXIMUM_EPIC_ENTRIES);
-        ArrayNode entries = epic.putArray("work");
-        for (int index = 0; index < Math.min(work.size(), MAXIMUM_EPIC_ENTRIES); index++) {
-            entries.add(work(work.get(index), index + 1, titles, work.get(index).id().equals(current.id())));
-        }
+        epic.set("work", objectMapper.valueToTree(IntStream.range(0, Math.min(work.size(), MAXIMUM_EPIC_ENTRIES))
+                .mapToObj(index -> work(work.get(index), index + 1, titles, work.get(index).id().equals(current.id()))).collect(toImmutableList())));
         return epic;
     }
 
-    private ObjectNode work(WorkItem item, int position, Map<String, String> titles, boolean current)
+    private static EpicWorkContext work(WorkItem item, int position, Map<String, String> titles, boolean current)
     {
-        ObjectNode entry = objectMapper.createObjectNode();
-        entry.put("position", position);
-        entry.put("title", item.title());
-        entry.put("state", item.state().name());
-        entry.put("current", current);
-        entry.put("doneWhen", current ? item.acceptanceCriteria() : ContextText.excerpt(item.acceptanceCriteria(), MAXIMUM_SIBLING_DONE_WHEN));
-        ArrayNode waitsOn = entry.putArray("waitsOn");
-        item.blockedBy().stream().filter(titles::containsKey).map(titles::get).forEach(waitsOn::add);
-        ArrayNode links = entry.putArray("links");
-        item.links().stream().map(WorkItemLink::reference).filter(reference -> reference.kind() != GoalItemKind.TASK)
-                .forEach(reference -> links.addObject().put("kind", reference.kind().name()).put("reference", reference.label()).put("title", reference.title()));
-        return entry;
+        return new EpicWorkContext(position, item.title(), item.state(), current,
+                current ? item.acceptanceCriteria() : ContextText.excerpt(item.acceptanceCriteria(), MAXIMUM_SIBLING_DONE_WHEN),
+                item.blockedBy().stream().filter(titles::containsKey).map(titles::get).collect(toImmutableList()),
+                item.links().stream().map(WorkItemLink::reference).filter(reference -> reference.kind() != GoalItemKind.TASK)
+                        .map(reference -> new EpicLinkContext(reference.kind(), reference.label(), reference.title())).collect(toImmutableList()));
     }
 
     /** The Epic's issue while the workspace still monitors its repository and the store still holds that same issue. */
@@ -258,17 +250,10 @@ public class IssueContextBridgeResolverImpl
         List<JiraDtos.Comment> comments = cached.map(JiraIssue::comments).orElseGet(ImmutableList::of);
         timeline.put("totalCachedComments", comments.size());
         timeline.put("truncated", cached.map(JiraIssue::commentsTruncated).orElse(false) || comments.size() > MAXIMUM_EVENTS);
-        ArrayNode entries = timeline.putArray("events");
-        comments.stream().skip(Math.max(0, comments.size() - MAXIMUM_EVENTS)).forEach(comment -> {
-            ObjectNode entry = entries.addObject();
-            entry.put("id", comment.id());
-            entry.put("event", "commented");
-            entry.put("actor", comment.author().displayName());
-            entry.put("createdAt", comment.created());
-            entry.put("updatedAt", comment.updated());
-            entry.put("body", comment.body().substring(0, Math.min(comment.body().length(), MAXIMUM_EVENT_BODY)));
-            entry.put("bodyTruncated", comment.body().length() > MAXIMUM_EVENT_BODY);
-        });
+        timeline.set("events", objectMapper.valueToTree(comments.stream().skip(Math.max(0, comments.size() - MAXIMUM_EVENTS))
+                .map(comment -> new JiraCommentContext(comment.id(), "commented", comment.author().displayName(), comment.created(), comment.updated(),
+                        comment.body().substring(0, Math.min(comment.body().length(), MAXIMUM_EVENT_BODY)), comment.body().length() > MAXIMUM_EVENT_BODY))
+                .collect(toImmutableList())));
         taskWork(taskId).ifPresent(item -> addWorkContext(result, item));
         return result.toString();
     }
@@ -327,22 +312,28 @@ public class IssueContextBridgeResolverImpl
                 .limit(MAXIMUM_EVENTS).collect(toImmutableList());
         timeline.put("totalCachedEvents", events.size());
         timeline.put("truncated", events.size() > recent.size());
-        ArrayNode entries = timeline.putArray("events");
-        for (PrTimelineEvent event : recent) {
-            ObjectNode entry = entries.addObject();
-            entry.put("event", event.event());
-            entry.put("actor", event.actor());
-            Optional.ofNullable(event.timestamp()).ifPresent(time -> entry.put("timestamp", time.toString()));
-            String body = Optional.ofNullable(event.body()).orElse("");
-            entry.put("body", body.substring(0, Math.min(body.length(), MAXIMUM_EVENT_BODY)));
-            entry.put("bodyTruncated", body.length() > MAXIMUM_EVENT_BODY);
-            entry.put("label", event.payload().label());
-            entry.put("state", event.payload().state());
-            entry.put("sourceTitle", event.payload().sourceTitle());
-            entry.put("sourceUrl", event.payload().sourceUrl());
-            entry.put("milestone", event.payload().milestoneTitle());
-        }
+        timeline.set("events", objectMapper.valueToTree(recent.stream().map(IssueContextBridgeResolverImpl::event).collect(toImmutableList())));
         taskWork(taskId).ifPresent(item -> addWorkContext(result, item));
         return result.toString();
     }
+
+    private static TimelineEventContext event(PrTimelineEvent event)
+    {
+        String body = Optional.ofNullable(event.body()).orElse("");
+        return new TimelineEventContext(event.event(), event.actor(), Optional.ofNullable(event.timestamp()).map(Instant::toString),
+                body.substring(0, Math.min(body.length(), MAXIMUM_EVENT_BODY)), body.length() > MAXIMUM_EVENT_BODY,
+                event.payload().label(), event.payload().state(), event.payload().sourceTitle(), event.payload().sourceUrl(), event.payload().milestoneTitle());
+    }
+
+    private record EpicChildContext(String reference, String title, String status) {}
+
+    private record EpicLinkContext(GoalItemKind kind, String reference, String title) {}
+
+    private record EpicWorkContext(int position, String title, WorkItem.State state, boolean current, String doneWhen, List<String> waitsOn, List<EpicLinkContext> links) {}
+
+    private record JiraCommentContext(String id, String event, String actor, String createdAt, String updatedAt, String body, boolean bodyTruncated) {}
+
+    private record TimelineEventContext(
+            String event, String actor, @JsonInclude(NON_ABSENT) Optional<String> timestamp, String body, boolean bodyTruncated,
+            String label, String state, String sourceTitle, String sourceUrl, String milestone) {}
 }

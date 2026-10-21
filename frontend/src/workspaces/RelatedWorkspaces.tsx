@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useId, useState, useEffect } from 'react';
 import { ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import type { RelatedWorkspaceDto, RepoLineNodeDto, WorkspaceDto, WorkspaceRelationshipDto, WorkspaceRelationshipsDto } from '../types';
@@ -111,22 +112,13 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
   const { data, error: loadError } = useRelationships(workspace.id);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [existing, setExisting] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction();
   const guidanceId = useId();
-  const apply = async (operation: () => Promise<WorkspaceRelationshipDto[]>) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await operation();
-      setEditing(null);
-      window.dispatchEvent(new Event(changed));
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const apply = (operation: () => Promise<WorkspaceRelationshipDto[]>) => run(async () => {
+    await operation();
+    setEditing(null);
+    window.dispatchEvent(new Event(changed));
+  });
   const addButton = <button type="button" className="setw-btn" disabled={data === null || busy}
     onClick={() => { setEditing({ workspaceId: '', kind: '', guidance: '', backportByDefault: false }); setExisting(false); setError(null); }}>+ Add related workspace</button>;
   // Links other workspaces saved to this one; deeper downstream repos only show in the line.

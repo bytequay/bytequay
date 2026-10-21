@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import AddRepoModal from '../AddRepoModal';
@@ -25,20 +26,13 @@ import { useReviewCommentHistory } from './useReviewCommentHistory';
 
 function WatchCommentRepository({ repo, onWatched }: { repo: string; onWatched: () => void }) {
   const [repositoryId, setRepositoryId] = useState<number | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const watch = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      const repositories = await window.bridge.searchRepositories(repo, 30);
-      const match = repositories.find(candidate => candidate.fullName.toLowerCase() === repo.toLowerCase());
-      if (!match) throw new Error(`Could not find ${repo}. Check your GitHub access and try again.`);
-      setRepositoryId(match.id);
-    }
-    catch (failure) { setError(remoteErrorMessage(failure)); }
-    finally { setBusy(false); }
-  };
+  const { busy, error, run } = useAsyncAction(remoteErrorMessage);
+  const watch = () => run(async () => {
+    const repositories = await window.bridge.searchRepositories(repo, 30);
+    const match = repositories.find(candidate => candidate.fullName.toLowerCase() === repo.toLowerCase());
+    if (!match) throw new Error(`Could not find ${repo}. Check your GitHub access and try again.`);
+    setRepositoryId(match.id);
+  });
   const added = () => { setRepositoryId(null); onWatched(); };
   return <>
     <button type="button" disabled={busy} onClick={() => { void watch(); }}>{busy ? 'Loading repository…' : 'Watch repository'}</button>

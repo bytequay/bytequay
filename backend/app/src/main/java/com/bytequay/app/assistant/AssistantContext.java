@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.agent.spi.ToolSchemas.object;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -73,22 +74,18 @@ final class AssistantContext
 
     ReviewTool tool()
     {
-        Map<String, Object> schema = ImmutableMap.of(
-                "type", "object",
-                "properties", ImmutableMap.of(
-                        "kind", ImmutableMap.of("type", "string", "enum", KINDS,
-                                "description", "overview first; changes since the last agenda, mine (your open pull requests), tasks (agent tasks waiting or idle), "
-                                        + "asks (what people want from you), epics (work in flight and ready to start), history (earlier agendas), running (tasks at "
-                                        + "work now), waiting (the cards on screen and what answers them), screen (the page the user is on), lookup (one pull "
-                                        + "request, task, review or work item by its ref), result (what a task or review said last and how its latest turn ended), "
-                                        + "search (stored pull requests, issues, Jira tickets, tasks, work items and Epics by query), "
-                                        + "start_options (repositories, agents and automation for a new task)"),
-                        "page", ImmutableMap.of("type", "integer", "minimum", 0, "description", "From nextPage; 0 when absent"),
-                        "ref", ImmutableMap.of("type", "string", "description", "For lookup and result: a ref such as pr:owner/name#12, task:id, review:id or work:id"),
-                        "query", ImmutableMap.of("type", "string", "description", "For search: words every matching title holds, or a number such as 31402 or a key "
-                                + "such as ICE-7")),
-                "required", ImmutableList.of("kind"),
-                "additionalProperties", false);
+        Map<String, Object> schema = object(ImmutableMap.of(
+                "kind", ImmutableMap.of("type", "string", "enum", KINDS,
+                        "description", "overview first; changes since the last agenda, mine (your open pull requests), tasks (agent tasks waiting or idle), "
+                                + "asks (what people want from you), epics (work in flight and ready to start), history (earlier agendas), running (tasks at "
+                                + "work now), waiting (the cards on screen and what answers them), screen (the page the user is on), lookup (one pull "
+                                + "request, task, review or work item by its ref), result (what a task or review said last and how its latest turn ended), "
+                                + "search (stored pull requests, issues, Jira tickets, tasks, work items and Epics by query), "
+                                + "start_options (repositories, agents and automation for a new task)"),
+                "page", ImmutableMap.of("type", "integer", "minimum", 0, "description", "From nextPage; 0 when absent"),
+                "ref", ImmutableMap.of("type", "string", "description", "For lookup and result: a ref such as pr:owner/name#12, task:id, review:id or work:id"),
+                "query", ImmutableMap.of("type", "string", "description", "For search: words every matching title holds, or a number such as 31402 or a key "
+                        + "such as ICE-7")), "kind");
         return new ReviewTool(NAME, "Read the user's day in ByteQuay as it is now: what moved, what runs and waits, what is on screen, how a task can start, and any "
                         + "stored item by its title, number or key. Read-only.",
                 schema, this::call, true);

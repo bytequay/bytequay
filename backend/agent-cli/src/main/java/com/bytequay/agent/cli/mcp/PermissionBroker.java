@@ -43,6 +43,7 @@ import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
+import com.bytequay.agent.spi.ToolSchemas;
 import com.bytequay.agent.spi.WorkItemBridge;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -1150,18 +1151,14 @@ public final class PermissionBroker
                 CodeQueryBridge.TOOL_NAME,
                 "Query this working copy's IDE language services for symbols, definitions, references, implementations, calls or diagnostics. "
                         + "Use a relative source path; positions are one-based UTF-16. Results may be partial while importing. Verify current source.",
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.of(
-                                "operation", ImmutableMap.of("type", "string", "enum",
-                                        Arrays.stream(CodeQuery.Operation.values()).map(Enum::name).collect(ImmutableList.toImmutableList())),
-                                "path", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4096),
-                                "query", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200),
-                                "line", ImmutableMap.of("type", "integer", "minimum", 1),
-                                "column", ImmutableMap.of("type", "integer", "minimum", 1),
-                                "limit", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 200)),
-                        "required", ImmutableList.of("operation", "path", "limit"),
-                        "additionalProperties", false));
+                ToolSchemas.object(ImmutableMap.of(
+                        "operation", ImmutableMap.of("type", "string", "enum",
+                                Arrays.stream(CodeQuery.Operation.values()).map(Enum::name).collect(ImmutableList.toImmutableList())),
+                        "path", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4096),
+                        "query", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200),
+                        "line", ImmutableMap.of("type", "integer", "minimum", 1),
+                        "column", ImmutableMap.of("type", "integer", "minimum", 1),
+                        "limit", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 200)), "operation", "path", "limit"));
     }
 
     private static ToolDefinition permissionTool()
@@ -1204,11 +1201,10 @@ public final class PermissionBroker
         return ImmutableList.<ToolDefinition>builder().addAll(available)
                 .add(new ToolDefinition(LIST_TOOLS,
                         "List this task's current ByteQuay tool names and descriptions. Choose relevant tools, then read bytequay_get_tool for usage and parameters",
-                        ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false)))
+                        ToolSchemas.object(ImmutableMap.of())))
                 .add(new ToolDefinition(GET_TOOL,
                         "Read one task tool's current description and complete inputSchema, including required parameters and allowed values. Does not run the tool",
-                        ImmutableMap.of("type", "object", "properties", ImmutableMap.of("name", ImmutableMap.of("type", "string", "minLength", 1)),
-                                "required", ImmutableList.of("name"), "additionalProperties", false)))
+                        ToolSchemas.object(ImmutableMap.of("name", ImmutableMap.of("type", "string", "minLength", 1)), "name")))
                 .add(callToolDefinition()).build();
     }
 
@@ -1217,10 +1213,9 @@ public final class PermissionBroker
         return new ToolDefinition(CALL_TOOL,
                 "Run one current ByteQuay task tool. Discover names with bytequay_list_tools and read usage and parameters with bytequay_get_tool first. "
                         + "Pass its name and arguments object. Existing permissions apply; review and related-work changes belong to the main agent",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                ToolSchemas.object(ImmutableMap.of(
                         "name", ImmutableMap.of("type", "string", "minLength", 1),
-                        "arguments", ImmutableMap.of("type", "object", "additionalProperties", true)),
-                        "required", ImmutableList.of("name", "arguments"), "additionalProperties", false));
+                        "arguments", ImmutableMap.of("type", "object", "additionalProperties", true)), "name", "arguments"));
     }
 
     private static List<ToolDefinition> tools(PermissionContext context)
@@ -1238,10 +1233,10 @@ public final class PermissionBroker
                 IssueContextBridge.TOOL_NAME,
                 "Read this task's local source context: its accepted issue or ticket snapshot with cached observations, and the Epic, its work list and this "
                         + "task's work item when the task is Epic work; missing or stale context is marked. Read-only; no remote fetch",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
+                ToolSchemas.object(ImmutableMap.of()))));
         context.relatedWork().ifPresent(ignored -> tools.add(new ToolDefinition(RelatedWorkspaceBridge.TOOL_NAME,
                 "Start explicitly requested work in a related workspace, or read the linked conversation's result; root agent only",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.<String, Object>builder()
+                ToolSchemas.object(ImmutableMap.<String, Object>builder()
                         .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("START", "READ", "DISCOVER_BACKPORT", "SAVE_CHAIN", "READ_CHAIN")))
                         .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
@@ -1251,52 +1246,41 @@ public final class PermissionBroker
                         .put("revision", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200))
                         .put("sourceTaskId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("chainId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
-                        .put("sourcePullRequest", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                        .put("sourcePullRequest", ToolSchemas.object(ImmutableMap.of(
                                 "workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100),
-                                "number", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Integer.MAX_VALUE)),
-                                "required", ImmutableList.of("workspaceId", "number"), "additionalProperties", false))
+                                "number", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Integer.MAX_VALUE)), "workspaceId", "number"))
                         .put("sourceHops", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
                                 "items", ImmutableMap.of("type", "integer", "minimum", -1, "maximum", 19)))
                         .put("destinations", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
-                                "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(),
-                        "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));
+                                "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(), "action", "operationKey"))));
         context.googleWorkspace().ifPresent(ignored -> tools.add(new ToolDefinition(GoogleWorkspaceBridge.TOOL_NAME,
                 "Read the user's saved Gmail and Calendar snapshots. LIST then READ; no live sync or remote writes",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                ToolSchemas.object(ImmutableMap.of(
                         "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "READ")),
                         "source", ImmutableMap.of("type", "string", "enum", ImmutableList.of("MAIL", "CALENDAR")),
-                        "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string")),
-                        "required", ImmutableList.of("action", "source"), "additionalProperties", false))));
+                        "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string")), "action", "source"))));
         context.workItems().ifPresent(ignored -> tools.add(new ToolDefinition(WorkItemBridge.TOOL_NAME,
                 "LIST/READ workspace work; CREATE local items; MARK_EPIC/ASSIGN_EPIC; LINK_CONTEXT/UNLINK_CONTEXT by id and targetId. Never publishes",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                ToolSchemas.object(ImmutableMap.of(
                         "action", ImmutableMap.of("type", "string", "enum",
                                 ImmutableList.of("LIST", "READ", "CREATE", "MARK_EPIC", "ASSIGN_EPIC", "LINK_CONTEXT", "UNLINK_CONTEXT")),
                         "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string"),
                         "offset", ImmutableMap.of("type", "integer", "minimum", 0), "operationKey", ImmutableMap.of("type", "string"),
                         "title", ImmutableMap.of("type", "string", "maxLength", 500),
                         "description", ImmutableMap.of("type", "string", "maxLength", 65536), "epicId", ImmutableMap.of("type", "string"),
-                        "targetId", ImmutableMap.of("type", "string", "maxLength", 200)),
-                        "required", ImmutableList.of("action"), "additionalProperties", false))));
+                        "targetId", ImmutableMap.of("type", "string", "maxLength", 200)), "action"))));
         context.memory().ifPresent(ignored -> tools.add(memoryTool(false)));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.TOOL_NAME,
                     "Read current CI checks, or supply a failed jobId to cache the full raw log and extract error blocks; no matches returns a 32 KiB tail and a raw logId",
-                    ImmutableMap.of(
-                            "type", "object",
-                            "properties", ImmutableMap.of("jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE)),
-                            "additionalProperties", false)));
+                    ToolSchemas.object(ImmutableMap.of("jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE)))));
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.RAW_TOOL_NAME,
                     "Read the cached complete credential-redacted raw CI log. Use logId from the error log and follow nextOffset until complete; no download occurs",
-                    ImmutableMap.of(
-                            "type", "object",
-                            "properties", ImmutableMap.of(
-                                    "logId", ImmutableMap.of("type", "string", "pattern", "^[0-9a-f]{64}$"),
-                                    "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Long.MAX_VALUE)),
-                            "required", ImmutableList.of("logId"),
-                            "additionalProperties", false)));
+                    ToolSchemas.object(ImmutableMap.of(
+                            "logId", ImmutableMap.of("type", "string", "pattern", "^[0-9a-f]{64}$"),
+                            "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Long.MAX_VALUE)), "logId")));
         });
         if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription).isPresent()) {
             tools.add(new ToolDefinition(CiDescriptionProposal.TOOL_NAME,
@@ -1311,11 +1295,10 @@ public final class PermissionBroker
                     This saves a proposal. ByteQuay applies it after the turn and verifies a new check. It grants no
                     shell/API write access. Do not rerun the old event yourself.
                     """,
-                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                    ToolSchemas.object(ImmutableMap.of(
                             "jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE),
                             "expectedBody", ImmutableMap.of("type", "string", "maxLength", 60_000),
-                            "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 60_000)),
-                            "required", ImmutableList.of("jobId", "expectedBody", "body"), "additionalProperties", false)));
+                            "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 60_000)), "jobId", "expectedBody", "body")));
         }
         if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun).isPresent()) {
             tools.add(new ToolDefinition(PullRequestCiBridge.RERUN_TOOL_NAME,
@@ -1327,23 +1310,20 @@ public final class PermissionBroker
                     directly rerunning anything. Each accepted request allows one rerun of that workflow's failed jobs.
                     After a failed rerun, diagnose the new evidence and repair the cause; explain any unrepairable blocker.
                     """,
-                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                    ToolSchemas.object(ImmutableMap.of(
                             "jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE),
-                            "reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000)),
-                            "required", ImmutableList.of("jobId", "reason"), "additionalProperties", false)));
+                            "reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000)), "jobId", "reason")));
         }
         context.pullRequestContext().ifPresent(ignored -> tools.add(new ToolDefinition(PullRequestContextBridge.TOOL_NAME,
                 "Read the assigned PR snapshot, cached description or discussion in pages. Read-only; no remote fetch. Use CI tools for checks and logs",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                ToolSchemas.object(ImmutableMap.of(
                         "section", ImmutableMap.of("type", "string", "enum", ImmutableList.of("snapshot", "description", "discussion")),
-                        "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Integer.MAX_VALUE)),
-                        "required", ImmutableList.of("section"), "additionalProperties", false))));
+                        "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Integer.MAX_VALUE)), "section"))));
         context.discussionContext().ifPresent(ignored -> tools.add(new ToolDefinition(DiscussionContextBridge.TOOL_NAME,
                 "Read saved context for this private discussion only. Use source, history or discussion and follow nextOffset for more reference text",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                ToolSchemas.object(ImmutableMap.of(
                         "section", ImmutableMap.of("type", "string", "enum", ImmutableList.of("source", "history", "discussion")),
-                        "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Integer.MAX_VALUE)),
-                        "required", ImmutableList.of("section"), "additionalProperties", false))));
+                        "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Integer.MAX_VALUE)), "section"))));
         context.localReview().ifPresent(ignored -> {
             Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
             tools.add(new ToolDefinition(
@@ -1352,28 +1332,22 @@ public final class PermissionBroker
                             "and pull request; or supply a comment's or finding's id as commentId for its code, evidence and recent discussion. " +
                             "Omissions and excerpts are marked. " +
                             "For selected code or saved learning cards, pass nextContextOffset as contextOffset with the same commentId to read the next page",
-                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                    ToolSchemas.object(ImmutableMap.of(
                             "commentId", identifier,
-                            "contextOffset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", 60_000)), "additionalProperties", false)));
+                            "contextOffset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", 60_000)))));
             tools.add(new ToolDefinition(
                     LocalReviewBridge.REPLY_TOOL,
                     "Reply privately to one returned comment or review finding; reuse the operationKey when retrying the same reply",
-                    ImmutableMap.of(
-                            "type", "object",
-                            "properties", ImmutableMap.of(
-                                    "commentId", identifier,
-                                    "operationKey", identifier,
-                                    "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_BODY_LENGTH)),
-                            "required", ImmutableList.of("commentId", "body", "operationKey"),
-                            "additionalProperties", false)));
+                    ToolSchemas.object(ImmutableMap.of(
+                            "commentId", identifier,
+                            "operationKey", identifier,
+                            "body", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_BODY_LENGTH)),
+                            "commentId", "body", "operationKey")));
             tools.add(new ToolDefinition(
                     LocalReviewBridge.RESOLVE_TOOL,
                     "Resolve or reopen one private comment, or a review finding you fixed and replied on; resolved is explicit and operationKey identifies this exact update",
-                    ImmutableMap.of(
-                            "type", "object",
-                            "properties", ImmutableMap.of("commentId", identifier, "operationKey", identifier, "resolved", ImmutableMap.of("type", "boolean")),
-                            "required", ImmutableList.of("commentId", "resolved", "operationKey"),
-                            "additionalProperties", false)));
+                    ToolSchemas.object(ImmutableMap.of("commentId", identifier, "operationKey", identifier, "resolved", ImmutableMap.of("type", "boolean")),
+                            "commentId", "resolved", "operationKey")));
         });
         context.development().ifPresent(bridge -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.TOOL_NAME,
@@ -1382,26 +1356,18 @@ public final class PermissionBroker
         context.development().filter(bridge -> bridge.branchRenamer().isPresent()).ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
                 "Propose a branch name during the first turn; applied after verified provider shutdown. Keep using the current branch during this turn",
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.of("branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)),
-                        "required", ImmutableList.of("branch"),
-                        "additionalProperties", false))));
+                ToolSchemas.object(ImmutableMap.of("branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)), "branch"))));
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.PUBLISH_TOOL_NAME,
                 "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the GitHub write",
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.of(
-                                "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAXIMUM_TITLE_CHARACTERS),
-                                "body", ImmutableMap.of("type", "string", "maxLength", MAXIMUM_BODY_CHARACTERS)),
-                        "required", ImmutableList.of("title", "body"),
-                        "additionalProperties", false))));
+                ToolSchemas.object(ImmutableMap.of(
+                        "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAXIMUM_TITLE_CHARACTERS),
+                        "body", ImmutableMap.of("type", "string", "maxLength", MAXIMUM_BODY_CHARACTERS)), "title", "body"))));
         if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX) {
             tools.add(new ToolDefinition(
                     "read_ci_memory",
                     "Read recent or matching CI Autofix history for this task",
-                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of("query", ImmutableMap.of("type", "string", "maxLength", 200)), "additionalProperties", false)));
+                    ToolSchemas.object(ImmutableMap.of("query", ImmutableMap.of("type", "string", "maxLength", 200)))));
         }
         return tools.build();
     }
@@ -1411,9 +1377,7 @@ public final class PermissionBroker
         return new ToolDefinition(
                 MemoryBridge.TOOL_NAME,
                 readOnly ? "Search or read repository memory and its sources. Only SEARCH and READ are available to review children." : MemoryBridge.DESCRIPTION,
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.<String, Object>builder()
+                ToolSchemas.object(ImmutableMap.<String, Object>builder()
                                 .put("action", ImmutableMap.of("type", "string", "enum", readOnly
                                         ? ImmutableList.of("SEARCH", "READ") : ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")))
                                 .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
@@ -1428,9 +1392,7 @@ public final class PermissionBroker
                                 .put("id", ImmutableMap.of("type", "string", "pattern", "^m[1-9][0-9]*$"))
                                 .put("reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 500))
                                 .put("quote", ImmutableMap.of("type", "string", "maxLength", 300))
-                                .buildOrThrow(),
-                        "required", ImmutableList.of("action"),
-                        "additionalProperties", false));
+                                .buildOrThrow(), "action"));
     }
 
     private static PermissionResult sandboxedPermission(PermissionArguments arguments, PermissionContext context, boolean unsandboxed)

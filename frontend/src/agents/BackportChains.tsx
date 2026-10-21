@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import { useAsyncAction } from '../useAsyncAction';
 import type { BackportChainPrDto, BackportChainViewDto, BackportChainRouteDto, GitCommitDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceCherryPickRoute, workspacePullRequestRoute } from '../workspaces/model';
 import RepoAvatar from '../RepoAvatar';
@@ -50,34 +51,25 @@ const labels = { ACTIVE: 'Active', BLOCKED: 'Blocked', STOPPING: 'Stopping', STO
 export function BackportChainCard({ view, source = false }: { view: BackportChainViewDto; source?: boolean }) {
   const [picker, setPicker] = useState<{ source: BackportChainRouteDto; hopIndex: number; commits: GitCommitDto[]; version: number } | null>(null);
   const [updated, setUpdated] = useState<BackportChainViewDto | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction(String);
   const current = updated && updated.chain.id === view.chain.id && updated.chain.version > view.chain.version ? updated : view;
   const { chain, progress } = current;
-  const change = async (action: 'stop' | 'resume') => {
-    setBusy(true); setError(null);
-    try {
-      setUpdated(await (action === 'stop' ? window.bridge.stopBackportChain : window.bridge.resumeBackportChain)(chain.workspaceId, chain.id));
-    } catch (failure) { setError(String(failure)); }
-    finally { setBusy(false); }
-  };
-  const selectCommits = async (sourceRoute: BackportChainRouteDto, hopIndex: number) => {
-    setBusy(true); setError(null);
-    try {
-      const result = await window.bridge.gitLog(sourceRoute.workspaceId, sourceRoute.remote === 'upstream' ? 'UPSTREAM' : 'WORKSPACE', sourceRoute.branch, 300);
-      if (result.refresh.state === 'FAILED') throw new Error(result.refresh.error ?? 'Commit history is unavailable');
-      setPicker({ source: sourceRoute, hopIndex, commits: result.commits, version: chain.version });
-    } catch (failure) { setError(String(failure)); }
-    finally { setBusy(false); }
-  };
+  const change = (action: 'stop' | 'resume') => run(async () => {
+    setUpdated(await (action === 'stop' ? window.bridge.stopBackportChain : window.bridge.resumeBackportChain)(chain.workspaceId, chain.id));
+  });
+  const selectCommits = (sourceRoute: BackportChainRouteDto, hopIndex: number) => run(async () => {
+    const result = await window.bridge.gitLog(sourceRoute.workspaceId, sourceRoute.remote === 'upstream' ? 'UPSTREAM' : 'WORKSPACE', sourceRoute.branch, 300);
+    if (result.refresh.state === 'FAILED') throw new Error(result.refresh.error ?? 'Commit history is unavailable');
+    setPicker({ source: sourceRoute, hopIndex, commits: result.commits, version: chain.version });
+  });
   const saveSelection = async ([oldest, newest]: [string, string]) => {
     if (!picker || busy) return;
-    setBusy(true); setError(null);
-    try {
-      setUpdated(await window.bridge.selectBackportSource(chain.workspaceId, chain.id, { version: picker.version, hopIndex: picker.hopIndex, oldest, newest }));
-      setPicker(null);
-    } catch (failure) { setError(String(failure)); setPicker(null); }
-    finally { setBusy(false); }
+    return run(async () => {
+      try {
+        setUpdated(await window.bridge.selectBackportSource(chain.workspaceId, chain.id, { version: picker.version, hopIndex: picker.hopIndex, oldest, newest }));
+        setPicker(null);
+      } catch (failure) { setError(String(failure)); setPicker(null); }
+    });
   };
   const repoName = (item: BackportChainRouteDto) => `${item.repository.owner}/${item.repository.repo}`;
   const sequential = chain.hops.every((hop, index) => hop.sourceHop === index - 1);

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useState } from 'react';
 import Avatar from '../Avatar';
 import { remoteErrorMessage } from '../remoteError';
@@ -32,18 +33,14 @@ type Props = {
 /** "Circles": one tile per circle, like the repo tiles; a click opens that circle. */
 function CirclesGrid({ directory, attention, viewerLogin }: Props) {
   const [creating, setCreating] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction(remoteErrorMessage);
 
   async function createCircle(value: TeamCreateInput) {
     if (busy) return;
-    setBusy(true); setError(null);
-    try {
+    return run(async () => {
       updateTeams(await window.bridge.createTeam(parseTeamCreateInput(value)));
       setCreating(false);
-    }
-    catch (failure) { setError(remoteErrorMessage(failure)); }
-    finally { setBusy(false); }
+    });
   }
 
   if (directory === null) return null;

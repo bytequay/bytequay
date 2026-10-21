@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { WorkspaceDto } from '../types';
@@ -22,28 +23,19 @@ export default function DeleteWorkspaceDialog({ workspace, onDeleted, onCancel }
 }) {
   const [finalConfirmation, setFinalConfirmation] = useState(false);
   const [confirmation, setConfirmation] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useAsyncAction();
   const repositoryName = `${workspace.selectedOwner}/${workspace.selectedRepo}`;
 
   const remove = async () => {
     if (busy || !finalConfirmation || confirmation !== repositoryName) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       await window.bridge.deleteWorkspace(workspace.id, true, confirmation);
       try {
         window.localStorage.removeItem(`bq.home.hiddenTasks.${workspace.id}`);
       }
       catch { /* Storage access must not turn a successful deletion into a reported failure. */ }
       onDeleted();
-    }
-    catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    }
-    finally {
-      setBusy(false);
-    }
+    });
   };
 
   return <DeleteWorkspaceConfirmation

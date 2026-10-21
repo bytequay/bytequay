@@ -819,6 +819,11 @@ public class CiAutofixService
             return inspectCompletedAttempt(run, attempt, snapshot, now);
         }
 
+        return advanceCiResult(run, attempt, snapshot, now);
+    }
+
+    private CiAutofixRun advanceCiResult(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
+    {
         CiResult result = ciResult(snapshot);
         if (attempt.observedCiResult() != result) {
             return observeCi(run, attempt, result, snapshot, now);
@@ -954,15 +959,7 @@ public class CiAutofixService
             if (!"completed".equals(replacement.orElseThrow().status())) {
                 return run;
             }
-            CiResult result = ciResult(snapshot);
-            if (attempt.observedCiResult() != result) {
-                return observeCi(run, attempt, result, snapshot, now);
-            }
-            return switch (result) {
-                case FAILED -> startNextAttemptOrFinish(run, snapshot, now);
-                case PASSED -> finishGreenOrCheckFixups(run, now);
-                case PENDING, UNKNOWN -> run;
-            };
+            return advanceCiResult(run, attempt, snapshot, now);
         }
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         CiGitInspection inspection = gitService.inspectAgentResult(new CiWorktreeRange(worktree.worktree().canonicalWorktree(),

@@ -87,13 +87,7 @@ public class AppSettingsService
     {
         automation = automation.forDevelopment();
         validateDevelopmentAutomation(automation);
-        try {
-            store.put(DEVELOPMENT_AUTOMATION_KEY, mapper.writeValueAsString(automation));
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalStateException("Development automation could not be encoded", failure);
-        }
-        return automation;
+        return save(DEVELOPMENT_AUTOMATION_KEY, automation, "Development automation could not be encoded");
     }
 
     /** An absent CI lane inherits the development task's lane. Readiness is checked when CI launches. */
@@ -115,13 +109,7 @@ public class AppSettingsService
     public QuietHours saveQuietHours(QuietHours quietHours)
     {
         requireNonNull(quietHours, "quietHours is null");
-        try {
-            store.put(QUIET_HOURS_KEY, mapper.writeValueAsString(quietHours));
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalStateException("quiet hours could not be encoded", failure);
-        }
-        return quietHours;
+        return save(QUIET_HOURS_KEY, quietHours, "quiet hours could not be encoded");
     }
 
     /** True while background GitHub and Jira refresh should stay idle, in local time. */
@@ -140,13 +128,7 @@ public class AppSettingsService
     public AppPreferences savePreferences(AppPreferences preferences)
     {
         requireNonNull(preferences, "preferences is null");
-        try {
-            store.put(PREFERENCES_KEY, mapper.writeValueAsString(preferences));
-        }
-        catch (JsonProcessingException failure) {
-            throw new IllegalStateException("preferences could not be encoded", failure);
-        }
-        return preferences;
+        return save(PREFERENCES_KEY, preferences, "preferences could not be encoded");
     }
 
     /** How long a finished task's detailed runtime survives before cleanup deletes it. */
@@ -159,6 +141,17 @@ public class AppSettingsService
     public int recentRetentionDays()
     {
         return preferences().recentRetentionDays();
+    }
+
+    private <T> T save(String key, T value, String failureMessage)
+    {
+        try {
+            store.put(key, mapper.writeValueAsString(value));
+            return value;
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException(failureMessage, failure);
+        }
     }
 
     private AppPreferences readPreferences(String value)

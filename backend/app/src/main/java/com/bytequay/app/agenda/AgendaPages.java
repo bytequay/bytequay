@@ -31,6 +31,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.agent.spi.ToolSchemas.object;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -63,15 +64,11 @@ public final class AgendaPages
 
     ReviewTool tool()
     {
-        Map<String, Object> schema = ImmutableMap.of(
-                "type", "object",
-                "properties", ImmutableMap.of(
-                        "kind", ImmutableMap.of("type", "string", "enum", KINDS,
-                                "description", "overview first; changes since the last agenda, mine (your open pull requests), tasks (agent tasks waiting or idle), "
-                                        + "asks (what people want from you), epics (work in flight and ready to start), history (earlier agendas, and the week on the recap day)"),
-                        "page", ImmutableMap.of("type", "integer", "minimum", 0, "description", "From nextPage; 0 when absent")),
-                "required", ImmutableList.of("kind"),
-                "additionalProperties", false);
+        Map<String, Object> schema = object(ImmutableMap.of(
+                "kind", ImmutableMap.of("type", "string", "enum", KINDS,
+                        "description", "overview first; changes since the last agenda, mine (your open pull requests), tasks (agent tasks waiting or idle), "
+                                + "asks (what people want from you), epics (work in flight and ready to start), history (earlier agendas, and the week on the recap day)"),
+                "page", ImmutableMap.of("type", "integer", "minimum", 0, "description", "From nextPage; 0 when absent")), "kind");
         return new ReviewTool(NAME, "Read the user's day in ByteQuay: what moved, what waits on them and what can start next. Read-only.", schema, this::call, true);
     }
 

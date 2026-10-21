@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import type { ReactNode } from 'react';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -80,8 +81,7 @@ export default function FlowView({
   const [laneId, setLaneId] = useState('');
   const [model, setModel] = useState('');
   const [effort, setEffort] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction();
   const idempotencyKey = useRef<string | null>(null);
 
   useEffect(() => {
@@ -99,7 +99,7 @@ export default function FlowView({
         if (active) setError(failure instanceof Error ? failure.message : String(failure));
       });
     return () => { active = false; };
-  }, [workspaceId]);
+  }, [workspaceId, setError]);
 
   const prPopover = usePopoverDismiss(() => setPrPanel(false), false, prPanel);
 
@@ -167,33 +167,25 @@ export default function FlowView({
 
   const togglePr = (number: number) => setSkippedPrs(current => toggledGroup(current, [number]));
 
-  const start = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      idempotencyKey.current ??= crypto.randomUUID();
-      const execution = await window.bridge.startCherryPickExecution({
-        workspaceId,
-        previewId: preview.previewId,
-        expectedSourceBaseSha: preview.sourceBaseSha,
-        expectedSourceTipSha: preview.sourceTipSha,
-        expectedTargetSha: preview.targetSha,
-        // PR-level skips travel as the commit SHAs they resolved to.
-        userSkippedSourceShas: skipItems.map(item => item.commit.sourceSha),
-        laneId,
-        model: model === '' ? null : model,
-        effort: effort === '' ? null : effort,
-        idempotencyKey: idempotencyKey.current,
-        pullRequestTitle: titleValue,
-        pullRequestBody: bodyValue,
-      });
-      onStarted(execution);
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const start = () => run(async () => {
+    idempotencyKey.current ??= crypto.randomUUID();
+    const execution = await window.bridge.startCherryPickExecution({
+      workspaceId,
+      previewId: preview.previewId,
+      expectedSourceBaseSha: preview.sourceBaseSha,
+      expectedSourceTipSha: preview.sourceTipSha,
+      expectedTargetSha: preview.targetSha,
+      // PR-level skips travel as the commit SHAs they resolved to.
+      userSkippedSourceShas: skipItems.map(item => item.commit.sourceSha),
+      laneId,
+      model: model === '' ? null : model,
+      effort: effort === '' ? null : effort,
+      idempotencyKey: idempotencyKey.current,
+      pullRequestTitle: titleValue,
+      pullRequestBody: bodyValue,
+    });
+    onStarted(execution);
+  });
 
   const selectedProvider = providers.find(provider => provider.id === laneId);
   const models = laneModels(providers, laneId);

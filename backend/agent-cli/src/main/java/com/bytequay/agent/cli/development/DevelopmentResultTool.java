@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ReviewThreadReply;
+import com.bytequay.agent.spi.ToolSchemas;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -76,11 +77,10 @@ public final class DevelopmentResultTool
                     "properties", ImmutableMap.of(
                             "purpose", string(DevelopmentLearningSummary.MAXIMUM_PURPOSE_LENGTH),
                             "commits", ImmutableMap.of("type", "array", "maxItems", DevelopmentLearningSummary.MAXIMUM_COMMITS,
-                                    "items", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                                    "items", ToolSchemas.object(ImmutableMap.of(
                                             "sha", ImmutableMap.of("type", "string", "pattern", "^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$"),
                                             "title", string(DevelopmentLearningCommit.MAXIMUM_TITLE_LENGTH),
-                                            "summary", string(DevelopmentLearningCommit.MAXIMUM_SUMMARY_LENGTH)),
-                                            "required", ImmutableList.of("sha", "title", "summary"), "additionalProperties", false))),
+                                            "summary", string(DevelopmentLearningCommit.MAXIMUM_SUMMARY_LENGTH)), "sha", "title", "summary"))),
                     "required", ImmutableList.of("purpose", "commits"), "additionalProperties", false,
                     "description", "Explain the task's intention and each actual commit's design and implementation; at most 64000 total text characters."));
         }
@@ -94,7 +94,7 @@ public final class DevelopmentResultTool
                             "required", ImmutableList.of("commentId", "body", "fixed"), "additionalProperties", false),
                     "description", "One reply per review comment this turn was asked to fix; ByteQuay posts them after the fix is pushed."));
         }
-        return ImmutableMap.of("type", "object", "properties", properties.buildOrThrow(), "required", ImmutableList.of("readyForDelivery"), "additionalProperties", false);
+        return ToolSchemas.object(properties.buildOrThrow(), "readyForDelivery");
     }
 
     public static String receipt(DevelopmentResultBridge bridge, DevelopmentResultReport report)

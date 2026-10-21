@@ -18,20 +18,10 @@ export type MemoryKind = 'RULE' | 'RECIPE' | 'SPEC';
 export type MemoryPart = 'REVIEW_COMMENT' | 'REVIEW' | 'COMMENT' | 'CLOSE';
 export type MemoryWhere = 'TASK_MESSAGE' | 'REVIEW_MESSAGE' | 'RESOLVE' | 'DISMISS';
 /** Where a memory came from, with the words it rests on; the user's words and commands have no address. */
-export type MemorySourceDto = {
-  kind: 'PULL_REQUEST' | 'PAGE' | 'USER' | 'COMMAND'; url: string | null; quote: string; at: string; section: string | null;
-  pullRequest: null | { number: number; part: MemoryPart; author: string; maintainer: boolean; merged: boolean; resolved: boolean; outdated: boolean };
-  user: null | { where: MemoryWhere; id: string; item: string };
-  command: null | { taskId: string; turnId: string; command: string; directory: string; commit: string };
-};
+export type MemorySourceDto = ReturnType<typeof source>;
 export type MemoryReportDto = { reason: string; quote: string; taskId: string; at: string };
 /** One rule or spec agents receive, titled with the situation it covers; `missingScope` lists scope paths gone from the monitored head. */
-export type MemoryDto = {
-  id: string; kind: MemoryKind; title: string; text: string; scope: string[]; sources: MemorySourceDto[];
-  origin: { user: boolean; description: string; taskId: string | null };
-  version: number; previous: null | { title: string; text: string; scope: string[] }; delivered: number; cited: number; reports: MemoryReportDto[];
-  missingScope: string[]; createdAt: string; updatedAt: string;
-};
+export type MemoryDto = ReturnType<typeof parseMemory>;
 /** Whether reviews and development tasks of the workspace receive memory and the memory tool. */
 export type MemorySwitchesDto = { reviews: boolean; development: boolean };
 /** A guideline file every agent turn reads, at the monitored branch head. */
@@ -57,7 +47,7 @@ export function list<T>(value: unknown, what: string, parse: (item: unknown) => 
 }
 const strings = (value: unknown, what: string): string[] => list(value, what, item => text(item, what));
 
-function source(value: unknown): MemorySourceDto {
+function source(value: unknown) {
   const item = object(value, 'memory source');
   const part = item.pullRequest == null ? null : object(item.pullRequest, 'memory source pull request');
   const user = item.user == null ? null : object(item.user, 'memory source user');
@@ -78,7 +68,7 @@ function source(value: unknown): MemorySourceDto {
   };
 }
 
-export function parseMemory(value: unknown): MemoryDto {
+export function parseMemory(value: unknown) {
   const entry = object(value, 'memory');
   const item = object(entry.memory, 'memory');
   const origin = object(item.origin, 'memory origin');

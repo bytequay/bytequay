@@ -41,6 +41,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.function.Consumer;
 
+import static com.bytequay.agent.spi.ToolSchemas.object;
 import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -114,22 +115,18 @@ class AssistantShow
     ReviewTool tool(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items)
     {
         checkArgument(message.kind() == AssistantItem.Kind.USER, "only a user's message can show");
-        Map<String, Object> schema = ImmutableMap.of(
-                "type", "object",
-                "properties", ImmutableMap.of(
-                        "op", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(FIELDS.keySet())),
-                        "style", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(STYLES.keySet()),
-                                "description", "rows by default; cards for a few items that need the user; timeline for history"),
-                        "title", ImmutableMap.of("type", "string", "description", "list: a few words that name the list; draft_epic: the issue's title"),
-                        "refs", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", AssistantList.MAXIMUM_REFS,
-                                "description", "list: refs that assistant_context returned or that are on screen, in the order to show them"),
-                        "ref", ImmutableMap.of("type", "string", "description", "open: an item's ref that assistant_context returned or that is on screen"),
-                        "page", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(PAGES.keySet()), "description", "open: a page of the app or a Settings section"),
-                        "words", ImmutableMap.of("type", "string", "description", "open: the user's exact words in their latest message that ask for it"),
-                        "workspace", ImmutableMap.of("type", "string", "description", "draft_epic: the ws: ref from start_options of the repository the issue goes to"),
-                        "body", ImmutableMap.of("type", "string", "description", "draft_epic: the issue's description for the user to edit")),
-                "required", ImmutableList.of("op"),
-                "additionalProperties", false);
+        Map<String, Object> schema = object(ImmutableMap.of(
+                "op", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(FIELDS.keySet())),
+                "style", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(STYLES.keySet()),
+                        "description", "rows by default; cards for a few items that need the user; timeline for history"),
+                "title", ImmutableMap.of("type", "string", "description", "list: a few words that name the list; draft_epic: the issue's title"),
+                "refs", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", AssistantList.MAXIMUM_REFS,
+                        "description", "list: refs that assistant_context returned or that are on screen, in the order to show them"),
+                "ref", ImmutableMap.of("type", "string", "description", "open: an item's ref that assistant_context returned or that is on screen"),
+                "page", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(PAGES.keySet()), "description", "open: a page of the app or a Settings section"),
+                "words", ImmutableMap.of("type", "string", "description", "open: the user's exact words in their latest message that ask for it"),
+                "workspace", ImmutableMap.of("type", "string", "description", "draft_epic: the ws: ref from start_options of the repository the issue goes to"),
+                "body", ImmutableMap.of("type", "string", "description", "draft_epic: the issue's description for the user to edit")), "op");
         return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data; open a page or an item when the "
                 + "user's latest message asks, with a receipt; or draft a new GitHub issue that the user edits and creates as an Epic with a click.", schema,
                 arguments -> call(message, context, items, arguments), false);

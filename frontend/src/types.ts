@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type * as agentContracts from './agents/contracts';
 import type { LabBridge } from '@bytequay/lab/contracts';
 import type { ArtifactBridge } from './artifacts/contracts';
 import type { WorkItemBridge, CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalItemDto, GoalItemKind } from './workitems/contracts';
@@ -636,10 +637,7 @@ export type AutoMergeSummaryDto = {
 /** How far a task's delivery goes; each level includes every level before it. */
 export type AutomationLevel = 'COMMIT' | 'DRAFT_PR' | 'CI_FIX' | 'REVIEW_FIX' | 'MERGE';
 
-export type DevelopmentAutomationDto = {
-  level: AutomationLevel;
-  ciLaneId: string | null;
-};
+export type DevelopmentAutomationDto = ReturnType<typeof agentContracts.parseDevelopmentAutomation>;
 
 export type AgentTaskDefaultsDto = {
   developmentAutomation?: DevelopmentAutomationDto | null;
@@ -790,47 +788,9 @@ export type AgentTurnDto = {
   memories?: { id: string; line: string }[];
 };
 
-export type AgentDevelopmentCiDto = {
-  runId: string;
-  agentTaskId: string | null;
-  currentTurnId: string | null;
-  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
-  activity: string;
-  attemptsUsed: number;
-  maxAttempts: number;
-  rerunsUsed: number;
-  summary: string | null;
-  finishReason: string | null;
-  terminalAt: string | null;
-  headRef: string;
-  expectedRemoteHead: string;
-  pullRequestNumber: number;
-  pullRequestUrl: string;
-  canMessage: boolean;
-};
+export type AgentDevelopmentCiDto = ReturnType<typeof agentContracts.parseAgentDevelopmentCi>;
 
-export type CiAutofixRunDto = {
-  id: string;
-  workspaceId: string;
-  repository: string;
-  pullRequestNumber: number;
-  headRef: string;
-  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
-  activity: string;
-  version: number;
-  authorization: { maxAttempts: number };
-  attemptsUsed: number;
-  rerunsUsed: number;
-  agentTaskId: string | null;
-  currentTurnId: string | null;
-  parentTaskId: string | null;
-  canMessage: boolean;
-  summary: string | null;
-  pauseReason: string | null;
-  finishReason: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export type CiAutofixRunDto = ReturnType<typeof agentContracts.parseCiAutofixRun>;
 
 export type CreateAgentTaskRequest = {
   jiraSource?: JiraSourceRequest;
@@ -872,15 +832,7 @@ export type SteerAgentTurnRequest = {
 };
 
 /** What became of one steer. UNKNOWN is final: it was sent and nothing says whether it arrived. */
-export type AgentInputDeliveryDto = {
-  id: string;
-  taskId: string;
-  turnId: string;
-  state: string;
-  failure: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export type AgentInputDeliveryDto = ReturnType<typeof agentContracts.parseAgentInputDelivery>;
 
 /** A request to run after the current turn; the version is the one this screen saw. */
 export type QueueAgentInputRequest = {
@@ -894,18 +846,7 @@ export type QueueAgentInputRequest = {
 };
 
 /** A request waiting in the task's queue. The preview is bounded; the whole text reaches the transcript when it runs. */
-export type AgentQueuedInputDto = {
-  id: string;
-  taskId: string;
-  position: number;
-  state: string;
-  preview: string;
-  settings: AgentTurnSettingsDto;
-  turnId: string | null;
-  pauseReason: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export type AgentQueuedInputDto = ReturnType<typeof agentContracts.parseAgentQueuedInput>;
 
 export type AgentQueuedInputDraftDto = {
   message: string;
@@ -914,14 +855,7 @@ export type AgentQueuedInputDraftDto = {
 };
 
 /** A stored, verified image the task owns; the renderer only ever sees these facts. */
-export type AgentAttachmentDto = {
-  id: string;
-  name: string;
-  mediaType: string;
-  byteSize: number;
-  width: number;
-  height: number;
-};
+export type AgentAttachmentDto = ReturnType<typeof agentContracts.parseAgentAttachment>;
 
 export type AgentDraftAttachmentDto = {
   id: string;
@@ -949,23 +883,13 @@ export type AgentApprovalDto = {
 };
 
 /** What stopping a task's provider runtime would interrupt, and the generation the stop must echo. */
-export type AgentRuntimeStopImpactDto = {
-  taskId: string;
-  generation: string;
-  activeTurnId: string | null;
-  liveProcess: boolean;
-};
+export type AgentRuntimeStopImpactDto = ReturnType<typeof agentContracts.parseAgentRuntimeStopImpact>;
 
 /** The creation step an in-flight createAgentTask is in; null before the first step and once the call has returned. */
 export type AgentTaskStartupPhase = 'PROVIDER' | 'REPOSITORY' | 'NAMING' | 'WORKTREE' | 'ATTACHMENTS' | 'SESSION';
 export type AgentTaskStartupDto = { phase: AgentTaskStartupPhase | null };
 
-export type AgentCompletionDto = {
-  taskId: string;
-  summary: AgentTaskSummaryDto;
-  completedAt: string;
-  deleteAfter: string;
-};
+export type AgentCompletionDto = ReturnType<typeof agentContracts.parseAgentCompletion>;
 
 /** How the event stream itself is doing, as opposed to what it carries. */
 export type AgentStreamConnectionState = 'connecting' | 'open' | 'reconnecting' | 'failed';
@@ -1306,13 +1230,7 @@ export type ProviderUsageWindowDto = {
   amount: { used: number; total: number; currency: string } | null;
 };
 
-export type ProviderUsageDto = {
-  accountId: string;
-  plan: string | null;
-  windows: ProviderUsageWindowDto[];
-  checkedAt: string;
-  message: string | null;
-};
+export type ProviderUsageDto = ReturnType<typeof agentContracts.parseProviderUsage>;
 
 export type ModelSettingsDto = {
   checkedAt?: string | null;

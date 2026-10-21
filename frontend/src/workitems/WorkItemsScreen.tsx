@@ -12,13 +12,14 @@
  * limitations under the License.
  */
 
+import { useAsyncAction } from '../useAsyncAction';
 import { useAgentAvailability } from '../agents/availability';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { ChevronRight, CircleCheck, CircleDot, CircleDotDashed, CircleX, ExternalLink, Flag, GitPullRequest, History, Link2, ListTodo, LockKeyhole, Pencil, Play, Plus,
   RotateCcw, Upload, X } from 'lucide-react';
 import { LinkKey, LocalBadge, Pill, SourceIcon } from '../cards/Card';
 import type { WorkspaceDto } from '../types';
-import type { CompletionRule, WorkItemDto, WorkItemKind, WorkItemPriority, GoalItemDto } from './contracts';
+import { workItemRoute, type CompletionRule, type WorkItemDto, type WorkItemKind, type WorkItemPriority, type GoalItemDto, type Publication, type UnifiedWorkItem } from './contracts';
 import { GOAL_SOURCES, isOpen, progressWidths, summarize, waitingOn } from './model';
 import { GOALS_CHANGED } from './changes';
 import { zoomReference } from '../githubReference';
@@ -34,7 +35,6 @@ import { EpicTabs, workProgress } from '../workspaces/EpicTabs';
 import { EpicWork } from '../workspaces/EpicView';
 import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import { workspaceIssueTaskRoute, workspaceRoute } from '../workspaces/model';
-import { type Publication, type UnifiedWorkItem, workItemRoute } from './contracts';
 import WorkItemContextLinks from './WorkItemContextLinks';
 import '../css/issues.css';
 import '../css/epic-view.css';
@@ -132,8 +132,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const [paneOpen, setPaneOpen] = useState(true);
   const detailPane = useResizablePane(0, 360, 1600, 'start');
   const [publishing, setPublishing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction(errorText);
   const lend = useEpicLend(workspace.id);
   const reload = useCallback(async () => setItems(await window.bridge.listUnifiedWorkItems(workspace.id)), [workspace.id]);
   useEffect(() => {
@@ -144,7 +143,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
     read();
     window.addEventListener(GOALS_CHANGED, changed);
     return () => { active = false; window.removeEventListener(GOALS_CHANGED, changed); };
-  }, [workspace.id]);
+  }, [workspace.id, setError]);
   useEffect(() => {
     if (zoomedItemId !== undefined) return;
     const changed = () => setSelected(selectedId());
@@ -155,12 +154,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
     setSelected(id); setPublishing(publish); setPaneOpen(true);
     if (zoomedItemId === undefined) window.location.hash = workItemRoute(workspace.id, id ?? undefined);
   };
-  const refresh = async () => {
-    setBusy(true); setError(null);
-    try { await reload(); }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  };
+  const refresh = () => run(reload);
   const local = items.filter((value): value is LocalItem => value.work !== null);
   const all = local.map(value => value.work);
   const epicName = (id: string): EpicName => {
@@ -334,19 +328,13 @@ function WorkItemForm({ workspaceId, item, epics = [], onClose, onSaved, headerA
   const [body, setBody] = useState(item?.acceptanceCriteria ?? '');
   const [kind, setKind] = useState<WorkItemKind>('DEVELOP');
   const [epic, setEpic] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const save = async () => {
-    setBusy(true); setError(null);
-    try {
-      const value = item ? await goals.decideWork(item, { operationId: crypto.randomUUID(), expectedRevision: item.revision, action: 'EDIT', title: title.trim(), acceptanceCriteria: body, detail: '' })
-        : await goals.createWork({ id, title: title.trim(), kind, acceptanceCriteria: body, completionRule: kind === 'DEVELOP' ? 'MERGED_DELIVERY' : 'ACCEPTED_RESULT',
-          ...(epic === '' ? {} : { epicId: epic }) });
-      await onSaved(value);
-    }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  };
+  const { busy, error, run } = useAsyncAction(errorText);
+  const save = () => run(async () => {
+    const value = item ? await goals.decideWork(item, { operationId: crypto.randomUUID(), expectedRevision: item.revision, action: 'EDIT', title: title.trim(), acceptanceCriteria: body, detail: '' })
+      : await goals.createWork({ id, title: title.trim(), kind, acceptanceCriteria: body, completionRule: kind === 'DEVELOP' ? 'MERGED_DELIVERY' : 'ACCEPTED_RESULT',
+        ...(epic === '' ? {} : { epicId: epic }) });
+    await onSaved(value);
+  });
   return <>
     <DetailHeader label={item ? 'Editing work item' : 'New work item'}>{headerAction}</DetailHeader>
     <div className="pull-detail__body">
@@ -385,8 +373,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
 }) {
   const goals = useEpicGoals(workspace.id);
   const [editing, setEditing] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction(errorText);
   const availability = useAgentAvailability(item.work.workspaceId);
   const work = item.work;
   const [workShown, setWorkShown] = useState(work.isEpic);
@@ -400,23 +387,15 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const canPublish = work.state !== 'DROPPED' && !(work.links.some(link => link.kind === 'ISSUE') && work.links.some(link => link.kind === 'JIRA'));
   const blockers = waitingOn(work, all);
   const progress = epic === null ? null : summarize({ items: epicWork(all, epic.id) }, new Set());
-  const toggleEpic = async () => {
-    setBusy(true); setError(null);
-    try {
-      await window.bridge.setLocalWorkItemEpic(workspace.id, work.id, !work.isEpic);
-      setWorkShown(!work.isEpic);
-      await onChanged();
-      window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspace.id }));
-    }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  };
-  const decide = async (command: { action: 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'EDIT'; detail: string; priority?: WorkItemPriority; completionRule?: CompletionRule }) => {
-    setBusy(true); setError(null);
-    try { await goals.decideWork(work, { operationId: crypto.randomUUID(), expectedRevision: work.revision, ...command }); await onChanged(); }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  };
+  const toggleEpic = () => run(async () => {
+    await window.bridge.setLocalWorkItemEpic(workspace.id, work.id, !work.isEpic);
+    setWorkShown(!work.isEpic);
+    await onChanged();
+    window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspace.id }));
+  });
+  const decide = (command: { action: 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'EDIT'; detail: string; priority?: WorkItemPriority; completionRule?: CompletionRule }) => run(async () => {
+    await goals.decideWork(work, { operationId: crypto.randomUUID(), expectedRevision: work.revision, ...command }); await onChanged();
+  });
   const openLink = (link: GoalItemDto) => {
     if (link.kind === 'TASK') zoomReference({ kind: 'task', workspaceId: workspace.id, taskId: link.key });
     else if (link.kind === 'PULL_REQUEST') { if (link.url) void window.bridge.openInAppBrowser(link.url); }
@@ -561,29 +540,23 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
   const [types, setTypes] = useState<{ id: string; name: string }[]>([]);
   const [type, setType] = useState('');
   const [key, setKey] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => { void window.bridge.listJiraConnections().then(setConnections).catch(cause => setError(errorText(cause))); }, []);
+  const { busy, error, setError, run } = useAsyncAction(errorText);
+  useEffect(() => { void window.bridge.listJiraConnections().then(setConnections).catch(cause => setError(errorText(cause))); }, [setError]);
   const [connectionId, cloudId] = site.split('/');
   const pending = item.history.some(event => event.action === 'PUBLISH_STARTED' && !item.history.some(done => done.operationId === `${event.operationId}:settled`));
   const already = item.links.some(link => link.kind === (source === 'GITHUB' ? 'ISSUE' : 'JIRA'));
   const destination: Publication = { source, expectedRevision: item.revision, ...(source === 'JIRA' ? { connectionId, cloudId, project, issueTypeId: type } : {}) };
-  const loadTypes = async () => {
-    setBusy(true); setError(null);
-    try { const values = await window.bridge.workItemJiraTypes(workspace.id, connectionId, cloudId, project); setTypes(values); setType(values[0]?.id ?? ''); }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  };
-  const publish = async (reconcile: boolean) => {
-    setBusy(true); setError(null);
+  const loadTypes = () => run(async () => {
+    const values = await window.bridge.workItemJiraTypes(workspace.id, connectionId, cloudId, project); setTypes(values); setType(values[0]?.id ?? '');
+  });
+  const publish = (reconcile: boolean) => run(async () => {
     try {
       if (reconcile) await window.bridge.reconcileWorkItem(workspace.id, item.id, destination, key.trim());
       else await window.bridge.publishWorkItem(workspace.id, item.id, destination);
       await onChanged(); onClose();
     }
     catch (cause) { setError(errorText(cause)); await onChanged().catch(() => {}); }
-    finally { setBusy(false); }
-  };
+  });
   const destinations = [['GITHUB', 'GitHub issue', `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, 'issue'], ['JIRA', 'Jira ticket', 'A connected Jira site', 'jira']] as const;
   return <article className="pr-card work-items__publish" aria-label="Push to GitHub or Jira">
     <header className="pr-card__header">

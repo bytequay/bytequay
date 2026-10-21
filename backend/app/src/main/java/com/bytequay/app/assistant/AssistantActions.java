@@ -69,6 +69,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
+import static com.bytequay.agent.spi.ToolSchemas.object;
 import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -179,28 +180,24 @@ class AssistantActions
     {
         checkArgument(message.kind() == AssistantItem.Kind.USER, "only a user's message can act");
         Run run = new Run(message, context, receipts);
-        Map<String, Object> schema = ImmutableMap.of(
-                "type", "object",
-                "properties", ImmutableMap.builder()
-                        .put("op", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(OPERATIONS.keySet())))
-                        .put("words", ImmutableMap.of("type", "string", "description", "The user's exact words in their latest message that ask for this action"))
-                        .put("workspace", ImmutableMap.of("type", "string", "description", "start_task without from, and create_work_item outside an Epic: a ws: ref "
-                                + "from start_options"))
-                        .put("from", ImmutableMap.of("type", "string", "description", "start_task: the work:, issue: or jira: ref of the item to start"))
-                        .put("agent", ImmutableMap.of("type", "string", "description", "start_task: an agent id from start_options; the repository's default when absent"))
-                        .put("approval", ImmutableMap.of("type", "string", "description", "answer_approval and answer_question: the card's approval: ref"))
-                        .put("decision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("allow_once", "deny")))
-                        .put("answers", ImmutableMap.of("type", "object", "additionalProperties", ImmutableMap.of("type", "string"),
-                                "description", "answer_question: each question's text to the chosen option's label, or to the user's own words"))
-                        .put("task", ImmutableMap.of("type", "string", "description", "reply_to_task: the task: ref to send the user's words to"))
-                        .put("item", ImmutableMap.of("type", "string", "description", "mark_epic: the issue:, jira: or work: ref to mark as an Epic; add_to_epic: the work:, "
-                                + "issue:, jira:, pr: or task: ref to add; acknowledge and snooze: the pr:, issue:, jira: or task: ref of a Needs attention item"))
-                        .put("until", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(SNOOZES.keySet()),
-                                "description", "snooze: for an hour, until tomorrow at 9:00, or until Monday at 9:00"))
-                        .put("epic", ImmutableMap.of("type", "string", "description", "add_to_epic, and create_work_item in an Epic: the epic: ref"))
-                        .buildOrThrow(),
-                "required", ImmutableList.of("op", "words"),
-                "additionalProperties", false);
+        Map<String, Object> schema = object(ImmutableMap.<String, Object>builder()
+                .put("op", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(OPERATIONS.keySet())))
+                .put("words", ImmutableMap.of("type", "string", "description", "The user's exact words in their latest message that ask for this action"))
+                .put("workspace", ImmutableMap.of("type", "string", "description", "start_task without from, and create_work_item outside an Epic: a ws: ref "
+                        + "from start_options"))
+                .put("from", ImmutableMap.of("type", "string", "description", "start_task: the work:, issue: or jira: ref of the item to start"))
+                .put("agent", ImmutableMap.of("type", "string", "description", "start_task: an agent id from start_options; the repository's default when absent"))
+                .put("approval", ImmutableMap.of("type", "string", "description", "answer_approval and answer_question: the card's approval: ref"))
+                .put("decision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("allow_once", "deny")))
+                .put("answers", ImmutableMap.of("type", "object", "additionalProperties", ImmutableMap.of("type", "string"),
+                        "description", "answer_question: each question's text to the chosen option's label, or to the user's own words"))
+                .put("task", ImmutableMap.of("type", "string", "description", "reply_to_task: the task: ref to send the user's words to"))
+                .put("item", ImmutableMap.of("type", "string", "description", "mark_epic: the issue:, jira: or work: ref to mark as an Epic; add_to_epic: the work:, "
+                        + "issue:, jira:, pr: or task: ref to add; acknowledge and snooze: the pr:, issue:, jira: or task: ref of a Needs attention item"))
+                .put("until", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(SNOOZES.keySet()),
+                        "description", "snooze: for an hour, until tomorrow at 9:00, or until Monday at 9:00"))
+                .put("epic", ImmutableMap.of("type", "string", "description", "add_to_epic, and create_work_item in an Epic: the epic: ref"))
+                .buildOrThrow(), "op", "words");
         return new ReviewTool(NAME, "Do one thing the user's latest message asks for: start a task, answer a card, send the user's words to a task, mark an Epic, "
                 + "add work to an Epic, create a work item titled with the user's words, or acknowledge or snooze a Needs attention item. The app checks every call and "
                 + "shows the user a receipt.", schema, run::call, false);

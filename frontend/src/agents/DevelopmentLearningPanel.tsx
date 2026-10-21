@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from 'react';
+import { useAsyncAction } from '../useAsyncAction';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentTaskDto, AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../types';
 import MarkdownBody from '../pulls/MarkdownBody';
@@ -43,16 +44,13 @@ function LearningItem({ card, title, sha, turn, repository, disabledReason, onAs
 }) {
   const [composing, setComposing] = useState(false);
   const [body, setBody] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction(cause => cause instanceof Error ? cause.message : 'Could not send your question.');
   const close = () => { setComposing(false); setBody(''); setError(null); };
   const send = async () => {
     if (busy || disabledReason || !body.trim()) return;
-    setBusy(true);
-    setError(null);
-    try { await onAsk(body.trim()); close(); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send your question.'); }
-    finally { setBusy(false); }
+    return run(async () => {
+      await onAsk(body.trim()); close();
+    });
   };
   return <div className="agr-summary-card" data-learning-card={card.id}>
     <ChangedItem title={title} sha={sha} byline={`Developer · ${relativeTime(turn.endedAt ?? turn.createdAt)} · Private`}

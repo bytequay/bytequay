@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { DiffViewer } from '../pulls/PullChanges';
 import type { DiffFileDto, GitWorktreeStatusDto } from '../types';
@@ -23,8 +24,7 @@ export default function ChangesView({ workspaceId, onCommitted }: {
   const [status, setStatus] = useState<GitWorktreeStatusDto | null>(null);
   const [summary, setSummary] = useState('');
   const [description, setDescription] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, setError, run } = useAsyncAction();
 
   const refresh = useCallback(async () => {
     try {
@@ -33,25 +33,19 @@ export default function ChangesView({ workspaceId, onCommitted }: {
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : String(failure));
     }
-  }, [workspaceId]);
+  }, [workspaceId, setError]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
   const commit = async () => {
     if (!summary.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       await window.bridge.gitCommit(workspaceId, summary.trim(), description.trim());
       setSummary('');
       setDescription('');
       await refresh();
       onCommitted();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const files = useMemo(() => status?.files ?? [], [status]);

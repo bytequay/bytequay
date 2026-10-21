@@ -31,50 +31,16 @@ type ReviewSummaryDto = {
   criticalFindingIds: string[];
 };
 
-type ReviewCoverageDto = {
-  complete: boolean;
-  omissions: string[];
-  warnings: string[];
-  recordedAt: string;
-};
+type ReviewCoverageDto = NonNullable<ReturnType<typeof parseCoverage>>;
 
-export type ReviewCandidateValidationDto = {
-  candidate: number;
-  outcome: 'SUPPORTED' | 'REJECTED' | 'NEEDS_EVIDENCE' | 'UNRESOLVED';
-  conclusion: string;
-  evidenceRefs: string[];
-  counterevidence: string;
-  findingId: string | null;
-  findingRevision: number | null;
-  request: { question: string; check: string; resolvesWhen: string } | null;
-};
+export type ReviewCandidateValidationDto = ReturnType<typeof parseCandidateValidation>;
 
 /** The review's conclusion on one pull-request thread the user started, with the thread's place and opening words when it was judged. */
-export type ReviewThreadVerdictDto = {
-  threadId: string;
-  verdict: 'ADDRESSED' | 'PARTLY_ADDRESSED' | 'NOT_ADDRESSED' | 'AWAITING_REPLY';
-  explanation: string;
-  evidenceRefs: string[];
-  path: string;
-  line: number | null;
-  opening: string;
-  resolved: boolean;
-};
+export type ReviewThreadVerdictDto = ReturnType<typeof parseThreadVerdict>;
 
 export type ReviewPerspective = 'BEHAVIOR' | 'INTERACTIONS' | 'DESIGN';
 
-export type ReviewCandidateDto = {
-  number: number;
-  perspective: ReviewPerspective;
-  responsibility: string;
-  hypothesis: string;
-  evidenceRefs: string[];
-  nextCheck: string;
-  carriedFindingId: string | null;
-  originStep: number;
-  originTurnId: string;
-  attributedSource: string | null;
-};
+export type ReviewCandidateDto = ReturnType<typeof parseCandidate>;
 
 export type ReviewPerspectiveAssessmentDto = {
   perspective: ReviewPerspective;
@@ -86,15 +52,7 @@ export type ReviewPerspectiveAssessmentDto = {
   explanation: string;
 };
 
-export type ReviewInvestigationDto = {
-  changeMap: string;
-  reviewedFiles: string[];
-  contextEvidenceRefs: string[];
-  candidates: ReviewCandidateDto[];
-  perspectives: ReviewPerspectiveAssessmentDto[];
-  validations: ReviewCandidateValidationDto[];
-  answers: Array<{ candidate: number; attempted: string; evidenceRefs: string[]; limitation: string | null }>;
-};
+export type ReviewInvestigationDto = NonNullable<ReturnType<typeof parseInvestigation>>;
 
 export type ReviewStepDto = {
   number: number;
@@ -131,13 +89,7 @@ export type ReviewRunDto = {
   endedAt: string | null;
 };
 
-type ReviewEvidenceDto = {
-  ref: string;
-  source: string;
-  provenance: string;
-  excerpt: string;
-  explanation: string;
-};
+type ReviewEvidenceDto = ReturnType<typeof parseEvidence>;
 
 export type ReviewFindingDto = {
   id: string;
@@ -219,13 +171,7 @@ type ReviewTurnDto = {
   cancellationRequestedAt: string | null;
 };
 
-type ReviewPublicationDto = {
-  state: 'RESERVED' | 'PUBLISHED' | 'UNCERTAIN';
-  remoteReviewId: number | null;
-  remoteCommentId: number | null;
-  url: string | null;
-  at: string;
-};
+type ReviewPublicationDto = NonNullable<ReturnType<typeof parsePublication>>;
 
 export type ReviewDraftItemDto = {
   replyToCommentId?: number | null;
@@ -325,7 +271,7 @@ function parseSummary(value: unknown): ReviewSummaryDto | null {
   };
 }
 
-function parseCoverage(value: unknown): ReviewCoverageDto | null {
+function parseCoverage(value: unknown) {
   if (value === null || value === undefined) return null;
   const coverage = object(value, 'coverage');
   return {
@@ -336,7 +282,7 @@ function parseCoverage(value: unknown): ReviewCoverageDto | null {
   };
 }
 
-function parseCandidateValidation(value: unknown, retained = false): ReviewCandidateValidationDto {
+function parseCandidateValidation(value: unknown, retained = false) {
   const validation = object(value, 'candidate validation');
   const findingId = optionalText(validation.findingId);
   const request = validation.request === null || validation.request === undefined ? null : object(validation.request, 'evidence request');
@@ -357,7 +303,7 @@ function parseCandidateValidation(value: unknown, retained = false): ReviewCandi
   };
 }
 
-function parseCandidate(value: unknown): ReviewCandidateDto {
+function parseCandidate(value: unknown) {
   const candidate = object(value, 'review candidate');
   return {
     number: count(candidate.number, 'candidate number'),
@@ -373,7 +319,7 @@ function parseCandidate(value: unknown): ReviewCandidateDto {
   };
 }
 
-function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
+function parseInvestigation(value: unknown) {
   if (value === null || value === undefined) return null;
   const investigation = object(value, 'review investigation');
   return {
@@ -402,7 +348,7 @@ function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
   };
 }
 
-function parseThreadVerdict(value: unknown): ReviewThreadVerdictDto {
+function parseThreadVerdict(value: unknown) {
   const verdict = object(value, 'thread verdict');
   return {
     threadId: text(verdict.threadId, 'thread id'),
@@ -438,7 +384,7 @@ function parseStep(value: unknown): ReviewStepDto {
   };
 }
 
-function parseEvidence(value: unknown): ReviewEvidenceDto {
+function parseEvidence(value: unknown) {
   const evidence = object(value, 'evidence');
   return {
     ref: text(evidence.ref, 'evidence reference'),
@@ -565,7 +511,7 @@ export function parseReviewDraft(value: unknown): ReviewDraftDto {
   };
 }
 
-function parsePublication(value: unknown): ReviewPublicationDto | null {
+function parsePublication(value: unknown) {
   if (value === null || value === undefined) return null;
   const publication = object(value, 'publication');
   return {

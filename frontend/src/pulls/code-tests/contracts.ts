@@ -13,7 +13,6 @@
  */
 /** Wire shapes for the Tears of time tab, parsed in main before they reach the renderer. */
 
-import type { DiffCommitDto, DiffFileDto } from '../../types';
 import { count, object, oneOf, optionalCount, optionalText, text } from '../wireParse';
 
 /** The managed working copy, independent of whether a pull request exists. */
@@ -58,19 +57,7 @@ export type ReviewCodeFilesDto = {
   files: ReviewCodeFileEntryDto[];
 };
 
-export type ReviewCodeFileDto = {
-  path: string;
-  /** Null when the file cannot be shown; `unavailableReason` then says why. */
-  content: string | null;
-  contentHash: string | null;
-  editable: boolean;
-  readOnlyReason: string | null;
-  unavailableReason: string | null;
-  /** This file's patch in the reviewed pull-request diff, when the PR changes it. */
-  prPatch: string | null;
-  /** How the shown content differs from the pull request's merge base. */
-  lineChanges: LineChangeDto[];
-};
+export type ReviewCodeFileDto = ReturnType<typeof parseReviewCodeFile>;
 
 /**
  * One contiguous change against the merge base: `line` and `count` are the added or modified lines, or for
@@ -121,16 +108,19 @@ export function parseReviewCodeFiles(value: unknown): ReviewCodeFilesDto {
   };
 }
 
-export function parseReviewCodeFile(value: unknown): ReviewCodeFileDto {
+export function parseReviewCodeFile(value: unknown) {
   const source = object(value, 'file');
   return {
     path: text(source.path, 'file path'),
+    /** Null when the file cannot be shown; `unavailableReason` then says why. */
     content: optionalText(source.content),
     contentHash: optionalText(source.contentHash),
     editable: source.editable === true,
     readOnlyReason: optionalText(source.readOnlyReason),
     unavailableReason: optionalText(source.unavailableReason),
+    /** This file's patch in the reviewed pull-request diff, when the PR changes it. */
     prPatch: optionalText(source.prPatch),
+    /** How the shown content differs from the pull request's merge base. */
     lineChanges: lineChanges(source.lineChanges),
   };
 }
@@ -159,42 +149,9 @@ export type LocalRunMethodDto = {
 
 export type LocalRunClassDto = { className: string; durationMs: number | null; methods: LocalRunMethodDto[] };
 
-export type LocalRunDto = {
-  id: string;
-  ordinal: number;
-  initiator: 'USER' | 'AGENT';
-  scope: 'CLASS' | 'METHOD' | 'COMMAND' | 'TESTS' | 'DEBUG' | 'RUN';
-  /** Test source path the run was started from; null for commands. */
-  path: string | null;
-  testClass: string | null;
-  testMethod: string | null;
-  module: string | null;
-  command: string;
-  sourceHeadSha: string | null;
-  localPaths: string[];
-  sourceFingerprint: string | null;
-  status: LocalRunStatus;
-  startedAt: string;
-  endedAt: string | null;
-  exitCode: number | null;
-  tests: number | null;
-  failures: number | null;
-  errors: number | null;
-  skipped: number | null;
-  outputTruncated: boolean;
-  omittedBytes: number | null;
-  /** The run's processes could not be shown stopped, so it still holds the working copy. */
-  treeUnverified: boolean;
-  results: LocalRunClassDto[];
-};
+export type LocalRunDto = ReturnType<typeof parseLocalRun>;
 
-export type LocalRunOutputDto = {
-  text: string;
-  nextOffset: number;
-  /** Bytes between the requested offset and the returned text that the bounded buffer no longer holds. */
-  skippedBytes: number;
-  complete: boolean;
-};
+export type LocalRunOutputDto = ReturnType<typeof parseLocalRunOutput>;
 
 const RUN_STATUSES: readonly LocalRunStatus[] = [
   'RUNNING', 'PASSED', 'FAILED_ASSERTION', 'BUILD_FAILED', 'NO_TESTS_RAN', 'STOPPED', 'TIMED_OUT', 'RESULTS_UNAVAILABLE', 'INTERRUPTED', 'COMPLETED', 'FAILED',
@@ -202,13 +159,14 @@ const RUN_STATUSES: readonly LocalRunStatus[] = [
 
 
 
-export function parseLocalRun(value: unknown): LocalRunDto {
+export function parseLocalRun(value: unknown) {
   const source = object(value, 'run');
   return {
     id: text(source.id, 'run id'),
     ordinal: count(source.ordinal, 'run ordinal'),
     initiator: oneOf(source.initiator, ['USER', 'AGENT'] as const, 'run initiator'),
     scope: oneOf(source.scope, ['CLASS', 'METHOD', 'COMMAND', 'TESTS', 'DEBUG', 'RUN'] as const, 'run scope'),
+    /** Test source path the run was started from; null for commands. */
     path: optionalText(source.path),
     testClass: optionalText(source.testClass),
     testMethod: optionalText(source.testMethod),
@@ -227,6 +185,7 @@ export function parseLocalRun(value: unknown): LocalRunDto {
     skipped: optionalCount(source.skipped),
     outputTruncated: source.outputTruncated === true,
     omittedBytes: optionalCount(source.omittedBytes),
+    /** The run's processes could not be shown stopped, so it still holds the working copy. */
     treeUnverified: source.treeUnverified === true,
     results: (Array.isArray(source.results) ? source.results : []).map(item => {
       const result = object(item, 'run class');
@@ -254,11 +213,12 @@ export function parseLocalRuns(value: unknown): LocalRunDto[] {
   return source.runs.map(parseLocalRun);
 }
 
-export function parseLocalRunOutput(value: unknown): LocalRunOutputDto {
+export function parseLocalRunOutput(value: unknown) {
   const source = object(value, 'run output');
   return {
     text: text(source.text, 'run output text'),
     nextOffset: count(source.nextOffset, 'run output offset'),
+    /** Bytes between the requested offset and the returned text that the bounded buffer no longer holds. */
     skippedBytes: optionalCount(source.skippedBytes) ?? 0,
     complete: source.complete === true,
   };
@@ -270,23 +230,9 @@ export function parseLocalRunOutput(value: unknown): LocalRunOutputDto {
 
 export type WorktreeChangeScope = 'ALL' | 'UNCOMMITTED' | 'COMMITTED' | 'COMMIT';
 export type WorktreeChangesRequest = { scope: WorktreeChangeScope; commit?: string; base?: string; head?: string };
-export type WorktreeChangesDto = {
-  branch: string;
-  headSha: string;
-  baseSha: string;
-  baseLabel: string;
-  scope: WorktreeChangeScope;
-  selectedCommit: string | null;
-  sourceFingerprint: string | null;
-  commits: DiffCommitDto[];
-  files: DiffFileDto[];
-  staged: string[];
-  unstaged: string[];
-  untracked: string[];
-  truncated: boolean;
-};
+export type WorktreeChangesDto = ReturnType<typeof parseWorktreeChanges>;
 
-export function parseWorktreeChanges(value: unknown): WorktreeChangesDto {
+export function parseWorktreeChanges(value: unknown) {
   const source = object(value, 'working copy changes');
   if (!Array.isArray(source.commits) || !Array.isArray(source.files)) throw new Error('Malformed working copy changes');
   const paths = (value: unknown): string[] => {

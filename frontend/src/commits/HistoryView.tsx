@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent as ReactUIEvent } from 'react';
 import { ChevronDown, ChevronRight, Ellipsis, GitCommitHorizontal } from 'lucide-react';
 import type { DiffFileDto, GitCommitDto, GitDiffFileDto } from '../types';
@@ -87,9 +88,8 @@ export default function HistoryView({
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editBody, setEditBody] = useState<string | null>(null);
   const [squashDraft, setSquashDraft] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, error, setError, run } = useAsyncAction();
   const [notice, setNotice] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const commitPane = useResizablePane(400, 340, 800);
   const [visibleCommitLimit, setVisibleCommitLimit] = useState(COMMIT_RENDER_BATCH);
   const commitList = useRef<HTMLDivElement>(null);
@@ -194,7 +194,7 @@ export default function HistoryView({
     return () => { cancelled = true; };
     // `commits` retries a diff that failed transiently (e.g. while a sync
     // held the repository) once the next log snapshot arrives.
-  }, [workspaceId, diffBase, diffHead, commits]);
+  }, [workspaceId, diffBase, diffHead, commits, setError]);
 
   const resetDrafts = () => {
     setEditTitle(null);
@@ -238,9 +238,7 @@ export default function HistoryView({
 
   const updateMessage = async () => {
     if (!single) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       const title = (editTitle ?? single.title).trim();
       const body = (editBody ?? single.body).trim();
       await window.bridge.gitReword(
@@ -251,18 +249,12 @@ export default function HistoryView({
       );
       setNotice('Updated locally — amends this workspace commit only');
       onHistoryRewritten();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   const squash = async () => {
     if (!multi || !span) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       await window.bridge.gitSquash(
         workspaceId,
         branch,
@@ -273,11 +265,7 @@ export default function HistoryView({
       setNotice('Squashed locally — original SHAs kept in the body');
       onChangeChecked(new Set());
       onHistoryRewritten();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : String(failure));
-    } finally {
-      setBusy(false);
-    }
+    });
   };
 
   return (

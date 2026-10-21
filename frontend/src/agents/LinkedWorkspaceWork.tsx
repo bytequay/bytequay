@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useEffect, useState } from 'react';
 import type { LinkedWorkspaceWorkDto } from '../types';
 import { settingsRoute } from '../settings/routes';
@@ -47,19 +48,16 @@ export function useLinkedWorkspaceWork(workspaceId?: string, taskId?: string) {
 }
 
 export function LinkedWorkCard({ work, source = false }: { work: LinkedWorkspaceWorkDto; source?: boolean }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useAsyncAction(String);
   const [owner, repo] = work.repository.split('/');
   const result = work.result?.split(/^#{1,6} Commands and limitations\s*$/m, 2);
   const target = work.targetTaskId ? workspaceAgentTaskRoute(work.targetWorkspaceId, work.targetTaskId) : null;
   const stop = async () => {
     if (!work.targetTaskId) return;
-    setBusy(true); setError(null);
-    try {
+    return run(async () => {
       const impact = await window.bridge.getAgentRuntimeStopImpact(work.targetTaskId, work.targetWorkspaceId);
       await window.bridge.stopAgentRuntime(work.targetTaskId, work.targetWorkspaceId, impact.generation);
-    } catch (failure) { setError(String(failure)); }
-    finally { setBusy(false); }
+    });
   };
   return <div className="linked-work-entry">
     {source && <div className="linked-work-source">Requested in <a href={workspaceAgentTaskRoute(work.sourceWorkspaceId, work.sourceTaskId)}>“{work.sourceTitle}”</a> in {work.sourceRepository}</div>}

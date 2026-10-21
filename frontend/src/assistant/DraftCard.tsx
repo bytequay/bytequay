@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useState } from 'react';
 import { ArrowUpRight, LoaderCircle, Lock, TriangleAlert } from 'lucide-react';
 import { SourceIcon } from '../cards/Card';
@@ -30,35 +31,24 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
 }): React.JSX.Element | null {
   const [title, setTitle] = useState(item.text);
   const [body, setBody] = useState(item.draft?.body ?? '');
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useAsyncAction(remoteErrorMessage);
   const [made, setMade] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const draft = item.draft;
   if (draft === null || created) return null;
-  const create = async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      // The work item's id is the draft's, so a click retried after a failure, even once the panel closed, finds the work it made instead of making more.
-      const work = (await window.bridge.listWorkItems(draft.workspaceId)).find(each => each.id === draft.workItemId)
-        ?? await window.bridge.createWorkItem(draft.workspaceId, { id: draft.workItemId, epicId: null, title: title.trim(), kind: 'DEVELOP',
-          acceptanceCriteria: body.trim(), completionRule: 'MERGED_DELIVERY' });
-      // The issue is pushed from the work item as made, so later edits would not reach it.
-      setMade(true);
-      await window.bridge.setLocalWorkItemEpic(draft.workspaceId, work.id, true);
-      if (!work.links.some(link => link.kind === 'ISSUE')) {
-        await window.bridge.publishWorkItem(draft.workspaceId, work.id, { source: 'GITHUB', expectedRevision: work.revision });
-      }
-      await window.bridge.recordAssistantDraft(item.id);
-      onCreated();
+  const create = () => run(async () => {
+    // The work item's id is the draft's, so a click retried after a failure, even once the panel closed, finds the work it made instead of making more.
+    const work = (await window.bridge.listWorkItems(draft.workspaceId)).find(each => each.id === draft.workItemId)
+      ?? await window.bridge.createWorkItem(draft.workspaceId, { id: draft.workItemId, epicId: null, title: title.trim(), kind: 'DEVELOP',
+        acceptanceCriteria: body.trim(), completionRule: 'MERGED_DELIVERY' });
+    // The issue is pushed from the work item as made, so later edits would not reach it.
+    setMade(true);
+    await window.bridge.setLocalWorkItemEpic(draft.workspaceId, work.id, true);
+    if (!work.links.some(link => link.kind === 'ISSUE')) {
+      await window.bridge.publishWorkItem(draft.workspaceId, work.id, { source: 'GITHUB', expectedRevision: work.revision });
     }
-    catch (cause) {
-      setError(remoteErrorMessage(cause));
-    }
-    finally {
-      setBusy(false);
-    }
-  };
+    await window.bridge.recordAssistantDraft(item.id);
+    onCreated();
+  });
   const work: AgendaTargetDto = { kind: 'WORK', workspaceId: draft.workspaceId, repo: null, number: null, id: draft.workItemId, connectionId: null, cloudId: null };
   // Once the work is made, its words are kept: a lock says why they no longer change.
   const locked = made && !busy;

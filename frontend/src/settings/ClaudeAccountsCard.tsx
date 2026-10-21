@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useAsyncAction } from '../useAsyncAction';
 import { useRef, useState } from 'react';
 import type { ModelProviderDto } from '../types';
 import ProviderRow from './ProviderRow';
@@ -75,20 +76,13 @@ function AddClaudeAccountDialog({ onAdd, onCancel }: { onAdd: (label: string, em
   const [label, setLabel] = useState('');
   const [email, setEmail] = useState('');
   const emailInput = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useAsyncAction(failure => failure instanceof Error ? failure.message : 'Could not add the Claude account');
   const add = async () => {
     if (busy || label.trim() === '' || !emailInput.current?.reportValidity()) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       await onAdd(label.trim(), email.trim());
       onCancel();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not add the Claude account');
-    } finally {
-      setBusy(false);
-    }
+    });
   };
   return <Dialog title="Add Claude account" confirmLabel={busy ? 'Adding…' : 'Add and sign in'}
     confirmDisabled={busy || label.trim() === '' || email.trim() === ''} onConfirm={() => void add()} onCancel={onCancel}>
@@ -108,20 +102,13 @@ function RemoveClaudeAccountDialog({ provider, onRemove, onCancel }: {
   onRemove: (laneId: string) => Promise<void>;
   onCancel: () => void;
 }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { busy, error, run } = useAsyncAction(failure => failure instanceof Error ? failure.message : 'Could not remove the Claude account');
   const remove = async () => {
     if (busy) return;
-    setBusy(true);
-    setError(null);
-    try {
+    return run(async () => {
       await onRemove(provider.id);
       onCancel();
-    } catch (failure) {
-      setError(failure instanceof Error ? failure.message : 'Could not remove the Claude account');
-    } finally {
-      setBusy(false);
-    }
+    });
   };
   return <Dialog title={`Remove ${provider.label}?`} confirmLabel={busy ? 'Removing…' : 'Remove account'}
     confirmDisabled={busy} onConfirm={() => void remove()} onCancel={() => { if (!busy) onCancel(); }}>

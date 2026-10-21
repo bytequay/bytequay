@@ -79,20 +79,9 @@ export type ContextSpecCheckState = 'CHECKING' | 'REPRODUCING' | 'DONE' | 'STOPP
 export type ContextSpecCandidateType = 'BUG' | 'FEATURE_REQUEST' | 'IMPROVEMENT';
 export type ContextSpecCandidateStatus = 'PENDING' | 'REPRODUCING' | 'CONFIRMED' | 'REFUTED' | 'NOT_REPRODUCED' | 'ALREADY_REPORTED';
 /** One gap a check found; only a confirmed one, whose test ByteQuay saw fail, is a finding with an issue draft. */
-export type ContextSpecCandidateDto = {
-  id: string; type: ContextSpecCandidateType; predicted: 'DIVERGES' | 'IGNORES' | 'REFUSES' | 'REFUSES_UNCLEARLY' | 'SKIPS_SHOULD';
-  title: string; rule: string; specUrl: string; code: string[]; reasoning: string; severity: number;
-  duplicate: null | { number: number; title: string; state: string; url: string };
-  status: ContextSpecCandidateStatus;
-  test: null | { path: string; command: string; exitCode: number; output: string; source: string };
-  reason: string | null; draft: null | { title: string; body: string; labels: string[] }; dismissed: string | null;
-};
+export type ContextSpecCandidateDto = ReturnType<typeof specCandidate>;
 /** The latest spec check of one directory: the pages it read to find specs, and the specs it checked against. */
-export type ContextSpecCheckDto = {
-  id: string; directory: string; baselineSha: string; requestKey: string;
-  specs: string[]; checkedAgainst: string[]; labels: string[]; state: ContextSpecCheckState; candidates: ContextSpecCandidateDto[]; covered: string[]; next: string[];
-  reproductions: number; maxReproductions: number; detail: string | null; startedAt: string; endedAt: string | null;
-};
+export type ContextSpecCheckDto = ReturnType<typeof parseContextSpecCheck>;
 /** Starts one check of a directory: the pages to find its specs among, and the sections, are the check's to choose. */
 export type StartContextSpecCheckRequest = { requestKey: string; expectedBuildSequence: number; directory: string; specs: string[]; maxReproductions: number };
 export type ContextSpecCheckStartedDto = { check: ContextSpecCheckDto; build: ContextBuildViewDto };
@@ -122,7 +111,7 @@ export function parseContextSpecSources(value: unknown): ContextSpecSourceDto[] 
       sections: strings(item.sections, 'spec sections') };
   });
 }
-function specCandidate(value: unknown): ContextSpecCandidateDto {
+function specCandidate(value: unknown) {
   const item = object(value, 'spec candidate');
   const duplicate = item.duplicate == null ? null : object(item.duplicate, 'spec duplicate');
   const test = item.test == null ? null : object(item.test, 'spec test');
@@ -144,7 +133,7 @@ function exitCode(value: unknown): number {
   if (typeof value !== 'number' || !Number.isInteger(value)) malformed('test exit code');
   return value;
 }
-export function parseContextSpecCheck(value: unknown): ContextSpecCheckDto {
+export function parseContextSpecCheck(value: unknown) {
   const item = object(value, 'spec check');
   return { id: text(item.id, 'check id'), directory: text(item.directory, 'check directory'), baselineSha: text(item.baselineSha, 'check baseline'), requestKey: text(item.requestKey, 'check request key'), specs: strings(item.specs, 'check specs'),
     checkedAgainst: strings(item.checkedAgainst, 'checked specs'), labels: strings(item.labels, 'repository labels'), state: oneOf(item.state, ['CHECKING', 'REPRODUCING', 'DONE', 'STOPPED', 'FAILED'], 'check state'),

@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
 
+import static com.bytequay.agent.spi.ToolSchemas.object;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 
@@ -40,10 +41,10 @@ final class ReviewContextPages
     {
         Map<String, String> saved = ImmutableMap.copyOf(sections);
         return new ReviewTool("review_get_context", "Read this independent pass's captured assignment, scope, pr, facts or rules. Follow nextPage; no other review data or writes",
-                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                object(ImmutableMap.of(
                         "kind", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(saved.keySet())),
                         "page", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Integer.MAX_VALUE)),
-                        "required", ImmutableList.of("kind"), "additionalProperties", false), arguments -> {
+                        "kind"), arguments -> {
                     try {
                         checkState(active.getAsBoolean(), "This independent pass has stopped or been replaced");
                         JsonNode input = MAPPER.readTree(arguments);

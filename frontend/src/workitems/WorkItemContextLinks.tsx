@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { useAsyncAction } from '../useAsyncAction';
 import { useEffect, useState } from 'react';
 import { Link2, X } from 'lucide-react';
 import type { WorkItemDto, UnifiedWorkItem, WorkItemContextLink, WorkSource } from './contracts';
@@ -26,11 +27,10 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
 }) {
   const [links, setLinks] = useState<WorkItemContextLink[] | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [picking, setPicking] = useState(false);
   const [query, setQuery] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useAsyncAction(errorText);
   useEffect(() => {
     let active = true;
     setLinks(null); setReadError(null);
@@ -41,17 +41,12 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
     return () => { active = false; };
   }, [work.workspaceId, work.id, work.revision, work.contextLinks.length, catalog, retry]);
 
-  const change = async (targetId: string, remove: boolean) => {
-    setBusy(true); setError(null);
-    try {
-      const mutate = remove ? window.bridge.unlinkWorkItemContext : window.bridge.linkWorkItemContext;
-      await mutate(work.workspaceId, work.id, work.revision, targetId);
-      await onChanged();
-      window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: work.workspaceId }));
-    }
-    catch (cause) { setError(errorText(cause)); }
-    finally { setBusy(false); }
-  };
+  const change = (targetId: string, remove: boolean) => run(async () => {
+    const mutate = remove ? window.bridge.unlinkWorkItemContext : window.bridge.linkWorkItemContext;
+    await mutate(work.workspaceId, work.id, work.revision, targetId);
+    await onChanged();
+    window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: work.workspaceId }));
+  });
   const open = (link: WorkItemContextLink) => {
     // A resolved alias is local even if the catalog was read before the target was imported or published.
     const local = catalog.find(item => item.id === link.id)?.work;

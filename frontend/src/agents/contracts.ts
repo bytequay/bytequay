@@ -16,11 +16,7 @@ import type { JiraTaskSource } from '../jira/contracts';
 import { count, flag, object, optionalCount, optionalText, text } from '../pulls/wireParse';
 import type {
   AgentApprovalDto,
-  AgentAttachmentDto,
   AgentCapabilitiesDto,
-  AgentCompletionDto,
-  AgentDevelopmentCiDto,
-  AgentInputDeliveryDto,
   AgentIssueSourceDto,
   AgentMetricsDto,
   AgentModelSettingDto,
@@ -30,7 +26,6 @@ import type {
   AgentProviderUnavailableDto,
   AgentQueuedInputDraftDto,
   AgentQueuedInputDto,
-  AgentRuntimeStopImpactDto,
   AgentSkillDto,
   AgentSkillInput,
   AgentTaskActivityDto,
@@ -45,14 +40,12 @@ import type {
   AgentTurnSettingsDto,
   AutoMergeSummaryDto,
   AutomationLevel,
-  CiAutofixRunDto,
   DevelopmentAutomationDto,
   DevelopmentResultDto,
   ModelApiKeyDto,
   ModelOptionDto,
   ModelProviderDto,
   ModelSettingsDto,
-  ProviderUsageDto,
   PullRequestTaskLink,
   ReviewFixSummaryDto,
   UsageAccountDto,
@@ -169,7 +162,7 @@ function metrics(value: unknown, path: string): AgentMetricsDto {
   };
 }
 
-export function parseDevelopmentAutomation(value: unknown, path = 'developmentAutomation'): DevelopmentAutomationDto {
+export function parseDevelopmentAutomation(value: unknown, path = 'developmentAutomation') {
   const source = object(value, path);
   return {
     level: enumText(source.level, AUTOMATION_LEVELS, `${path}.level`),
@@ -372,7 +365,7 @@ export function parseAgentTasks(value: unknown): AgentTaskDto[] {
   return list(value, 'tasks').map((entry, index) => parseAgentTask(entry, `tasks[${index}]`));
 }
 
-export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi'): AgentDevelopmentCiDto {
+export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi') {
   const source = object(value, path);
   return {
     runId: text(source.runId, `${path}.runId`),
@@ -394,7 +387,7 @@ export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi'):
   };
 }
 
-export function parseCiAutofixRun(value: unknown): CiAutofixRunDto {
+export function parseCiAutofixRun(value: unknown) {
   const source = object(value, 'ciRun');
   const authorization = object(source.authorization, 'ciRun.authorization');
   return {
@@ -649,7 +642,7 @@ export function parseAgentSkills(value: unknown): AgentSkillDto[] {
   });
 }
 
-export function parseAgentQueuedInput(value: unknown, path = 'queuedInput'): AgentQueuedInputDto {
+export function parseAgentQueuedInput(value: unknown, path = 'queuedInput') {
   const source = object(value, path);
   return {
     id: text(source.id, `${path}.id`),
@@ -679,7 +672,7 @@ export function parseAgentQueue(value: unknown): AgentQueuedInputDto[] {
   return list(value, 'queue').map((entry, index) => parseAgentQueuedInput(entry, `queue[${index}]`));
 }
 
-export function parseAgentInputDelivery(value: unknown, path = 'delivery'): AgentInputDeliveryDto {
+export function parseAgentInputDelivery(value: unknown, path = 'delivery') {
   const source = object(value, path);
   return {
     id: text(source.id, `${path}.id`),
@@ -708,7 +701,7 @@ export function parseAgentApproval(value: unknown, path = 'approval'): AgentAppr
   };
 }
 
-export function parseAgentRuntimeStopImpact(value: unknown, path = 'stopImpact'): AgentRuntimeStopImpactDto {
+export function parseAgentRuntimeStopImpact(value: unknown, path = 'stopImpact') {
   const source = object(value, path);
   return {
     taskId: text(source.taskId, `${path}.taskId`),
@@ -726,7 +719,7 @@ export function parseAgentTaskStartup(value: unknown, path = 'startup'): AgentTa
   return { phase: STARTUP_PHASES.find((known) => known === phase) ?? null };
 }
 
-export function parseAgentAttachment(value: unknown, path = 'attachment'): AgentAttachmentDto {
+export function parseAgentAttachment(value: unknown, path = 'attachment') {
   const source = object(value, path);
   const size = (field: string): number => {
     const number = source[field];
@@ -745,7 +738,7 @@ export function parseAgentAttachment(value: unknown, path = 'attachment'): Agent
   };
 }
 
-export function parseAgentCompletion(value: unknown, path = 'completion'): AgentCompletionDto {
+export function parseAgentCompletion(value: unknown, path = 'completion') {
   const source = object(value, path);
   return {
     taskId: text(source.taskId, `${path}.taskId`),
@@ -762,7 +755,7 @@ export function parseUsageAccounts(value: unknown): UsageAccountDto[] {
   });
 }
 
-export function parseProviderUsage(value: unknown): ProviderUsageDto {
+export function parseProviderUsage(value: unknown) {
   const source = object(value, 'providerUsage');
   const nonnegative = (value: unknown, path: string): number => {
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error(`${path} is invalid`);

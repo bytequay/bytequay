@@ -1,6 +1,6 @@
 {
   "name": "@bytequay/lab",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "license": "Apache-2.0",
   "type": "module",
@@ -48,7 +48,7 @@
     "prelint": "npm run build"
   },
   "dependencies": {
-    "@bytequay/ui": "0.5.0"
+    "@bytequay/ui": "0.5.1"
   },
   "peerDependencies": {
     "react": "^19.3.0"

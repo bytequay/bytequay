@@ -470,7 +470,7 @@ public final class DefaultAgentTurnService
     {
         Instant now = Instant.now(clock);
         return unitOfWork.execute(() -> {
-            AgentTask updated = taskStore.update(task.withDevelopmentContinuation(unfinished, now));
+            AgentTask updated = taskStore.update(unfinished ? task.withDevelopmentContinuation(true, now) : task.withSettledDevelopmentContinuation(false, now));
             outboxStore.insert(pendingLifecycle(EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
             return updated;
         });
@@ -518,7 +518,7 @@ public final class DefaultAgentTurnService
                     return task;
                 }
             }
-            return settleStoppedDevelopmentContinuation(taskId, "Backend restarted during development automation. Send another message to continue.");
+            return settleStoppedDevelopmentContinuation(taskId, "Backend restarted during development automation. Send another message to continue.", true);
         }
     }
 
@@ -537,10 +537,10 @@ public final class DefaultAgentTurnService
             active.ifPresent(turn -> turnStore.update(turn.requestCancellation(Instant.now(clock))));
         }
         stopDevelopmentRuntimes(taskId, active);
-        return settleStoppedDevelopmentContinuation(taskId, reason);
+        return settleStoppedDevelopmentContinuation(taskId, reason, false);
     }
 
-    private AgentTask settleStoppedDevelopmentContinuation(TaskId taskId, String reason)
+    private AgentTask settleStoppedDevelopmentContinuation(TaskId taskId, String reason, boolean lost)
     {
         AgentTask stopped;
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -565,7 +565,7 @@ public final class DefaultAgentTurnService
                         queueStore.update(input.paused(message, now));
                     }
                 }
-                AgentTask updated = taskStore.update(task.withDevelopmentContinuation(false, now));
+                AgentTask updated = taskStore.update(task.withSettledDevelopmentContinuation(lost, now));
                 outboxStore.insert(pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
                 return updated;
             });
@@ -1798,7 +1798,7 @@ public final class DefaultAgentTurnService
                     }
                 }
                 stopDevelopmentRuntimes(taskId, active);
-                return settleStoppedDevelopmentContinuation(taskId, "Send another message to continue.");
+                return settleStoppedDevelopmentContinuation(taskId, "Send another message to continue.", false);
             }
             stopProviderRuntime(taskId, active);
             AgentTask stopped;

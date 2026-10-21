@@ -62,6 +62,9 @@ public class AgentTaskEntity
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean developmentContinuationUnfinished;
 
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean developmentDeliveryPending;
+
     @Column(nullable = false)
     private String title;
 
@@ -169,6 +172,7 @@ public class AgentTaskEntity
         interactive = task.interactive();
         creationFingerprint = task.creationFingerprint().orElse(null);
         developmentContinuationUnfinished = task.developmentContinuationUnfinished();
+        developmentDeliveryPending = task.developmentDeliveryPending();
         title = task.title();
         titleSource = task.titleSource();
         laneId = task.laneId().toString();
@@ -242,7 +246,8 @@ public class AgentTaskEntity
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure),
                 Optional.ofNullable(archivedAt),
-                developmentContinuationUnfinished);
+                developmentContinuationUnfinished,
+                developmentDeliveryPending);
     }
 
     private Optional<WorktreeMutationClaim> worktreeMutationClaim()

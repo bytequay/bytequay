@@ -548,9 +548,17 @@ class TestSqliteAgentStores
         assertThat(restored.developmentContinuationUnfinished()).isTrue();
         assertThat(restored.withDefaults(restored.defaults(), now.plusSeconds(3)).developmentContinuationUnfinished()).isTrue();
         assertThat(turnStore.find(turn.id())).contains(completed);
-        taskStore.update(restored.withDevelopmentContinuation(false, now.plusSeconds(4)));
+        taskStore.update(restored.withSettledDevelopmentContinuation(true, now.plusSeconds(4)));
         entityManager.clear();
-        assertThat(taskStore.find(task.id()).orElseThrow().developmentContinuationUnfinished()).isFalse();
+        AgentTask lost = taskStore.find(task.id()).orElseThrow();
+        assertThat(lost.developmentContinuationUnfinished()).isFalse();
+        assertThat(lost.developmentDeliveryPending()).isTrue();
+        // The next turn's launch clears only the continuation marker.
+        AgentTask launched = taskStore.update(lost.withDevelopmentContinuation(true, now.plusSeconds(5)).withDevelopmentContinuation(false, now.plusSeconds(6)));
+        assertThat(launched.developmentDeliveryPending()).isTrue();
+        taskStore.update(launched.withSettledDevelopmentContinuation(false, now.plusSeconds(7)));
+        entityManager.clear();
+        assertThat(taskStore.find(task.id()).orElseThrow().developmentDeliveryPending()).isFalse();
     }
 
     @Test

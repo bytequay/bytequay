@@ -119,7 +119,7 @@ class TestDevelopmentFollowupCoordinator
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
     private DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
             "https://github.com/owner/repo.git", "origin", "main", BASE, worktree.generatedBranch(), Optional.empty());
-    private final AgentTask task = AgentTask.created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+    private AgentTask task = AgentTask.created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(FULL), NOW);
     private AgentTurn source;
     private DevelopmentTurnCompletion outcome;
@@ -489,6 +489,35 @@ class TestDevelopmentFollowupCoordinator
         noFollowup();
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void workARestartLeftUnpublishedIsPublishedByTheNextTurn()
+    {
+        task = task.withSettledDevelopmentContinuation(true, NOW);
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        generated(CREATE_DRAFT_PR, true);
+
+        advance();
+
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME));
+        verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+    }
+
+    @Test
+    void workARestartLeftUncommittedIsCommittedByTheNextTurn()
+    {
+        task = task.withSettledDevelopmentContinuation(true, NOW);
+        prepare(local(HEAD, true), local(HEAD, true), new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()), true);
+        when(git.inspectLocal(worktree, route)).thenReturn(local(HEAD, true), local(NEXT, false));
+        generated(AUTO_COMMIT, true);
+
+        advance();
+
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Auto commit"));
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
     @Test

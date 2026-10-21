@@ -2133,12 +2133,15 @@ class TestDefaultAgentTurnService
         AgentTask stopped = service.failLostDevelopmentContinuation(task.id());
         assertThat(stopped.state()).isEqualTo(TaskState.OPEN);
         assertThat(stopped.developmentContinuationUnfinished()).isFalse();
+        assertThat(stopped.developmentDeliveryPending()).isTrue();
         assertThat(stoppedChildren).containsExactly(task.id(), task.id());
         assertThat(worktrees.cleanupCalls).isZero();
         AgentTurn next = service.start(command("Continue after restart", "after-lost-continuation"));
+        assertThat(taskService.get(task.id()).developmentDeliveryPending()).isTrue();
         reportReady(next);
         driver.complete("Done");
         service.finishDevelopmentContinuation(task.id(), next.id());
+        assertThat(taskService.get(task.id()).developmentDeliveryPending()).isFalse();
     }
 
     @Test

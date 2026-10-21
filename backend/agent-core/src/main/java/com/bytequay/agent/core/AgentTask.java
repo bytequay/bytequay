@@ -57,7 +57,8 @@ public record AgentTask(
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure,
         Optional<Instant> archivedAt,
-        boolean developmentContinuationUnfinished)
+        boolean developmentContinuationUnfinished,
+        boolean developmentDeliveryPending)
 {
     public AgentTask
     {
@@ -147,6 +148,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                false,
                 false);
     }
 
@@ -202,6 +204,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
+                false,
                 false);
     }
 
@@ -376,6 +379,15 @@ public record AgentTask(
         requireState(TaskState.OPEN);
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
         return toBuilder().updatedAt(now).developmentContinuationUnfinished(unfinished).build();
+    }
+
+    /**
+     * Ends the continuation. One a restart cut off leaves its work for the next development turn to deliver, even across
+     * that turn's own restart; any other end has delivered the work or chosen not to.
+     */
+    public AgentTask withSettledDevelopmentContinuation(boolean lost, Instant now)
+    {
+        return withDevelopmentContinuation(false, now).toBuilder().developmentDeliveryPending(lost).build();
     }
 
     public AgentTask withVersion(long updatedVersion)

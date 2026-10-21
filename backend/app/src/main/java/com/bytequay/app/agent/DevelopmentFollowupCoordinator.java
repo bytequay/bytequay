@@ -92,7 +92,7 @@ public class DevelopmentFollowupCoordinator
     {
         DevelopmentBaseline baseline = adoptCiRepairs(task, git.capture(task));
         Optional<Accepted> previous = Optional.ofNullable(accepted.get(task.id()));
-        boolean pending = priorQuestion(task.id(), turn.id()) || previous.filter(prior -> prior.localPending()
+        boolean pending = priorQuestion(task.id(), turn.id()) || task.developmentDeliveryPending() || previous.filter(prior -> prior.localPending()
                 || changed(prior.baseline().local(), baseline.local())).isPresent();
         DevelopmentAutomation automation = turn.settings().orElseThrow().developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
         CompletableFuture<RemoteBaseline> priorRemote = previous.map(Accepted::remote).orElseGet(() -> CompletableFuture.completedFuture(RemoteBaseline.NONE));

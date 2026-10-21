@@ -325,6 +325,8 @@ const artifactView = new ArtifactView(() => mainWindow,
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'), () => appNotices.raise(), url => {
   const task = labTask(url);
   if (task === null) return false;
+  // The task's composer, or Lab Settings saying what to add, opens behind the page.
+  browserTabs.hide();
   mainWindow?.webContents.send('lab:task', task);
   return true;
 });

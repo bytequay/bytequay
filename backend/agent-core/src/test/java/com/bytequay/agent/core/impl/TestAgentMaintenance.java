@@ -208,6 +208,23 @@ class TestAgentMaintenance
     }
 
     @Test
+    void releasesARetainedTerminalTurnClaimOnceItsProcessVerifiesStopped()
+    {
+        TaskId taskId = TaskId.random();
+        AgentTurn terminal = runningTurn(taskId)
+                .finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("not shown stopped"), NOW.plusSeconds(2));
+        stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.turn(terminal.id(), terminal.createdAt()), NOW));
+        stores.insert(terminal);
+        AgentMaintenance maintenance = maintenance(NOW.plusSeconds(10));
+
+        maintenance.recover();
+        maintenance.settleAfterProcessRecovery(ImmutableMap.of(), ImmutableSet.of("launch-1"), true);
+
+        assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(stores.find(terminal.id()).orElseThrow().state()).isEqualTo(TurnState.FAILED);
+    }
+
+    @Test
     void releasesARecoveryClaimOnceItsLaunchVerifiesStopped()
     {
         TaskId released = TaskId.random();
@@ -401,7 +418,9 @@ class TestAgentMaintenance
         stores.insert(managedTask(taskId).claimWorktreeMutation(claim, NOW));
         stores.insert(terminal);
 
-        maintenance(NOW.plusSeconds(10)).recover();
+        AgentMaintenance maintenance = maintenance(NOW.plusSeconds(10));
+        maintenance.recover();
+        maintenance.settleAfterProcessRecovery(ImmutableMap.of(), ImmutableSet.of(), false);
 
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim()).contains(claim);
     }

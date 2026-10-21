@@ -320,8 +320,9 @@ public final class AgentMaintenance
                 return;
             }
             if (claim.isPresent()
-                    && claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.RECOVERY
-                    && verifiedLaunches.contains(claim.orElseThrow().ownerId())) {
+                    && (claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.TURN
+                            || claim.orElseThrow().kind() == WorktreeMutationClaim.Kind.RECOVERY
+                                    && verifiedLaunches.contains(claim.orElseThrow().ownerId()))) {
                 taskStore.update(task.releaseWorktreeMutation(claim.orElseThrow(), now));
             }
         }

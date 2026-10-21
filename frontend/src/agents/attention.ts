@@ -215,6 +215,7 @@ export function useTaskAttention(
       return;
     }
     let active = true;
+    let shown: string | null = null;
     const read = () =>
       Promise.allSettled(listed.map((workspace) => Promise.all([
         bridge().listAgentTasks(workspace.id),
@@ -223,6 +224,10 @@ export function useTaskAttention(
         if (!active) return;
         // A workspace that could not be read drops out until the next tick rather than failing the others.
         const loaded = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+        // Most ticks read what is already shown; new objects would re-render the whole page around it.
+        const snapshot = JSON.stringify(loaded);
+        if (snapshot === shown) return;
+        shown = snapshot;
         setState({
           items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, laneNames)),
           tasks: loaded.flatMap(({ workspace, tasks }) => tasks.map((task) => ({ task, workspace }))),
@@ -246,7 +251,11 @@ export function useTaskCardState(workspaceId: string | null, taskId: string | nu
     let active = true;
     // A failed read, even a synchronous one, keeps the last state; the next tick reads again.
     const stop = pollVisible(() => Promise.resolve().then(() => Promise.all([window.bridge.getAgentTask(taskId, workspaceId), window.bridge.listAgentTaskActivity(workspaceId)]))
-      .then(([task, activity]) => { if (active) setRead({ taskId, state: taskCardState(task, activity[taskId] ?? null) }); })
+      .then(([task, activity]) => {
+        if (!active) return;
+        const state = taskCardState(task, activity[taskId] ?? null);
+        setRead(shown => shown?.taskId === taskId && JSON.stringify(shown.state) === JSON.stringify(state) ? shown : { taskId, state });
+      })
       .catch(() => {}), TASK_ATTENTION_POLL_MS);
     return () => { active = false; stop(); };
   }, [workspaceId, taskId]);
@@ -260,7 +269,11 @@ export function useTasksWaiting(workspaceId: string | null): number {
     if (workspaceId === null) return;
     let active = true;
     const stop = pollVisible(() => Promise.resolve().then(() => window.bridge.listAgentTaskActivity(workspaceId))
-      .then(activity => { if (active) setRead({ workspaceId, count: Object.values(activity).filter(facts => facts.pendingApproval != null).length }); })
+      .then(activity => {
+        if (!active) return;
+        const count = Object.values(activity).filter(facts => facts.pendingApproval != null).length;
+        setRead(shown => shown?.workspaceId === workspaceId && shown.count === count ? shown : { workspaceId, count });
+      })
       .catch(() => {}), TASK_ATTENTION_POLL_MS);
     return () => { active = false; stop(); };
   }, [workspaceId]);

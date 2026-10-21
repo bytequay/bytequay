@@ -1173,6 +1173,8 @@ class TestAgentHttpApi
         JsonNode secondTerminal = get("/agent/turns/" + second.get("id").asText()).getBody();
         assertThat(secondTerminal.get("state").asText()).isEqualTo("COMPLETED");
 
+        // The automation update is recorded just after the turn completes.
+        awaitCondition(() -> get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody().size() >= 14);
         JsonNode recordedEvents = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
         assertThat(recordedEvents).hasSize(14);
         assertThat(recordedEvents).filteredOn(event -> event.at("/payload/phase").asText().equals("TITLE_UPDATED")).hasSize(1);

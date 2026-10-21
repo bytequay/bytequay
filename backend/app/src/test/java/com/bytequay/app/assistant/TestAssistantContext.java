@@ -480,7 +480,7 @@ class TestAssistantContext
     private static AppNotice notice(String id, AppNotice.Kind kind, AgentTask task, String message)
     {
         return new AppNotice(id, kind, task.id().toString(), "ws1", Optional.of("turn-9"), Optional.empty(), task.title(), Optional.empty(), Optional.empty(), Optional.empty(),
-                message, "trinodb/trino", task.laneId().value(), NOW);
+                message, "trinodb/trino", task.laneId().value(), Optional.empty(), NOW);
     }
 
     private static AgentApproval pending(ApprovalId id, AgentTask task, ProviderApprovalRequest request)

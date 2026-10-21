@@ -15,6 +15,7 @@ package com.bytequay.app.workitem;
 
 import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
+import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -37,6 +38,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -56,15 +58,17 @@ class TestGoalDeliveries
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
+    private final EpicNextWork next = mock(EpicNextWork.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final GoalDeliveries deliveries = new GoalDeliveries(workspaces, beans.getBeanProvider(WorkItemService.class),
-            beans.getBeanProvider(PullRequestRefreshService.class), pullRequests, details, Runnable::run);
+            beans.getBeanProvider(PullRequestRefreshService.class), pullRequests, details, beans.getBeanProvider(EpicNextWork.class), Runnable::run);
 
     @BeforeEach
     void setUp()
     {
         beans.registerSingleton("workItemService", work);
         beans.registerSingleton("pullRequestRefreshService", refresh);
+        beans.registerSingleton("epicNextWork", next);
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.id()).thenReturn("workspace");
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
@@ -79,12 +83,14 @@ class TestGoalDeliveries
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
+        verify(next).merged(any(WorkItemView.class), eq("#31260"));
 
         WorkItemEvent recorded = new WorkItemEvent("merged:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 merged", NOW);
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(recorded),
                 pull(31260, GoalItemState.MERGED))));
         deliveries.restore();
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
+        verify(next, times(1)).merged(any(WorkItemView.class), anyString());
     }
 
     @Test

@@ -325,6 +325,13 @@ the user's own click, which starts the task as the item's own Start does, throug
 the same path the Assistant uses: the item's first message, the repository's
 development model and the saved automation, one task per row a day.
 
+When a pull request of an Epic's work merges, the Epic's ready work is ranked as
+the agenda ranks it. With more than one candidate, a single tool-free turn on the
+workspace's development model receives the titles, states, priorities and
+excerpted criteria of that Epic's work and picks one; an unusable answer keeps
+the first. The pick lives in memory as a notice on the merged work's task and
+starts nothing.
+
 The Assistant panel holds one conversation per local day with a tools-only
 session: it has no shell, file or web tools, only `assistant_context`, which reads
 the agenda's stored data plus what runs now, what is on screen and what a search

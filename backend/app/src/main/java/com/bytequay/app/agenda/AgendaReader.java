@@ -399,7 +399,7 @@ public class AgendaReader
             Optional<Findings> findings = review ? Optional.empty() : findings(notice.taskId());
             String state = switch (notice.kind()) {
                 case QUESTION, APPROVAL, RECOVERY, QUEUE_PAUSED, CI_ATTENTION -> "waiting_on_you";
-                case FAILURE, TURN_FINISHED -> "idle";
+                case FAILURE, TURN_FINISHED, NEXT_WORK -> "idle";
             };
             Optional<String> waitingFor = waitingFor(notice);
             Optional<String> lastTurn = switch (notice.kind()) {
@@ -424,7 +424,7 @@ public class AgendaReader
             case RECOVERY -> Optional.of("recovery");
             case QUEUE_PAUSED -> Optional.of("queue");
             case CI_ATTENTION -> Optional.of("ci");
-            case FAILURE, TURN_FINISHED -> Optional.empty();
+            case FAILURE, TURN_FINISHED, NEXT_WORK -> Optional.empty();
         };
     }
 

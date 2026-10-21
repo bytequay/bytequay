@@ -28,6 +28,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.DiffFile;
@@ -64,6 +65,7 @@ public class AppNoticeService
     private final AgentReviewStore reviews;
     private final PullRequestStore pullRequests;
     private final CiAutofixStore ciRuns;
+    private final EpicNextWork next;
     private final ObjectMapper mapper;
 
     public AppNoticeService(
@@ -74,6 +76,7 @@ public class AppNoticeService
             AgentReviewStore reviews,
             PullRequestStore pullRequests,
             CiAutofixStore ciRuns,
+            EpicNextWork next,
             ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -83,6 +86,7 @@ public class AppNoticeService
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
+        this.next = requireNonNull(next, "next is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -133,6 +137,13 @@ public class AppNoticeService
         }
         if (task.worktreeMutationClaim().isPresent() || task.developmentContinuationUnfinished() || latest.filter(turn -> turn.state().active()).isPresent()) {
             return Optional.empty();
+        }
+        Optional<EpicNextWork.Pick> pick = next.find(task.id().toString());
+        if (pick.isPresent()) {
+            EpicNextWork.Pick work = pick.orElseThrow();
+            return Optional.of(new AppNotice("next:" + task.id() + ":" + work.itemId(), AppNotice.Kind.NEXT_WORK, task.id().toString(), task.workspaceId().orElseThrow(),
+                    Optional.empty(), Optional.empty(), clip(work.title(), 160), Optional.empty(), Optional.empty(), Optional.empty(), clip(work.message(), 280),
+                    task.repository().toString(), task.laneId().value(), Optional.of(work.itemId()), work.at()));
         }
         Optional<AgentTurn> report = history.stream()
                 .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
@@ -219,7 +230,8 @@ public class AppNoticeService
         Optional<AppNotice.Changes> changes = review.flatMap(value -> reviews.listRuns(value.id()).stream().max(comparing(ReviewRun::ordinal)))
                 .map(AppNoticeService::changes);
         return new AppNotice(id, kind, task.id().toString(), task.workspaceId().orElseThrow(), turn.map(value -> value.id().toString()), review.map(AgentReview::id),
-                clip(task.title(), 160), pullRequest, pullRequestTitle, changes, clip(message, 280), task.repository().toString(), task.laneId().value(), occurredAt);
+                clip(task.title(), 160), pullRequest, pullRequestTitle, changes, clip(message, 280), task.repository().toString(), task.laneId().value(), Optional.empty(),
+                occurredAt);
     }
 
     private static AppNotice.Changes changes(ReviewRun run)

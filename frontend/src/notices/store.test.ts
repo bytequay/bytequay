@@ -181,6 +181,10 @@ it('rejects malformed data at the desktop boundary', () => {
   const review = { ...notice('review'), pullRequest: 'owner/repo#42', pullRequestTitle: 'Improve recovery',
     changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } };
   expect(parseNotices([review])).toEqual([review]);
+  const next = { ...notice('next', 'NEXT_WORK'), workItemId: 'work-2' };
+  expect(parseNotices([next])).toEqual([next]);
+  expect(parseNotices([{ ...notice('one'), workItemId: null }])).toEqual([notice('one')]);
+  for (const workItemId of ['', ' ', 1, 'w'.repeat(201)]) expect(() => parseNotices([{ ...next, workItemId }])).toThrow();
   for (const value of [{}, [notice('one'), notice('one')], [{ ...notice('one'), kind: 'RAW_ERROR' }], [{ ...notice('one'), kind: 'MAIL' }], [{ ...notice('one'), occurredAt: 'unknown' }]]) {
     expect(() => parseNotices(value)).toThrow();
   }

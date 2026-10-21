@@ -438,6 +438,9 @@ not need a published issue or ticket.
    eligible work starts its development task immediately.
 4. A pull request from an Epic's task shows its Epic: a card with progress and
    the folded **Next tasks** beside a wide page, or a link in the branch row.
+   When it merges, a **Next in Epic** notice names the work to start next; with
+   several ready, the Development agent picks one and says why. **Open work**
+   opens it; nothing starts by itself.
 5. Review outcomes, then **Conclude Epic**. Closing the source issue or ticket
    is separate.
 

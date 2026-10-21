@@ -41,6 +41,7 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
@@ -82,7 +83,8 @@ class TestAppNoticeService
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, new ObjectMapper());
+    private final EpicNextWork next = mock(EpicNextWork.class);
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, new ObjectMapper());
     private final AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -111,6 +113,22 @@ class TestAppNoticeService
         show(task, turn.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("Stopped by user"), NOW.plusSeconds(10)));
         when(queues.listQueued(task.id())).thenReturn(ImmutableList.of());
         assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void theNextEpicWorkTakesTheMergedTasksFinishedTurnPlace()
+    {
+        show(task, turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
+        EpicNextWork.Pick pick = new EpicNextWork.Pick("work-2", "Report reader memory", "#31550 merged. It builds on it.", NOW.plusSeconds(20));
+        when(next.find(task.id().toString())).thenReturn(Optional.of(pick));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.NEXT_WORK);
+            assertThat(notice.id()).isEqualTo("next:" + task.id() + ":work-2");
+            assertThat(notice.title()).isEqualTo("Report reader memory");
+            assertThat(notice.message()).isEqualTo("#31550 merged. It builds on it.");
+            assertThat(notice.workItemId()).contains("work-2");
+            assertThat(notice.occurredAt()).isEqualTo(NOW.plusSeconds(20));
+        });
     }
 
     @Test

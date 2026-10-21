@@ -313,7 +313,8 @@ const appNotices = new NoticeHost(() => mainWindow,
     }
     else await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`);
     browserTabs.hide();
-    mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId });
+    mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId,
+      workItemId: notice.workItemId ?? null });
     mainWindow?.webContents.focus();
   }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'),
   () => ensureWindow().then(() => { mainWindow?.show(); mainWindow?.focus(); }));

@@ -25,12 +25,12 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
  * Which planned work can start, in order: the user's priority first, then the open work waiting on it, then its place in the
  * Epic.
  */
-final class ReadyWork
+public final class ReadyWork
 {
     private ReadyWork() {}
 
     /** The planned work of one Epic that waits on nothing, in start order. */
-    static List<WorkItemView> ready(List<WorkItemView> epic)
+    public static List<WorkItemView> ready(List<WorkItemView> epic)
     {
         return epic.stream()
                 .filter(item -> item.state() == WorkItem.State.PLANNED && !waiting(item, epic))

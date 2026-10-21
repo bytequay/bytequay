@@ -11,13 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED', 'CI_ATTENTION'] as const;
+export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED', 'CI_ATTENTION', 'NEXT_WORK'] as const;
 export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 export type AppNotice = {
   id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null;
   title: string; pullRequest: string | null; pullRequestTitle: string | null; changes: NoticeChanges | null;
   message: string; repository: string; laneId: string; occurredAt: string;
+  /** The Epic work a NEXT_WORK notice suggests starting next, once a pull request of the Epic merged. */
+  workItemId?: string;
 };
 /** Latest review run counts; `update` marks a run that covers only changes since the prior review. */
 export type NoticeChanges = { update: boolean; commits: number; files: number; additions: number; deletions: number };
@@ -31,15 +33,16 @@ export type NoticeBridge = {
 };
 /** Approvals and AskUserQuestion cards; an alert's Answer opens the Assistant panel at the card, which has the task's own buttons. */
 export const APPROVAL_NOTICE = 'approval:';
-export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
+export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED' && notice.kind !== 'NEXT_WORK';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',
   FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused', CI_ATTENTION: 'CI needs attention',
+  NEXT_WORK: 'Next in Epic',
 };
 /** What opening a notice shows, as its button says, on its alert and in the Assistant panel alike. */
 export const NOTICE_ACTIONS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'View response', QUESTION: 'Reply', APPROVAL: 'Review request', FAILURE: 'View log', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue',
-  CI_ATTENTION: 'View task',
+  CI_ATTENTION: 'View task', NEXT_WORK: 'Open work',
 };
 export const noticeLabel = (notice: AppNotice): string => notice.reviewId === null ? NOTICE_LABELS[notice.kind]
   : notice.kind === 'TURN_FINISHED' ? 'Review finished' : notice.kind === 'FAILURE' ? 'Review failed' : NOTICE_LABELS[notice.kind];
@@ -61,9 +64,11 @@ export function parseNotices(value: unknown): AppNotice[] {
     for (const key of ['pullRequest', 'pullRequestTitle']) {
       if (item[key] !== null && (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 1000)) throw new Error('Invalid notice context');
     }
+    const workItemId = item.workItemId ?? null;
+    if (workItemId !== null && (typeof workItemId !== 'string' || !workItemId.trim() || workItemId.length > 200)) throw new Error('Invalid notice context');
     return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId, reviewId: item.reviewId,
       title: item.title, pullRequest: item.pullRequest, pullRequestTitle: item.pullRequestTitle, changes: parseChanges(item.changes),
-      message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt } as AppNotice;
+      message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt, ...(workItemId === null ? {} : { workItemId }) } as AppNotice;
   });
 }
 function parseChanges(raw: unknown): NoticeChanges | null {

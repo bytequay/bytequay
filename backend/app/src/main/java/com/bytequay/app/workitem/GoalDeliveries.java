@@ -16,6 +16,7 @@ package com.bytequay.app.workitem;
 import com.bytequay.app.context.ContextText;
 import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
+import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
@@ -53,7 +54,7 @@ import static java.util.Objects.requireNonNull;
  * Follows the pull requests of the Epics' open work: the work picks up a pull request its task published, a linked one still open is
  * refreshed whenever the lists are, and each change in its real status is recorded once on the work it concerns: a pull request open and
  * waiting for review, a review approving it or still requesting changes, checks failing on its head commit, and its merge. Whether the work is
- * done stays the user's decision.
+ * done stays the user's decision; a merge only has the Epic's next work picked for the user to start.
  */
 @Component
 public class GoalDeliveries
@@ -69,23 +70,25 @@ public class GoalDeliveries
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final PullRequestStore pullRequests;
     private final PrDetailStore details;
+    private final ObjectProvider<EpicNextWork> next;
     private final Executor executor;
 
     @Autowired
     public GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests,
-            PrDetailStore details)
+            PrDetailStore details, ObjectProvider<EpicNextWork> next)
     {
-        this(workspaces, work, refresh, pullRequests, details, Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
+        this(workspaces, work, refresh, pullRequests, details, next, Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
     }
 
     GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests,
-            PrDetailStore details, Executor executor)
+            PrDetailStore details, ObjectProvider<EpicNextWork> next, Executor executor)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.work = requireNonNull(work, "work is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.details = requireNonNull(details, "details is null");
+        this.next = requireNonNull(next, "next is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -144,7 +147,9 @@ public class GoalDeliveries
                     continue;
                 }
                 if (link.state() == GoalItemState.MERGED) {
-                    recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title());
+                    if (recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title())) {
+                        next.getObject().merged(item, link.label());
+                    }
                 }
                 else if (link.state() == GoalItemState.WORKING) {
                     recordOnce(item, "opened:" + link.key(), "Pull request " + link.label() + " opened: " + link.title());
@@ -171,16 +176,19 @@ public class GoalDeliveries
         }
     }
 
-    private void recordOnce(WorkItemView item, String operation, String receipt)
+    /** Whether this call recorded it. */
+    private boolean recordOnce(WorkItemView item, String operation, String receipt)
     {
         if (item.history().stream().anyMatch(recorded -> recorded.operationId().equals(operation))) {
-            return;
+            return false;
         }
         try {
             work.getObject().receipt(item.workspaceId(), item.id(), operation, receipt);
+            return true;
         }
         catch (RuntimeException failure) {
             log.warn("{} was not recorded on work {}", operation, item.id(), failure);
+            return false;
         }
     }
 

@@ -16,7 +16,11 @@ package com.bytequay.app.notices;
 import java.time.Instant;
 import java.util.Optional;
 
-/** A short projection of task facts. The source owns resolution; notices own no durable lifecycle. */
+/**
+ * A short projection of task facts. The source owns resolution; notices own no durable lifecycle.
+ *
+ * @param workItemId the Epic work a {@link Kind#NEXT_WORK} notice suggests starting next
+ */
 public record AppNotice(
         String id,
         Kind kind,
@@ -31,6 +35,7 @@ public record AppNotice(
         String message,
         String repository,
         String laneId,
+        Optional<String> workItemId,
         Instant occurredAt)
 {
     public enum Kind
@@ -41,7 +46,8 @@ public record AppNotice(
         FAILURE,
         RECOVERY,
         QUEUE_PAUSED,
-        CI_ATTENTION
+        CI_ATTENTION,
+        NEXT_WORK
     }
 
     /** Counts for the latest review run; {@code update} marks a run that covers only changes since the prior review. */

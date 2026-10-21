@@ -127,8 +127,10 @@ it('reads only task notices and opens the matching task', async () => {
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/notices', expect.objectContaining({ headers: expect.any(Object) }));
   await desktop.openNotice(task);
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/tasks/task?workspaceId=workspace', expect.objectContaining({ headers: expect.any(Object) }));
-  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null });
+  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null, workItemId: null });
   expect(desktop.openExternal).not.toHaveBeenCalled();
+  await desktop.openNotice({ ...task, id: 'next', kind: 'NEXT_WORK', turnId: null, workItemId: 'work-2' });
+  expect(desktop.send).toHaveBeenLastCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: null, reviewId: null, workItemId: 'work-2' });
 });
 
 it('opens completed reviews through their review route and checks their task and workspace', async () => {
@@ -143,7 +145,8 @@ it('opens completed reviews through their review route and checks their task and
   await desktop.openNotice(notice);
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher).toHaveBeenCalledWith(`http://127.0.0.1:9527/api/agent-review/${review.id}`, expect.objectContaining({ headers: expect.any(Object) }));
-  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: review.task.id, workspaceId: review.workspaceId, turnId: 'turn', reviewId: review.id });
+  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: review.task.id, workspaceId: review.workspaceId, turnId: 'turn', reviewId: review.id,
+    workItemId: null });
   expect(desktop.openExternal).not.toHaveBeenCalled();
   desktop.send.mockClear();
   for (const mismatch of [{ id: 'other' }, { workspaceId: 'other' }, { task: { ...review.task, id: 'other' } }]) {

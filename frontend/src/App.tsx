@@ -290,6 +290,10 @@ function AppContent() {
   }, []);
 
   useEffect(() => window.bridge.onAppNoticeOpen?.(target => {
+    if (target.workItemId) {
+      zoomReference({ kind: 'work', workspaceId: target.workspaceId, itemId: target.workItemId });
+      return;
+    }
     if (target.reviewId === null) {
       zoomReference({ kind: 'task', taskId: target.taskId, workspaceId: target.workspaceId });
       return;

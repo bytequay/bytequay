@@ -33,11 +33,8 @@ export function WorkItemPrompt({ workspaceId, itemId, taskId, prompt, attachment
     if (!workspaceId || (!itemId && !taskId)) return;
     let active = true;
     void Promise.resolve().then(() => window.bridge.listUnifiedWorkItems(workspaceId)).then(items => {
-      const item = items.find(candidate => candidate.work !== null && (itemId !== undefined ? candidate.id === itemId
-        : candidate.work.links.some(link => link.kind === 'TASK' && link.key === taskId)));
-      const epicId = item?.work?.epicId;
-      if (active) setSource(item === undefined ? null : { workspaceId, itemId, taskId, item,
-        epic: items.find(candidate => candidate.id === (epicId?.startsWith('LOCAL:') ? epicId.slice(6) : epicId)) ?? null });
+      const found = findWorkItem(items, itemId !== undefined ? { itemId } : { taskId: taskId ?? '' });
+      if (active) setSource(found === null ? null : { workspaceId, itemId, taskId, ...found });
     }, () => { if (active) setSource(null); });
     return () => { active = false; };
   }, [workspaceId, itemId, taskId]);
@@ -46,7 +43,16 @@ export function WorkItemPrompt({ workspaceId, itemId, taskId, prompt, attachment
   return <WorkItemRequestCard workspaceId={source.workspaceId} item={source.item} epic={source.epic} prompt={prompt} attachments={attachments} />;
 }
 
-function epicLink(workspaceId: string, epic: UnifiedWorkItem): { href: string; target: ZoomedReference } | null {
+/** The work item by its id or by a task it started, and the Epic it belongs to. */
+export function findWorkItem(items: UnifiedWorkItem[], by: { itemId: string } | { taskId: string }): { item: UnifiedWorkItem; epic: UnifiedWorkItem | null } | null {
+  const item = items.find(candidate => candidate.work !== null && ('itemId' in by ? candidate.id === by.itemId
+    : candidate.work.links.some(link => link.kind === 'TASK' && link.key === by.taskId)));
+  if (item === undefined) return null;
+  const epicId = item.work?.epicId;
+  return { item, epic: items.find(candidate => candidate.id === (epicId?.startsWith('LOCAL:') ? epicId.slice(6) : epicId)) ?? null };
+}
+
+export function epicLink(workspaceId: string, epic: UnifiedWorkItem): { href: string; target: ZoomedReference } | null {
   if (epic.work?.isEpic) return { href: workItemRoute(workspaceId, epic.id), target: { kind: 'work', workspaceId, itemId: epic.id } };
   const reference = epic.reference;
   if (reference?.kind === 'ISSUE') {

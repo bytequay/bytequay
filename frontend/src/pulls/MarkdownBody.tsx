@@ -14,7 +14,7 @@
 import { shortSha } from '@bytequay/ui/displayText';
 import hljs from 'highlight.js/lib/common';
 import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
-import { Fragment, useEffect, useId, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useEffect, useId, useMemo, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
 import { once } from '../dataCache';
 import {
   openGitHubReference,
@@ -967,11 +967,19 @@ export default function MarkdownBody({ body, className = '', repository, suggest
     const taskIndex = tasks.indexOf(event.target);
     if (taskIndex >= 0) onTaskToggle(taskIndex, event.target.checked);
   };
-  const document = extractHttpLinkDefinitions(fenceIndentedCode(body));
+  const tasksInteractive = onTaskToggle !== undefined;
+  // Callers rebuild the suggestion on every render, so its value, not its identity, decides a new parse.
+  const suggestionKey = suggestion === undefined ? undefined : JSON.stringify(suggestion);
+  // Parsing and highlighting cost far more than the render, and a long thread re-renders on every keystroke and poll.
+  const blocks = useMemo(() => {
+    const document = extractHttpLinkDefinitions(fenceIndentedCode(body));
+    return <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={repository}
+      suggestion={suggestionKey === undefined ? undefined : JSON.parse(suggestionKey) as SuggestionBase}
+      tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />;
+  }, [body, repository, suggestionKey, tasksInteractive, tasksDisabled]);
   return (
     <div className={`markdown-body ${className}`.trim()} onChange={toggleTask}>
-      <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={repository}
-        suggestion={suggestion} tasksInteractive={onTaskToggle !== undefined} tasksDisabled={tasksDisabled} />
+      {blocks}
     </div>
   );
 }

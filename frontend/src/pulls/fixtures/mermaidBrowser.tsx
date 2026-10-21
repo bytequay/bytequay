@@ -13,6 +13,8 @@
  */
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
+import hljs from 'highlight.js/lib/common';
+import type { HighlightOptions } from 'highlight.js';
 import MarkdownBody from '../MarkdownBody';
 import '../../css/base.css';
 import '../../css/pulls.css';
@@ -88,6 +90,22 @@ export async function run() {
 
   show(fence('const value = 1;', 'typescript'));
   assert(!host.querySelector('.md-mermaid') && !!host.querySelector('code.hljs'), 'Ordinary code must retain highlighting');
+
+  // Review threads pass a new suggestion object on every render; only a changed value may parse again.
+  const highlight = hljs.highlight;
+  let highlighted = 0;
+  const highlights = () => highlighted;
+  hljs.highlight = ((code: string, options: HighlightOptions) => {
+    highlighted++;
+    return highlight.call(hljs, code, options);
+  }) as typeof highlight;
+  const review = (text: string) => flushSync(() => root.render(<MarkdownBody body={text} suggestion={{ startLine: 1, lines: ['const value = 0;'] }} />));
+  review(fence('const value = 1;', 'typescript'));
+  review(fence('const value = 1;', 'typescript'));
+  assert(highlights() === 1, `Re-rendering the same text must reuse its highlighted code, highlighted ${highlights()} times`);
+  review(fence('const value = 2;', 'typescript'));
+  assert(highlights() === 2, 'Changed text must be highlighted again');
+  hljs.highlight = highlight;
   show(body);
   await waitFor(() => !!host.querySelector('img'));
   const finalDetails = host.querySelector('details');

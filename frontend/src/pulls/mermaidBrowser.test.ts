@@ -14,7 +14,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
-it('renders Mermaid in collapsed Markdown, follows the theme, and recovers from invalid source in Chromium', async () => {
+it('renders Mermaid in collapsed Markdown, follows the theme, recovers from invalid source, and reuses unchanged parses in Chromium', async () => {
   const result = await runBrowserFixture<{ passed: boolean }>({
     prefix: 'bytequay-mermaid-', entry: 'src/pulls/fixtures/mermaidBrowser.tsx', global: 'MermaidTests',
     styles: true, charset: true, width: 1440, height: 1000,

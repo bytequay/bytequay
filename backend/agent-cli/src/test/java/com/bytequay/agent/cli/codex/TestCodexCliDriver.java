@@ -251,6 +251,37 @@ class TestCodexCliDriver
                 .containsExactly(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX);
     }
 
+    @Test
+    void deepSeekSessionRefusesAnImageAttachment()
+            throws Exception
+    {
+        CodexCliDriver driver = CodexCliDriver.deepSeek(
+                "/fake/codex", "0.153.4", objectMapper, supervisor,
+                codexHome(),
+                PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "").build(),
+                new AgentLaneId("deepseek-key-123e4567-e89b-12d3-a456-426614174000"), "DeepSeek", () -> Optional.of("fake-key"));
+        supervisor.models = """
+                {"data":[
+                {"id":"deepseek-flash","displayName":"Flash","description":"d","hidden":false,"isDefault":true,
+                "defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high"}],
+                "multiAgentVersion":"disabled","inputModalities":["text"]},
+                {"id":"deepseek-v4-pro","displayName":"Pro","description":"d","hidden":false,"isDefault":false,
+                "defaultReasoningEffort":"high","supportedReasoningEfforts":[{"reasoningEffort":"high"}],
+                "multiAgentVersion":"disabled","inputModalities":["text"]}]}
+                """;
+        Path image = worktree.resolve("blobs/attachments/shot.png");
+        Files.createDirectories(image.getParent());
+        Files.write(image, new byte[] {1});
+
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            assertThatThrownBy(() -> session.start(new AgentTurnCommand(
+                    "turn-image", "look", ImmutableList.of(new AgentAttachment("att-1", "shot.png", "image/png", image)), Duration.ofMinutes(1))))
+                    .isInstanceOf(AgentUnavailableException.class)
+                    .hasMessageContaining("task-owned attachment");
+        }
+        assertThat(supervisor.server().turnRequests).isEmpty();
+    }
+
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
     void threadStartupUsesTheSelectedEffortBeforeTheFirstTurn(boolean resume)
@@ -4706,10 +4737,10 @@ class TestCodexCliDriver
             boolean review = hasArguments("--enable", "hooks")
                     || (!textOnlyProfile() && hasArguments("--disable", "guardian_approval"));
             ObjectNode config = objectMapper.valueToTree(
-                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review, Optional.empty(),
+                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review, deepSeekProfile(),
                             hasArguments("--enable", CodexLaunchProfile.ASK_USER_FEATURE)));
             for (String argument : argv) {
-                for (String key : ImmutableList.of("approval_policy", "approvals_reviewer")) {
+                for (String key : ImmutableList.of("approval_policy", "approvals_reviewer", "cli_auth_credentials_store")) {
                     String prefix = key + "=";
                     if (argument.startsWith(prefix)) {
                         config.set(key, objectMapper.readTree(argument.substring(prefix.length())));
@@ -4717,6 +4748,23 @@ class TestCodexCliDriver
                 }
             }
             return config;
+        }
+
+        private Optional<CodexLaunchProfile.DeepSeekProfile> deepSeekProfile()
+                throws IOException
+        {
+            Optional<String> catalog = configArgument("model_catalog_json=");
+            Optional<String> baseUrl = configArgument("model_providers.deepseek.base_url=");
+            if (catalog.isEmpty() || baseUrl.isEmpty()) {
+                return Optional.empty();
+            }
+            Path catalogPath = Path.of(objectMapper.readTree(catalog.get()).asText());
+            return Optional.of(new CodexLaunchProfile.DeepSeekProfile(catalogPath, URI.create(objectMapper.readTree(baseUrl.get()).asText())));
+        }
+
+        private Optional<String> configArgument(String prefix)
+        {
+            return argv.stream().filter(argument -> argument.startsWith(prefix)).map(argument -> argument.substring(prefix.length())).findFirst();
         }
 
         private CodexLaunchProfile.ChildProfile childProfile()

@@ -1587,7 +1587,7 @@ public final class CodexCliDriver
         {
             Path path = attachment.path().toAbsolutePath().normalize();
             Path runtime = context.runtimeDirectory().toAbsolutePath().normalize();
-            if (!CAPABILITIES.attachmentMediaTypes().contains(attachment.mediaType()) || !path.startsWith(runtime)) {
+            if (!capabilities().attachmentMediaTypes().contains(attachment.mediaType()) || !path.startsWith(runtime)) {
                 throw new AgentUnavailableException("Attachment " + attachment.name() + " is not a supported task-owned attachment");
             }
             try {

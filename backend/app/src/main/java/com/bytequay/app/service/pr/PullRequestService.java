@@ -200,7 +200,56 @@ public class PullRequestService
 
     public List<PullRequest> listAttentionCandidates()
     {
-        return store.findAttentionCandidates();
+        List<PullRequest> candidates = store.findAttentionCandidates();
+        Set<Long> cleared = candidates.stream()
+                .filter(row -> "open".equalsIgnoreCase(row.state()) && row.handledAction() == null && row.reviewedAt() != null)
+                .map(PullRequest::id).collect(toImmutableSet());
+        if (cleared.isEmpty()) {
+            return candidates;
+        }
+        Map<Long, PrViewState> states = viewStateStore.findByPrIds(cleared);
+        Optional<String> login = credentialService.cachedLogin();
+        return candidates.stream().map(row -> cachedApproval(row, states.get(row.id()), login)).collect(toImmutableList());
+    }
+
+    /** Use saved approval evidence while background sync has not reconciled the cleared action. */
+    private PullRequest cachedApproval(PullRequest row, PrViewState state, Optional<String> login)
+    {
+        if (state == null || state.handledAction() != null || state.reviewedHeadSha() == null || !Objects.equals(state.reviewedAt(), row.reviewedAt())
+                || summaryStamps.containsKey(parseRef(row.repo(), row.number()))) {
+            return row;
+        }
+        PrDetailFreshness freshness = details.findFreshness(row.id());
+        if (freshness.discussionAt().isEmpty() || newer(discussionSourceUpdatedAt(row), freshness.discussionSourceUpdatedAt())) {
+            return row;
+        }
+        Optional<StoredPrDetail> cached = details.find(row.id()).filter(detail -> detail.reviewsComplete() && detail.timelineComplete());
+        if (cached.isEmpty()) {
+            return row;
+        }
+        StoredPrDetail detail = cached.orElseThrow();
+        List<PrReviewState> matching = detail.reviews().stream()
+                .filter(review -> state.reviewedAt().equals(review.submittedAt()) && state.reviewedHeadSha().equals(review.commitId()))
+                .filter(review -> login.map(viewer -> viewer.equalsIgnoreCase(review.login())).orElse(true)).collect(toImmutableList());
+        if (matching.size() != 1 || !"APPROVED".equals(matching.getFirst().state())) {
+            return row;
+        }
+        String reviewer = matching.getFirst().login();
+        boolean laterReview = detail.reviews().stream().filter(review -> reviewer.equalsIgnoreCase(review.login()) && !"PENDING".equals(review.state()))
+                .anyMatch(review -> review.submittedAt() == null || review.submittedAt().isAfter(state.reviewedAt())
+                        || review.submittedAt().equals(state.reviewedAt()) && !"APPROVED".equals(review.state()));
+        boolean requestedAgain = row.reviewRequestedAt() != null && row.reviewRequestedAt().isAfter(state.reviewedAt())
+                && row.requestedReviewers().stream().anyMatch(reviewer::equalsIgnoreCase);
+        PrViewState approved = new PrViewState(state.prId(), state.viewedAt(), state.reviewedAt(), HandledAction.APPROVED, state.reviewedHeadSha());
+        if (laterReview || requestedAgain || needsReviewAgain(row, detail, reviewer, approved)) {
+            return row;
+        }
+        // Project the evidence only: a concurrent refresh may already have invalidated the persisted approval.
+        return new PullRequest(row.id(), row.repo(), row.number(), row.title(), row.author(), row.htmlUrl(), row.createdAt(), row.updatedAt(), row.origin(), row.labels(),
+                row.labelColors(), row.draft(), row.viewedAt(), row.reviewedAt(), HandledAction.APPROVED, row.requestedReviewers(), row.ciStatus(),
+                row.additions(), row.deletions(), row.commentCount(), row.state(), row.closedAt(), row.mergedAt(), row.mergeable(), row.mergeableState(),
+                row.headPushedAt(), row.headRef(), row.monitoredAt(),
+                row.activityAt(), row.reviewRequestedAt(), row.reviewDecision());
     }
 
     /** Reads the stored row without contacting GitHub or marking the pull request viewed. */

@@ -434,6 +434,7 @@ async function latestSummary(): Promise<void> {
   window.localStorage.clear();
   saveHandled({});
   const pending: ((rows: PullRequestDto[]) => void)[] = [];
+  const synced: (() => void)[] = [];
   window.bridge = {
     fetchAttentionPrs: () => new Promise<PullRequestDto[]>(resolve => pending.push(resolve)),
     getUserProfile: async () => { throw new Error('Profile unavailable'); },
@@ -442,14 +443,19 @@ async function latestSummary(): Promise<void> {
     listJiraAttention: async (): ReturnType<Bridge['listJiraAttention']> => [],
     getModelSettings: async (): Promise<Pick<ModelSettingsDto, 'providers'>> => ({ providers: [] }),
     fetchPrs: async (): ReturnType<Bridge['fetchPrs']> => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
-    onPullRequestsSynced: () => noOp,
+    onPullRequestsSynced: (callback: () => void) => { synced.push(callback); return noOp; },
   } as unknown as Bridge;
-  setCached(ATTENTION_SEED.prs, []);
+  for (const key of Object.values(ATTENTION_SEED)) setCached(key, undefined);
+  const approved = approvedItem(61).pr;
+  assert(approved !== null, 'Stored approval fixture is a pull request');
   const newest = item(51).pr;
   assert(newest !== null, 'Summary fixture is a pull request');
   function Workspace() {
-    const { candidates } = useWorkspaceAttention('ws-1', 'octo/app', { items: [], tasks: [], activity: {}, refresh: noOp });
-    return <output className="workspace-attention">{candidates.map(candidate => candidate.title).join(', ')}</output>;
+    const attention = useWorkspaceAttention('ws-1', 'octo/app', { items: [], tasks: [], activity: {}, refresh: noOp });
+    return <div className="workspace-attention">
+      <AttentionList variant="workspace" candidates={attention.candidates} handled={attention.handled} viewerLogin={attention.login}
+        onHandledChange={attention.applyHandled} onOpen={noOp} />
+    </div>;
   }
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
@@ -457,13 +463,24 @@ async function latestSummary(): Promise<void> {
     flushSync(() => root.render(<><HomePage onSelectRepo={noOp} onOpenWorkspace={noOp} /><Workspace /></>));
     await settle();
     assert(pending.length === 2, 'Both Homes start their local attention reads');
+    assert(host.querySelector('.item-row') === null, 'Restart begins without a renderer PR snapshot');
+    pending.splice(0).forEach(resolve => resolve([approved])); await settle();
+    for (const selector of ['.home-main', '.workspace-attention']) {
+      const surface = element<HTMLElement>(selector, host, 'Both Homes must render');
+      assert(surface.querySelector('[aria-label="Approved by me"] .item-row')?.textContent?.includes(approved.title) === true
+        && surface.querySelector('[aria-label="Needs attention"] .item-row') === null,
+      'The first local response restores approval in both Homes without waiting for background sync');
+    }
+    synced.forEach(callback => callback()); await settle();
+    assert(pending.length === 2 && host.querySelectorAll('[aria-label="Approved by me"] .item-row').length === 2,
+      'Both Homes keep the stored approval while their next refresh is pending');
     window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [newest] }));
     await settle();
     assert(host.querySelector('.item-row')?.textContent?.includes(newest.title) === true
-      && host.querySelector('.workspace-attention')?.textContent === newest.title, 'A fresh summary immediately reaches both Homes');
+      && host.querySelector('.workspace-attention .item-row')?.textContent?.includes(newest.title) === true, 'A fresh summary immediately reaches both Homes');
     pending.forEach(resolve => resolve([])); await settle();
     assert(host.querySelector('.item-row')?.textContent?.includes(newest.title) === true
-      && host.querySelector('.workspace-attention')?.textContent === newest.title
+      && host.querySelector('.workspace-attention .item-row')?.textContent?.includes(newest.title) === true
       && getCached<PullRequestDto[]>(ATTENTION_SEED.prs)?.[0]?.title === newest.title,
     'Older reads completing after a broadcast cannot erase its review request or cache');
   }

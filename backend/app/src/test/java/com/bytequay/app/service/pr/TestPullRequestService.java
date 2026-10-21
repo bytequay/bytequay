@@ -183,6 +183,179 @@ class TestPullRequestService
                 new GitHubCredential("pat", new UserProfile("me", "Me", "", "", 0, 0, 0, "", "", "", "")));
     }
 
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"me", "ME"})
+    void attentionRestoresSavedApprovalBeforeStartupSyncWithoutWriting(String login)
+    {
+        PullRequest row = attentionPullRequest(12, REVIEWED_AT, REVIEWED_AT.plusSeconds(30), REVIEWED_AT.plusSeconds(60),
+                PullRequestDetail.CiStatus.FAILING, REVIEWED_AT.plusSeconds(3600));
+        PrReviewState review = new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head");
+        cacheClearedApproval(row, ImmutableList.of(review));
+        when(credentialService.cachedLogin()).thenReturn(Optional.ofNullable(login));
+        // Summary/check activity can be newer than an otherwise fully current discussion snapshot.
+        when(store.findDiscussionActivityAt(12L)).thenReturn(Optional.of(REVIEWED_AT.plusSeconds(60)));
+
+        PullRequest projected = service.listAttentionCandidates().getFirst();
+
+        assertThat(projected.handledAction()).isEqualTo(HandledAction.APPROVED);
+        assertThat(projected).usingRecursiveComparison().ignoringFields("handledAction").isEqualTo(row);
+        assertThat(row.handledAction()).isNull();
+        verify(viewStateStore).findByPrIds(ImmutableSet.of(12L));
+        verifyNoMoreInteractions(viewStateStore);
+        verify(credentialService).cachedLogin();
+        verifyNoMoreInteractions(credentialService);
+        verify(detailStore).findFreshness(12L);
+        verify(detailStore).find(12L);
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(gitHub, summaries, writes, notifications, accounts, actions, diffStore);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"different-viewer", "ambiguous-viewer", "ambiguous-viewer-comment", "different-head", "different-time", "unknown-time"})
+    void attentionDoesNotGuessAnApprovalFromUnmatchedReviewEvidence(String mismatch)
+    {
+        PullRequest row = attentionPullRequest(12, REVIEWED_AT, null, null, null);
+        Instant submittedAt = switch (mismatch) {
+            case "different-time" -> REVIEWED_AT.minusMillis(100);
+            case "unknown-time" -> null;
+            default -> REVIEWED_AT;
+        };
+        PrReviewState review = new PrReviewState(1L, "me", null, false, mismatch.equals("ambiguous-viewer-comment") ? "COMMENTED" : "APPROVED", submittedAt, null, null,
+                mismatch.equals("different-head") ? "another-head" : "reviewed-head");
+        cacheClearedApproval(row, mismatch.startsWith("ambiguous-viewer") ? ImmutableList.of(review,
+                new PrReviewState(2L, "other", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head")) : ImmutableList.of(review));
+        if (mismatch.equals("different-viewer")) {
+            when(credentialService.cachedLogin()).thenReturn(Optional.of("other"));
+        }
+
+        assertThat(service.listAttentionCandidates()).containsExactly(row);
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"COMMENTED,60,false", "CHANGES_REQUESTED,60,false", "DISMISSED,60,false", "APPROVED,60,false", "COMMENTED,0,false", "COMMENTED,,false", "PENDING,60,true"})
+    void attentionRespectsReviewEvidenceAfterTheSavedApproval(String reviewState, Long offset, boolean restored)
+    {
+        PullRequest row = attentionPullRequest(12, REVIEWED_AT, null, null, null);
+        cacheClearedApproval(row, ImmutableList.of(
+                new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head"),
+                new PrReviewState(2L, "me", null, false, reviewState, offset == null ? null : REVIEWED_AT.plusSeconds(offset), null, null, "head")));
+
+        assertThat(service.listAttentionCandidates().getFirst().handledAction()).isEqualTo(restored ? HandledAction.APPROVED : null);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"unknown", "older-source", "new-notification", "missing-detail", "reviews", "timeline"})
+    void attentionRequiresCompleteCurrentDiscussionBeforeRecoveringApproval(String missing)
+    {
+        PullRequest row = attentionPullRequest(12, REVIEWED_AT, null, null, null);
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
+        when(viewStateStore.findByPrIds(ImmutableSet.of(12L)))
+                .thenReturn(ImmutableMap.of(12L, new PrViewState(12L, null, REVIEWED_AT, null, "reviewed-head")));
+        Instant sourceAt = missing.equals("older-source") ? REVIEWED_AT.minusSeconds(1) : REVIEWED_AT;
+        when(detailStore.findFreshness(12L)).thenReturn(missing.equals("unknown") ? PrDetailFreshness.unknown()
+                : new PrDetailFreshness(Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(120)), Optional.empty(), Optional.of(sourceAt)));
+        if (missing.equals("new-notification")) {
+            when(store.findDiscussionActivityAt(12L)).thenReturn(Optional.of(REVIEWED_AT.plusSeconds(1)));
+        }
+        if (missing.equals("reviews") || missing.equals("timeline")) {
+            when(detailStore.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw(),
+                    ImmutableList.of(new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head")),
+                    ImmutableList.of(), ImmutableList.of(), ImmutableList.of(missing), true)));
+        }
+
+        assertThat(service.listAttentionCandidates()).containsExactly(row);
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(), any(), any());
+        verifyNoInteractions(gitHub, summaries, writes);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"me,true,false", "me,false,true", "other,true,true"})
+    void attentionKeepsActualReviewRequestsAheadOfCachedApproval(String requestedReviewer, boolean active, boolean restored)
+    {
+        PullRequest row = attentionPullRequest(12, REVIEWED_AT, null, null, null);
+        cacheClearedApproval(row, ImmutableList.of());
+        PrRawDetail raw = new PrRawDetail(null, null, "open", "alice", null, null, REVIEWED_AT, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
+                false, true, "clean", 4, 2, 1, active ? 1 : 0, active ? ImmutableList.of("me") : ImmutableList.of(), "head", "feature", "main", "base");
+        when(detailStore.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw,
+                ImmutableList.of(new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head")),
+                ImmutableList.of(new PrTimelineEvent(2L, "review_requested", "alice", REVIEWED_AT.plusSeconds(60), null,
+                        PrTimelinePayload.builder().requestedReviewer(requestedReviewer).build(), Optional.empty())),
+                ImmutableList.of(), ImmutableList.of(), true)));
+
+        assertThat(service.listAttentionCandidates().getFirst().handledAction()).isEqualTo(restored ? HandledAction.APPROVED : null);
+    }
+
+    @Test
+    void attentionDoesNotRecoverOverACanonicalActiveReviewRequest()
+    {
+        PullRequest row = new PullRequest(12L, "owner/repo", 12, "Title", "alice", "https://github.com/owner/repo/pull/12", REVIEWED_AT, REVIEWED_AT,
+                PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false, null, REVIEWED_AT, null, ImmutableList.of("ME"),
+                null, 0, 0, 0, "open", null, null, null, null, null, "feature", null, null, REVIEWED_AT.plusSeconds(60), null);
+        cacheClearedApproval(row, ImmutableList.of(new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head")));
+
+        assertThat(service.listAttentionCandidates()).containsExactly(row);
+    }
+
+    @Test
+    void attentionLeavesExistingActionsAndUnreviewedRowsUnchanged()
+    {
+        PullRequest handled = new PullRequest(12L, "owner/repo", 12, "Title", "alice", "https://github.com/owner/repo/pull/12", REVIEWED_AT, REVIEWED_AT,
+                PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false, null, REVIEWED_AT, HandledAction.CHANGES_REQUESTED, ImmutableList.of(),
+                null, 0, 0, 0, "open", null, null, null, null, null, "feature", null, null, null, null);
+        PullRequest unreviewed = attentionPullRequest(13, null, REVIEWED_AT, null, null);
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(handled, unreviewed));
+
+        assertThat(service.listAttentionCandidates()).containsExactly(handled, unreviewed);
+        verifyNoInteractions(viewStateStore, detailStore, credentialService, gitHub, summaries, writes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void attentionStopsRecoveringApprovalAfterThisSessionReconcilesARequestOrDismissal(boolean dismissed)
+    {
+        PullRequest row = attentionPullRequest(12, REVIEWED_AT, null, null, null);
+        PrReviewState approval = new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head");
+        cacheClearedApproval(row, ImmutableList.of(approval));
+        assertThat(service.listAttentionCandidates().getFirst().handledAction()).isEqualTo(HandledAction.APPROVED);
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(), any(), any());
+        verifyNoInteractions(gitHub, summaries, writes);
+
+        AtomicReference<PrViewState> state = new AtomicReference<>(new PrViewState(12L, null, REVIEWED_AT, HandledAction.APPROVED, "reviewed-head"));
+        when(viewStateStore.findByPrIds(ImmutableSet.of(12L))).thenAnswer(ignored -> ImmutableMap.of(12L, state.get()));
+        doAnswer(ignored -> {
+            state.set(new PrViewState(12L, null, REVIEWED_AT, null, "reviewed-head"));
+            return null;
+        }).when(viewStateStore).markNeedsReview(12L);
+        FetchedPullRequest fetched = pullRequestNumber(12);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
+        when(store.saveObserved(any())).thenReturn(row);
+        PrReviewState latest = dismissed ? new PrReviewState(1L, "me", null, false, "DISMISSED", REVIEWED_AT, null, null, "reviewed-head") : approval;
+        when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me"))).thenReturn(ImmutableList.of(new GitHubPullRequestSummary(
+                fetched, PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head", Optional.of(REVIEWED_AT), Optional.empty(),
+                Optional.of(latest), dismissed ? Optional.empty() : Optional.of(REVIEWED_AT.plusSeconds(60)), "v2", fetched.updatedAt(), Optional.empty())));
+
+        service.syncRepository(RepoRef.of("owner", "repo"));
+
+        assertThat(service.listAttentionCandidates()).containsExactly(row);
+        verify(viewStateStore).markNeedsReview(12L);
+        verify(detailStore).find(12L);
+        verify(detailStore).findFreshness(12L);
+        verifyNoMoreInteractions(detailStore);
+    }
+
+    private void cacheClearedApproval(PullRequest row, List<PrReviewState> reviews)
+    {
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
+        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id())))
+                .thenReturn(ImmutableMap.of(row.id(), new PrViewState(row.id(), null, row.reviewedAt(), null, "reviewed-head")));
+        when(detailStore.findFreshness(row.id())).thenReturn(new PrDetailFreshness(Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(120)),
+                Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(60))));
+        when(detailStore.find(row.id())).thenReturn(Optional.of(new StoredPrDetail(raw(), reviews, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true)));
+    }
+
     @Test
     void exactLookupReadsTheCachedRowWithoutRemoteRequestsOrViewChanges()
     {

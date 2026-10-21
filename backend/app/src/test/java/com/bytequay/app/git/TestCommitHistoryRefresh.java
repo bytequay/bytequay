@@ -156,6 +156,7 @@ class TestCommitHistoryRefresh
             assertThat(value.committerAvatarKey()).contains(COMMITTER_AVATAR_KEY);
             assertThat(value.pullRequestNumber()).contains(42);
             assertThat(value.pullRequestTitle()).contains("Example pull request");
+            assertThat(value.pullRequestMergedAt()).contains(Instant.parse("2026-08-22T00:00:00Z"));
         });
         InOrder order = inOrder(provisioning, git, gitHub, pullRequests);
         order.verify(provisioning).synchronizeCode(WORKSPACE_ID);
@@ -335,7 +336,7 @@ class TestCommitHistoryRefresh
         Instant previousCheck = NOW.minusSeconds(86_400);
         store.upsertEnrichment(ImmutableList.of(new CommitEnrichment(202, commit.sha(), Optional.of("old-author"), Optional.of(AVATAR_KEY),
                 Optional.of("old-committer"), Optional.of(COMMITTER_AVATAR_KEY), Optional.of(42), Optional.of("Retained title"), Optional.of("https://example.invalid/pull/42"),
-                Optional.of(previousCheck), Optional.of(previousCheck), previousCheck)));
+                Optional.of(previousCheck), Optional.of(previousCheck), Optional.of(previousCheck), previousCheck)));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of(commit));
         when(gitHub.fetchCommitAvatarSnapshot("test-token", repository, commit.sha(), 1))
                 .thenReturn(new CommitAvatarSnapshot(
@@ -448,6 +449,7 @@ class TestCommitHistoryRefresh
                 Optional.of(42),
                 Optional.of("Example pull request"),
                 Optional.of("https://example.invalid/pull/42"),
+                Optional.of(NOW.minusSeconds(86_400)),
                 Optional.of(avatarCheckedAt),
                 Optional.of(NOW.minusSeconds(86_400)),
                 NOW);
@@ -458,6 +460,7 @@ class TestCommitHistoryRefresh
         return new CommitEnrichment(
                 101,
                 sha,
+                Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),

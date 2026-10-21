@@ -276,6 +276,7 @@ class TestCommitHistoryService
                 Optional.of("https://example.invalid/pull/42"),
                 Optional.of(checkedAt),
                 Optional.of(checkedAt),
+                Optional.of(checkedAt),
                 checkedAt);
     }
 }

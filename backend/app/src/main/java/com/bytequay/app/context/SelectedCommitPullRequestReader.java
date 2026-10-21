@@ -179,7 +179,8 @@ public class SelectedCommitPullRequestReader
             Optional<PullRequestAssociation> association = Optional.ofNullable(associations.get(sha));
             CommitEnrichment observed = new CommitEnrichment(repositoryId, sha, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                     association.map(PullRequestAssociation::number), association.map(PullRequestAssociation::title).filter(value -> !value.isBlank()),
-                    association.map(PullRequestAssociation::url).filter(value -> !value.isBlank()), Optional.empty(), Optional.of(checkedAt), checkedAt);
+                    association.map(PullRequestAssociation::url).filter(value -> !value.isBlank()), association.flatMap(PullRequestAssociation::mergedTime),
+                    Optional.empty(), Optional.of(checkedAt), checkedAt);
             updates.add(observed);
             items.put(sha, item(sha, Optional.of(observed), true, false, false));
         }

@@ -33,6 +33,7 @@ public record CommitEnrichment(
         Optional<Integer> pullRequestNumber,
         Optional<String> pullRequestTitle,
         Optional<String> pullRequestUrl,
+        Optional<Instant> pullRequestMergedAt,
         Optional<Instant> avatarCheckedAt,
         Optional<Instant> associationCheckedAt,
         Instant lastSeenAt)
@@ -51,6 +52,7 @@ public record CommitEnrichment(
         requireNonNull(pullRequestNumber, "pullRequestNumber is null");
         requireNonNull(pullRequestTitle, "pullRequestTitle is null");
         requireNonNull(pullRequestUrl, "pullRequestUrl is null");
+        requireNonNull(pullRequestMergedAt, "pullRequestMergedAt is null");
         requireNonNull(avatarCheckedAt, "avatarCheckedAt is null");
         requireNonNull(associationCheckedAt, "associationCheckedAt is null");
         requireNonNull(lastSeenAt, "lastSeenAt is null");
@@ -63,6 +65,7 @@ public record CommitEnrichment(
         pullRequestUrl.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestUrl is blank"));
         checkArgument(pullRequestNumber.isPresent() || pullRequestTitle.isEmpty(), "pullRequestTitle requires pullRequestNumber");
         checkArgument(pullRequestNumber.isPresent() || pullRequestUrl.isEmpty(), "pullRequestUrl requires pullRequestNumber");
+        checkArgument(pullRequestNumber.isPresent() || pullRequestMergedAt.isEmpty(), "pullRequestMergedAt requires pullRequestNumber");
     }
 
     /**
@@ -74,10 +77,12 @@ public record CommitEnrichment(
     {
         requireNonNull(existing, "existing is null");
         requireNonNull(now, "now is null");
-        if (existing.flatMap(CommitEnrichment::pullRequestNumber).isPresent()) {
-            return false;
-        }
         Optional<Instant> checkedAt = existing.flatMap(CommitEnrichment::associationCheckedAt);
+        if (existing.flatMap(CommitEnrichment::pullRequestNumber).isPresent()) {
+            // Mappings saved before the merge time was kept fetch it again, at most daily.
+            return existing.flatMap(CommitEnrichment::pullRequestMergedAt).isEmpty()
+                    && checkedAt.filter(value -> value.isAfter(now.minus(NEGATIVE_RETRY_INTERVAL))).isEmpty();
+        }
         if (checkedAt.isEmpty()) {
             return true;
         }

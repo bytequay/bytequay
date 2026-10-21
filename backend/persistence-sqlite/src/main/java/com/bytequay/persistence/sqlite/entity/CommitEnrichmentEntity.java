@@ -58,6 +58,9 @@ public class CommitEnrichmentEntity
     @Column(name = "pull_request_url")
     private String pullRequestUrl;
 
+    @Column(name = "pull_request_merged_at")
+    private Instant pullRequestMergedAt;
+
     @Column(name = "avatar_checked_at")
     private Instant avatarCheckedAt;
 
@@ -106,6 +109,7 @@ public class CommitEnrichmentEntity
         return new CommitEnrichment(
                 getId().getRepositoryId(), getId().getSha(), Optional.ofNullable(getAuthorLogin()), Optional.ofNullable(getAvatarKey()), Optional.ofNullable(getCommitterLogin()),
                 Optional.ofNullable(getCommitterAvatarKey()), Optional.ofNullable(getPullRequestNumber()), Optional.ofNullable(getPullRequestTitle()),
-                Optional.ofNullable(getPullRequestUrl()), Optional.ofNullable(getAvatarCheckedAt()), Optional.ofNullable(getAssociationCheckedAt()), getLastSeenAt());
+                Optional.ofNullable(getPullRequestUrl()), Optional.ofNullable(getPullRequestMergedAt()), Optional.ofNullable(getAvatarCheckedAt()),
+                Optional.ofNullable(getAssociationCheckedAt()), getLastSeenAt());
     }
 }

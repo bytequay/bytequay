@@ -261,6 +261,7 @@ class TestSelectedCommitPullRequestReader
         assertThat(read.items()).allSatisfy(item -> assertThat(item.lookupAttempted()).isTrue());
         ArgumentCaptor<Collection<CommitEnrichment>> saved = ArgumentCaptor.captor();
         verify(enrichment).upsertEnrichment(saved.capture());
+        assertThat(saved.getValue().iterator().next().pullRequestMergedAt()).contains(NOW);
         assertThat(saved.getValue()).containsExactly(positive, negative).allSatisfy(value -> {
             assertThat(value.authorLogin()).isEmpty();
             assertThat(value.avatarKey()).isEmpty();
@@ -351,7 +352,7 @@ class TestSelectedCommitPullRequestReader
     void avatarOnlyRowDoesNotClaimAPersistedAssociationAfterLocalReadFailure()
     {
         CommitEnrichment avatars = new CommitEnrichment(REPOSITORY_ID, FIRST, Optional.of("author"), Optional.of("a".repeat(64)),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW), Optional.empty(), NOW);
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW), Optional.empty(), NOW);
         when(enrichment.findEnrichment(REPOSITORY_ID, ImmutableList.of(FIRST))).thenReturn(snapshot(avatars));
         when(git.run(REPOSITORY, Duration.ofSeconds(2), arguments(FIRST))).thenReturn(GitCommandRunner.Result.failed("Missing"));
 
@@ -408,7 +409,8 @@ class TestSelectedCommitPullRequestReader
     private static CommitEnrichment stored(long repositoryId, String sha, Optional<Integer> number, Optional<Instant> checkedAt)
     {
         return new CommitEnrichment(repositoryId, sha, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), number,
-                number.map(value -> "Pull request " + value), number.map(value -> "https://github.com/owner/project/pull/" + value), Optional.empty(), checkedAt, NOW);
+                number.map(value -> "Pull request " + value), number.map(value -> "https://github.com/owner/project/pull/" + value), number.map(value -> NOW),
+                Optional.empty(), checkedAt, NOW);
     }
 
     private static CommitEnrichmentSnapshot snapshot(CommitEnrichment... values)

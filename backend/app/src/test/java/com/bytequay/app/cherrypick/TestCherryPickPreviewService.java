@@ -127,6 +127,7 @@ class TestCherryPickPreviewService
                         Optional.of(42),
                         Optional.of("Example pull request"),
                         Optional.of("https://example.invalid/pull/42"),
+                        Optional.of(NOW.minusSeconds(60)),
                         Optional.empty(),
                         Optional.of(NOW),
                         NOW))));
@@ -137,6 +138,7 @@ class TestCherryPickPreviewService
             assertThat(value.pullRequest()).isPresent();
             assertThat(value.pullRequest().orElseThrow().number()).isEqualTo(42);
             assertThat(value.pullRequest().orElseThrow().title()).isEqualTo("Example pull request");
+            assertThat(value.pullRequest().orElseThrow().mergedAt()).isEqualTo(NOW.minusSeconds(60).toString());
         });
         verify(credentials).gitAuthenticationEnvironment("workspace-id", ImmutableList.of(upstream.toString(), fork.toString()));
     }

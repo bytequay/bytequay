@@ -13,6 +13,10 @@
  */
 package com.bytequay.app.cherrypick;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
+import java.util.Optional;
+
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -31,5 +35,16 @@ public record PullRequestAssociation(int number, String title, String url, Strin
         requireNonNull(url, "url is null");
         requireNonNull(baseRef, "baseRef is null");
         requireNonNull(mergedAt, "mergedAt is null");
+    }
+
+    /** GitHub's merge time; a value that does not parse only costs the display. */
+    public Optional<Instant> mergedTime()
+    {
+        try {
+            return mergedAt.isBlank() ? Optional.empty() : Optional.of(Instant.parse(mergedAt));
+        }
+        catch (DateTimeParseException ignored) {
+            return Optional.empty();
+        }
     }
 }

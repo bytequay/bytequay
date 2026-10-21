@@ -345,6 +345,7 @@ public class CommitHistoryService
                 association.map(PullRequestAssociation::number),
                 association.map(PullRequestAssociation::title).filter(value -> !value.isBlank()),
                 association.map(PullRequestAssociation::url).filter(value -> !value.isBlank()),
+                association.flatMap(PullRequestAssociation::mergedTime),
                 avatarChecked ? Optional.of(now) : Optional.empty(),
                 association.isPresent() || associationChecked ? Optional.of(now) : Optional.empty(),
                 now);
@@ -363,6 +364,7 @@ public class CommitHistoryService
                 second.pullRequestNumber().or(first::pullRequestNumber),
                 second.pullRequestTitle().or(first::pullRequestTitle),
                 second.pullRequestUrl().or(first::pullRequestUrl),
+                second.pullRequestMergedAt().or(first::pullRequestMergedAt),
                 second.avatarCheckedAt().or(first::avatarCheckedAt),
                 second.associationCheckedAt().or(first::associationCheckedAt),
                 second.lastSeenAt());

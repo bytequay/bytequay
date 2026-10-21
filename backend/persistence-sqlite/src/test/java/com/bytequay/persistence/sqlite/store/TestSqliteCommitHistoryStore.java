@@ -81,14 +81,15 @@ class TestSqliteCommitHistoryStore
 
         CommitEnrichment seenAgain = new CommitEnrichment(
                 100, SHA, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), NOW.plusSeconds(1));
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), NOW.plusSeconds(1));
         store.upsertEnrichment(ImmutableList.of(seenAgain));
 
         var snapshot = store.findEnrichment(100, ImmutableList.of(SHA, unrelated.sha())).commits();
         assertThat(snapshot).hasSize(2);
         assertThat(snapshot.stream().filter(value -> value.sha().equals(SHA)).findFirst().orElseThrow())
-                .extracting(CommitEnrichment::authorLogin, CommitEnrichment::committerLogin, CommitEnrichment::pullRequestNumber, CommitEnrichment::pullRequestTitle)
-                .containsExactly(Optional.of("percy-r"), Optional.of("ezra-b"), Optional.of(42), Optional.of("PR title"));
+                .extracting(CommitEnrichment::authorLogin, CommitEnrichment::committerLogin, CommitEnrichment::pullRequestNumber, CommitEnrichment::pullRequestTitle,
+                        CommitEnrichment::pullRequestMergedAt)
+                .containsExactly(Optional.of("percy-r"), Optional.of("ezra-b"), Optional.of(42), Optional.of("PR title"), Optional.of(NOW.minusSeconds(60)));
     }
 
     @Test
@@ -118,6 +119,7 @@ class TestSqliteCommitHistoryStore
                 pullRequestNumber,
                 pullRequestTitle,
                 pullRequestNumber.map(number -> "https://example.invalid/pull/" + number),
+                pullRequestNumber.map(number -> NOW.minusSeconds(60)),
                 Optional.of(NOW),
                 Optional.of(NOW),
                 NOW);

@@ -237,7 +237,8 @@ public class CherryPickPreviewService
     private static PullRequestAssociation association(CommitEnrichment enrichment)
     {
         int number = enrichment.pullRequestNumber().orElseThrow();
-        return new PullRequestAssociation(number, enrichment.pullRequestTitle().orElse("PR #" + number), enrichment.pullRequestUrl().orElse(""), "", "");
+        return new PullRequestAssociation(number, enrichment.pullRequestTitle().orElse("PR #" + number), enrichment.pullRequestUrl().orElse(""), "",
+                enrichment.pullRequestMergedAt().map(Instant::toString).orElse(""));
     }
 
     /**

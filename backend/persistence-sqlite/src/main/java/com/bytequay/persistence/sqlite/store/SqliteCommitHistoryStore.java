@@ -109,6 +109,7 @@ public class SqliteCommitHistoryStore
         entity.setPullRequestNumber(value.pullRequestNumber().orElse(entity.getPullRequestNumber()));
         entity.setPullRequestTitle(value.pullRequestTitle().orElse(entity.getPullRequestTitle()));
         entity.setPullRequestUrl(value.pullRequestUrl().orElse(entity.getPullRequestUrl()));
+        entity.setPullRequestMergedAt(value.pullRequestMergedAt().orElse(entity.getPullRequestMergedAt()));
         entity.setAvatarCheckedAt(value.avatarCheckedAt().orElse(entity.getAvatarCheckedAt()));
         entity.setAssociationCheckedAt(value.associationCheckedAt().orElse(entity.getAssociationCheckedAt()));
         entity.setLastSeenAt(value.lastSeenAt());

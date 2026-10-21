@@ -132,6 +132,17 @@ class TestAutoMergeService
     }
 
     @Test
+    void aRebaseGitHubTurnsIntoAQueueEntryIsQueued()
+    {
+        when(settings.preferences()).thenReturn(new AppPreferences(7, 14, AppTheme.SYSTEM, 30, 0));
+        when(pullRequests.mergePullRequest(REPO, 12, 12L, "rebase", HEAD)).thenReturn(MergeResult.enqueued("Queued at position 1"));
+
+        service.advance(task);
+
+        assertThat(summary()).isEqualTo(new AutoMergeService.AutoMergeSummary("QUEUED", Optional.empty(), Optional.of("Queued at position 1")));
+    }
+
+    @Test
     void aQueuedMergeStaysUnderwayUntilGitHubMergesThePullRequest()
     {
         joinQueue();

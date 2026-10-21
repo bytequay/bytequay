@@ -2202,7 +2202,8 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenThrow(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "Merge queue is required"));
-        when(writes.mergeWhenReady("pat", ref, "displayed-head")).thenReturn(MergeResult.enqueued("queued"));
+        when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        when(writes.enqueuePullRequest("pat", "PR_1", "displayed-head")).thenReturn(MergeResult.enqueued("queued"));
 
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash", "displayed-head");
 
@@ -2215,19 +2216,17 @@ class TestPullRequestService
     }
 
     @Test
-    void enablesMergeWhenReadyForQueueAction()
+    void enqueuesDirectlyForQueueAction()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        MergeResult waiting = new MergeResult(null, false, "Will join the merge queue when all requirements pass");
-        when(writes.mergeWhenReady("pat", ref, "displayed-head")).thenReturn(waiting);
+        when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        when(writes.enqueuePullRequest("pat", "PR_1", "displayed-head")).thenReturn(MergeResult.enqueued("queued"));
 
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "queue", "displayed-head");
 
-        assertThat(result).isEqualTo(waiting);
-        verify(writes).mergeWhenReady("pat", ref, "displayed-head");
+        assertThat(result.queued()).isTrue();
         verify(writes, never()).mergePullRequest(anyString(), any(), any());
-        verify(store, never()).setMonitored(anyLong(), anyBoolean());
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
         verifyNoMoreInteractions(detailStore);

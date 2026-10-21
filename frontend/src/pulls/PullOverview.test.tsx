@@ -136,7 +136,7 @@ describe('PullOverview', () => {
     expect(popup).toMatch(/<button type="button">.*Remove from merge queue<\/button>/);
   });
 
-  it.each([true, false, undefined, null])('allows waiting for running checks only with a merge queue (%s)', mergeQueue => {
+  it.each([true, false, undefined, null])('waits for running checks in every merge mode (%s)', mergeQueue => {
     const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, ciStatus: 'PENDING',
       checkRuns: [{ ...detail().checkRuns[0], status: 'in_progress', conclusion: null, category: 'pending' }],
     };
@@ -145,13 +145,12 @@ describe('PullOverview', () => {
     const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
     expect(popup).toContain('Waiting for checks');
     expect(popup).toContain(`${mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}</button>`);
-    expect(actions[1].includes('disabled=""')).toBe(mergeQueue !== true);
+    expect(actions[1]).toContain('disabled=""');
 
     const mergePr = vi.fn(async () => {});
     vi.stubGlobal('window', { bridge: { mergePr } });
     captureMergeSubmit(props)();
-    if (mergeQueue === true) expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, 'queue', value.headSha);
-    else expect(mergePr).not.toHaveBeenCalled();
+    expect(mergePr).not.toHaveBeenCalled();
   });
 
   it('keeps unresolved reviews blocked while queue checks run', () => {

@@ -14,7 +14,6 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.MergeResult;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -47,99 +46,19 @@ class TestGitHubClientMergeQueue
     @Test
     void enqueuesPullRequest()
     {
-        expectMergeQueue(true);
         graphServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(content().json("""
-                        {"query":"mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head }) { pullRequest { mergeQueueEntry { position state } autoMergeRequest { enabledAt } } } }",
+                        {"query":"mutation($id: ID!, $head: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) { mergeQueueEntry { position state } } }",
                          "variables":{"id":"PR_1","head":"displayed-head"}}
                         """))
                 .andRespond(withSuccess("""
-                        {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"mergeQueueEntry":{"position":2,"state":"QUEUED"},"autoMergeRequest":null}}}}
+                        {"data":{"enqueuePullRequest":{"mergeQueueEntry":{"position":2,"state":"QUEUED"}}}}
                         """, MediaType.APPLICATION_JSON));
 
-        MergeResult result = client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head");
+        MergeResult result = client.enqueuePullRequest("pat", "PR_1", "displayed-head");
 
         assertThat(result.queued()).isTrue();
-        assertThat(result.merged()).isFalse();
         assertThat(result.message()).contains("position 2");
-    }
-
-    @Test
-    void schedulesQueueEntryWhileRequirementsArePending()
-    {
-        expectMergeQueue(true);
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andExpect(content().json("""
-                        {"query":"mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head }) { pullRequest { mergeQueueEntry { position state } autoMergeRequest { enabledAt } } } }",
-                         "variables":{"id":"PR_1","head":"displayed-head"}}
-                        """))
-                .andRespond(withSuccess("""
-                        {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"mergeQueueEntry":null,"autoMergeRequest":{"enabledAt":"2026-01-01T00:00:00Z"}}}}}
-                        """, MediaType.APPLICATION_JSON));
-
-        MergeResult result = client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head");
-
-        assertThat(result.queued()).isFalse();
-        assertThat(result.merged()).isFalse();
-        assertThat(result.message()).isEqualTo("Will join the merge queue when all requirements pass");
-    }
-
-    @Test
-    void doesNotEnableAutoMergeWhenTheBranchNoLongerHasAQueue()
-    {
-        expectMergeQueue(false);
-
-        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no longer has a merge queue");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"{\"id\":\"PR_1\"}", "{\"isMergeQueueEnabled\":true}"})
-    void doesNotEnableAutoMergeWithoutCompleteQueueMetadata(String pullRequest)
-    {
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess("""
-                        {"data":{"repository":{"pullRequest":%s}}}
-                        """.formatted(pullRequest), MediaType.APPLICATION_JSON));
-
-        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("incomplete GraphQL data");
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "{}",
-            "{\"data\":{}}",
-            "{\"data\":{\"enablePullRequestAutoMerge\":null}}",
-            "{\"data\":{\"enablePullRequestAutoMerge\":{\"pullRequest\":null}}}",
-            "{\"data\":{\"enablePullRequestAutoMerge\":{\"pullRequest\":{}}}}",
-    })
-    void rejectsIncompleteMergeWhenReadyAcknowledgment(String response)
-    {
-        expectMergeQueue(true);
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
-
-        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no queue entry or auto-merge request");
-    }
-
-    @Test
-    void reportsMergeWhenReadyRejectionEvenWithPartialData()
-    {
-        expectMergeQueue(true);
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess("""
-                        {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"mergeQueueEntry":{"position":2,"state":"QUEUED"}}}},
-                         "errors":[{"message":"Head changed"}]}
-                        """, MediaType.APPLICATION_JSON));
-
-        assertThatThrownBy(() -> client.mergeWhenReady("pat", PullRequestRef.of("owner", "repo", 7), "displayed-head"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Head changed");
     }
 
     @Test
@@ -179,17 +98,5 @@ class TestGitHubClientMergeQueue
         assertThatThrownBy(() -> client.dequeuePullRequest("pat", "PR_1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Write access is required");
-    }
-
-    private void expectMergeQueue(boolean enabled)
-    {
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andExpect(content().json("""
-                        {"query":"query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { id isMergeQueueEnabled } } }",
-                         "variables":{"owner":"owner","name":"repo","number":7}}
-                        """))
-                .andRespond(withSuccess("""
-                        {"data":{"repository":{"pullRequest":{"id":"PR_1","isMergeQueueEnabled":%s}}}}
-                        """.formatted(enabled), MediaType.APPLICATION_JSON));
     }
 }

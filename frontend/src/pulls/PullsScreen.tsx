@@ -1618,9 +1618,9 @@ export function hasMergeConflicts(detail: PullRequestDetailDto | null) {
 
 /** Whether the merge sheet's button may merge now: every place that merges a pull request asks the same. */
 export function mergeReady(detail: PullRequestDetailDto, mergeQueue: boolean | null | undefined): boolean {
-  const { state, unresolved } = mergeStatus(detail);
-  return !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite
-    && (state === 'ready' || (mergeQueue === true && state === 'pending' && unresolved === 0))
+  // A queued pull request merges whatever head it then has, so it joins only once checks pass; GitHub drops it on a new push.
+  const { state } = mergeStatus(detail);
+  return !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
     && typeof mergeQueue === 'boolean' && !!detail.headSha && !hasMergeConflicts(detail) && !isQueued(detail.recentActivity);
 }
 

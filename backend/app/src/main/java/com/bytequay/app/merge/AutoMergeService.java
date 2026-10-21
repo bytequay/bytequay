@@ -248,7 +248,8 @@ public class AutoMergeService
             if (result.merged()) {
                 store.save(started.ended(AutoMerge.Outcome.MERGED, "Merged"));
             }
-            else if (queue) {
+            // A branch that gained a queue since it was checked turns the rebase into a queue entry too.
+            else if (result.queued()) {
                 store.save(started.ended(AutoMerge.Outcome.QUEUED, Optional.ofNullable(result.message()).orElse("In the merge queue")));
             }
             else {

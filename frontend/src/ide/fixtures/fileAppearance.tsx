@@ -22,7 +22,7 @@ import TreeItems from '../../pulls/code-tests/TreeItems';
 import { buildFileTree } from '../../pulls/fileTree';
 import JavaFileIcon from '../JavaFileIcon';
 import { installTestTabColors } from '../testTabColors';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, element, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/code-tests.css';
 import '../workbench.css';
@@ -102,7 +102,7 @@ export async function verifyFileAppearance() {
       const tint = getComputedStyle(tabs()[1]).backgroundColor;
       assert(tint === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)'), `${name} test tab has the green tint: ${tint}`);
       assert(getComputedStyle(row(paths[1])).backgroundColor === (dark ? 'rgb(52, 75, 54)' : 'rgb(214, 233, 196)'), `${name} selected test row keeps its green tint`);
-      const iconColor = (path: string) => getComputedStyle(row(path).querySelector('.ct-tree__icon')!).color;
+      const iconColor = (path: string) => getComputedStyle(element('.ct-tree__icon', row(path), `Missing tree icon: ${path}`)).color;
       assert(iconColor('src/main/java') === (dark ? 'rgb(100, 149, 237)' : 'rgb(53, 116, 232)'), `${name} production sources are blue`);
       assert(iconColor('src/test/java') === (dark ? 'rgb(128, 184, 116)' : 'rgb(57, 131, 73)'), `${name} test sources are green`);
       assert(iconColor('pom.xml') === iconColor('src/main/java'), `${name} Maven icon uses source blue`);

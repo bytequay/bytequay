@@ -161,9 +161,11 @@ export async function verifyReviewComments() {
         assert(theme !== undefined, 'Workbench theme must exist'); await themes.setColorTheme(theme.id, undefined);
         host.classList.toggle('is-dark', mode === 'dark'); document.documentElement.style.colorScheme = mode; await settle();
         const standard = element<HTMLElement>('.lrc', referenceHost, 'Reference card must render');
+        const header = element('.lrc__head', card, 'Inline card header must render');
+        const standardHeader = element('.lrc__head', standard, 'Reference card header must render');
         assert(getComputedStyle(card).backgroundColor === getComputedStyle(standard).backgroundColor
           && getComputedStyle(card).borderColor === getComputedStyle(standard).borderColor
-          && getComputedStyle(card.querySelector('.lrc__head')!).backgroundColor === getComputedStyle(standard.querySelector('.lrc__head')!).backgroundColor,
+          && getComputedStyle(header).backgroundColor === getComputedStyle(standardHeader).backgroundColor,
         'The IDE must reuse the standard local card palette in both themes');
         mouse('mousemove', 3, {}, true); await settle();
         Object.assign(window, { reviewCapture: mode });

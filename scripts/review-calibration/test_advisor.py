@@ -1,3 +1,4 @@
+from datetime import date
 import http.server
 import json
 import os
@@ -15,7 +16,9 @@ import pandas
 import advisor
 import agent
 import cleanup
+import digest
 import monitor
+import record
 import resources
 import saved
 from test_agent import Script, Stand, call, completion, said
@@ -206,10 +209,30 @@ class TestLook(Kept):
         script = Script(said(call("c1", "submit_advice", ANSWER)))
         second = self.look(script, lambda: now + 2)
         self.assertEqual(advisor.looks(self.folder), [first, second])
-        self.assertEqual(script.sent[0][-1]["content"], advisor.asked(first))
-        self.assertTrue(advisor.asked(first).startswith(advisor.PROMPT + "\n\nThe last look, on "))
-        self.assertTrue(advisor.asked(first).endswith("".join(f"\n- {one['title']}" for one in first["suggestions"])))  # the gravest first
-        self.assertEqual((advisor.asked(None), advisor.asked(first | {"suggestions": []})), (advisor.PROMPT, advisor.PROMPT))
+        self.assertEqual(script.sent[0][-1]["content"], advisor.asked(first, {}, []))
+        self.assertTrue(advisor.asked(first, {}, []).startswith(advisor.PROMPT + "\n\nThe last look, on "))
+        self.assertTrue(advisor.asked(first, {}, []).endswith("".join(f"\n- {one['title']} [{one['action']}]" for one in first["suggestions"])))  # the gravest first
+        self.assertIn("one whose action changes gets a new title that says what to do", advisor.asked(first, {}, []))
+        self.assertEqual((advisor.asked(None, {}, []), advisor.asked(first | {"suggestions": []}, {}, [])), (advisor.PROMPT, advisor.PROMPT))
+
+    def test_the_next_look_is_told_what_became_of_each_risk_and_never_a_reason_typed_for_it(self):
+        now = time.time()
+        three = ANSWER | {"suggestions": ANSWER["suggestions"] + [{**ANSWER["suggestions"][0], "title": "Close the idle tasks"}]}
+        self.look(Script(said(call("c1", "submit_advice", three))), lambda: now)
+        record.mark(self.folder, "Give the backend more room", "doing", date(2026, 10, 16))
+        record.mark(self.folder, "Close the idle tasks", "dropped", date(2026, 10, 16), "secret project, closed by hand")
+        digest.note(self.folder, "Clean up what nothing uses", date(2026, 10, 17))
+        script = Script(said(call("c1", "submit_advice", ANSWER)))
+        self.look(script, lambda: now + 1)
+        told = script.sent[0][-1]["content"]
+        self.assertTrue(told.endswith("\n- Clean up what nothing uses [clean_up] (a change for it was made on 2026-10-17: hand it in again only if the numbers since then still show it)"
+                                      "\n- Give the backend more room [fix] (being worked on since 2026-10-16)"
+                                      "\n- Close the idle tasks [fix] (the person does not want it: leave it out)"), told)
+        self.assertNotIn("secret", told)
+        (self.folder / "record.json").write_text("{")
+        script = Script(said(call("c1", "submit_advice", ANSWER)))
+        self.assertEqual(self.look(script, lambda: now + 2)["state"], "done")
+        self.assertTrue(script.sent[0][-1]["content"].endswith("\n- Clean up what nothing uses [clean_up]\n- Give the backend more room [fix]"), "an unreadable record leaves the titles alone")
 
     def test_old_database_copies_alone_are_enough_for_a_clean_up_suggestion(self):
         cleanup.remove(self.data / "agent-runtime")

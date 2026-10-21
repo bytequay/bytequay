@@ -147,8 +147,9 @@ def risks(folder, runtime):
     if st.button("Look for risks", key="advice_look", disabled=running or not key):
         advisor.start(folder)
         st.rerun()
-    st.caption("A look sends the monitor's counters and the titles of the last look's suggestions to DeepSeek's API, never a path, a command or a "
-               "task's title, and spends tokens on your key." if key else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
+    st.caption("A look sends the monitor's counters and the titles of the last look's suggestions, each with how it stands, to DeepSeek's API, never "
+               "a path, a command, a task's title or a reason you typed, and spends tokens on your key." if key
+               else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
 NUMBERS = {"memory MB": "%,.0f", "typical MB": "%,.0f", "peak MB": "%,.0f", "CPU cores": "%.2f", "typical CPU": "%.2f", "peak CPU": "%.2f", "threads": "%,.0f", "open files": "%,.0f"}
 
 

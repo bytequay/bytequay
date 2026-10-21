@@ -409,17 +409,22 @@ carries out with a button that asks for the same confirmation, and what the
 agent saw first. A look runs apart from the page and keeps
 `advice/advice.json` and every model and tool call in `advice/events.jsonl` in
 the lab's folder; every look that finishes is also kept in `advice/looks/`.
-The agent is told the titles the last look found and gives a risk it finds
-again the same title, so each risk says how many earlier looks found it too,
+The agent is told the titles the last look found, each with its action, and
+gives a risk it finds again with the same action the same title, so each risk
+says how many earlier looks found it too; a risk whose action changes, such as
+one that only said to watch before, gets a new title that says what to do,
 and the page lists the risks gone since the look before. A risk takes the
 marks of the lab's own suggestions, kept in the same `record.json` and
 `changes.json`: being worked on, not wanted (left out until brought back on
 the Suggestions tab), or made. What became of them, on the Suggestions tab,
 lists both kinds; a risk that was made is checked by whether the newest look
-on a later day than the change still finds it. A look takes the DeepSeek key
-from the Keychain (`uv run batch.py --store-key`) and sends counters and the
-last look's titles, never a path, a command or a task's title; it ends after
-20 model calls or ten minutes.
+on a later day than the change still finds it. The next look is told how each
+of the last look's risks stands: being worked on since a day, not wanted (so
+it leaves it out), or made on a day (so it hands it in again only if the
+numbers since still show it). A look takes the DeepSeek key from the Keychain
+(`uv run batch.py --store-key`) and sends counters and the last look's titles
+with those states and days, never a path, a command, a task's title or a
+reason typed for a mark; it ends after 20 model calls or ten minutes.
 
 A risk with a fix has the same brief and **Fix it** as a suggestion (see
 Suggestions): it opens a ByteQuay task for the change, a task on it says so on

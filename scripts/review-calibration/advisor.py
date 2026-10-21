@@ -3,7 +3,8 @@
 read-only tools and hands in ranked suggestions, each with the numbers behind it, what to do, where, and the number to
 watch. The Resources page starts it with "Look for risks"; `uv run advisor.py` looks once from a terminal. The tools give
 it counters only, never a path, a command or a task's title; besides them it is told the titles of the last look's own
-suggestions. What it reads goes to DeepSeek's API. Every look that finishes is kept, so a risk can be seen to go away."""
+suggestions and how each stands in the lab's record, a state and a day. What it reads goes to DeepSeek's API. Every look
+that finishes is kept, so a risk can be seen to go away."""
 
 from __future__ import annotations
 
@@ -30,8 +31,10 @@ import activity
 import agent
 import batch
 import cleanup
+import digest
 import judge
 import monitor
+import record
 import resources
 import saved
 
@@ -125,13 +128,21 @@ def due(folder, now):
     return last is None or now - datetime.fromisoformat(last["started"]).timestamp() >= DAILY
 
 
-def asked(previous):
-    """What the agent is asked, with the risks the last look found: one found again keeps its title, so the page can tell a
-    risk that went away from one that stayed."""
+STANDINGS = {"open": "", "doing": " (being worked on since {day})", "dropped": " (the person does not want it: leave it out)",
+             "done": " (a change for it was made on {day}: hand it in again only if the numbers since then still show it)"}
+
+
+def asked(previous, marked, noted):
+    """What the agent is asked, with the risks the last look found, their actions and how each stands in the lab's record. One
+    found again with the same action keeps its title, so the page can tell a risk that went away from one that stayed; one
+    whose action changes gets a title that says what to do now, as a card that only watched did. Only a mark's state and day
+    are told, never a reason typed for it."""
     if previous is None or not previous["suggestions"]:
         return PROMPT
-    titles = "\n".join(f"- {one['title']}" for one in previous["suggestions"])
-    return f"{PROMPT}\n\nThe last look, on {previous['ended'][:10]}, found these. Give a risk you find again the same title, word for word:\n{titles}"
+    titles = "\n".join(f"- {one['title']} [{one['action']}]" + STANDINGS[state].format(day=day)
+                       for one in previous["suggestions"] for state, day, _ in [record.standing(one["title"], marked, noted)])
+    return (f"{PROMPT}\n\nThe last look, on {previous['ended'][:10]}, found these, each with its action. Give a risk you find again with the same "
+            f"action the same title, word for word; one whose action changes gets a new title that says what to do:\n{titles}")
 
 
 def heap():
@@ -350,6 +361,10 @@ def look(folder, ask, model, data=monitor.APP_DATA, database=monitor.DATABASE, c
         earlier = looks(folder)
     except (OSError, ValueError):
         earlier = []  # the look goes on without the titles of the last one
+    try:
+        marked, noted = record.marks(folder), digest.changes(folder)
+    except (OSError, KeyError, TypeError, ValueError):
+        marked, noted = {}, []  # the look goes on with the titles alone
     made = {"version": 1, "state": "running", "started": saved.stamp(clock()), "ended": None, "model": model, "steps": 0, "usage": None,
             "summary": None, "suggestions": [], "overview": None, "problem": None}
     saved.write(own, STATE, made)
@@ -365,7 +380,7 @@ def look(folder, ask, model, data=monitor.APP_DATA, database=monitor.DATABASE, c
                     saved.write(own, STATE, made)
             call = partial(agent.handed, submit="submit_advice", noun="advice", check=lambda answer: problem_of(answer, bool(sight.going or sight.copies)),
                            handlers={name: partial(tool, sight) for name, tool in TOOLS.items()})
-            done = agent.work(agent.Brief(SYSTEM, offered(), call, NUDGE, WRAP_UP, "advice"), asked(earlier[-1] if earlier else None), ask,
+            done = agent.work(agent.Brief(SYSTEM, offered(), call, NUDGE, WRAP_UP, "advice"), asked(earlier[-1] if earlier else None, marked, noted), ask,
                               time.monotonic() + SECONDS, log, STEPS)
         made["steps"], made["usage"] = done.steps, done.usage
         if done.answer is None:

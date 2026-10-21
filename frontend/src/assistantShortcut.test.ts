@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { isAssistantShortcut } from './assistantShortcut';
+import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
 
 const press = (overrides: Partial<Parameters<typeof isAssistantShortcut>[0]> = {}) =>
   ({ type: 'keyDown', key: 'j', meta: true, shift: false, alt: false, control: false, ...overrides });
@@ -30,5 +30,16 @@ describe('isAssistantShortcut', () => {
     expect(isAssistantShortcut(press({ alt: true }))).toBe(false);
     expect(isAssistantShortcut(press({ control: true }))).toBe(false);
     expect(isAssistantShortcut(press({ key: 'k' }))).toBe(false);
+  });
+});
+
+describe('isNextTaskShortcut', () => {
+  it('takes Shift+Cmd+J, whatever the case of the key, and leaves Cmd+J to the Assistant', () => {
+    expect(isNextTaskShortcut(press({ shift: true, key: 'J' }))).toBe(true);
+    expect(isNextTaskShortcut(press({ shift: true }))).toBe(true);
+    expect(isNextTaskShortcut(press())).toBe(false);
+    expect(isNextTaskShortcut(press({ shift: true, type: 'keyUp' }))).toBe(false);
+    expect(isNextTaskShortcut(press({ shift: true, alt: true }))).toBe(false);
+    expect(isNextTaskShortcut(press({ shift: true, control: true }))).toBe(false);
   });
 });

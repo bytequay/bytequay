@@ -136,7 +136,8 @@ message uses your model allowance.
 
 While you use another app, a new task alert also shows as a macOS
 notification; click it to answer. The Dock icon counts the tasks waiting on
-you.
+you, and **⇧⌘J** opens the one that has waited longest. Press it again for the
+next.
 
 When chat is off or your agent needs reconnecting, task notices and approval
 buttons remain available. Saved conversation history is preserved.

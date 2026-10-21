@@ -26,7 +26,7 @@ import { ArtifactView } from './artifactView';
 import { parseArtifactPage, parseArtifactRows, parseArtifactView } from './artifacts/contracts';
 import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
-import { isAssistantShortcut } from './assistantShortcut';
+import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
 import { registerGoogleIpc } from '@bytequay/google/main';
 import { BrowserTabs, denyBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
@@ -2067,16 +2067,18 @@ app.on('ready', async () => {
   prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);
 });
 
-// A focused browser or editor view keeps its keys from the renderer, so ⌘J is caught before any page sees it.
+// A focused browser or editor view keeps its keys from the renderer, so ⌘J and ⇧⌘J are caught before any page sees them.
 app.on('web-contents-created', (_event, contents) => {
   contents.on('before-input-event', (event, input) => {
     const window = mainWindow;
-    if (!isAssistantShortcut(input) || !window || window.isDestroyed() || !window.isFocused()) return;
+    const assistant = isAssistantShortcut(input);
+    if ((!assistant && !isNextTaskShortcut(input)) || !window || window.isDestroyed() || !window.isFocused()) return;
     event.preventDefault();
     if (input.isAutoRepeat) return;
     // The composer can take focus only once the window's own page has it back from a native view.
     if (contents !== window.webContents) window.webContents.focus();
-    window.webContents.send('assistant:toggle');
+    if (assistant) window.webContents.send('assistant:toggle');
+    else void appNotices.next().catch(error => console.warn('Unable to open the next waiting task', error));
   });
 });
 

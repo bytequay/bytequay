@@ -21,12 +21,13 @@ import { NoticeHost } from './host';
 import type { AppNotice, NoticeSnapshot } from './contracts';
 
 const desktop = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>(), views: [] as unknown[], notifications: [] as unknown[],
-  badge: vi.fn(), refuse: false }));
+  badge: vi.fn(), beep: vi.fn(), refuse: false }));
 type Shown = EventEmitter & { options: { title: string; body: string }; show: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> };
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
     app: { setBadgeCount: desktop.badge },
+    shell: { beep: desktop.beep },
     Notification: class extends EventEmitter {
       static isSupported = () => true;
       show = vi.fn(); close = vi.fn();
@@ -68,7 +69,7 @@ function setup() {
 beforeEach(() => {
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-notice-host-'));
   desktop.handlers.clear(); desktop.views.length = 0; vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173');
-  desktop.notifications.length = 0; desktop.badge.mockClear(); desktop.refuse = false;
+  desktop.notifications.length = 0; desktop.badge.mockClear(); desktop.beep.mockClear(); desktop.refuse = false;
 });
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); fs.rmSync(directory, { recursive: true, force: true }); });
 
@@ -419,5 +420,27 @@ it('counts the notices waiting on the user on the Dock', async () => {
   expect(desktop.badge).toHaveBeenCalledTimes(calls);
   read.mockResolvedValue([finished]); await host.refresh();
   expect(desktop.badge).toHaveBeenLastCalledWith(0);
+  host.stop();
+});
+
+it('opens the task that has waited longest, then the next on each press, and beeps when none waits', async () => {
+  const { host, read, open, window } = setup();
+  await host.next();
+  expect(desktop.beep).toHaveBeenCalledTimes(1);
+  const newer: AppNotice = { ...notice, id: 'approval:ask', kind: 'QUESTION', taskId: 'newer-task', occurredAt: '2026-09-27T11:00:00Z' };
+  const finished: AppNotice = { ...notice, id: 'finished:turn', kind: 'TURN_FINISHED', taskId: 'done-task', occurredAt: new Date().toISOString() };
+  read.mockResolvedValue([newer, finished, notice]);
+  for (const expected of [notice, newer, notice]) {
+    await host.next();
+    expect(open).toHaveBeenLastCalledWith(expected);
+  }
+  read.mockResolvedValue([newer]);
+  await host.next();
+  expect(open).toHaveBeenLastCalledWith(newer);
+  expect(open).toHaveBeenCalledTimes(4);
+  expect(window.webContents.send).not.toHaveBeenCalledWith('assistant:open-card', expect.anything());
+  read.mockResolvedValue([]);
+  await host.next();
+  expect(desktop.beep).toHaveBeenCalledTimes(2);
   host.stop();
 });

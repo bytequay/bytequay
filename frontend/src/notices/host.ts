@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, ipcMain, Notification, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, Notification, shell, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
 import { APPROVAL_NOTICE, NOTICE_WIDTH, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
@@ -31,6 +31,7 @@ export class NoticeHost {
   private readonly announced = new Map<string, Notification | null>();
   private nativeDisabled = false;
   private badge = -1;
+  private jumped: string | null = null;
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
     private readonly openNotice: (notice: AppNotice) => Promise<void>, storagePath: () => string,
@@ -122,6 +123,17 @@ export class NoticeHost {
       .catch(() => { /* A failed local read preserves the last snapshot and never announces task failure. */ })
       .finally(() => { this.reading = null; });
     return this.reading;
+  }
+
+  /** ⇧⌘J: opens the task that has waited longest on the user, then the next one on each press. */
+  async next(): Promise<void> {
+    await this.refresh();
+    const waiting = this.snapshot().notices.filter(needsAction)
+      .sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt) || a.id.localeCompare(b.id));
+    if (!waiting.length) { shell.beep(); return; }
+    const notice = waiting[(waiting.findIndex(item => item.id === this.jumped) + 1) % waiting.length];
+    this.jumped = notice.id;
+    await this.open(notice.id, false);
   }
 
   private async open(id: string, fromAlert: boolean): Promise<void> {

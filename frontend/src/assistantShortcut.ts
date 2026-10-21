@@ -19,3 +19,8 @@ export type ShortcutInput = { type: string; key: string; meta: boolean; shift: b
 export function isAssistantShortcut(input: ShortcutInput): boolean {
   return input.type === 'keyDown' && input.meta && !input.shift && !input.alt && !input.control && input.key.toLowerCase() === 'j';
 }
+
+/** Whether a press is ⇧⌘J, which opens the task that has waited longest on the user, then the next on each press. */
+export function isNextTaskShortcut(input: ShortcutInput): boolean {
+  return input.type === 'keyDown' && input.meta && input.shift && !input.alt && !input.control && input.key.toLowerCase() === 'j';
+}

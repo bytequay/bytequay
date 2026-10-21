@@ -22,7 +22,7 @@ import org.springframework.stereotype.Component;
 
 import static java.util.Objects.requireNonNull;
 
-/** The assistant's two switches in Settings → Agents → Workflow. */
+/** The assistant's switches in Settings → Agents → Features. */
 @Component
 public class AssistantSettings
 {

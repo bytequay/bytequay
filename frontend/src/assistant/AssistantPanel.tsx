@@ -221,7 +221,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           </span>
         </Composer> : <div className="assistant-sheet assistant-off">
           <p>Task notices and your conversation are still available.</p>
-          <button type="button" className="assistant-link" onClick={() => openSettings('workflow')}>Set up Assistant in Settings</button>
+          <button type="button" className="assistant-link" onClick={() => openSettings('features')}>Set up Assistant in Settings</button>
           {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}
         </div>}
         <WaitingStack notices={waiting} talk={talk} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
@@ -315,7 +315,7 @@ function Receipt({ item, onOpen, onSettings }: { item: AssistantItemDto; onOpen:
       {turnId !== null && (stop === 'stopped'
         ? <span className="assistant-receipt__stopped">Stopped</span>
         : <button type="button" className="assistant-action" disabled={stop === 'stopping'} onClick={() => cancel(turnId)}>Stop</button>)}
-      {fix === 'SETTINGS' && <button type="button" className="assistant-action" onClick={() => onSettings('workflow')}>Settings</button>}
+      {fix === 'SETTINGS' && <button type="button" className="assistant-action" onClick={() => onSettings('features')}>Settings</button>}
       {outcome === 'DONE' && (target !== null || page !== null) && <button type="button" className="assistant-action" onClick={() => onOpen(receipt)}>Open</button>}
     </div>
   );

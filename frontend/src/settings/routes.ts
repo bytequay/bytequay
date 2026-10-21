@@ -20,6 +20,7 @@ export type SettingsSection =
   | 'models'
   | 'skills'
   | 'workflow'
+  | 'features'
   | 'github'
   | 'jira'
   | 'google'
@@ -49,9 +50,10 @@ const GROUP_SLUGS: Record<SettingsGroup, string> = {
 };
 
 export const SETTINGS_ENTRIES: SettingsEntry[] = [
-  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Automation', 'Auto-Commit', 'Auto-Draft PR', 'CI fix', 'Auto-Review fix', 'Auto-merge', 'Auto-merge delay', 'CI repair agent',
-    'Enable Assistant', 'Assistant can start tasks', 'Assistant can answer tasks', 'Assistant can change Epics and work items',
-    'Assistant can acknowledge and snooze items'] },
+  { section: 'workflow', group: 'Agents', label: 'Workflow', slug: 'workflow', rows: ['Automation', 'Auto-Commit', 'Auto-Draft PR', 'CI fix', 'Auto-Review fix', 'Auto-merge', 'Auto-merge delay', 'CI repair agent'] },
+  { section: 'features', group: 'Agents', label: 'Features', slug: 'features', rows: ['Today', 'Enable daily agenda', 'Daily agenda', 'Make it at', 'Working days',
+    "Use my calendar's busy times", 'Assistant', 'Enable Assistant', 'Assistant can start tasks', 'Assistant can answer tasks',
+    'Assistant can change Epics and work items', 'Assistant can acknowledge and snooze items'] },
   {
     section: 'general',
     group: 'Personal',

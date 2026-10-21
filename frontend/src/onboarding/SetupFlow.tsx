@@ -191,7 +191,7 @@ export default function SetupFlow({ initial, connected, revisit = false, onSaved
           <section className="setup-feature"><SettingsRow title="Today · Daily agenda" subtitle="A daily shortlist from your work. Runs on your working days and uses a model session.">
             <Toggle label="Enable daily agenda" on={agenda.enabled} disabled={busy || !ready.development} onChange={enabled => setAgenda({ ...agenda, enabled })} />
           </SettingsRow>
-            {agenda.enabled && <SettingsRow title="Make it at" subtitle="This Mac’s local time · change working days in Settings">
+            {agenda.enabled && <SettingsRow title="Make it at" subtitle="Change working days in Settings">
               <TimePill minute={agenda.minute} ariaLabel="Daily agenda time" onSelect={minute => setAgenda({ ...agenda, minute })} disabled={busy} />
             </SettingsRow>}
             <FeaturePreview feature="today" />

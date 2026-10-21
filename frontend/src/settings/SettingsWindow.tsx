@@ -30,6 +30,7 @@ import ModelsPage, { type ModelChoice } from './ModelsPage';
 import ProviderSignInDialog from '../agents/ProviderSignInDialog';
 import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
+import FeaturesPage from './FeaturesPage';
 import GitHubPage from './GitHubPage';
 import JiraPage from './JiraPage';
 import { GooglePage } from '../integrations/google';
@@ -144,7 +145,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   }, [section, loadAccount]);
 
   useEffect(() => {
-    if (section !== 'general' || quietHoursSaving.current) return;
+    if (section !== 'general' && section !== 'features' || quietHoursSaving.current) return;
     const request = ++quietHoursRequest.current;
     void window.bridge.getQuietHours().then(value => { if (request === quietHoursRequest.current) setQuietHours(value); }).catch(report);
     return () => { quietHoursRequest.current += 1; };
@@ -289,7 +290,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 setError(null);
                 window.bridge.saveQuietHours(next).then(setQuietHours).catch(report).finally(() => { quietHoursSaving.current = false; setQuietHoursBusy(false); });
               }}
-              onAgendaError={report}
               onClearRecent={() => {
                 setClearing(true);
                 window.bridge.clearRecent()
@@ -339,6 +339,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
+          {section === 'features' && <FeaturesPage quietHours={quietHours} />}
           {section === 'workflow' && <WorkflowPage value={automation} providers={modelsScope === modelWorkspaceId ? models?.providers ?? [] : []} error={error}
             preferences={preferences} onPreferences={savePreferences}
             onChange={next => {

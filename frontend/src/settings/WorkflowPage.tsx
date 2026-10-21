@@ -14,7 +14,6 @@
 import type { AppPreferencesDto, DevelopmentAutomationDto, ModelProviderDto } from '../types';
 import { AUTOMATION_STEPS, includesLevel, levelIndex } from '../agents/developmentAutomation';
 import { AutomationSlider, CiProviderSelect } from '../agents/AutomationControl';
-import AssistantFeatureCard from './AssistantFeatureCard';
 import { SelectPill, SettingsCard, SettingsRow } from './primitives';
 
 const MERGE_DELAYS = [0, 10, 30, 60, 120, 1440];
@@ -52,7 +51,6 @@ export default function WorkflowPage({ value, providers, preferences, error, onC
         </SettingsRow>}
       </SettingsCard>
       <p className="setw-footnote">Each step includes the ones before it. Defaults apply to new tasks, which can override them until they start. CI monitoring has no time limit, with up to 3 repairs per run and 3 reruns per revision.</p>
-      <AssistantFeatureCard />
     </>}
   </div>;
 }

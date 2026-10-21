@@ -85,6 +85,7 @@ class AssistantShow
             .put("settings/models", "Settings · Models")
             .put("settings/skills", "Settings · Skills")
             .put("settings/workflow", "Settings · Workflow")
+            .put("settings/features", "Settings · Features")
             .put("settings/github", "Settings · GitHub")
             .put("settings/jira", "Settings · Jira")
             .put("settings/google", "Settings · Google Apps")

@@ -35,6 +35,13 @@ describe('settings routes', () => {
     expect(matchesSearch(entryFor('browser'), 'full screen behavior')).toBe(true);
   });
 
+  it('keeps Today and Assistant together on one Agents page', () => {
+    expect(settingsRoute('features')).toBe('#/settings/agents/features');
+    for (const row of ['daily agenda', 'working days', 'enable assistant', 'assistant can start tasks']) {
+      expect(SETTINGS_ENTRIES.filter(entry => matchesSearch(entry, row)).map(entry => entry.section)).toEqual(['features']);
+    }
+  });
+
   it('places Jira accounts under Integrations', () => {
     expect(settingsRoute('jira')).toBe('#/settings/integrations/jira');
     expect(matchesSearch(entryFor('jira'), 'reconnect')).toBe(true);

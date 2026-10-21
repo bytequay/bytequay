@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
 import { AgentHomeView } from '../agents/AgentHome';
-import { inQuietHours } from '../settings/AgendaScheduleCard';
+import { inQuietHours } from '../settings/FeaturesPage';
 import TodayList from './TodayList';
 import { allDone, attentionKey, calendarFact, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayKeys, todayRows, whereText } from './today';
 import type { TodayAgenda } from './useTodayAgenda';

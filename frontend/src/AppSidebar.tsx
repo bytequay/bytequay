@@ -16,7 +16,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 're
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, FlaskConical, GitBranch, Globe, History, House, KeyRound,
   LayoutDashboard, LayoutGrid, ListChecks, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
-  Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
+  Pin, Sparkles, Sun, Tags, ToggleRight, TriangleAlert, Users,
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
 import { JiraIcon } from '@bytequay/jira/renderer';
@@ -55,6 +55,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   browser: <Globe size={16} strokeWidth={1.7} aria-hidden="true" />,
   models: <Sparkles size={16} strokeWidth={1.7} aria-hidden="true" />,
   workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
+  features: <ToggleRight size={16} strokeWidth={1.7} aria-hidden="true" />,
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   jira: <JiraIcon size={16} />,
   google: <Globe size={16} aria-hidden="true" />,

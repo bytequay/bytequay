@@ -85,8 +85,8 @@ tasks, PRs, work items, commits, and memory.
 
 ### Plan the day with Today
 
-Today is off until you enable it during setup or in **Settings → General →
-Daily agenda**. It needs a usable global Development model, and each day's
+Today is off until you enable it during setup or in **Settings → Agents →
+Features**. It needs a usable global Development model, and each day's
 list spends a model session from that account. Once on, Home opens on working
 days, after the time you set, with **Today**: up to five things worth doing
 first, each with a reason. An agent
@@ -101,7 +101,7 @@ If ByteQuay was closed at that time, Today is made when you return.
 - The circular arrow makes the list again. A workspace Home shows only its
   repository's rows; **Needs attention** marks Today rows with a sun.
 - On the last working day, **This week** looks back at what merged and slipped.
-- **Settings → General → Daily agenda** sets the time and working days, and can
+- **Settings → Agents → Features** sets the time and working days, and can
   plan around your calendar's busy times (never event titles).
 
 <a id="assistant"></a>
@@ -110,7 +110,7 @@ If ByteQuay was closed at that time, Today is made when you return.
 
 Bring your day and waiting tasks into one conversation. Choose a usable global
 Development model in **Settings → Agents → Models**, then turn on **Enable
-Assistant** during setup or in **Settings → Agents → Workflow**. Assistant
+Assistant** during setup or in **Settings → Agents → Features**. Assistant
 starts off on a fresh installation; existing users keep their setting. Each
 message uses your model allowance.
 
@@ -139,7 +139,7 @@ buttons remain available. Saved conversation history is preserved.
 
 ### Let it act when you ask
 
-In **Settings → Agents → Workflow**, optionally enable **Assistant can start
+In **Settings → Agents → Features**, optionally enable **Assistant can start
 tasks**, **Assistant can answer tasks**, **Assistant can change Epics and work
 items** or **Assistant can acknowledge and snooze items**. All are off by
 default and are separate from enabling Assistant conversation.
@@ -161,8 +161,8 @@ default and are separate from enabling Assistant conversation.
   refused action says why, with **Settings** when its switch is off.
 
 The Assistant does not edit files or run code itself. Development work happens
-in the tasks it starts. Enable the optional daily agenda in **Settings → General
-→ Daily agenda** to populate **Today**; generating it uses a model session.
+in the tasks it starts. Enable the optional daily agenda in **Settings → Agents
+→ Features** to populate **Today**; generating it uses a model session.
 
 <a id="pull-requests"></a>
 

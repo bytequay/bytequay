@@ -25,8 +25,11 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.merge.AutoMerge;
 import com.bytequay.core.merge.AutoMergeStore;
 import com.bytequay.core.store.PrDetailStore;
@@ -40,6 +43,7 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -61,6 +65,10 @@ public class AutoMergeService
 {
     private static final Logger log = LoggerFactory.getLogger(AutoMergeService.class);
     private static final Set<String> MERGEABLE = ImmutableSet.of("clean", "has_hooks");
+    private static final Set<AutoMerge.Outcome> FINAL = ImmutableSet.of(AutoMerge.Outcome.MERGED, AutoMerge.Outcome.CANCELLED);
+    private static final Set<String> QUEUE_EVENTS = ImmutableSet.of("added_to_merge_queue", "removed_from_merge_queue", "auto_merge_disabled");
+    // GitHub stamps queue events with its own clock; the slack keeps a local clock running ahead from hiding them.
+    private static final Duration CLOCK_SLACK = Duration.ofMinutes(1);
     private static final Duration DETAIL_FRESHNESS = Duration.ofMinutes(1);
 
     private final AgentTaskStore tasks;
@@ -119,7 +127,7 @@ public class AutoMergeService
         PullRequest pr = linked.orElseThrow();
         String taskId = task.id().toString();
         Optional<AutoMerge> saved = store.find(taskId);
-        if (saved.flatMap(AutoMerge::outcome).filter(outcome -> outcome != AutoMerge.Outcome.FAILED).isPresent()) {
+        if (saved.flatMap(AutoMerge::outcome).filter(FINAL::contains).isPresent()) {
             return;
         }
         if (saved.filter(merge -> merge.startedAt().isPresent() && merge.outcome().isEmpty()).isPresent()) {
@@ -127,12 +135,19 @@ public class AutoMergeService
             return;
         }
         pullRequests.warmDetail(pr.repo(), pr.number(), DETAIL_FRESHNESS);
-        Optional<PrRawDetail> detail = details.find(pr.id()).map(stored -> stored.raw());
-        if (detail.isEmpty() || detail.orElseThrow().headSha() == null) {
+        Optional<StoredPrDetail> detail = details.find(pr.id());
+        if (detail.isEmpty() || detail.orElseThrow().raw().headSha() == null) {
             return;
         }
-        PrRawDetail raw = detail.orElseThrow();
+        PrRawDetail raw = detail.orElseThrow().raw();
         String head = raw.headSha();
+        // Joining the queue is not merging: until GitHub merges or closes the pull request, the queue can still drop it.
+        Optional<AutoMerge> queued = saved.filter(merge -> merge.outcome().filter(AutoMerge.Outcome.QUEUED::equals).isPresent() && merge.headSha().equals(head));
+        if (queued.isPresent()) {
+            leftQueue(detail.orElseThrow().timeline(), queued.orElseThrow().startedAt().orElseThrow())
+                    .ifPresent(reason -> store.save(queued.orElseThrow().ended(AutoMerge.Outcome.FAILED, reason)));
+            return;
+        }
         // A failed merge waits for a new head rather than trying the same one again.
         if (saved.flatMap(AutoMerge::outcome).isPresent() && saved.orElseThrow().headSha().equals(head)) {
             return;
@@ -166,14 +181,41 @@ public class AutoMergeService
         store.save(current.ended(AutoMerge.Outcome.CANCELLED, "Auto-merge was stopped"));
     }
 
-    /** Where the task's merge stands, for its automation status; empty before the pull request is first checked. */
-    public Optional<AutoMergeSummary> summary(String taskId)
+    /**
+     * Where the task's merge stands, for its automation status; empty before the pull request is first checked. A queued merge
+     * ends with its linked pull request, which is the merged one or none once GitHub merges or closes it, and a task whose
+     * pull request ended is no longer checked.
+     */
+    public Optional<AutoMergeSummary> summary(String taskId, Optional<PullRequest> linked)
     {
+        String queued = linked.map(pr -> TaskPullRequestOwnership.isOpen(pr) ? AutoMerge.Outcome.QUEUED : AutoMerge.Outcome.MERGED).orElse(AutoMerge.Outcome.CANCELLED).name();
         return store.find(taskId).map(merge -> {
-            String state = merge.outcome().map(Enum::name)
+            String state = merge.outcome().map(outcome -> outcome == AutoMerge.Outcome.QUEUED ? queued : outcome.name())
                     .orElse(merge.startedAt().isPresent() ? "MERGING" : merge.readySince().isPresent() ? "READY" : "WAITING");
             return new AutoMergeSummary(state, merge.readySince().filter(ignored -> merge.outcome().isEmpty()).map(since -> since.plus(delay())), merge.message());
         });
+    }
+
+    /**
+     * Why the pull request is no longer on its way into the merge queue it was sent to: its latest queue event since then is
+     * a removal, or auto-merge was turned off before it joined.
+     */
+    private static Optional<String> leftQueue(List<PrTimelineEvent> timeline, Instant sentAt)
+    {
+        Instant since = sentAt.minus(CLOCK_SLACK);
+        List<PrTimelineEvent> events = timeline.stream()
+                .filter(event -> QUEUE_EVENTS.contains(event.event()) && event.timestamp() != null && !event.timestamp().isBefore(since))
+                .sorted(comparing(PrTimelineEvent::timestamp))
+                .toList();
+        Optional<PrTimelineEvent> latest = events.stream().filter(event -> !event.event().equals("auto_merge_disabled")).reduce((previous, next) -> next);
+        if (latest.filter(event -> event.event().equals("removed_from_merge_queue")).isPresent()) {
+            String reason = Optional.ofNullable(latest.orElseThrow().payload().mergeQueueRemoval()).flatMap(PrMergeQueueRemoval::reason).map(text -> " (" + text + ")").orElse("");
+            return Optional.of("The merge queue removed the pull request" + reason + "; a new push starts the wait again");
+        }
+        if (latest.isEmpty() && events.stream().anyMatch(event -> event.event().equals("auto_merge_disabled"))) {
+            return Optional.of("Auto-merge was turned off before the pull request joined the merge queue; a new push starts the wait again");
+        }
+        return Optional.empty();
     }
 
     private Optional<String> waitingFor(AgentTask task, PullRequest pr, PrRawDetail raw)

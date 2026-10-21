@@ -211,10 +211,11 @@ public class AgentController
         Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi = ciRuns.listByParentTaskId(task.id().toString()).stream()
                 .max(comparing(CiAutofixRun::createdAt))
                 .map(run -> CiAutofixHttpModels.development(run, ci.canMessage(run)));
-        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = ownership.linkedPullRequest(task)
+        Optional<PullRequest> linked = ownership.linkedPullRequest(task);
+        Optional<InteractiveAgentHttpContract.TaskPullRequestResponse> pullRequest = linked
                 .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
         String taskId = task.id().toString();
-        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, reviewFixes.summary(taskId), autoMerges.summary(taskId),
+        return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, reviewFixes.summary(taskId), autoMerges.summary(taskId, linked),
                 issueDevelopment.source(taskId).map(source ->
                         new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
                 issueDevelopment.jiraSource(taskId).map(source ->

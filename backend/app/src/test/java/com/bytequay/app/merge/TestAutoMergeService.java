@@ -33,7 +33,10 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.AppTheme;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.merge.AutoMerge;
@@ -129,6 +132,80 @@ class TestAutoMergeService
     }
 
     @Test
+    void aQueuedMergeStaysUnderwayUntilGitHubMergesThePullRequest()
+    {
+        joinQueue();
+        cache(HEAD, false, "clean", queueEvent("added_to_merge_queue", clock.instant().plusSeconds(5), PrTimelinePayload.empty()));
+        clock.advance(Duration.ofHours(2));
+
+        service.advance(task);
+
+        verify(pullRequests, times(1)).mergePullRequest(anyString(), anyInt(), anyLong(), anyString(), anyString());
+        assertThat(summary().state()).isEqualTo("QUEUED");
+        assertThat(service.summary(task.id().toString(), Optional.of(pullRequest("merged"))).orElseThrow().state()).isEqualTo("MERGED");
+        // A closed pull request is never linked.
+        assertThat(service.summary(task.id().toString(), Optional.empty()).orElseThrow().state()).isEqualTo("CANCELLED");
+    }
+
+    @Test
+    void aPullRequestTheQueueDropsWaitsForANewHeadAndThenQueuesAgain()
+    {
+        Instant sent = joinQueue();
+        PrMergeQueueRemoval checksFailed = new PrMergeQueueRemoval(Optional.of("checks failed"), Optional.empty(), ImmutableList.of());
+        PrTimelineEvent added = queueEvent("added_to_merge_queue", sent.plusSeconds(5), PrTimelinePayload.empty());
+        cache(HEAD, false, "clean", added, queueEvent("removed_from_merge_queue", sent.plusSeconds(60), PrTimelinePayload.builder().mergeQueueRemoval(checksFailed).build()));
+
+        service.advance(task);
+        service.advance(task);
+
+        assertThat(summary().state()).isEqualTo("FAILED");
+        assertThat(summary().message()).contains("The merge queue removed the pull request (checks failed); a new push starts the wait again");
+        verify(pullRequests, times(1)).mergePullRequest(anyString(), anyInt(), anyLong(), anyString(), anyString());
+
+        String next = "d".repeat(40);
+        cache(next, false, "clean");
+        when(pullRequests.mergePullRequest(REPO, 12, 12L, "queue", next)).thenReturn(MergeResult.enqueued("Queued at position 1"));
+        service.advance(task);
+        verify(pullRequests).mergePullRequest(REPO, 12, 12L, "queue", next);
+        assertThat(summary().state()).isEqualTo("QUEUED");
+    }
+
+    @Test
+    void turningAutoMergeOffBeforeThePullRequestJoinsTheQueueStopsWaitingForIt()
+    {
+        Instant sent = joinQueue();
+        cache(HEAD, false, "clean", queueEvent("auto_merge_disabled", sent.plusSeconds(30), PrTimelinePayload.empty()));
+
+        service.advance(task);
+
+        assertThat(summary().state()).isEqualTo("FAILED");
+        assertThat(summary().message().orElseThrow()).startsWith("Auto-merge was turned off before the pull request joined the merge queue");
+    }
+
+    @Test
+    void aRemovalFromBeforeTheMergeWasSentIsNotADrop()
+    {
+        Instant sent = joinQueue();
+        cache(HEAD, false, "clean", queueEvent("removed_from_merge_queue", sent.minus(Duration.ofHours(1)), PrTimelinePayload.empty()));
+
+        service.advance(task);
+
+        assertThat(summary().state()).isEqualTo("QUEUED");
+    }
+
+    /** Sends the merge to the base branch's queue at once and returns when it was sent. */
+    private Instant joinQueue()
+    {
+        when(settings.preferences()).thenReturn(new AppPreferences(7, 14, AppTheme.SYSTEM, 30, 0));
+        when(pullRequests.hasMergeQueue(REPO, "main")).thenReturn(true);
+        when(pullRequests.mergePullRequest(REPO, 12, 12L, "queue", HEAD)).thenReturn(MergeResult.enqueued("Queued at position 2"));
+        Instant sent = clock.instant();
+        service.advance(task);
+        assertThat(summary().state()).isEqualTo("QUEUED");
+        return sent;
+    }
+
+    @Test
     void anyBlockerRestartsTheWaitAndSaysWhy()
     {
         service.advance(task);
@@ -197,14 +274,14 @@ class TestAutoMergeService
 
     private AutoMergeService.AutoMergeSummary summary()
     {
-        return service.summary(task.id().toString()).orElseThrow();
+        return service.summary(task.id().toString(), Optional.of(pullRequest())).orElseThrow();
     }
 
-    private void cache(String head, boolean draft, String mergeableState)
+    private void cache(String head, boolean draft, String mergeableState, PrTimelineEvent... timeline)
     {
         PrRawDetail raw = new PrRawDetail(null, null, "open", "me", null, null, null, null, "Body", ImmutableList.of(), null, ImmutableList.of(), null, draft, true,
                 mergeableState, 0, 0, 0, 0, ImmutableList.of(), head, "branch", "main", "b".repeat(40));
-        when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false)));
+        when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.copyOf(timeline), ImmutableList.of(), ImmutableList.of(), false)));
     }
 
     private static AgentTask task()
@@ -217,10 +294,20 @@ class TestAutoMergeService
         return created.withDefaults(created.defaults().withDevelopmentAutomation(new DevelopmentAutomation(true, AutomationLevel.MERGE, Optional.empty())), CREATED);
     }
 
+    private static PrTimelineEvent queueEvent(String event, Instant at, PrTimelinePayload payload)
+    {
+        return new PrTimelineEvent(1L, event, "github", at, null, payload, Optional.empty());
+    }
+
     private static PullRequest pullRequest()
     {
+        return pullRequest("open");
+    }
+
+    private static PullRequest pullRequest(String state)
+    {
         return new PullRequest(12, REPO, 12, "Task", "me", "https://github.com/owner/repo/pull/12", CREATED, CREATED, PullRequest.Origin.AUTHORED, ImmutableList.of(),
-                ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 1, 1, 0, "open", null, null, null, null, CREATED, "branch", null, null, null, null);
+                ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 1, 1, 0, state, null, null, null, null, CREATED, "branch", null, null, null, null);
     }
 
     private final class MemoryStore

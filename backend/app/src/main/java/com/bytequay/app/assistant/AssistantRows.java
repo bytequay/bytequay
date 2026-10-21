@@ -228,7 +228,8 @@ class AssistantRows
         Optional<Latest> latest = Optional.ofNullable(details.findLatestActivities(ImmutableSet.of(pr.id())).get(pr.id())).map(activity -> latest(activity, viewer));
         return new AssistantRow(AgendaRefs.pull(pr.repo(), pr.number()), Kind.PULL, pr.title(), Optional.of("#" + pr.number()), Optional.of(state(pr)),
                 Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
-                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, pr.mine(viewer), pr.mergeBlocked(), youApproved, Optional.empty(), Optional.empty(),
+                Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, pr.mine(viewer), pr.mergeBlocked(), youApproved,
+                detail.map(stored -> stored.raw().headSha()), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
     }
 
@@ -269,8 +270,8 @@ class AssistantRows
         String repo = workspace.monitoredRepository().fullName();
         // The store keeps a repository's open issues only.
         return new AssistantRow(AgendaRefs.issue(repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()), Optional.of("open"), Optional.empty(),
-                Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(issue.updatedAt()),
-                Optional.empty(), AgendaTarget.issue(repo, issue.number(), workspace.id()));
+                Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.of(issue.updatedAt()), Optional.empty(), AgendaTarget.issue(repo, issue.number(), workspace.id()));
     }
 
     private AssistantRow ticket(JiraIssue ticket)
@@ -278,7 +279,7 @@ class AssistantRows
         Optional<Latest> latest = jiraActivity.latest(ticket)
                 .map(activity -> new Latest(activity.actor().map(person -> person.displayName()), quote(said(activity)), activity.at()));
         return new AssistantRow(AgendaRefs.jira(ticket.cloudId(), ticket.id()), Kind.JIRA, ticket.title(), Optional.of(ticket.key()), Optional.of(ticket.status().name()),
-                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(ticket.updatedAt()), latest, AgendaTarget.jira(ticket.connectionId(), ticket.cloudId(), ticket.id(), ticket.workspace().map(link -> link.id())));
     }
 
@@ -297,7 +298,7 @@ class AssistantRows
         return task.workspaceId().map(workspace -> {
             Phase phase = phase(task, shared);
             return new AssistantRow(AgendaRefs.task(task.id().toString()), Kind.TASK, task.title(), Optional.empty(), Optional.of(phase.name()), Optional.empty(),
-                    Optional.empty(), Optional.empty(), false, false, false, Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.of(phase.agent()), Optional.empty(), Optional.empty(), Optional.empty(),
                     Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, task.id().toString()));
         });
     }
@@ -306,8 +307,9 @@ class AssistantRows
     {
         Phase phase = phase(task, shared);
         return new AssistantRow(AgendaRefs.review(review.id()), Kind.REVIEW, task.title(), review.number().stream().mapToObj(number -> "#" + number).findFirst(),
-                Optional.of(phase.name()), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.of(phase.agent()), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.of(phase.since()), phase.latest(), AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
+                Optional.of(phase.name()), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.of(phase.agent()),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(phase.since()), phase.latest(),
+                AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
     }
 
     /**
@@ -332,8 +334,8 @@ class AssistantRows
         Optional<String> epic = item.epicId().flatMap(epicId -> workspaces.findById(item.workspaceId()).flatMap(workspace -> agenda.epicSource(workspace, epicId)))
                 .map(AgendaReader.EpicSource::title);
         return new AssistantRow(AgendaRefs.work(item.id()), Kind.WORK, item.title(), Optional.empty(), Optional.of(lower(item.state().name())), Optional.empty(),
-                Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), epic, Optional.empty(), Optional.empty(), Optional.of(item.updatedAt()),
-                Optional.empty(), AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
+                Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), epic, Optional.empty(), Optional.empty(),
+                Optional.of(item.updatedAt()), Optional.empty(), AgendaTarget.of(AgendaTarget.Kind.WORK, item.workspaceId(), item.id()));
     }
 
     /**
@@ -373,7 +375,7 @@ class AssistantRows
             int total = (int) work.stream().filter(item -> item.state() != WorkItem.State.DROPPED).count();
             Optional<String> state = epics.find(epicId).flatMap(Epic::concludedAt).map(ignored -> "concluded");
             return new AssistantRow(AgendaRefs.epic(epicId), Kind.EPIC, source.title(), Optional.empty(), state, Optional.empty(), Optional.empty(), Optional.empty(),
-                    false, false, false, Optional.empty(), Optional.empty(), Optional.of(done), Optional.of(total),
+                    false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(done), Optional.of(total),
                     work.stream().map(WorkItem::updatedAt).max(Comparator.naturalOrder()), Optional.empty(), source.target());
         }));
     }

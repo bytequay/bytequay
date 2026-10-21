@@ -155,15 +155,17 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     return window.bridge.completeAgentTask(target.id, target.workspaceId).then(refresh);
   };
   // The user's own click on a pull request's card: Comment opens it at its comment box, and the others act as its page's controls do.
-  const actOnPull = (target: AgendaTargetDto, action: PullAction): Promise<void> => {
+  const actOnPull = (target: AgendaTargetDto, action: PullAction, head: string | null): Promise<void> => {
     if (target.repo === null || target.number === null) return Promise.resolve();
     if (action === 'comment') {
       requestPullComment(target.repo, target.number);
       show(target);
       return Promise.resolve();
     }
-    const act = action === 'approve' ? approvePull : action === 'merge' ? mergePull : closePull;
-    return act(target.repo, target.number).then(refresh);
+    // A review draft the user wrote goes out from the pull request's own review, never from a one-click button.
+    if (action === 'approve') return approvePull(target.repo, target.number, head).then(sent => sent ? refresh() : show(target));
+    const acted = action === 'merge' ? mergePull(target.repo, target.number, head) : closePull(target.repo, target.number);
+    return acted.then(refresh);
   };
   const noticeAction = (action: Promise<void>, message: string, then?: () => void) => {
     setFailure(null);
@@ -253,7 +255,7 @@ function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOp
   onSettings: (section: SettingsSection) => void;
   onOpen: (target: AgendaTargetDto) => void;
   onComplete: (target: AgendaTargetDto) => Promise<void>;
-  onPull: (target: AgendaTargetDto, action: PullAction) => Promise<void>;
+  onPull: (target: AgendaTargetDto, action: PullAction, head: string | null) => Promise<void>;
   onRefresh: () => void;
 }) {
   if (item.kind === 'USER') return <div className="agt-user"><div className="agt-user__bubble" title={`Sent at ${clockTime(item.at)}`}>{item.text}</div></div>;

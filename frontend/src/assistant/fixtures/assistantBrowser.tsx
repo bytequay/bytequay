@@ -67,11 +67,11 @@ const VIEW: AssistantViewDto = {
 // Relative to now, so a timeline's Today and Yesterday hold whenever the fixture runs.
 const ago = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
 const row = (fields: Pick<AssistantRowDto, 'ref' | 'kind' | 'title' | 'target'> & Partial<AssistantRowDto>): AssistantRowDto => ({
-  key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, agent: null, epic: null, done: null, total: null, at: null, latest: null, ...fields,
+  key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, head: null, agent: null, epic: null, done: null, total: null, at: null, latest: null, ...fields,
 });
 const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
   row({ ref: 'pr:trinodb/trino#31377', kind: 'PULL', title: 'Add Iceberg metadata cache', target: PULL, key: '#31377', state: 'open', ci: 'passing',
-    review: 'approved', approvals: 2, at: ago(20), latest: { by: 'marlo-t', text: 'approved these changes', at: ago(20) } }),
+    review: 'approved', approvals: 2, head: 'abc123', at: ago(20), latest: { by: 'marlo-t', text: 'approved these changes', at: ago(20) } }),
   row({ ref: 'pr:trinodb/trino#31402', kind: 'PULL', title: 'Retry Iceberg commit on conflict', target: target('PULL', { repo: 'trinodb/trino', number: 31402 }),
     key: '#31402', state: 'open', ci: 'failing', review: 'changes_requested', mine: true, at: ago(60 * 26) }),
   row({ ref: 'task:t1', kind: 'TASK', title: 'Expose snapshot id in metadata', target: target('TASK', { id: 't1' }), agent: 'Claude Code', state: 'waiting',
@@ -638,6 +638,8 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   const steps: unknown[][] = [];
   let ready = false;
   let unsettled = true;
+  let written = false;
+  let head = 'abc123';
   let release = () => {};
   const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 31377, body: '', event: 'COMMENT', reviewPublication: null, items: [], postedSummaryFindingIds: [],
     version: 3, updatedAt: '2026-10-16T07:00:00Z' };
@@ -647,11 +649,12 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   const view = mount(listView('CARDS', [approved]), 0, [], [], undefined, undefined, {
     findStoredPullRequest: async (repo: string, number: number) => pr({ id: number, repo, number }),
     getReviewDraft: async () => unsettled
-      ? { ...draft, reviewPublication: { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: '2026-10-16T06:00:00Z' } } : draft,
+      ? { ...draft, reviewPublication: { state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: '2026-10-16T06:00:00Z' } }
+      : written ? { ...draft, body: 'One nit below.' } : draft,
     saveReviewDraft: async (...args: unknown[]) => { steps.push(['save', ...args]); return { ...draft, version: 4, event: 'APPROVE' }; },
     submitReviewDraft: async (...args: unknown[]) => { steps.push(['submit', ...args]); },
     refreshPullRequestDetailByRef: async () => { steps.push(['refresh']); return { full: true, detail: prDetail({}), status: null }; },
-    fetchPullRequestDetailByRef: async (repo: string, number: number) => prDetail({ repo, number, viewerCanWrite: ready, headSha: 'abc123' }),
+    fetchPullRequestDetailByRef: async (repo: string, number: number) => prDetail({ repo, number, viewerCanWrite: ready, headSha: head }),
     fetchMergeMode: async () => ({ mergeQueue: false }),
     mergePr: async (...args: unknown[]) => {
       steps.push(['merge', ...args]);
@@ -697,7 +700,14 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     assert(refusal('#31377') === 'Not ready to merge. Open the pull request to see why.' && JSON.stringify(steps) === '[["refresh"]]',
       `The merge sheet's own check refuses, after reading GitHub again: ${JSON.stringify(steps)}`);
     await reopen();
+    head = 'def456';
     ready = true;
+    press('Merge #31377');
+    await settle();
+    assert(refusal('#31377') === 'New commits arrived after this card was drawn. Open the pull request to check them.' && JSON.stringify(steps.at(-1)) === '["refresh"]',
+      `A head GitHub moved since the card was drawn is not merged: ${JSON.stringify(steps)}`);
+    await reopen();
+    head = 'abc123';
     press('Merge #31377');
     await settle();
     const merging = [...(card('#31377')?.querySelectorAll<HTMLButtonElement>('.assistant-item-card__foot button') ?? [])];
@@ -718,6 +728,13 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
     assert(JSON.stringify(opened) === '[{"kind":"pull","repo":"trinodb/trino","number":31377,"workspaceId":"ws1"}]' && view.calls.closed === 1,
       `Comment opens the pull request over the page: ${JSON.stringify(opened)}`);
+
+    await reopen();
+    steps.length = 0;
+    written = true;
+    press('Approve #31377');
+    await settle();
+    assert(steps.length === 0 && view.calls.closed === 2, `A written review draft opens the pull request instead of going out from the card: ${JSON.stringify(steps)}`);
   }
   finally { view.dispose(); }
 }

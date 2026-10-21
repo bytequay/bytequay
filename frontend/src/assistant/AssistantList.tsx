@@ -50,8 +50,8 @@ const PHASES: Record<string, { icon: ReactNode; title: string }> = {
 type Open = (target: AgendaTargetDto) => void;
 /** Completes a task by the user's click; rejects with why it could not. */
 type Complete = (target: AgendaTargetDto) => Promise<void>;
-/** Acts on a pull request by the user's click; rejects the same way. */
-type Pull = (target: AgendaTargetDto, action: PullAction) => Promise<void>;
+/** Acts on a pull request by the user's click, at the head commit its card showed; rejects the same way. */
+type Pull = (target: AgendaTargetDto, action: PullAction, head: string | null) => Promise<void>;
 
 /** The phases of a task that is still open; only an idle one can be completed. */
 const OPEN_PHASES = ['running', 'waiting', 'blocked', 'idle'];
@@ -130,7 +130,7 @@ function cardActions(row: AssistantRowDto, onComplete: Complete, onPull: Pull): 
   }
   if (row.kind !== 'PULL' || (row.state !== 'open' && row.state !== 'draft')) return null;
   const name = row.key ?? row.title;
-  const pull = (action: PullAction) => () => onPull(row.target, action);
+  const pull = (action: PullAction) => () => onPull(row.target, action, row.head);
   const actions: CardAction[] = [];
   if (row.state === 'open' && !row.mine && !row.youApproved) {
     actions.push({ text: 'Approve', busy: 'Approving…', label: `Approve ${name}`, icon: <Check aria-hidden="true" />, run: pull('approve') });

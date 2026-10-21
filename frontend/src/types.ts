@@ -1494,6 +1494,8 @@ export type AssistantRowDto = {
   mergeBlocked: boolean;
   /** Whether the user's own latest review approves a pull request. */
   youApproved: boolean;
+  /** The head commit of a pull request's cached detail, which its card's Approve and Merge act on. */
+  head: string | null;
   /** The agent a task runs with. */
   agent: string | null;
   /** The Epic a work item belongs to. */

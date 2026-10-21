@@ -83,6 +83,7 @@ import static org.mockito.Mockito.withSettings;
 class TestAssistantRows
 {
     private static final Instant NOW = Instant.parse("2026-10-17T10:00:00Z");
+    private static final String HEAD = "a".repeat(40);
     private static final AgentTask WAITING = task("Expose snapshot id in metadata", "claude", NOW.minusSeconds(7200));
     private static final AgentTask IDLE = task("Add metadata cache", "codex", NOW.minusSeconds(3600));
     private static final AgentTask SETTLED = task("Retry Iceberg commit on conflict", "claude", NOW.minusSeconds(60));
@@ -121,6 +122,7 @@ class TestAssistantRows
         when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31402)).thenReturn(Optional.of(7L));
         when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("clean")));
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(raw.headSha()).thenReturn(HEAD);
         // A reviewer's later comment leaves their approval standing; GitHub counts verdicts only.
         when(details.find(7L)).thenReturn(Optional.of(new StoredPrDetail(raw, ImmutableList.of(review("alba-t", "APPROVED", 600), review("bo-t", "CHANGES_REQUESTED", 300),
                 review("alba-t", "COMMENTED", 120)), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false)));
@@ -173,12 +175,12 @@ class TestAssistantRows
         // A ref that no longer resolves has no row, so the panel draws it as gone; a repeated ref is read once.
         assertThat(read).containsOnlyKeys("pr:trinodb/trino#31402", "issue:trinodb/trino#77", "jira:cloud:10042", waiting, "review:r7", "work:w22", "epic:LOCAL:w1");
         assertThat(read.get("pr:trinodb/trino#31402")).isEqualTo(new AssistantRow("pr:trinodb/trino#31402", Kind.PULL, "Retry Iceberg commit on conflict",
-                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
+                Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.of(HEAD),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
                         "requested changes: Please split the retry into its own commit", NOW.minusSeconds(300))), AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"))));
         assertThat(read.get("issue:trinodb/trino#77")).isEqualTo(new AssistantRow("issue:trinodb/trino#77", Kind.ISSUE, "Snapshot ids in $snapshots", Optional.of("#77"),
                 Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("trinodb/trino", 77, "ws1")));
+                Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("trinodb/trino", 77, "ws1")));
         AssistantRow ticket = read.get("jira:cloud:10042");
         assertThat(ticket.key()).contains("ICE-7");
         assertThat(ticket.state()).contains("In progress");
@@ -187,8 +189,9 @@ class TestAssistantRows
 
         // A task's phase is how it runs now, since it began; its last message is the latest event.
         assertThat(read.get(waiting)).isEqualTo(new AssistantRow(waiting, Kind.TASK, "Expose snapshot id in metadata", Optional.empty(), Optional.of("waiting"),
-                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.of("Claude Code"), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.of(NOW.minusSeconds(240)), Optional.of(new Latest(Optional.of("Claude Code"), "Which table should hold the snapshot id?", NOW.minusSeconds(240))),
+                Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.of("Claude Code"), Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.of(NOW.minusSeconds(240)),
+                Optional.of(new Latest(Optional.of("Claude Code"), "Which table should hold the snapshot id?", NOW.minusSeconds(240))),
                 AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", WAITING.id().toString())));
         AssistantRow review = read.get("review:r7");
         assertThat(review.kind()).isEqualTo(Kind.REVIEW);

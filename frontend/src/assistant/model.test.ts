@@ -98,7 +98,7 @@ describe('stackOf', () => {
 
 describe('lists', () => {
   const row = (ref: string, kind: AssistantRowDto['kind'], at: string | null, fields: Partial<AssistantRowDto> = {}): AssistantRowDto => ({
-    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, agent: null, epic: null,
+    ref, kind, title: ref, key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, head: null, agent: null, epic: null,
     done: null, total: null, at, latest: null, target,
     ...fields,
   });

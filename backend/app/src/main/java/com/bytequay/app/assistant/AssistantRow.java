@@ -32,6 +32,7 @@ import java.util.Optional;
  * @param mine whether a pull request is the user's own
  * @param mergeBlocked whether GitHub blocks merging a pull request, as its cached detail says
  * @param youApproved whether the user's own latest review approves a pull request
+ * @param head the head commit of a pull request's cached detail, which its card's Approve and Merge act on
  * @param agent the agent a task runs with
  * @param epic the title of the Epic a work item belongs to
  * @param done an Epic's finished work items
@@ -52,6 +53,7 @@ public record AssistantRow(
         boolean mine,
         boolean mergeBlocked,
         boolean youApproved,
+        Optional<String> head,
         Optional<String> agent,
         Optional<String> epic,
         Optional<Integer> done,

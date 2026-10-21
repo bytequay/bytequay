@@ -81,6 +81,7 @@ export default function AttentionList({
   const [onlyTeam, setOnlyTeam] = useState(false);
   const [openOnly, setOpenOnly] = useState(loadOpenOnly);
   const [showAllApproved, setShowAllApproved] = useState(false);
+  const [showHandled, setShowHandled] = useState(false);
   const circles = useTeams(viewerLogin).directory?.circles ?? [];
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
@@ -109,6 +110,7 @@ export default function AttentionList({
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
   const summary = handledSummary(sessionEntries);
+  const sessionItems = session.flatMap(key => handled[key] === undefined ? [] : reminders.filter(item => item.key === key));
 
   function handle(item: AttentionItem, entry: HandledEntry, text: string) {
     const key = item.key;
@@ -140,6 +142,7 @@ export default function AttentionList({
     for (const key of keys) delete next[key];
     onHandledChange(next);
     setSession(previous => previous.filter(key => !keys.includes(key)));
+    if (session.every(key => keys.includes(key))) setShowHandled(false);
     setToast(null);
   }
 
@@ -169,6 +172,17 @@ export default function AttentionList({
             ))}
           </div>
         </>}
+        {summary !== '' && (
+          <div className="atn-handled">
+            <span>{summary} this session</span>
+            <button className="atn-handled__action" type="button" aria-expanded={showHandled} onClick={() => setShowHandled(value => !value)}>
+              {showHandled ? 'Hide them' : 'View them'}
+            </button>
+            <button className="atn-handled__action" type="button" onClick={() => restore(session)}>
+              Bring back
+            </button>
+          </div>
+        )}
       </div>
 
       {cards.length > 0 ? (
@@ -195,12 +209,16 @@ export default function AttentionList({
         <div className="atn-clear">{myPrs ? 'No pull requests to show right now.' : onlyTeam ? 'Nothing from your circles needs you right now.' : openOnly ? 'Nothing open needs you right now.' : 'Nothing needs you right now.'}</div>
       )}
 
-      {summary !== '' && (
-        <div className="atn-handled">
-          <span>{summary} this session</span>
-          <button className="atn-handled__restore" type="button" onClick={() => restore(session)}>
-            Bring back
-          </button>
+      {showHandled && sessionItems.length > 0 && (
+        <div className="item-list" role="list" aria-label="Handled this session">
+          {sessionItems.map(item => {
+            const match = teamAttentionMatch(item, circles, viewerLogin);
+            return (
+              <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'}
+                circle={match === null ? null : { match, circles: [match.circle] }}
+                onToday={todayKeys?.has(item.key.toLowerCase()) ?? false} onOpen={() => onOpen(item)} />
+            );
+          })}
         </div>
       )}
 

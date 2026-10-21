@@ -59,6 +59,16 @@ export async function runAttentionActions(): Promise<void> {
     assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.item-row'), 'Ack must hide the suggestion');
     assert(host.textContent?.includes('Nothing needs you right now.') === true, 'An empty list must say nothing needs you');
     assert(started === 1 && opened === 1, 'Ack must not launch or navigate');
+    assert(host.querySelector('.atn-head .atn-handled')?.textContent?.includes('1 acknowledged this session') === true, 'The header must count what was handled');
+    flushSync(() => button('View them').click());
+    const handledRow = host.querySelector<HTMLElement>('[aria-label="Handled this session"] .item-row');
+    assert(handledRow?.textContent?.includes('Restore uploads') === true && !handledRow.querySelector('[aria-label="Acknowledge #7"]'), 'View them must list the item without triage actions');
+    handledRow?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    assert(opened === 2, 'A handled row must still open');
+    flushSync(() => button('Hide them').click());
+    assert(!host.querySelector('[aria-label="Handled this session"]'), 'Hide them must fold the list');
+    flushSync(() => button('Bring back').click());
+    assert(handled[issue.key] === undefined && host.querySelector('.item-row') !== null && !host.querySelector('.atn-handled'), 'Bring back must restore the row and drop the note');
   }
   finally {
     disposeRoot();

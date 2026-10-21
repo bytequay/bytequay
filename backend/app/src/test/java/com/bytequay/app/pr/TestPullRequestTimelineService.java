@@ -16,7 +16,6 @@ package com.bytequay.app.pr;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.store.PrDetailStore;
-import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -32,28 +31,18 @@ import static org.mockito.Mockito.when;
 class TestPullRequestTimelineService
 {
     @Test
-    void buildsTheEventOnlyFromVerifiedGitAndPushFacts()
+    void namesOnlyThePushedAndReplacedCommits()
     {
         PullRequestRef pullRequest = PullRequestRef.of("bytequay", "sample", 42);
         PrDetailStore store = mock(PrDetailStore.class);
         when(store.recordLocalTimelineEvent(eq(pullRequest), any())).thenAnswer(invocation -> invocation.getArgument(1));
         PullRequestTimelineService service = new PullRequestTimelineService(store);
 
-        service.record(
-                pullRequest,
-                "ci-autofix:run:attempt:sha",
-                "author",
-                Instant.parse("2026-08-18T00:00:00Z"),
-                "a".repeat(40),
-                "b".repeat(40),
-                ImmutableList.of("fixup! Compile feature"),
-                ImmutableList.of("src/Main.java"));
+        service.record(pullRequest, "ci-autofix:run:attempt:sha", "author", Instant.parse("2026-08-18T00:00:00Z"), "a".repeat(40), "b".repeat(40));
 
         ArgumentCaptor<PrTimelineEvent> event = ArgumentCaptor.forClass(PrTimelineEvent.class);
         verify(store).recordLocalTimelineEvent(eq(pullRequest), event.capture());
-        assertThat(event.getValue().body())
-                .contains("a".repeat(40), "b".repeat(40), "fixup! Compile feature", "src/Main.java")
-                .doesNotContain("CI is green; force push now");
+        assertThat(event.getValue().body()).isEqualTo("CI Autofix pushed bbbbbbb over aaaaaaa");
         assertThat(event.getValue().localEventKey()).contains("ci-autofix:run:attempt:sha");
     }
 }

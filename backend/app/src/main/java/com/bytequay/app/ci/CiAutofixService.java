@@ -837,7 +837,6 @@ public class CiAutofixService
 
     private CiAutofixRun recordTimelineEvent(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
     {
-        GitResult git = attempt.gitResult().orElseThrow();
         String eventKey = "ci-autofix:" + run.id() + ":" + attempt.id() + ":" + attempt.pushedSha().orElseThrow();
         timelineService.record(
                 run.scope().pullRequest(),
@@ -845,9 +844,7 @@ public class CiAutofixService
                 run.scope().author(),
                 attempt.pushedAt().orElseThrow(),
                 attempt.expectedRemoteSha().orElseThrow(),
-                attempt.pushedSha().orElseThrow(),
-                git.commitSubjects(),
-                git.changedPaths());
+                attempt.pushedSha().orElseThrow());
         return store.update(run.updateAttempt(attempt.withTimelineEvent(eventKey, now), now));
     }
 

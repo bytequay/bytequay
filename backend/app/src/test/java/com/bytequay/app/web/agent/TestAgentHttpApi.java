@@ -1173,9 +1173,7 @@ class TestAgentHttpApi
         JsonNode secondTerminal = get("/agent/turns/" + second.get("id").asText()).getBody();
         assertThat(secondTerminal.get("state").asText()).isEqualTo("COMPLETED");
 
-        // The automation update is recorded just after the turn completes.
-        awaitCondition(() -> get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody().size() >= 14);
-        JsonNode recordedEvents = get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody();
+        JsonNode recordedEvents = recordedEvents(taskId, 14);
         assertThat(recordedEvents).hasSize(14);
         assertThat(recordedEvents).filteredOn(event -> event.at("/payload/phase").asText().equals("TITLE_UPDATED")).hasSize(1);
         List<JsonNode> events = StreamSupport.stream(recordedEvents.spliterator(), false)
@@ -1291,7 +1289,7 @@ class TestAgentHttpApi
         assertThat(claudeDriver.openCount()).isEqualTo(2);
         assertThat(driver.openCount()).isZero();
 
-        JsonNode recordedClaudeEvents = get("/agent/tasks/" + claudeTaskId + "/events?after=0&limit=20").getBody();
+        JsonNode recordedClaudeEvents = recordedEvents(claudeTaskId, 7);
         assertThat(recordedClaudeEvents).filteredOn(event -> event.at("/payload/phase").asText().equals("TITLE_UPDATED")).hasSize(1);
         List<JsonNode> claudeEvents = StreamSupport.stream(recordedClaudeEvents.spliterator(), false)
                 .filter(event -> !event.at("/payload/phase").asText().equals("TITLE_UPDATED")).toList();
@@ -2088,6 +2086,14 @@ class TestAgentHttpApi
         HttpHeaders headers = new HttpHeaders();
         headers.set(AgentController.SESSION_HEADER, SESSION_TOKEN);
         return headers;
+    }
+
+    /** A task's first events once there are at least {@code count}: a turn's automation update is recorded just after the turn completes. */
+    private JsonNode recordedEvents(String taskId, int count)
+    {
+        String path = "/agent/tasks/" + taskId + "/events?after=0&limit=20";
+        await().atMost(Duration.ofSeconds(30)).until(() -> get(path).getBody().size() >= count);
+        return get(path).getBody();
     }
 
     private static void awaitCondition(BooleanSupplier condition)

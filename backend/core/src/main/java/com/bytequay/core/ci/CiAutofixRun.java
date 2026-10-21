@@ -547,6 +547,8 @@ public record CiAutofixRun(
         CANCELLED,
         STALE_HEAD,
         MAX_ATTEMPTS,
+        // Nothing finishes a run this way any more; runs v0.5.0 finished with it must still load.
+        AUTHORIZATION_EXPIRED,
         ERROR
     }
 

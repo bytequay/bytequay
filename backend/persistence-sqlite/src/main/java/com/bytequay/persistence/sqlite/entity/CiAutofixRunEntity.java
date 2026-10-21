@@ -132,6 +132,10 @@ public class CiAutofixRunEntity
     @Column(nullable = false)
     private Instant authorizedAt;
 
+    // Never read: v0.5.0 created this column NOT NULL and schema update never drops it, so every insert still fills it.
+    @Column(nullable = false)
+    private Instant authorizationExpiresAt;
+
     @Column(nullable = false)
     private int attemptsUsed;
 
@@ -237,6 +241,7 @@ public class CiAutofixRunEntity
         latestObservedBaseSha = run.latestObservedBaseSha();
         Authorization authorization = run.authorization();
         authorizedAt = authorization.authorizedAt();
+        authorizationExpiresAt = authorizedAt;
         attemptsUsed = run.attemptsUsed();
         rerunHeadSha = run.rerunCounter().headSha().orElse(null);
         rerunsUsed = run.rerunCounter().used();

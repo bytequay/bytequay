@@ -14,6 +14,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import Avatar from './Avatar';
+import { HOVER_CARD_CLOSE_MS } from './ReferenceCard';
 import type { UserProfileDto } from './types';
 import { once } from './dataCache';
 
@@ -69,7 +70,7 @@ export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = fa
       });
     }, delay);
   };
-  const hide = (delay = 140) => {
+  const hide = (delay = HOVER_CARD_CLOSE_MS) => {
     clearTimer(showTimer);
     clearTimer(hideTimer);
     hideTimer.current = window.setTimeout(() => setOpen(false), delay);

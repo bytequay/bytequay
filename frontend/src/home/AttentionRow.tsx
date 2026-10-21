@@ -41,8 +41,6 @@ import {
 
 /** How long the pointer rests on a row before the item's hover card opens. */
 const PREVIEW_OPEN_MS = 2000;
-/** Long enough for the pointer to cross from the row into its card. */
-const PREVIEW_CLOSE_MS = 90;
 /** How much of a comment or message a row unfolds. */
 const QUOTE_WORDS = 100;
 
@@ -112,7 +110,7 @@ export default function AttentionRow({
   item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, onToday = false,
 }: Props) {
   const availability = useAgentAvailability(item.workspaceId ?? undefined);
-  const hover = useHoverCard(PREVIEW_OPEN_MS, PREVIEW_CLOSE_MS);
+  const hover = useHoverCard(PREVIEW_OPEN_MS);
   const status = useAttentionStatus(item.key);
   const source = attentionSource(item);
   const summary = attentionSummary(item, viewerLogin);

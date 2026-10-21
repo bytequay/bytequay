@@ -27,7 +27,7 @@ export function IssueAttachment({ source, onRefresh, refreshing = false }: {
   refreshing?: boolean;
 }) {
   const previewId = useId();
-  const hover = useHoverCard(0, 120);
+  const hover = useHoverCard(0);
   const open = hover.anchor !== null;
   const openSource = () => { hover.close(); void window.bridge.openInAppBrowser(source.url); };
   return <div className="agt-issue-attachment" onFocus={hover.hold} onBlur={() => hover.hide()}>

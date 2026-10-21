@@ -25,7 +25,7 @@ type Source = Pick<JiraTaskSource, 'connectionId' | 'cloudId' | 'issueId' | 'key
 export function JiraSourceAttachment({ source }: { source: Source }) {
   const id = useId();
   const container = useRef<HTMLDivElement>(null);
-  const hover = useHoverCard(0, 150);
+  const hover = useHoverCard(0);
   const open = () => { hover.close(); zoomReference({ kind: 'jira', connectionId: source.connectionId, cloudId: source.cloudId, issueId: source.issueId }); };
   return <div ref={container} className="agt-issue-attachment">
     <button type="button" className="agt-issue-attachment__source" aria-label={`Preview ticket ${source.key}`}

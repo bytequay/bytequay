@@ -153,8 +153,11 @@ export type HoverCard = {
   restoreFocus: () => void;
 };
 
+/** How long the pointer stays off a hover card and its trigger before the card closes. */
+export const HOVER_CARD_CLOSE_MS = 1_500;
+
 /** The open and close timing every hover card shares, so no surface keeps its own pair of timers. */
-export function useHoverCard(openDelay = 350, closeDelay = 140): HoverCard {
+export function useHoverCard(openDelay = 350): HoverCard {
   const showTimer = useRef(0);
   const hideTimer = useRef(0);
   const pinnedNow = useRef(false);
@@ -196,13 +199,13 @@ export function useHoverCard(openDelay = 350, closeDelay = 140): HoverCard {
       setAnchor(element.isConnected ? element.getBoundingClientRect() : rect);
     }, delay);
   }, [openDelay]);
-  const hide = useCallback((delay = closeDelay) => {
+  const hide = useCallback((delay = HOVER_CARD_CLOSE_MS) => {
     window.clearTimeout(showTimer.current);
     window.clearTimeout(hideTimer.current);
     // A card the reader moved or resized stays put; the pointer has to leave it to reach what it covered.
     if (pinnedNow.current) return;
     hideTimer.current = window.setTimeout(() => setAnchor(null), delay);
-  }, [closeDelay]);
+  }, []);
 
   return useMemo(
     () => ({ anchor, pinned, show, hide, hold, close, pin, restoreFocus }),

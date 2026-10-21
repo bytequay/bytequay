@@ -384,7 +384,9 @@ async function hoverCards(): Promise<void> {
     'Resting on a ticket must show its description');
     assert(card('Agent task preview')?.textContent?.includes('No messages yet.') === true, 'Resting on a task must show its last message');
     rows.forEach(row => row.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
-    await pause(200); await settle();
+    await pause(1000); await settle();
+    assert(document.querySelectorAll('.ref-card').length === 3, 'A hover card must stay open for a second and a half after the pointer leaves');
+    await pause(700); await settle();
     assert(document.querySelector('.ref-card') === null, 'Leaving a row must close its hover card');
     assert(f.opens === 0 && Object.keys(loadHandled()).length === 0, 'Hovering must neither open nor handle an item');
   }

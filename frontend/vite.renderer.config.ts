@@ -20,6 +20,9 @@ import { encodingDetector, textmateImports } from './ideBuild';
 export default defineConfig({
   cacheDir: 'node_modules/.vite/main',
   plugins: [react(), encodingDetector(), textmateImports()],
+  // A rebuilt workspace package keeps its optimizer hash, so a pre-bundled copy stays stale in Vite and in Chromium's immutable cache.
+  // Only those packages import react/jsx-runtime, which still needs pre-bundling from CommonJS.
+  optimizeDeps: { exclude: ['@bytequay/google', '@bytequay/jira', '@bytequay/lab', '@bytequay/ui'], include: ['react/jsx-runtime'] },
   build: { rollupOptions: { input: { main: resolve(__dirname, 'index.html'), notices: resolve(__dirname, 'notices.html') } } },
   server: {
     host: '127.0.0.1',

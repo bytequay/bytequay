@@ -20,6 +20,7 @@ import FindBar from './FindBar';
 import { GoogleScreen } from './integrations/google';
 import { useGoogle } from '@bytequay/google/renderer';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
+import { listenForLabTasks } from './lab';
 import { JIRA_CHANGED, anyJiraConnected, type JiraConnection } from './jira/contracts';
 import HomePage from './home/HomePage';
 import TeamsPage from './teams/TeamsPage';
@@ -198,6 +199,8 @@ function AppContent() {
   }, []);
 
   useEffect(() => { void initialize(); }, [initialize]);
+
+  useEffect(() => listenForLabTasks(), []);
 
   useEffect(() => {
     const changed = () => { void window.bridge.getSetupPreferences?.().then(setSetup).catch(() => {}); };

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useSyncExternalStore } from 'react';
-import type { LabHost } from './contracts';
+import type { LabHost, LabTask } from './contracts';
 
 export type LabLink = { enabled: boolean };
 
@@ -90,4 +90,19 @@ export async function openLab(host: LabHost): Promise<void> {
     setLaunch({ opening: false, error: error instanceof Error ? error.message : String(error) });
     host.openSettings();
   }
+}
+
+/** Opens a task the dashboard handed over; without a workspace for its repository, Lab Settings says what to add. */
+export async function takeLabTask(host: LabHost, task: LabTask): Promise<void> {
+  try {
+    if (await host.startTask(task)) {
+      setLaunch({ ...launch, error: null });
+      return;
+    }
+    setLaunch({ ...launch, error: `Add ${task.repository} as a watched repository, then press Fix it again.` });
+  }
+  catch (error) {
+    setLaunch({ ...launch, error: error instanceof Error ? error.message : String(error) });
+  }
+  host.openSettings();
 }

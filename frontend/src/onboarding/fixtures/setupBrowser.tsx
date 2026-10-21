@@ -68,7 +68,7 @@ function harness(step: SetupStep = 'APPEARANCE', available = true, connected = f
     hasPat: async () => connected,
     controlWindow: async () => {},
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
-    onInAppBrowserState: () => () => {}, getFullScreen: async () => false, onFullScreenChange: () => () => {},
+    onInAppBrowserState: () => () => {}, onLabTask: () => () => {}, getFullScreen: async () => false, onFullScreenChange: () => () => {},
     setPrAttentionHandled: async () => {}, onPrAttentionUpdated: () => () => {}, onPrNotificationOpen: () => () => {},
     onFindResult: () => () => {}, stopFindInPage: async () => {}, listJiraConnections: async () => [], listJiraAttention: async () => [],
     listWorkspaces: async () => [], fetchRecentChanges: async () => [],

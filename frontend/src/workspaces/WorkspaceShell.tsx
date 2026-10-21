@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import { useTaskAttention } from '../agents/attention';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
@@ -83,8 +83,10 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   // The instruction an Epic's work prepared for the issue's composer.
   const [startDraft, setStartDraft] = useState<string>();
   const [startReplaces, setStartReplaces] = useState<string>();
-  // Epic work without an issue or ticket: the task composer opens with its title, and the task it creates is the work's attempt.
-  const [startWork, setStartWork] = useState<{ itemId: string; draft: string }>();
+  // Epic work without an issue or ticket: the task composer opens with its title, and the task it creates is the work's attempt. A draft
+  // with no work item gets a key of its own, so a composer already on screen opens again with it.
+  const [startWork, setStartWork] = useState<{ itemId?: string; draft: string; key: string }>();
+  const draftStarts = useRef(0);
   // An Epic's Run starts its work at once: the issue or work item whose composer sends that message itself, until the composer takes it.
   const [startNow, setStartNow] = useState<number | string>();
   const startTaken = useCallback(() => setStartNow(undefined), []);
@@ -215,13 +217,14 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
     const take = (): void => {
       const start = takeEpicStart(workspace.id);
       if (start === null) return;
-      const target = 'issue' in start ? start.issue : start.itemId;
-      setStartNow(start.send === true ? target : undefined);
       if ('issue' in start) {
+        setStartNow(start.send === true ? start.issue : undefined);
         startIssue(start.issue, start.instruction, start.replaces);
         return;
       }
-      setStartWork({ itemId: start.itemId, draft: start.draft });
+      const key = start.itemId ?? `draft-${++draftStarts.current}`;
+      setStartNow(start.send === true ? key : undefined);
+      setStartWork({ itemId: start.itemId, draft: start.draft, key });
       window.location.hash = workspaceRoute(workspace.id, 'tasks');
     };
     take();
@@ -315,7 +318,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
       return stage(
         <>
           <AgentTasksView
-            key={sourceIssueNumber ?? startWork?.itemId ?? 'new-task'}
+            key={sourceIssueNumber ?? startWork?.key ?? 'new-task'}
             workspaceId={workspace.id}
             repository={monitoredRepository}
             sourceIssueNumber={sourceIssueNumber}
@@ -323,7 +326,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
             initialDraft={sourceIssueNumber === null ? startWork?.draft : startDraft}
             replaces={sourceIssueNumber === null ? undefined : startReplaces}
             workItemId={sourceIssueNumber === null ? startWork?.itemId : undefined}
-            autoStart={startNow !== undefined && startNow === (sourceIssueNumber ?? startWork?.itemId)}
+            autoStart={startNow !== undefined && startNow === (sourceIssueNumber ?? startWork?.key)}
             onAutoStart={startTaken}
             onOpenCreatedTask={task => {
               setStartWork(undefined);

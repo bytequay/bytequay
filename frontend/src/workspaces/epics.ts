@@ -226,9 +226,10 @@ export function useEpicLend(workspaceId: string): EpicLend {
 
 /**
  * Work a Work tab starts: through its issue's composer, or the task composer for work without an issue or ticket. `send` starts the task
- * at once with that message; without it the composer waits for the user to review and send.
+ * at once with that message; without it the composer waits for the user to review and send. A draft without `itemId` is a new task that
+ * belongs to no work item, such as one the Lab hands over.
  */
-export type EpicStart = { workspaceId: string; send?: boolean } & ({ issue: number; instruction: string; replaces?: string } | { itemId: string; draft: string });
+export type EpicStart = { workspaceId: string; send?: boolean } & ({ issue: number; instruction: string; replaces?: string } | { itemId?: string; draft: string });
 export const EPIC_START = 'bytequay:epic-start';
 let waitingStart: EpicStart | null = null;
 

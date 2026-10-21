@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { LAB_LINK_CHANGED, openLab, readLabLink, saveLabLink } from './labLink';
+import { LAB_LINK_CHANGED, openLab, readLabLink, saveLabLink, takeLabTask } from './labLink';
 import type { LabHost } from './contracts';
 
 const settingsRoute = () => '#/settings/integrations/lab';
@@ -101,5 +101,25 @@ describe('opening the Lab', () => {
     await launchLab();
     expect(start).toHaveBeenCalledTimes(2);
     expect(browse).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('a task from the dashboard', () => {
+  const task = { repository: 'bytequay/bytequay', text: '  Shorten it\n\nLab suggestion: Shorten it\n' };
+  const host = (startTask: LabHost['startTask']) => ({ openLab: vi.fn(), openInAppBrowser: vi.fn(), openSettings: vi.fn(), startTask });
+
+  it('hands the text unchanged to the repository that watches it and stays there', async () => {
+    const opened = host(vi.fn().mockResolvedValue(true));
+    await takeLabTask(opened, task);
+    expect(opened.startTask).toHaveBeenCalledWith(task);
+    expect(opened.openSettings).not.toHaveBeenCalled();
+  });
+
+  it('opens Lab Settings when no repository watches it, or the hand-over fails', async () => {
+    for (const startTask of [vi.fn().mockResolvedValue(false), vi.fn().mockRejectedValue(new Error('Workspaces could not load'))]) {
+      const missing = host(startTask);
+      await takeLabTask(missing, task);
+      expect(missing.openSettings).toHaveBeenCalledOnce();
+    }
   });
 });

@@ -66,6 +66,7 @@ function installBridge() {
     hasPat: async () => true,
     getInAppBrowserState: async () => browser,
     onInAppBrowserState: (listener: (state: InAppBrowserState) => void) => { showBrowser = listener; return () => {}; },
+    onLabTask: () => () => {},
     openInAppBrowser: async (url: string) => {
       opened.push(url);
       setBrowser({ tabs: [{ id: 'jira', url, title: 'ENG-1007', canGoBack: false, canGoForward: false, loading: false, pinned: false, name: null, favicon: null, error: null }], activeTabId: 'jira' });

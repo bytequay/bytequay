@@ -11,9 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export type LabBridge = { openLab: () => Promise<string> };
+/** A task the dashboard asks ByteQuay to open in a repository's task composer, for the user to read and send. */
+export type LabTask = { repository: string; text: string };
 
-export type LabHost = LabBridge & {
+export type LabBridge = { openLab: () => Promise<string>; onLabTask: (callback: (task: LabTask) => void) => () => void };
+
+export type LabHost = Pick<LabBridge, 'openLab'> & {
   openInAppBrowser: (url: string) => Promise<unknown>;
   openSettings: () => void;
+  /** Opens the composer of the workspace that watches the task's repository; false when none does. */
+  startTask: (task: LabTask) => Promise<boolean>;
 };

@@ -38,6 +38,7 @@ export async function run(): Promise<{ name: string }[]> {
     hasPat: async () => true,
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
     onInAppBrowserState: () => () => {},
+    onLabTask: () => () => {},
     hideInAppBrowser: async () => {},
     getFullScreen: async () => false,
     onFullScreenChange: () => () => {},

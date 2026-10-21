@@ -229,7 +229,7 @@ const bridge: Bridge = {
   getGitHubCliAvailable: () => ipcRenderer.invoke('github:cli-available'),
   importGitHubCliToken: () => ipcRenderer.invoke('github:cli-import'),
 
-  ...createLabBridge(channel => ipcRenderer.invoke(channel)),
+  ...createLabBridge(channel => ipcRenderer.invoke(channel), subscribe),
   openInAppBrowser: url => ipcRenderer.invoke('inapp:open', url),
   openExternal: url => ipcRenderer.invoke('external:open', url),
   getInAppBrowserState: () => ipcRenderer.invoke('inapp:state'),

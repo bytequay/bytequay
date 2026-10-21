@@ -11,21 +11,32 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { LabTask } from '@bytequay/lab/contracts';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { assert, until } from '../../fixtures/harness';
-import type { Bridge } from '../../types';
+import type { Bridge, WorkspaceDto } from '../../types';
+import { workspaceFixture } from '../../workspaces/fixtures/workspace';
+import { workspaceRoute } from '../../workspaces/model';
 import { settingsRoute } from '../routes';
 import '../../index.css';
 
+/** What the whole app is given in place of the desktop: the watched repositories, and the hand-over of tasks from the dashboard. */
+type Desktop = { workspaces: WorkspaceDto[]; labTask?: (task: LabTask) => void; preview: ReturnType<typeof createPreviewBridge> };
+
 /** Starts the whole app on a route. Every web page it asks for is added to `opened` instead of being loaded. */
-export function start(route: string, opened: string[] = [], openLab: () => Promise<string> = async () => 'http://127.0.0.1:42311/'): () => void {
+export function start(route: string, opened: string[] = [], openLab: () => Promise<string> = async () => 'http://127.0.0.1:42311/',
+  desktop: Desktop = { workspaces: [], preview: createPreviewBridge('workspace') }): () => void {
   const bridge = {
-    ...createPreviewBridge('workspace'),
+    ...desktop.preview,
     hasPat: async () => true,
     openLab,
+    onLabTask: (callback: (task: LabTask) => void) => {
+      desktop.labTask = callback;
+      return () => { if (desktop.labTask === callback) desktop.labTask = undefined; };
+    },
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
     onInAppBrowserState: () => () => {},
     openInAppBrowser: async (url: string) => { opened.push(url); },
@@ -38,7 +49,15 @@ export function start(route: string, opened: string[] = [], openLab: () => Promi
     stopFindInPage: async () => {},
     listJiraConnections: async () => [],
     listJiraAttention: async () => [],
-    listWorkspaces: async () => [],
+    listWorkspaces: async () => desktop.workspaces,
+    listRetiredWorkspaces: async () => [],
+    getWorkspace: async (id: string) => {
+      const found = desktop.workspaces.find(workspace => workspace.id === id);
+      if (found === undefined) throw new Error(`No workspace ${id}`);
+      return found;
+    },
+    listWorkItems: async () => [],
+    listCherryPickExecutions: async () => [],
     fetchRecentChanges: async () => [],
     fetchRecent: async () => ({ day: null, rows: [], nextCursor: null, endOfWindow: true, activeDays: [], retentionDays: 14 }),
     fetchAttentionPrs: async () => [],
@@ -83,7 +102,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await until(() => opened.length === before + 1 && !openButton()?.disabled && !labItem()?.disabled, 'The ready dashboard opens and launch buttons recover');
     assert(opened.at(-1) === DASHBOARD, 'The browser opens the address returned by the managed dashboard');
   };
-  let stop = start(settingsRoute('lab'), opened, openLab);
+  const desktop: Desktop = { workspaces: [], preview: createPreviewBridge('workspace') };
+  let stop = start(settingsRoute('lab'), opened, openLab, desktop);
   const results: { name: string; error?: string }[] = [];
   const step = async (name: string, body: () => Promise<void>) => {
     try { await body(); results.push({ name }); }
@@ -137,7 +157,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
     await step('Sidebar visibility survives restart and opening from another page refreshes again', async () => {
       stop();
-      stop = start('#/recent', opened, openLab);
+      stop = start('#/recent', opened, openLab, desktop);
       await until(() => document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null, 'The app starts again on Recent');
       assert(labItem() !== null, 'The Lab shortcut is still there');
       assert(launches === 4, 'The visible shortcut does not launch the dashboard by itself');
@@ -154,6 +174,29 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       await until(() => labItem() === null, 'The Lab item goes away');
       assert(openButton()?.textContent?.trim() === 'Open Lab' && openButton()?.disabled === false, 'Open Lab remains available');
       assert(JSON.stringify(JSON.parse(window.localStorage.getItem('bytequay.lab-link') ?? '{}')) === '{"enabled":false}', 'Only shortcut visibility is saved');
+    });
+
+    await step('A task from the dashboard fills its repository\'s task box and waits there to be sent', async () => {
+      const brief = 'Shorten what a turn starts with\n\nLab suggestion: Shorten what a turn starts with';
+      const box = () => document.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+      window.location.hash = '#/recent';
+      await until(() => document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null, 'The app is on Recent');
+      assert(desktop.labTask !== undefined, 'The app listens for the dashboard\'s tasks');
+      desktop.labTask({ repository: 'bytequay/bytequay', text: brief });
+      await until(() => errorText().includes('Add bytequay/bytequay as a watched repository'), 'Without that repository, Lab Settings says what to add');
+      assert(window.location.hash === settingsRoute('lab'), 'The missing repository is explained in Lab Settings');
+
+      desktop.workspaces.push(workspaceFixture({ id: 'bytequay', name: 'bytequay', monitoredOwner: 'ByteQuay', monitoredRepo: 'ByteQuay' }));
+      desktop.labTask({ repository: 'bytequay/bytequay', text: brief });
+      await until(() => box()?.value === brief, 'The task box of the repository that watches it holds the brief as it was');
+      assert(window.location.hash === workspaceRoute('bytequay', 'tasks'), 'The task box is that repository\'s Tasks');
+      const later = `${brief}\n\nA second look`;
+      desktop.labTask({ repository: 'bytequay/bytequay', text: later });
+      await until(() => box()?.value === later, 'A task box already on screen takes the next brief');
+      assert(!desktop.preview.commands.some(command => command.name === 'createAgentTask'), 'Nothing is sent until the user sends it');
+      window.location.hash = settingsRoute('lab');
+      await until(() => toggle() !== null, 'Settings shows the Lab page again');
+      assert(errorText() === '', 'A task that opened clears the earlier message');
     });
     return results;
   }

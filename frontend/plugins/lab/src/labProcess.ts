@@ -19,9 +19,11 @@ import { mkdir } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import type { LabTask } from './contracts';
 
 const REFRESH_TIMEOUT = 5 * 60_000;
 const START_TIMEOUT = 30_000;
+const TASK_TEXT_LIMIT = 20_000;
 type Process = { child: ChildProcess; exited: boolean; failure: string | null; output: string };
 const children = new Set<Process>();
 let dashboard: { process: Process; address: string } | null = null;
@@ -145,6 +147,19 @@ export function openLab(): Promise<string> {
   if (stopping) return Promise.reject(new Error('ByteQuay is shutting down.'));
   opening ??= prepare().finally(() => { opening = null; });
   return opening;
+}
+
+/**
+ * The task a link on the running dashboard asks to open, or null for any other address. Only that dashboard knows its per-launch path, so
+ * another page cannot make a link this takes; and a task it takes only fills the composer, which the user still sends.
+ */
+export function labTask(url: string): LabTask | null {
+  if (dashboard === null || !url.startsWith(`${dashboard.address}task?`)) return null;
+  const query = new URL(url).searchParams;
+  const repository = query.get('repository') ?? '';
+  const text = query.get('text') ?? '';
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || text.trim() === '' || text.length > TASK_TEXT_LIMIT) return null;
+  return { repository, text };
 }
 
 export function stopLab(): void {

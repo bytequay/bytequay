@@ -77,7 +77,9 @@ export class BrowserTabs {
   private surface: { id: string; bounds: Rectangle } | null = null;
   private attached: WebContentsView | null = null;
 
-  constructor(private readonly window: () => BrowserWindow | null, private readonly storagePath: () => string, private readonly onPresent: () => void = () => {}) {}
+  /** `claim` takes a link a page opens before any tab does, for links that act in ByteQuay rather than load a page. */
+  constructor(private readonly window: () => BrowserWindow | null, private readonly storagePath: () => string, private readonly onPresent: () => void = () => {},
+    private readonly claim: (url: string) => boolean = () => false) {}
 
   getState(): InAppBrowserState {
     this.restore();
@@ -349,6 +351,7 @@ export class BrowserTabs {
       if (!current()) return { action: 'deny' };
       try { url = normalizeWebAddress(url); }
       catch { return { action: 'deny' }; }
+      if (this.claim(url)) return { action: 'deny' };
       // Chromium supplies tab dispositions for modified clicks and target="_blank".
       if (disposition === 'background-tab' || disposition === 'foreground-tab') this.addTab(url, disposition === 'background-tab');
       else void this.navigate(tab.state.id, url).catch(() => {});

@@ -248,6 +248,23 @@ it('keeps popup navigation in its existing tab and denies unsafe or closed-page 
   expect(tabs.getState().tabs).toHaveLength(0);
 });
 
+it('hands a link it claims to the app without opening, loading or replacing a page', () => {
+  tabs.releaseWindow();
+  const task = 'http://127.0.0.1:49152/lab-launch/task?repository=o%2Fn&text=t';
+  const claim = vi.fn((url: string) => url === task);
+  tabs = new BrowserTabs(() => window, () => file, () => {}, claim);
+  const first = open('http://127.0.0.1:49152/lab-launch/');
+  const request = view(0).webContents.setWindowOpenHandler.mock.calls[0][0];
+  for (const disposition of ['foreground-tab', 'background-tab', 'new-window']) expect(request({ url: task, disposition })).toEqual({ action: 'deny' });
+  expect(claim).toHaveBeenCalledTimes(3);
+  expect(tabs.getState()).toEqual({ activeTabId: first, tabs: [expect.objectContaining({ id: first, url: 'http://127.0.0.1:49152/lab-launch/' })] });
+  expect(view(0).webContents.loadURL).toHaveBeenCalledOnce();
+  expect(request({ url: 'file:///etc/passwd', disposition: 'foreground-tab' })).toEqual({ action: 'deny' });
+  expect(claim).toHaveBeenCalledTimes(3);
+  request({ url: 'https://example.com/linked', disposition: 'foreground-tab' });
+  expect(tabs.getState().tabs.map(tab => tab.url)).toEqual(['http://127.0.0.1:49152/lab-launch/', 'https://example.com/linked']);
+});
+
 it('shows the site icon for pages that declare none, until the page declares one', () => {
   open('https://slack.example/client/T1');
   expect(tabs.getState().tabs[0].favicon).toBe('https://slack.example/favicon.ico');

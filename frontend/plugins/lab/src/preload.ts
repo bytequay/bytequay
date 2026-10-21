@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { LabBridge } from './contracts';
+import type { LabBridge, LabTask } from './contracts';
 
-export function createLabBridge(invoke: (channel: 'lab:open') => Promise<string>): LabBridge {
-  return { openLab: () => invoke('lab:open') };
+export function createLabBridge(invoke: (channel: 'lab:open') => Promise<string>,
+  subscribe: (channel: 'lab:task', callback: (task: LabTask) => void) => () => void): LabBridge {
+  return { openLab: () => invoke('lab:open'), onLabTask: callback => subscribe('lab:task', callback) };
 }

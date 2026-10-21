@@ -12,5 +12,5 @@
  * limitations under the License.
  */
 export { default as LabPage } from './LabPage';
-export { LAB_LINK_CHANGED, openLab, readLabLink, saveLabLink, useLabLaunch, useLabLink } from './labLink';
+export { LAB_LINK_CHANGED, openLab, readLabLink, saveLabLink, takeLabTask, useLabLaunch, useLabLink } from './labLink';
 export type { LabLink } from './labLink';

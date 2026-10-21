@@ -15,8 +15,8 @@ import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
 testBrowserScenarios([
   {
-    name: 'starts and refreshes the Lab from Settings and the sidebar with shared progress and retry',
-    expected: 5, timeout: 30_000,
+    name: 'starts and refreshes the Lab from Settings and the sidebar, and opens its tasks in their repository\'s task box',
+    expected: 6, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-lab-settings-',
       entry: 'src/settings/fixtures/labSettingsBrowser.tsx',

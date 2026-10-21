@@ -166,6 +166,26 @@ it('stops a dashboard still waiting for readiness when ByteQuay quits', async ()
   expect(process.kill).toHaveBeenCalledWith(-children[1].pid, 'SIGKILL');
 });
 
+it('takes a task only from a link on the running dashboard, with a repository and a bounded text', async () => {
+  const lab = await import('./labProcess');
+  const link = (query: string, base = 'http://127.0.0.1:49152/lab-launch-id/') => `${base}task?${query}`;
+  const good = link('repository=bytequay%2Fbytequay&text=Shorten%20it%0A%0ALab%20suggestion%3A%20Shorten%20it');
+  expect(lab.labTask(good)).toBeNull();
+  const opened = lab.openLab(); await flush(); children[0].end(); await opened;
+  expect(lab.labTask(good)).toEqual({ repository: 'bytequay/bytequay', text: 'Shorten it\n\nLab suggestion: Shorten it' });
+  expect(lab.labTask(link(`repository=a%2Fb&text=${'x'.repeat(20_000)}`))?.text).toHaveLength(20_000);
+  for (const url of [
+    link('repository=a%2Fb&text=t', 'http://127.0.0.1:49153/lab-launch-id/'),
+    link('repository=a%2Fb&text=t', 'http://127.0.0.1:49152/lab-another-launch/'),
+    'http://127.0.0.1:49152/lab-launch-id/tasks?repository=a%2Fb&text=t',
+    'http://127.0.0.1:49152/lab-launch-id/?repository=a%2Fb&text=t',
+    link('repository=bytequay&text=t'), link('repository=a%2Fb%2Fc&text=t'), link('repository=a%20b%2Fc&text=t'), link('text=t'),
+    link('repository=a%2Fb&text=%20%0A'), link('repository=a%2Fb'), link(`repository=a%2Fb&text=${'x'.repeat(20_001)}`),
+  ]) expect(lab.labTask(url), url.slice(0, 80)).toBeNull();
+  children[1].end(1);
+  expect(lab.labTask(good)).toBeNull();
+});
+
 it('uses the prepared runtime with current source files during development', async () => {
   mocks.app.isPackaged = false;
   const lab = await import('./labProcess');

@@ -368,7 +368,10 @@ The renderer stores only whether to show its sidebar shortcut. Refresh reads tas
 runtime files and the database read-only and saves results in the separate Lab
 data folder. Opening Lab does not start model runs or install a background monitor.
 The Lab measures how the app and its agents work, so product changes can be
-chosen from its numbers and then checked against them.
+chosen from its numbers and then checked against them. A link the dashboard
+opens under its own per-launch address can hand ByteQuay a task brief; Electron
+takes that link instead of loading it and fills the composer of the workspace
+that watches the brief's repository. The user still reads and sends the task.
 
 GitHub writes require a direct user action or an explicitly accepted automation
 scope. Repository content, model output, and a private discussion cannot grant

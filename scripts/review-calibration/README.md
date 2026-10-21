@@ -397,9 +397,14 @@ them; and the disk by owner with its growth, what Clean up would delete and
 the old database copies it deletes when its box is ticked.
 The agent hands in a summary and at most eight suggestions, each with a risk
 (high, medium or low), the numbers behind it, what to do, where, the number to
-watch, and whether Clean up carries it out; an answer whose numbers are
-missing, or that offers a clean-up when nothing is left to clean, goes back to
-it as an error. The page shows them the gravest first, each that Clean up
+watch, and how it is carried out: by Clean up, or as a fix at one of the places
+in ByteQuay the agent is told about (`PLACES`: the backend's JVM flags in
+`dev.sh` and `backendProcess.ts`, what a finished task removes in
+`DefaultAgentCompletionService`). A risk neither can act on, or one that only
+says to watch a number, is left out, and a fix names a place only when changing
+it would move the number it gives to watch. An answer whose numbers are missing, that
+offers a clean-up when nothing is left to clean, or whose fix names none of
+those places, goes back to it as an error. The page shows them the gravest first, each that Clean up
 carries out with a button that asks for the same confirmation, and what the
 agent saw first. A look runs apart from the page and keeps
 `advice/advice.json` and every model and tool call in `advice/events.jsonl` in
@@ -414,7 +419,7 @@ lists both kinds; a risk that was made is checked by whether the newest look
 on a later day than the change still finds it. A look takes the DeepSeek key
 from the Keychain (`uv run batch.py --store-key`) and sends counters and the
 last look's titles, never a path, a command or a task's title; it ends after
-20 model calls or five minutes.
+20 model calls or ten minutes.
 
 A risk that Clean up does not carry out has "How to fix" (`uv run fixer.py
 TITLE` plans one from a terminal). `fixer.py` writes ByteQuay's source as last

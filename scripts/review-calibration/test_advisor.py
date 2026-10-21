@@ -26,7 +26,7 @@ GB, MB = resources.GB, resources.MB
 START = 1_800_000_000.0  # on the hour
 ANSWER = {"summary": "The disk is nearly full, and 3 GB is data nothing uses.", "suggestions": [
     {"title": "Give the backend more room", "risk": "low", "seen": "It peaked at 1,900 MB of a 2,000 MB heap limit.", "do": "Raise -Xmx.",
-     "where": "dev.sh JVM_ARGS", "watch": "The backend's peak memory", "action": "none"},
+     "where": "dev.sh JVM_ARGS", "watch": "The backend's peak memory", "action": "fix"},
     {"title": "Clean up what nothing uses", "risk": "high", "seen": "Retired features hold 3.0 GB.", "do": "Delete it.", "where": "The Clean up section",
      "watch": "Could be freed", "action": "clean_up"}]}
 
@@ -158,6 +158,26 @@ class TestAnswer(unittest.TestCase):
             with self.subTest(wrong=wrong):
                 self.assertIn(wrong, advisor.problem_of(answer, cleanable=True))
         self.assertIn("nothing to delete now", advisor.problem_of(ANSWER, cleanable=False))
+
+    def test_only_a_risk_someone_can_act_on_is_handed_in(self):
+        first = ANSWER["suggestions"][0]
+        watch_only = {**first, "do": "Watch the idle backend memory.", "action": "none"}
+        self.assertIn("an action of fix, clean_up", advisor.problem_of({**ANSWER, "suggestions": [watch_only]}, cleanable=True))
+        nowhere = {**first, "where": "ByteQuay backend agent command lines"}
+        self.assertIn("must name the place in ByteQuay to change", advisor.problem_of({**ANSWER, "suggestions": [nowhere]}, cleanable=True))
+        for where in ("Backend JVM flags in dev.sh (JVM_ARGS)", "frontend/src/backendProcess.ts", "the backend's DefaultAgentCompletionService"):
+            self.assertIsNone(advisor.problem_of({**ANSWER, "suggestions": [{**first, "where": where}]}, cleanable=True), where)
+
+    def test_every_place_a_fix_may_name_is_still_in_bytequay_and_taught_to_the_agent(self):
+        root = SCRIPT.parents[2]
+        if not (root / "backend").is_dir():
+            self.skipTest("the application's source is not beside the lab")
+        named = {path.name for path in [*root.glob("*.sh"), *(root / "frontend" / "src").glob("*.ts")]} | {path.stem for path in (root / "backend").rglob("*.java")}
+        for place in advisor.PLACES:
+            with self.subTest(place=place):
+                self.assertIn(place, named)
+                self.assertIn(place, advisor.SYSTEM)
+        self.assertIn("only when changing it would move the number you give to watch", " ".join(advisor.SYSTEM.split()))
 
 
 class TestLook(Kept):

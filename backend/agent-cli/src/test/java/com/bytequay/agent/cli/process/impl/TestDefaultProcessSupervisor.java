@@ -42,6 +42,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -690,7 +691,7 @@ class TestDefaultProcessSupervisor
         ManagedProcess process = supervisor.prepare(spec(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "interrupted-task"), "read value"))
                 .start((stream, bytes) -> {});
         try {
-            observeTokenlessDescendant(process, false);
+            observeDescendant(process, Optional.empty(), false);
             assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
             LaunchMarker marker = new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow();
             assertThat(marker.descendantTrackingIncomplete()).isFalse();
@@ -709,13 +710,13 @@ class TestDefaultProcessSupervisor
                 .start((stream, bytes) -> {});
         try {
             assertThat(process.observedDescendants()).isPresent();
-            observeTokenlessDescendant(process, true);
+            observeDescendant(process, Optional.empty(), true);
             assertThat(process.observedDescendants()).isEmpty();
             assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
             LaunchMarker marker = new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow();
             assertThat(marker.descendantTrackingIncomplete()).isTrue();
             assertThat(marker.workFinished()).isFalse();
-            observeTokenlessDescendant(process, false);
+            observeDescendant(process, Optional.empty(), false);
             assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
         }
         finally {
@@ -723,13 +724,35 @@ class TestDefaultProcessSupervisor
         }
     }
 
-    private static void observeTokenlessDescendant(ManagedProcess process, boolean alive)
+    @Test
+    void remembersDescendantsByPidAndStartTime()
+            throws Exception
+    {
+        ManagedProcess process = supervisor.prepare(spec(PROBE, "read value")).start((stream, bytes) -> {});
+        try {
+            LaunchMarkerStore store = new LaunchMarkerStore(launches);
+            Instant original = Instant.parse("2026-01-01T00:00:00Z");
+            observeDescendant(process, Optional.of(original), true);
+            observeDescendant(process, Optional.of(original), true);
+            assertThat(store.read(process.launchId()).orElseThrow().descendantStartTokens()).containsEntry(123_456_789L, original.toString());
+
+            Instant reused = original.plusSeconds(1);
+            observeDescendant(process, Optional.of(reused), true);
+            assertThat(store.read(process.launchId()).orElseThrow().descendantStartTokens()).containsEntry(123_456_789L, reused.toString());
+        }
+        finally {
+            process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+        }
+    }
+
+    private static void observeDescendant(ManagedProcess process, Optional<Instant> startToken, boolean alive)
             throws Exception
     {
         ProcessHandle.Info info = (ProcessHandle.Info) Proxy.newProxyInstance(
                 ProcessHandle.Info.class.getClassLoader(), new Class<?>[] {ProcessHandle.Info.class}, (proxy, method, arguments) -> {
                     if (method.getName().equals("startInstant")) {
-                        return Optional.empty();
+                        return startToken;
                     }
                     throw new UnsupportedOperationException(method.getName());
                 });

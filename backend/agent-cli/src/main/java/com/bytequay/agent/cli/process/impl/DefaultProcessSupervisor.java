@@ -995,7 +995,7 @@ public final class DefaultProcessSupervisor
             }
             ProcessIdentity identity = new ProcessIdentity(descendant.pid(), startToken.orElseThrow());
             synchronized (markerLock) {
-                if (marker.descendants().stream().flatMap(List::stream).anyMatch(identity::equals)) {
+                if (identity.startToken().toString().equals(marker.descendantStartTokens().get(identity.pid()))) {
                     return;
                 }
                 marker = marker.withDescendant(identity);

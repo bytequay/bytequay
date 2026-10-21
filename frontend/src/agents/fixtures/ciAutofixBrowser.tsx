@@ -19,7 +19,7 @@ import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
-import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { assert, changeInput, settle, element, until } from '../../fixtures/harness';
 
 function pressEnter(input: HTMLTextAreaElement) { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
 
@@ -168,8 +168,18 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
+    // The screen looks up its pull request when the task loads and again when the turn does; a slow runner spreads those over
+    // more frames, so polling is measured once the count has held still for ten of them.
+    const lookupCount = () => bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
+    let seen = -1;
+    let quiet = 0;
+    await until(() => {
+      quiet = lookupCount() === seen ? quiet + 1 : 0;
+      seen = lookupCount();
+      return quiet >= 10;
+    }, 'The screen must finish its own pull request lookups');
     const before = reads;
-    const lookups = bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
+    const lookups = lookupCount();
     pauseRead = true;
     timers.tick();
     await settle();

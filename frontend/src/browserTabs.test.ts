@@ -117,7 +117,12 @@ it('preserves each live page/history across switch, hide and renderer reload; ig
   expect(tabs.getState().activeTabId).toBeNull();
   tabs.select(first);
   tabs.mount(first, bounds);
-  tabs.rendererReload();
+  contentView.removeChildView.mockClear();
+  tabs.rendererNavigated({ isSameDocument: true, isMainFrame: true });
+  tabs.rendererNavigated({ isSameDocument: false, isMainFrame: false });
+  expect(contentView.removeChildView).not.toHaveBeenCalled();
+  tabs.rendererNavigated({ isSameDocument: false, isMainFrame: true });
+  expect(contentView.removeChildView.mock.calls).toEqual([[view(0)]]);
   expect(tabs.getState().activeTabId).toBe(first);
   tabs.mount(first, bounds);
   expect(view(0).webContents.formValue).toBe('unsent work');

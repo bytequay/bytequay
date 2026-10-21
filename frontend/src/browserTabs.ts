@@ -161,7 +161,9 @@ export class BrowserTabs {
   }
 
   /** Renderer reload drops layout, never the live website or its history. */
-  rendererReload(): void {
+  rendererNavigated({ isSameDocument, isMainFrame }: { isSameDocument: boolean; isMainFrame: boolean }): void {
+    // Hash navigation keeps React mounted, so the open page's slot will not mount it again.
+    if (isSameDocument || !isMainFrame) return;
     this.unmountSurface();
   }
 

@@ -479,7 +479,7 @@ async function createWindow(): Promise<void> {
     event.preventDefault();
     requestBrowser(url);
   });
-  mainWindow.webContents.on('did-start-loading', () => browserTabs.rendererReload());
+  mainWindow.webContents.on('did-start-navigation', navigation => browserTabs.rendererNavigated(navigation));
   mainWindow.webContents.on('found-in-page', (_event, result) => {
     mainWindow?.webContents.send('find:result', {
       activeMatchOrdinal: result.activeMatchOrdinal,

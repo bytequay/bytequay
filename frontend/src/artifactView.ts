@@ -41,6 +41,7 @@ export class ArtifactView {
   // The page and version this view shows; its HTML is read before loading so a failed read reports the backend's reason.
   private wanted: string | null = null;
   private page: { url: string; html: string } | null = null;
+  private proxied: Promise<void> = Promise.resolve();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly readPage: (target: ArtifactTarget) => Promise<string>,
     private readonly onPresent: () => void = () => {}) {}
@@ -73,6 +74,7 @@ export class ArtifactView {
       // Another page, or a newer save of this one, replaced it while it was read or loaded.
       if (this.wanted !== wanted) return;
       this.page = { url, html };
+      await this.proxied;
       await view.webContents.loadURL(url);
     }
     catch (error) {
@@ -95,7 +97,10 @@ export class ArtifactView {
       session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
       session.setPermissionCheckHandler(() => false);
       session.on('will-download', event => event.preventDefault());
+      // WebRTC, DNS prefetch and preconnect never reach onBeforeRequest; a proxy nothing listens on takes what they would send.
+      this.proxied = session.setProxy({ proxyRules: 'socks5://127.0.0.1:9' });
     }
+    contents.setWebRTCIPHandlingPolicy('disable_non_proxied_udp');
     contents.setWindowOpenHandler(() => ({ action: 'deny' }));
     contents.on('will-navigate', event => event.preventDefault());
     contents.on('will-frame-navigate', event => { if (!event.isMainFrame) event.preventDefault(); });
@@ -108,7 +113,7 @@ export class ArtifactView {
     const url = new URL(request.url);
     if (url.pathname.endsWith('/theme.css')) return new Response(ARTIFACT_THEME, { headers: { 'Content-Type': 'text/css; charset=utf-8' } });
     if (this.page === null || url.href !== this.page.url) return new Response('Not found', { status: 404 });
-    return new Response(this.page.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': POLICY } });
+    return new Response(this.page.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': POLICY, 'X-DNS-Prefetch-Control': 'off' } });
   }
 
   /** The page belongs to the window; a new window opens it again. */

@@ -1292,8 +1292,8 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                 .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
         assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
-        assertThat(settings.at("/permissions/deny")).isEmpty();
-        assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
+        assertThat(settings.at("/permissions/deny")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("Read(" + PermissionBroker.CREDENTIAL_KEY + ")")));
+        assertThat(settings.at("/sandbox/filesystem/denyRead")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(PermissionBroker.CREDENTIAL_KEY)));
         assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
         assertThat(settings.at("/autoMode/hard_deny"))
                 .isEqualTo(objectMapper.valueToTree(ImmutableList.<String>builder().add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));
@@ -1543,8 +1543,8 @@ class TestPermissionBroker
                             if (interactive) {
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
                                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
-                                assertThat(settings.at("/permissions/deny")).isEmpty();
-                                assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
+                                assertThat(settings.at("/permissions/deny")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("Read(" + PermissionBroker.CREDENTIAL_KEY + ")")));
+                                assertThat(settings.at("/sandbox/filesystem/denyRead")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(PermissionBroker.CREDENTIAL_KEY)));
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
                                 assertThat(settings.at("/autoMode/environment").isMissingNode()).isTrue();
                                 assertThat(settings.path("hooks").isMissingNode()).isTrue();
@@ -1580,7 +1580,7 @@ class TestPermissionBroker
                                 String denied = settings.at("/permissions/deny").toString();
                                 assertThat(denied).contains("Bash(git push:*)", "Read(~/.config/gh/**)", "Read(~/.ssh/**)");
                                 if (reviewReads) {
-                                    assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
+                                    assertThat(settings.at("/sandbox/filesystem/denyRead")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(PermissionBroker.CREDENTIAL_KEY)));
                                     assertThat(denied).doesNotContain("Bash(gh:*)")
                                             .contains(
                                                     "Bash(git credential:*)",

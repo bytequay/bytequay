@@ -138,6 +138,8 @@ public final class PermissionBroker
             .flatMap(command -> Stream.of("Bash(" + command + ")", "Bash(" + command + ":*)"))
             .collect(toImmutableList());
     private static final List<String> CREDENTIAL_FILE_READS = ImmutableList.of("Read(~/.config/gh/**)", "Read(~/.git-credentials)", "Read(~/.netrc)", "Read(~/.ssh/**)");
+    // This one key opens every credential ByteQuay saves; no session, attended or not, has a reason to read it.
+    static final String CREDENTIAL_KEY = "~/Library/Application Support/ByteQuay/credentials.key";
     /**
      * Maven launchers that run outside Claude's sandbox: its network proxy needs a login that Maven's resolver never sends.
      * Claude exempts only the command alone, optionally after {@code cd <dir> &&}; a pipe, redirect, chain, or subshell keeps
@@ -1475,8 +1477,8 @@ public final class PermissionBroker
         boolean gitHubCommands = scope.githubCommands();
         // An attended review reads remotes with the user's stored Git and gh login; it never writes to them.
         boolean reviewReads = scope.reviewReads();
-        ImmutableList.Builder<String> deny = ImmutableList.builder();
-        ImmutableList.Builder<String> denyRead = ImmutableList.builder();
+        ImmutableList.Builder<String> deny = ImmutableList.<String>builder().add("Read(" + CREDENTIAL_KEY + ")");
+        ImmutableList.Builder<String> denyRead = ImmutableList.<String>builder().add(CREDENTIAL_KEY);
         if (reviewReads) {
             // git, gh and ssh read their own login files, so the sandbox lets them; the agent's Read tool still may not.
             deny.addAll(REVIEW_REMOTE_WRITES).addAll(CREDENTIAL_FILE_READS);

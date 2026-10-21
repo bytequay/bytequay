@@ -36,8 +36,18 @@ document.getElementById('toggle').addEventListener('click', () => { document.get
 const blocked = async url => { try { await fetch(url); return false; } catch { return true; } };
 let evalBlocked = false;
 try { eval('1'); } catch { evalBlocked = true; }
+// A STUN lookup or a UDP candidate would carry data past every request check.
+const udpCandidates = () => new Promise(resolve => {
+  const peer = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.invalid:3478' }] });
+  const found = [];
+  const done = () => { peer.close(); resolve(found.filter(protocol => protocol === 'udp').length); };
+  peer.onicecandidate = event => { if (event.candidate) found.push(event.candidate.protocol); else done(); };
+  peer.createDataChannel('probe');
+  peer.createOffer().then(offer => peer.setLocalDescription(offer));
+  setTimeout(done, 3000);
+});
 window.checks = (async () => ({
-  ran: true, network: await blocked('https://example.com/'), backend: await blocked('http://127.0.0.1:9527/hello'),
+  ran: true, network: await blocked('https://example.com/'), backend: await blocked('http://127.0.0.1:9527/hello'), webrtc: await udpCandidates() === 0,
   popup: window.open('https://example.com/') === null, evalBlocked, bridge: typeof window.bridge === 'undefined' && typeof require === 'undefined',
 }))();
 </script>
@@ -298,7 +308,7 @@ contextBridge.exposeInMainWorld('bridge', {
       questionClosed: true,
       making: 'Writing the page…m:ss',
       writingVersion: 'v1 writing…',
-      checks: { ran: true, network: true, backend: true, popup: true, evalBlocked: true, bridge: true },
+      checks: { ran: true, network: true, backend: true, webrtc: true, popup: true, evalBlocked: true, bridge: true },
       tried: true,
       stayed: 'bytequay-artifact://a1/w1/',
       placed: true,

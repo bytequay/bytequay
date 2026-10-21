@@ -160,6 +160,12 @@ export function issueAttentionItems(
  */
 export const ATTENTION_SEED = { prs: 'home:attention', profile: 'home:profile', issues: 'home:issues' };
 
+/**
+ * The backend refreshes recent issues once a minute, while pull-request updates arrive every few seconds; re-reading
+ * every issue of a large repository on each of them only competes with the page for the backend's one connection.
+ */
+export const ISSUE_ATTENTION_REFRESH_MS = 30_000;
+
 export function attentionCandidates(
   prs: PullRequestDto[],
   issues: AttentionItem[] = [],

@@ -18,6 +18,7 @@ import { useJiraAttention } from '../jira/attention';
 import { getCached, setCached } from '../dataCache';
 import {
   ATTENTION_SEED,
+  ISSUE_ATTENTION_REFRESH_MS,
   issueAttentionItems,
   attentionCandidates,
   loadHandled,
@@ -93,8 +94,10 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     if (!login) return;
     let active = true;
     let request = 0;
+    let readAt = 0;
     const reload = () => {
       const current = ++request;
+      readAt = Date.now();
       void window.bridge.fetchWorkspaceIssueAttention(workspaceId).then(snapshot => {
         if (!active || current !== request) return;
         const assigned = issueAttentionItems(snapshot, workspaceId, login);
@@ -107,13 +110,14 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
       });
     };
     const changed = () => { setIssues([]); reload(); };
+    const refreshed = () => { if (Date.now() - readAt >= ISSUE_ATTENTION_REFRESH_MS) reload(); };
     reload();
     window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-    window.addEventListener('bytequay:pr-attention-updated', reload);
+    window.addEventListener('bytequay:pr-attention-updated', refreshed);
     return () => {
       active = false;
       window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
-      window.removeEventListener('bytequay:pr-attention-updated', reload);
+      window.removeEventListener('bytequay:pr-attention-updated', refreshed);
     };
   }, [login, workspaceId]);
   const candidates = useMemo(() => linkTasks(attentionCandidates(

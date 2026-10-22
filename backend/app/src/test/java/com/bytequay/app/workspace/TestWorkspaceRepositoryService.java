@@ -45,12 +45,14 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -427,6 +429,24 @@ class TestWorkspaceRepositoryService
 
         assertThat(observed).hasValue(Optional.empty());
         verify(pullRequestRefresh).refreshWorkspace(watched.id());
+    }
+
+    @Test
+    void backgroundRefreshesLeaveTheWorkspaceUnlocked()
+    {
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
+        PullRequestRefreshService pullRequestRefresh = mock(PullRequestRefreshService.class);
+        List<Boolean> held = new ArrayList<>();
+        doAnswer(invocation -> held.add(((ReentrantLock) WorkspaceOperationLocks.get(invocation.getArgument(0))).isHeldByCurrentThread()))
+                .when(pullRequestRefresh).refreshWorkspace(anyString());
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, pullRequestRefresh, Runnable::run);
+
+        service.requestSync(watch(service, 100).id());
+
+        // A slow GitHub refresh must not block relationship saves, reviews, or code sync in the same workspace.
+        assertThat(held).containsExactly(false, false);
     }
 
     private static WorkspaceRepositoryService service(

@@ -932,7 +932,8 @@ public final class CodexCliDriver
         private int pendingNotificationCount;
         private CodexRunningTurn running;
         private Optional<DevelopmentResultBridge> development = Optional.empty();
-        private boolean closed;
+        // Written under this session's lock; the quiescence thread polls it without the lock while a close is in progress.
+        private volatile boolean closed;
         private boolean closing;
         private boolean reuseAllowed;
         private boolean reuseBlocked;

@@ -754,12 +754,9 @@ public class CiAutofixService
             return recordTimelineEvent(run, unpublishedTimeline.orElseThrow(), now);
         }
         CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
-        Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
+        Optional<CiAutofixRun> rejected = rejectMovedPullRequest(run, snapshot, run.expectedRemoteHead(), "Pull request head changed outside this CI Autofix run", now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
-        }
-        if (!snapshot.headSha().equals(run.expectedRemoteHead())) {
-            return finishRun(run, FinishReason.STALE_HEAD, "Pull request head changed outside this CI Autofix run", now);
         }
         if (run.currentTurnId().isPresent()) {
             return observeCurrentTurn(run, snapshot, now);
@@ -910,13 +907,7 @@ public class CiAutofixService
 
     private CiAutofixRun inspectCompletedAttempt(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
     {
-        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
-        CiGitInspection inspection = gitService.inspectAgentResult(new CiWorktreeRange(
-                worktree.worktree().canonicalWorktree(),
-                worktree.worktree().physicalRepository(),
-                worktree.worktree().generatedBranch(),
-                snapshot.baseSha(),
-                run.expectedRemoteHead()));
+        CiGitInspection inspection = gitService.inspectAgentResult(worktreeRange(run, snapshot.baseSha()));
         return switch (inspection.outcome()) {
             case READY -> journalPush(run, attempt, inspection, now);
             case NO_CHANGE -> handleNoChange(run, attempt, snapshot, now);
@@ -957,9 +948,7 @@ public class CiAutofixService
             }
             return advanceCiResult(run, attempt, snapshot, now);
         }
-        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
-        CiGitInspection inspection = gitService.inspectAgentResult(new CiWorktreeRange(worktree.worktree().canonicalWorktree(),
-                worktree.worktree().physicalRepository(), worktree.worktree().generatedBranch(), snapshot.baseSha(), run.expectedRemoteHead()));
+        CiGitInspection inspection = gitService.inspectAgentResult(worktreeRange(run, snapshot.baseSha()));
         if (inspection.outcome() == CiGitInspection.Outcome.INVALID) {
             return pauseAndRefresh(run, PauseReason.INVALID_GIT_RESULT, summary("Agent Git result is invalid", inspection.diagnostics()), now);
         }
@@ -977,12 +966,9 @@ public class CiAutofixService
             return pauseAndRefresh(run, PauseReason.ERROR, "PR description changed after the repair was proposed; no edit was applied", now);
         }
         CiHeadSnapshot latest = gitHub.inspect(run.scope().pullRequest());
-        Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, latest, now);
+        Optional<CiAutofixRun> rejected = rejectMovedPullRequest(run, latest, run.expectedRemoteHead(), "Pull request head changed before its description repair", now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
-        }
-        if (!latest.headSha().equals(run.expectedRemoteHead())) {
-            return finishRun(run, FinishReason.STALE_HEAD, "Pull request head changed before its description repair", now);
         }
         if (!gitHub.readDescription(run.scope().pullRequest()).equals(change.expectedBody())) {
             return pauseAndRefresh(run, PauseReason.ERROR, "PR description changed while validating the repair; no edit was applied", now);
@@ -1109,12 +1095,9 @@ public class CiAutofixService
     {
         RerunJournal journal = run.rerunJournal().orElseThrow();
         CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
-        Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
+        Optional<CiAutofixRun> rejected = rejectMovedPullRequest(run, snapshot, journal.headSha(), "Pull request head changed while a failed-job rerun was being observed", now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
-        }
-        if (!snapshot.headSha().equals(journal.headSha())) {
-            return finishRun(run, FinishReason.STALE_HEAD, "Pull request head changed while a failed-job rerun was being observed", now);
         }
         Optional<CiWorkflowRun> later = snapshot.workflowRuns().stream()
                 .filter(workflow -> workflow.id() == journal.workflowRunId())
@@ -1152,13 +1135,7 @@ public class CiAutofixService
     private CiAutofixRun finishGreenOrCheckFixups(CiAutofixRun run, Instant now)
     {
         if (run.finalFixupCheck().isEmpty()) {
-            WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
-            FixupPositionCheck check = gitService.checkFixupPositions(new CiWorktreeRange(
-                    worktree.worktree().canonicalWorktree(),
-                    worktree.worktree().physicalRepository(),
-                    worktree.worktree().generatedBranch(),
-                    run.latestObservedBaseSha(),
-                    run.expectedRemoteHead()));
+            FixupPositionCheck check = gitService.checkFixupPositions(worktreeRange(run, run.latestObservedBaseSha()));
             boolean valid = check.result() == FixupPositionCheck.Result.VALID
                     && check.headSha().equals(run.expectedRemoteHead());
             CheckResult result = valid ? CheckResult.VALID : CheckResult.INVALID;
@@ -1533,6 +1510,16 @@ public class CiAutofixService
         return store.update(run.linkAttemptTurn(attempt.id(), turn.id().toString(), Instant.now(clock)));
     }
 
+    /** Like {@link #rejectChangedPullRequest}, and also ends the run when the head is no longer {@code expectedHead}. */
+    private Optional<CiAutofixRun> rejectMovedPullRequest(CiAutofixRun run, CiHeadSnapshot snapshot, String expectedHead, String movedReason, Instant now)
+    {
+        Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
+        if (rejected.isPresent() || snapshot.headSha().equals(expectedHead)) {
+            return rejected;
+        }
+        return Optional.of(finishRun(run, FinishReason.STALE_HEAD, movedReason, now));
+    }
+
     private Optional<CiAutofixRun> rejectChangedPullRequest(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
     {
         if (!matchesPullRequestScope(run, snapshot)) {
@@ -1727,6 +1714,13 @@ public class CiAutofixService
     {
         TaskWorktree worktree = requireTaskWorktree(task, run);
         return worktreeService.inspect(worktree);
+    }
+
+    /** The run's checkout from {@code baseSha} to the head it expects to push over. */
+    private CiWorktreeRange worktreeRange(CiAutofixRun run, String baseSha)
+    {
+        TaskWorktree worktree = inspectWorktree(requireOpenTask(run), run).worktree();
+        return new CiWorktreeRange(worktree.canonicalWorktree(), worktree.physicalRepository(), worktree.generatedBranch(), baseSha, run.expectedRemoteHead());
     }
 
     private WorkspaceRepositoryContext requireWorkspace(CiAutofixRun run)

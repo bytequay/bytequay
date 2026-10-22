@@ -1782,6 +1782,7 @@ describe('agent task detail', () => {
     // The child's own answer is inspectable, and getting there is a filter, not a route.
     expect(opened).toContain('aria-label="Agent: History tests"');
     expect(opened).toContain('3 tests failed');
+    expect(opened).not.toContain('run the persistence tests');
     expect(opened).toContain('Back to all subagents');
   });
 

@@ -454,6 +454,8 @@ class TurnBuilder {
       this.turn.answer = { id: streamed?.id ?? event.eventId, anchorId: itemAnchor(event), text: event.payload.text, complete: true };
       return;
     }
+    // A subagent's prompt is kept as its purpose, not shown in its log.
+    if (event.payload.messageKind === 'PROMPT') return;
     const role = event.payload.messageKind === 'REASONING_SUMMARY'
       ? 'reasoning'
       : event.payload.messageKind === 'PLAN_TEXT' ? 'planText' : 'commentary';

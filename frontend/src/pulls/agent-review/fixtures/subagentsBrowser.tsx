@@ -161,7 +161,7 @@ export async function run(local = false): Promise<string> {
     assert(tab()?.textContent?.includes('Subagents 3') && tab()?.querySelector('[aria-pressed="true"]') !== null,
       'Clicking the icon must open and select the counted Subagents tab');
     assert(panel()?.hidden === false && panel()?.textContent?.includes('Tracing the blocked writer.')
-      && panel()?.textContent?.includes('Check cancellation behavior.'), 'The selected agent must show its messages and prompt');
+      && !panel()?.textContent?.includes('Check cancellation behavior.'), 'The selected agent must show its messages without its prompt');
     assert(host.querySelector('[aria-label="WorkBench views"]') === null, 'Subagents must be a top-level destination');
     chip('Queue cleanup', panel() ?? host).click(); await settle();
     assert(panel()?.textContent?.includes('Inspecting queue cleanup.') && !panel()?.textContent?.includes('Tracing the blocked writer.'),

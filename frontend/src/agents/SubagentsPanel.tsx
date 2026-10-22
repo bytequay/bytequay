@@ -79,9 +79,6 @@ export default function SubagentsPanel({
     const blocks = transcript.flatMap((turn) => turn.blocks);
     const label = agent?.label ?? expired?.label ?? 'Agent';
     const result = agent?.result ?? expired?.result ?? null;
-    const purpose = agent?.purpose ?? expired?.purpose ?? null;
-    const parent = agent?.parentThreadId ?? expired?.parentThreadId ?? null;
-    const parentLabel = parent === null ? 'root agent' : labels[parent] ?? 'root agent';
     const endedAt = agent?.endedAt ?? expired?.endedAt ?? null;
     const startedAt = agent?.startedAt ?? expired?.startedAt ?? null;
     const worked = startedAt === null || agent?.status === 'unknown' ? null : formatDuration(Math.max(0, (endedAt === null ? now : Date.parse(endedAt)) - Date.parse(startedAt)));
@@ -127,9 +124,6 @@ export default function SubagentsPanel({
         )}
         {logOpen && blocks.length > 0 && (
           <>
-            {purpose !== null && (
-              <div className="agt-panel__prompt"><span className="agt-panel__from">From {agentDisplayName(parentLabel)} —</span> {purpose}</div>
-            )}
             {agent?.backfilling === true && (
               <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
             )}

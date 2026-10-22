@@ -335,7 +335,8 @@ describe('projecting the transcript', () => {
 
     // Opening the child reads the same events, filtered; it is not a second transcript.
     const child = projectTranscript(events, 'child-1');
-    expect(child[0].blocks.map((block) => block.kind)).toEqual(['text', 'activity']);
+    // Its prompt is the agent's purpose, not a line in its log.
+    expect(child[0].blocks.map((block) => block.kind)).toEqual(['activity']);
     expect(child[0].answer?.text).toBe('3 tests failed');
   });
 

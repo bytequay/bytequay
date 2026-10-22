@@ -2722,18 +2722,6 @@
   cursor: pointer;
 }
 
-.agt-panel__prompt {
-  margin-top: 10px;
-  font-size: 11.5px;
-  color: var(--fg-muted);
-  line-height: 1.5;
-}
-
-.agt-panel__from {
-  font-weight: 600;
-  color: light-dark(#656d76, var(--dark-muted));
-}
-
 .agt-panel__log {
   margin-top: 10px;
 }

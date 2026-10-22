@@ -28,8 +28,10 @@ import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
@@ -39,6 +41,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -60,10 +63,11 @@ public class RunningTaskReader
     private final AgentReviewStore reviews;
     private final CherryPickExecutionStore cherryPicks;
     private final CiAutofixStore ciFixes;
+    private final PullRequestStore pullRequests;
     private final Clock clock;
 
     public RunningTaskReader(WorkspaceStore workspaces, AgentTaskStore tasks, AgentTurnStore turns, AgentApprovalStore approvals, QueuedInputStore queues,
-            AgentReviewStore reviews, CherryPickExecutionStore cherryPicks, CiAutofixStore ciFixes, Clock clock)
+            AgentReviewStore reviews, CherryPickExecutionStore cherryPicks, CiAutofixStore ciFixes, PullRequestStore pullRequests, Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -73,6 +77,7 @@ public class RunningTaskReader
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.cherryPicks = requireNonNull(cherryPicks, "cherryPicks is null");
         this.ciFixes = requireNonNull(ciFixes, "ciFixes is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -104,6 +109,11 @@ public class RunningTaskReader
                 kind = Kind.REVIEW;
                 targetId = review.orElseThrow().id();
                 run = reviews.listRuns(targetId).stream().max(comparing(ReviewRun::createdAt));
+                // The stored task title is only "Review owner/repo#N"; the cached pull request title says what is being reviewed.
+                OptionalLong pullRequestId = review.orElseThrow().pullRequestId();
+                if (pullRequestId.isPresent()) {
+                    title = pullRequests.findById(pullRequestId.getAsLong()).map(PullRequest::title).orElse(title);
+                }
             }
             else {
                 var cherry = cherryPicks.findByAgentTaskId(task.id().toString());

@@ -15,16 +15,16 @@
 .app-sidebar__running-list { max-height: 30vh; overflow-y: auto; }
 .app-sidebar__running-item { flex-shrink: 0; }
 .app-sidebar__running-item > span:nth-child(2) { min-width: 0; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.app-sidebar__running-status { flex: 0 0 auto; font-size: 10px; color: var(--text-3); }
-.app-sidebar__running-item.is-running > span:first-child { color: var(--fg-link); }
-.app-sidebar__running-item.is-completed > span:first-child,
+.app-sidebar__running-status { display: inline-flex; flex: 0 0 auto; color: var(--text-3); }
+.app-sidebar__running-item.is-running .app-sidebar__running-status { color: var(--fg-link); }
 .app-sidebar__running-item.is-completed .app-sidebar__running-status { color: var(--fg-success); }
-.app-sidebar__running-item.is-failed > span:first-child,
 .app-sidebar__running-item.is-failed .app-sidebar__running-status { color: var(--fg-danger); }
-.app-sidebar__running-item.is-waiting > span:first-child,
-.app-sidebar__running-item.is-blocked > span:first-child { color: var(--fg-warning); }
-.app-sidebar__running-item.is-running > span:first-child svg { animation: bq-spin 1.2s linear infinite; }
+.app-sidebar__running-item.is-waiting .app-sidebar__running-status,
+.app-sidebar__running-item.is-blocked .app-sidebar__running-status { color: var(--fg-warning); }
+.app-sidebar__running-item.is-running .app-sidebar__running-status svg { animation: bq-spin 1.2s linear infinite; }
+/* The collapsed rail has room for one icon; the status matters more than the kind there. */
+.app-sidebar.is-collapsed .app-sidebar__running-item > span:first-child { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-sidebar__running-item.is-running > span:first-child svg { animation: none; }
+  .app-sidebar__running-item.is-running .app-sidebar__running-status svg { animation: none; }
 }

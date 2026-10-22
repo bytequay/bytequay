@@ -44,6 +44,8 @@ import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -51,6 +53,7 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -62,6 +65,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,8 +86,9 @@ class TestRunningTaskReader
     private final QueuedInputStore queues = mock(QueuedInputStore.class);
     private final CherryPickExecutionStore cherryPicks = mock(CherryPickExecutionStore.class);
     private final CiAutofixStore ciFixes = mock(CiAutofixStore.class);
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final Clock clock = mock(Clock.class);
-    private final RunningTaskReader reader = new RunningTaskReader(workspaces, tasks, turns, approvals, queues, reviews, cherryPicks, ciFixes, clock);
+    private final RunningTaskReader reader = new RunningTaskReader(workspaces, tasks, turns, approvals, queues, reviews, cherryPicks, ciFixes, pullRequests, clock);
 
     @BeforeEach
     void setup()
@@ -191,6 +196,7 @@ class TestRunningTaskReader
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.kind()).isEqualTo(Kind.REVIEW);
             assertThat(item.targetId()).isEqualTo("review");
+            assertThat(item.title()).isEqualTo(task.title());
             assertThat(item.status()).isEqualTo(Status.RUNNING);
             assertThat(item.expiresAt()).isEmpty();
         });
@@ -201,6 +207,13 @@ class TestRunningTaskReader
         });
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run.ended(ReviewRun.State.INCOMPLETE, Optional.empty(), NOW)));
         assertThat(reader.current()).singleElement().extracting(RunningTask::status).isEqualTo(Status.FAILED);
+
+        PullRequest pullRequest = new PullRequest(7, "owner/repo", 42, "Add read support for deletion vectors", "author", "https://github.com/owner/repo/pull/42", NOW, NOW,
+                PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0,
+                "open", null, null, true, "clean", NOW, "main", null, NOW, null, null);
+        when(pullRequests.findById(7)).thenReturn(Optional.of(pullRequest));
+        when(reviews.findReviewByTask(task.id().toString())).thenReturn(Optional.of(review.withPullRequest(42, OptionalLong.of(7), NOW)));
+        assertThat(reader.current()).singleElement().extracting(RunningTask::title).isEqualTo("Add read support for deletion vectors");
     }
 
     @Test

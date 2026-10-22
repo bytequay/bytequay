@@ -58,7 +58,7 @@ export async function run() {
   button?.click(); await settle(); assert(row() !== null, 'Section should expand');
   now += 60_000;
   snapshot = [{ ...task, status: 'COMPLETED', expiresAt: new Date(now + 600_000).toISOString() }]; await refresh();
-  assert(row()?.textContent?.includes('Finished'), 'Completion should replace the running indicator');
+  assert(row()?.querySelector('[role="status"]')?.getAttribute('aria-label') === 'Finished', 'Completion should replace the running indicator');
   fail = true; await refresh();
   assert(row() !== null, 'Failed reads must preserve the last snapshot');
   now += 599_999; await refresh();

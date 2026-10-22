@@ -34,7 +34,7 @@ describe('Running sidebar', () => {
     expect(html).toContain('is-completed');
     expect(html).toContain('Finished');
     expect(html).toContain('Fix the connector, Running, owner/repo');
-    expect(html).not.toContain('role="status">Running<');
+    expect(html).toMatch(/Fix the connector<\/span><span class="app-sidebar__running-status" role="status" aria-label="Running">/);
     expect(visibleRunningTasks([done], now + 599_999)).toHaveLength(1);
     expect(visibleRunningTasks([done], now + 600_000)).toEqual([]);
     expect(visibleRunningTasks([task], now + 600_000)).toEqual([task]);
@@ -45,6 +45,12 @@ describe('Running sidebar', () => {
     const html = renderToStaticMarkup(<RunningTaskList tasks={tasks} />);
     for (const label of ['Failed', 'Stopped', 'Needs you', 'Needs recovery']) expect(html).toContain(label);
     expect(html).not.toContain('Finished');
+  });
+
+  it('marks a review with its icon instead of the word', () => {
+    const html = renderToStaticMarkup(<RunningTaskList tasks={[{ ...task, kind: 'REVIEW', title: 'Review trinodb/trino#31710' }]} />);
+    expect(html).toContain('lucide-eye');
+    expect(html).toContain('>trinodb/trino#31710</span>');
   });
 
   it('opens each kind in its owning workspace', () => {

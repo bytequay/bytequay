@@ -42,6 +42,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
+import static com.bytequay.agent.core.impl.AgentFailures.runEach;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -394,23 +395,7 @@ public final class AgentRuntimeRegistry
             }
             selected.forEach(this::reserveRetirement);
         }
-        RuntimeException failure = null;
-        for (Map.Entry<TaskId, AgentSession> entry : selected.entrySet()) {
-            try {
-                closeReserved(entry.getKey(), entry.getValue());
-            }
-            catch (RuntimeException closeFailure) {
-                if (failure == null) {
-                    failure = closeFailure;
-                }
-                else {
-                    failure.addSuppressed(closeFailure);
-                }
-            }
-        }
-        if (failure != null) {
-            throw failure;
-        }
+        runEach(selected.entrySet(), entry -> closeReserved(entry.getKey(), entry.getValue()));
     }
 
     void retainFinishedSession(TaskId taskId)
@@ -472,25 +457,9 @@ public final class AgentRuntimeRegistry
             }
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Backend shut down during development automation")));
         }
-        RuntimeException firstFailure = null;
-        for (TaskId taskId : sessions.keySet()) {
-            try {
-                closeSession(taskId);
-            }
-            catch (RuntimeException failure) {
-                // One session that will not close must not strand the ones behind it, but the
-                // failure still has to surface once every other session has been released.
-                if (firstFailure == null) {
-                    firstFailure = failure;
-                }
-                else {
-                    firstFailure.addSuppressed(failure);
-                }
-            }
-        }
-        if (firstFailure != null) {
-            throw firstFailure;
-        }
+        // One session that will not close must not strand the ones behind it, but the
+        // failure still has to surface once every other session has been released.
+        runEach(sessions.keySet(), this::closeSession);
     }
 
     public void registerRunning(TaskId taskId, TurnId turnId, RunningTurn runningTurn)

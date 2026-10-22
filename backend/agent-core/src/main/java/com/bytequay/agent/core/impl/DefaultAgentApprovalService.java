@@ -51,6 +51,7 @@ import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
+import static com.bytequay.agent.core.impl.AgentFailures.runEach;
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
@@ -224,24 +225,15 @@ public final class DefaultAgentApprovalService
 
     private void deny(List<AgentApproval> approvals)
     {
-        RuntimeException firstFailure = null;
-        for (AgentApproval approval : approvals) {
+        runEach(approvals, approval -> {
             try {
                 resolveAndPublish(approval, denial(approval.request().id(), false), AgentEventPayload.ApprovalOutcome.CANCELLED);
             }
             catch (RuntimeException failure) {
                 failLive(approval.request().id(), failure);
-                if (firstFailure == null) {
-                    firstFailure = failure;
-                }
-                else if (firstFailure != failure) {
-                    firstFailure.addSuppressed(failure);
-                }
+                throw failure;
             }
-        }
-        if (firstFailure != null) {
-            throw firstFailure;
-        }
+        });
     }
 
     private void timeout(ApprovalId approvalId, PendingApproval live)

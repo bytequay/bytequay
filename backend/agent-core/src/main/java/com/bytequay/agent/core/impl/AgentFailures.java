@@ -13,6 +13,9 @@
  */
 package com.bytequay.agent.core.impl;
 
+import java.util.Arrays;
+import java.util.function.Consumer;
+
 final class AgentFailures
 {
     private AgentFailures() {}
@@ -32,6 +35,34 @@ final class AgentFailures
             if (failure != cleanupFailure) {
                 failure.addSuppressed(cleanupFailure);
             }
+        }
+    }
+
+    /** Runs every step even after one fails, then throws the first failure with the later ones suppressed. */
+    static void runAll(Runnable... steps)
+    {
+        runEach(Arrays.asList(steps), Runnable::run);
+    }
+
+    /** Applies {@code action} to every item even after one fails, then throws the first failure with the later ones suppressed. */
+    static <T> void runEach(Iterable<T> items, Consumer<? super T> action)
+    {
+        RuntimeException first = null;
+        for (T item : items) {
+            try {
+                action.accept(item);
+            }
+            catch (RuntimeException failure) {
+                if (first == null) {
+                    first = failure;
+                }
+                else if (first != failure) {
+                    first.addSuppressed(failure);
+                }
+            }
+        }
+        if (first != null) {
+            throw first;
         }
     }
 

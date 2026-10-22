@@ -121,6 +121,7 @@ import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
 import static com.bytequay.agent.core.impl.AgentFailures.failureMessage;
 import static com.bytequay.agent.core.impl.AgentFailures.message;
+import static com.bytequay.agent.core.impl.AgentFailures.runAll;
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -585,40 +586,17 @@ public final class DefaultAgentTurnService
     private void stopDevelopmentRuntimes(TaskId taskId, Optional<AgentTurn> active)
     {
         runtimeRegistry.drainDevelopmentActions(taskId);
-        try {
-            stopChildren.accept(taskId);
-        }
-        catch (RuntimeException failure) {
-            suppressFailure(failure, () -> stopProviderRuntime(taskId, active));
-            throw failure;
-        }
-        stopProviderRuntime(taskId, active);
+        runAll(() -> stopChildren.accept(taskId), () -> stopProviderRuntime(taskId, active));
     }
 
     private void stopProviderRuntime(TaskId taskId, Optional<AgentTurn> active)
     {
-        RuntimeException failure = null;
-        try {
-            active.ifPresent(turn -> approvalService.denyPending(turn.id()));
-        }
-        catch (RuntimeException approvalFailure) {
-            failure = approvalFailure;
-        }
-        try {
-            runtimeRegistry.closeSession(taskId);
-            active.ifPresent(this::awaitInterruption);
-        }
-        catch (RuntimeException stopFailure) {
-            if (failure == null) {
-                failure = stopFailure;
-            }
-            else if (failure != stopFailure) {
-                failure.addSuppressed(stopFailure);
-            }
-        }
-        if (failure != null) {
-            throw failure;
-        }
+        runAll(
+                () -> active.ifPresent(turn -> approvalService.denyPending(turn.id())),
+                () -> {
+                    runtimeRegistry.closeSession(taskId);
+                    active.ifPresent(this::awaitInterruption);
+                });
     }
 
     @Override
@@ -2283,29 +2261,9 @@ public final class DefaultAgentTurnService
 
     private void finishTerminalCallbacks(AgentTurn turn, RunningTurn runningTurn)
     {
-        RuntimeException drainFailure = null;
-        try {
-            drainPending(outboxStore, eventService, turn.taskId());
-        }
-        catch (RuntimeException drainError) {
-            drainFailure = drainError;
-        }
         // Completing an approval can run provider continuations. The terminal
         // turn is the barrier that rejects new requests after releasing the lock.
-        try {
-            approvalService.denyPending(turn.id());
-        }
-        catch (RuntimeException approvalFailure) {
-            if (drainFailure == null) {
-                throw approvalFailure;
-            }
-            if (drainFailure != approvalFailure) {
-                drainFailure.addSuppressed(approvalFailure);
-            }
-        }
-        if (drainFailure != null) {
-            throw drainFailure;
-        }
+        runAll(() -> drainPending(outboxStore, eventService, turn.taskId()), () -> approvalService.denyPending(turn.id()));
         runtimeRegistry.removeRunning(turn.id(), runningTurn);
         runtimeRegistry.retainFinishedSession(turn.taskId());
     }

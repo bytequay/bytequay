@@ -119,6 +119,14 @@ const step = (sequence: number, argv: string, action: string, name: string | nul
 
 let history: AgentEventEnvelope[] = [];
 
+const REPLY = Array.from({ length: 60 }, (_, index) => index === 0 ? 'Retried' : `word${index}`).join(' ');
+/** The finished task's history: its turn ended with a reply longer than a card quotes. */
+const REPLIES: Record<string, AgentEventEnvelope[]> = { 'task-2': [{
+  schemaVersion: 2, eventId: 'reply-task-2', sequence: 1, taskId: 'task-2', turnId: 'turn-task-2', occurredAt: '2026-10-16T07:10:00Z',
+  source: { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: 'reply', providerEventId: null },
+  type: 'assistant_message', payload: { messageKind: 'ANSWER', phase: 'FINAL', text: REPLY },
+} as AgentEventEnvelope] };
+
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
   completed: unknown[][];
@@ -146,7 +154,10 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     makeAgendaAgain: async () => AGENDA,
     markAgendaItem: async () => AGENDA,
     listRunningTasks: async () => running,
-    readAgentHistory: async (): Promise<AgentHistoryPageDto> => ({ events: history, beforeCursor: null, afterCursor: null, latestSequence: history.length }),
+    readAgentHistory: async (taskId: string): Promise<AgentHistoryPageDto> => {
+      const events = taskId === RUNNING.id ? history : REPLIES[taskId] ?? [];
+      return { events, beforeCursor: null, afterCursor: null, latestSequence: events.length };
+    },
     readAgentPendingApprovals: async (taskId: string, turnId: string) => taskId === APPROVAL.taskId && turnId === APPROVAL.turnId ? [APPROVAL] : [],
     resolveAgentApproval: async (...args: unknown[]) => { calls.resolved.push(args); return {}; },
     recordAssistantAnswer: async (id: string) => { calls.answered.push(id); },
@@ -367,6 +378,33 @@ async function movesWithTheKeyboard(): Promise<void> {
     `A new step rolls in over the last one: ${card?.querySelector('.assistant-step')?.innerHTML}`);
     [...(top(view.host)?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'Open task')?.click();
     assert(window.location.hash === workspaceReviewTaskRoute('ws1', 'r7') && view.calls.closed === 1, `Open task goes to the running task: ${window.location.hash}`);
+  }
+  finally { view.dispose(); }
+}
+
+/** A finished review, just older than the finished task, so it pages in second. */
+const FINISHED_REVIEW: AppNotice = { ...notice('finished:review', 'TURN_FINISHED', 'review-task', 'Review acme/warehouse#42'), reviewId: 'r9',
+  repository: 'acme/warehouse', pullRequest: 'acme/warehouse#42', pullRequestTitle: 'Cache table statistics between queries', branch: 'feature/table-stats',
+  changes: { update: false, commits: 3, files: 6, additions: 432, deletions: 176 }, occurredAt: '2026-10-16T07:09:00Z' };
+
+async function drawsFinishedCardsLikeRunningOnes(): Promise<void> {
+  const view = mount(VIEW, 0, [FINISHED_REVIEW, NOTICES[1]]);
+  try {
+    await settle();
+    view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="finished"]')?.click();
+    await settle();
+    const card = () => top(view.host);
+    const quoted = card()?.querySelector('.assistant-task__body')?.textContent ?? '';
+    assert(quoted.startsWith('Retried word1 ') && quoted.endsWith('word49…') && quoted.split(' ').length === 50,
+      `A finished task quotes its reply, at most 50 words: ${quoted}`);
+    press(element('.assistant-card', view.host, 'A card shows'), 'ArrowRight');
+    await settle();
+    assert(card()?.querySelector('.assistant-task__title')?.textContent === 'Cache table statistics between queriesReview finished'
+      && card()?.querySelector('.assistant-kind.is-done') !== null
+      && card()?.querySelector('.assistant-task__where')?.textContent === 'acme/warehouseA#42·feature/table-stats',
+    `A finished review leads with its title, its chip and where it ran: ${card()?.querySelector('.assistant-task')?.textContent}`);
+    assert(card()?.querySelector('.assistant-task__body')?.textContent === '6 files +432−176' && card()?.querySelector('.assistant-lines .is-deleted')?.textContent === '−176',
+      `It counts its lines as one pill: ${card()?.querySelector('.assistant-task__body')?.textContent}`);
   }
   finally { view.dispose(); }
 }
@@ -826,7 +864,8 @@ async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
-    ['moves with the keyboard', movesWithTheKeyboard], ['opens at a card from its alert', opensAtACardFromItsAlert],
+    ['moves with the keyboard', movesWithTheKeyboard], ['draws finished cards like running ones', drawsFinishedCardsLikeRunningOnes],
+    ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
@@ -875,7 +914,7 @@ export async function showPreview(): Promise<void> {
   document.body.style.background = 'var(--bg)';
   const rows = Array.from({ length: 2 }, (_, index) => ({ ...notice(`finished:turn-${index + 3}`, 'TURN_FINISHED', `task-${index + 3}`, `Finished task ${index + 3}`),
     occurredAt: `2026-10-16T07:0${index}:00Z` }));
-  const mounted = mount(VIEW, 0, [...NOTICES, ...rows], [{ ...RUNNING, startedAt: '2026-10-16T07:05:00Z' }]);
+  const mounted = mount(VIEW, 0, [...NOTICES, FINISHED_REVIEW, ...rows], [{ ...RUNNING, startedAt: '2026-10-16T07:05:00Z' }]);
   preview = mounted;
   // A hidden window paints no frames, so a timer lets the reads and layout settle instead.
   await new Promise(resolve => setTimeout(resolve, 150));

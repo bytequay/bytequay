@@ -37,6 +37,14 @@ export function waitingCards(notices: AppNotice[], tasks: RunningTask[]): Waitin
   return cards.sort((left, right) => right.at - left.at);
 }
 
+const REPLY_WORDS = 50;
+
+/** A reply as a card quotes it: its first 50 words, on one line. */
+export function replyExcerpt(text: string): string {
+  const words = text.trim().split(/\s+/);
+  return words.length > REPLY_WORDS ? `${words.slice(0, REPLY_WORDS).join(' ')}…` : words.join(' ');
+}
+
 /** The top card and the two peeking behind it, wrapping round so paging never runs out of peeks. */
 export function stackOf<T>(cards: T[], top: number): T[] {
   return Array.from({ length: Math.min(3, cards.length) }, (_, offset) => cards[(top + offset) % cards.length]);

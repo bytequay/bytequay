@@ -100,6 +100,7 @@ class TestAppNoticeService
             assertThat(notice.title()).isEqualTo(task.title());
             assertThat(notice.pullRequest()).isEmpty();
             assertThat(notice.pullRequestTitle()).isEmpty();
+            assertThat(notice.branch()).isEmpty();
             assertThat(notice.changes()).isEmpty();
         });
         show(task.withDevelopmentContinuation(true, NOW), turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
@@ -251,7 +252,7 @@ class TestAppNoticeService
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
         PullRequest pullRequest = new PullRequest(123, "owner/repo", 42, "Improve  recovery\nfor interrupted tasks", "author", "https://github.com/owner/repo/pull/42",
                 NOW, NOW, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 0, 0, 0,
-                "open", null, null, null, null, null, null, null, null, null, null);
+                "open", null, null, null, null, null, "author/recovery", null, null, null, null);
         when(pullRequests.findIdByRepoAndNumber("owner/repo", 42)).thenReturn(Optional.of(123L));
         when(pullRequests.findById(123L)).thenReturn(Optional.of(pullRequest));
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), reviewer.id(), "review-input", SETTINGS, NOW)
@@ -264,6 +265,7 @@ class TestAppNoticeService
             assertThat(notice.title()).isEqualTo("Review owner/repo#42");
             assertThat(notice.pullRequest()).contains("owner/repo#42");
             assertThat(notice.pullRequestTitle()).contains("Improve recovery for interrupted tasks");
+            assertThat(notice.branch()).contains("author/recovery");
             assertThat(notice.changes()).isEmpty();
         });
         show(reviewer, turn);

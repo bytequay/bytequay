@@ -405,13 +405,6 @@
 
 @keyframes assistant-opened { to { outline-color: transparent; } }
 
-.assistant-card__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 22px;
-}
-
 .assistant-kind {
   padding: 0 8px;
   border: 1px solid var(--assistant-gold);
@@ -444,8 +437,7 @@
 .assistant-pager > span { min-width: 28px; text-align: center; }
 .assistant-pager .card-iconbtn { width: 22px; height: 22px; }
 
-.assistant-card__title,
-.assistant-card__ref {
+.assistant-card__title {
   overflow: hidden;
   font-size: 13.5px;
   line-height: 19px;
@@ -453,10 +445,8 @@
   white-space: nowrap;
 }
 
-.assistant-card__where,
-.assistant-card__muted { color: var(--fg-muted); }
-
 .assistant-card__muted {
+  color: var(--fg-muted);
   font-size: 12.5px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -536,7 +526,34 @@
   border-top-color: var(--assistant-gold);
 }
 
+.assistant-kind.is-done {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  padding-left: 6px;
+  border-color: light-dark(#a7e3b6, var(--dark-green-border));
+  color: var(--fg-success);
+}
+
+/* What a review covered: added lines on green, deleted on red, as one pill. */
+.assistant-lines {
+  display: inline-flex;
+  overflow: hidden;
+  margin-left: 4px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 18px;
+  vertical-align: 1px;
+}
+
+.assistant-lines > span { padding: 0 6px; }
+.assistant-lines > .is-added { background: var(--bg-success); color: var(--fg-success); }
+.assistant-lines > .is-deleted { background: var(--bg-danger); color: var(--fg-danger); }
+
 .assistant-step,
+.assistant-task__body,
 .assistant-task__actions { margin-left: 26px; }
 
 .assistant-step {

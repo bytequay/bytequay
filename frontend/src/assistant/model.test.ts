@@ -18,7 +18,8 @@ import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantR
 import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
-  arrivedOpen, createdDrafts, dayLabel, linkRefs, localDay, pageRoute, refFromHref, refLabel, rowState, rowTitle, screenRef, stackOf, timelineDays, waitingCards,
+  arrivedOpen, createdDrafts, dayLabel, linkRefs, localDay, pageRoute, refFromHref, refLabel, replyExcerpt, rowState, rowTitle, screenRef, stackOf, timelineDays,
+  waitingCards,
 } from './model';
 
 const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
@@ -179,5 +180,14 @@ describe('createdDrafts', () => {
       receipt: { operation, outcome: 'DONE', detail: null, target: work === null ? null : { ...target, kind: 'WORK', id: work }, page: null, turnId: null, fix: null, words: null },
     });
     expect([...createdDrafts([receipt('c1', 'CREATE_EPIC', 'w1'), receipt('c2', 'CREATE_WORK_ITEM', 'w2'), receipt('c3', 'CREATE_EPIC', null)])]).toEqual(['w1']);
+  });
+});
+
+describe('replyExcerpt', () => {
+  it('quotes a reply on one line, cut at 50 words', () => {
+    expect(replyExcerpt('  Fixed the\n\nrounding   bug. ')).toBe('Fixed the rounding bug.');
+    const long = Array.from({ length: 60 }, (_, index) => `w${index}`).join(' ');
+    expect(replyExcerpt(long)).toBe(`${Array.from({ length: 50 }, (_, index) => `w${index}`).join(' ')}…`);
+    expect(replyExcerpt(long.split(' ').slice(0, 50).join(' '))).not.toContain('…');
   });
 });

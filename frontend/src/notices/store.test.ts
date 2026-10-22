@@ -178,9 +178,11 @@ it('bounds recent completions, retains actionable requests, and keeps background
 
 it('rejects malformed data at the desktop boundary', () => {
   expect(parseNotices([notice('one')])).toEqual([notice('one')]);
-  const review = { ...notice('review'), pullRequest: 'owner/repo#42', pullRequestTitle: 'Improve recovery',
+  const review = { ...notice('review'), pullRequest: 'owner/repo#42', pullRequestTitle: 'Improve recovery', branch: 'author/recovery',
     changes: { update: false, commits: 2, files: 3, additions: 42, deletions: 12 } };
   expect(parseNotices([review])).toEqual([review]);
+  expect(parseNotices([{ ...notice('one'), branch: null }])).toEqual([notice('one')]);
+  for (const branch of ['', ' ', 1]) expect(() => parseNotices([{ ...review, branch }])).toThrow();
   const next = { ...notice('next', 'NEXT_WORK'), workItemId: 'work-2' };
   expect(parseNotices([next])).toEqual([next]);
   expect(parseNotices([{ ...notice('one'), workItemId: null }])).toEqual([notice('one')]);

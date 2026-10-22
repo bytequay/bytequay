@@ -21,6 +21,7 @@ import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentApprovalStore;
@@ -142,7 +143,7 @@ public class AppNoticeService
         if (pick.isPresent()) {
             EpicNextWork.Pick work = pick.orElseThrow();
             return Optional.of(new AppNotice("next:" + task.id() + ":" + work.itemId(), AppNotice.Kind.NEXT_WORK, task.id().toString(), task.workspaceId().orElseThrow(),
-                    Optional.empty(), Optional.empty(), clip(work.title(), 160), Optional.empty(), Optional.empty(), Optional.empty(), clip(work.message(), 280),
+                    Optional.empty(), Optional.empty(), clip(work.title(), 160), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), clip(work.message(), 280),
                     task.repository().toString(), task.laneId().value(), Optional.of(work.itemId()), work.at()));
         }
         Optional<AgentTurn> report = history.stream()
@@ -221,17 +222,17 @@ public class AppNoticeService
     {
         Optional<AgentReview> numbered = review.filter(value -> value.number().isPresent());
         Optional<String> pullRequest = numbered.map(value -> value.repo() + "#" + value.number().getAsInt());
-        Optional<String> pullRequestTitle = numbered
+        Optional<PullRequest> stored = numbered
                 .flatMap(value -> pullRequests.findIdByRepoAndNumber(value.repo(), value.number().getAsInt()))
-                .flatMap(pullRequests::findById)
-                .map(PullRequest::title)
-                .filter(title -> !title.isBlank())
-                .map(title -> clip(title, 240));
+                .flatMap(pullRequests::findById);
+        Optional<String> pullRequestTitle = stored.map(PullRequest::title).filter(title -> !title.isBlank()).map(title -> clip(title, 240));
+        Optional<String> branch = (review.isPresent() ? stored.map(PullRequest::headRef) : task.taskWorktree().map(TaskWorktree::generatedBranch))
+                .filter(value -> !value.isBlank());
         Optional<AppNotice.Changes> changes = review.flatMap(value -> reviews.listRuns(value.id()).stream().max(comparing(ReviewRun::ordinal)))
                 .map(AppNoticeService::changes);
         return new AppNotice(id, kind, task.id().toString(), task.workspaceId().orElseThrow(), turn.map(value -> value.id().toString()), review.map(AgentReview::id),
-                clip(task.title(), 160), pullRequest, pullRequestTitle, changes, clip(message, 280), task.repository().toString(), task.laneId().value(), Optional.empty(),
-                occurredAt);
+                clip(task.title(), 160), pullRequest, pullRequestTitle, branch, changes, clip(message, 280), task.repository().toString(), task.laneId().value(),
+                Optional.empty(), occurredAt);
     }
 
     private static AppNotice.Changes changes(ReviewRun run)

@@ -18,6 +18,8 @@ export type AppNotice = {
   id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null;
   title: string; pullRequest: string | null; pullRequestTitle: string | null; changes: NoticeChanges | null;
   message: string; repository: string; laneId: string; occurredAt: string;
+  /** The reviewed pull request's head, or the development task's own branch. */
+  branch?: string;
   /** The Epic work a NEXT_WORK notice suggests starting next, once a pull request of the Epic merged. */
   workItemId?: string;
 };
@@ -66,9 +68,12 @@ export function parseNotices(value: unknown): AppNotice[] {
     }
     const workItemId = item.workItemId ?? null;
     if (workItemId !== null && (typeof workItemId !== 'string' || !workItemId.trim() || workItemId.length > 200)) throw new Error('Invalid notice context');
+    const branch = item.branch ?? null;
+    if (branch !== null && (typeof branch !== 'string' || !branch.trim() || branch.length > 1000)) throw new Error('Invalid notice context');
     return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId, reviewId: item.reviewId,
       title: item.title, pullRequest: item.pullRequest, pullRequestTitle: item.pullRequestTitle, changes: parseChanges(item.changes),
-      message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt, ...(workItemId === null ? {} : { workItemId }) } as AppNotice;
+      message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt,
+      ...(branch === null ? {} : { branch }), ...(workItemId === null ? {} : { workItemId }) } as AppNotice;
   });
 }
 function parseChanges(raw: unknown): NoticeChanges | null {

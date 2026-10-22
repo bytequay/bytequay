@@ -19,6 +19,7 @@ import java.util.Optional;
 /**
  * A short projection of task facts. The source owns resolution; notices own no durable lifecycle.
  *
+ * @param branch the reviewed pull request's head, or the development task's own branch
  * @param workItemId the Epic work a {@link Kind#NEXT_WORK} notice suggests starting next
  */
 public record AppNotice(
@@ -31,6 +32,7 @@ public record AppNotice(
         String title,
         Optional<String> pullRequest,
         Optional<String> pullRequestTitle,
+        Optional<String> branch,
         Optional<Changes> changes,
         String message,
         String repository,

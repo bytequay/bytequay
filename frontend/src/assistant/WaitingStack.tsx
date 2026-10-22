@@ -12,12 +12,13 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
-import { CalendarCheck, ChevronLeft, ChevronRight, CircleCheck, List, X } from 'lucide-react';
+import { CalendarCheck, Check, ChevronLeft, ChevronRight, CircleCheck, List, X } from 'lucide-react';
 import { latestStep, PendingApprovalCard, type ApprovalDecider, type TaskStep } from '../agents/AgentConversation';
 import { runningTaskRoute } from '../agents/RunningTasks';
 import { RUNNING_TASK_TYPES, type RunningTask } from '../agents/runningTaskModel';
 import { TaskTypeIcon } from '../agents/TaskListCards';
-import { formatDuration } from '../agents/transcript';
+import type { TaskType } from '../agents/taskList';
+import { formatDuration, projectTranscript } from '../agents/transcript';
 import { IconButton } from '../cards/Card';
 import TodayList, { openTarget } from '../home/TodayList';
 import { clockTime, doneRatio, showsToday } from '../home/today';
@@ -29,7 +30,7 @@ import { useNow } from '../useNow';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentPendingApprovalDto } from '../types';
-import { GROUPS, stackOf, waitingCards, type Group, type WaitingCard } from './model';
+import { GROUPS, replyExcerpt, stackOf, waitingCards, type Group, type WaitingCard } from './model';
 
 const LABELS: Record<Group, string> = { all: 'All', decision: 'Decision', running: 'Running', finished: 'Finished', today: 'Today' };
 const RUNNING_POLL_MS = 5000;
@@ -222,31 +223,76 @@ function CardLine({ card }: { card: WaitingCard }) {
   </>;
 }
 
-function CardHead({ kind, warn = false, time, pager }: { kind: string; warn?: boolean; time: string; pager: ReactNode }) {
+/** A card's top, the same for every kind: the task's kind icon, its title with the state chip after it, where it runs, then the time and pager. */
+function CardTop({ type, title, chip, repository, number, branch, time, pager }: {
+  type: TaskType;
+  title: string;
+  chip: ReactNode;
+  repository: string;
+  number: string | null;
+  branch: string | null;
+  time: string;
+  pager: ReactNode;
+}) {
+  const [owner, repo] = repository.split('/');
   return (
-    <div className="assistant-card__head">
-      <span className={`assistant-kind${warn ? ' is-warn' : ''}`}>{kind}</span>
-      <span className="assistant-spacer" />
+    <div className="assistant-task">
+      <span className="assistant-task__icon" aria-hidden="true"><TaskTypeIcon type={type} size={16} /></span>
+      <div className="assistant-task__main">
+        <div className="assistant-task__title">
+          <span className="assistant-card__title" title={title}>{title}</span>
+          {chip}
+        </div>
+        <div className="assistant-task__where">
+          <span>{repository}</span>
+          <RepoAvatar owner={owner} repo={repo ?? ''} size={14} radius={4} />
+          {number !== null && <span className="assistant-task__number">{number}</span>}
+          {branch !== null && <><span aria-hidden="true">·</span><span className="assistant-task__branch" title={branch}>{branch}</span></>}
+        </div>
+      </div>
       <span className="assistant-card__time">{time}</span>
       {pager}
     </div>
   );
 }
 
-function CardTitle({ title, where }: { title: string; where: string }) {
-  return <div className="assistant-card__title" title={`${title} · ${where}`}>{title}<span className="assistant-card__where"> · {where}</span></div>;
+function NoticeTop({ notice, pager }: { notice: AppNotice; pager: ReactNode }) {
+  const done = notice.kind === 'TURN_FINISHED';
+  const number = notice.pullRequest === null ? null : notice.pullRequest.slice(notice.pullRequest.lastIndexOf('#'));
+  return <CardTop type={notice.reviewId === null ? 'dev' : 'review'} title={heading(notice)} repository={notice.repository} number={number}
+    branch={notice.branch ?? null} time={clockTime(notice.occurredAt)} pager={pager}
+    chip={<span className={`assistant-kind${done ? ' is-done' : notice.kind === 'APPROVAL' ? ' is-warn' : ''}`}>
+      {done && <Check size={11} aria-hidden="true" />}{noticeLabel(notice)}</span>} />;
+}
+
+/** A finished task turn's reply, read once from the task's latest history; a review's turn says what it covered instead. */
+function useReply(notice: AppNotice): string | null {
+  const [reply, setReply] = useState<string | null>(null);
+  const turnId = notice.kind === 'TURN_FINISHED' && notice.reviewId === null ? notice.turnId : null;
+  useEffect(() => {
+    if (turnId === null) return;
+    let live = true;
+    void window.bridge.readAgentHistory(notice.taskId).then(page => {
+      const text = projectTranscript(page.events).find(turn => turn.turnId === turnId)?.answer?.text ?? '';
+      if (live && text.trim() !== '') setReply(replyExcerpt(text));
+    }).catch(() => { /* The notice's own line stays. */ });
+    return () => { live = false; };
+  }, [notice.taskId, turnId]);
+  return reply;
 }
 
 function NoticeCard({ notice, pager, onOpen, onClear }: { notice: AppNotice; pager: ReactNode; onOpen: () => void; onClear: () => void }) {
   const { changes } = notice;
+  const reply = useReply(notice);
   return <>
-    <CardHead kind={noticeLabel(notice)} time={clockTime(notice.occurredAt)} pager={pager} />
-    <CardTitle title={heading(notice)} where={notice.repository} />
-    {notice.pullRequest !== null && <div className="assistant-card__ref" title={notice.pullRequest}>{notice.pullRequest}</div>}
-    <div className="assistant-card__muted">
-      {notice.kind === 'TURN_FINISHED' && changes !== null ? `${changes.files} files · +${changes.additions} −${changes.deletions}` : notice.message}
+    <NoticeTop notice={notice} pager={pager} />
+    <div className="assistant-card__muted assistant-task__body">
+      {notice.kind === 'TURN_FINISHED' && changes !== null
+        ? <>{changes.files} {changes.files === 1 ? 'file' : 'files'} <span className="assistant-lines" aria-label={`${changes.additions} added, ${changes.deletions} deleted`}>
+          <span className="is-added">+{changes.additions}</span><span className="is-deleted">−{changes.deletions}</span></span></>
+        : reply ?? notice.message}
     </div>
-    <div className="assistant-card__actions">
+    <div className="assistant-card__actions assistant-task__actions">
       <button type="button" className="assistant-button" onClick={onOpen}>{NOTICE_ACTIONS[notice.kind]}</button>
       <span className="assistant-spacer" />
       <IconButton label={`Clear “${heading(notice)}”`} title="Clear" onClick={onClear}><X size={13} aria-hidden="true" /></IconButton>
@@ -291,10 +337,11 @@ function ApprovalCard({ notice, pager, onAnswered, onOpen, onClear }: {
       .catch((cause: unknown) => setError(remoteErrorMessage(cause)));
   };
   return <>
-    <CardHead kind={noticeLabel(notice)} warn={notice.kind === 'APPROVAL'} time={clockTime(notice.occurredAt)} pager={pager} />
-    <CardTitle title={heading(notice)} where={notice.repository} />
-    {approval === undefined ? <div className="assistant-card__muted">Loading…</div> : <PendingApprovalCard approval={approval} onDecide={decide} />}
-    {error !== null && <p className="assistant-error" role="alert">{error}</p>}
+    <NoticeTop notice={notice} pager={pager} />
+    <div className="assistant-task__body">
+      {approval === undefined ? <div className="assistant-card__muted">Loading…</div> : <PendingApprovalCard approval={approval} onDecide={decide} />}
+      {error !== null && <p className="assistant-error" role="alert">{error}</p>}
+    </div>
   </>;
 }
 
@@ -316,26 +363,12 @@ function useLatestStep(taskId: string): Steps | null {
 function TaskCard({ task, pager, onOpen }: { task: RunningTask; pager: ReactNode; onOpen: () => void }) {
   const steps = useLatestStep(task.id);
   const now = useNow(steps?.step.endedAt === null);
-  const [owner, repo] = task.repository.split('/');
   const took = steps === null ? 0 : (steps.step.endedAt ?? now) - steps.step.startedAt;
   return <>
-    <div className="assistant-task">
-      <span className="assistant-task__icon" aria-hidden="true"><TaskTypeIcon type={RUNNING_TASK_TYPES[task.kind]} size={16} /></span>
-      <div className="assistant-task__main">
-        <div className="assistant-task__title">
-          <span className="assistant-card__title" title={task.title}>{task.title}</span>
-          <span className="assistant-kind is-running"><span className="assistant-spinner" aria-hidden="true" />{task.kind === 'REVIEW' ? 'Reviewing' : 'Running'}</span>
-        </div>
-        <div className="assistant-task__where">
-          <span>{task.repository}</span>
-          <RepoAvatar owner={owner} repo={repo ?? ''} size={14} radius={4} />
-          {task.pullRequestNumber !== null && <span className="assistant-task__number">#{task.pullRequestNumber}</span>}
-          {task.branch !== null && <><span aria-hidden="true">·</span><span className="assistant-task__branch" title={task.branch}>{task.branch}</span></>}
-        </div>
-      </div>
-      <span className="assistant-card__time">{relativeTime(task.startedAt, { suffix: false })}</span>
-      {pager}
-    </div>
+    <CardTop type={RUNNING_TASK_TYPES[task.kind]} title={task.title} repository={task.repository}
+      number={task.pullRequestNumber === null ? null : `#${task.pullRequestNumber}`} branch={task.branch}
+      time={relativeTime(task.startedAt, { suffix: false })} pager={pager}
+      chip={<span className="assistant-kind is-running"><span className="assistant-spinner" aria-hidden="true" />{task.kind === 'REVIEW' ? 'Reviewing' : 'Running'}</span>} />
     {steps !== null && (
       <div className="assistant-step" title={steps.step.text}>
         <span className="assistant-step__kind">{steps.step.kind}</span>

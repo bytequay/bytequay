@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { ListChecks, type LucideIcon } from 'lucide-react';
 import type { ReviewRequest, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { formatDuration } from '../../agents/transcript';
@@ -469,10 +470,10 @@ export function reviewConversationEvents(events: AgentEventEnvelope[], requests:
   return visible.length === events.length ? events : visible;
 }
 
-const FOLLOW_UPS: Partial<Record<ReviewRunDto['steps'][number]['kind'], { action: string; retry: string; body: string }>> = {
+const FOLLOW_UPS: Partial<Record<ReviewRunDto['steps'][number]['kind'], { action: string; retry: string; body: string; icon?: LucideIcon }>> = {
   INVESTIGATE: { action: 'Investigate', retry: 'Retry investigation', body: 'Map the change and record candidates.' },
   COLLECT_EVIDENCE: { action: 'Collect evidence', retry: 'Retry evidence collection', body: 'Gather evidence for each open candidate.' },
-  VALIDATE: { action: 'Validate candidates', retry: 'Retry validation', body: 'Accept or reject each candidate.' },
+  VALIDATE: { action: 'Validate candidates', retry: 'Retry validation', body: 'Accept or reject each candidate.', icon: ListChecks },
 };
 
 /**
@@ -525,6 +526,7 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
       action: explaining ? 'Refresh explanation' : followUp ? (named === undefined ? 'Follow-up review' : step?.retry ? named.retry : named.action)
         : incremental ? 'Review new commits' : review.number === null ? 'Review changes' : 'Review pull request',
       generated: true,
+      icon: named?.icon,
       topic: review.number !== null ? `${review.repo}#${review.number}` : `${review.repo} · ${review.replay ? 'Past change' : 'Local changes'}`,
       body: explaining ? `Regenerate the change intention and commit summaries for ${scope}.`
         : followUp ? named?.body ?? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,

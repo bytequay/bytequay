@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { ChevronDown, MessageSquare } from 'lucide-react';
+import { ChevronDown, MessageSquare, type LucideIcon } from 'lucide-react';
 import { useId, useState, type ReactNode } from 'react';
 
 export type ReviewRequestTarget =
@@ -30,10 +30,11 @@ export type ReviewRequest = {
   turnId?: string | null;
   messageEventId?: string | null;
   target?: ReviewRequestTarget;
+  icon?: LucideIcon;
 };
 
 /** The preview names the saved request; optional children supply its full details on expansion. */
-export function ReviewRequestCard({ action, topic, body, detail, children, onOpen, prompt }: ReviewRequest & { children?: ReactNode; onOpen?: () => void; prompt?: string }) {
+export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = MessageSquare, children, onOpen, prompt }: ReviewRequest & { children?: ReactNode; onOpen?: () => void; prompt?: string }) {
   const [open, setOpen] = useState(false);
   const contentId = useId();
   const toggle = () => setOpen(value => !value);
@@ -42,7 +43,7 @@ export function ReviewRequestCard({ action, topic, body, detail, children, onOpe
       <button type="button" className="agt-review-request__open" onClick={onOpen ?? toggle}
         aria-label={onOpen ? `Open ${topic} in Summary` : `${action}: ${topic}`}
         title={onOpen ? 'Open in Summary' : 'Show request details'}>
-        <MessageSquare aria-hidden="true" />
+        <Icon aria-hidden="true" />
         <span className="agt-review-request__heading">
           <span className="agt-user__request-action">{action}</span>
           <span className="agt-review-request__topic" title={topic}>{topic}</span>

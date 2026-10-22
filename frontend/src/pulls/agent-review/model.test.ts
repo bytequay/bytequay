@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { ListChecks } from 'lucide-react';
 import { describe, expect, it } from 'vitest';
 import {
   askLabel,
@@ -698,6 +699,7 @@ describe('review request navigation and generated turns', () => {
     expect(requests.map(request => request.action)).toEqual(
       ['Review pull request', 'Validate candidates', 'Retry validation', 'Collect evidence', 'Validate candidates', 'Retry validation']);
     expect(requests[3].body).toBe('Gather evidence for each open candidate.');
+    expect(requests.map(request => request.icon)).toEqual([undefined, ListChecks, ListChecks, undefined, ListChecks, ListChecks]);
   });
 
   it('keeps original discussion targets after a later report and groups unscoped summary replies with purpose', () => {

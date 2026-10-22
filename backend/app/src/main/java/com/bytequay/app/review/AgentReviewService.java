@@ -1142,8 +1142,7 @@ public class AgentReviewService
                 return settleCompleted(review, run, task, now);
             }
             case CANCELLED -> {
-                store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Stopped by the user"), now));
-                return store.updateReview(review.withFollowUpPaused(true, now));
+                return endRun(review, run, ReviewRun.State.STOPPED, Optional.of("Stopped by the user"), now);
             }
             default -> {
                 // A fresh private continuation may recover known delivery, never an uncertain send or a user's stop.
@@ -1152,9 +1151,8 @@ public class AgentReviewService
                     repairAssignment(run, task);
                     return review;
                 }
-                store.updateRun(
-                        run.ended(ReviewRun.State.FAILED, turn.terminalReason().or(() -> Optional.of("The provider turn " + turn.state().name().toLowerCase(Locale.ROOT))), now));
-                return store.updateReview(review.withFollowUpPaused(true, now));
+                Optional<String> reason = turn.terminalReason().or(() -> Optional.of("The provider turn " + turn.state().name().toLowerCase(Locale.ROOT)));
+                return endRun(review, run, ReviewRun.State.FAILED, reason, now);
             }
         }
     }
@@ -1312,7 +1310,13 @@ public class AgentReviewService
     {
         Instant now = Instant.now(clock);
         ReviewRun recorded = run.currentStep().flatMap(ReviewStep::validation).map(report -> run.withCoverage(report.coverage(), now)).orElse(run);
-        store.updateRun(recorded.ended(ReviewRun.State.INCOMPLETE, Optional.of(reason), now));
+        return endRun(review, recorded, ReviewRun.State.INCOMPLETE, Optional.of(reason), now);
+    }
+
+    /** Ends a run that was not accepted. Nothing follows it up until the user resumes the review. */
+    private AgentReview endRun(AgentReview review, ReviewRun run, ReviewRun.State state, Optional<String> reason, Instant now)
+    {
+        store.updateRun(run.ended(state, reason, now));
         return store.updateReview(review.withFollowUpPaused(true, now));
     }
 
@@ -1331,9 +1335,8 @@ public class AgentReviewService
         }
         catch (RuntimeException failure) {
             if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
-                Instant now = Instant.now(clock);
-                store.updateRun(store.findRun(run.id()).orElseThrow().ended(ReviewRun.State.FAILED, Optional.of("Cannot continue the review: " + failure.getMessage()), now));
-                store.updateReview(requireReview(run.reviewId()).withFollowUpPaused(true, now));
+                endRun(requireReview(run.reviewId()), store.findRun(run.id()).orElseThrow(), ReviewRun.State.FAILED,
+                        Optional.of("Cannot continue the review: " + failure.getMessage()), Instant.now(clock));
             }
             throw failure;
         }
@@ -1561,8 +1564,7 @@ public class AgentReviewService
         catch (RuntimeException failure) {
             ReviewRun current = store.findRun(run.id()).orElse(run);
             if (turns.findTurnByIdempotencyKey(TaskId.valueOf(review.taskId()), current.currentStep().orElseThrow().key(current.id())).isEmpty()) {
-                store.updateRun(current.ended(ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock)));
-                store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
+                endRun(requireReview(review.id()), current, ReviewRun.State.FAILED, Optional.of("Cannot start the review turn: " + failure.getMessage()), Instant.now(clock));
             }
             throw failure;
         }

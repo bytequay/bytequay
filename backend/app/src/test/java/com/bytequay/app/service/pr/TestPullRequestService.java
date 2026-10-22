@@ -2376,6 +2376,20 @@ class TestPullRequestService
     }
 
     @Test
+    void keepsALandedMergeWhenTheLocalCopyCannotBeUpdated()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
+                .thenReturn(new MergeResult("sha", true, "merged"));
+        doThrow(new IllegalStateException("database is locked")).when(viewStateStore).markReviewed(anyLong(), any(), any(), any());
+
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "rebase", "displayed-head");
+
+        assertThat(result.merged()).isTrue();
+        verify(writes).mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class));
+    }
+
+    @Test
     void rejectsMissingMergeHeadBeforeWriting()
     {
         assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, "rebase", " "))

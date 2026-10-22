@@ -1175,27 +1175,33 @@ public class PullRequestService
         checkText(title, "pull request title");
         String normalizedTitle = title.trim();
         pullRequestWrites.updatePullRequestTitle(credentialService.resolveGitHubToken(), parseRef(repo, number), normalizedTitle);
-        store.findIdByRepoAndNumber(repo, number).ifPresent(prId -> {
-            snapshots.patchDetail(prId, cached -> new StoredPrDetail(cached.raw().withTitle(normalizedTitle), cached.reviews(), cached.timeline(),
-                    cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite()));
-            store.updateTitle(prId, normalizedTitle);
+        afterWrite(repo, number, () -> {
+            store.findIdByRepoAndNumber(repo, number).ifPresent(prId -> {
+                snapshots.patchDetail(prId, cached -> new StoredPrDetail(cached.raw().withTitle(normalizedTitle), cached.reviews(), cached.timeline(),
+                        cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite()));
+                store.updateTitle(prId, normalizedTitle);
+            });
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+            invalidatePullRequestDetail(repo, number);
         });
-        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestDetail(repo, number);
     }
 
     public void updateDescription(String repo, int number, String description)
     {
         pullRequestWrites.updatePullRequestDescription(credentialService.resolveGitHubToken(), parseRef(repo, number), requireNonNull(description, "description is null"));
-        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestDetail(repo, number);
+        afterWrite(repo, number, () -> {
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+            invalidatePullRequestDetail(repo, number);
+        });
     }
 
     public void closePullRequest(String repo, int number)
     {
         pullRequestWrites.closePullRequest(credentialService.resolveGitHubToken(), parseRef(repo, number));
-        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestCaches(repo, number);
+        afterWrite(repo, number, () -> {
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+            invalidatePullRequestCaches(repo, number);
+        });
     }
 
     public void markReadyForReview(String repo, int number)
@@ -1205,12 +1211,12 @@ public class PullRequestService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         try {
             pullRequestWrites.markReadyForReview(pat, nodeId);
-            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         }
         finally {
             // A lost response may still have promoted the draft; refresh without repeating the write.
-            invalidatePullRequestDetail(repo, number);
+            afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
         }
+        afterWrite(repo, number, () -> recent.pullRequestAction(repo, number, RecentReason.EDITED, 0));
     }
 
     public void updateMetadata(String repo, int number, List<String> assignees, List<String> labels)
@@ -1220,16 +1226,20 @@ public class PullRequestService
                 parseRef(repo, number),
                 normalizeNames(assignees, "assignees"),
                 normalizeNames(labels, "labels"));
-        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestDetail(repo, number);
+        afterWrite(repo, number, () -> {
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+            invalidatePullRequestDetail(repo, number);
+        });
     }
 
     public void updateReviewerRequest(String repo, int number, String login, boolean requested)
     {
         checkText(login, "reviewer login");
         pullRequestWrites.updateReviewerRequest(credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
-        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        invalidatePullRequestDetail(repo, number);
+        afterWrite(repo, number, () -> {
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+            invalidatePullRequestDetail(repo, number);
+        });
     }
 
     public void replyToReviewComment(String repo, int number, long commentId, String body)
@@ -1269,13 +1279,16 @@ public class PullRequestService
             case "review" -> pullRequestWrites.updateReviewBody(pat, ref, commentId, body);
             default -> throw new IllegalStateException("unsupported comment target: " + normalizedTarget);
         }
-        Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
-        PullRequestDetail detail = prId.flatMap(id -> snapshots.patchDetail(id, cached -> withEditedBody(cached, normalizedTarget, commentId, body)))
-                .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId.orElseThrow(), repo, number, stored, stored.viewerCanWrite()))
-                .orElseGet(() -> getPullRequestDetail(repo, number));
-        recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
-        recent.wroteOnPullRequest(repo, number, "review".equals(normalizedTarget) ? RecentTextKind.REVIEW_BODY : RecentTextKind.COMMENT, textKey, body);
-        return detail;
+        Optional<PullRequestDetail> patched = afterWrite(repo, number, () -> {
+            Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
+            return prId.flatMap(id -> snapshots.patchDetail(id, cached -> withEditedBody(cached, normalizedTarget, commentId, body)))
+                    .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId.orElseThrow(), repo, number, stored, stored.viewerCanWrite()));
+        }, Optional.empty());
+        afterWrite(repo, number, () -> {
+            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
+            recent.wroteOnPullRequest(repo, number, "review".equals(normalizedTarget) ? RecentTextKind.REVIEW_BODY : RecentTextKind.COMMENT, textKey, body);
+        });
+        return patched.orElseGet(() -> getPullRequestDetail(repo, number));
     }
 
     /** GitHub ids are unique only within one resource type, so each target patches only its own kind of copy. */
@@ -1337,7 +1350,7 @@ public class PullRequestService
         PullRequestRef ref = parseRef(repo, number);
         String threadId = gitHub.findReviewThreadId(pat, ref, rootCommentId);
         pullRequestWrites.setReviewThreadResolved(pat, threadId, resolved);
-        invalidatePullRequestDetail(repo, number);
+        afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
     }
 
     /**
@@ -1548,12 +1561,14 @@ public class PullRequestService
             }
             throw e;
         }
-        if (result.merged()) {
-            store.setMonitored(prId, false);
-        }
-        viewStateStore.markReviewed(prId, HandledAction.MERGED, headSha, Instant.now());
-        recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);
-        invalidatePullRequestDetail(repo, number);
+        afterWrite(repo, number, () -> {
+            if (result.merged()) {
+                store.setMonitored(prId, false);
+            }
+            viewStateStore.markReviewed(prId, HandledAction.MERGED, headSha, Instant.now());
+            recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);
+            invalidatePullRequestDetail(repo, number);
+        });
         return result;
     }
 
@@ -1564,12 +1579,12 @@ public class PullRequestService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         try {
             pullRequestWrites.dequeuePullRequest(pat, nodeId);
-            recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         }
         finally {
             // A lost response may still have removed the entry; let refresh reconcile it.
-            invalidatePullRequestDetail(repo, number);
+            afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
         }
+        afterWrite(repo, number, () -> recent.pullRequestAction(repo, number, RecentReason.EDITED, 0));
     }
 
     private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number, String headSha)
@@ -1578,7 +1593,7 @@ public class PullRequestService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         MergeResult result = pullRequestWrites.enqueuePullRequest(pat, nodeId, headSha);
         // Queueing does not change the diff; retain it while the timeline refreshes.
-        invalidatePullRequestDetail(repo, number);
+        afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
         return result;
     }
 

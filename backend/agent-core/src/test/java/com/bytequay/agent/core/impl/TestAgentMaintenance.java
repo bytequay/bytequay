@@ -493,6 +493,21 @@ class TestAgentMaintenance
     }
 
     @Test
+    void aTaskWhoseCleanupThrowsDoesNotStopTheTasksBehindIt()
+    {
+        AgentTask stuck = managedTask(TaskId.random()).fail("failed", NOW, NOW.plus(Duration.ofDays(7)));
+        AgentTask due = managedTask(TaskId.random()).fail("failed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)).plusSeconds(1));
+        stores.insert(stuck);
+        stores.insert(due);
+        doThrow(new IllegalStateException("provider is wedged")).when(completion).cleanup(stuck.id());
+
+        maintenance(NOW.plus(Duration.ofDays(8))).cleanupDue(10);
+
+        verify(completion).cleanup(stuck.id());
+        verify(completion).cleanup(due.id());
+    }
+
+    @Test
     void preservesWorkflowWorktreeUntilItsWorkflowRecordsCleanup()
     {
         AgentTask workflowTask = managedTask(TaskId.random(), AgentPermissionPolicy.CI_AUTOFIX)

@@ -384,6 +384,14 @@ public final class AgentMaintenance
     {
         checkArgument(limit > 0, "limit must be positive");
         Instant now = Instant.now(clock);
-        taskStore.listCleanupDue(now, now.minus(CLEANUP_RETRY_DELAY), limit).forEach(task -> completionService.cleanup(task.id()));
+        for (AgentTask due : taskStore.listCleanupDue(now, now.minus(CLEANUP_RETRY_DELAY), limit)) {
+            try {
+                completionService.cleanup(due.id());
+            }
+            catch (RuntimeException failure) {
+                // A task that throws before recording a retry keeps its place in the list; it must not stop the ones behind it.
+                log.log(System.Logger.Level.WARNING, "Agent runtime cleanup failed for task " + due.id() + ": " + failure);
+            }
+        }
     }
 }

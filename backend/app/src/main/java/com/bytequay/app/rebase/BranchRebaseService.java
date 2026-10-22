@@ -253,23 +253,13 @@ public class BranchRebaseService
         if (!ownsBranch(rebase)) {
             return pause(rebase, PauseReason.UNSAFE_GIT_STATE, "Worktree is no longer on the recorded work branch");
         }
-        Optional<ActionType> action = rebase.journal().map(ActionJournal::type);
-        if (action.filter(ActionType.START::equals).isPresent()) {
-            return recoverStart(rebase);
-        }
-        if (action.filter(ActionType.AGENT_TURN::equals).isPresent()) {
-            return startAgentTurn(rebase, userNote);
-        }
-        if (action.filter(ActionType.CONTINUE::equals).isPresent()) {
-            return recoverContinue(rebase);
-        }
-        if (action.filter(ActionType.SKIP::equals).isPresent()) {
-            return recoverSkip(rebase);
-        }
-        if (action.filter(ActionType.ABORT::equals).isPresent()) {
-            return recoverAbort(rebase);
-        }
-        return recordState(rebase, sequencer.observe(rebase.worktree()), userNote);
+        return rebase.journal().map(journal -> switch (journal.type()) {
+            case START -> recoverStart(rebase);
+            case AGENT_TURN -> startAgentTurn(rebase, userNote);
+            case CONTINUE -> recoverContinue(rebase);
+            case SKIP -> recoverSkip(rebase);
+            case ABORT -> recoverAbort(rebase);
+        }).orElseGet(() -> recordState(rebase, sequencer.observe(rebase.worktree()), userNote));
     }
 
     private BranchRebase recoverStart(BranchRebase rebase)

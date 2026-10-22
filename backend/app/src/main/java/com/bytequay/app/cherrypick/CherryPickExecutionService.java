@@ -324,53 +324,50 @@ public class CherryPickExecutionService
         if (execution.currentTurnId().isPresent()) {
             return afterTurn(execution);
         }
-        if (execution.journal().map(ActionJournal::type).filter(ActionType.SKIP_EMPTY::equals).isPresent()) {
-            return recoverEmptySkip(execution);
-        }
-        if (execution.journal().map(ActionJournal::type).filter(ActionType.COMMIT_CONFLICT_SNAPSHOT::equals)
-                .isPresent()) {
-            return recoverConflictSnapshot(execution);
-        }
-        if (execution.journal().map(ActionJournal::type).filter(type -> type == ActionType.AGENT_TURN || type == ActionType.AGENT_REPAIR).isPresent()) {
-            return inspectFixup(execution, Optional.empty());
-        }
-        if (execution.journal().map(ActionJournal::type).filter(ActionType.FINALIZE_CONFLICT_PAIR::equals)
-                .isPresent()) {
-            return finalizeConflictPair(execution);
-        }
+        return execution.journal().map(journal -> switch (journal.type()) {
+            case SKIP_EMPTY -> recoverEmptySkip(execution);
+            case COMMIT_CONFLICT_SNAPSHOT -> recoverConflictSnapshot(execution);
+            case AGENT_TURN, AGENT_REPAIR -> inspectFixup(execution, Optional.empty());
+            case FINALIZE_CONFLICT_PAIR -> finalizeConflictPair(execution);
+            // A begun Git step is recovered from the state it left, the same way the next step starts.
+            case BEGIN_SEQUENCE -> step(execution);
+            // Only the build stage records a build turn; applying commits past one would write to Git on a guess.
+            case BUILD_TURN -> pause(execution, PauseReason.RECONCILIATION_MISMATCH, "A build turn was recorded before every commit was applied");
+        }).orElseGet(() -> step(execution));
+    }
+
+    private CherryPickExecution step(CherryPickExecution execution)
+    {
         Path worktree = execution.workspace().worktree();
         String expectedHead = execution.currentTargetSha();
         SequenceState before = sequencer.observe(worktree);
-
-        if (before.kind() == SequenceState.Kind.COMPLETED) {
-            if (!before.head().equals(expectedHead)) {
-                // Git ran but the result was never stored, which is what a crash
-                // between the two looks like. Adopt the commits if they map to
-                // the plan; reconciliation pauses if they do not.
-                return reconcile(execution, expectedHead, before);
+        return switch (before.kind()) {
+            case COMPLETED -> {
+                if (!before.head().equals(expectedHead)) {
+                    // Git ran but the result was never stored, which is what a crash
+                    // between the two looks like. Adopt the commits if they map to
+                    // the plan; reconciliation pauses if they do not.
+                    yield reconcile(execution, expectedHead, before);
+                }
+                // One source commit per Git operation. Handing Git the whole plan
+                // would let --skip and --continue run on past the commit in hand,
+                // and then no single operation would own a single result.
+                String next = execution.pendingItems().getFirst().sourceSha();
+                CherryPickExecution started = store.save(execution
+                        .withStep(Step.APPLYING, clock.instant())
+                        .withJournal(journal(ActionType.BEGIN_SEQUENCE, Optional.of(next), expectedHead), clock.instant()));
+                yield reconcile(started, expectedHead, sequencer.beginCherryPick(worktree, expectedHead, next));
             }
-            // One source commit per Git operation. Handing Git the whole plan
-            // would let --skip and --continue run on past the commit in hand,
-            // and then no single operation would own a single result.
-            String next = execution.pendingItems().getFirst().sourceSha();
-            CherryPickExecution started = store.save(execution
-                    .withStep(Step.APPLYING, clock.instant())
-                    .withJournal(journal(ActionType.BEGIN_SEQUENCE, Optional.of(next), expectedHead), clock.instant()));
-            return reconcile(started, expectedHead, sequencer.beginCherryPick(worktree, expectedHead, next));
-        }
-        if (before.kind() == SequenceState.Kind.STOPPED_EMPTY) {
-            String stopped = before.stoppedCommit().orElseThrow();
-            CherryPickExecution journalled = store.save(execution
-                    .withJournal(journal(ActionType.SKIP_EMPTY, Optional.of(stopped), before.head()), clock.instant()));
-            return recoverEmptySkip(journalled);
-        }
-        if (before.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
-            return commitConflictSnapshot(execution, before);
-        }
-        if (before.kind() == SequenceState.Kind.STOPPED_RESOLVED) {
-            return pause(execution, PauseReason.UNSAFE_GIT_STATE, "A conflict was staged outside ByteQuay before its index stages were recorded");
-        }
-        return pause(execution, PauseReason.UNSAFE_GIT_STATE, before.diagnostics().isBlank() ? "Unexpected Git state" : before.diagnostics());
+            case STOPPED_EMPTY -> {
+                String stopped = before.stoppedCommit().orElseThrow();
+                CherryPickExecution journalled = store.save(execution
+                        .withJournal(journal(ActionType.SKIP_EMPTY, Optional.of(stopped), before.head()), clock.instant()));
+                yield recoverEmptySkip(journalled);
+            }
+            case STOPPED_CONFLICT -> commitConflictSnapshot(execution, before);
+            case STOPPED_RESOLVED -> pause(execution, PauseReason.UNSAFE_GIT_STATE, "A conflict was staged outside ByteQuay before its index stages were recorded");
+            case UNSAFE -> pause(execution, PauseReason.UNSAFE_GIT_STATE, before.diagnostics().isBlank() ? "Unexpected Git state" : before.diagnostics());
+        };
     }
 
     private CherryPickExecution recoverEmptySkip(CherryPickExecution execution)

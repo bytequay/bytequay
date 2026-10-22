@@ -19,7 +19,9 @@ import type { BrowserWindow } from 'electron';
 import type { EventEmitter } from 'node:events';
 import { BrowserTabs, browserBounds, registerBrowserTabIpc } from './browserTabs';
 
-const electron = vi.hoisted(() => ({ views: [] as unknown[], handlers: new Map<string, (...args: unknown[]) => unknown>() }));
+const electron = vi.hoisted(() => ({
+  views: [] as unknown[], handlers: new Map<string, (...args: unknown[]) => unknown>(), appForProtocol: vi.fn(), showMessageBox: vi.fn(),
+}));
 const lab = vi.hoisted(() => ({ resolve: vi.fn() }));
 vi.mock('@bytequay/lab/main', async importOriginal => ({
   ...await importOriginal<typeof import('@bytequay/lab/main')>(), resolveLabPage: lab.resolve,
@@ -27,6 +29,9 @@ vi.mock('@bytequay/lab/main', async importOriginal => ({
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
+    app: { getApplicationNameForProtocol: electron.appForProtocol },
+    BrowserWindow: { fromWebContents: (): null => null, getFocusedWindow: (): null => null },
+    dialog: { showMessageBox: electron.showMessageBox },
     ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => electron.handlers.set(channel, handler) },
     WebContentsView: class {
       webContents = Object.assign(new EventEmitter(), {
@@ -92,7 +97,7 @@ it('denies sensitive permissions before loading an untrusted browser page', () =
   const contents = view(0).webContents;
   const check = contents.session.setPermissionCheckHandler.mock.calls[0][0];
   const request = contents.session.setPermissionRequestHandler.mock.calls[0][0];
-  for (const permission of ['clipboard-read', 'notifications', 'geolocation', 'media', 'fileSystem', 'openExternal']) {
+  for (const permission of ['clipboard-read', 'notifications', 'geolocation', 'media', 'fileSystem']) {
     expect(check(contents, permission, 'https://example.com', {})).toBe(false);
     const result = vi.fn();
     request(contents, permission, result, {});
@@ -120,6 +125,52 @@ it('allows local network access only for Okta sign-in pages', () => {
     }
   }
   expect(granted('clipboard-read', 'https://example.okta.com/')).toBe(false);
+});
+
+it('lets every page write to the clipboard and go full screen', () => {
+  open('https://example.com/');
+  const contents = view(0).webContents;
+  const check = contents.session.setPermissionCheckHandler.mock.calls[0][0];
+  const request = contents.session.setPermissionRequestHandler.mock.calls[0][0];
+  for (const permission of ['clipboard-sanitized-write', 'fullscreen']) {
+    expect(check(contents, permission, 'https://example.com', {})).toBe(true);
+    const result = vi.fn();
+    request(contents, permission, result, { requestingUrl: 'https://example.com/' });
+    expect(result).toHaveBeenCalledWith(true);
+  }
+});
+
+it('asks before a page opens a link in another app', async () => {
+  open('https://calendar.google.com/');
+  const contents = view(0).webContents;
+  const request = contents.session.setPermissionRequestHandler.mock.calls[0][0];
+  const opens = async (externalURL: string): Promise<boolean> => {
+    const result = vi.fn();
+    request(contents, 'openExternal', result, { externalURL, requestingUrl: 'https://calendar.google.com/r/week' });
+    await vi.waitFor(() => expect(result).toHaveBeenCalledOnce());
+    return result.mock.calls[0][0];
+  };
+  electron.appForProtocol.mockReset().mockReturnValue('zoom.us');
+  electron.showMessageBox.mockReset().mockResolvedValueOnce({ response: 0 }).mockResolvedValueOnce({ response: 1 });
+  expect(await opens('zoommtg://zoom.us/join?confno=1')).toBe(true);
+  expect(electron.showMessageBox).toHaveBeenCalledWith(expect.objectContaining({
+    message: 'Open zoom.us?', detail: 'calendar.google.com wants to open this link in zoom.us.', cancelId: 1,
+  }));
+  expect(await opens('zoommtg://zoom.us/join?confno=2')).toBe(false);
+
+  let answer: (value: { response: number }) => void = () => {};
+  electron.showMessageBox.mockReset().mockReturnValueOnce(new Promise(resolve => { answer = resolve; }));
+  const first = vi.fn();
+  request(contents, 'openExternal', first, { externalURL: 'slack://open', requestingUrl: 'https://example.com/' });
+  expect(await opens('slack://open')).toBe(false);
+  answer({ response: 0 });
+  await vi.waitFor(() => expect(first).toHaveBeenCalledWith(true));
+  expect(electron.showMessageBox).toHaveBeenCalledOnce();
+
+  electron.appForProtocol.mockReturnValue('');
+  electron.showMessageBox.mockReset();
+  expect(await opens('nothing-handles-this://x')).toBe(false);
+  expect(electron.showMessageBox).not.toHaveBeenCalled();
 });
 
 it('preserves each live page/history across switch, hide and renderer reload; ignores stale layout', () => {

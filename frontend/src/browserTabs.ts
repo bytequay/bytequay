@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ipcMain, WebContentsView, type BrowserWindow, type IpcMainInvokeEvent, type Rectangle, type Session } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, WebContentsView, type IpcMainInvokeEvent, type Rectangle, type Session, type WebContents } from 'electron';
 import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { InAppBrowserState, InAppBrowserTab } from './types';
@@ -34,10 +34,39 @@ function oktaLocalNetwork(permission: string, url: unknown): boolean {
   catch { return false; }
 }
 
-/** Electron grants browser permissions by default; remote pages have no access to desktop capabilities. */
-export function denyBrowserPermissions(session: Session): void {
-  session.setPermissionCheckHandler((_contents, permission, origin) => oktaLocalNetwork(permission, origin));
-  session.setPermissionRequestHandler((_contents, permission, callback, details) => callback(oktaLocalNetwork(permission, details.requestingUrl)));
+// Copy buttons and video players need these; neither reaches beyond the page.
+const PAGE_PERMISSIONS = new Set(['clipboard-sanitized-write', 'fullscreen']);
+
+function allowed(permission: string, url: unknown): boolean {
+  return PAGE_PERMISSIONS.has(permission) || oktaLocalNetwork(permission, url);
+}
+
+// ponytail: one question at a time; a page that keeps asking after Cancel still gets one sheet per try.
+let askingExternal = false;
+
+/** Links such as zoommtg: or slack: hand off to another app, so the user decides each one. */
+async function confirmExternal(contents: WebContents | null, externalUrl: unknown, requestingUrl: unknown): Promise<boolean> {
+  if (askingExternal || typeof externalUrl !== 'string') return false;
+  const name = app.getApplicationNameForProtocol(externalUrl);
+  if (!name) return false;
+  const site = URL.parse(String(requestingUrl))?.host || 'This page';
+  const options = {
+    type: 'question' as const, message: `Open ${name}?`, detail: `${site} wants to open this link in ${name}.`, buttons: ['Open', 'Cancel'], defaultId: 0, cancelId: 1,
+  };
+  const window = (contents && BrowserWindow.fromWebContents(contents)) ?? BrowserWindow.getFocusedWindow();
+  askingExternal = true;
+  try { return (await (window ? dialog.showMessageBox(window, options) : dialog.showMessageBox(options))).response === 0; }
+  finally { askingExternal = false; }
+}
+
+/** Electron grants browser permissions by default; remote pages get only the few that stay inside the page. */
+export function limitBrowserPermissions(session: Session): void {
+  session.setPermissionCheckHandler((_contents, permission, origin) => allowed(permission, origin));
+  session.setPermissionRequestHandler((contents, permission, callback, details) => {
+    if (permission !== 'openExternal') return callback(allowed(permission, details.requestingUrl));
+    const externalUrl = 'externalURL' in details ? details.externalURL : undefined;
+    void confirmExternal(contents, externalUrl, details.requestingUrl).then(callback, () => callback(false));
+  });
 }
 
 function faviconUrl(value: unknown): string | null {
@@ -311,7 +340,7 @@ export class BrowserTabs {
     view.setVisible(false);
     view.setBackgroundColor('#00000000');
     const contents = view.webContents;
-    denyBrowserPermissions(contents.session);
+    limitBrowserPermissions(contents.session);
     const current = () => this.tabs.get(tab.state.id) === tab && tab.view === view;
     const update = () => {
       if (!current() || contents.isDestroyed()) return;

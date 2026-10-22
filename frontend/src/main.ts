@@ -28,7 +28,7 @@ import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
 import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
 import { registerGoogleIpc } from '@bytequay/google/main';
-import { BrowserTabs, denyBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
+import { BrowserTabs, limitBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
@@ -423,7 +423,7 @@ function openPopup(url: string): void {
       partition: 'persist:inapp-browser',
     },
   });
-  denyBrowserPermissions(popup.webContents.session);
+  limitBrowserPermissions(popup.webContents.session);
   popup.webContents.setWindowOpenHandler(({ url: nested }) => {
     openPopup(nested);
     return { action: 'deny' };

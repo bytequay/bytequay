@@ -23,6 +23,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,6 +32,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -79,6 +81,21 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findDiscussionActivityAt(row.id())).contains(replyAt);
         assertThat(store.findActivities(Set.of(row.id()))).containsEntry(row.id(), reply);
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(replyAt);
+    }
+
+    @Test
+    void attentionActivityKeepsTheLatestAndSurvivesDiscovery()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
+        PullRequest row = store.saveObserved(fetched);
+        Instant commentAt = fetched.updatedAt().plusSeconds(60);
+        assertThat(store.findAttentionActivities(ImmutableSet.of(row.id()))).isEmpty();
+
+        store.observeAttentionActivity(row.id(), commentAt);
+        store.observeAttentionActivity(row.id(), fetched.updatedAt());
+        store.saveObserved(fetched);
+
+        assertThat(store.findAttentionActivities(ImmutableSet.of(row.id()))).containsExactly(Map.entry(row.id(), commentAt));
     }
 
     @Test

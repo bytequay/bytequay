@@ -41,6 +41,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -76,21 +77,26 @@ public class PullRequestController
         List<PullRequest> candidates = pullRequests.listAttentionCandidates();
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
+        Map<Long, Instant> attentionActivities = pullRequests.findCachedAttentionActivities(candidates);
         Map<Long, List<PrCommitLine>> commits = pullRequests.findCachedCommitsSinceReview(candidates);
         Map<Long, List<String>> failingChecks = pullRequests.findCachedFailingChecks(candidates);
         Set<Long> mentioned = pullRequests.findMentioned(candidates);
         return candidates.stream()
                 .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
-                        commits.getOrDefault(pullRequest.id(), ImmutableList.of()), failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()),
-                        mentioned.contains(pullRequest.id())))
+                        attentionActivities.get(pullRequest.id()), commits.getOrDefault(pullRequest.id(), ImmutableList.of()),
+                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id())))
                 .collect(toImmutableList());
     }
 
-    /** A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads GitHub. */
+    /**
+     * A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads GitHub. Its attention activity
+     * is the latest that ends an acknowledgment.
+     */
     public record AttentionPullRequest(
             @JsonUnwrapped PullRequest pullRequest,
             String authorAvatarUrl,
             PrActivitySummary latestActivity,
+            Instant attentionActivityAt,
             List<PrCommitLine> commitsSinceReview,
             List<String> failingChecks,
             boolean mentioned) {}

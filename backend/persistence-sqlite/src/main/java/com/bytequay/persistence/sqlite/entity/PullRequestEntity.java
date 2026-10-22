@@ -158,6 +158,8 @@ public class PullRequestEntity
     @Convert(converter = PrActivitySummaryConverter.class)
     private PrActivitySummary cardActivity;
 
+    private Instant attentionActivityAt;
+
     private Instant reviewRequestedAt;
 
     private String reviewDecision;
@@ -238,6 +240,7 @@ public class PullRequestEntity
         setActivityAt(previous.getActivityAt());
         setDiscussionActivityAt(previous.getDiscussionActivityAt());
         setCardActivity(previous.getCardActivity());
+        setAttentionActivityAt(previous.getAttentionActivityAt());
         setActivityFingerprints(previous.getActivityFingerprints());
         setReviewDecision(previous.getReviewDecision());
         if (getReviewRequestedAt() == null || PullRequest.Origin.REVIEW_REQUESTED.name().equals(previous.getOrigin())) {

@@ -45,6 +45,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -96,6 +97,7 @@ class TestPullRequestRefreshControllers
         when(pullRequests.findCachedLatestActivities(candidates)).thenReturn(ImmutableMap.of(12L, new PrActivitySummary(
                 "reviewed", Optional.of("reviewer"), NOW, Optional.of("APPROVED"), Optional.empty(), Optional.empty(),
                 Optional.of("Looks good, one nit."), Optional.of("src/Main.java"), OptionalInt.of(14))));
+        when(pullRequests.findCachedAttentionActivities(candidates)).thenReturn(ImmutableMap.of(12L, NOW));
         when(pullRequests.findCachedCommitsSinceReview(candidates)).thenReturn(ImmutableMap.of(12L, ImmutableList.of(
                 new PrCommitLine("4f1a2c9", "Map CommitFailedException", Optional.of("alice"), NOW))));
         when(pullRequests.findCachedFailingChecks(candidates)).thenReturn(ImmutableMap.of(13L, ImmutableList.of("ci / test")));
@@ -115,6 +117,7 @@ class TestPullRequestRefreshControllers
                 .andExpect(jsonPath("$[0].latestActivity.excerpt").value("Looks good, one nit."))
                 .andExpect(jsonPath("$[0].latestActivity.path").value("src/Main.java"))
                 .andExpect(jsonPath("$[0].latestActivity.line").value(14))
+                .andExpect(jsonPath("$[0].attentionActivityAt").value(notNullValue()))
                 .andExpect(jsonPath("$[0].commitsSinceReview[0].sha").value("4f1a2c9"))
                 .andExpect(jsonPath("$[0].commitsSinceReview[0].message").value("Map CommitFailedException"))
                 .andExpect(jsonPath("$[0].failingChecks").isEmpty())
@@ -123,6 +126,7 @@ class TestPullRequestRefreshControllers
                 .andExpect(jsonPath("$[1].id").value(13))
                 .andExpect(jsonPath("$[1].authorAvatarUrl").value(nullValue()))
                 .andExpect(jsonPath("$[1].latestActivity").value(nullValue()))
+                .andExpect(jsonPath("$[1].attentionActivityAt").value(nullValue()))
                 .andExpect(jsonPath("$[1].commitsSinceReview").isEmpty())
                 .andExpect(jsonPath("$[1].failingChecks[0]").value("ci / test"))
                 .andExpect(jsonPath("$[1].mentioned").value(true));
@@ -130,6 +134,7 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).listAttentionCandidates();
         verify(pullRequests).findCachedAuthorAvatarUrls(ImmutableSet.of(12L, 13L));
         verify(pullRequests).findCachedLatestActivities(candidates);
+        verify(pullRequests).findCachedAttentionActivities(candidates);
         verify(pullRequests).findCachedCommitsSinceReview(candidates);
         verify(pullRequests).findCachedFailingChecks(candidates);
         verify(pullRequests).findMentioned(candidates);

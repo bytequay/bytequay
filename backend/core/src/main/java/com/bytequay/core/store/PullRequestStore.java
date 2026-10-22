@@ -42,6 +42,12 @@ public interface PullRequestStore
 
     void observeActivity(long prId, Optional<PrActivitySummary> activity, Instant discussionActivityAt);
 
+    /** When each pull request last had activity that ends an acknowledgment in Needs attention; absent until a refresh finds some. */
+    Map<Long, Instant> findAttentionActivities(Set<Long> prIds);
+
+    /** Keeps the later of the stored and the observed attention activity. */
+    void observeAttentionActivity(long prId, Instant at);
+
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize);
 
     PullRequestPage findRepositoryPage(String repository, int page, int pageSize, String search);

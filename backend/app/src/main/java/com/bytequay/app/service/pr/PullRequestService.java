@@ -102,6 +102,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -124,6 +125,11 @@ public class PullRequestService
     private static final int SEARCH_PAGE_SIZE = 100;
     private static final Duration NOTIFICATION_SETTLE = Duration.ofMinutes(2);
     private static final Set<String> REACTION_CONTENTS = ImmutableSet.of("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
+    // Timeline events that stay in the pull request's history without bringing an acknowledged card back to Needs attention.
+    private static final Set<String> QUIET_EVENTS = ImmutableSet.of(
+            "committed", "head_ref_force_pushed", "labeled", "unlabeled", "review_dismissed", "convert_to_draft", "base_ref_changed", "base_ref_force_pushed",
+            "automatic_base_change_succeeded", "automatic_base_change_failed", "auto_rebase_enabled", "head_ref_deleted", "head_ref_restored",
+            "mentioned", "subscribed", "unsubscribed", "cross-referenced", "referenced");
 
     private final Map<PullRequestRef, SummaryStamp> summaryStamps = new ConcurrentHashMap<>();
     private String summaryCredential;
@@ -278,6 +284,11 @@ public class PullRequestService
     public Map<Long, String> findCachedAuthorAvatarUrls(Set<Long> prIds)
     {
         return details.findAuthorAvatarUrls(prIds);
+    }
+
+    public Map<Long, Instant> findCachedAttentionActivities(List<PullRequest> pullRequests)
+    {
+        return store.findAttentionActivities(pullRequests.stream().map(PullRequest::id).collect(toImmutableSet()));
     }
 
     public Map<Long, PrActivitySummary> findCachedLatestActivities(List<PullRequest> pullRequests)
@@ -999,6 +1010,12 @@ public class PullRequestService
             }
         }
         storeDetail(pat, current, detail, login);
+        StoredPrDetail stored = detail;
+        // An edited description leaves no timeline event; the update that carried it dates the edit.
+        Optional<Instant> describedAt = previous.filter(old -> !Objects.equals(old.raw().body(), stored.raw().body())).map(ignored -> stored.raw().updatedAt());
+        Stream.of(stored.timelineComplete() ? attentionActivityAt(stored.timeline(), login) : Optional.<Instant>empty(), describedAt)
+                .flatMap(Optional::stream).filter(Objects::nonNull).max(Comparator.naturalOrder())
+                .ifPresent(at -> store.observeAttentionActivity(current.id(), at));
         if ((!policy.checksOnly() || missing) && (policy.force() || !snapshots.defaultDiffMatches(current.id(), detail.raw()))) {
             syncDiffQuietly(pat, current);
         }
@@ -1633,6 +1650,25 @@ public class PullRequestService
                         .max(Comparator.naturalOrder()),
                 detail.reviewsComplete() ? reviewDecision(detail.reviews()) : Optional.ofNullable(pullRequest.reviewDecision()),
                 activityFingerprints(detail));
+    }
+
+    /**
+     * The latest timeline activity that ends an acknowledgment: anything but the quiet events, bot comments and reviews, and review
+     * requests that do not name the viewer.
+     */
+    static Optional<Instant> attentionActivityAt(List<PrTimelineEvent> timeline, String viewer)
+    {
+        return timeline.stream().filter(event -> event.localEventKey().isEmpty()).flatMap(event -> switch (event.event()) {
+            case "review_thread" -> event.payload().comments().stream().filter(comment -> !bot(comment.actor(), comment.actorBot())).map(PrTimelineComment::timestamp);
+            case "commented", "reviewed" -> bot(event.actor(), event.payload().actorBot()) ? Stream.empty() : Stream.of(event.timestamp());
+            case "review_requested", "review_request_removed" -> viewer.equalsIgnoreCase(event.payload().requestedReviewer()) ? Stream.of(event.timestamp()) : Stream.empty();
+            default -> QUIET_EVENTS.contains(event.event()) ? Stream.empty() : Stream.of(event.timestamp());
+        }).filter(Objects::nonNull).max(Comparator.naturalOrder());
+    }
+
+    private static boolean bot(String actor, boolean actorBot)
+    {
+        return actorBot || actor != null && actor.endsWith("[bot]");
     }
 
     static Map<String, String> activityFingerprints(StoredPrDetail detail)

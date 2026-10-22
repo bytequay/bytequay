@@ -1161,6 +1161,36 @@ class TestPullRequestService
     }
 
     @Test
+    void attentionActivitySkipsQuietEventsBotsAndOtherReviewers()
+    {
+        PrTimelinePayload bot = PrTimelinePayload.builder().actorBot(true).build();
+        Instant human = REVIEWED_AT.plusSeconds(10);
+        List<PrTimelineEvent> quiet = ImmutableList.of(
+                new PrTimelineEvent(1L, "commented", "alice", human, "hi", Optional.empty()),
+                new PrTimelineEvent(2L, "head_ref_force_pushed", "alice", human.plusSeconds(1), null, Optional.empty()),
+                new PrTimelineEvent(3L, "labeled", "github-actions[bot]", human.plusSeconds(2), null, Optional.empty()),
+                new PrTimelineEvent(4L, "commented", "coderabbitai[bot]", human.plusSeconds(3), "Walkthrough", bot, Optional.empty()),
+                new PrTimelineEvent(5L, "reviewed", "coderabbit", human.plusSeconds(4), null, bot, Optional.empty()),
+                new PrTimelineEvent(6L, "review_requested", "alice", human.plusSeconds(5), null, PrTimelinePayload.builder().requestedReviewer("bob").build(), Optional.empty()),
+                new PrTimelineEvent(7L, "convert_to_draft", "alice", human.plusSeconds(6), null, Optional.empty()),
+                new PrTimelineEvent(8L, "review_thread", "coderabbitai[bot]", human.plusSeconds(7), null, PrTimelinePayload.builder().comments(ImmutableList.of(
+                        new PrTimelineComment(9L, "coderabbitai[bot]", null, true, human.plusSeconds(7), "nit", null, null, null, ImmutableList.of()))).build(), Optional.empty()),
+                new PrTimelineEvent(null, "commented", "me", human.plusSeconds(8), "posting", Optional.of("local")));
+
+        assertThat(PullRequestService.attentionActivityAt(quiet, "Me")).contains(human);
+        PrTimelinePayload requestedFromMe = PrTimelinePayload.builder().requestedReviewer("me").build();
+        assertThat(PullRequestService.attentionActivityAt(ImmutableList.<PrTimelineEvent>builder().addAll(quiet)
+                .add(new PrTimelineEvent(10L, "review_requested", "alice", human.plusSeconds(9), null, requestedFromMe, Optional.empty()))
+                .build(), "Me")).contains(human.plusSeconds(9));
+        PrTimelineComment reply = new PrTimelineComment(12L, "bob", null, false, human.plusSeconds(20), "why?", null, null, null, ImmutableList.of());
+        assertThat(PullRequestService.attentionActivityAt(ImmutableList.of(new PrTimelineEvent(11L, "review_thread", "bob", human, null,
+                PrTimelinePayload.builder().comments(ImmutableList.of(reply)).build(), Optional.empty())), "me")).contains(human.plusSeconds(20));
+        assertThat(PullRequestService.attentionActivityAt(ImmutableList.of(new PrTimelineEvent(13L, "added_to_merge_queue", "alice", human, null, Optional.empty())), "me"))
+                .contains(human);
+        assertThat(PullRequestService.attentionActivityAt(ImmutableList.of(quiet.get(1)), "me")).isEmpty();
+    }
+
+    @Test
     void reviewDecisionUsesActualLatestVerdictsAndDismissals()
     {
         assertThat(PullRequestService.reviewDecision(ImmutableList.of(

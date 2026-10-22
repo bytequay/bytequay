@@ -75,7 +75,7 @@ describe('AttentionList', () => {
     expect(list([ended], readOpen, 'workspace')).toContain('Change 12');
     const readEnded = { [ended.key]: handledEntry(ended, 'ack', null, 'Viewed') };
     expect(list([ended], readEnded, 'workspace')).not.toContain('Change 12');
-    const commented = { ...ended, pr: { ...ended.pr, commentCount: 2 } };
+    const commented = { ...ended, pr: { ...ended.pr, commentCount: 2, attentionActivityAt: '2026-08-28T01:00:00Z' } };
     expect(list([commented], readEnded, 'workspace')).toContain('Change 12');
   });
 

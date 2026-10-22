@@ -466,7 +466,7 @@ export type HandledEntry = {
   kind: 'ack' | 'snooze';
   /** Epoch millis the row comes back; null means "until new activity". */
   until: number | null;
-  /** The item's updatedAt when it was handled. */
+  /** The item's updatedAt when it was handled, or a pull request's later attention activity. */
   seenUpdatedAt: string;
   /** Includes the CI result and mergeability, which need not advance GitHub's updatedAt. */
   seenActivityVersion?: string;
@@ -573,6 +573,7 @@ export function attentionActivityVersion(item: AttentionItem): string {
     [...item.labels].sort(), item.jira.priority?.id, item.jira.dueDate]);
   const pr = item.pr;
   // Not pr.activityAt: it moves whenever a single CI job starts or finishes. What people do on GitHub moves updatedAt instead.
+  // pullRequestNews reads these fields by position.
   return JSON.stringify(pr === null ? [item.updatedAt, item.title, item.body, item.commentCount, [...item.labels].sort(), item.issueState ?? 'open'] : [
     pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,
     pr.reviewDecision, pr.reviewRequestedAt, pr.headPushedAt, pr.commentCount, [...pr.labels].sort(),
@@ -580,27 +581,67 @@ export function attentionActivityVersion(item: AttentionItem): string {
 }
 
 export function handledEntry(item: AttentionItem, kind: HandledEntry['kind'], until: number | null, label: string): HandledEntry {
-  return { kind, until, label, seenUpdatedAt: item.updatedAt, seenActivityVersion: attentionActivityVersion(item),
+  return { kind, until, label, seenUpdatedAt: seenThrough(item), seenActivityVersion: attentionActivityVersion(item),
     ...(kind === 'snooze' && until !== null ? { snoozedItem: item } : {}) };
+}
+
+/** Merge-queue and milestone events can postdate GitHub's updatedAt; handling the card covers them too. */
+function seenThrough(item: AttentionItem): string {
+  const activity = item.task || item.jira ? null : item.pr?.attentionActivityAt;
+  return activity != null && Date.parse(activity) > Date.parse(item.updatedAt) ? activity : item.updatedAt;
 }
 
 /** Timed snoozes stay quiet through activity; acknowledgment and activity snoozes wake on a change. */
 export function stillHandled(entry: HandledEntry, item: AttentionItem, now: number): boolean {
   if (entry.kind === 'snooze' && entry.until !== null) return now < entry.until;
-  if (entry.seenActivityVersion !== undefined) return withoutLegacyActivityAt(entry.seenActivityVersion) === attentionActivityVersion(item);
-  return Date.parse(item.updatedAt) <= Date.parse(entry.seenUpdatedAt);
+  if (entry.seenActivityVersion === undefined) return Date.parse(item.updatedAt) <= Date.parse(entry.seenUpdatedAt);
+  const seen = withoutLegacyActivityAt(entry.seenActivityVersion);
+  const current = attentionActivityVersion(item);
+  const pr = item.task || item.jira ? null : item.pr;
+  return pr === null ? seen === current : !pullRequestNews(pr, seen, current, entry.seenUpdatedAt);
+}
+
+// Where a pull request's activity version keeps the fields that bring it back on their own.
+const TITLE = 1;
+const STATE = 2;
+const DRAFT = 3;
+const CI_STATUS = 4;
+const MERGEABLE = 5;
+const MERGEABLE_STATE = 6;
+const REVIEW_REQUESTED_AT = 8;
+
+/**
+ * News is activity the backend counts after the card was handled, a new title or state, leaving draft, a new review request for the
+ * viewer, a CI result on the viewer's own pull request, or becoming ready to merge. Pushes, labels, bot comments, re-runs going pending
+ * and a ready pull request turning blocked stay quiet.
+ */
+function pullRequestNews(pr: PullRequestDto, seenVersion: string, currentVersion: string, seenThrough: string): boolean {
+  const seen = versionFields(seenVersion);
+  const current = versionFields(currentVersion);
+  if (seen === null || current === null || seen.length !== current.length) return true;
+  const changed = (index: number) => JSON.stringify(seen[index]) !== JSON.stringify(current[index]);
+  const activity = pr.attentionActivityAt != null && Date.parse(pr.attentionActivityAt) > Date.parse(seenThrough);
+  const ready = seen[DRAFT] === true && pr.draft === false;
+  const ciResult = pullRequestIsMine(pr) && (pr.ciStatus === 'PASSING' || pr.ciStatus === 'FAILING') && pr.ciStatus !== seen[CI_STATUS];
+  const readyToMerge = pr.mergeable === true && pr.mergeableState === 'clean' && !(seen[MERGEABLE] === true && seen[MERGEABLE_STATE] === 'clean');
+  return activity || changed(TITLE) || changed(STATE) || ready || changed(REVIEW_REQUESTED_AT) || ciResult || readyToMerge;
+}
+
+function versionFields(version: string): unknown[] | null {
+  try {
+    const parsed: unknown = JSON.parse(version);
+    return Array.isArray(parsed) ? parsed : null;
+  }
+  catch {
+    return null;
+  }
 }
 
 // ponytail: v0.5.1 pull-request versions led with activityAt, the only 13-field version. Dropping it keeps those marks; delete this once
 // they have aged out.
 function withoutLegacyActivityAt(version: string): string {
-  try {
-    const parsed: unknown = JSON.parse(version);
-    return Array.isArray(parsed) && parsed.length === 13 ? JSON.stringify(parsed.slice(1)) : version;
-  }
-  catch {
-    return version;
-  }
+  const fields = versionFields(version);
+  return fields?.length === 13 ? JSON.stringify(fields.slice(1)) : version;
 }
 
 export function visibleAttention(

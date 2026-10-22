@@ -147,7 +147,10 @@ under the list's item keys, so every build shares one set. Each row keeps the
 list's own fingerprint of the item and, for a timed snooze, the list's copy of
 it; the backend stores both without reading them. A mark the assistant adds has
 neither until a list first draws the item and fills them in. A build's first
-start brings along the marks it kept in its own browser storage.
+start brings along the marks it kept in its own browser storage. Each detail
+refresh dates a pull request's latest activity that ends an acknowledgment from
+its cached timeline and description, leaving out pushes, labels, bot comments
+and other reviewers' requests, so those stay in the timeline only.
 
 Agent work-item access is a task-scoped capability: reads stay within the task's
 workspace and creation always saves locally. The desktop publication action binds a

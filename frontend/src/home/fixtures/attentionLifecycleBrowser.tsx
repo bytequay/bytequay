@@ -308,7 +308,7 @@ async function pinning(): Promise<void> {
 async function canonicalSnapshot(): Promise<void> {
   const original = item(46);
   assert(original.pr !== null, 'Fixture must be a pull request');
-  const updated = pullRequestItem({ ...original.pr, activityAt: '2026-09-02T00:00:00Z', commentCount: 3 }, 'review');
+  const updated = pullRequestItem({ ...original.pr, activityAt: '2026-09-02T00:00:00Z', attentionActivityAt: '2026-09-02T00:00:00Z', commentCount: 3 }, 'review');
   const f = mount([original]);
   let publish = noOp;
   let reads = 0;
@@ -335,7 +335,7 @@ async function canonicalSnapshot(): Promise<void> {
     await f.items([updated]);
     assert(f.cards().length === 0, 'The user’s own published comments must stay handled when the list catches up');
     assert(updated.pr !== null, 'Updated fixture must be a pull request');
-    await f.items([pullRequestItem({ ...updated.pr, activityAt: '2026-09-03T00:00:00Z', commentCount: 4 }, 'review')]);
+    await f.items([pullRequestItem({ ...updated.pr, activityAt: '2026-09-03T00:00:00Z', attentionActivityAt: '2026-09-03T00:00:00Z', commentCount: 4 }, 'review')]);
     assert(f.cards().length === 1, 'Later remote activity must return after the canonical post-write snapshot was handled');
   }
   finally { publish(); await f.dispose(); }

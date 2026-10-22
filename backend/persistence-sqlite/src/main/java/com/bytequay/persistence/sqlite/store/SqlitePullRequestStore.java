@@ -122,6 +122,24 @@ public class SqlitePullRequestStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Map<Long, Instant> findAttentionActivities(Set<Long> prIds)
+    {
+        return jpaRepository.findAllById(prIds).stream().filter(row -> row.getAttentionActivityAt() != null)
+                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getAttentionActivityAt));
+    }
+
+    @Override
+    @Transactional
+    public void observeAttentionActivity(long prId, Instant at)
+    {
+        requireNonNull(at, "at is null");
+        jpaRepository.findById(prId)
+                .filter(row -> row.getAttentionActivityAt() == null || at.isAfter(row.getAttentionActivityAt()))
+                .ifPresent(row -> row.setAttentionActivityAt(at));
+    }
+
+    @Override
     public PullRequestPage findPage(int page, int pageSize)
     {
         Page<PullRequestEntity> rows = jpaRepository.findDashboardPage(pageRequest(page, pageSize));

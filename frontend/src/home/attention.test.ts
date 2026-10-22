@@ -347,13 +347,45 @@ describe('handled rows', () => {
     expect(stillHandled(timed, changed, now + 1000)).toBe(false);
   });
 
-  it('keeps acknowledgments through CI job progress until GitHub records activity', () => {
+  it('keeps acknowledgments through CI job progress and quiet updates until counted activity', () => {
     const original = attentionCandidates([pr({ ciStatus: 'PENDING', activityAt: '2026-08-15T01:00:00Z' })])[0];
     const jobMoved = attentionCandidates([pr({ ciStatus: 'PENDING', activityAt: '2026-08-15T02:00:00Z' })])[0];
-    const updated = attentionCandidates([pr({ ciStatus: 'PENDING', updatedAt: '2026-08-15T03:00:00Z' })])[0];
+    const pushed = attentionCandidates([pr({ ciStatus: 'PENDING', updatedAt: '2026-08-15T03:00:00Z', headPushedAt: '2026-08-15T03:00:00Z',
+      commentCount: 2, labels: ['bug'], reviewDecision: 'APPROVED' })])[0];
+    const commented = attentionCandidates([pr({ ciStatus: 'PENDING', updatedAt: '2026-08-15T03:00:00Z', attentionActivityAt: '2026-08-15T03:00:00Z' })])[0];
     const entry = handledEntry(original, 'ack', null, '');
     expect(stillHandled(entry, jobMoved, now)).toBe(true);
-    expect(stillHandled(entry, updated, now)).toBe(false);
+    expect(stillHandled(entry, pushed, now)).toBe(true);
+    expect(stillHandled(entry, commented, now)).toBe(false);
+  });
+
+  it('covers counted activity that postdates the update time it was handled with', () => {
+    const queued = pullRequestItem(pr({ attentionActivityAt: '2026-08-15T05:00:00Z' }), 'updated');
+    const entry = handledEntry(queued, 'ack', null, '');
+    expect(entry.seenUpdatedAt).toBe('2026-08-15T05:00:00Z');
+    expect(stillHandled(entry, queued, now)).toBe(true);
+    expect(stillHandled(entry, pullRequestItem(pr({ attentionActivityAt: '2026-08-15T06:00:00Z' }), 'updated'), now)).toBe(false);
+  });
+
+  it('wakes on a CI result only for my pull request and on any pull request becoming ready to merge', () => {
+    const wakes = (from: Partial<PullRequestDto>, to: Partial<PullRequestDto>) =>
+      !stillHandled(handledEntry(pullRequestItem(pr(from), 'updated'), 'ack', null, ''), pullRequestItem(pr({ ...from, ...to }), 'updated'), now);
+    const mine = { origin: 'AUTHORED', ciStatus: 'PENDING', mergeableState: 'blocked' } as const;
+    const theirs = { ...mine, origin: 'REVIEW_REQUESTED', author: 'alice' } as const;
+
+    expect(wakes(mine, { ciStatus: 'PASSING' })).toBe(true);
+    expect(wakes(mine, { ciStatus: 'FAILING' })).toBe(true);
+    expect(wakes({ ...mine, ciStatus: 'PASSING' }, { ciStatus: 'PENDING' })).toBe(false);
+    expect(wakes(theirs, { ciStatus: 'PASSING' })).toBe(false);
+    expect(wakes(theirs, { ciStatus: 'FAILING' })).toBe(false);
+    expect(wakes({ ...theirs, ciStatus: 'PASSING', mergeableState: 'clean' }, { ciStatus: 'PENDING', mergeableState: 'blocked' })).toBe(false);
+    expect(wakes(theirs, { ciStatus: 'PASSING', mergeableState: 'clean' })).toBe(true);
+    expect(wakes(theirs, { attentionActivityAt: '2026-08-15T01:00:00Z' })).toBe(true);
+    expect(wakes(theirs, { title: 'Renamed' })).toBe(true);
+    expect(wakes(theirs, { state: 'closed' })).toBe(true);
+    expect(wakes(theirs, { reviewRequestedAt: '2026-08-15T01:00:00Z' })).toBe(true);
+    expect(wakes({ ...theirs, draft: true }, { draft: false })).toBe(true);
+    expect(wakes(theirs, { draft: true })).toBe(false);
   });
 
   it('keeps acknowledgments saved with the activity time', () => {

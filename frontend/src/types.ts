@@ -77,6 +77,8 @@ export type PullRequestDto = {
   activityAt?: string | null;
   reviewRequestedAt?: string | null;
   reviewDecision?: 'APPROVED' | 'CHANGES_REQUESTED' | null;
+  /** Latest activity that ends an acknowledgment in Needs attention; pushes, labels and bot comments are not part of it. */
+  attentionActivityAt?: string | null;
   /** Latest known GitHub action; local change-detection timestamps are separate. */
   latestActivity?: {
     event: string;

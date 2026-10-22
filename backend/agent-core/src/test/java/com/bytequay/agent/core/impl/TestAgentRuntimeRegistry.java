@@ -28,15 +28,18 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.catchThrowable;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -159,6 +162,20 @@ class TestAgentRuntimeRegistry
         assertThatThrownBy(registry::close).hasMessage("provider is wedged");
 
         assertThat(closed).containsExactly("task-2");
+    }
+
+    @Test
+    void shutdownReportsEverySessionThatRefusesToClose()
+    {
+        AgentRuntimeRegistry registry = new AgentRuntimeRegistry(mock(AgentTaskStore.class), ignored -> {}, ignored -> false, true);
+        registry.registerSession(FIRST, refusing("first provider is wedged"));
+        registry.registerSession(SECOND, refusing("second provider is wedged"));
+
+        Throwable failure = catchThrowable(registry::close);
+
+        assertThat(failure).isNotNull();
+        assertThat(Stream.concat(Stream.of(failure), Arrays.stream(failure.getSuppressed())).map(Throwable::getMessage))
+                .containsExactlyInAnyOrder("first provider is wedged", "second provider is wedged");
     }
 
     @Test
@@ -292,6 +309,18 @@ class TestAgentRuntimeRegistry
     private static AgentSession session(String taskId, List<String> closed)
     {
         return new StubSession(taskId, closed);
+    }
+
+    private static AgentSession refusing(String message)
+    {
+        return new StubSession("refusing", new CopyOnWriteArrayList<>())
+        {
+            @Override
+            public void close()
+            {
+                throw new IllegalStateException(message);
+            }
+        };
     }
 
     private static class StubSession

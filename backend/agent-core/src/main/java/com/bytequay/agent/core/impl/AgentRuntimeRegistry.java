@@ -483,6 +483,9 @@ public final class AgentRuntimeRegistry
                 if (firstFailure == null) {
                     firstFailure = failure;
                 }
+                else {
+                    firstFailure.addSuppressed(failure);
+                }
             }
         }
         if (firstFailure != null) {

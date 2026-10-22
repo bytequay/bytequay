@@ -55,7 +55,7 @@ def plan(data, known, now, copies=False):
     """What would go, and what nothing uses but stays because it changed in the last day. Each is the first file or folder
     on its path whose owner is freeable by the monitor's rules, and with `copies` the old database copies too; `known` is
     what monitor.holders read."""
-    going, recent, waiting = [], [], [(data, ())]
+    going, recent, waiting = [], [], monitor.tops(data)
     while waiting:
         folder, names = waiting.pop()
         try:
@@ -171,7 +171,7 @@ def apply(folder, data=monitor.APP_DATA, database=monitor.DATABASE, clock=time.t
                 kept = {item.path: f"it could not be deleted: {failed.strerror or type(failed).__name__}"}
             made["done"] += 1
             made["removed"][item.owner] += not kept
-            made["kept"] += [{"what": tree.relative_to(data).as_posix(), "owner": item.owner, "why": why} for tree, why in kept.items()]
+            made["kept"] += [{"what": "/".join(monitor.names(tree, data)), "owner": item.owner, "why": why} for tree, why in kept.items()]
             saved.write(own, STATE, made)
         made["freeAfter"], made["state"] = shutil.disk_usage(data).free, "counting"
         saved.write(own, STATE, made)
@@ -206,7 +206,7 @@ def start(folder, copies=False):
 
 def tally(data, items):
     """How many places of each owner would go from each top-level folder of the app's data."""
-    return Counter((item.owner, item.path.relative_to(data).parts[0]) for item in items)
+    return Counter((item.owner, monitor.names(item.path, data)[0]) for item in items)
 
 
 def listing(data, going, recent, spare=()):

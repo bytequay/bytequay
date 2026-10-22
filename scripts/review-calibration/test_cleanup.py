@@ -84,6 +84,16 @@ class TestPlan(Data):
         self.assertEqual({(item.owner, item.path.relative_to(self.data).as_posix()) for item in with_copies} - self.planned(self.known)[0],
                          {(monitor.COPIES, "database-backup-1")})
 
+    def test_the_workspaces_outside_the_app_data_are_planned_by_the_same_rules(self):
+        expected, _ = self.planned(self.known)
+        moved = self.data.parent / "home/.bytequay/workspaces"
+        moved.parent.mkdir(parents=True)
+        (self.data / "workspaces").rename(moved)
+        with mock.patch.object(monitor, "APP_DATA", self.data), mock.patch.object(monitor, "WORKSPACES", moved):
+            going, _ = cleanup.plan(self.data, self.known, time.time())
+            self.assertEqual({(item.owner, "/".join(monitor.names(item.path, self.data))) for item in going}, expected)
+            self.assertEqual(cleanup.tally(self.data, going)[(monitor.REMOVED, "workspaces")], 2)
+
     def test_a_count_says_how_many_go_from_each_place(self):
         going, _ = cleanup.plan(self.data, self.known, time.time())
         self.assertEqual(cleanup.tally(self.data, going), {(monitor.RETIRED, "agent-runtime"): 2, (monitor.RETIRED, "new-flow-worktrees"): 1,

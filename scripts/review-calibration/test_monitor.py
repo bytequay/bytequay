@@ -322,6 +322,17 @@ class TestSpace(Folder):
         if subprocess.run(["cp", "-c", str(source), str(target)], capture_output=True).returncode:
             self.skipTest("this file system makes no copy-on-write copies")
 
+    def test_the_workspaces_outside_the_app_data_count_as_its_workspaces_folder(self):
+        data, workspaces = self.folder / "data", self.folder / "home/.bytequay/workspaces"
+        self.write(data / "Cache" / "entry", 100)
+        self.write(workspaces / "w" / "worktrees" / "open-tree" / "file", 100)
+        with mock.patch.object(monitor, "APP_DATA", data), mock.patch.object(monitor, "WORKSPACES", workspaces):
+            rows = {(owner, place): files for owner, place, _, files in monitor.space(data, self.KNOWN)}
+            self.assertEqual(monitor.names(workspaces / "w" / "repository", data), ("workspaces", "w", "repository"))
+        self.assertEqual(rows, {(monitor.APP, "Cache"): 1, (monitor.OPEN, "workspaces"): 1})
+        # Another data folder, as a test makes, keeps its workspaces inside.
+        self.assertEqual(monitor.tops(data), [(data, ())])
+
     def test_disk_is_counted_by_owner_with_each_copied_block_once(self):
         data = self.folder / "data"
         self.write(data / "agent-runtime" / OPEN_TASK / "events.jsonl", 1000)

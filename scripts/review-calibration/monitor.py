@@ -30,6 +30,8 @@ import saved
 
 APP_DATA = Path.home() / "Library/Application Support/ByteQuay"
 DATABASE = APP_DATA / "bytequay-1.0.db"
+# The workspaces left the app's data, as a space in a checkout's path breaks tests; they count as its `workspaces` folder.
+WORKSPACES = Path.home() / ".bytequay/workspaces"
 STORE = "monitor.db"
 AGENT = "com.bytequay.lab.monitor"
 EVERY = 5  # seconds between two samples
@@ -305,6 +307,17 @@ def owner(names, known):
     return COPIES if place.startswith(COPIES_NAMED) else APP
 
 
+def tops(data):
+    """Where a walk of the app's data starts, with the names a path there begins with. The workspaces outside it belong to
+    the app's own data folder only; another one, as a test makes, keeps them inside."""
+    return [(data, ()), *([(WORKSPACES, ("workspaces",))] if data == APP_DATA else [])]
+
+
+def names(path, data):
+    """A path's names as `owner` reads them, from the start of the walk that finds it."""
+    return next((*start, *path.relative_to(top).parts) for top, start in tops(data) if path.is_relative_to(top))
+
+
 def stretches(path, size):
     """Where each stretch of a file lies on the disk, as (start, length) with neighbours joined, read from the file system
     without reading the file. Fails with OSError when the file system cannot tell."""
@@ -358,7 +371,7 @@ def space(data, known):
     BIG or more is mapped onto the disk, so a block that copy-on-write copies share is counted once."""
     held, files, seen = Counter(), Counter(), set()
     labels, starts, lengths, marks = {}, array("q"), array("q"), array("H")
-    waiting = [(data, (), None)]
+    waiting = [(top, start, None) for top, start in tops(data)]
     while waiting:
         folder, names, label = waiting.pop()
         try:

@@ -589,7 +589,14 @@ public class AgentReviewService
             observer.unwatch(reviewId);
             sweeps.cancel(reviewId);
             if (task.state() == TaskState.OPEN) {
-                completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of(reason)));
+                try {
+                    completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of(reason)));
+                }
+                catch (RuntimeException failure) {
+                    // The review stays open, so something must keep observing it.
+                    observer.watch(review);
+                    throw failure;
+                }
             }
             latestRun(reviewId).filter(ReviewRun::active)
                     .ifPresent(run -> store.updateRun(run.ended(ReviewRun.State.STOPPED, Optional.of("Review ended"), Instant.now(clock))));

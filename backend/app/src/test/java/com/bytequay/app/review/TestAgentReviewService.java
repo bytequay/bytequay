@@ -2571,6 +2571,20 @@ class TestAgentReviewService
     }
 
     @Test
+    void endKeepsObservingTheReviewWhenItsTaskCannotComplete()
+    {
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        doThrow(new IllegalStateException("database is locked")).when(fixture.completions).complete(any());
+
+        assertThatThrownBy(() -> fixture.service.end(reviewId)).hasMessage("database is locked");
+
+        InOrder order = inOrder(fixture.observer);
+        order.verify(fixture.observer).unwatch(reviewId);
+        order.verify(fixture.observer).watch(argThat(review -> review.id().equals(reviewId)));
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+    }
+
+    @Test
     void endDropsAWaitingQuestionBeforeItStopsObservingTheReview()
     {
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();

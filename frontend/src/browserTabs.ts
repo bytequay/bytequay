@@ -21,10 +21,23 @@ import { labPage, resolveLabPage } from '@bytequay/lab/main';
 type Tab = { state: InAppBrowserTab; view: WebContentsView | null; loadVersion: number; committedUrl: string };
 type PinnedTab = Pick<InAppBrowserTab, 'id' | 'url' | 'title' | 'name' | 'favicon'>;
 
+const LOCAL_NETWORK_PERMISSIONS = new Set(['local-network-access', 'local-network', 'loopback-network']);
+
+// Okta FastPass signs in through Okta Verify's localhost listener, which Chromium gates behind local network access.
+// ponytail: okta.com hosts only; Okta custom sign-in domains still fall back to "Verify with something else".
+function oktaLocalNetwork(permission: string, url: unknown): boolean {
+  if (!LOCAL_NETWORK_PERMISSIONS.has(permission) || typeof url !== 'string') return false;
+  try {
+    const { protocol, hostname } = new URL(url);
+    return protocol === 'https:' && hostname.endsWith('.okta.com');
+  }
+  catch { return false; }
+}
+
 /** Electron grants browser permissions by default; remote pages have no access to desktop capabilities. */
 export function denyBrowserPermissions(session: Session): void {
-  session.setPermissionCheckHandler(() => false);
-  session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  session.setPermissionCheckHandler((_contents, permission, origin) => oktaLocalNetwork(permission, origin));
+  session.setPermissionRequestHandler((_contents, permission, callback, details) => callback(oktaLocalNetwork(permission, details.requestingUrl)));
 }
 
 function faviconUrl(value: unknown): string | null {

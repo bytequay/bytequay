@@ -102,6 +102,26 @@ it('denies sensitive permissions before loading an untrusted browser page', () =
   expect(contents.session.setPermissionRequestHandler.mock.invocationCallOrder[0]).toBeLessThan(contents.loadURL.mock.invocationCallOrder[0]);
 });
 
+it('allows local network access only for Okta sign-in pages', () => {
+  open('https://example.com/');
+  const contents = view(0).webContents;
+  const check = contents.session.setPermissionCheckHandler.mock.calls[0][0];
+  const request = contents.session.setPermissionRequestHandler.mock.calls[0][0];
+  const granted = (permission: string, url: string): boolean => {
+    const result = vi.fn();
+    request(contents, permission, result, { requestingUrl: url });
+    expect(check(contents, permission, new URL(url).origin, {})).toBe(result.mock.calls[0][0]);
+    return result.mock.calls[0][0];
+  };
+  for (const permission of ['local-network-access', 'local-network', 'loopback-network']) {
+    expect(granted(permission, 'https://example.okta.com/app/github/sso/saml')).toBe(true);
+    for (const url of ['https://example.com/', 'http://example.okta.com/', 'https://evilokta.com/', 'https://okta.com.example.com/']) {
+      expect(granted(permission, url)).toBe(false);
+    }
+  }
+  expect(granted('clipboard-read', 'https://example.okta.com/')).toBe(false);
+});
+
 it('preserves each live page/history across switch, hide and renderer reload; ignores stale layout', () => {
   const first = open('https://example.com/one');
   tabs.mount(first, bounds);

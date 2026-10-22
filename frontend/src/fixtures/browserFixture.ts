@@ -18,7 +18,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import electron from 'electron';
-import { build } from 'vite';
+import { build } from 'esbuild';
 import { electronFixtureLifecycle } from './electronFixtureLifecycle';
 
 export type ScenarioResult = { name: string; error?: string };
@@ -33,7 +33,7 @@ export type BrowserFixture = {
   entry: string;
   /** Global the iife bundle exposes its scenarios on. */
   global: string;
-  /** Link the stylesheet the lib build emits beside the bundle; layout assertions need it. */
+  /** Link the stylesheet the build emits beside the bundle; layout assertions need it. */
   styles?: boolean;
   /** Use UTF-8 for bundled dependencies unless a fixture explicitly tests another encoding. */
   charset?: boolean;
@@ -59,14 +59,12 @@ export async function buildBrowserFixture(fixture: BrowserFixture) {
   const bundle = await mkdtemp(join(tmpdir(), fixture.prefix));
   const dispose = () => rm(bundle, { recursive: true, force: true });
   try {
+    // esbuild bundles a fixture about ten times faster than Vite's Rollup build, which dominated each browser test.
+    // Fixtures run on the pinned Electron, so skip legacy-browser transpilation.
     await build({
-      configFile: false, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' },
-      esbuild: { jsx: 'automatic', jsxDev: false },
-      // Fixtures run on the pinned Electron, so skip legacy-browser transpilation.
-      // Minified dependency names can collide with generated class-field helpers in these single-file bundles.
-      build: { target: 'esnext', minify: false, outDir: bundle, emptyOutDir: false, lib: {
-        entry: resolve(fixture.entry), name: fixture.global, formats: ['iife'], fileName: () => 'renderer.js',
-      } },
+      entryPoints: [resolve(fixture.entry)], bundle: true, format: 'iife', globalName: fixture.global, target: 'esnext',
+      jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' }, outfile: join(bundle, 'renderer.js'), logLevel: 'silent',
+      loader: { '.jpg': 'dataurl', '.png': 'dataurl', '.svg': 'dataurl', '.ttf': 'dataurl' },
     });
     return {
       run: <T>(options: Partial<Omit<BrowserFixture, 'prefix' | 'entry' | 'global'>> = {}) => runBuiltFixture<T>({ ...fixture, ...options }, bundle),
@@ -88,7 +86,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
   try {
     const timeout = deadline(fixture.timeoutMs ?? 20_000);
     const charset = fixture.charset !== false ? '<meta charset="UTF-8">' : '';
-    const styles = fixture.styles === true ? '<link rel="stylesheet" href="../style.css">' : '';
+    const styles = fixture.styles === true ? '<link rel="stylesheet" href="../renderer.css">' : '';
     await writeFile(join(directory, 'index.html'), `<!doctype html>${charset}${styles}<body><script src="../renderer.js"></script>`);
     if (fixture.preload !== undefined) {
       await writeFile(join(directory, 'preload.cjs'), fixture.preload);

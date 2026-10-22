@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { completedExecutionItems, taskState } from '../commits/model';
+import { cherryPickStages, cherryPickWaitsFor, type StageView } from '../commits/model';
 import type { AttentionLink, AttentionTone } from '../home/attention';
 import { reviewStatus } from '../pulls/agent-review/model';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -44,8 +44,8 @@ export type TaskListItem = {
   message: TaskListMessage | null;
   links: AttentionLink[];
   change: string | null;
-  /** How far a cherry-pick has come through its commits. */
-  progress: { done: number; total: number } | null;
+  /** How far a cherry-pick has come through its stages. */
+  stages: StageView[] | null;
   /** The agent task behind a Development item: the only type that archives, deletes and selects. */
   task: AgentTaskDto | null;
   review: AgentReviewDto | null;
@@ -88,7 +88,7 @@ export function developmentItem(
     links: taskLinks(task),
     // A pull request is already among the links; otherwise the card names what the checkout holds.
     change: task.pullRequest == null && changes !== null ? changesLabel(changes) : null,
-    progress: null,
+    stages: null,
     task,
   };
 }
@@ -123,21 +123,26 @@ export function reviewItem(review: AgentReviewDto): TaskListItem {
     links: review.number === null ? []
       : [pullRequestLink(review.number, review.pullRequest?.title ?? review.repo, review.pullRequest?.state ?? null, review.pullRequest?.draft ?? false)],
     change: REVIEW_CHANGES.has(status.status) ? status.chip : null,
-    progress: null,
+    stages: null,
     review,
   };
 }
 
-function executionTitle(execution: CherryPickExecution): string {
+export function executionTitle(execution: CherryPickExecution): string {
   return execution.pullRequestDraft?.title || `Cherry-pick ${execution.items.length} commits into ${execution.localTargetBranch}`;
 }
 
 export function cherryPickItem(execution: CherryPickExecution): TaskListItem {
-  const current = taskState(execution);
-  const state: TaskCardState = current === 'running' ? { label: 'Running', tone: 'blue', spinning: true, reason: null }
-    : current === 'paused' ? { label: 'Needs you', tone: 'orange', spinning: false, reason: execution.pauseReason ? `Paused: ${words(execution.pauseReason)}` : 'Paused' }
-      // A canceled execution stopped short of its commits, so it never reads as completed.
-      : { label: current === 'done' ? 'Completed' : 'Finished', tone: 'neutral', spinning: false, reason: null };
+  const waits = cherryPickWaitsFor(execution, []);
+  const hold = execution.lifecycle.hold;
+  const state: TaskCardState = execution.status === 'FINISHED'
+    // A canceled execution stopped short of its commits, so it never reads as completed.
+    ? { label: execution.finishReason === 'CANCELLED' ? 'Finished' : 'Completed', tone: 'neutral', spinning: false, reason: null }
+    : hold?.reason === 'USER' ? { label: 'Idle', tone: 'neutral', spinning: false, reason: null }
+      : waits === 'squash' ? { label: 'Needs you', tone: 'orange', spinning: false, reason: 'Approve the squash' }
+        : waits === 'resume' ? { label: 'Needs you', tone: 'orange', spinning: false,
+          reason: hold?.summary ?? (execution.pauseReason ? `Paused: ${words(execution.pauseReason)}` : 'Paused') }
+          : { label: 'Running', tone: 'blue', spinning: true, reason: null };
   const pullRequest = execution.delivery?.pullRequestNumber ?? null;
   return {
     ...EMPTY,
@@ -149,7 +154,7 @@ export function cherryPickItem(execution: CherryPickExecution): TaskListItem {
     message: execution.summary ? { who: 'Cherry-pick', text: execution.summary, at: execution.updatedAt } : null,
     links: pullRequest === null ? [] : [pullRequestLink(pullRequest, executionTitle(execution), null, false)],
     change: null,
-    progress: { done: completedExecutionItems(execution.items), total: execution.items.length },
+    stages: cherryPickStages(execution, []),
     execution,
   };
 }
@@ -170,7 +175,7 @@ export function ciFixItem(run: CiAutofixRunDto): TaskListItem {
     message: run.summary ? { who: 'CI fix', text: run.summary, at: run.updatedAt } : null,
     links: [pullRequestLink(run.pullRequestNumber, run.headRef, null, false)],
     change: `attempt ${Math.max(1, run.attemptsUsed)} of ${run.authorization.maxAttempts}`,
-    progress: null,
+    stages: null,
     run,
   };
 }

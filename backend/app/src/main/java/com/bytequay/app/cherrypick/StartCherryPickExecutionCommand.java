@@ -29,6 +29,11 @@ import static java.util.Objects.requireNonNull;
  * <p>Group checkbox state is never sent. If any expected ID has moved the
  * preview is stale, and the user reviews a fresh one rather than a plan they
  * did not see.
+ *
+ * <p>{@code delivers} is the user's one authorization for the execution to push
+ * its work branch, open its draft pull request, let CI Autofix push repairs, and
+ * force-push rebases onto a moved target. Folding fixups and merging keep their
+ * own clicks. A backport chain starts executions that leave delivery to it.
  */
 public record StartCherryPickExecutionCommand(
         String previewId,
@@ -40,7 +45,8 @@ public record StartCherryPickExecutionCommand(
         Optional<String> model,
         Optional<String> effort,
         String idempotencyKey,
-        PullRequestDraft pullRequestDraft)
+        PullRequestDraft pullRequestDraft,
+        boolean delivers)
 {
     private static final int MAX_SKIPPED = 5000;
 

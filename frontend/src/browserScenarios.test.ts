@@ -15,13 +15,15 @@ import { testBrowserScenarios } from './fixtures/browserScenarios';
 
 testBrowserScenarios([
   {
-    name: 'shows standalone CI approvals and confirmed fork retry in Chromium',
+    name: 'answers CI approvals, approves the squash and confirms abort in a cherry-pick task in Chromium',
     expected: 3, timeout: 20_000,
     fixture: {
-      prefix: 'bytequay-commits-ci-approval-',
-      entry: 'src/commits/fixtures/ciApprovalBrowser.tsx',
-      global: 'CiApprovalTests',
+      prefix: 'bytequay-cherry-pick-task-',
+      entry: 'src/commits/fixtures/cherryPickTaskBrowser.tsx',
+      global: 'CherryPickTaskTests',
       styles: true,
+      width: 1200,
+      height: 800,
     },
   },
   {

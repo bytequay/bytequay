@@ -66,7 +66,8 @@ public class CherryPickExecutionController
                         optionalText(request.model()),
                         optionalText(request.effort()),
                         text(request.idempotencyKey(), "idempotencyKey"),
-                        new PullRequestDraft(text(request.pullRequestTitle(), "pullRequestTitle"), request.pullRequestBody())),
+                        new PullRequestDraft(text(request.pullRequestTitle(), "pullRequestTitle"), request.pullRequestBody()),
+                        true),
                 workspaceId,
                 context.repository(),
                 RepositoryIdentity.valueOf(context.selectedRepository().fullName())));
@@ -90,6 +91,24 @@ public class CherryPickExecutionController
     public CherryPickExecutionResponse sendMessage(@PathVariable String executionId, @RequestBody CherryPickMessageRequest request)
     {
         return CherryPickExecutionResponse.of(executions.sendMessage(executionId(executionId), text(request.message(), "message")));
+    }
+
+    @PostMapping("/api/cherry-pick-ranges/executions/{executionId}/pause")
+    public CherryPickExecutionResponse pause(@PathVariable String executionId)
+    {
+        return CherryPickExecutionResponse.of(executions.pause(executionId(executionId)));
+    }
+
+    @PostMapping("/api/cherry-pick-ranges/executions/{executionId}/resume")
+    public CherryPickExecutionResponse resume(@PathVariable String executionId)
+    {
+        return CherryPickExecutionResponse.of(executions.resume(executionId(executionId)));
+    }
+
+    @PostMapping("/api/cherry-pick-ranges/executions/{executionId}/squash")
+    public CherryPickExecutionResponse approveSquash(@PathVariable String executionId, @RequestBody CherryPickSquashRequest request)
+    {
+        return CherryPickExecutionResponse.of(executions.approveSquash(executionId(executionId), text(request.expectedHead(), "expectedHead")));
     }
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/cancel")

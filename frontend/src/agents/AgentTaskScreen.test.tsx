@@ -32,6 +32,7 @@ import { samePullRequest, taskPullRequest, type TaskPullRequestChanges } from '.
 import { displayModelName } from '../settings/model';
 import { projectTranscript } from './transcript';
 import { pr, prDetail } from '../pulls/fixtures/pullRequest';
+import { lifecycle } from '../commits/fixtures/lifecycle';
 import { EMPTY_TIMELINE_PAYLOAD } from '../pulls/model';
 import { agentTurn as turn, previewTask } from './fixtures/previewBridge';
 import { renderTaskBody, type TaskBodyProps } from './fixtures/taskBody';
@@ -2005,7 +2006,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
         { position: 1, sourceSha: 'b'.repeat(40), title: 'one', result: 'APPLIED' },
         { position: 2, sourceSha: 'c'.repeat(40), title: 'two', result: 'PENDING' },
       ],
-      createdAt: at(0, 7), updatedAt: at(0, 9), terminalAt: null,
+      createdAt: at(0, 7), updatedAt: at(0, 9), terminalAt: null, lifecycle: lifecycle(),
     };
     const items = [
       reviewItem({ ...runningReviewFixture(), createdAt: at(0, 11) }),
@@ -2024,7 +2025,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     const today = section(all, 'Today');
     expect(today.indexOf('Backport conflict classification to 478-lts')).toBeLessThan(today.indexOf('>hello<'));
     expect(today).toContain('Paused: Conflict');
-    expect(today).toContain('1 of 2 commits');
+    expect(today).toContain('class="agt-item-card__stages"');
     expect(section(all, 'Earlier this week')).toContain('Get CI green on #17');
     expect(section(all, 'Earlier this week')).toContain('attempt 1 of 3');
     // Only agent tasks select, archive and delete.

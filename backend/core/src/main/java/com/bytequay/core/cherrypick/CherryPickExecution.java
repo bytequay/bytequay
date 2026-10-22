@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Consumer;
+import java.util.function.UnaryOperator;
 
 import static com.bytequay.core.domain.Checks.checkOptionalSha;
 import static com.bytequay.core.domain.Checks.checkOptionalText;
@@ -61,6 +62,7 @@ public record CherryPickExecution(
         Optional<String> summary,
         Optional<ActionJournal> journal,
         List<CherryPickItem> items,
+        CherryPickLifecycle lifecycle,
         long version,
         Instant createdAt,
         Instant updatedAt,
@@ -88,6 +90,7 @@ public record CherryPickExecution(
         requireNonNull(items, "items is null");
         items = ImmutableList.copyOf(items);
         validateItems(items);
+        requireNonNull(lifecycle, "lifecycle is null");
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
@@ -96,7 +99,10 @@ public record CherryPickExecution(
         terminalAt.ifPresent(value -> checkArgument(!value.isBefore(createdAt), "terminalAt is before createdAt"));
         validateStatus(status, currentStep, pauseReason, finishReason, summary, currentTurnId, terminalAt, items);
         delivery.ifPresent(value -> {
-            checkArgument(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED, "delivery belongs to an incomplete execution");
+            checkArgument(lifecycle.delivers()
+                            ? lifecycle.stage().compareTo(CherryPickLifecycle.Stage.PUBLISH) >= 0
+                            : status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED,
+                    "delivery belongs to an incomplete execution");
             checkArgument(pullRequestDraft.isPresent(), "delivery has no pull-request draft");
         });
     }
@@ -108,6 +114,7 @@ public record CherryPickExecution(
             Optional<PullRequestDraft> pullRequestDraft,
             Range range,
             List<CherryPickItem> items,
+            boolean delivers,
             Instant now)
     {
         requireNonNull(range, "range is null");
@@ -128,6 +135,7 @@ public record CherryPickExecution(
                 Optional.empty(),
                 Optional.empty(),
                 items,
+                CherryPickLifecycle.start(delivers, range.initialTargetSha()),
                 0,
                 now,
                 now,
@@ -282,7 +290,24 @@ public record CherryPickExecution(
             draft.finishReason = Optional.of(reason);
             draft.summary = Optional.of(finishedSummary);
             draft.terminalAt = Optional.of(now);
+            draft.lifecycle = lifecycle.released();
         });
+    }
+
+    public CherryPickExecution withLifecycle(UnaryOperator<CherryPickLifecycle> change, Instant now)
+    {
+        requireMutable(now);
+        requireNonNull(change, "change is null");
+        return edit(now, draft -> draft.lifecycle = requireNonNull(change.apply(lifecycle), "lifecycle is null"));
+    }
+
+    /** Records the work-branch tip after a later stage rewrote or extended it. */
+    public CherryPickExecution withTip(String tipSha, Instant now)
+    {
+        requireRunning(now);
+        checkSha(tipSha, "tipSha");
+        checkState(lifecycle.stage() != CherryPickLifecycle.Stage.APPLY, "applying records each commit itself");
+        return edit(now, draft -> draft.currentTargetSha = tipSha);
     }
 
     public CherryPickExecution withVersion(long updatedVersion)
@@ -308,7 +333,7 @@ public record CherryPickExecution(
         return edit(now, draft -> draft.delivery = Optional.of(pushed.withPullRequest(providerId, number, url)));
     }
 
-    private List<CherryPickItem> replace(String sourceSha, java.util.function.UnaryOperator<CherryPickItem> edit)
+    private List<CherryPickItem> replace(String sourceSha, UnaryOperator<CherryPickItem> edit)
     {
         ImmutableList.Builder<CherryPickItem> updated = ImmutableList.builderWithExpectedSize(items.size());
         boolean found = false;
@@ -342,7 +367,12 @@ public record CherryPickExecution(
     {
         requireNonNull(now, "now is null");
         checkArgument(!now.isBefore(updatedAt), "update time is before the previous update");
-        checkState(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED, "execution did not complete successfully");
+        if (lifecycle.delivers()) {
+            checkState(status != Status.FINISHED && lifecycle.stage() == CherryPickLifecycle.Stage.PUBLISH, "execution is not publishing");
+        }
+        else {
+            checkState(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED, "execution did not complete successfully");
+        }
         checkState(pullRequestDraft.isPresent(), "execution has no pull-request draft");
     }
 
@@ -556,6 +586,7 @@ public record CherryPickExecution(
         COMMIT_CONFLICT_SNAPSHOT,
         AGENT_TURN,
         AGENT_REPAIR,
-        FINALIZE_CONFLICT_PAIR
+        FINALIZE_CONFLICT_PAIR,
+        BUILD_TURN
     }
 }

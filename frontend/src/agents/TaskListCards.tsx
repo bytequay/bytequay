@@ -119,7 +119,7 @@ function Actions({ item, onArchive, onDelete, onOpenWorkspace }: Pick<TaskItemHa
 
 /**
  * Today's task as a card: its type and state, the title, why it needs the user, the conversation's
- * last message, and its links with what it changed or how far a cherry-pick has come.
+ * last message, and its links with what it changed or the stages a cherry-pick has come through.
  */
 export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
   const open = selecting && onToggle !== undefined ? onToggle : onOpen;
@@ -144,10 +144,9 @@ export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen,
           </div>
         </div>
       )}
-      {item.progress !== null && item.progress.total > 0 && (
-        <div className="agt-item-card__progress">
-          <span className="agt-item-card__bar"><span className={`is-${item.type}`} style={{ width: `${(item.progress.done / item.progress.total) * 100}%` }} /></span>
-          <span>{item.progress.done} of {item.progress.total} commits</span>
+      {item.stages !== null && (
+        <div className="agt-item-card__stages" aria-label="Stages">
+          {item.stages.map(stage => <span key={stage.stage} className={`is-${stage.state}`} title={`${stage.name}: ${stage.detail}`}>{stage.name}</span>)}
         </div>
       )}
       {(item.links.length > 0 || item.change !== null) && (

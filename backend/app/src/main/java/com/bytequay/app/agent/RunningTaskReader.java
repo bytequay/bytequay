@@ -27,6 +27,7 @@ import com.bytequay.app.agent.RunningTask.Kind;
 import com.bytequay.app.agent.RunningTask.Status;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
+import com.bytequay.core.cherrypick.CherryPickLifecycle;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequest;
@@ -176,12 +177,15 @@ public class RunningTaskReader
 
     private static RunningTask cherryPick(AgentTask task, CherryPickExecution execution)
     {
+        CherryPickLifecycle lifecycle = execution.lifecycle();
+        boolean needsUser = lifecycle.hold().isPresent() || (lifecycle.stage() == CherryPickLifecycle.Stage.SQUASH && lifecycle.squash().isEmpty());
         Status status = switch (execution.status()) {
-            case RUNNING -> Status.RUNNING;
+            case RUNNING -> needsUser ? Status.WAITING : Status.RUNNING;
             case PAUSED -> Status.WAITING;
             case FINISHED -> execution.finishReason().orElseThrow() == CherryPickExecution.FinishReason.COMPLETED ? Status.COMPLETED : Status.STOPPED;
         };
-        return item(task, Kind.CHERRY_PICK, execution.id().toString(), task.title(), status, execution.createdAt(), execution.terminalAt(), OptionalInt.empty(), Optional.empty());
+        OptionalInt number = execution.delivery().flatMap(CherryPickExecution.Delivery::pullRequestNumber).map(OptionalInt::of).orElse(OptionalInt.empty());
+        return item(task, Kind.CHERRY_PICK, execution.id().toString(), task.title(), status, execution.createdAt(), execution.terminalAt(), number, Optional.empty());
     }
 
     private static RunningTask ciFix(AgentTask task, CiAutofixRun run)

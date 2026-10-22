@@ -26,4 +26,5 @@ export const CI_RUN: CiAutofixRunDto = {
   attemptsUsed: 1, rerunsUsed: 0, agentTaskId: 'ci-task', currentTurnId: null, parentTaskId: 'source-task', canMessage: true,
   summary: CI_PROJECTION.summary, pauseReason: 'INVALID_GIT_RESULT', finishReason: null,
   createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:05:00Z',
+  expectedRemoteHead: '1'.repeat(40), attempts: [],
 };

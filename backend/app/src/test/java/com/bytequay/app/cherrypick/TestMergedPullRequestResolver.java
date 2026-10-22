@@ -242,10 +242,10 @@ class TestMergedPullRequestResolver
         when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("fixture", new UserProfile("test", "", "", "", 0, 0, 0, "", "", "", "")));
         var store = new InMemoryCherryPickExecutionStore();
         var service = new CherryPickExecutionService(previews, store, new GitSequencerDriver(GIT), GIT, agent.tasks, agent.turns, agent.completion, drivers,
-                credentials, workspaces, paths, Clock.systemUTC());
+                credentials, workspaces, paths, TestCherryPickExecutionService.delivery(store, previews, Clock.systemUTC()), Clock.systemUTC());
         var execution = service.start(new StartCherryPickExecutionCommand(preview.previewId(), preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha(),
                 ImmutableList.of(), "claude", Optional.empty(), Optional.empty(), "landed-range",
-                new CherryPickExecution.PullRequestDraft("Backport P3", "Use the landed P3 result")), WORKSPACE, clone, new RepositoryIdentity("internal", "p2"));
+                new CherryPickExecution.PullRequestDraft("Backport P3", "Use the landed P3 result"), false), WORKSPACE, clone, new RepositoryIdentity("internal", "p2"));
         for (int tick = 0; tick < 10 && execution.status() == CherryPickExecution.Status.RUNNING; tick++) {
             execution = service.advance(execution.id());
         }

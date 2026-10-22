@@ -377,9 +377,20 @@ read and start work anywhere in it.
 1. In **Commits → History**, choose a repository upstream in the repo line. Select
    commits, or open **Pull requests** and pick a merged one.
 2. Choose **Cherry-pick**. Check the plan with **Dry run**, then **Start
-   cherry-pick**, and follow it in **Commits → Cherry pick**.
-3. Review the result, then **Deliver this generated branch → Push branch** and
-   **Create pull request**. PR creation also starts the disclosed CI monitor.
+   cherry-pick**. Starting allows ByteQuay to push the work branch, open a draft
+   pull request, push CI fixes, and rebase when the target moves.
+3. Open the task from the toast, or from **Tasks → Cherry-pick**. The agent
+   resolves conflicts, then builds and tests the touched modules. Every repair
+   is a separate fixup commit right after the commit it belongs to. **Stages**,
+   **Commits**, and **CI checks** on the right show where it stands; message the
+   agent at any time, and it reads your message at its next step.
+4. When CI is green, choose **Approve squash** to fold the fixups into their
+   commits. ByteQuay pushes the result and waits for CI again; then choose
+   **Merge pull request**.
+
+**Pause** holds the task after its current step, including rebases. **Abort**
+closes the pull request and deletes the work branch; the target branch is not
+touched.
 
 To carry a pull request down the line, pick it and choose **Backport**, then
 confirm the repositories to include. Each one gets its own cherry-pick and pull

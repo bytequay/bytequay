@@ -64,6 +64,7 @@ import type {
   AgentApprovalDecision,
   AgentCapabilitiesDto,
   AgentChildSummaryDto,
+  AgentMetricsDto,
   AgentPendingApprovalDto,
   AgentProviderStatus,
   AgentProviderUnavailableDto,
@@ -1413,7 +1414,7 @@ export function AgentTaskBody({
           onAttach={onAttach} attachEnabled={!routedToCi && imagesAccepted} attachTitle={routedToCi ? 'CI Autofix accepts text only' : attachTitle}
           models={models} provider={provider} model={state.task?.defaults.model ?? null}
           effort={state.task?.defaults.effort} serviceTier={state.task?.defaults.serviceTier} onSelectModel={onSelectModel}
-          footer={<TaskStats task={state.task} turns={turns} now={now} />} />
+          footer={<TaskStats metrics={state.task?.metrics ?? null} turns={turns} now={now} />} />
       )}
       </AgentConversation>
       </section>
@@ -1485,19 +1486,19 @@ function tokens(count: number): string {
   return `${count} tok`;
 }
 
-/** The line under the composer: what the task has done so far and what it has used, from the task's totals. */
-function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: TranscriptTurn[]; now: number }): React.JSX.Element | null {
-  if (task === null || turns.length === 0) return null;
+/** The line under the composer: what the task has done so far and what it has used, from its totals. */
+export function TaskStats({ metrics, turns, now }: { metrics: AgentMetricsDto | null; turns: TranscriptTurn[]; now: number }): React.JSX.Element | null {
+  if (metrics === null || turns.length === 0) return null;
   const activities = turns.flatMap((turn) => turn.blocks).reduce((total, block) => total + (block.kind === 'activity' ? block.members.length : 0), 0);
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, now) ?? 0), 0);
-  const { inputTokens, cachedInputTokens, outputTokens } = task.metrics;
+  const { inputTokens, cachedInputTokens, outputTokens } = metrics;
   const groups = [
     `${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${activities} ${activities === 1 ? 'activity' : 'activities'}`,
     `Worked ${formatDuration(worked)}`,
   ];
   if (inputTokens > 0) groups.push(`Cache hit ${Math.round((cachedInputTokens / inputTokens) * 100)}%`);
   groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}`);
-  const counters = task.metrics.counters;
+  const counters = metrics.counters;
   if (counters) {
     groups.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}`);
   }

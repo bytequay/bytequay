@@ -966,10 +966,50 @@ export type CherryPickExecutionItem = {
   pullRequestNumber?: number | null;
 };
 
+export type CherryPickStage = 'APPLY' | 'BUILD' | 'PUBLISH' | 'CI_FIX' | 'SQUASH' | 'MERGE';
+
+/** One commit on the work branch: a copied source commit, or the one fixup directly after it. */
+export type CherryPickBranchCommit = {
+  sha: string;
+  subject: string;
+  sourceSha?: string | null;
+  fixupOf?: string | null;
+  origin?: 'CONFLICT' | 'BUILD' | 'CI' | null;
+};
+
+/** Where an execution stands after its commits apply, as the backend last saw its branch. */
+export type CherryPickLifecycle = {
+  stage: CherryPickStage;
+  /** False for an execution a backport chain started; it stops after applying. */
+  delivers: boolean;
+  baseSha: string;
+  hold?: {
+    reason: 'USER' | 'PUBLISH_FAILED' | 'CI_FAILED' | 'REBASE_FAILED' | 'SQUASH_FAILED' | 'PULL_REQUEST_CLOSED';
+    summary: string;
+    at: string;
+  } | null;
+  commits: CherryPickBranchCommit[];
+  rebases: Array<{
+    number: number;
+    baseSha: string;
+    targetMoved: number;
+    state: 'RUNNING' | 'DONE' | 'FAILED';
+    summary?: string | null;
+    startedAt: string;
+    endedAt?: string | null;
+  }>;
+  ciRunIds: string[];
+  squash?: { approvedHead: string; approvedAt: string; resultHead?: string | null; fixups: CherryPickBranchCommit[] } | null;
+  readyForReview: boolean;
+  notes: Array<{ text: string; at: string }>;
+};
+
 export type CherryPickExecution = {
   executionId: string;
   workspaceId: string;
   repository: string;
+  /** `owner/repo` the commits come from, when a related repository supplied them. */
+  sourceRepository?: string | null;
   workBranch: string;
   localTargetBranch: string;
   targetBranch: string;
@@ -992,43 +1032,13 @@ export type CherryPickExecution = {
     pullRequestUrl?: string | null;
   } | null;
   items: CherryPickExecutionItem[];
+  /** The conversation that resolves conflicts, builds and rebases. */
+  agentTaskId?: string | null;
+  lifecycle: CherryPickLifecycle;
   /** When the execution started and last moved, which the Tasks page groups it by. */
   createdAt: string;
   updatedAt: string;
   terminalAt: string | null;
-};
-
-type WorkspacePushResult = {
-  remote: string;
-  head: string;
-  sha: string;
-};
-
-type WorkspacePullRequestResult = {
-  providerId: number;
-  number: number;
-  url: string;
-  baseRepository: RepoRefDto;
-  baseBranch: string;
-  head: string;
-};
-
-type WorkspaceCiAutofixStatus = {
-  runId: string;
-  status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
-  attemptsUsed: number;
-  summary?: string | null;
-};
-
-export type WorkspaceDeliveryStatus = {
-  pushWritable: boolean;
-  disabledReason?: string | null;
-  baseRepository: RepoRefDto;
-  baseBranch: string;
-  head: string;
-  push?: WorkspacePushResult | null;
-  pullRequest?: WorkspacePullRequestResult | null;
-  ciAutofix?: WorkspaceCiAutofixStatus | null;
 };
 
 export type CherryPickExecutionRequest = {
@@ -1814,18 +1824,11 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   listCiAutofixRuns: (limit: number) => Promise<CiAutofixRunDto[]>;
   sendCherryPickMessage: (executionId: string, message: string) => Promise<CherryPickExecution>;
   cancelCherryPickExecution: (workspaceId: string, executionId: string) => Promise<CherryPickExecution>;
-  getWorkspaceDeliveryStatus: (
-    workspaceId: string,
-    executionId: string,
-  ) => Promise<WorkspaceDeliveryStatus>;
-  pushWorkspaceExecution: (
-    workspaceId: string,
-    executionId: string,
-  ) => Promise<WorkspacePushResult>;
-  createWorkspacePullRequest: (
-    workspaceId: string,
-    executionId: string,
-  ) => Promise<WorkspacePullRequestResult>;
+  /** Holds the execution after its current step; a running CI round stops so nothing more is pushed. */
+  pauseCherryPick: (executionId: string) => Promise<CherryPickExecution>;
+  resumeCherryPick: (executionId: string) => Promise<CherryPickExecution>;
+  /** Approves folding the fixups into their commits, bound to the branch tip the user reviewed. */
+  approveCherryPickSquash: (executionId: string, expectedHead: string) => Promise<CherryPickExecution>;
 
   gitOverview: (workspaceId: string) => Promise<GitOverviewDto>;
   gitRemoteBranches: (workspaceId: string, remote: string) => Promise<string[]>;

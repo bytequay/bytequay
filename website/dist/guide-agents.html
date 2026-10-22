@@ -168,10 +168,20 @@
               <li>In <strong>Commits → History</strong>, choose a repository upstream in the repo line.
                 Select commits, or open <strong>Pull requests</strong> and pick a merged one.</li>
               <li>Choose <strong>Cherry-pick</strong>. Check the plan with <strong>Dry run</strong>,
-                then <strong>Start cherry-pick</strong>, and follow it in <strong>Commits → Cherry pick</strong>.</li>
-              <li>Review the result, then <strong>Deliver this generated branch → Push branch</strong>
-                and <strong>Create pull request</strong>. PR creation also starts the disclosed CI monitor.</li>
+                then <strong>Start cherry-pick</strong>. Starting allows ByteQuay to push the work branch,
+                open a draft pull request, push CI fixes, and rebase when the target moves.</li>
+              <li>Open the task from the toast, or from <strong>Tasks → Cherry-pick</strong>. The agent
+                resolves conflicts, then builds and tests the touched modules. Every repair is a separate
+                fixup commit right after the commit it belongs to. <strong>Stages</strong>,
+                <strong>Commits</strong>, and <strong>CI checks</strong> on the right show where it stands;
+                message the agent at any time, and it reads your message at its next step.</li>
+              <li>When CI is green, choose <strong>Approve squash</strong> to fold the fixups into their
+                commits. ByteQuay pushes the result and waits for CI again; then choose
+                <strong>Merge pull request</strong>.</li>
             </ol>
+            <p><strong>Pause</strong> holds the task after its current step, including rebases.
+              <strong>Abort</strong> closes the pull request and deletes the work branch; the target
+              branch is not touched.</p>
             <p>To carry a pull request down the line, pick it and choose <strong>Backport</strong>,
               then confirm the repositories to include. Each one gets its own cherry-pick and pull request
               after the pull request before it merges. Chains show in <strong>Commits → Cherry pick</strong>

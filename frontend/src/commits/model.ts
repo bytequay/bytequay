@@ -12,13 +12,17 @@
  * limitations under the License.
  */
 import type {
+  CherryPickBranchCommit,
   CherryPickExecution,
   CherryPickExecutionItem,
+  CherryPickStage,
+  CiAutofixRunDto,
   GitCommitDto,
-  WorkspaceDeliveryStatus,
   WorkspaceDto,
   WorkspaceRelationshipsDto,
 } from '../types';
+import type { CardTone } from '@bytequay/ui/cards';
+import { shortSha } from '@bytequay/ui/displayText';
 
 /** One repository in the Commits tab's repo line. */
 export type LineRepo = {
@@ -62,18 +66,6 @@ export function lineRepos(workspace: WorkspaceDto, relationships: WorkspaceRelat
       .filter(item => item.remote !== null && !line.some(node => node.workspaceId === item.workspaceId))
       .map(item => repo(item.workspaceId, null, 'upstream', false)),
   ];
-}
-
-export function pullRequestPanelRef(
-  delivery: WorkspaceDeliveryStatus | null,
-  fallbackSlug: string | null,
-  fallbackNumber: number | null,
-): { slug: string | null; number: number | null } {
-  if (!delivery?.pullRequest) return { slug: fallbackSlug, number: fallbackNumber };
-  return {
-    slug: `${delivery.pullRequest.baseRepository.owner}/${delivery.pullRequest.baseRepository.repo}`,
-    number: delivery.pullRequest.number,
-  };
 }
 
 export type BackportHop = { repo: LineRepo; sourceHop: number };
@@ -266,40 +258,250 @@ export function filterTasks(executions: CherryPickExecution[], filter: TaskFilte
   if (filter === 'all') return executions;
   return executions.filter(task => (filter === 'open' ? isOpenTask(task) : !isOpenTask(task)));
 }
-
-type NavRow<T> =
-  | { kind: 'item'; value: T }
-  | { kind: 'fold'; label: string; expand: boolean };
-
-/**
- * Folds a long item list around the active index: the previous item, the
- * current one, and the next seven stay visible; both tails collapse into
- * summary rows.
- */
-export function foldNav<T>(items: T[], activeIndex: number, expanded: boolean): Array<NavRow<T>> {
-  const active = activeIndex < 0 ? items.length - 1 : activeIndex;
-  const start = Math.max(0, active - 1);
-  const end = Math.min(items.length - 1, active + 7);
-  if (expanded || (start === 0 && end === items.length - 1)) {
-    const rows: Array<NavRow<T>> = items.map(value => ({ kind: 'item' as const, value }));
-    if (start > 0 || end < items.length - 1) {
-      rows.unshift({ kind: 'fold', label: 'Collapse to the active window', expand: false });
-    }
-    return rows;
-  }
-  const rows: Array<NavRow<T>> = [];
-  if (start > 0) rows.push({ kind: 'fold', label: `${start} earlier items — settled`, expand: true });
-  for (let index = start; index <= end; index++) rows.push({ kind: 'item', value: items[index] });
-  if (end < items.length - 1) {
-    rows.push({ kind: 'fold', label: `${items.length - 1 - end} more pending`, expand: true });
-  }
-  return rows;
-}
-
-
-
 export function completedExecutionItems(items: CherryPickExecutionItem[]): number {
   return items.filter(item => item.result !== 'PENDING').length;
 }
 
-export { shortSha } from '@bytequay/ui/displayText';
+export { shortSha };
+
+/** The stages a delivering cherry-pick walks through, in order. */
+export const CHERRY_PICK_STAGES: ReadonlyArray<{ stage: CherryPickStage; name: string }> = [
+  { stage: 'APPLY', name: 'Local apply & conflicts' },
+  { stage: 'BUILD', name: 'Local build & tests' },
+  { stage: 'PUBLISH', name: 'Push work branch' },
+  { stage: 'CI_FIX', name: 'Remote CI fix' },
+  { stage: 'SQUASH', name: 'Squash fixups' },
+  { stage: 'MERGE', name: 'CI green → merge' },
+];
+
+export type StageState = 'done' | 'running' | 'paused' | 'needs-you' | 'pending';
+
+export type StageView = { stage: CherryPickStage; name: string; state: StageState; detail: string; at: string | null };
+
+function count(amount: number, singular: string, plural = `${singular}s`): string {
+  return `${amount} ${amount === 1 ? singular : plural}`;
+}
+
+export function greenRound(run: CiAutofixRunDto | undefined): boolean {
+  return run?.status === 'FINISHED' && run.finishReason === 'GREEN';
+}
+
+/** Fixups still on the branch, then the ones a squash already folded. */
+function everyFixup(execution: CherryPickExecution): CherryPickBranchCommit[] {
+  const lifecycle = execution.lifecycle;
+  return [...lifecycle.commits.filter(commit => commit.fixupOf), ...(lifecycle.squash?.resultHead ? lifecycle.squash.fixups : [])];
+}
+
+/** What the task waits on the user for now, if anything. */
+export function cherryPickWaitsFor(execution: CherryPickExecution, rounds: CiAutofixRunDto[]): 'resume' | 'squash' | 'merge' | null {
+  const lifecycle = execution.lifecycle;
+  if (execution.status === 'FINISHED') return null;
+  if (execution.status === 'PAUSED' || lifecycle.hold) return 'resume';
+  if (lifecycle.stage === 'SQUASH' && !lifecycle.squash && lifecycle.commits.some(commit => commit.fixupOf)) return 'squash';
+  if (lifecycle.stage === 'MERGE' && greenRound(rounds.at(-1)) && !lifecycle.commits.some(commit => commit.fixupOf)) return 'merge';
+  return null;
+}
+
+function stoppedDetail(execution: CherryPickExecution): string {
+  const hold = execution.lifecycle.hold;
+  if (hold) return hold.reason === 'USER' ? 'Paused by you' : hold.summary;
+  return execution.summary ?? 'Paused — needs your input';
+}
+
+function runningDetail(execution: CherryPickExecution, rounds: CiAutofixRunDto[]): string {
+  const lifecycle = execution.lifecycle;
+  const fixups = lifecycle.commits.filter(commit => commit.fixupOf).length;
+  const live = lifecycle.rebases.find(rebase => rebase.state === 'RUNNING');
+  const round = rounds.at(-1);
+  switch (lifecycle.stage) {
+    case 'APPLY': {
+      const position = execution.currentPosition ?? null;
+      if (position === null) return 'Applying commits oldest first';
+      return `Applying ${position} of ${execution.items.length}${execution.currentStep === 'RESOLVING' ? ' · resolving a conflict' : ''}`;
+    }
+    case 'BUILD': return 'Building and testing the touched modules';
+    case 'PUBLISH': return 'Pushing the work branch and opening the draft pull request';
+    case 'CI_FIX':
+      if (live) return `Held for auto-rebase #${live.number} · ${execution.targetBranch} moved +${live.targetMoved}`;
+      return round?.status === 'ACTIVE' ? `Round ${rounds.length} · attempt ${Math.max(1, round.attemptsUsed)} of ${round.authorization.maxAttempts}` : 'Starting CI Autofix';
+    case 'SQUASH':
+      return lifecycle.squash ? `Folding ${count(fixups, 'fixup')}` : `Squash ${count(fixups, 'fixup')} into their source commits — waiting for your approval`;
+    case 'MERGE':
+      return greenRound(round) ? 'CI green on the squashed head — ready for you to merge' : 'CI running on the squashed head';
+  }
+}
+
+function doneDetail(stage: CherryPickStage, execution: CherryPickExecution, rounds: CiAutofixRunDto[]): string {
+  const lifecycle = execution.lifecycle;
+  const fixups = everyFixup(execution);
+  switch (stage) {
+    case 'APPLY': {
+      const applied = execution.items.filter(item => item.result === 'APPLIED').length;
+      const conflicts = fixups.filter(commit => commit.origin === 'CONFLICT').length;
+      return `${count(applied, 'commit')}${conflicts > 0 ? ` · ${count(conflicts, 'conflict')} resolved` : ''}`;
+    }
+    case 'BUILD': {
+      const repairs = fixups.filter(commit => commit.origin === 'BUILD').length;
+      return repairs > 0 ? `${count(repairs, 'fixup')} from the build` : 'Built and tested · no repairs needed';
+    }
+    case 'PUBLISH': return execution.delivery?.pullRequestNumber ? `Draft PR #${execution.delivery.pullRequestNumber}` : 'Work branch pushed';
+    case 'CI_FIX': {
+      const repairs = fixups.filter(commit => commit.origin === 'CI').length;
+      const rebases = lifecycle.rebases.filter(rebase => rebase.state === 'DONE').length;
+      return [`Green after ${count(rounds.length, 'round')}`, repairs > 0 ? count(repairs, 'fixup') : null,
+        rebases > 0 ? count(rebases, 'auto-rebase') : null].filter(part => part !== null).join(' · ');
+    }
+    case 'SQUASH': {
+      const folded = lifecycle.squash?.resultHead ? lifecycle.squash.fixups.length : 0;
+      return folded > 0 ? `${count(folded, 'fixup')} squashed into ${count(lifecycle.commits.length, 'commit')}` : 'No fixups to squash';
+    }
+    case 'MERGE': return `Merged into ${execution.targetBranch}`;
+  }
+}
+
+function doneAt(stage: CherryPickStage, execution: CherryPickExecution, rounds: CiAutofixRunDto[]): string | null {
+  switch (stage) {
+    case 'APPLY': return execution.createdAt;
+    case 'CI_FIX': return rounds.find(greenRound)?.updatedAt ?? null;
+    case 'SQUASH': return execution.lifecycle.squash?.approvedAt ?? null;
+    case 'MERGE': return execution.terminalAt;
+    default: return null;
+  }
+}
+
+const PENDING_DETAIL: Partial<Record<CherryPickStage, string>> = {
+  CI_FIX: 'Fix and push until green',
+  SQUASH: 'Needs your approval',
+  MERGE: 'You merge',
+};
+
+/** Each stage as the task shows it; an execution a backport chain started only applies. */
+export function cherryPickStages(execution: CherryPickExecution, rounds: CiAutofixRunDto[]): StageView[] {
+  const lifecycle = execution.lifecycle;
+  const stages = lifecycle.delivers ? CHERRY_PICK_STAGES : CHERRY_PICK_STAGES.slice(0, 1);
+  const current = CHERRY_PICK_STAGES.findIndex(entry => entry.stage === lifecycle.stage);
+  const merged = execution.status === 'FINISHED' && execution.finishReason !== 'CANCELLED';
+  const waits = cherryPickWaitsFor(execution, rounds);
+  return stages.map(({ stage, name }, index): StageView => {
+    if (merged || index < current) return { stage, name, state: 'done', detail: doneDetail(stage, execution, rounds), at: doneAt(stage, execution, rounds) };
+    if (index > current) return { stage, name, state: 'pending', detail: PENDING_DETAIL[stage] ?? '', at: null };
+    if (execution.status === 'FINISHED') return { stage, name, state: 'pending', detail: 'Aborted', at: execution.terminalAt };
+    if (waits === 'resume') {
+      return { stage, name, state: lifecycle.hold?.reason === 'USER' ? 'paused' : 'needs-you', detail: stoppedDetail(execution), at: null };
+    }
+    return { stage, name, state: waits === null ? 'running' : 'needs-you', detail: runningDetail(execution, rounds), at: null };
+  });
+}
+
+/** The pill a task shows in its header and on the task list. */
+export function cherryPickStatus(execution: CherryPickExecution, rounds: CiAutofixRunDto[]): { label: string; tone: CardTone } {
+  const lifecycle = execution.lifecycle;
+  if (execution.status === 'FINISHED') {
+    if (execution.finishReason === 'CANCELLED') return { label: 'Aborted', tone: 'red' };
+    return { label: lifecycle.delivers ? 'Merged' : 'Applied', tone: 'green' };
+  }
+  if (lifecycle.hold?.reason === 'USER') return { label: 'Paused', tone: 'neutral' };
+  const waits = cherryPickWaitsFor(execution, rounds);
+  if (waits === 'resume') return { label: 'Needs you', tone: 'amber' };
+  if (waits === 'squash') return { label: 'Needs your approval', tone: 'amber' };
+  if (waits === 'merge') return { label: 'Ready to merge', tone: 'green' };
+  if (lifecycle.rebases.some(rebase => rebase.state === 'RUNNING')) return { label: 'Auto-rebasing', tone: 'purple' };
+  switch (lifecycle.stage) {
+    case 'APPLY': return { label: 'Local apply', tone: 'blue' };
+    case 'BUILD': return { label: 'Local build', tone: 'blue' };
+    case 'PUBLISH': return { label: 'Publishing', tone: 'blue' };
+    case 'CI_FIX': return { label: `CI fix · round ${Math.max(1, rounds.length)}`, tone: 'blue' };
+    case 'SQUASH': return { label: 'Squashing', tone: 'blue' };
+    case 'MERGE': return { label: 'CI on squashed head', tone: 'blue' };
+  }
+}
+
+/** The header badge: how far the target moved and how often the branch followed it. */
+export function driftBadge(execution: CherryPickExecution): string | null {
+  const rebases = execution.lifecycle.rebases;
+  const live = rebases.find(rebase => rebase.state === 'RUNNING');
+  if (live) return `rebasing · target +${live.targetMoved}`;
+  const done = rebases.filter(rebase => rebase.state === 'DONE');
+  if (done.length === 0) return null;
+  return `target +${done.reduce((total, rebase) => total + rebase.targetMoved, 0)} · auto-rebased ${done.length}×`;
+}
+
+export type CommitRowState = 'applied' | 'resolving' | 'queued' | 'skipped' | 'fixup' | 'squashed';
+
+export type CommitRow = { key: string; kind: 'source' | 'fixup'; state: CommitRowState; title: string; shas: string; tag: string };
+
+const ORIGIN_LABEL: Record<NonNullable<CherryPickBranchCommit['origin']>, string> = {
+  CONFLICT: 'conflict resolution', BUILD: 'local build', CI: 'CI fix',
+};
+
+/** The plan in order, each copied commit with the fixups that belong to it. */
+export function commitRows(execution: CherryPickExecution): { interleaved: CommitRow[]; sources: CommitRow[]; fixups: CommitRow[] } {
+  const lifecycle = execution.lifecycle;
+  const squashed = lifecycle.squash?.resultHead ? lifecycle.squash.fixups : [];
+  const current = lifecycle.commits.filter(commit => commit.fixupOf);
+  const shaOf = (item: CherryPickExecutionItem) => lifecycle.commits.find(commit => commit.sourceSha === item.sourceSha)?.sha ?? item.targetSha ?? null;
+  const fixupRows = (sourceSha: string): CommitRow[] => [
+    ...current.filter(commit => commit.fixupOf === sourceSha).map((commit): CommitRow => ({
+      key: commit.sha, kind: 'fixup', state: 'fixup', title: commit.subject,
+      shas: `${shortSha(commit.sha)} · from ${commit.origin ? ORIGIN_LABEL[commit.origin] : 'the agent'}`, tag: 'local',
+    })),
+    ...squashed.filter(commit => commit.fixupOf === sourceSha).map((commit): CommitRow => {
+      const into = lifecycle.commits.find(entry => entry.sourceSha === sourceSha)?.sha;
+      return { key: commit.sha, kind: 'fixup', state: 'squashed', title: commit.subject,
+        shas: `${shortSha(commit.sha)} · squashed${into ? ` into ${shortSha(into)}` : ''}`, tag: 'squashed' };
+    }),
+  ];
+  const sources = execution.items.map((item): CommitRow => {
+    const active = item.result === 'PENDING' && execution.currentPosition === item.position && execution.status !== 'FINISHED';
+    const conflicted = [...current, ...squashed].some(commit => commit.fixupOf === item.sourceSha && commit.origin === 'CONFLICT');
+    const target = shaOf(item);
+    const base = { key: item.sourceSha, kind: 'source' as const, title: `${item.position}. ${item.title}` };
+    switch (item.result) {
+      case 'APPLIED': return { ...base, state: 'applied', shas: target ? `${shortSha(item.sourceSha)} → ${shortSha(target)}` : shortSha(item.sourceSha),
+        tag: conflicted ? 'conflict resolved' : 'clean' };
+      case 'USER_SKIPPED': return { ...base, state: 'skipped', shas: shortSha(item.sourceSha), tag: 'skipped by you' };
+      case 'ALREADY_ON_TARGET': return { ...base, state: 'skipped', shas: shortSha(item.sourceSha), tag: 'already on target' };
+      case 'EMPTY_SKIPPED': return { ...base, state: 'skipped', shas: shortSha(item.sourceSha), tag: 'empty' };
+      default: return { ...base, state: active ? 'resolving' : 'queued', shas: shortSha(item.sourceSha),
+        tag: active ? execution.currentStep === 'RESOLVING' ? 'resolving conflict' : 'applying' : 'queued' };
+    }
+  });
+  return {
+    interleaved: execution.items.flatMap((item, index) => [sources[index], ...fixupRows(item.sourceSha)]),
+    sources,
+    fixups: execution.items.flatMap(item => fixupRows(item.sourceSha)),
+  };
+}
+
+export function commitSummary(execution: CherryPickExecution): string {
+  const lifecycle = execution.lifecycle;
+  const applied = execution.items.filter(item => item.result === 'APPLIED').length;
+  if (lifecycle.stage === 'APPLY' && execution.status !== 'FINISHED') return `${applied} of ${execution.items.length} applied · oldest first`;
+  if (lifecycle.squash?.resultHead) return `${count(applied, 'source commit')} · ${count(lifecycle.squash.fixups.length, 'fixup')} squashed`;
+  return `${count(applied, 'source commit')} · ${count(lifecycle.commits.filter(commit => commit.fixupOf).length, 'local fixup')}`;
+}
+
+export type AttemptRow = { key: string; state: 'failed' | 'passed' | 'running' | 'stopped'; title: string; detail: string; at: string | null };
+
+/** Every CI attempt across the task's CI rounds, oldest first; a round without attempts is one row. */
+export function ciAttemptRows(rounds: CiAutofixRunDto[]): AttemptRow[] {
+  return rounds.flatMap((round, index): AttemptRow[] => {
+    const label = `Round ${index + 1}`;
+    const ended = round.status !== 'ACTIVE';
+    const rows = round.attempts.map((attempt): AttemptRow => ({
+      key: `${round.id}:${attempt.number}`,
+      state: attempt.observedCiResult === 'FAILED' ? 'failed' : attempt.observedCiResult === 'PASSED' ? 'passed' : ended ? 'stopped' : 'running',
+      title: `${label} · attempt ${attempt.number}`,
+      detail: [attempt.failures.slice(0, 2).join(', '), attempt.pushedSha ? `fixup ${shortSha(attempt.pushedSha)}` : null]
+        .filter(part => part !== null && part !== '').join(' → '),
+      at: attempt.updatedAt,
+    }));
+    if (rows.length > 0 && !greenRound(round)) return rows;
+    const outcome: AttemptRow = greenRound(round)
+      ? { key: round.id, state: 'passed', title: `${label} · green`, detail: round.summary ?? 'Every check passed', at: round.updatedAt }
+      : round.status === 'ACTIVE'
+        ? { key: round.id, state: 'running', title: `${label} · watching checks`, detail: round.summary ?? '', at: null }
+        : { key: round.id, state: 'stopped', title: `${label} · ${round.finishReason === 'CANCELLED' ? 'cancelled' : 'stopped'}`, detail: round.summary ?? '', at: round.updatedAt };
+    return [...rows, outcome];
+  });
+}

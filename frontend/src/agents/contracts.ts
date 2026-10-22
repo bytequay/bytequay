@@ -402,6 +402,18 @@ export function parseCiAutofixRun(value: unknown) {
     parentTaskId: optionalText(source.parentTaskId, 'ciRun.parentTaskId'), canMessage: flag(source.canMessage, 'ciRun.canMessage'),
     summary: optionalText(source.summary, 'ciRun.summary'), pauseReason: optionalText(source.pauseReason, 'ciRun.pauseReason'), finishReason: optionalText(source.finishReason, 'ciRun.finishReason'),
     createdAt: text(source.createdAt, 'ciRun.createdAt'), updatedAt: text(source.updatedAt, 'ciRun.updatedAt'),
+    expectedRemoteHead: text(source.expectedRemoteHead, 'ciRun.expectedRemoteHead'),
+    attempts: list(source.attempts ?? [], 'ciRun.attempts').map((value, index) => {
+      const path = `ciRun.attempts[${index}]`;
+      const attempt = object(value, path);
+      return {
+        number: count(attempt.number, `${path}.number`),
+        observedCiResult: text(attempt.observedCiResult, `${path}.observedCiResult`),
+        failures: list(attempt.failures ?? [], `${path}.failures`).map((failure, item) => text(object(failure, `${path}.failures[${item}]`).summary, `${path}.failures[${item}].summary`)),
+        pushedSha: optionalText(attempt.pushedSha, `${path}.pushedSha`),
+        updatedAt: text(attempt.updatedAt, `${path}.updatedAt`),
+      };
+    }),
   };
 }
 

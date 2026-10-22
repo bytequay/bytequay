@@ -15,6 +15,7 @@
 import { describe, expect, it } from 'vitest';
 import { reviewFixture, runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 import type { AgentTaskActivityDto, CherryPickExecution } from '../types';
+import { lifecycle } from '../commits/fixtures/lifecycle';
 import { CI_RUN } from './fixtures/ciAutofix';
 import { previewTask } from './fixtures/previewBridge';
 import { viewerInitials } from './TaskListCards';
@@ -22,7 +23,7 @@ import { cherryPickItem, ciFixItem, developmentItem, groupTaskList, reviewItem, 
 
 function item(key: string, at: string, label: TaskListItem['state']['label'] = 'Idle'): TaskListItem {
   return {
-    key, type: 'dev', title: key, at, message: null, links: [], change: null, progress: null,
+    key, type: 'dev', title: key, at, message: null, links: [], change: null, stages: null,
     state: { label, tone: 'green', spinning: false, reason: null },
     task: null, review: null, execution: null, run: null,
   };
@@ -37,7 +38,7 @@ function execution(overrides: Partial<CherryPickExecution>): CherryPickExecution
       { position: 1, sourceSha: 'b'.repeat(40), title: 'one', result: 'APPLIED' },
       { position: 2, sourceSha: 'c'.repeat(40), title: 'two', result: 'PENDING' },
     ],
-    createdAt: '2026-09-27T08:00:00Z', updatedAt: '2026-09-27T09:00:00Z', terminalAt: null,
+    createdAt: '2026-09-27T08:00:00Z', updatedAt: '2026-09-27T09:00:00Z', terminalAt: null, lifecycle: lifecycle(),
     ...overrides,
   };
 }
@@ -122,10 +123,18 @@ describe('task list items', () => {
     expect(reviewItem(reviewFixture({ messages: [{ ...last, findingId: 'finding-1', developerTaskId: 'developer-task' }] })).message?.who).toBe('Developer');
   });
 
-  it('reads a cherry-pick by how far it came, and a canceled one as finished, not completed', () => {
+  it('reads a cherry-pick by the stages it came through, and a canceled one as finished, not completed', () => {
     const running = cherryPickItem(execution({ pullRequestDraft: { title: 'Backport conflict classification', body: '' } }));
-    expect(running).toMatchObject({ title: 'Backport conflict classification', progress: { done: 1, total: 2 }, at: '2026-09-27T09:00:00Z' });
+    expect(running).toMatchObject({ title: 'Backport conflict classification', at: '2026-09-27T09:00:00Z' });
+    expect(running.stages?.map(stage => stage.state)).toEqual(['running']);
     expect(running.state.label).toBe('Running');
+    const delivering = cherryPickItem(execution({ lifecycle: lifecycle({ delivers: true, stage: 'CI_FIX' }) }));
+    expect(delivering.stages?.map(stage => stage.state)).toEqual(['done', 'done', 'done', 'running', 'pending', 'pending']);
+    expect(cherryPickItem(execution({ lifecycle: lifecycle({ delivers: true, stage: 'SQUASH',
+      commits: [{ sha: 'd'.repeat(40), subject: 'one', sourceSha: 'b'.repeat(40) }, { sha: 'e'.repeat(40), subject: 'fixup! one', fixupOf: 'b'.repeat(40), origin: 'CI' }] }) })).state)
+      .toMatchObject({ label: 'Needs you', reason: 'Approve the squash' });
+    expect(cherryPickItem(execution({ lifecycle: lifecycle({ delivers: true, stage: 'CI_FIX', hold: { reason: 'USER', summary: 'Paused by you', at: '2026-09-27T09:00:00Z' } }) })).state.label)
+      .toBe('Idle');
     expect(cherryPickItem(execution({ status: 'PAUSED', pauseReason: 'MERGE_CONFLICT' })).state)
       .toMatchObject({ label: 'Needs you', reason: 'Paused: Merge conflict' });
     expect(cherryPickItem(execution({ status: 'FINISHED', finishReason: 'COMPLETED' })).state.label).toBe('Completed');

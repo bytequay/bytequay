@@ -34,7 +34,6 @@ import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
-import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
@@ -81,7 +80,7 @@ class TestWorkspacePullRequestService
     private Path temporaryDirectory;
 
     @Test
-    void rejectsDependencyDeliveryWithoutHidingStatusOrDiscardingWork()
+    void rejectsDependencyDeliveryWithoutDiscardingWork()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
         doThrow(new IllegalArgumentException("Dependency transfer blocked")).when(fixture.relationships())
@@ -90,7 +89,6 @@ class TestWorkspacePullRequestService
                 .hasMessage("Dependency transfer blocked");
         assertThatThrownBy(() -> fixture.service().createPullRequest(new PullRequestCommand("workspace", fixture.executionId(), true)))
                 .hasMessage("Dependency transfer blocked");
-        fixture.service().getStatus("workspace", fixture.executionId());
         verifyNoInteractions(fixture.git(), fixture.pullRequests());
     }
 
@@ -149,7 +147,6 @@ class TestWorkspacePullRequestService
     {
         Fixture fixture = fixture(forkWorkspace(), forkRepository(true), "release/478");
         assertThat(fixture.workspace().upstreamDefaultBranch()).contains("main");
-        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).baseBranch()).isEqualTo("release/478");
 
         assertThat(fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)).remote()).isEqualTo("origin");
         PullRequestResult result = fixture.service().createPullRequest(new PullRequestCommand("workspace", fixture.executionId(), true));
@@ -159,7 +156,6 @@ class TestWorkspacePullRequestService
                 "token", RepoRef.of("upstream", "project"), "contributor:" + WORK_BRANCH, "release/478", "PR title", "PR body", false);
         assertThat(result.baseRepository()).isEqualTo(RepoRef.of("upstream", "project"));
         assertThat(result.baseBranch()).isEqualTo("release/478");
-        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).baseBranch()).isEqualTo("release/478");
     }
 
     @Test
@@ -185,11 +181,10 @@ class TestWorkspacePullRequestService
     }
 
     @Test
-    void readOnlyRepositoryDisablesAndRejectsPushWithoutWrites()
+    void readOnlyRepositoryRejectsPushWithoutWrites()
     {
         Fixture fixture = fixture(forkWorkspace(), forkRepository(false));
 
-        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).pushWritable()).isFalse();
         assertThatThrownBy(() -> fixture.service().push(
                 new PushCommand("workspace", fixture.executionId(), true)))
                 .isInstanceOfSatisfying(WorkspaceException.class,
@@ -219,12 +214,12 @@ class TestWorkspacePullRequestService
     }
 
     @Test
-    void missingCodeTimestampTriggersSyncBeforeStatus()
+    void missingCodeTimestampTriggersSyncBeforePush()
     {
         Workspace unsynced = directWorkspace().withCodeSyncAt(Optional.empty(), NOW);
         Fixture fixture = fixture(unsynced, directRepository(true));
 
-        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).pushWritable()).isTrue();
+        assertThat(fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)).remote()).isEqualTo("origin");
 
         verify(fixture.provisioning()).synchronizeCode("workspace");
     }
@@ -264,7 +259,6 @@ class TestWorkspacePullRequestService
                 new FetchedPullRequest(900L, repo.fullName(), 12, "Backport", "owner", "https://github.com/owner/project/pull/12", NOW, NOW,
                         PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", WORK_BRANCH)));
         assertThat(fixture.service().deliverChain(chain.id(), 0, true).number()).isEqualTo(12);
-        assertThat(fixture.service().getStatus("workspace", fixture.executionId()).pullRequest()).isPresent();
         verify(fixture.git(), never()).pushBranch(any(), any(), any());
         verifyNoInteractions(fixture.pullRequests());
         verify(fixture.ciAutofix()).start(any());
@@ -313,7 +307,8 @@ class TestWorkspacePullRequestService
         when(fixture.relationships().list("workspace")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Relationship("source", WorkspaceRelationships.Kind.FORK, "Fork", false)));
         var chain = new BackportChain("fixture-chain", "workspace", Optional.of("request"), Optional.of("source-task"), "source-branch", BackportChain.Route.of(source),
-                Optional.empty(), false,
+                Optional.empty(),
+                false,
                 ImmutableList.of(new BackportChain.Acceptance("key", Optional.of("turn"), ImmutableList.of("workspace"), ImmutableList.of(-1))),
                 ImmutableList.of(new BackportChain.Hop(-1, BackportChain.Route.of(fixture.workspace()), "lane", Optional.empty(), Optional.empty(),
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(fixture.executionId().toString()), true, Optional.empty(), false, false)),
@@ -358,7 +353,6 @@ class TestWorkspacePullRequestService
         ManagedWorkspaceGit git = mock(ManagedWorkspaceGit.class);
         PullRequestService pullRequestCatalog = mock(PullRequestService.class);
         CiAutofixService ciAutofix = mock(CiAutofixService.class);
-        CiAutofixStore ciAutofixStore = mock(CiAutofixStore.class);
         WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
         BackportChainStore chains = mock(BackportChainStore.class);
         GitHubPullRequestReadClient reads = mock(GitHubPullRequestReadClient.class);
@@ -373,7 +367,6 @@ class TestWorkspacePullRequestService
                 git,
                 pullRequestCatalog,
                 ciAutofix,
-                ciAutofixStore,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 relationships, chains, reads);
         return new Fixture(
@@ -408,6 +401,7 @@ class TestWorkspacePullRequestService
                         Optional.of(new PullRequestDraft("PR title", "PR body")),
                         new Range(PARENT_SHA, SHA, PARENT_SHA),
                         ImmutableList.of(item),
+                        false,
                         NOW)
                 .finish(FinishReason.COMPLETED, "Done", NOW);
     }

@@ -260,6 +260,7 @@ class TestCherryPickExecution
                 Optional.empty(),
                 new Range(BASE, TIP, TARGET),
                 ImmutableList.copyOf(items),
+                false,
                 NOW);
     }
 

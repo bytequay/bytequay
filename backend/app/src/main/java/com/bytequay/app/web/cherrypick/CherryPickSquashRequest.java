@@ -13,13 +13,5 @@
  */
 package com.bytequay.app.web.cherrypick;
 
-import static java.util.Objects.requireNonNull;
-
-/** Explicit confirmation body for one remote delivery action. */
-public record WorkspaceDeliveryRequest(Boolean confirmed)
-{
-    public WorkspaceDeliveryRequest
-    {
-        requireNonNull(confirmed, "confirmed is null");
-    }
-}
+/** Approval to fold the fixups, bound to the branch tip the user reviewed. */
+public record CherryPickSquashRequest(String expectedHead) {}

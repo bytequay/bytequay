@@ -244,9 +244,9 @@ const bridge: Bridge = {
   listCiAutofixRuns: invoke('ci-autofix:list'),
   sendCherryPickMessage: invoke('cherrypick:execution:message'),
   cancelCherryPickExecution: invoke('cherrypick:execution:cancel'),
-  getWorkspaceDeliveryStatus: invoke('cherrypick:delivery:get'),
-  pushWorkspaceExecution: invoke('cherrypick:delivery:push'),
-  createWorkspacePullRequest: invoke('cherrypick:delivery:pull-request'),
+  pauseCherryPick: invoke('cherrypick:execution:pause'),
+  resumeCherryPick: invoke('cherrypick:execution:resume'),
+  approveCherryPickSquash: invoke('cherrypick:execution:squash'),
 
   gitOverview: invoke('git:overview'),
   gitRemoteBranches: invoke('git:branches'),

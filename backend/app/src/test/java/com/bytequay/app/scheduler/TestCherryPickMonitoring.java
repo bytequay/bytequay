@@ -175,6 +175,7 @@ class TestCherryPickMonitoring
                                 "Commit",
                                 Optional.empty(),
                                 Disposition.TO_CHERRY_PICK)),
+                        false,
                         NOW)
                 .withAgentTask(taskId.toString(), NOW.plusSeconds(1))
                 .finish(FinishReason.CANCELLED, "Cancelled", NOW.plusSeconds(2));

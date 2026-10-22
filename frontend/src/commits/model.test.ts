@@ -12,19 +12,25 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import type { CherryPickExecution, GitCommitDto, WorkspaceDeliveryStatus } from '../types';
+import type { CherryPickExecution, CiAutofixRunDto, GitCommitDto } from '../types';
+import { CI_RUN } from '../agents/fixtures/ciAutofix';
 import { workspaceFixture } from '../workspaces/fixtures/workspace';
+import { lifecycle } from './fixtures/lifecycle';
 import {
   backportRoute,
+  ciAttemptRows,
+  cherryPickStages,
+  cherryPickStatus,
+  cherryPickWaitsFor,
+  commitRows,
+  driftBadge,
   chosenRoute,
   filterTasks,
   lineRepos,
-  foldNav,
   groupByDay,
   limitDayGroups,
   matchesCommitQuery,
   orderTasks,
-  pullRequestPanelRef,
   remoteBranchCorrection,
   selectedSpan,
   pastedRangePair,
@@ -33,37 +39,6 @@ import {
   squashMessage,
   taskState,
 } from './model';
-
-describe('pullRequestPanelRef', () => {
-  it('uses the repository recorded with a newly delivered direct pull request', () => {
-    const delivery: WorkspaceDeliveryStatus = {
-      pushWritable: true,
-      baseRepository: { owner: 'owner', repo: 'project' },
-      baseBranch: 'main',
-      head: 'generated-branch',
-      pullRequest: {
-        providerId: 900,
-        number: 12,
-        url: 'https://github.com/owner/project/pull/12',
-        baseRepository: { owner: 'owner', repo: 'project' },
-        baseBranch: 'main',
-        head: 'generated-branch',
-      },
-    };
-
-    expect(pullRequestPanelRef(delivery, null, null)).toEqual({
-      slug: 'owner/project',
-      number: 12,
-    });
-  });
-
-  it('falls back to the selected commit association before delivery', () => {
-    expect(pullRequestPanelRef(null, 'upstream/project', 44)).toEqual({
-      slug: 'upstream/project',
-      number: 44,
-    });
-  });
-});
 
 function commit(
   sha: string,
@@ -83,7 +58,7 @@ function commit(
 
 const COMMITS = [commit('aaaa111'), commit('bbbb222'), commit('cccc333'), commit('dddd444')];
 
-function execution(status: string, finishReason?: string): CherryPickExecution {
+function base(status: string, finishReason?: string): CherryPickExecution {
   return {
     executionId: `exec-${status}-${finishReason ?? ''}`,
     workspaceId: 'workspace-1',
@@ -99,6 +74,7 @@ function execution(status: string, finishReason?: string): CherryPickExecution {
     createdAt: '2026-09-01T10:00:00Z',
     updatedAt: '2026-09-01T10:00:00Z',
     terminalAt: null,
+    lifecycle: lifecycle(),
   };
 }
 
@@ -244,6 +220,8 @@ describe('squashMessage', () => {
   });
 });
 
+const execution = base;
+
 describe('task ordering and filtering', () => {
   const done = execution('FINISHED');
   const canceled = execution('FINISHED', 'CANCELLED');
@@ -267,34 +245,6 @@ describe('task ordering and filtering', () => {
     expect(filterTasks(all, 'open').map(taskState)).toEqual(['running', 'paused']);
     expect(filterTasks(all, 'done').map(taskState)).toEqual(['done', 'canceled']);
     expect(filterTasks(all, 'all')).toHaveLength(4);
-  });
-});
-
-describe('foldNav', () => {
-  const items = Array.from({ length: 20 }, (_, index) => index);
-
-  it('shows previous, current, and the next seven around the active item', () => {
-    const rows = foldNav(items, 10, false);
-    expect(rows[0]).toEqual({ kind: 'fold', label: '9 earlier items — settled', expand: true });
-    expect(rows.slice(1, -1).map(row => row.kind === 'item' && row.value))
-      .toEqual([9, 10, 11, 12, 13, 14, 15, 16, 17]);
-    expect(rows.at(-1)).toEqual({ kind: 'fold', label: '2 more pending', expand: true });
-  });
-
-  it('expands fully with a collapse row', () => {
-    const rows = foldNav(items, 10, true);
-    expect(rows[0]).toEqual({ kind: 'fold', label: 'Collapse to the active window', expand: false });
-    expect(rows).toHaveLength(21);
-  });
-
-  it('never folds a short list', () => {
-    expect(foldNav([1, 2, 3], 1, false).every(row => row.kind === 'item')).toBe(true);
-  });
-
-  it('anchors to the end when nothing is active', () => {
-    const rows = foldNav(items, -1, false);
-    expect(rows.at(-1)).toEqual({ kind: 'item', value: 19 });
-    expect(rows[0]).toEqual({ kind: 'fold', label: '18 earlier items — settled', expand: true });
   });
 });
 
@@ -330,5 +280,84 @@ describe('backport routes', () => {
     expect(ids(chosenRoute(route, new Set(['internal', 'here'])))).toEqual(['internal<-1', 'here<0']);
     expect(ids(chosenRoute(route, new Set(['internal', 'product', 'tools'])))).toEqual(['internal<-1']);
     expect(ids(chosenRoute(route, new Set(['internal', 'here', 'tools'])))).toEqual(['internal<-1', 'here<0', 'tools<1']);
+  });
+});
+
+describe('cherry-pick lifecycle', () => {
+  const sha = (digit: string) => digit.repeat(40);
+  const delivering = (overrides: Partial<CherryPickExecution['lifecycle']>, execution: Partial<CherryPickExecution> = {}): CherryPickExecution => ({
+    ...base('RUNNING'),
+    items: [
+      { position: 1, sourceSha: sha('1'), title: 'Port change', result: 'APPLIED', targetSha: sha('5') },
+      { position: 2, sourceSha: sha('2'), title: 'Skip me', result: 'USER_SKIPPED' },
+    ],
+    delivery: { pushRemote: 'origin', head: 'cp-1', sha: sha('6'), pullRequestNumber: 31 },
+    ...execution,
+    lifecycle: lifecycle({ delivers: true, ...overrides }),
+  });
+  const copy = { sha: sha('6'), subject: 'Port change', sourceSha: sha('1') };
+  const fixup = { sha: sha('7'), subject: 'fixup! Port change', fixupOf: sha('1'), origin: 'CI' as const };
+  const round = (overrides: Partial<CiAutofixRunDto>): CiAutofixRunDto => ({ ...CI_RUN, parentTaskId: null, ...overrides });
+
+  it('marks earlier stages done, the current one running, and later ones pending', () => {
+    const stages = cherryPickStages(delivering({ stage: 'CI_FIX', ciRunIds: ['run-1'] }), [round({ status: 'ACTIVE', attemptsUsed: 2 })]);
+    expect(stages.map(stage => stage.state)).toEqual(['done', 'done', 'done', 'running', 'pending', 'pending']);
+    expect(stages[2].detail).toBe('Draft PR #31');
+    expect(stages[3].detail).toBe('Round 1 · attempt 2 of 3');
+    expect(stages[5].detail).toBe('You merge');
+  });
+
+  it('waits on the user to approve the squash, then to merge a green squashed head', () => {
+    const squash = delivering({ stage: 'SQUASH', commits: [copy, fixup] });
+    expect(cherryPickWaitsFor(squash, [])).toBe('squash');
+    expect(cherryPickStatus(squash, [])).toEqual({ label: 'Needs your approval', tone: 'amber' });
+    expect(cherryPickStages(squash, [])[4]).toMatchObject({ state: 'needs-you' });
+
+    const green = round({ status: 'FINISHED', finishReason: 'GREEN' });
+    const merge = delivering({ stage: 'MERGE', commits: [copy], squash: { approvedHead: sha('7'), approvedAt: '2026-09-01T11:00:00Z', resultHead: sha('6'), fixups: [fixup] } });
+    expect(cherryPickWaitsFor(merge, [green])).toBe('merge');
+    expect(cherryPickStatus(merge, [green])).toEqual({ label: 'Ready to merge', tone: 'green' });
+    expect(cherryPickStages(merge, [green])[4].detail).toBe('1 fixup squashed into 1 commit');
+  });
+
+  it('reads a pause by the user apart from a stop that needs the user', () => {
+    const paused = delivering({ stage: 'CI_FIX', hold: { reason: 'USER', summary: 'Paused by you', at: '2026-09-01T11:00:00Z' } });
+    expect(cherryPickStatus(paused, [])).toEqual({ label: 'Paused', tone: 'neutral' });
+    expect(cherryPickStages(paused, [])[3]).toMatchObject({ state: 'paused', detail: 'Paused by you' });
+    const stopped = delivering({ stage: 'CI_FIX', hold: { reason: 'CI_FAILED', summary: 'Out of attempts', at: '2026-09-01T11:00:00Z' } });
+    expect(cherryPickStages(stopped, [])[3]).toMatchObject({ state: 'needs-you', detail: 'Out of attempts' });
+  });
+
+  it('shows only the apply stage for a backport chain’s execution', () => {
+    expect(cherryPickStages({ ...base('FINISHED', 'COMPLETED'), lifecycle: lifecycle() }, []).map(stage => stage.state)).toEqual(['done']);
+  });
+
+  it('sums target drift across finished rebases and names a live one', () => {
+    const rebase = (number: number, state: 'RUNNING' | 'DONE', targetMoved: number) => ({ number, baseSha: sha('8'), targetMoved, state, startedAt: '2026-09-01T11:00:00Z' });
+    expect(driftBadge(delivering({ rebases: [rebase(1, 'DONE', 2), rebase(2, 'DONE', 3)] }))).toBe('target +5 · auto-rebased 2×');
+    expect(driftBadge(delivering({ rebases: [rebase(1, 'DONE', 2), rebase(2, 'RUNNING', 4)] }))).toBe('rebasing · target +4');
+    expect(driftBadge(delivering({}))).toBeNull();
+  });
+
+  it('nests each fixup under its commit and strikes squashed ones', () => {
+    const rows = commitRows(delivering({ stage: 'SQUASH', commits: [copy, { ...fixup, origin: 'CONFLICT' }] }));
+    expect(rows.interleaved.map(row => [row.kind, row.state, row.tag])).toEqual([
+      ['source', 'applied', 'conflict resolved'], ['fixup', 'fixup', 'local'], ['source', 'skipped', 'skipped by you']]);
+    expect(rows.interleaved[0].shas).toBe('1111111 → 6666666');
+    const squashed = commitRows(delivering({ stage: 'MERGE', commits: [copy],
+      squash: { approvedHead: sha('7'), approvedAt: '2026-09-01T11:00:00Z', resultHead: sha('6'), fixups: [fixup] } }));
+    expect(squashed.fixups).toEqual([expect.objectContaining({ state: 'squashed', shas: '7777777 · squashed into 6666666' })]);
+  });
+
+  it('lists every CI attempt across rounds, and a green round once', () => {
+    const rows = ciAttemptRows([
+      round({ id: 'run-1', status: 'FINISHED', finishReason: 'CANCELLED', attempts: [
+        { number: 1, observedCiResult: 'FAILED', failures: ['test (core)'], pushedSha: sha('9'), updatedAt: '2026-09-01T11:00:00Z' }] }),
+      round({ id: 'run-2', status: 'FINISHED', finishReason: 'GREEN', summary: 'Checks passed', attempts: [] }),
+    ]);
+    expect(rows.map(row => [row.title, row.state, row.detail])).toEqual([
+      ['Round 1 · attempt 1', 'failed', 'test (core) → fixup 9999999'],
+      ['Round 2 · green', 'passed', 'Checks passed'],
+    ]);
   });
 });

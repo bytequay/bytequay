@@ -29,10 +29,13 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
+import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.app.workspace.WorkspacePullRequestService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
@@ -51,6 +54,11 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
+import com.bytequay.core.cherrypick.CherryPickLifecycle.BranchCommit;
+import com.bytequay.core.cherrypick.CherryPickLifecycle.BranchCommit.Origin;
+import com.bytequay.core.cherrypick.CherryPickLifecycle.Hold;
+import com.bytequay.core.cherrypick.CherryPickLifecycle.Note;
+import com.bytequay.core.cherrypick.CherryPickLifecycle.Stage;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CommitHistoryStore;
@@ -169,7 +177,14 @@ class TestCherryPickExecutionService
                 credentials,
                 workspaceRepositories,
                 workspacePaths,
+                delivery(store, previews, CLOCK),
                 CLOCK);
+    }
+
+    /** Stages after building are covered with their collaborators in TestCherryPickDelivery; here they are never reached. */
+    static CherryPickDelivery delivery(InMemoryCherryPickExecutionStore store, CherryPickPreviewService previews, Clock clock)
+    {
+        return new CherryPickDelivery(store, mock(WorkspacePullRequestService.class), mock(CiAutofixService.class), mock(BranchRebaseService.class), previews, GIT, clock);
     }
 
     @Test
@@ -263,6 +278,7 @@ class TestCherryPickExecutionService
                 started.pullRequestDraft(),
                 started.range(),
                 started.items(),
+                false,
                 CLOCK.instant());
         store.createOrGet(incomplete);
         String expectedHead = head(started.workspace().worktree());
@@ -331,7 +347,7 @@ class TestCherryPickExecutionService
         var preview = preview(base);
         var command = new StartCherryPickExecutionCommand(preview.previewId(), preview.sourceBaseSha(), preview.sourceTipSha(), preview.targetSha(),
                 ImmutableList.of(), "claude", Optional.of("saved-model"), Optional.of("high"), "model-recovery",
-                new PullRequestDraft("Backport", "Saved draft"));
+                new PullRequestDraft("Backport", "Saved draft"), false);
         assertThatThrownBy(() -> service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(AssertionError.class)
                 .hasMessageContaining("simulated process death");
@@ -492,7 +508,7 @@ class TestCherryPickExecutionService
                         Optional.empty(),
                         Optional.empty(),
                         "stale-key",
-                        new PullRequestDraft("Cherry-pick changes", "")),
+                        new PullRequestDraft("Cherry-pick changes", ""), false),
                 WORKSPACE_ID,
                 clone,
                 PHYSICAL_REPOSITORY))
@@ -1049,18 +1065,20 @@ class TestCherryPickExecutionService
     }
 
     @Test
-    void acceptsARecoveryMessageOnlyForAPausedRange()
+    void keepsARunningRangeMessageForTheNextTurnAndResumesAPausedRange()
     {
         String base = conflictingChange();
 
         CherryPickExecution started = start(base, ImmutableList.of());
-        assertThatThrownBy(() -> service.sendMessage(started.id(), "try harder"))
-                .as("a running range takes no instructions")
-                .isInstanceOf(CherryPickConflictException.class);
+        CherryPickExecution noted = service.sendMessage(started.id(), "keep the fork's logging");
+        assertThat(noted.status()).isEqualTo(Status.RUNNING);
+        assertThat(noted.lifecycle().notes()).extracting(Note::text).containsExactly("keep the fork's logging");
 
         agent.then(() -> {}, TurnState.FAILED);
         CherryPickExecution paused = runToCompletion(started);
         assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(agent.prompts().getLast()).contains("keep the fork's logging");
+        assertThat(paused.lifecycle().notes()).as("a started turn took the note").isEmpty();
 
         assertThatThrownBy(() -> service.sendMessage(paused.id(), "   "))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -1075,6 +1093,75 @@ class TestCherryPickExecutionService
                 .contains("guidance only")
                 .contains("prefer the upstream side");
         assertThat(runToCompletion(resumed).status()).isEqualTo(Status.FINISHED);
+    }
+
+    @Test
+    void deliveringRangeBuildsAndKeepsEachFixupDirectlyAfterItsCommit()
+    {
+        String base = conflictingChange();
+        CherryPickExecution started = deliveringStart(base);
+        Path worktree = started.workspace().worktree();
+        agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
+        // The build repair belongs to the conflicted commit, so it amends that commit's fixup.
+        agent.then(() -> amendFixup(worktree, "seed.txt", "resolved and built\n"), TurnState.COMPLETED);
+
+        CherryPickExecution built = runUntilStage(started, Stage.PUBLISH);
+
+        assertThat(built.status()).isEqualTo(Status.RUNNING);
+        assertThat(built.lifecycle().stage()).isEqualTo(Stage.PUBLISH);
+        assertThat(built.currentTargetSha()).isEqualTo(head(worktree));
+        assertThat(built.lifecycle().commits()).extracting(BranchCommit::origin).containsExactly(Optional.empty(), Optional.of(Origin.CONFLICT));
+        assertThat(agent.prompts().getLast()).contains("Build and test this cherry-picked range");
+        assertThat(agent.get(TaskId.valueOf(built.agentTaskId().orElseThrow())).state().terminal())
+                .as("later stages still need the task and its worktree")
+                .isFalse();
+    }
+
+    @Test
+    void aBuildThatBreaksTheLayoutGetsOneRepairThenPauses()
+    {
+        String base = singleChange();
+        CherryPickExecution started = deliveringStart(base);
+        Path worktree = started.workspace().worktree();
+        agent.then(() -> {
+            write(worktree, "adapter.txt", "adapter\n");
+            git(worktree, "add", "adapter.txt");
+            git(worktree, "commit", "--quiet", "-m", "Adapt the build");
+        }, TurnState.COMPLETED);
+        agent.then(() -> {}, TurnState.COMPLETED);
+
+        CherryPickExecution paused = runToCompletion(started);
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.RECONCILIATION_MISMATCH);
+        assertThat(paused.summary().orElseThrow()).contains("no cherry-pick origin line");
+        assertThat(agent.prompts().getLast()).contains("ByteQuay rejected the branch the last attempt left");
+        assertThat(agent.turnsStarted()).isEqualTo(2);
+    }
+
+    @Test
+    void aPauseHoldsEveryStepUntilResumed()
+    {
+        CherryPickExecution started = deliveringStart(singleChange());
+
+        CherryPickExecution held = service.pause(started.id());
+        assertThat(held.lifecycle().hold().map(Hold::reason)).contains(Hold.Reason.USER);
+        assertThat(runToCompletion(held).currentTargetSha()).isEqualTo(started.currentTargetSha());
+        assertThat(agent.turnsStarted()).isZero();
+
+        assertThat(service.resume(started.id()).lifecycle().hold()).isEmpty();
+        agent.then(() -> {}, TurnState.COMPLETED);
+        assertThat(runUntilStage(started, Stage.PUBLISH).lifecycle().stage()).isEqualTo(Stage.PUBLISH);
+    }
+
+    @Test
+    void squashApprovalNeedsTheSquashStage()
+    {
+        CherryPickExecution started = deliveringStart(singleChange());
+
+        assertThatThrownBy(() -> service.approveSquash(started.id(), started.currentTargetSha()))
+                .isInstanceOf(CherryPickConflictException.class)
+                .hasMessageContaining("Nothing is waiting for a squash approval");
     }
 
     @Test
@@ -1190,6 +1277,25 @@ class TestCherryPickExecutionService
         return service.start(command(preview(baseRef), skipped, "key-" + skipped.size() + "-" + baseRef), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
     }
 
+    private CherryPickExecution deliveringStart(String baseRef)
+    {
+        CherryPickPreview preview = preview(baseRef);
+        StartCherryPickExecutionCommand local = command(preview, ImmutableList.of(), "delivering-" + baseRef);
+        StartCherryPickExecutionCommand delivering = new StartCherryPickExecutionCommand(local.previewId(), local.expectedSourceBaseSha(), local.expectedSourceTipSha(),
+                local.expectedTargetSha(), local.userSkippedSourceShas(), local.laneId(), local.model(), local.effort(), local.idempotencyKey(), local.pullRequestDraft(), true);
+        return service.start(delivering, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
+    }
+
+    /** Stops where the stages need GitHub; those are covered in TestCherryPickDelivery. */
+    private CherryPickExecution runUntilStage(CherryPickExecution execution, Stage stage)
+    {
+        CherryPickExecution current = execution;
+        for (int step = 0; step < 30 && current.status() == Status.RUNNING && current.lifecycle().stage() != stage; step++) {
+            current = service.advance(current.id());
+        }
+        return current;
+    }
+
     private CherryPickPreview preview(String baseRef)
     {
         return previews.preview(new PreviewCherryPickRangeCommand(clone, WORKSPACE_ID, OptionalLong.empty(), "origin", baseRef, "origin/main", "cork", "main"));
@@ -1207,7 +1313,7 @@ class TestCherryPickExecutionService
                 Optional.empty(),
                 Optional.empty(),
                 key,
-                new PullRequestDraft("Cherry-pick changes", "Generated by test"));
+                new PullRequestDraft("Cherry-pick changes", "Generated by test"), false);
     }
 
     private static CherryPickItem item(CherryPickExecution execution, String sourceSha)

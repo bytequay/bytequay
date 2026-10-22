@@ -32,16 +32,21 @@ import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecution.Status;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
+import com.bytequay.core.cherrypick.CherryPickLifecycle;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
-import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
@@ -51,7 +56,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-/** Explicit remote-delivery boundary for completed workspace cherry-pick executions. */
+/** Remote delivery for cherry-pick executions: their own publication, and a backport chain's. */
 @Service
 public class WorkspacePullRequestService
 {
@@ -64,7 +69,6 @@ public class WorkspacePullRequestService
     private final ManagedWorkspaceGit git;
     private final PullRequestService pullRequestCatalog;
     private final CiAutofixService ciAutofix;
-    private final CiAutofixStore ciAutofixStore;
     private final Clock clock;
     private final WorkspaceRelationships relationships;
     private final BackportChainStore chains;
@@ -81,7 +85,6 @@ public class WorkspacePullRequestService
             ManagedWorkspaceGit git,
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
-            CiAutofixStore ciAutofixStore,
             Clock clock,
             WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads)
     {
@@ -94,46 +97,10 @@ public class WorkspacePullRequestService
         this.git = requireNonNull(git, "git is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
         this.ciAutofix = requireNonNull(ciAutofix, "ciAutofix is null");
-        this.ciAutofixStore = requireNonNull(ciAutofixStore, "ciAutofixStore is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
         this.chains = requireNonNull(chains, "chains is null");
         this.reads = requireNonNull(reads, "reads is null");
-    }
-
-    /**
-     * Reads delivery state and the current write permission without changing local or remote state.
-     *
-     * @param workspaceId workspace that owns the execution
-     * @param executionId completed cherry-pick execution
-     * @return permission, routing, and any already-recorded push or pull request
-     */
-    public DeliveryStatus getStatus(String workspaceId, CherryPickExecutionId executionId)
-    {
-        Workspace workspace = requireWorkspace(workspaceId);
-        CherryPickExecution execution = requireExecution(workspace, executionId);
-        Optional<String> reason = deliveryReason(execution);
-        boolean writable = false;
-        if (reason.isEmpty() && execution.delivery().isEmpty()) {
-            Optional<UserRepo> selected = repositories.fetchRepository(
-                    credentials.resolveGitHubToken(workspace.id()), workspace.selectedRepositoryId());
-            if (selected.isEmpty()) {
-                reason = Optional.of("The selected repository is no longer visible to the configured GitHub account.");
-            }
-            else if (!routingMatches(workspace, selected.orElseThrow())) {
-                reason = Optional.of("Repository routing changed. Synchronize the workspace before delivery.");
-            }
-            else if (!selected.orElseThrow().viewerCanPush()) {
-                reason = Optional.of("This repository is read-only. Grant write access or watch a writable fork.");
-            }
-            else {
-                writable = true;
-            }
-        }
-        else if (execution.delivery().isPresent()) {
-            writable = true;
-        }
-        return status(workspace, execution, writable, reason);
     }
 
     /**
@@ -240,7 +207,7 @@ public class WorkspacePullRequestService
             requireDeliverable(execution);
             if (execution.delivery().flatMap(Delivery::pullRequestId).isPresent()) {
                 var stored = execution.delivery().orElseThrow();
-                var pr = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), com.bytequay.core.domain.PullRequestRef.of(
+                var pr = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), PullRequestRef.of(
                         workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), stored.pullRequestNumber().orElseThrow()));
                 checkState(pr.headRepository().equals(workspace.selectedRepository()) && pr.headBranch().equals(execution.workspace().workBranch())
                                 && pr.baseRepository().equals(workspace.monitoredRepository()) && pr.baseBranch().equals(execution.workspace().targetBranch())
@@ -286,6 +253,143 @@ public class WorkspacePullRequestService
             requireChain(chainId, index);
             return createPullRequest(new PullRequestCommand(workspace.id(), executionId, true), () -> requireChain(chainId, index));
         });
+    }
+
+    /**
+     * Pushes a delivering execution's work branch and opens its draft pull request.
+     *
+     * <p>Starting the execution authorized both writes. A branch or pull request that a lost
+     * response already created is recorded rather than written again.
+     *
+     * @param executionId execution in its publish stage
+     * @return the execution with its push and pull request recorded
+     */
+    public CherryPickExecution publish(CherryPickExecutionId executionId)
+    {
+        requireNonNull(executionId, "executionId is null");
+        Lock lock = locks.get(executionId);
+        return withLock(lock, () -> {
+            CherryPickExecution execution = executions.find(executionId).orElseThrow(() -> new CherryPickNotFoundException(executionId));
+            Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+            requireExecution(workspace, executionId);
+            relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
+            checkState(execution.lifecycle().delivers() && execution.lifecycle().stage() == CherryPickLifecycle.Stage.PUBLISH && execution.status() == Status.RUNNING,
+                    "Execution is not publishing");
+            UserRepo selected = requireCurrentSelected(workspace);
+            String branch = execution.workspace().workBranch();
+            try {
+                if (execution.delivery().isEmpty()) {
+                    if (!selected.viewerCanPush()) {
+                        throw WorkspaceException.pushNotWritable();
+                    }
+                    if (git.remoteBranchSha(workspace, branch).filter(execution.currentTargetSha()::equals).isEmpty()) {
+                        git.pushBranch(workspace, branch, execution.currentTargetSha());
+                    }
+                    execution = executions.save(execution.recordPush("origin", branch, execution.currentTargetSha(), clock.instant()));
+                }
+            }
+            catch (ManagedWorkspaceGit.Failure failure) {
+                throw WorkspaceException.deliveryFailed(failure.safeMessage());
+            }
+            if (execution.delivery().flatMap(Delivery::pullRequestId).isEmpty()) {
+                String token = credentials.resolveGitHubToken(workspace.id());
+                Optional<FetchedPullRequest> existing = reads.fetchPullRequestsByHead(token, workspace.monitoredRepository(), workspace.selectedRepository().owner() + ":" + branch)
+                        .stream()
+                        .filter(row -> "open".equalsIgnoreCase(row.state()))
+                        .findFirst();
+                if (existing.isPresent()) {
+                    FetchedPullRequest row = existing.orElseThrow();
+                    execution = executions.save(execution.recordPullRequest(row.githubId(), row.number(), row.htmlUrl(), clock.instant()));
+                }
+                else {
+                    PullRequestDraft draft = execution.pullRequestDraft().orElseThrow();
+                    CreatedPullRequest created = pullRequests.createPullRequest(token, workspace.monitoredRepository(), head(workspace, execution),
+                            execution.workspace().targetBranch(), draft.title(), draft.body(), true);
+                    execution = executions.save(execution.recordPullRequest(created.id(), created.number(), created.url(), clock.instant()));
+                }
+                pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), pullRequestNumber(execution));
+            }
+            return execution;
+        });
+    }
+
+    /** Starts one CI Autofix round on the execution's pull request; the round number makes a repeated start return the same run. */
+    public CiAutofixRun startCi(CherryPickExecution execution, int round)
+    {
+        checkArgument(round >= 1, "round is not positive");
+        return ciAutofix.start(new StartCiAutofixCommand(execution.workspace().workspaceId(), pullRequestNumber(execution),
+                new AgentLaneId(execution.workspace().laneId()), "cherry-pick-ci:" + execution.id() + ":" + round));
+    }
+
+    /** Replaces the published branch with a rebased or folded tip, only while origin still holds {@code leaseSha}. */
+    public void replaceBranch(CherryPickExecution execution, String tipSha, String leaseSha)
+    {
+        Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+        try {
+            git.replaceBranch(workspace, execution.workspace().workBranch(), tipSha, leaseSha);
+        }
+        catch (ManagedWorkspaceGit.Failure failure) {
+            throw WorkspaceException.deliveryFailed(failure.safeMessage());
+        }
+    }
+
+    public GitHubPullRequestIdentity pullRequest(CherryPickExecution execution)
+    {
+        Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+        return reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+    }
+
+    /** Takes the draft out of draft once its squashed head is green, so the user can merge it. */
+    public void markReady(CherryPickExecution execution)
+    {
+        Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+        String token = credentials.resolveGitHubToken(workspace.id());
+        String nodeId = pullRequests.pullRequestNodeId(token, pullRequestRef(workspace, execution))
+                .orElseThrow(() -> WorkspaceException.deliveryFailed("GitHub returned no pull request node ID"));
+        pullRequests.markReadyForReview(token, nodeId);
+        pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), pullRequestNumber(execution));
+    }
+
+    /**
+     * Withdraws what an execution published: closes its open pull request when asked, then deletes
+     * its branch from origin. Every write is attempted; the result names the ones that failed.
+     */
+    public List<String> withdraw(CherryPickExecution execution, boolean closePullRequest)
+    {
+        ImmutableList.Builder<String> problems = ImmutableList.builder();
+        if (execution.delivery().isEmpty()) {
+            return problems.build();
+        }
+        Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+        if (closePullRequest && execution.delivery().flatMap(Delivery::pullRequestNumber).isPresent()) {
+            try {
+                if (pullRequest(execution).state() == GitHubPullRequestIdentity.State.OPEN) {
+                    pullRequests.closePullRequest(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+                    pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), pullRequestNumber(execution));
+                }
+            }
+            catch (RuntimeException failure) {
+                problems.add("Could not close pull request #" + pullRequestNumber(execution) + ": " + failure.getMessage());
+            }
+        }
+        String branch = execution.workspace().workBranch();
+        try {
+            git.remoteBranchSha(workspace, branch).ifPresent(sha -> git.deleteBranch(workspace, branch, sha));
+        }
+        catch (ManagedWorkspaceGit.Failure failure) {
+            problems.add("Could not delete " + branch + " from origin: " + failure.safeMessage());
+        }
+        return problems.build();
+    }
+
+    private static int pullRequestNumber(CherryPickExecution execution)
+    {
+        return execution.delivery().flatMap(Delivery::pullRequestNumber).orElseThrow(() -> new IllegalStateException("Execution has no pull request"));
+    }
+
+    private static PullRequestRef pullRequestRef(Workspace workspace, CherryPickExecution execution)
+    {
+        return PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), pullRequestNumber(execution));
     }
 
     private BackportChain requireChain(String id, int index)
@@ -391,6 +495,9 @@ public class WorkspacePullRequestService
 
     private static Optional<String> deliveryReason(CherryPickExecution execution)
     {
+        if (execution.lifecycle().delivers()) {
+            return Optional.of("This execution publishes its own branch.");
+        }
         if (execution.status() != Status.FINISHED
                 || execution.finishReason().filter(FinishReason.COMPLETED::equals).isEmpty()) {
             return Optional.of("Only a successfully completed execution can be delivered.");
@@ -401,45 +508,11 @@ public class WorkspacePullRequestService
         return Optional.empty();
     }
 
-    private DeliveryStatus status(
-            Workspace workspace,
-            CherryPickExecution execution,
-            boolean writable,
-            Optional<String> reason)
-    {
-        Optional<PushResult> push = execution.delivery().map(WorkspacePullRequestService::pushResult);
-        Optional<PullRequestResult> pullRequest = execution.delivery()
-                .filter(delivery -> delivery.pullRequestId().isPresent())
-                .map(delivery -> pullRequestResult(workspace, execution, delivery));
-        return new DeliveryStatus(
-                writable,
-                writable ? Optional.empty() : reason,
-                workspace.monitoredRepository(),
-                execution.workspace().targetBranch(),
-                head(workspace, execution),
-                push,
-                pullRequest,
-                ciAutofixStatus(workspace, execution));
-    }
-
     private void activatePullRequest(Workspace workspace, CherryPickExecution execution, Delivery delivery)
     {
         int number = delivery.pullRequestNumber().orElseThrow();
         pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), number);
         ciAutofix.start(new StartCiAutofixCommand(workspace.id(), number, new AgentLaneId(execution.workspace().laneId()), ciAutofixKey(execution)));
-    }
-
-    private Optional<CiAutofixStatus> ciAutofixStatus(Workspace workspace, CherryPickExecution execution)
-    {
-        if (execution.delivery().isEmpty()) {
-            return Optional.empty();
-        }
-        return ciAutofixStore.findByIdempotencyKey(ciAutofixKey(execution))
-                .map(run -> new CiAutofixStatus(
-                        run.id().toString(),
-                        run.status().name(),
-                        run.attemptsUsed(),
-                        run.summary()));
     }
 
     private static String ciAutofixKey(CherryPickExecution execution)
@@ -517,45 +590,6 @@ public class WorkspacePullRequestService
             requireNonNull(baseRepository, "baseRepository is null");
             checkText(baseBranch, "baseBranch");
             checkText(head, "head");
-        }
-    }
-
-    public record DeliveryStatus(
-            boolean pushWritable,
-            Optional<String> disabledReason,
-            RepoRef baseRepository,
-            String baseBranch,
-            String head,
-            Optional<PushResult> push,
-            Optional<PullRequestResult> pullRequest,
-            Optional<CiAutofixStatus> ciAutofix)
-    {
-        public DeliveryStatus
-        {
-            requireNonNull(disabledReason, "disabledReason is null");
-            requireNonNull(baseRepository, "baseRepository is null");
-            checkText(baseBranch, "baseBranch");
-            checkText(head, "head");
-            requireNonNull(push, "push is null");
-            requireNonNull(pullRequest, "pullRequest is null");
-            requireNonNull(ciAutofix, "ciAutofix is null");
-            checkArgument(pushWritable || disabledReason.isPresent(),
-                    "non-writable delivery has no reason");
-            checkArgument(pullRequest.isEmpty() || push.isPresent(),
-                    "pull request has no recorded push");
-            checkArgument(ciAutofix.isEmpty() || pullRequest.isPresent(),
-                    "CI Autofix has no recorded pull request");
-        }
-    }
-
-    public record CiAutofixStatus(String runId, String status, int attemptsUsed, Optional<String> summary)
-    {
-        public CiAutofixStatus
-        {
-            checkText(runId, "runId");
-            checkText(status, "status");
-            checkArgument(attemptsUsed >= 0, "attemptsUsed is negative");
-            requireNonNull(summary, "summary is null");
         }
     }
 }

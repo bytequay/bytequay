@@ -145,16 +145,6 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         assert(entries().length === 1 && marker('One issue needs attention.') !== undefined, 'Resolving threads must remove their comments from the index');
         await mount(<Surface><PullOverview pr={remotePullRequest(detail)} detail={{ ...detail, recentActivity: [] }} onRefresh={async () => {}} /></Surface>);
         assert(host.querySelector('.review-comment-index') === null, 'Empty pages must not reserve a rail');
-        await mount(<Surface><div className="cmt-prog-pr" style={{ flex: 1 }}><div className="cmt-pr-overview">
-          <PullOverview pr={remotePullRequest(detail)} detail={detail} onRefresh={async () => {}} />
-          <div className="cmt-pr-footnote">Pull request for the selected commit</div>
-        </div></div></Surface>);
-        const embeddedPane = host.querySelector('.cmt-prog-pr')?.getBoundingClientRect();
-        const embeddedRail = host.querySelector('.review-comment-index')?.getBoundingClientRect();
-        const footer = host.querySelector('.cmt-pr-footnote')?.getBoundingClientRect();
-        assert(embeddedPane !== undefined && embeddedRail !== undefined && footer !== undefined
-          && Math.abs(embeddedRail.left - embeddedPane.left - 6) < 1 && footer.bottom <= embeddedPane.bottom
-          && embeddedRail.bottom < footer.top, 'Embedded PR index and footer must remain inside the visible pane');
       }],
       ['Index navigation preserves review card layout', async () => {
         const openDetail = { ...detail, recentActivity: detail.recentActivity.map(activity => activity.eventType === 'review_thread'

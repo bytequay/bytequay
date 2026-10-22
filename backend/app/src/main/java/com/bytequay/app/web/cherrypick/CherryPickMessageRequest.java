@@ -14,7 +14,7 @@
 package com.bytequay.app.web.cherrypick;
 
 /**
- * One bounded user instruction for a paused range.
+ * One bounded user message for the execution's agent.
  *
  * <p>The text reaches the agent quoted as an untrusted note. It cannot change
  * the plan, the target, the commit order, or the skip list.

@@ -350,10 +350,10 @@ export default function FlowView({
 
         <div className="cmt-pr-card">
           <div className="cmt-pr-card-head">
-            <span>Pull request</span>
+            <span>Draft pull request</span>
             <span className="cmt-pr-card-sub">
-              title and description for the PR opened when you later push the work branch — nothing
-              is sent to GitHub now
+              Start lets ByteQuay push the work branch, open this draft, push CI fixes, and
+              force-push rebases when the target moves. Squashing fixups and merging wait for you.
             </span>
           </div>
           <div className="cmt-pr-card-body">

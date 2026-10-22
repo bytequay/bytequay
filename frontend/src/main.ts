@@ -1171,26 +1171,13 @@ function registerIpc(): void {
       headers: { 'X-ByteQuay-Session': sessionToken() },
     });
   });
-  const deliveryUrl = (workspaceId: string, executionId: string, action: string) =>
-    workspaceUrl(workspaceId)
-      + `/cherry-pick/executions/${encodeURIComponent(executionId)}/${action}`;
-  ipcMain.handle('cherrypick:delivery:get', (_event, workspaceId: string, executionId: string) =>
-    backendJson(deliveryUrl(workspaceId, executionId, 'delivery'), {
-      headers: { 'X-ByteQuay-Session': sessionToken() },
-    }));
-  ipcMain.handle('cherrypick:delivery:push', (_event, workspaceId: string, executionId: string) =>
-    backendJson(deliveryUrl(workspaceId, executionId, 'push'), {
-      ...jsonInit('POST', { confirmed: true }),
-      signal: AbortSignal.timeout(15 * 60_000),
-    }));
-  ipcMain.handle('cherrypick:delivery:pull-request', (
-    _event,
-    workspaceId: string,
-    executionId: string,
-  ) => backendJson(
-    deliveryUrl(workspaceId, executionId, 'pull-request'),
-    jsonInit('POST', { confirmed: true }),
-  ));
+  const executionAction = (executionId: string, action: string, body?: unknown) =>
+    backendJson(`${backendBase()}/api/cherry-pick-ranges/executions/${encodeURIComponent(executionId)}/${action}`,
+      body === undefined ? { method: 'POST', headers: { 'X-ByteQuay-Session': sessionToken() } } : jsonInit('POST', body));
+  ipcMain.handle('cherrypick:execution:pause', (_event, executionId: string) => executionAction(executionId, 'pause'));
+  ipcMain.handle('cherrypick:execution:resume', (_event, executionId: string) => executionAction(executionId, 'resume'));
+  ipcMain.handle('cherrypick:execution:squash', (_event, executionId: string, expectedHead: string) =>
+    executionAction(executionId, 'squash', { expectedHead }));
   ipcMain.handle('cherrypick:execution:list', (_event, limit: number) => {
     const url = new URL(`${backendBase()}/api/cherry-pick-ranges/executions`);
     url.searchParams.set('limit', String(limit));

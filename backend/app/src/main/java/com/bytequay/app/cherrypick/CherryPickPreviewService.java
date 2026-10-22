@@ -21,6 +21,7 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
+import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
@@ -276,6 +277,17 @@ public class CherryPickPreviewService
         checkArgument(
                 resolve(repository, preview.localTargetBranch()).equals(preview.targetSha()),
                 "Preview is stale; the synchronized target moved, so review a refreshed preview");
+    }
+
+    /** Fetches a delivering execution's target into its local branch and returns where the target now points. */
+    String synchronizeTarget(Path repository, CherryPickExecution execution)
+    {
+        CherryPickExecution.Workspace route = execution.workspace();
+        relationships.requireTransferAllowed(route.sourceRepository(), route.repository());
+        Map<String, String> environment = authenticationEnvironment(repository, route.workspaceId(), ImmutableList.of(route.targetRemote()));
+        synchronizeTarget(repository, route.targetRemote(), route.targetBranch(), route.localTargetBranch(),
+                "refs/remotes/" + route.targetRemote() + "/" + route.targetBranch(), environment);
+        return resolve(repository, route.localTargetBranch());
     }
 
     private static Optional<TargetMatch> evidence(String sourceSha, Set<String> targetAncestors, Map<String, String> originLines)

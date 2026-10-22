@@ -402,6 +402,16 @@ agent reported fixed. Auto-merge merges only the head it checked, after the
 user's delay. Both record a post or merge as started before sending it, so an
 uncertain outcome is shown to the user rather than sent again.
 
+Starting a cherry-pick from Commits is that scope for its delivery: it pushes the
+work branch, opens one draft pull request, lets CI Autofix push repairs, and
+force-pushes rebases onto a moved target, each with a lease on the head it last
+saw. Fixups stay separate commits until the user approves folding them, and the
+user merges. Every rewrite is checked from Git before it is pushed: one copy per
+applied source in plan order, at most one fixup directly after each, and a fold
+that leaves the tree unchanged. Abort closes the pull request and deletes the
+branch; the target branch is never written. A backport chain's executions stop
+after applying and leave publication to the chain.
+
 Provider login profiles live outside repositories. Named Claude profiles have
 either global or repository ownership. Model catalogs filter repository-owned
 profiles by workspace, and the provider registry checks that ownership before

@@ -92,21 +92,8 @@ class ManagedWorkspaceGit
     /** Pushes one retained ByteQuay task branch to the persisted {@code origin} without force. */
     void pushBranch(Workspace workspace, String branch, String expectedSha)
     {
-        requireNonNull(workspace, "workspace is null");
-        requireNonNull(branch, "branch is null");
-        requireNonNull(expectedSha, "expectedSha is null");
-        validateRouting(workspace);
-        Path repository = requireOwnedCheckout(workspace);
-        if (!remoteUrl(repository, "origin").filter(workspace.originCloneUrl()::equals).isPresent()) {
-            throw remoteMismatch("origin remote does not match persisted push routing");
-        }
+        Path repository = requireBranchAt(workspace, branch, expectedSha);
         String localRef = "refs/heads/" + branch;
-        Result head = git.run(repository, "rev-parse", "--verify", localRef + "^{commit}");
-        requireGitSuccess(head, "inspect generated branch");
-        String sha = head.output().strip();
-        if (!sha.equals(expectedSha)) {
-            throw new Failure("The generated branch moved after the execution completed. Start another execution.", "Generated branch does not match the completed execution");
-        }
         Result pushed = git.run(
                 repository,
                 NETWORK_TIMEOUT,
@@ -115,13 +102,65 @@ class ManagedWorkspaceGit
         requireGitSuccess(pushed, "push generated branch to origin");
     }
 
+    /** Replaces one ByteQuay task branch on {@code origin} only while it still points at {@code leaseSha}. */
+    void replaceBranch(Workspace workspace, String branch, String expectedSha, String leaseSha)
+    {
+        requireNonNull(leaseSha, "leaseSha is null");
+        Path repository = requireBranchAt(workspace, branch, expectedSha);
+        String ref = "refs/heads/" + branch;
+        Result pushed = git.run(
+                repository,
+                NETWORK_TIMEOUT,
+                authenticationEnvironment(workspace),
+                ImmutableList.of("push", "--porcelain", "--force-with-lease=" + ref + ":" + leaseSha, "origin", ref + ":" + ref));
+        requireGitSuccess(pushed, "replace generated branch on origin");
+    }
+
+    /** Deletes one ByteQuay task branch from {@code origin} only while it still points at {@code leaseSha}. */
+    void deleteBranch(Workspace workspace, String branch, String leaseSha)
+    {
+        requireNonNull(branch, "branch is null");
+        requireNonNull(leaseSha, "leaseSha is null");
+        validateRouting(workspace);
+        Path repository = requireOwnedCheckout(workspace);
+        requireOrigin(workspace, repository);
+        String ref = "refs/heads/" + branch;
+        Result deleted = git.run(
+                repository,
+                NETWORK_TIMEOUT,
+                authenticationEnvironment(workspace),
+                ImmutableList.of("push", "--porcelain", "--force-with-lease=" + ref + ":" + leaseSha, "origin", ":" + ref));
+        requireGitSuccess(deleted, "delete generated branch from origin");
+    }
+
+    private Path requireBranchAt(Workspace workspace, String branch, String expectedSha)
+    {
+        requireNonNull(workspace, "workspace is null");
+        requireNonNull(branch, "branch is null");
+        requireNonNull(expectedSha, "expectedSha is null");
+        validateRouting(workspace);
+        Path repository = requireOwnedCheckout(workspace);
+        requireOrigin(workspace, repository);
+        Result head = git.run(repository, "rev-parse", "--verify", "refs/heads/" + branch + "^{commit}");
+        requireGitSuccess(head, "inspect generated branch");
+        if (!head.output().strip().equals(expectedSha)) {
+            throw new Failure("The generated branch moved after the execution completed. Start another execution.", "Generated branch does not match the completed execution");
+        }
+        return repository;
+    }
+
+    private void requireOrigin(Workspace workspace, Path repository)
+    {
+        if (!remoteUrl(repository, "origin").filter(workspace.originCloneUrl()::equals).isPresent()) {
+            throw remoteMismatch("origin remote does not match persisted push routing");
+        }
+    }
+
     Optional<String> remoteBranchSha(Workspace workspace, String branch)
     {
         validateRouting(workspace);
         Path repository = requireOwnedCheckout(workspace);
-        if (!remoteUrl(repository, "origin").filter(workspace.originCloneUrl()::equals).isPresent()) {
-            throw remoteMismatch("origin remote does not match persisted push routing");
-        }
+        requireOrigin(workspace, repository);
         String ref = "refs/heads/" + branch;
         Result result = git.run(repository, PROBE_TIMEOUT, authenticationEnvironment(workspace),
                 ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", workspace.originCloneUrl(), ref));

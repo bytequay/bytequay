@@ -547,7 +547,7 @@ public class BackportChainService
                 validate(chain);
                 var execution = executions.start(new StartCherryPickExecutionCommand(preview.previewId(), preview.sourceBaseSha(),
                         preview.sourceTipSha(), preview.targetSha(), ImmutableList.of(), hop.laneId(), hop.model(), hop.effort(), chain.executionKey(index),
-                        plan.draft()),
+                        plan.draft(), false),
                         local.workspaceId(), local.repository(), new RepositoryIdentity(local.selectedRepository().owner(), local.selectedRepository().repo()));
                 chains.save(chain.withHop(index, hop.withExecution(execution.id().toString()), clock.instant()));
                 return;

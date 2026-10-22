@@ -703,11 +703,15 @@ export default function AgentTasksView({
   }, [live, setTasks, workspaceId]);
   const changes = useTaskChanges(workspaceId, tasks, live);
   const work = useWorkspaceWork(workspaceId, live);
-  const items = useMemo(() => [
-    ...work.reviews.map(reviewItem),
-    ...work.executions.map(cherryPickItem),
-    ...work.runs.map(ciFixItem),
-  ], [work]);
+  const items = useMemo(() => {
+    // A delivering cherry-pick runs its own CI rounds and shows them inside its task.
+    const owned = new Set(work.executions.flatMap((execution) => execution.lifecycle.ciRunIds));
+    return [
+      ...work.reviews.map(reviewItem),
+      ...work.executions.map(cherryPickItem),
+      ...work.runs.filter((run) => !owned.has(run.id)).map(ciFixItem),
+    ];
+  }, [work]);
   const openItem = useCallback((item: TaskListItem) => {
     const { review, execution, run } = item;
     if (review !== null) onOpenReview(review);

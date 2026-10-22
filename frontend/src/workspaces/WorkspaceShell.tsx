@@ -20,7 +20,7 @@ import ReviewTaskScreen from '../agents/ReviewTaskScreen';
 import TaskOverview from '../agents/TaskOverview';
 import ArtifactsPage from '../artifacts/ArtifactsPage';
 import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
-import ProgressView from '../commits/ProgressView';
+import CherryPickTaskScreen from '../commits/CherryPickTaskScreen';
 import { zoomReference } from '../githubReference';
 import { needsYouKeys } from '../workitems/model';
 import { visibleAttention } from '../home/attention';
@@ -283,11 +283,8 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
       return <MemoryPage workspace={workspace} />;
     }
     if (tab === 'tasks') {
-      if (initialCherryPickId !== null) return <div className="cmt-root"><ProgressView
-        key={initialCherryPickId} executionId={initialCherryPickId} workspaceId={workspace.id}
-        upstreamSlug={workspace.upstreamRepositoryId === null ? null : monitoredRepository}
-        onBackToTasks={() => onSelectAgentTask(null, 'push')}
-        onStartAnotherRange={() => onSelectTab('commits')} /></div>;
+      if (initialCherryPickId !== null) return stage(<CherryPickTaskScreen key={initialCherryPickId} executionId={initialCherryPickId}
+        onBack={() => onSelectAgentTask(null, 'push')} headerAction={overviewOpen ? undefined : overviewToggle} onOpenPullRequest={zoomPullRequest} />);
       if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
         key={initialAgentReviewId}
         workspaceId={workspace.id}
@@ -349,21 +346,8 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
           {zoomedCherryPick && !zoom.full && <ZoomScrim onClose={zoom.close} />}
           {openCherryPick !== null && (
             <div className={zoom.cardClass}>
-              <div className="cmt-root">
-                <ProgressView
-                  key={openCherryPick}
-                  executionId={openCherryPick}
-                  workspaceId={workspace.id}
-                  upstreamSlug={workspace.upstreamRepositoryId === null ? null : `${workspace.upstreamOwner}/${workspace.upstreamRepo}`}
-                  onBackToTasks={zoom.close}
-                  headerAction={<ZoomActions {...zoom} label="cherry-pick" className="cmt-btn-plain" />}
-                  onStartAnotherRange={() => {
-                    setOpenCherryPick(null);
-                    setInitialCommitsRepo('upstream');
-                    onSelectTab('commits');
-                  }}
-                />
-              </div>
+              <CherryPickTaskScreen key={openCherryPick} executionId={openCherryPick} onBack={zoom.close}
+                headerAction={<ZoomActions {...zoom} label="cherry-pick" className="agt-headbtn" />} onOpenPullRequest={zoomPullRequest} />
             </div>
           )}
         </>,

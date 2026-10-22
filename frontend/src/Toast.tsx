@@ -17,6 +17,8 @@ import { createPortal } from 'react-dom';
 type Props = {
   text: string;
   onUndo?: () => void;
+  /** What the action button says; it undoes by default. */
+  actionLabel?: string;
   onDismiss: () => void;
   durationMs?: number;
   /** Extra class for a surface that must place the toast itself, e.g. above a docked composer. */
@@ -25,7 +27,7 @@ type Props = {
 
 /** Bottom-centered confirmation. Render with a per-message `key` so a new
  *  message restarts the timer instead of inheriting the previous one's. */
-export default function Toast({ text, onUndo, onDismiss, durationMs = 4200, className = '' }: Props) {
+export default function Toast({ text, onUndo, actionLabel = 'Undo', onDismiss, durationMs = 4200, className = '' }: Props) {
   const dismiss = useRef(onDismiss);
   dismiss.current = onDismiss;
 
@@ -38,7 +40,7 @@ export default function Toast({ text, onUndo, onDismiss, durationMs = 4200, clas
     <div className={`bq-toast${className === '' ? '' : ` ${className}`}`} role="status">
       <span className="bq-toast__text">{text}</span>
       {onUndo && (
-        <button className="bq-toast__undo" type="button" onClick={onUndo}>Undo</button>
+        <button className="bq-toast__undo" type="button" onClick={onUndo}>{actionLabel}</button>
       )}
     </div>,
     document.body,

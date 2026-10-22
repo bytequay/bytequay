@@ -25,6 +25,7 @@ import com.bytequay.core.cherrypick.CherryPickExecution.Step;
 import com.bytequay.core.cherrypick.CherryPickExecution.Workspace;
 import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickItem;
+import com.bytequay.core.cherrypick.CherryPickLifecycle;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
@@ -159,6 +160,9 @@ public class CherryPickExecutionEntity
     @Column(nullable = false, columnDefinition = "TEXT")
     private String itemsJson;
 
+    @Column(columnDefinition = "TEXT")
+    private String lifecycleJson;
+
     @Version
     @Getter
     private long version;
@@ -225,6 +229,7 @@ public class CherryPickExecutionEntity
         summary = execution.summary().orElse(null);
         journalJson = execution.journal().map(entry -> CHERRY_PICK.write(entry, "cherry-pick action journal")).orElse(null);
         itemsJson = CHERRY_PICK.write(execution.items(), "cherry-pick items");
+        lifecycleJson = CHERRY_PICK.write(execution.lifecycle(), "cherry-pick lifecycle");
         createdAt = execution.createdAt();
         updatedAt = execution.updatedAt();
         terminalAt = execution.terminalAt().orElse(null);
@@ -269,6 +274,7 @@ public class CherryPickExecutionEntity
                 Optional.ofNullable(summary),
                 decodeJournal(journalJson),
                 decodeItems(itemsJson),
+                decodeLifecycle(lifecycleJson, initialTargetSha),
                 version,
                 createdAt,
                 updatedAt,
@@ -278,6 +284,12 @@ public class CherryPickExecutionEntity
     private static List<CherryPickItem> decodeItems(String json)
     {
         return json == null || json.isBlank() ? ImmutableList.of() : ImmutableList.copyOf(CHERRY_PICK.read(json, ITEMS, "cherry-pick items"));
+    }
+
+    /** Rows saved before executions delivered themselves stop after applying, as they did then. */
+    private static CherryPickLifecycle decodeLifecycle(String json, String initialTargetSha)
+    {
+        return json == null || json.isBlank() ? CherryPickLifecycle.start(false, initialTargetSha) : CHERRY_PICK.read(json, CherryPickLifecycle.class, "cherry-pick lifecycle");
     }
 
     private static Optional<ActionJournal> decodeJournal(String json)

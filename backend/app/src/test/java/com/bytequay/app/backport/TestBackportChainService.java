@@ -695,7 +695,7 @@ class TestBackportChainService
                         Optional.of(RepoRef.of("test", sourceSha.equals(P4_SHA) ? "p4" : "p3")), Optional.of("model"), Optional.of("high")),
                 Optional.of(new CherryPickExecution.PullRequestDraft("Backport test/" + (sourceSha.equals(P4_SHA) ? "p4#4" : "p3#3"),
                         "Backport of test/" + (sourceSha.equals(P4_SHA) ? "p4#4" : "p3#3") + "\n\nLanded source: " + sourceSha)),
-                new Range(BASE, sourceSha, BASE), ImmutableList.of(item), NOW);
+                new Range(BASE, sourceSha, BASE), ImmutableList.of(item), false, NOW);
         result = empty ? result.recordEmptySkipped(sourceSha, NOW) : result.recordApplied(sourceSha, TARGET, NOW);
         return result.finish(FinishReason.COMPLETED, empty ? "Already present" : "Complete", NOW);
     }

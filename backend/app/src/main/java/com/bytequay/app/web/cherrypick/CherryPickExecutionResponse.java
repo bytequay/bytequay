@@ -15,6 +15,8 @@ package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickItem;
+import com.bytequay.core.cherrypick.CherryPickLifecycle;
+import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -27,13 +29,16 @@ import static java.util.Objects.requireNonNull;
 /**
  * Execution response.
  *
- * <p>Deliberately small: {@code result} is the durable answer per commit, and
- * the current step explains only what is still pending.
+ * <p>{@code result} is the durable answer per commit, and the current step
+ * explains only what is still pending. The lifecycle carries the stages after
+ * applying, and {@code agentTaskId} names the conversation that resolves,
+ * builds and rebases.
  */
 public record CherryPickExecutionResponse(
         String executionId,
         String workspaceId,
         String repository,
+        Optional<String> sourceRepository,
         String workBranch,
         String localTargetBranch,
         String targetBranch,
@@ -48,6 +53,8 @@ public record CherryPickExecutionResponse(
         Optional<PullRequestDraftResponse> pullRequestDraft,
         Optional<DeliveryResponse> delivery,
         List<ItemResponse> items,
+        Optional<String> agentTaskId,
+        CherryPickLifecycle lifecycle,
         Instant createdAt,
         Instant updatedAt,
         Optional<Instant> terminalAt)
@@ -57,6 +64,7 @@ public record CherryPickExecutionResponse(
         requireNonNull(executionId, "executionId is null");
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(repository, "repository is null");
+        requireNonNull(sourceRepository, "sourceRepository is null");
         requireNonNull(workBranch, "workBranch is null");
         requireNonNull(localTargetBranch, "localTargetBranch is null");
         requireNonNull(targetBranch, "targetBranch is null");
@@ -71,6 +79,8 @@ public record CherryPickExecutionResponse(
         requireNonNull(pullRequestDraft, "pullRequestDraft is null");
         requireNonNull(delivery, "delivery is null");
         items = ImmutableList.copyOf(requireNonNull(items, "items is null"));
+        requireNonNull(agentTaskId, "agentTaskId is null");
+        requireNonNull(lifecycle, "lifecycle is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
         requireNonNull(terminalAt, "terminalAt is null");
@@ -82,6 +92,7 @@ public record CherryPickExecutionResponse(
                 execution.id().toString(),
                 execution.workspace().workspaceId(),
                 execution.workspace().repository().fullName(),
+                execution.workspace().sourceRepository().map(RepoRef::fullName),
                 execution.workspace().workBranch(),
                 execution.workspace().localTargetBranch(),
                 execution.workspace().targetBranch(),
@@ -96,12 +107,14 @@ public record CherryPickExecutionResponse(
                 execution.pullRequestDraft().map(PullRequestDraftResponse::of),
                 execution.delivery().map(DeliveryResponse::of),
                 execution.items().stream().map(ItemResponse::of).collect(toImmutableList()),
+                execution.agentTaskId(),
+                execution.lifecycle(),
                 execution.createdAt(),
                 execution.updatedAt(),
                 execution.terminalAt());
     }
 
-    /** Remote delivery persisted after the two explicit user actions. */
+    /** Where the work branch was pushed and the pull request it opened. */
     public record DeliveryResponse(String pushRemote, String head, String sha, Optional<Long> pullRequestId, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
     {
         public DeliveryResponse
@@ -120,7 +133,7 @@ public record CherryPickExecutionResponse(
         }
     }
 
-    /** Pull-request copy saved for the later explicit push and create actions. */
+    /** Pull-request copy saved at start for the draft the execution opens. */
     public record PullRequestDraftResponse(String title, String body)
     {
         public PullRequestDraftResponse

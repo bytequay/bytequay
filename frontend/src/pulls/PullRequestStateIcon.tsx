@@ -14,15 +14,21 @@
 import { GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft } from 'lucide-react';
 import type { PullRequestDto } from '../types';
 
+type StatePullRequest = (Pick<PullRequestDto, 'state' | 'draft'> & { queued?: boolean }) | null;
+
+export function pullRequestState(pullRequest: StatePullRequest): 'merged' | 'closed' | 'draft' | 'queued' | 'open' | null {
+  return pullRequest === null ? null
+    : pullRequest.state === 'merged' ? 'merged' : pullRequest.state === 'closed' ? 'closed'
+      : pullRequest.draft ? 'draft' : pullRequest.queued ? 'queued' : 'open';
+}
+
 /** Without a stored pull request, keep the mark neutral until its state is known. */
 export function PullRequestStateIcon({ pullRequest, size, className }: {
-  pullRequest: (Pick<PullRequestDto, 'state' | 'draft'> & { queued?: boolean }) | null;
+  pullRequest: StatePullRequest;
   size: number;
   className?: string;
 }) {
-  const state = pullRequest === null ? null
-    : pullRequest.state === 'merged' ? 'merged' : pullRequest.state === 'closed' ? 'closed'
-      : pullRequest.draft ? 'draft' : pullRequest.queued ? 'queued' : 'open';
+  const state = pullRequestState(pullRequest);
   const Icon = state === 'merged' ? GitMerge : state === 'closed' ? GitPullRequestClosed : state === 'draft' ? GitPullRequestDraft : GitPullRequest;
   const label = state === null ? 'Pull request status unknown' : state === 'queued' ? 'In merge queue'
     : `${state[0].toUpperCase()}${state.slice(1)} pull request`;

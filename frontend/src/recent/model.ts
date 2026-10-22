@@ -77,6 +77,32 @@ export function dayHeading(iso: string, today: string): string {
     : { month: 'short', day: 'numeric', year: 'numeric' }).toUpperCase();
 }
 
+export type PaletteGroup = 'Today' | 'Yesterday' | 'This week' | 'Earlier';
+
+const PALETTE_GROUPS: PaletteGroup[] = ['Today', 'Yesterday', 'This week', 'Earlier'];
+
+/**
+ * Buckets palette results by how long ago they happened, keeping each
+ * bucket's incoming order. A ten-row list reads by recency, not by date.
+ */
+export function groupForPalette<T>(items: T[], at: (item: T) => string, today: string): Array<{ group: PaletteGroup; item: T }> {
+  const week = shiftDay(today, -7);
+  return items
+    .map(item => {
+      const day = isoDay(new Date(at(item)));
+      const group: PaletteGroup = day === today ? 'Today' : day === shiftDay(today, -1) ? 'Yesterday' : day > week ? 'This week' : 'Earlier';
+      return { group, item };
+    })
+    .sort((left, right) => PALETTE_GROUPS.indexOf(left.group) - PALETTE_GROUPS.indexOf(right.group));
+}
+
+/** Words mode's "Recent searches": newest first, unique ignoring case, capped. */
+export function rememberSearch(searches: string[], query: string, limit = 3): string[] {
+  const text = query.trim();
+  if (!text) return searches;
+  return [text, ...searches.filter(search => search.toLowerCase() !== text.toLowerCase())].slice(0, limit);
+}
+
 /** Badge colour. Verdicts read green, discussion purple, agent work amber. */
 export function reasonTone(reason: RecentReason): 'green' | 'purple' | 'amber' | 'neutral' {
   switch (reason) {

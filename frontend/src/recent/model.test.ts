@@ -16,11 +16,13 @@ import { describe, expect, it } from 'vitest';
 import {
   calendarCells,
   dayHeading,
+  groupForPalette,
   highlightParts,
   mayLoad,
   rangeLabel,
   rangeWindow,
   reasonTone,
+  rememberSearch,
   roleTone,
   rowMarkdown,
   shiftDay,
@@ -30,6 +32,34 @@ import {
 import type { RecentRowDto } from '../types';
 
 const TODAY = '2026-08-28';
+
+describe('palette groups', () => {
+  it('buckets by recency and keeps the incoming order inside a bucket', () => {
+    const at = (day: string) => new Date(`${day}T12:00:00`).toISOString();
+    const items = [
+      { id: 'old', at: at('2026-08-15') },
+      { id: 'week', at: at('2026-08-24') },
+      { id: 'flagged-today', at: at(TODAY) },
+      { id: 'yesterday', at: at('2026-08-27') },
+      { id: 'today', at: at(TODAY) },
+    ];
+    expect(groupForPalette(items, item => item.at, TODAY).map(entry => `${entry.group}:${entry.item.id}`)).toEqual([
+      'Today:flagged-today',
+      'Today:today',
+      'Yesterday:yesterday',
+      'This week:week',
+      'Earlier:old',
+    ]);
+  });
+});
+
+describe('recent searches', () => {
+  it('puts the newest first, drops a repeat ignoring case, and caps the list', () => {
+    expect(rememberSearch(['UTC', 'test', 'partition'], ' Test ')).toEqual(['Test', 'UTC', 'partition']);
+    expect(rememberSearch(['UTC', 'test', 'partition'], 'nit')).toEqual(['nit', 'UTC', 'test']);
+    expect(rememberSearch(['UTC'], '   ')).toEqual(['UTC']);
+  });
+});
 
 describe('day headings', () => {
   it('names the two most recent days and dates the rest', () => {

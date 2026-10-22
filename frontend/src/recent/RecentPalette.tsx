@@ -11,18 +11,41 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Search } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { History, MessageSquare, Search, SquareTerminal } from 'lucide-react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import '../css/recent.css';
 import { relativeTime } from '@bytequay/ui/relativeTime';
-import { PullRequestStateIcon } from '../pulls/PullRequestStateIcon';
+import { PullRequestStateIcon, pullRequestState } from '../pulls/PullRequestStateIcon';
 import type { RecentChangeDto, RecentRowDto, RecentWordHitDto } from '../types';
 import { useModalDialog } from '../useModalDialog';
-import { highlightParts, roleTone, rowMarkdown, TYPE_ICON } from './model';
+import { groupForPalette, highlightParts, isoDay, rememberSearch, roleTone, rowMarkdown, TYPE_ICON, type PaletteGroup } from './model';
 
 type Mode = 'items' | 'words';
+type Scope = 'ALL' | RecentWordHitDto['kind'];
 
-const PAGE_LIMIT = 10;
+const ITEM_LIMIT = 10;
+// The backend's cap. Scope counts come from this one fetch, so they top out here.
+const WORD_LIMIT = 50;
+const SEARCHES_KEY = 'bytequay.recent.searches';
+
+const SCOPES: Array<[Scope, string]> = [
+  ['ALL', 'All'],
+  ['COMMENT', 'Comments'],
+  ['REVIEW_BODY', 'Reviews'],
+  ['TASK_PROMPT', 'Task prompts'],
+  ['DRAFT', 'Drafts'],
+];
+
+const STATE_LABEL = { open: 'Open', merged: 'Merged', closed: 'Closed', draft: 'Draft', queued: 'Queued' } as const;
+
+function readSearches(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(SEARCHES_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 /**
  * Scrolls the pull-request view to the comment the user last wrote in. The
@@ -57,14 +80,19 @@ export default function RecentPalette({
 }) {
   const [mode, setMode] = useState<Mode>('items');
   const [query, setQuery] = useState('');
+  const [scope, setScope] = useState<Scope>('ALL');
   const [rows, setRows] = useState<RecentRowDto[]>([]);
   const [hits, setHits] = useState<RecentWordHitDto[]>([]);
   const [changes, setChanges] = useState<Record<string, RecentChangeDto>>({});
+  const [searches] = useState(readSearches);
+  const [searchCounts, setSearchCounts] = useState<Record<string, number>>({});
   const [active, setActive] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const request = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const searching = query.trim() !== '';
+  const idle = mode === 'words' && !searching;
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -80,11 +108,11 @@ export default function RecentPalette({
     const current = ++request.current;
     const run = async (): Promise<void> => {
       if (mode === 'items') {
-        const result = await window.bridge.searchRecent(query, PAGE_LIMIT);
+        const result = await window.bridge.searchRecent(query, ITEM_LIMIT);
         if (request.current === current) setRows(result);
         return;
       }
-      const result = await window.bridge.searchRecentWords(query, PAGE_LIMIT);
+      const result = await window.bridge.searchRecentWords(query, WORD_LIMIT);
       if (request.current === current) setHits(result);
     };
     void run()
@@ -98,17 +126,27 @@ export default function RecentPalette({
     setActive(0);
   }, [mode, query]);
 
-  // Rows with a dot sort ahead of the rest: something moved, or something wants you.
-  const ordered = useMemo(() => {
-    if (mode !== 'items') return rows;
-    const flagged = (row: RecentRowDto): number => {
-      const change = changes[row.itemKey];
-      return change && (change.moved || change.wantsYou) ? 0 : 1;
-    };
-    return [...rows].sort((left, right) => flagged(left) - flagged(right));
-  }, [changes, mode, rows]);
+  // Counts are re-run rather than stored, so a remembered search never shows a stale number.
+  useEffect(() => {
+    if (!idle || searches.length === 0) return;
+    let live = true;
+    void Promise.all(searches.map(text => window.bridge.searchRecentWords(text, WORD_LIMIT).then(found => [text, found.length] as const)))
+      .then(entries => { if (live) setSearchCounts(Object.fromEntries(entries)); })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [idle, searches]);
 
-  const count = mode === 'items' ? ordered.length : hits.length;
+  const today = isoDay(new Date());
+
+  const itemEntries = useMemo(() => groupForPalette(rows, row => row.touchedAt, today), [rows, today]);
+
+  // Before you type, a reply to the previous query may still be on its way; it must not be openable.
+  const wordEntries = useMemo(
+    () => (searching ? groupForPalette(scope === 'ALL' ? hits : hits.filter(hit => hit.kind === scope), hit => hit.writtenAt, today) : []),
+    [hits, scope, searching, today],
+  );
+
+  const count = mode === 'items' ? itemEntries.length : wordEntries.length;
 
   useEffect(() => {
     listRef.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest' });
@@ -118,6 +156,22 @@ export default function RecentPalette({
     void navigator.clipboard.writeText(value);
     onClose();
   }, [onClose]);
+
+  const remember = () => {
+    try {
+      window.localStorage.setItem(SEARCHES_KEY, JSON.stringify(rememberSearch(searches, query)));
+    } catch {
+      // Recent searches are a convenience; a blocked store just leaves the list as it was.
+    }
+  };
+  const openHit = (hit: RecentWordHitDto) => {
+    remember();
+    onOpenWordHit(hit);
+  };
+  const copyHit = (hit: RecentWordHitDto) => {
+    remember();
+    copy(hit.body);
+  };
 
   const dialog = useModalDialog(inputRef);
   const handleKey = (event: React.KeyboardEvent) => {
@@ -141,7 +195,7 @@ export default function RecentPalette({
     if (!enter && !copyKey) return;
 
     if (mode === 'items') {
-      const row = ordered[active];
+      const row = itemEntries[active]?.item;
       if (!row) return;
       event.preventDefault();
       // The copy paths never navigate: the usual errand is getting the text
@@ -151,16 +205,15 @@ export default function RecentPalette({
       onOpenRow(row);
       return;
     }
-    const hit = hits[active];
+    const hit = wordEntries[active]?.item;
     if (!hit) return;
     event.preventDefault();
-    // Words mode inverts it: Enter copies, and going there is the deliberate act.
-    if (enter && event.metaKey) {
-      onOpenWordHit(hit);
-      return;
-    }
-    if (enter) copy(hit.body);
+    if (copyKey) return copyHit(hit);
+    openHit(hit);
   };
+
+  const activeHit = mode === 'words' ? wordEntries[active]?.item : undefined;
+  const scopeCount = (key: Scope): number => (key === 'ALL' ? hits.length : hits.filter(hit => hit.kind === key).length);
 
   return (
     <dialog ref={dialog} className="rc-palette" onCancel={event => { event.preventDefault(); onClose(); }} onMouseDown={event => {
@@ -172,51 +225,99 @@ export default function RecentPalette({
             ref={inputRef}
             className="rc-palette__input"
             value={query}
-            placeholder={mode === 'items' ? 'Type to narrow…' : 'Search what you wrote…'}
+            placeholder={mode === 'items' ? 'Search recent items…' : 'Search what you wrote…'}
             aria-label={mode === 'items' ? 'Narrow recent items' : 'Search your own words'}
             onChange={event => setQuery(event.target.value)}
           />
           <span className="rc-modes" role="tablist">
             <button type="button" role="tab" aria-selected={mode === 'items'}
-              className={mode === 'items' ? 'is-active' : ''} onClick={() => setMode('items')}>
-              {mode === 'items' ? 'Items' : 'Items ⇥'}
-            </button>
+              className={mode === 'items' ? 'is-active' : ''} onClick={() => setMode('items')}>Items</button>
             <button type="button" role="tab" aria-selected={mode === 'words'}
-              className={mode === 'words' ? 'is-active' : ''} onClick={() => setMode('words')}>
-              {mode === 'words' ? 'Words' : 'Words ⇥'}
-            </button>
+              className={mode === 'words' ? 'is-active' : ''} onClick={() => setMode('words')}>Words</button>
           </span>
         </div>
+        {mode === 'words' && (
+          <div className="rc-scopes">
+            {SCOPES.map(([key, label]) => {
+              const found = searching ? scopeCount(key) : 0;
+              return (
+                <button key={key} type="button" className={`rc-scope${scope === key ? ' is-active' : ''}`} aria-pressed={scope === key}
+                  onClick={() => { setScope(key); setActive(0); }}>
+                  {label}
+                  {found > 0 && <span className="rc-scope__count">{found === WORD_LIMIT ? `${found}+` : found}</span>}
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div className="rc-palette__list" ref={listRef}>
-          {mode === 'items' && ordered.map((row, index) => (
-            <ItemRow
-              key={row.id}
-              row={row}
-              change={changes[row.itemKey]}
-              active={index === active}
-              onHover={() => setActive(index)}
-              onOpen={() => onOpenRow(row)}
-            />
+          {mode === 'items' && itemEntries.map(({ group, item: row }, index) => (
+            <Fragment key={row.id}>
+              {startsGroup(itemEntries, index) && <GroupHeading group={group} />}
+              <ItemRow
+                row={row}
+                change={changes[row.itemKey]}
+                active={index === active}
+                onHover={() => setActive(index)}
+                onOpen={() => onOpenRow(row)}
+              />
+            </Fragment>
           ))}
-          {mode === 'words' && hits.map((hit, index) => (
-            <WordRow
-              key={hit.id}
-              hit={hit}
-              active={index === active}
-              onHover={() => setActive(index)}
-              onCopy={() => copy(hit.body)}
-            />
+          {mode === 'words' && wordEntries.map(({ group, item: hit }, index) => (
+            <Fragment key={hit.id}>
+              {startsGroup(wordEntries, index) && <GroupHeading group={group} />}
+              <WordRow hit={hit} active={index === active} onHover={() => setActive(index)} onOpen={() => openHit(hit)} />
+            </Fragment>
           ))}
-          {loaded && count === 0 && (
+          {idle && searches.length > 0 && (
+            <>
+              <div className="rc-group">Recent searches</div>
+              {searches.map(text => (
+                <button key={text} type="button" className="rc-item is-search" onClick={() => setQuery(text)}>
+                  <History className="rc-glyph is-quiet" size={14} strokeWidth={1.6} aria-hidden="true" />
+                  <span className="rc-item__title">{text}</span>
+                  <span className="rc-item__end">{matchCount(searchCounts[text])}</span>
+                </button>
+              ))}
+            </>
+          )}
+          {idle && <div className="rc-palette__hint">Searches the comments, reviews and task prompts you wrote in the last two weeks.</div>}
+          {loaded && !idle && count === 0 && (
             <div className="rc-palette__empty">
               {mode === 'items'
-                ? (query ? 'Nothing touched matches that.' : 'Nothing touched in the last two weeks.')
-                : (query ? 'You did not write that anywhere.' : 'Type to search what you wrote.')}
+                ? (searching ? `No recent items match “${query.trim()}”` : 'Nothing touched in the last two weeks.')
+                : `Nothing you wrote matches “${query.trim()}”`}
             </div>
           )}
         </div>
+        <div className="rc-palette__foot">
+          <span>↑↓ Navigate</span>
+          <span>↵ {mode === 'items' ? 'Open' : activeHit?.kind === 'TASK_PROMPT' ? 'Open task' : 'Jump to comment'}</span>
+          <span>⌘C Copy</span>
+          <span>⇥ {mode === 'items' ? 'Words' : 'Items'}</span>
+          <span>{mode === 'words' && searching ? `${count} ${count === 1 ? 'result' : 'results'}` : 'esc Close'}</span>
+        </div>
     </dialog>
   );
+}
+
+function startsGroup(entries: Array<{ group: PaletteGroup }>, index: number): boolean {
+  return index === 0 || entries[index - 1].group !== entries[index].group;
+}
+
+function GroupHeading({ group }: { group: PaletteGroup }) {
+  return <div className="rc-group">{group}</div>;
+}
+
+function matchCount(found: number | undefined): string {
+  if (!found) return '';
+  if (found >= WORD_LIMIT) return `${WORD_LIMIT}+ matches`;
+  return found === 1 ? '1 match' : `${found} matches`;
+}
+
+/** Joins the present parts of a metadata line with dim separators. */
+function withSeparators(parts: ReactNode[]): ReactNode[] {
+  return parts.filter(Boolean).flatMap((part, index) => (index === 0 ? [part] : [<span key={`sep-${index}`} className="rc-row__sep">·</span>, part]));
 }
 
 function ItemRow({ row, change, active, onHover, onOpen }: {
@@ -226,54 +327,68 @@ function ItemRow({ row, change, active, onHover, onOpen }: {
   onHover: () => void;
   onOpen: () => void;
 }) {
-  const dot = change?.moved ? 'is-moved' : change?.wantsYou ? 'is-wants' : null;
   const Icon = TYPE_ICON[row.type];
+  const state = row.type === 'PULL_REQUEST' ? pullRequestState(row.pullRequest) : null;
+  const flagged = Boolean(change?.moved || change?.wantsYou);
+  const activity = change?.moved && change.summary
+    ? change.summary.replace(' since you read it', '')
+    : change?.wantsYou ? 'Review requested' : row.reasonLabel;
+  const source = row.type === 'JIRA' ? row.subtitle : row.repo;
   return (
     <button type="button" className={`rc-item${active ? ' is-active' : ''}`}
       onMouseMove={onHover} onClick={onOpen}>
-      <span className="rc-item__line">
-        {row.type === 'PULL_REQUEST'
-          ? <PullRequestStateIcon pullRequest={row.pullRequest} size={16} className="rc-glyph" />
-          : <Icon className={`rc-glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />}
+      {row.type === 'PULL_REQUEST'
+        ? <PullRequestStateIcon pullRequest={row.pullRequest} size={16} className="rc-glyph" />
+        : <Icon className={`rc-glyph is-${roleTone(row)}`} size={16} strokeWidth={1.7} aria-hidden="true" />}
+      <span className="rc-item__body">
         <span className="rc-item__title">{row.title}</span>
-        {dot && <span className={`rc-dot ${dot}`} aria-hidden="true" />}
-      </span>
-      {/* Metadata only on the active row — the list has to stay scannable. */}
-      {active && (
         <span className="rc-item__meta">
-          {row.type === 'JIRA' && <><span>{row.subtitle}</span><span className="rc-row__sep">·</span></>}
-          {row.number !== null && <code>#{row.number}</code>}
-          {row.number !== null && <span className="rc-row__sep">·</span>}
-          {row.reasonLabel.toLowerCase()} {relativeTime(row.touchedAt)}
-          {change?.summary && <span className="rc-row__sep">·</span>}
-          {change?.summary && <span className="rc-changed">{change.summary.replace(' since you read it', '')}</span>}
+          {withSeparators([
+            source && <span key="source" className="rc-item__source">{source}</span>,
+            row.number !== null && <code key="number">#{row.number}</code>,
+            state && <span key="state" className={`agt-pr-icon is-${state}`}>{STATE_LABEL[state]}</span>,
+            <span key="activity" className={flagged ? 'rc-changed' : undefined}>{activity}</span>,
+          ])}
         </span>
-      )}
+      </span>
+      <span className="rc-item__end">
+        {flagged && <span className="rc-dot is-moved" role="img" aria-label="New since you read it" />}
+        <span className="rc-item__time">{relativeTime(row.touchedAt, { suffix: false })}</span>
+      </span>
     </button>
   );
 }
 
-function WordRow({ hit, active, onHover, onCopy }: {
+function WordRow({ hit, active, onHover, onOpen }: {
   hit: RecentWordHitDto;
   active: boolean;
   onHover: () => void;
-  onCopy: () => void;
+  onOpen: () => void;
 }) {
+  const Icon = hit.kind === 'TASK_PROMPT' ? SquareTerminal : MessageSquare;
+  const where = hit.title ?? hit.repo;
   return (
-    <button type="button" className={`rc-word${active ? ' is-active' : ''}`}
-      onMouseMove={onHover} onClick={onCopy}>
-      <span className="rc-word__sentence">
-        “{highlightParts(hit.sentence, hit.highlights).map((part, index) => (
-          part.match ? <mark key={index}>{part.text}</mark> : <span key={index}>{part.text}</span>
-        ))}”
+    <button type="button" className={`rc-item${active ? ' is-active' : ''}`}
+      onMouseMove={onHover} onClick={onOpen}>
+      <Icon className="rc-glyph is-quiet" size={16} strokeWidth={1.6} aria-hidden="true" />
+      <span className="rc-item__body">
+        <span className="rc-word__sentence">
+          {highlightParts(hit.sentence, hit.highlights).map((part, index) => (
+            part.match ? <mark key={index}>{part.text}</mark> : <span key={index}>{part.text}</span>
+          ))}
+        </span>
+        <span className="rc-item__meta">
+          {withSeparators([
+            hit.neverPosted
+              ? <span key="kind" className="rc-badge is-amber">Never posted</span>
+              : <span key="kind" className="rc-item__source">{hit.kindLabel.charAt(0).toUpperCase() + hit.kindLabel.slice(1)}</span>,
+            hit.number !== null && <code key="number">#{hit.number}</code>,
+            where && <span key="where">{where}</span>,
+          ])}
+        </span>
       </span>
-      <span className="rc-word__meta">
-        {hit.neverPosted && <span className="rc-badge is-amber">Never posted</span>}
-        {!hit.neverPosted && <span>{hit.kindLabel}</span>}
-        {!hit.neverPosted && <span className="rc-row__sep">·</span>}
-        {hit.number !== null && <code>#{hit.number}</code>}
-        {hit.number !== null && <span className="rc-row__sep">·</span>}
-        <span>{relativeTime(hit.writtenAt)}</span>
+      <span className="rc-item__end">
+        <span className="rc-item__time">{relativeTime(hit.writtenAt, { suffix: false })}</span>
       </span>
     </button>
   );

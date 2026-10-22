@@ -120,6 +120,14 @@ class InMemoryReviewStore
     }
 
     @Override
+    public void carryRun(AgentReview review, ReviewRun run, List<ReviewFinding> findings)
+    {
+        insertRun(run);
+        findings.forEach(this::updateFinding);
+        updateReview(review);
+    }
+
+    @Override
     public ReviewFinding saveFinding(ReviewFinding finding, boolean insert, ReviewRun run)
     {
         checkArgument(insert != findings.containsKey(finding.id()), "insert disagrees with the stored findings");

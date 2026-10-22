@@ -1476,16 +1476,14 @@ public class AgentReviewService
     private void carry(AgentReview review, Snapshot snapshot, int ordinal, ReviewRun reviewed, List<ReviewFinding> findings)
     {
         Instant now = Instant.now(clock);
-        ReviewRun run = store.insertRun(new ReviewRun(
+        ReviewRun run = new ReviewRun(
                 UUID.randomUUID().toString(), review.id(), ordinal, ReviewRun.Scope.FULL, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(),
                 snapshot.headSha(), snapshot.worktreeTreeSha(),
                 Optional.of(reviewed.headSha()), snapshot.commits(), snapshot.diff(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), reviewed.coverage(),
-                reviewed.investigation(), reviewed.steps(), false, ImmutableMap.of(), reviewed.evidence(), Optional.empty(), 0, now, now, Optional.empty()));
-        for (ReviewFinding finding : findings) {
-            store.updateFinding(finding);
-        }
-        store.acceptRun(review.withLatestCompletedRun(run.id(), now), run.ended(ReviewRun.State.ACCEPTED, Optional.of("The change and its commit messages are identical to "
-                + "the reviewed head `" + ReviewPrompts.shortSha(reviewed.headSha()) + "`, so that review was carried to this head without another pass."), now));
+                reviewed.investigation(), reviewed.steps(), false, ImmutableMap.of(), reviewed.evidence(), Optional.empty(), 0, now, now, Optional.empty());
+        // One transaction: a run left RUNNING with the copied, already sealed steps would start a turn for nothing.
+        store.carryRun(review.withLatestCompletedRun(run.id(), now), run.ended(ReviewRun.State.ACCEPTED, Optional.of("The change and its commit messages are identical to "
+                + "the reviewed head `" + ReviewPrompts.shortSha(reviewed.headSha()) + "`, so that review was carried to this head without another pass."), now), findings);
     }
 
     /**

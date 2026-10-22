@@ -576,6 +576,30 @@ class TestSqliteReviewStores
 
     @Test
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void carryingARunCommitsItsFindingsAndTheReviewCursorTogetherOrRollsBack()
+    {
+        AgentReview review = store.insertReview(newReview("review-carried", "workspace-carried", "bytequay/carried", 7, "task-carried", NOW));
+        store.insertRun(newRun("run-reviewed", "review-carried"));
+        ReviewFinding finding = store.insertFinding(newFinding("finding-carried", "review-carried", "run-reviewed"));
+        ReviewFinding concurrent = store.updateFinding(finding.withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m1", "Keep the guard"))));
+        ReviewRun carried = newRun("run-carried", "review-carried").ended(ReviewRun.State.ACCEPTED, Optional.of("carried"), NOW.plusSeconds(1));
+        AgentReview cursor = review.withLatestCompletedRun("run-carried", NOW.plusSeconds(1));
+        List<ReviewFinding> moved = ImmutableList.of(finding.withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m2", "Carry the guard"))));
+
+        assertThatThrownBy(() -> store.carryRun(cursor, carried, moved)).isInstanceOf(ReviewConflictException.class);
+
+        assertThat(store.findRun("run-carried")).isEmpty();
+        assertThat(store.findReview("review-carried").orElseThrow().latestCompletedRunId()).isEmpty();
+
+        store.carryRun(cursor, carried, ImmutableList.of(concurrent.withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m2", "Carry the guard")))));
+
+        assertThat(store.findRun("run-carried").orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(store.findReview("review-carried").orElseThrow().latestCompletedRunId()).contains("run-carried");
+        assertThat(store.findFinding(finding.id()).orElseThrow().memories()).extracting(ReviewFinding.MemoryCitation::id).containsExactly("m2");
+    }
+
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     void withdrawalCommitsTheFindingItsMessageAndTheRunTogetherOrRollsBack()
     {
         store.insertReview(newReview("review-withdrawn", "workspace-withdrawn", "bytequay/withdrawn", 7, "task-withdrawn", NOW));

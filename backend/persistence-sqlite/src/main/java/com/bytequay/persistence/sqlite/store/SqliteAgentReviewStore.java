@@ -134,6 +134,15 @@ public class SqliteAgentReviewStore
 
     @Override
     @Transactional
+    public void carryRun(AgentReview review, ReviewRun run, List<ReviewFinding> findings)
+    {
+        insertRun(run);
+        findings.forEach(this::updateFinding);
+        updateReview(review);
+    }
+
+    @Override
+    @Transactional
     public ReviewFinding saveFinding(ReviewFinding finding, boolean insert, ReviewRun run)
     {
         ReviewFinding saved = insert ? insertFinding(finding) : updateFinding(finding);

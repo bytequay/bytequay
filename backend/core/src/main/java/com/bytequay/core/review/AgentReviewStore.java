@@ -42,6 +42,9 @@ public interface AgentReviewStore
     /** Commits a run's acceptance and the review's successful-head cursor together. */
     void acceptRun(AgentReview review, ReviewRun run);
 
+    /** Inserts an accepted run carried from an earlier head, with the findings it carries and the review's cursor, in one transaction. */
+    void carryRun(AgentReview review, ReviewRun run, List<ReviewFinding> findings);
+
     /** Writes a finding and the run that records the operation replaying it in one transaction. */
     ReviewFinding saveFinding(ReviewFinding finding, boolean insert, ReviewRun run);
 

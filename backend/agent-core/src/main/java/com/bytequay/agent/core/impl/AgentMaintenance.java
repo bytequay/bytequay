@@ -118,23 +118,8 @@ public final class AgentMaintenance
                     if (current.startedAt().isPresent()) {
                         return;
                     }
-                    EventId eventId = EventId.random();
-                    unitOfWork.execute(() -> {
-                        // The turn never reached its provider, so it has no tool activity to count.
-                        AgentMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED, ToolCounters.ZERO);
-                        Instant interruptedAt = Instant.now(clock);
-                        AgentTask claimedTask = taskStore.find(current.taskId()).orElseThrow();
-                        turnStore.update(turnStore.find(current.id()).orElseThrow().finish(TurnState.INTERRUPTED, metrics, Optional.of(INTERRUPTION_REASON), interruptedAt));
-                        taskStore.update(claimedTask.releaseWorktreeMutation(claim, interruptedAt));
-                        outboxStore.insert(pendingLifecycle(
-                                eventId,
-                                current.taskId(),
-                                Optional.of(current.id()),
-                                AgentEventPayload.LifecyclePhase.INTERRUPTED,
-                                INTERRUPTION_REASON,
-                                interruptedAt));
-                        return null;
-                    });
+                    // The turn never reached its provider, so it has no tool activity to count.
+                    interruptRestartedTurn(task, current, INTERRUPTION_REASON, ToolCounters.ZERO, Optional.empty());
                 });
             }
         });
@@ -295,7 +280,9 @@ public final class AgentMaintenance
             AgentTask task = found.orElseThrow();
             Optional<AgentTurn> active = turnStore.findActive(taskId);
             if (active.isPresent()) {
-                interruptRestartedTurn(task, active.orElseThrow(), unverifiableLaunch);
+                AgentTurn turn = active.orElseThrow();
+                interruptRestartedTurn(task, turn, unverifiableLaunch.isPresent() ? UNVERIFIED_STOP_REASON : VERIFIED_STOP_REASON,
+                        metricsService.countTools(task.id(), turn.id(), OptionalLong.empty()), unverifiableLaunch);
                 return;
             }
             Instant now = Instant.now(clock);
@@ -328,12 +315,11 @@ public final class AgentMaintenance
         }
     }
 
-    private void interruptRestartedTurn(AgentTask task, AgentTurn turn, Optional<String> unverifiableLaunch)
+    /** Ends a turn the restart cut off and releases its claim, swapping it for a recovery claim when its launch is unverified. */
+    private void interruptRestartedTurn(AgentTask task, AgentTurn turn, String reason, ToolCounters counters, Optional<String> unverifiableLaunch)
     {
         WorktreeMutationClaim claim = WorktreeMutationClaim.turn(turn.id(), turn.createdAt());
-        String reason = unverifiableLaunch.isPresent() ? UNVERIFIED_STOP_REASON : VERIFIED_STOP_REASON;
         EventId eventId = EventId.random();
-        ToolCounters counters = metricsService.countTools(task.id(), turn.id(), OptionalLong.empty());
         unitOfWork.execute(() -> {
             AgentMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED, counters);
             Instant interruptedAt = Instant.now(clock);

@@ -35,49 +35,7 @@ Ask questions along the way, then merge with confidence.
 Use Codex, Claude Code, or your agent API, such as DeepSeek. Keep Claude Code
 accounts isolated and choose the account for each repository.
 
-## One workspace. The whole picture.
-
-Click any preview to explore the ByteQuay website.
-
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/">
-        <img src="website/dist/assets/app-review.jpg" alt="Private review summary and a code finding in ByteQuay" width="440"><br>
-        <strong>Review with context →</strong>
-      </a><br>
-      Inspect findings, ask an agent from a review card, and choose what to publish.
-    </td>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/">
-        <img src="website/dist/assets/app-assistant.jpg" alt="ByteQuay Assistant with a conversation and tasks waiting for attention" width="440"><br>
-        <strong>Your next step, one shortcut away →</strong>
-      </a><br>
-      Open the Assistant with ⌘J to ask about your work and see what needs you.
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/">
-        <img src="website/dist/assets/app-cherry-pick.jpg" alt="Cherry-pick plan with selected commits and predicted conflicts" width="440"><br>
-        <strong>Carry changes across branches →</strong>
-      </a><br>
-      Plan cherry-picks, inspect conflicts, and review before delivery.
-    </td>
-    <td width="50%" valign="top">
-      <a href="https://bytequay.github.io/bytequay/">
-        <img src="website/dist/assets/app-epic-zoom.jpg" alt="Epic zoom window showing related work and progress" width="440"><br>
-        <strong>Keep larger work connected →</strong>
-      </a><br>
-      Follow work items, tasks, dependencies, and outcomes in an Epic.
-    </td>
-  </tr>
-</table>
-
-PR and issue previews keep context close wherever you work. ByteQuay Lab helps
-you measure resource use and compare whether skills, guidance, and context help.
-
-## Your work, on your Mac.
+## Your work, on your local.
 
 Conversations, reviews, settings, and working copies stay on your computer.
 GitHub and model requests go to the services you connect.

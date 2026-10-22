@@ -529,10 +529,14 @@ public final class PermissionBroker
             throws JsonProcessingException
     {
         ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
+        // The one authorization gate: a tool runs only when this task offers it, so no handler can be reached by name alone.
+        if (exposedTools(context).stream().noneMatch(tool -> tool.name().equals(params.name()))) {
+            return error(request.id(), -32602, "Unknown tool");
+        }
         return switch (params.name()) {
-            case LIST_TOOLS, GET_TOOL -> discovery(context) ? describeTools(request.id(), params, context) : error(request.id(), -32602, "Unknown tool");
-            case CALL_TOOL -> discovery(context) ? callDiscoveredTool(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
-            case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
+            case LIST_TOOLS, GET_TOOL -> describeTools(request.id(), params, context);
+            case CALL_TOOL -> callDiscoveredTool(request.id(), params.arguments(), context);
+            case "permission_prompt" -> permission(request.id(), params.arguments(), context);
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
             case DiscussionContextBridge.TOOL_NAME -> readDiscussionContext(request.id(), params.arguments(), context);
@@ -592,9 +596,6 @@ public final class PermissionBroker
 
     private McpHttpResponse readIssueContext(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.issueContext().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         if (!arguments.isObject() || !arguments.isEmpty()) {
             return error(id, -32602, "read_issue_context accepts no arguments");
         }
@@ -607,36 +608,24 @@ public final class PermissionBroker
 
     private McpHttpResponse relatedWork(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.relatedWork().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         return runTool(id, context, () -> context.relatedWork().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
                 failure -> context.redactor().redact("Related work failed: " + Optional.ofNullable(failure.getMessage()).orElse("Request rejected")));
     }
 
     private McpHttpResponse googleWorkspace(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.googleWorkspace().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         return runTool(id, context, () -> context.googleWorkspace().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
                 failure -> "Google data could not be read. Check access in Settings or list saved items again.");
     }
 
     private McpHttpResponse workItems(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.workItems().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         return runTool(id, context, () -> context.workItems().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
                 failure -> context.redactor().redact("Work item call failed: " + failureReason(failure)));
     }
 
     private McpHttpResponse memory(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.memory().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         return runTool(id, context, () -> context.memory().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
                 failure -> context.redactor().redact("Memory call failed: " + failureReason(failure)));
     }
@@ -644,9 +633,6 @@ public final class PermissionBroker
     private McpHttpResponse proposeCiDescription(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         var proposer = context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription);
-        if (context.scope().policy() != AgentPermissionPolicy.CI_AUTOFIX || proposer.isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         CiDescriptionProposal proposal;
         try {
             checkArgument(arguments != null && arguments.isObject() && arguments.size() == 3, "Only jobId, expectedBody and body may be supplied");
@@ -664,9 +650,6 @@ public final class PermissionBroker
     private McpHttpResponse requestCiRerun(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         var requester = context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun);
-        if (context.scope().policy() != AgentPermissionPolicy.CI_AUTOFIX || requester.isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         try {
             checkArgument(arguments != null && arguments.isObject() && arguments.size() == 2, "Only jobId and reason may be supplied");
             checkArgument(arguments.path("jobId").isIntegralNumber() && arguments.path("jobId").canConvertToLong()
@@ -683,9 +666,6 @@ public final class PermissionBroker
 
     private McpHttpResponse pullRequestCi(JsonNode id, String tool, JsonNode arguments, PermissionContext context)
     {
-        if (context.pullRequestCi().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         Optional<Long> jobId = Optional.empty();
         String logId = "";
         long offset = 0;
@@ -735,9 +715,6 @@ public final class PermissionBroker
 
     private McpHttpResponse localReviewTool(JsonNode id, ToolCallParams params, PermissionContext context)
     {
-        if (context.localReview().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         Optional<LocalReviewBridge> bridge;
         try {
             bridge = localReviews.resolve(context.taskId());
@@ -1034,9 +1011,6 @@ public final class PermissionBroker
 
     private McpHttpResponse readPullRequestContext(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.pullRequestContext().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         PullRequestContextBridge.Query query;
         try {
             checkArgument(arguments != null && arguments.isObject() && arguments.path("section").isTextual(), "section is required");
@@ -1054,9 +1028,6 @@ public final class PermissionBroker
 
     private McpHttpResponse readDiscussionContext(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        if (context.discussionContext().isEmpty()) {
-            return error(id, -32602, "Unknown tool");
-        }
         DiscussionContextBridge.Query query;
         try {
             checkArgument(arguments != null && arguments.isObject() && arguments.path("section").isTextual(), "section is required");

@@ -15,6 +15,8 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -102,6 +104,17 @@ class TestTaskToolDiscovery
                 json.readTree("{\"name\":\"review_finish\",\"arguments\":{\"complete\":\"yes\"}}"))
                 .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
         assertThat(writes).hasValue(0);
+    }
+
+    @Test
+    void aToolTheTaskDoesNotOfferIsUnknownWhenCalledByName()
+            throws Exception
+    {
+        try (McpRegistration registration = register()) {
+            for (String name : ImmutableList.of("read_ci_memory", DevelopmentResultBridge.PUBLISH_TOOL_NAME, IssueContextBridge.TOOL_NAME, "permission_prompt")) {
+                assertThat(call(registration, name, "{}").at("/error/message").asText()).as(name).isEqualTo("Unknown tool");
+            }
+        }
     }
 
     @Test

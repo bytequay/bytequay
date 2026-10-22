@@ -134,6 +134,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const [publishing, setPublishing] = useState(false);
   const { busy, error, setError, run } = useAsyncAction(errorText);
   const lend = useEpicLend(workspace.id);
+  const [issueTitles, setIssueTitles] = useState<ReadonlyMap<string, string>>(new Map());
   const reload = useCallback(async () => setItems(await window.bridge.listUnifiedWorkItems(workspace.id)), [workspace.id]);
   useEffect(() => {
     let active = true;
@@ -160,7 +161,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const epicName = (id: string): EpicName => {
     const source = items.find(value => value.id === (id.startsWith('LOCAL:') ? id.slice(6) : id));
     const label = source?.reference?.label;
-    const title = source?.title ?? lend.epicTitles.get(id);
+    const title = source?.title || lend.epicTitles.get(id) || issueTitles.get(id);
     return { id, label: label ? `Epic ${label}` : 'Epic', title: [label, title].filter(Boolean).join(' ') || 'Epic' };
   };
   const epics = [...new Set([...lend.epicTitles.keys(), ...all.filter(work => work.isEpic).map(work => localEpicId(work.id)),
@@ -175,6 +176,19 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const count = (value: Group) => matching.filter(candidate => STATE[candidate.work.state].group === value).length;
   const visible = matching.filter(value => STATE[value.work.state].group === group).sort((left, right) => STATE[left.work.state].order - STATE[right.work.state].order);
   const item = local.find(value => value.id === selected);
+  // The issue cache may not hold an Epic's issue, which the catalog then names by number only; GitHub names it for the open work item.
+  const epicId = item?.work.epicId ?? null;
+  const unnamedEpic = items.find(value => value.id === epicId && value.title === '' && value.reference?.kind === 'ISSUE')?.reference?.key ?? null;
+  const epicNamed = epicId !== null && (lend.epicTitles.has(epicId) || issueTitles.has(epicId));
+  useEffect(() => {
+    if (epicId === null || unnamedEpic === null || epicNamed) return;
+    let active = true;
+    const [repository, number] = unnamedEpic.split('#');
+    const [owner, repo] = repository.split('/');
+    window.bridge.fetchGitHubIssuePreview(owner, repo, Number(number))
+      .then(issue => { if (active) setIssueTitles(current => new Map(current).set(epicId, issue.title)); }, (): void => undefined);
+    return () => { active = false; };
+  }, [epicId, unnamedEpic, epicNamed]);
   const creating = selected === 'new';
   const begin = (value: LocalItem) => {
     if (value.work.isEpic) return;

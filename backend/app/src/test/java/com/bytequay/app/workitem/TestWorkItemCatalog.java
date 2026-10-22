@@ -15,6 +15,9 @@ package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -22,6 +25,7 @@ import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -74,7 +78,7 @@ class TestWorkItemCatalog
                 Optional.empty(), 0, false, ImmutableList.of());
         when(store.list("workspace")).thenReturn(ImmutableList.of(local));
         when(work.list("workspace")).thenReturn(ImmutableList.of(view));
-        WorkItemCatalog catalog = new WorkItemCatalog(workspaces, issues, jira, store, work);
+        WorkItemCatalog catalog = new WorkItemCatalog(workspaces, issues, jira, store, work, mock(IssueDevelopmentStore.class));
         assertThat(catalog.list("workspace")).extracting(UnifiedWorkItem::source)
                 .containsExactlyInAnyOrder(UnifiedWorkItem.Source.LOCAL, UnifiedWorkItem.Source.GITHUB, UnifiedWorkItem.Source.JIRA);
         assertThat(catalog.read("workspace", "local").description()).isEqualTo("Private context");
@@ -181,6 +185,29 @@ class TestWorkItemCatalog
         assertThatThrownBy(() -> fixture.catalog.read("workspace", "private")).hasMessageContaining("not found");
     }
 
+    @Test
+    void namesAnEpicIssueTheCacheDoesNotHoldByItsNumber()
+    {
+        ContextFixture fixture = new ContextFixture();
+        WorkItem owner = local("owner", ImmutableList.of());
+        WorkItem inEpic = new WorkItem("in-epic", "workspace", "In Epic", WorkItem.Kind.DEVELOP, "Context", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL,
+                ImmutableList.of(), Optional.of("ISSUE:github.com:77"), 0, ImmutableList.of());
+        WorkItem elsewhere = new WorkItem("elsewhere", "workspace", "Elsewhere", WorkItem.Kind.DEVELOP, "Context", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL,
+                ImmutableList.of(), Optional.of("ISSUE:github.com:88"), 0, ImmutableList.of());
+        when(fixture.store.list("workspace")).thenReturn(ImmutableList.of(owner, inEpic, elsewhere));
+        when(fixture.markers.findEpic("github.com", 77)).thenReturn(Optional.of(new IssueEpic("github.com", 77, "org/repo", 5, true, Instant.EPOCH)));
+        when(fixture.markers.findEpic("github.com", 88)).thenReturn(Optional.of(new IssueEpic("github.com", 88, "other/repo", 6, true, Instant.EPOCH)));
+
+        UnifiedWorkItem epic = fixture.catalog.read("workspace", "ISSUE:github.com:77");
+        assertThat(epic.source()).isEqualTo(UnifiedWorkItem.Source.GITHUB);
+        assertThat(epic.title()).isEmpty();
+        assertThat(epic.reference()).contains(new GoalItem(GoalItemKind.ISSUE, "org/repo#5", "#5", "", Instant.EPOCH));
+        assertThatThrownBy(() -> fixture.catalog.read("workspace", "ISSUE:github.com:88")).hasMessageContaining("not found");
+        assertThat(fixture.catalog.read("workspace", "ISSUE:github.com:10").title()).isEqualTo("Remote request");
+    }
+
     private static WorkItem local(String id, List<WorkItemContextLink> links)
     {
         return new WorkItem(id, "workspace", id, WorkItem.Kind.DEVELOP, "Context", WorkItem.CompletionRule.MERGED_DELIVERY,
@@ -192,6 +219,7 @@ class TestWorkItemCatalog
     {
         private final WorkItemStore store = mock(WorkItemStore.class);
         private final WorkItemService work = mock(WorkItemService.class);
+        private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
         private final WorkItemCatalog catalog;
 
         private ContextFixture()
@@ -208,7 +236,7 @@ class TestWorkItemCatalog
                     ImmutableList.of(issue), 0, 100, 1, false, Optional.of(Instant.EPOCH)));
             JiraService jira = mock(JiraService.class);
             when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("workspace"), ticket("other")));
-            catalog = new WorkItemCatalog(workspaces, issues, jira, store, work);
+            catalog = new WorkItemCatalog(workspaces, issues, jira, store, work, markers);
             owner(ImmutableList.of());
         }
 

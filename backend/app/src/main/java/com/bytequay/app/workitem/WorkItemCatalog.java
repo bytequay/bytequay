@@ -14,7 +14,9 @@
 package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -22,6 +24,7 @@ import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -34,6 +37,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -52,14 +56,16 @@ public class WorkItemCatalog
     private final JiraService jira;
     private final WorkItemStore store;
     private final WorkItemService work;
+    private final IssueDevelopmentStore markers;
 
-    public WorkItemCatalog(WorkspaceStore workspaces, RepositoryIssueStore issues, JiraService jira, WorkItemStore store, WorkItemService work)
+    public WorkItemCatalog(WorkspaceStore workspaces, RepositoryIssueStore issues, JiraService jira, WorkItemStore store, WorkItemService work, IssueDevelopmentStore markers)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.jira = requireNonNull(jira, "jira is null");
         this.store = requireNonNull(store, "store is null");
         this.work = requireNonNull(work, "work is null");
+        this.markers = requireNonNull(markers, "markers is null");
     }
 
     public List<UnifiedWorkItem> list(String workspaceId)
@@ -68,7 +74,8 @@ public class WorkItemCatalog
         Map<String, UnifiedWorkItem> result = new LinkedHashMap<>();
         Map<String, WorkItemView> views = work.list(workspaceId).stream().collect(toImmutableMap(WorkItemView::id, item -> item));
         Map<String, String> owners = new LinkedHashMap<>();
-        for (WorkItem item : store.list(workspaceId)) {
+        List<WorkItem> items = store.list(workspaceId);
+        for (WorkItem item : items) {
             item.links().forEach(link -> owners.put(link.identity(), item.id()));
             Optional<WorkItemLink> source = item.links().stream().filter(link -> link.reference().kind() == GoalItemKind.ISSUE
                     || link.reference().kind() == GoalItemKind.JIRA).findFirst();
@@ -97,6 +104,15 @@ public class WorkItemCatalog
                     issue.key(), issue.url(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
             add(result, owners, views, link, issue.title(), issue.body(), issue.status().name(), issue.status().category().equals("done"));
         }
+        // The issue cache may not hold an Epic's issue; its mark still names it by number, so work in it shows and opens its Epic.
+        String repository = workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT);
+        items.stream().flatMap(item -> item.epicId().stream()).distinct()
+                .filter(epicId -> epicId.startsWith("ISSUE:github.com:") && !owners.containsKey(epicId) && !result.containsKey(epicId))
+                .forEach(epicId -> markers.findEpic("github.com", EpicSources.issueId(epicId)).filter(epic -> epic.isEpic() && epic.repo().equals(repository)).ifPresent(epic -> {
+                    GoalItem reference = new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(epic.repo(), epic.number()), "#" + epic.number(), "", epic.updatedAt());
+                    result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.GITHUB, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
+                            Optional.empty()));
+                }));
         return result.values().stream().sorted(Comparator.comparing(UnifiedWorkItem::updatedAt).reversed()).collect(toImmutableList());
     }
 

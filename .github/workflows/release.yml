@@ -65,9 +65,8 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      # Forge's generateAssets hook will run `mvn -DskipTests package`
-      # automatically if the JAR is missing, so we don't need a separate
-      # backend build step here.
+      # Forge's generateAssets hook builds the backend JAR without tests
+      # if it is missing, so we don't need a separate backend build step here.
       - name: Build Mac installers (DMG + ZIP)
         working-directory: frontend
         env:

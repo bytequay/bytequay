@@ -60,8 +60,8 @@ const config: ForgeConfig = {
       }
       chmodSync(join(target, prebuild, 'spawn-helper'), 0o755);
     },
-    // Prepare the IDE and backend before extraResource copies them. Reuse an existing JAR;
-    // CI runs the full backend gates separately, so a missing JAR is built here with tests skipped.
+    // Prepare the IDE and backend before extraResource copies them. Reuse an existing JAR; CI runs the full
+    // backend gates separately, so a missing JAR is built here without tests, Checkstyle or license checks.
     generateAssets: async (_config, platform, arch) => {
       const root = join(__dirname, '..');
       execFileSync(process.execPath, ['scripts/ide-bundle.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
@@ -71,7 +71,7 @@ const config: ForgeConfig = {
       }
       // eslint-disable-next-line no-console
       console.log('[forge] backend JAR missing — running mvn package…');
-      execSync('mvn -B -q -DskipTests package', {
+      execSync('mvn -B -q -Dmaven.test.skip=true -Dcheckstyle.skip=true -Dlicense.skip=true package', {
         cwd: join(__dirname, '..', 'backend'),
         stdio: 'inherit',
       });

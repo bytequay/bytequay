@@ -52,8 +52,8 @@ any tag matching `v*`:
 1. Spins up a `macos-latest` runner.
 2. Installs JDK 25 LTS + the Node 24 LTS version pinned in `.nvmrc`.
 3. Runs `npm ci` then `npm run make`. The `generateAssets` Forge hook
-   builds the Spring Boot JAR via `mvn -DskipTests package` if it's
-   missing.
+   builds the Spring Boot JAR without tests, Checkstyle or license
+   checks if it's missing; CI runs those gates.
 4. Uploads every `.dmg` and `.zip` in `frontend/out/make/` to the
    matching GitHub Release.
 5. Marks the release as a pre-release if the tag contains a `-`

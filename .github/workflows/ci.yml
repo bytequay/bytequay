@@ -58,6 +58,11 @@ jobs:
           check-latest: true
           distribution: temurin
           cache: maven
+      # The IDE bundle script names each download by checksum and verifies it, so a hit only skips the fetch.
+      - uses: actions/cache@v6
+        with:
+          path: frontend/vendor/.ide-downloads
+          key: ide-downloads-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('frontend/src/ide/runtimeManifest.json') }}
       - name: Install dependencies
         working-directory: frontend
         run: npm ci

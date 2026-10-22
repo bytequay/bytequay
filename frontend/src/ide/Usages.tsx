@@ -142,10 +142,19 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       const definitions = locations(() => features.definitionProvider.ordered(request.model).map(provider => provider.provideDefinition(request.model, request.position, source.token)));
       const overrides = locations(() => features.implementationProvider.ordered(request.model).map(provider => provider.provideImplementation(request.model, request.position, source.token)));
       const declared = (known: Declaration[], uri: URI, range: IRange) => known.some(item => item.uri === uri.toString() && Range.areIntersectingOrTouching(item.range, range));
+      // A use goes to its declaration, as Go to Definition does. Only a declaration, such as an interface method or its
+      // implementation, lists its usages.
+      const elsewhere = (found: Declaration[]) => found.length > 0 && !found.some(item => item.uri === here && Range.containsPosition(item.range, request.position));
+      void definitions.then(found => {
+        if (!elsewhere(found) || source.token.isCancellationRequested) return;
+        request.editor.focus();
+        request.editor.trigger('bytequay', 'editor.action.revealDefinition', {});
+        closeRef.current();
+      });
       // The open file answers long before the project search does; the editor's own word-match fallback would list every same-named method.
       const occurrences = features.documentHighlightProvider.ordered(request.model).filter(provider => (provider as { selector?: { language?: string } }).selector?.language !== '*');
       void Promise.all([Promise.all(occurrences.map(provider => provider.provideDocumentHighlights(request.model, request.position, source.token))), definitions]).then(([highlights, known]) => {
-        if (complete || source.token.isCancellationRequested) return;
+        if (complete || source.token.isCancellationRequested || elsewhere(known)) return;
         const local = (highlights.find(found => found?.length) ?? []).filter(found => !declared(known, request.model.uri, found.range));
         if (!local.length) return;
         const early = new ReferencesModel(local.map(found => ({ uri: request.model.uri, range: found.range })), request.name);
@@ -158,8 +167,9 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       complete = true;
       // A lookup that never answers must not hold back usages that already arrived.
       const capped = (lookup: Promise<Declaration[]>) => Promise.race([lookup, new Promise<Declaration[]>(resolve => setTimeout(() => resolve([]), DECLARATION_WAIT))]);
-      const known = (await Promise.all([capped(definitions), capped(overrides)])).flat();
-      if (source.token.isCancellationRequested) return;
+      const [found, overriding] = await Promise.all([capped(definitions), capped(overrides)]);
+      if (source.token.isCancellationRequested || elsewhere(found)) return;
+      const known = [...found, ...overriding];
       const references = new ReferencesModel(links.filter(link => !declared(known, link.uri, link.range)), request.name);
       results.push(references);
       const all = references.references;

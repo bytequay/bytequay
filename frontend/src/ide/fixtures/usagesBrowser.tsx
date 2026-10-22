@@ -42,7 +42,7 @@ export async function verifyUsages() {
   ];
   const declaration: languages.Location = { uri: source, range: { startLineNumber: 2, endLineNumber: 2, startColumn: 10, endColumn: 17 } };
   const sameFile: languages.Location = { uri: source, range: { startLineNumber: 4, endLineNumber: 4, startColumn: 20, endColumn: 27 } };
-  // A definition away from every usage, so a Command-click that also followed it would be visible.
+  // A definition away from the click, as for a call site.
   const elsewhere: languages.Location = { uri: uri('src/main/java/Api.java'), range: { startLineNumber: 2, endLineNumber: 2, startColumn: 13, endColumn: 20 } };
   let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' | 'declared' | 'overridden' = 'ready';
   let finish: ((locations: languages.Location[]) => void) | undefined;
@@ -62,7 +62,7 @@ export async function verifyUsages() {
     return [links[2], links[0], links[1], links[0]];
   } });
   let references = registerReferences();
-  let definition = elsewhere;
+  let definition = [declaration];
   const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => definition });
   let overriding: languages.Location[] = [];
   const implementations = languages.registerImplementationProvider('java', { provideImplementation: () => overriding });
@@ -143,16 +143,25 @@ export async function verifyUsages() {
     const only = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === links[1].uri.toString());
     assert(only?.getSelection()?.startLineNumber === 2 && only.getSelection()?.startColumn === 13, 'The single usage is selected');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
-    definition = declaration; mode = 'declared'; click();
+    definition = [elsewhere]; finish = undefined; cancelled = false; mode = 'slow'; appeared = false;
+    watcher.observe(host, { childList: true, subtree: true }); click();
+    await until(() => editors.activeEditor?.resource?.toString() === elsewhere.uri.toString(), 'Command-click on a use opens its declaration');
+    await settle(); watcher.disconnect();
+    assert(!appeared && !popup() && cancelled, 'Opening the declaration neither flashes the usages popup nor keeps searching');
+    const api = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === elsewhere.uri.toString());
+    assert(api?.getSelection()?.startLineNumber === 2 && api.getSelection()?.startColumn === 13, 'The declaration is selected');
+    definition = [declaration];
+    await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
+    mode = 'declared'; click();
     await until(() => editors.activeEditor?.resource?.toString() === links[1].uri.toString() && !popup(), 'A declaration the language service returns anyway is not counted, so the one real usage opens directly');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
     overriding = [links[0]]; mode = 'overridden'; click();
     await until(() => editors.activeEditor?.resource?.toString() === links[1].uri.toString() && !popup(), 'Declarations of overriding methods are not counted either');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
-    overriding = []; definition = elsewhere; mode = 'self'; click();
-    await until(() => rows().length === 1 && popup()?.querySelector('[role="status"]')?.textContent === '1 usage', 'A lone usage under the cursor is listed instead of jumping onto itself');
+    overriding = []; definition = []; mode = 'self'; click();
+    await until(() => rows().length === 1 && popup()?.querySelector('[role="status"]')?.textContent === '1 usage', 'Without a known declaration, a lone usage under the cursor is listed instead of jumping onto itself');
     key('Escape'); await settle();
-    definition = declaration;
+    definition = [declaration];
     const highlights = languages.registerDocumentHighlightProvider('java', { provideDocumentHighlights: () => [{ range: declaration.range }, { range: sameFile.range }] });
     finish = undefined; mode = 'slow'; click();
     await until(() => rows().length === 1 && rows()[0].title === 'Service.java:4' && popup()?.querySelector('[role="status"]')?.textContent === 'Finding more…', 'Usages in the open file are listed while the project search runs, without the declaration');
@@ -162,7 +171,7 @@ export async function verifyUsages() {
     await until(() => rows().length === 3 && popup()?.querySelector('[role="status"]')?.textContent === '3 usages', 'The project search completes the list');
     assert(rows()[0].title === 'Service.java:4' && rows()[1].title === 'src/main/java/Caller.java:2' && rows()[2].title === 'src/test/java/Caller.java:3', 'Usages in the open file stay first');
     assert(!popup()?.textContent?.includes('Still searching.'), 'A finished search no longer reports waiting');
-    highlights.dispose(); definition = elsewhere; mode = 'ready';
+    highlights.dispose(); mode = 'ready';
     code.getModel()?.applyEdits([{ range: { startLineNumber: 3, endLineNumber: 3, startColumn: 1, endColumn: 1 }, text: ' ' }]);
     await settle(); assert(!popup(), 'Editing the queried document dismisses stale locations');
     references.dispose(); click();

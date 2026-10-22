@@ -337,7 +337,7 @@ describe('generated development request presentation', () => {
     expect(taskHtml({ ...baseTurn, state: 'COMPLETED' })).not.toContain('ByteQuay · Auto commit');
   });
 
-  it('shows the create-PR action and branches with the exact prompt available on demand', () => {
+  it('shows the create-PR action and branches without the sent prompt', () => {
     const ordinary: AgentTurnDto = { ...baseTurn, taskId: 'c587a121' };
     const branch = 'chenjian2664/bytequay/find-and-refactor-minor-issue-c587a121';
     const route = { action: 'Open draft pull request', head: branch, base: 'master' };
@@ -372,8 +372,8 @@ describe('generated development request presentation', () => {
       onToggle={() => {}} onToggleActivity={() => {}} />);
     expect(html).toContain('Open draft pull request');
     expect(html).toContain(`title="${route.head} → master">${route.head} → master</span>`);
-    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
-    expect(html).toContain("Exact clean HEAD to publish: e5083dc3.");
+    expect(html).not.toContain('agt-review-request__prompt');
+    expect(html).not.toContain("Exact clean HEAD to publish: e5083dc3.");
     expect(html).toContain('→ master');
     expect(html).not.toContain('agt-user__bubble');
     expect(html).not.toContain('gh pr create');
@@ -393,8 +393,8 @@ describe('generated development request presentation', () => {
       expect(markup).toContain('agt-review-request__preview');
       expect(markup).toContain('aria-expanded="false"');
       expect(markup).toContain('class="agt-review-request__content" hidden=""');
-      expect(markup).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
-      expect(markup).toContain(`<div class="agt-review-request__body">${promptHtml}</div>`);
+      expect(markup).not.toContain('agt-review-request__prompt');
+      expect(markup).not.toContain(`<div class="agt-review-request__body">${promptHtml}</div>`);
       expect(markup).not.toContain('agt-user__bubble');
       for (const delivery of ['STEER', 'QUEUED'] as const) {
         const ordinary = html(generated, [{ ...user, delivery }]);

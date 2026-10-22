@@ -79,7 +79,7 @@ it('discloses complete review requests with keyboard and pointer without overflo
   expect(results.every(result => result.open)).toBe(true);
 }, deadline(30_000));
 
-it('keeps development follow-ups compact with their authorization scope and exact prompts available on demand', async () => {
+it('keeps development follow-ups compact with their authorization scope and no sent prompt', async () => {
   const results = await fixture.run<{ width: number; kind: string; snapshot: boolean; existing: boolean }[]>({
     body: `
       const results = [];
@@ -100,7 +100,7 @@ it('keeps development follow-ups compact with their authorization scope and exac
     [false, true].flatMap(snapshot => (kind === 'CREATE_DRAFT_PR' ? [false, true] : [false]).map(existing => ({ width, kind, snapshot, existing }))))));
 }, deadline(30_000));
 
-it('keeps current and historical review prompts behind a separate disclosure', async () => {
+it('keeps current and historical review prompts out of the request card', async () => {
   const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
     body: `
       const results = [];
@@ -116,7 +116,7 @@ it('keeps current and historical review prompts behind a separate disclosure', a
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
 }, deadline(30_000));
 
-it('keeps current and historical CI requests compact while preserving the exact prompt and user steering', async () => {
+it('keeps current and historical CI requests compact without the sent prompt while preserving user steering', async () => {
   const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
     body: `
       const results = [];
@@ -132,7 +132,7 @@ it('keeps current and historical CI requests compact while preserving the exact 
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
 }, deadline(30_000));
 
-it('keeps private code and learning discussions compact with their exact sent prompts available on demand', async () => {
+it('keeps private code and learning discussions compact without their sent prompts', async () => {
   const results = await fixture.run<{ width: number; learning: boolean; snapshot: boolean }[]>({
     body: `
       const results = [];

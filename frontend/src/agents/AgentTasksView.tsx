@@ -563,7 +563,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
       <div className="agt-transcript" aria-label="Starting task conversation">
         <div>
           <div className="agt-user">
-            <WorkItemPrompt workspaceId={workspaceId} itemId={workItemId} prompt={draft.trim()} attachments={attachments}>
+            <WorkItemPrompt workspaceId={workspaceId} itemId={workItemId} attachments={attachments}>
               <div className="agt-user__bubble">
                 {attachments}
                 <div>{draft.trim()}</div>

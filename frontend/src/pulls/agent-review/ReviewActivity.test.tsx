@@ -78,8 +78,8 @@ describe('the unified review conversation', () => {
     } });
     expect(html).toContain('data-local-review-thread="local-review"');
     expect(html).toContain('Explain this return value');
-    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
-    expect(html).toContain('Review the authentication change');
+    expect(html).not.toContain('agt-review-request__prompt');
+    expect(html).not.toContain('Review the authentication change');
     expect(html).not.toContain('class="agt-user__bubble"');
   });
 
@@ -121,8 +121,8 @@ describe('the unified review conversation', () => {
     const html = render({ review: { ...props.review, activeTurn: null }, composer: 'Continue' });
     expect(html).toContain('Recovery required');
     expect(html).toContain('Review pull request');
-    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
-    expect(html).toContain('Review the authentication change');
+    expect(html).not.toContain('agt-review-request__prompt');
+    expect(html).not.toContain('Review the authentication change');
     expect(html).not.toContain('<textarea');
     expect(html).not.toContain('class="agt-live"');
     expect(render({ review: { ...reviewFixture(), state: 'CLOSED' } })).not.toContain('<textarea');
@@ -156,8 +156,8 @@ describe('the unified review conversation', () => {
     const html = render({ events: [...props.events, steered] });
     expect(html.match(/agt-user__request-action">Review pull request/g)).toHaveLength(1);
     expect(html).not.toContain('ByteQuay · Review request');
-    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
-    expect(html).toContain('Review the authentication change');
+    expect(html).not.toContain('agt-review-request__prompt');
+    expect(html).not.toContain('Review the authentication change');
     expect(html).toContain('Also check cancellation');
     expect(html).toContain('Steered into the running turn');
   });

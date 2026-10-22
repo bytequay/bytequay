@@ -34,7 +34,7 @@ export type ReviewRequest = {
 };
 
 /** The preview names the saved request; optional children supply its full details on expansion. */
-export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = MessageSquare, children, onOpen, prompt }: ReviewRequest & { children?: ReactNode; onOpen?: () => void; prompt?: string }) {
+export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = MessageSquare, children, onOpen }: ReviewRequest & { children?: ReactNode; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
   const contentId = useId();
   const toggle = () => setOpen(value => !value);
@@ -58,10 +58,6 @@ export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = Me
     <div id={contentId} className="agt-review-request__content" hidden={!open}>
       {detail && <div className="agt-review-request__detail">{detail}</div>}
       {children ?? <div className="agt-review-request__body">{body}</div>}
-      {prompt !== undefined && <details className="agt-review-request__prompt">
-        <summary>Prompt sent to agent</summary>
-        <div className="agt-review-request__body">{prompt}</div>
-      </details>}
     </div>
   </article>;
 }

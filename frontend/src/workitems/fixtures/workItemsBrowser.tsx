@@ -315,7 +315,7 @@ export async function localEpic() {
   let zoomed: ZoomedReference | null = null;
   const onZoom = (event: Event) => { zoomed = (event as CustomEvent<ZoomedReference>).detail; };
   window.addEventListener(ZOOM_REFERENCE, onZoom);
-  promptRoot.render(<WorkItemPrompt workspaceId={workspace.id} itemId="existing" prompt="Fix the Hive parser"><span>Fallback prompt</span></WorkItemPrompt>);
+  promptRoot.render(<WorkItemPrompt workspaceId={workspace.id} itemId="existing"><span>Fallback prompt</span></WorkItemPrompt>);
   await until(() => promptHost.querySelector('.agt-work-request__epic a') !== null, 'The task request resolves its local parent after publication');
   (promptHost.querySelector('.agt-work-request__epic a') as HTMLAnchorElement).click();
   assert(JSON.stringify(zoomed) === JSON.stringify({ kind: 'work', workspaceId: workspace.id, itemId: 'parent' }), 'The task opens the local Epic instead of its published issue');

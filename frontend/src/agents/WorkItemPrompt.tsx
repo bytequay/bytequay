@@ -20,11 +20,10 @@ import { workspaceIssueRoute } from '../workspaces/model';
 import { workItemRoute, type UnifiedWorkItem } from '../workitems/contracts';
 
 /** Resolve the saved relationship, so ordinary messages never become cards because of their wording. */
-export function WorkItemPrompt({ workspaceId, itemId, taskId, prompt, attachments, children }: {
+export function WorkItemPrompt({ workspaceId, itemId, taskId, attachments, children }: {
   workspaceId?: string | null;
   itemId?: string;
   taskId?: string;
-  prompt: string;
   attachments?: ReactNode;
   children: ReactNode;
 }) {
@@ -40,7 +39,7 @@ export function WorkItemPrompt({ workspaceId, itemId, taskId, prompt, attachment
   }, [workspaceId, itemId, taskId]);
 
   if (source === null || source.workspaceId !== workspaceId || source.itemId !== itemId || source.taskId !== taskId) return children;
-  return <WorkItemRequestCard workspaceId={source.workspaceId} item={source.item} epic={source.epic} prompt={prompt} attachments={attachments} />;
+  return <WorkItemRequestCard workspaceId={source.workspaceId} item={source.item} epic={source.epic} attachments={attachments} />;
 }
 
 /** The work item by its id or by a task it started, and the Epic it belongs to. */
@@ -71,11 +70,10 @@ export function epicLink(workspaceId: string, epic: UnifiedWorkItem): { href: st
   return epic.work === null ? null : { href: workItemRoute(workspaceId, epic.id), target: { kind: 'work', workspaceId, itemId: epic.id } };
 }
 
-export function WorkItemRequestCard({ workspaceId, item, epic, prompt, attachments }: {
+export function WorkItemRequestCard({ workspaceId, item, epic, attachments }: {
   workspaceId: string;
   item: UnifiedWorkItem;
   epic: UnifiedWorkItem | null;
-  prompt: string;
   attachments?: ReactNode;
 }) {
   const parent = epic === null ? null : epicLink(workspaceId, epic);
@@ -90,9 +88,5 @@ export function WorkItemRequestCard({ workspaceId, item, epic, prompt, attachmen
       }}>{[epic.reference?.label, epic.title].filter(Boolean).join(' · ')}</a>}
     </div>}
     {attachments}
-    <details className="agt-review-request__prompt">
-      <summary>Prompt sent to agent</summary>
-      <div className="agt-review-request__body">{prompt}</div>
-    </details>
   </article>;
 }

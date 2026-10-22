@@ -798,7 +798,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
               <ReviewRequestCard action={`${localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`}
                 topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
                 detail={localThread.learningAnchor ? 'Private summary discussion' : 'Private code discussion'}
-                body={localMessage.body} prompt={user.text}
+                body={localMessage.body}
                 onOpen={onOpenReview === undefined ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>
@@ -811,7 +811,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
               : index === 0 && user.delivery === 'TURN' && issueRequest && issueSource != null
               ? <IssueRequestCard source={issueSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-              </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest} prompt={reviewRequest.generated ? user.text : undefined}
+              </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
               onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : fixRequest !== null ? (
               <ReviewRequestCard {...fixRequest}
                 onOpen={onOpenReview !== undefined && fixTarget !== undefined ? () => onOpenReview(fixTarget) : undefined}>
@@ -819,13 +819,9 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
                 </div>}
                 <div className="agt-review-request__body">{renderMarkdown(fixRequest.body, repository, true)}</div>
-                <details className="agt-review-request__prompt">
-                  <summary>Prompt sent to agent</summary>
-                  <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
-                </details>
               </ReviewRequestCard>
             ) : index === 0 && ciRequest !== null ? (
-              <ReviewRequestCard {...ciRequest} prompt={user.text}>
+              <ReviewRequestCard {...ciRequest}>
                 <div className="agt-review-request__body">{ciRequest.body}</div>
                 {user.attachments.length > 0 && <div className="agt-user__files">
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
@@ -835,14 +831,14 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
               <ReviewRequestCard action={request.action}
                 topic={[request.head, request.base === null ? null : `→ ${request.base}`].filter(Boolean).join(' ') || 'Pull request'}
                 body="Publish this task’s verified changes to its pull request."
-                detail="ByteQuay verifies the branch and revision and handles the authorized publication." prompt={user.text}>
+                detail="ByteQuay verifies the branch and revision and handles the authorized publication.">
                 <div className="agt-review-request__body">Publish this task’s verified changes to its pull request.</div>
                 {user.attachments.length > 0 && <div className="agt-user__files">
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
                 </div>}
               </ReviewRequestCard>
             ) : index === 0 && developmentRequest !== null ? (
-              <ReviewRequestCard {...developmentRequest} prompt={user.text}>
+              <ReviewRequestCard {...developmentRequest}>
                 <div className="agt-review-request__body">{developmentRequest.body}</div>
                 {user.attachments.length > 0 && <div className="agt-user__files">
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
@@ -850,7 +846,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
               </ReviewRequestCard>
             ) : (
               <WorkItemPrompt workspaceId={first && turn.ordinal === 1 && index === 0 && user.delivery === 'TURN' && !generatedRequest ? workspaceId : undefined}
-                taskId={durable?.taskId} prompt={user.text} attachments={user.attachments.length > 0 && <div className="agt-user__files">
+                taskId={durable?.taskId} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
                 </div>}>
                 <div className="agt-user__bubble">

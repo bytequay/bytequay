@@ -37,7 +37,7 @@ function render(durable: AgentTurnDto | undefined, users: TranscriptTurn['users'
     activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
 }
 
-it.each(cases)('folds the %s workflow request with its restrictions and exact prompt', (kind, prompt, action, restriction) => {
+it.each(cases)('folds the %s workflow request with its restrictions and no sent prompt', (kind, prompt, action, restriction) => {
   const durable = parseAgentTurn({ ...contracts.turn, workflowRequest: kind });
   const user: TranscriptTurn['users'][number] = { id: 'request', text: prompt, attachments: [], delivery: 'TURN', at: '' };
   const html = render(durable, [user]);
@@ -45,8 +45,8 @@ it.each(cases)('folds the %s workflow request with its restrictions and exact pr
   expect(html).toContain(restriction);
   expect(html).toContain('aria-expanded="false"');
   expect(html).toContain('class="agt-review-request__content" hidden=""');
-  expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
-  expect(html).toContain(prompt);
+  expect(html).not.toContain('agt-review-request__prompt');
+  expect(html).not.toContain(prompt);
   expect(html).not.toContain('agt-user__bubble');
   for (const delivery of ['STEER', 'QUEUED'] as const) {
     expect(render(durable, [{ ...user, delivery }])).not.toContain('agt-review-request');

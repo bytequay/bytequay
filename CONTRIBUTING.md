@@ -397,6 +397,10 @@ code.
 ## Database
 
 - Runtime database: `~/Library/Application Support/ByteQuay/bytequay-1.0.db`
+- Managed clones and task worktrees: `~/.bytequay/workspaces`, outside
+  Application Support because a space in a checkout's path breaks project
+  tests that turn file paths into URLs. On its first start, a backend moves
+  workspaces it finds beside its database to that root.
 - Test databases: unique SQLite files under the system temporary directory
 - Single backend: startup locks `backend.lock` in the runtime directory and
   exits when another backend holds it, so quit a running ByteQuay or `./dev.sh`

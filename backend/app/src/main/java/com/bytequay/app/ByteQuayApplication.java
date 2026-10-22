@@ -13,6 +13,7 @@
  */
 package com.bytequay.app;
 
+import com.bytequay.app.workspace.WorkspaceRootMove;
 import com.bytequay.persistence.sqlite.config.SqlitePersistenceConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -46,6 +47,9 @@ public final class ByteQuayApplication
         if (!DataDirectoryLock.acquire(dbDir, Duration.ofSeconds(20))) {
             System.exit(1);
         }
-        SpringApplication.run(ByteQuayApplication.class, args);
+        SpringApplication application = new SpringApplication(ByteQuayApplication.class);
+        // Runs once the properties resolve and before any bean exists, so nothing has a workspace open while it moves.
+        application.addListeners(new WorkspaceRootMove());
+        application.run(args);
     }
 }

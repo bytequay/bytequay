@@ -37,6 +37,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -335,11 +336,12 @@ public final class ManagedWorktreeService
             if (!canonical.equals(requestedPath) || !canonical.getParent().equals(expectedParent)) {
                 throw invalid("Task worktree escaped its managed workspace");
             }
-            Path topLevel = gitPath(canonical, "rev-parse", "--show-toplevel");
-            if (!topLevel.equals(canonical)) {
+            List<Path> location = gitPaths(canonical, "--show-toplevel", "--git-common-dir");
+            if (!location.get(0).equals(canonical)) {
                 throw invalid("Task worktree is not the Git worktree root");
             }
-            if (!commonGitDirectory(canonical).equals(commonGitDirectory(repository))) {
+            // Every caller verified this repository first, which proved Git's common directory is its own .git.
+            if (!location.get(1).equals(repository.resolve(".git").toRealPath())) {
                 throw invalid("Task worktree belongs to another managed repository");
             }
             requireOrigin(canonical, workspace.originCloneUrl());
@@ -406,13 +408,14 @@ public final class ManagedWorktreeService
                     || !Files.readString(marker).equals(ManagedWorkspaceGit.ownership(workspace))) {
                 throw invalid("Managed repository escaped its workspace");
             }
-            if (!gitPath(canonical, "rev-parse", "--show-toplevel").equals(canonical)) {
+            List<Path> location = gitPaths(canonical, "--show-toplevel", "--git-common-dir");
+            if (!location.get(0).equals(canonical)) {
                 throw invalid("Managed repository is not the Git worktree root");
             }
             Path dotGit = canonical.resolve(".git");
             if (Files.isSymbolicLink(dotGit)
                     || !Files.isDirectory(dotGit, LinkOption.NOFOLLOW_LINKS)
-                    || !commonGitDirectory(canonical).equals(dotGit.toRealPath())) {
+                    || !location.get(1).equals(dotGit.toRealPath())) {
                 throw invalid("Managed repository is not the owned primary checkout");
             }
             requireOrigin(canonical, workspace.originCloneUrl());
@@ -464,16 +467,28 @@ public final class ManagedWorktreeService
 
     private void requireOrigin(Path repository, String expectedUrl)
     {
-        String origin = requireOutput(git.run(repository, "config", "--get-all", "remote.origin.url"), "read origin URL");
-        if (!origin.equals(expectedUrl) || origin.lines().count() != 1) {
+        // One read covers both keys; -z ends each value with NUL, so a line break inside one cannot pass as another entry.
+        Result result = git.runStdout(repository, 1, "config", "-z", "--get-regexp", "^remote\\.origin\\.(url|pushurl)$");
+        String routing = result.exitCode() == 1 ? "" : requireOutput(result, "read origin routing");
+        List<String> urls = new ArrayList<>();
+        boolean pushRouting = false;
+        for (String entry : routing.split("\0")) {
+            if (entry.isEmpty()) {
+                continue;
+            }
+            int end = entry.indexOf('\n');
+            if (entry.substring(0, end < 0 ? entry.length() : end).equals("remote.origin.url")) {
+                urls.add(end < 0 ? "" : entry.substring(end + 1));
+            }
+            else {
+                pushRouting = true;
+            }
+        }
+        if (urls.size() != 1 || !urls.getFirst().equals(expectedUrl)) {
             throw invalid("Managed repository origin does not match the workspace");
         }
-        Result pushUrls = git.run(repository, "config", "--get-all", "remote.origin.pushurl");
-        if (pushUrls.successful()) {
+        if (pushRouting) {
             throw invalid("Managed repository origin has separate push routing");
-        }
-        if (pushUrls.exitCode() != 1) {
-            throw new AgentStorageException("Cannot inspect origin push routing: " + diagnostic(pushUrls));
         }
     }
 
@@ -514,27 +529,25 @@ public final class ManagedWorktreeService
                 .toList();
     }
 
-    private Path commonGitDirectory(Path repository)
+    /** The real path of each {@code rev-parse} path option, in order, read by one Git process. */
+    private List<Path> gitPaths(Path workingDirectory, String... options)
     {
-        return gitPath(repository, "rev-parse", "--git-common-dir");
-    }
-
-    private Path gitPath(Path workingDirectory, String... arguments)
-    {
-        Path resolved = reportedGitPath(workingDirectory, arguments);
-        try {
-            return resolved.toRealPath();
+        String output = requireOutput(git.run(workingDirectory, ImmutableList.<String>builder().add("rev-parse").add(options).build()), "read Git path");
+        List<String> lines = output.lines().toList();
+        if (lines.size() != options.length) {
+            throw invalid("Git reported an unexpected number of paths");
         }
-        catch (IOException failure) {
-            throw new InvalidAgentRequestException("Git reported a path that cannot be resolved", failure);
+        ImmutableList.Builder<Path> paths = ImmutableList.builderWithExpectedSize(lines.size());
+        for (String line : lines) {
+            Path path = Path.of(line);
+            try {
+                paths.add((path.isAbsolute() ? path : workingDirectory.resolve(path)).normalize().toRealPath());
+            }
+            catch (IOException failure) {
+                throw new InvalidAgentRequestException("Git reported a path that cannot be resolved", failure);
+            }
         }
-    }
-
-    private Path reportedGitPath(Path workingDirectory, String... arguments)
-    {
-        String output = requireOutput(git.run(workingDirectory, arguments), "read Git path");
-        Path path = Path.of(output);
-        return (path.isAbsolute() ? path : workingDirectory.resolve(path)).normalize();
+        return paths.build();
     }
 
     private Workspace requireWorkspace(String workspaceId)

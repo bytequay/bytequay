@@ -356,6 +356,33 @@ class TestManagedWorktreeService
     }
 
     @Test
+    void pushRoutingAndExtraOriginUrlsAreRejectedAtEitherConfigLevel()
+    {
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+        run(repository, "config", "remote.origin.pushurl", "https://github.com/other/project.git");
+        assertThatThrownBy(() -> service.inspect(worktree))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("push routing");
+
+        run(repository, "config", "--unset", "remote.origin.pushurl");
+        run(repository, "config", "--add", "remote.origin.url", ORIGIN);
+        assertThatThrownBy(() -> service.inspect(worktree))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("does not match");
+
+        run(repository, "config", "--unset-all", "remote.origin.url");
+        run(repository, "config", "remote.origin.url", ORIGIN);
+        assertThat(service.inspect(worktree).head()).isEqualTo(startCommit);
+
+        // A task's own worktree config can override the shared origin.
+        run(repository, "config", "extensions.worktreeConfig", "true");
+        run(worktree.canonicalWorktree(), "config", "--worktree", "remote.origin.url", "https://github.com/other/project.git");
+        assertThatThrownBy(() -> service.inspect(worktree))
+                .isInstanceOf(InvalidAgentRequestException.class)
+                .hasMessageContaining("does not match");
+    }
+
+    @Test
     void conflictingPathIsNotAdoptedOrRemoved()
             throws IOException
     {

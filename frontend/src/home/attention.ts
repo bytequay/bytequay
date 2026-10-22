@@ -468,7 +468,7 @@ export type HandledEntry = {
   until: number | null;
   /** The item's updatedAt when it was handled. */
   seenUpdatedAt: string;
-  /** Includes CI and review changes that need not advance GitHub's updatedAt. */
+  /** Includes the CI result and mergeability, which need not advance GitHub's updatedAt. */
   seenActivityVersion?: string;
   /** Toast/footer wording, e.g. "next monday". */
   label: string;
@@ -572,8 +572,9 @@ export function attentionActivityVersion(item: AttentionItem): string {
   if (item.jira) return JSON.stringify([item.updatedAt, item.title, item.jira.status.id, item.jira.assignee?.accountId,
     [...item.labels].sort(), item.jira.priority?.id, item.jira.dueDate]);
   const pr = item.pr;
+  // Not pr.activityAt: it moves whenever a single CI job starts or finishes. What people do on GitHub moves updatedAt instead.
   return JSON.stringify(pr === null ? [item.updatedAt, item.title, item.body, item.commentCount, [...item.labels].sort(), item.issueState ?? 'open'] : [
-    pr.activityAt, pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,
+    pr.updatedAt, pr.title, pr.state, pr.draft, pr.ciStatus, pr.mergeable, pr.mergeableState,
     pr.reviewDecision, pr.reviewRequestedAt, pr.headPushedAt, pr.commentCount, [...pr.labels].sort(),
   ]);
 }
@@ -586,8 +587,20 @@ export function handledEntry(item: AttentionItem, kind: HandledEntry['kind'], un
 /** Timed snoozes stay quiet through activity; acknowledgment and activity snoozes wake on a change. */
 export function stillHandled(entry: HandledEntry, item: AttentionItem, now: number): boolean {
   if (entry.kind === 'snooze' && entry.until !== null) return now < entry.until;
-  if (entry.seenActivityVersion !== undefined) return entry.seenActivityVersion === attentionActivityVersion(item);
+  if (entry.seenActivityVersion !== undefined) return withoutLegacyActivityAt(entry.seenActivityVersion) === attentionActivityVersion(item);
   return Date.parse(item.updatedAt) <= Date.parse(entry.seenUpdatedAt);
+}
+
+// ponytail: v0.5.1 pull-request versions led with activityAt, the only 13-field version. Dropping it keeps those marks; delete this once
+// they have aged out.
+function withoutLegacyActivityAt(version: string): string {
+  try {
+    const parsed: unknown = JSON.parse(version);
+    return Array.isArray(parsed) && parsed.length === 13 ? JSON.stringify(parsed.slice(1)) : version;
+  }
+  catch {
+    return version;
+  }
 }
 
 export function visibleAttention(

@@ -347,10 +347,20 @@ describe('handled rows', () => {
     expect(stillHandled(timed, changed, now + 1000)).toBe(false);
   });
 
-  it('uses meaningful activity versions when displayed status returns to its previous value', () => {
-    const original = attentionCandidates([pr({ activityAt: '2026-08-15T01:00:00Z' })])[0];
-    const changed = attentionCandidates([pr({ activityAt: '2026-08-15T02:00:00Z' })])[0];
-    expect(stillHandled(handledEntry(original, 'ack', null, ''), changed, now)).toBe(false);
+  it('keeps acknowledgments through CI job progress until GitHub records activity', () => {
+    const original = attentionCandidates([pr({ ciStatus: 'PENDING', activityAt: '2026-08-15T01:00:00Z' })])[0];
+    const jobMoved = attentionCandidates([pr({ ciStatus: 'PENDING', activityAt: '2026-08-15T02:00:00Z' })])[0];
+    const updated = attentionCandidates([pr({ ciStatus: 'PENDING', updatedAt: '2026-08-15T03:00:00Z' })])[0];
+    const entry = handledEntry(original, 'ack', null, '');
+    expect(stillHandled(entry, jobMoved, now)).toBe(true);
+    expect(stillHandled(entry, updated, now)).toBe(false);
+  });
+
+  it('keeps acknowledgments saved with the activity time', () => {
+    const item = attentionCandidates([pr({ activityAt: '2026-08-15T01:00:00Z' })])[0];
+    const legacy = { ...handledEntry(item, 'ack', null, ''), seenActivityVersion: JSON.stringify(['2026-08-15T01:00:00Z', ...JSON.parse(attentionActivityVersion(item)) as unknown[]]) };
+    expect(stillHandled(legacy, item, now)).toBe(true);
+    expect(stillHandled(legacy, attentionCandidates([pr({ ciStatus: 'FAILING' })])[0], now)).toBe(false);
   });
 
   it('drops handled rows from the visible list', () => {

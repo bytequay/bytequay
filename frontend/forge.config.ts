@@ -81,10 +81,9 @@ const config: ForgeConfig = {
   rebuildConfig: { ignoreModules: ['node-pty'] },
   makers: [
     new MakerZIP({}, ['darwin']),
-    // Native macOS installer disk image. ULFO is the modern read-only
-    // compressed format — smaller download than UDZO and faster to
-    // mount on Apple Silicon.
-    new MakerDMG({ format: 'ULFO' }, ['darwin']),
+    // LZMA (ULMO) makes a download about 13% smaller than LZFSE (ULFO). appdmg and macOS 14 accept it;
+    // the maker's format type predates it.
+    new MakerDMG({ format: 'ULMO' as 'ULFO' }, ['darwin']),
   ],
   plugins: [
     new VitePlugin({

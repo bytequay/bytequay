@@ -53,7 +53,7 @@ def calls(events, known=None):
     session's running total under the turn's own name (a Codex count since fixed), and the database's total says where the
     turn's running total started. Without it a turn's own total starts at zero, and a session's goes on from the turn
     before; when that is not in the log, the turn's first call is left out."""
-    known, turns, session, began, ran, started, ended = known or {}, {}, {}, {}, [], {}, {}
+    known, turns, session, began, ran, started, ended = known or {}, {}, {}, {}, defaultdict(list), {}, {}
     for event in events:
         kind, payload, source = event["type"], event["payload"], event.get("source") or {}
         if source.get("parentProviderThreadId"):
@@ -61,10 +61,10 @@ def calls(events, known=None):
         when, turn = activity.seconds(event["occurredAt"]), event.get("turnId")
         began.setdefault(turn, when)
         if kind in ("command", "tool", "file_change"):
-            item = source.get("providerItemId") or event.get("eventId")
+            item = (turn, source.get("providerItemId") or event.get("eventId"))
             if item not in started:  # an item counts once, when it is first seen
                 started[item] = when
-                ran.append((item, name_of(kind, payload)))
+                ran[turn].append((item, name_of(kind, payload)))
             if payload.get("state") in FINISHED:
                 ended[item] = when
             continue
@@ -76,8 +76,7 @@ def calls(events, known=None):
         session[thread] = spent
         if entry["totals"] and spent[0] <= entry["totals"][-1]["spent"][0]:
             continue  # the same total sent again, as after a compaction; what ran goes with the next call
-        entry["totals"].append({"spent": spent, "start": event["occurredAt"], "when": when, "ran": ran})
-        ran = []
+        entry["totals"].append({"spent": spent, "start": event["occurredAt"], "when": when, "ran": ran.pop(turn, [])})
     found = []
     for turn, entry in turns.items():
         totals, base = entry["totals"], start_of(entry, known.get(turn))
@@ -132,15 +131,17 @@ def table(runtime, database, now):
 def adders(made):
     """What fills the context: for each name, the calls it ran before, the tokens it added (each call's addition shared
     evenly among what ran before it), its share of all that was added, the input tokens it caused (what is added before a
-    call is sent again at every later call of the turn), and the typical tokens it added when it ran alone."""
-    last = defaultdict(int)
-    for call in made:
-        last[(call["task"], call["turn"])] = max(last[(call["task"], call["turn"])], call["call"])
+    call is sent again until the next observed compaction), and the typical tokens it added when it ran alone."""
+    until = {}
     shared, caused, counted, alone = defaultdict(float), defaultdict(float), defaultdict(int), defaultdict(list)
-    for call in made:
+    for call in sorted(made, key=lambda call: call["call"], reverse=True):
+        turn = (call["task"], call["turn"])
+        until.setdefault(turn, call["call"] + 1)
+        if call["shrank"]:
+            until[turn] = call["call"]  # How much of an earlier result survived compaction is not known.
         if call["added"] is None or not call["between"]:
             continue
-        sent = last[(call["task"], call["turn"])] - call["call"] + 1
+        sent = until[turn] - call["call"]
         for name in call["between"]:
             shared[name] += call["added"] / len(call["between"])
             caused[name] += sent * call["added"] / len(call["between"])

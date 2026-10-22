@@ -16,11 +16,11 @@ import cleanup
 import monitor
 
 MB, GB = 2**20, 2**30
-# Three groups wear the three hues of the lab's checked palette; the table below the charts keeps every part apart.
-GROUPS = {"Electron app": ("app", "window", "gpu", "helpers"), "Java backend": ("backend",), "Agents": ("agents", "commands")}
-COLOR = dict(zip(GROUPS, ("model", "tool", "you")))
+# The table below the charts keeps every part apart; detached descendants need investigation, not automatic termination.
+GROUPS = {"Electron app": ("app", "window", "gpu", "helpers"), "Java backend": ("backend",), "Agents": ("agents", "commands"), "Detached descendants": ("orphaned",)}
+COLOR = dict(zip(GROUPS, ("model", "tool", "you", "warning")))
 NAMES = {"app": "app, main process", "window": "app windows", "gpu": "app GPU", "helpers": "app helpers", "backend": "Java backend",
-         "agents": "agent command lines", "commands": "commands they run", "monitor": "this monitor"}
+         "agents": "agent command lines", "commands": "commands they run", "orphaned": "detached descendants", "monitor": "this monitor"}
 # How far back each choice reaches, and the bucket its charts average over, so every chart has a few hundred points at most.
 SPANS = {"Last hour": (3600, 30), "Last day": (86400, 300), "7 days": (7 * 86400, 3600), "30 days": (30 * 86400, 3 * 3600), "90 days": (90 * 86400, 86400)}
 LIVE = 900  # seconds the live view reaches back
@@ -52,8 +52,15 @@ def read(folder, since):
     with contextlib.closing(sqlite3.connect(path, timeout=5)) as connection:
         # A monitor started before the heap was asked keeps no heap table until it starts again.
         kept = {name for (name,) in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")}
+        if not {"parts", "machine", "space"} <= kept:
+            return None
         made = {table: pandas.read_sql_query(f"SELECT * FROM {table} WHERE at >= ? ORDER BY at", connection, params=(since,))
                 for table in ("parts", "machine", "heap") if table in kept}
+        if "sessions" in kept:
+            sessions = pandas.read_sql_query("SELECT at, app AS app_session, backend AS backend_session FROM sessions WHERE at >= ?", connection, params=(since,))
+            made["machine"] = made["machine"].merge(sessions, on="at", how="left")
+        else:
+            made["machine"] = made["machine"].assign(app_session=None, backend_session=None)
         made.setdefault("heap", pandas.DataFrame(columns=["at", "used", "committed", "most", "old"]))
         return made | {"space": pandas.read_sql_query("SELECT * FROM space ORDER BY at", connection)}
 
@@ -142,8 +149,8 @@ def parts_table(parts):
 
 
 def idle_days(parts, machine):
-    """The typical memory of each group on each day, from the samples when no turn ran: memory that grows with no work to
-    do shows as a column that rises day after day. None while there is no such sample."""
+    """The typical memory of each group on each day while no agent turn ran. Other app work can still be active, so
+    growth alone is not evidence of a leak. None while there is no such sample."""
     idle = grouped(parts[parts["at"].isin(machine.loc[machine["turns"] == 0, "at"])])
     idle = idle[idle["processes"] > 0]
     if idle.empty:

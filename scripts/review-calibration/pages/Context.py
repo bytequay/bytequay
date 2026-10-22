@@ -50,7 +50,7 @@ FOLDER = arguments.parse_known_args()[0].folder
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Context")
 st.caption("How the context of an agent turn grows from one model call to the next, and what fills it. Every call is sent the whole context again, so "
-           "what a command or tool returns is paid for at every later call of the turn. Only Codex logs its tokens call by call; Claude's turns are not here.")
+           "what a command or tool returns is paid for again until compaction. Only Codex logs its tokens call by call; Claude's turns are not here.")
 try:
     MADE = saved.read(FOLDER, context.FILE)
 except (OSError, ValueError):
@@ -83,8 +83,9 @@ ROWS = context.adders([MADE["calls"][index] for index in CALLS_MADE.index])  # t
 if not ROWS:
     st.info("No call in these days says what came into its context.")
     st.stop()
-st.caption("The input tokens each command program or tool caused: what it returned, sent again at every later call of its turn. What came in between two calls is "
-           "shared evenly among what ran there; alone is what it added when it was the only thing that ran. Trimming or capping the output of the biggest saves the most.")
+st.caption("The input tokens attributed to each command program or tool: what it returned, sent again until the next observed compaction. What survives compaction is "
+           "not known and is left out. What came in between two calls is shared evenly among what ran there; alone is what it added when it was the only thing that ran. "
+           "The biggest contributors are candidates for trimming or capping output.")
 dashboard.draw("context_fills", fills_figure(ROWS, MODE))
 st.dataframe([{"what": row["name"], "calls": row["calls"], "added": row["tokens"], "share of added": row["share"], "input tokens caused": row["caused"],
                "alone, typically": row["alone"]} for row in ROWS], hide_index=True,

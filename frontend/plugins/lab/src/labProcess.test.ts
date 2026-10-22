@@ -194,3 +194,45 @@ it('uses the prepared runtime with current source files during development', asy
   expect(mocks.spawn.mock.calls[0][1]).toContain('/checkout/scripts/review-calibration/desktop.py');
   children[0].end(); await opened; lab.stopLab();
 });
+
+it('recognizes only managed local Lab pages and preserves their page, query and fragment', async () => {
+  const { labPage } = await import('./labProcess');
+  const route = '/lab-01234567-89ab-cdef-0123-456789abcdef/';
+  expect(labPage(`http://127.0.0.1:45000${route}`)).toBe('');
+  expect(labPage(`http://127.0.0.1:45000${route}Resources?view=week#memory`)).toBe('Resources?view=week#memory');
+  for (const address of [`https://example.com${route}`, `http://localhost:45000${route}`, `http://127.0.0.1${route}`,
+    `http://user@127.0.0.1:45000${route}`, 'http://127.0.0.1:45000/lab-other/', 'not a URL']) {
+    expect(labPage(address)).toBeNull();
+  }
+});
+
+it('starts the dashboard for an expired saved page and reuses it for later navigation', async () => {
+  const lab = await import('./labProcess');
+  const saved = 'http://127.0.0.1:45000/lab-01234567-89ab-cdef-0123-456789abcdef/Resources?view=week#memory';
+  const restored = lab.resolveLabPage(saved);
+  await flush();
+  expect(children).toHaveLength(1);
+  children[0].end();
+  expect(await restored).toBe('http://127.0.0.1:49152/lab-launch-id/Resources?view=week#memory');
+  expect(await lab.resolveLabPage(saved)).toBe(await restored);
+  expect(await lab.resolveLabPage('https://example.com/')).toBe('https://example.com/');
+  expect(children).toHaveLength(2);
+  lab.stopLab();
+});
+
+it('waits for dashboard readiness when another saved page is selected during startup', async () => {
+  const lab = await import('./labProcess');
+  const saved = 'http://127.0.0.1:45000/lab-01234567-89ab-cdef-0123-456789abcdef/';
+  let ready: (response: Response) => void = () => {};
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { ready = resolve; }));
+  const first = lab.resolveLabPage(saved);
+  await flush(); children[0].end(); await flush();
+  expect(children).toHaveLength(2);
+  let loaded = false;
+  const second = lab.resolveLabPage(`${saved}Resources`).then(url => { loaded = true; return url; });
+  await flush();
+  expect(loaded).toBe(false);
+  ready(new Response('ok'));
+  expect(await second).toBe(`${await first}Resources`);
+  lab.stopLab();
+});

@@ -16,6 +16,7 @@ import fs from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import type { InAppBrowserState, InAppBrowserTab } from './types';
 import { normalizeWebAddress } from './webAddress';
+import { labPage, resolveLabPage } from '@bytequay/lab/main';
 
 type Tab = { state: InAppBrowserTab; view: WebContentsView | null; loadVersion: number; committedUrl: string };
 type PinnedTab = Pick<InAppBrowserTab, 'id' | 'url' | 'title' | 'name' | 'favicon'>;
@@ -195,6 +196,10 @@ export class BrowserTabs {
 
   reload(id: string): void {
     const tab = this.requireTab(id);
+    if (labPage(tab.state.url) !== null) {
+      void this.navigate(id, tab.state.url);
+      return;
+    }
     if (!tab.view || tab.view.webContents.isDestroyed()) {
       this.createView(tab);
       void this.load(tab, tab.state.url);
@@ -375,7 +380,14 @@ export class BrowserTabs {
     tab.state.url = url;
     this.present();
     this.emit();
-    try { await tab.view?.webContents.loadURL(url); }
+    try {
+      if (labPage(url) !== null) {
+        url = await resolveLabPage(url);
+        if (this.tabs.get(tab.state.id) !== tab || tab.loadVersion !== version) return;
+        tab.state.url = url;
+      }
+      await tab.view?.webContents.loadURL(url);
+    }
     catch (error) {
       if (this.tabs.get(tab.state.id) !== tab || tab.loadVersion !== version || (error as { code?: string }).code === 'ERR_ABORTED') return;
       this.fail(tab, error instanceof Error ? error.message : 'Unable to load this page.');

@@ -373,9 +373,15 @@ Insights dashboard as an ordinary page in the embedded browser. The packaged
 app owns the Lab's Python runtime and dependencies. Electron chooses an available
 loopback port, waits for readiness, reuses the dashboard on subsequent opens,
 and stops it on quit; a managed dashboard also exits when its parent disappears.
-The renderer stores only whether to show its sidebar shortcut. Refresh reads task
-runtime files and the database read-only and saves results in the separate Lab
-data folder. Opening Lab does not start model runs or install a background monitor.
+The renderer stores only whether to show its sidebar shortcut. Pinned Lab pages
+resolve their temporary local address through the current managed dashboard
+when selected. Refresh reads task runtime files, the database and bounded existing
+backend logs read-only and saves results in the separate Lab data folder. Log
+summaries retain counters and fixed labels rather than messages or credentials.
+The health view distinguishes missing or partial evidence from observed health
+and supplies local, evidence-backed task briefs. Optional resource sampling tracks
+observed process identities across reparenting and separates app sessions when
+comparing growth. Opening Lab does not start model runs or install a background monitor.
 The Lab measures how the app and its agents work, so product changes can be
 chosen from its numbers and then checked against them. A link the dashboard
 opens under its own per-launch address can hand ByteQuay a task brief; Electron

@@ -39,6 +39,7 @@ def numbers(backend=1000, commands=0):
     made = {part: {"processes": 1, "memory": 100 * MB, "cpu": 0.1, "threads": 10, "files": 5} for part in monitor.PARTS}
     made["backend"] |= {"memory": backend * MB, "cpu": 0.5, "threads": 100}
     made["commands"] |= {"processes": 3, "memory": commands * MB, "cpu": 6.0, "threads": 500, "files": 900} if commands else dict.fromkeys(monitor.AMOUNTS, 0)
+    made["orphaned"] = dict.fromkeys(monitor.AMOUNTS, 0)
     return made
 
 

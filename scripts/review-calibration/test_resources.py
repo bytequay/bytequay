@@ -3,6 +3,7 @@ from datetime import date, datetime
 import logging
 import os
 from pathlib import Path
+import sqlite3
 import sys
 import tempfile
 import time
@@ -42,6 +43,7 @@ def numbers(**changed):
     made = {part: {"processes": 1, "memory": 100 * resources.MB, "cpu": 0.1, "threads": 10, "files": 5} for part in monitor.PARTS}
     made["backend"] |= {"memory": 1000 * resources.MB, "cpu": 0.5, "threads": 100}
     made["commands"] |= {"processes": 0, "memory": 0, "cpu": 0, "threads": 0, "files": 0}
+    made["orphaned"] = dict.fromkeys(monitor.AMOUNTS, 0)
     for part, amounts in changed.items():
         made[part] |= amounts
     return made
@@ -74,14 +76,32 @@ class TestFrames(Kept):
         made = resources.read(self.folder, now - 60)
         groups = resources.grouped(made["parts"])
         newest = groups[groups["at"] == now].set_index("group")
-        self.assertEqual(newest["memory"].div(resources.MB).to_dict(), {"Agents": 100, "Electron app": 600, "Java backend": 1000})  # the monitor is not the app
+        self.assertEqual(newest["memory"].div(resources.MB).to_dict(), {"Agents": 100, "Electron app": 600, "Java backend": 1000, "Detached descendants": 0})  # the monitor is not the app
         self.assertEqual(resources.now(made["parts"], made["machine"]) | {"memory": None},
                          {"memory": None, "cpu": 1.0, "threads": 150, "processes": 7, "turns": None, "tasks": 6, "queued": 2, "used": 40 * resources.GB, "total": 64 * resources.GB})
         table = resources.parts_table(made["parts"]).set_index("part")
         self.assertEqual(list(table.index), ["app, main process", "app windows", "app GPU", "app helpers", "Java backend", "agent command lines", "this monitor"])  # no command ran
         self.assertEqual(table.loc["Java backend", ["memory MB", "typical MB", "peak MB", "CPU cores", "typical CPU", "peak CPU"]].tolist(), [1000, 1000, 2000, 0.5, 0.5, 1.5])
         self.assertEqual(table.loc["app windows", ["processes", "memory MB"]].tolist(), [2, 300])
-        self.assertEqual(resources.bucketed(groups, 3600, ["group"]).groupby("group")["memory"].count().tolist(), [1, 1, 1])  # one bucket of each
+        self.assertEqual(resources.bucketed(groups, 3600, ["group"]).groupby("group")["memory"].count().tolist(), [1, 1, 1, 1])  # one bucket of each
+
+    def test_detached_descendant_resources_remain_in_app_totals_and_a_separate_group(self):
+        self.keep((100.0, numbers(orphaned={"processes": 2, "memory": 700 * resources.MB, "cpu": 0.5}), MACHINE))
+        made = resources.read(self.folder, 0)
+        self.assertEqual(resources.now(made["parts"], made["machine"])["memory"], 2200 * resources.MB)
+        self.assertEqual(resources.grouped(made["parts"]).set_index("group").loc["Detached descendants", "memory"], 700 * resources.MB)
+        self.assertEqual(resources.parts_table(made["parts"]).set_index("part").loc["detached descendants", "processes"], 2)
+
+    def test_sessions_are_joined_and_older_samples_keep_unknown_sessions(self):
+        self.keep((100.0, numbers(), MACHINE | {"app_session": "11:12.0", "backend_session": "13:14.0"}), (200.0, numbers(), MACHINE))
+        machine = resources.read(self.folder, 0)["machine"]
+        self.assertEqual(machine.loc[0, ["app_session", "backend_session"]].tolist(), ["11:12.0", "13:14.0"])
+        self.assertTrue(machine.loc[1, ["app_session", "backend_session"]].isna().all())
+        connection = monitor.store(self.folder)
+        connection.execute("DROP TABLE sessions")
+        connection.commit()
+        connection.close()
+        self.assertTrue(resources.read(self.folder, 0)["machine"][["app_session", "backend_session"]].isna().all().all())
 
     def test_idle_memory_is_taken_only_from_samples_when_no_turn_ran(self):
         start = pandas.Timestamp("2026-10-12 12:00").timestamp()
@@ -121,6 +141,16 @@ class TestFrames(Kept):
         self.assertEqual(set(resources.disk_figure(places, "light").data[0].marker.color), {charts.COLORS["light"]["model"]})
 
     def test_nothing_kept_reads_as_nothing(self):
+        self.assertIsNone(resources.read(self.folder, 0))
+
+    def test_empty_or_partly_created_monitor_database_reads_as_nothing(self):
+        self.folder.mkdir()
+        connection = sqlite3.connect(self.folder / monitor.STORE)
+        self.addCleanup(connection.close)
+        for statement in ("CREATE TABLE parts (at REAL)", "CREATE TABLE machine (at REAL)", "CREATE TABLE sessions (at REAL, app TEXT, backend TEXT)"):
+            self.assertIsNone(resources.read(self.folder, 0))
+            connection.execute(statement)
+            connection.commit()
         self.assertIsNone(resources.read(self.folder, 0))
 
 
@@ -200,14 +230,14 @@ class TestPage(Kept):
         self.keep((time.time() - 120, numbers(), MACHINE | {"turns": 0}))
         page = self.page()
         self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                         (["The monitor is not running, so this is not live. Start the monitor with `uv run monitor.py --start`"], []))
+                         (["The monitor is not running, so this is not live. Start resource monitoring on App health, or use Start the monitor on Processes."], []))
         self.assertIn("Memory while no turn ran", [heading.value for heading in page.subheader])
         self.assertIn("The app's data is counted a few times a day. The first count starts with the monitor and takes a few minutes.", [note.value for note in page.info])
 
     def test_nothing_sampled_says_how_to_start_and_draws_nothing(self):
         page = self.page()
         self.assertEqual(([note.value for note in page.info][:2], len(page.get("plotly_chart")), list(page.exception)),
-                         (["Nothing is sampled yet. Start the monitor with `uv run monitor.py --start`", "Nothing was sampled in this stretch."], 0, []))
+                         (["Nothing is sampled yet. Start resource monitoring on App health, or use Start the monitor on Processes.", "Nothing was sampled in this stretch."], 0, []))
 
     def test_without_a_key_the_agent_cannot_look_and_the_page_says_how_to_give_it_one(self):
         page = self.page()

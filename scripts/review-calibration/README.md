@@ -13,6 +13,35 @@ the dashboard automatically; **Show the Lab** adds the same action to the
 sidebar. Installed users need no terminal setup. The commands below remain
 available for development and controlled experiments.
 
+## App health
+
+The landing view combines the last day's existing backend logs with recent
+resource samples. **Agent activity** opens the existing turn and review tools.
+**Analyze now** at the top of Lab and **Open Lab** analyze
+`~/Library/Logs/ByteQuay/backend.log` and retained `backend.log*` rotations
+read-only. Development can select another
+log folder with `desktop.py --logs PATH` or `dashboard.py --logs PATH`.
+
+Reads are bounded to eight files and four MiB per file, including decompressed
+archives. The page discloses unreadable, truncated and omitted sources. Saved
+`app-health.json` contains fixed failure categories, component labels, counts,
+times and aggregated timing pairs; raw messages, stack traces, paths, task IDs
+and credentials are not copied into it or task briefs. Ordinary warnings and
+errors need no extra logging. Send latency uses matched `send-timing` phase
+pairs only when those optional debug logs already exist. Provider wait includes
+provider processing and network time; overlapping phases must not be summed.
+
+Health suggestions use local rules, require no model key, and prepare a task
+brief with evidence, a source location and a verification measurement. They do
+not execute fixes. Missing records preserve the last agent snapshots and mark
+them stale while still opening the health page. **Start resource monitoring**
+is an explicit opt-in to the existing persistent monitor; **Processes** stops
+it. Memory and open-file growth comparisons use one app/backend process session
+with a stable observed workload. Detached descendants remain counted after
+their parent exits, provided the monitor observed them beforehand. Neither
+growth nor detachment alone proves a leak. The health view does not directly
+measure UI responsiveness or external-service availability.
+
 ## Review discovery calibration
 
 `run.py` runs one bounded, read-only discovery pass against exact Git objects,
@@ -747,7 +776,7 @@ uv run dashboard.py FOLDER --port 8600 --runtime RUNTIME
 `http://127.0.0.1:8517`. Most tabs read the folder and nothing else. The
 Suggestions and Approvals tabs also read the task logs, in this process
 only, to match approval rules against command lines that are never shown or
-saved. **Refresh data** in the sidebar refreshes activity, reviews, tuning,
+saved. **Analyze now** at the top of Lab refreshes activity, reviews, tuning,
 context and memory through `desktop.py`, and the page then shows them. Pick the days
 in the side bar; days are in the reader's own time zone, while `--since`
 counts in UTC. A model and effort and a repository can be picked there too,

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { backendJson } from './backendJson';
-import { labTask, openLab, stopLab } from '@bytequay/lab/main';
+import { labPage, labTask, openLab, resolveLabPage, stopLab } from '@bytequay/lab/main';
 import type { JiraLocation } from './jira/contracts';
 import { registerJiraIpc } from '@bytequay/jira/main';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
@@ -2036,9 +2036,11 @@ function registerIpc(): void {
   ipcMain.handle('lab:open', async event => {
     if (!mainWindow || event.sender !== mainWindow.webContents) throw new Error('Lab can only be opened from ByteQuay.');
     const address = await openLab();
-    const existing = browserTabs.getState().tabs.find(tab => tab.url.startsWith(address));
-    if (existing) browserTabs.reload(existing.id);
-    return existing?.url ?? address;
+    const existing = browserTabs.getState().tabs.find(tab => labPage(tab.url) !== null);
+    if (!existing) return address;
+    const restored = await resolveLabPage(existing.url);
+    await browserTabs.navigate(existing.id, restored);
+    return restored;
   });
   registerBrowserTabIpc(browserTabs, () => mainWindow);
   appNotices.register();

@@ -149,6 +149,25 @@ export function openLab(): Promise<string> {
   return opening;
 }
 
+/** A managed Lab page's path, independent of the port and launch ID that expire when ByteQuay quits. */
+export function labPage(url: string): string | null {
+  try {
+    const address = new URL(url);
+    if (address.protocol !== 'http:' || address.hostname !== '127.0.0.1' || !address.port || address.username || address.password) return null;
+    const base = address.pathname.match(/^\/lab-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/|$)/);
+    return base ? address.pathname.slice(base[0].length) + address.search + address.hash : null;
+  }
+  catch { return null; }
+}
+
+/** Selecting a saved Lab page starts this session's dashboard, keeping the page the user pinned. */
+export async function resolveLabPage(url: string): Promise<string> {
+  const page = labPage(url);
+  if (page === null) return url;
+  const address = opening ? await opening : dashboard && !dashboard.process.exited ? dashboard.address : await openLab();
+  return address + page;
+}
+
 /**
  * The task a link on the running dashboard asks to open, or null for any other address. Only that dashboard knows its per-launch path, so
  * another page cannot make a link this takes; and a task it takes only fills the composer, which the user still sends.

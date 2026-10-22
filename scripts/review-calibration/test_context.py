@@ -63,6 +63,13 @@ class TestCalls(unittest.TestCase):
         # The third call is sent 150: 50 sent and 10 written before it, so 90 came in.
         self.assertEqual([(call["sent"], call["added"], call["shrank"]) for call in made], [(100, None, False), (50, None, True), (150, 90, False)])
 
+    def test_a_turn_does_not_take_commands_left_after_another_turns_last_usage(self):
+        made = context.calls([asked(0, "a"), usage("a", 100, 10, second=2), command("rg secret src", "c1", second=3, turn="a"),
+                              asked(20, "b"), usage("b", 50, 5, second=25), command("git status", "c1", second=27, turn="b"), usage("b", 150, 10, second=30),
+                              usage("b", 300, 15, second=35)])
+        self.assertEqual([(call["turn"], call["between"], call["seconds"]) for call in made],
+                         [("a", [], 2), ("b", [], 5), ("b", [], 2), ("b", ["git"], 5)])
+
     def test_a_session_total_steps_from_the_turn_before_and_the_database_total_says_where_a_turn_started(self):
         events = [usage("a", 1000, 100, SESSION), usage("a", 1300, 110, SESSION), usage("b", 1700, 130, SESSION)]
         # The log's first session total has nothing to step from, so it is left out.
@@ -77,15 +84,26 @@ class TestCalls(unittest.TestCase):
 
 class TestAdders(unittest.TestCase):
     def test_what_came_in_is_shared_out_and_counted_again_at_every_later_call(self):
-        made = [{"task": "t", "turn": "a", "call": 1, "added": None, "between": []},
-                {"task": "t", "turn": "a", "call": 2, "added": 100, "between": ["rg", "review_get_context"]},
-                {"task": "t", "turn": "a", "call": 3, "added": 300, "between": ["review_get_context"]},
-                {"task": "t", "turn": "a", "call": 4, "added": 0, "between": []}]
+        made = [{"task": "t", "turn": "a", "call": 1, "added": None, "between": [], "shrank": False},
+                {"task": "t", "turn": "a", "call": 2, "added": 100, "between": ["rg", "review_get_context"], "shrank": False},
+                {"task": "t", "turn": "a", "call": 3, "added": 300, "between": ["review_get_context"], "shrank": False},
+                {"task": "t", "turn": "a", "call": 4, "added": 0, "between": [], "shrank": False}]
         rows = {row["name"]: row for row in context.adders(made)}
         # Added before call 2 of 4, it is sent at calls 2, 3 and 4; added before call 3, at calls 3 and 4.
         self.assertEqual({name: (row["calls"], row["tokens"], round(row["share"], 1), row["caused"], row["alone"]) for name, row in rows.items()},
                          {"review_get_context": (2, 350, 87.5, 750, 300), "rg": (1, 50, 12.5, 150, None)})
         self.assertEqual([row["name"] for row in context.adders(made)], ["review_get_context", "rg"])  # the most input tokens caused first
+
+    def test_attribution_stops_when_compaction_discards_the_known_context(self):
+        events = [asked(0), command("rg secret src", "c1", second=1)]
+        sent, total = [100, 10110, 100, 110, 120, 130, 140, 150, 160, 170], 0
+        for number, amount in enumerate(sent, 1):
+            total += amount
+            events.append(usage("a", total, number * 10, second=number + 1))
+        made = [{"task": "t", **call} for call in context.calls(events)]
+        self.assertEqual(sum(call["shrank"] for call in made), 1)
+        self.assertEqual(context.adders(made), [{"name": "rg", "calls": 1, "tokens": 10000, "share": 100.0, "caused": 10000, "alone": 10000}])
+        self.assertLessEqual(sum(row["caused"] for row in context.adders(made)), sum(sent))
 
 
 class TestTiming(unittest.TestCase):
@@ -140,9 +158,9 @@ class TestPage(unittest.TestCase):
         self.assertEqual([(tile.label, tile.value) for tile in page.metric],
                          [("Model calls", "4"), ("Typical context", "102k"), ("Largest context", "104k"), ("Added per call", "1,990"), ("Compacted", "1")])
         self.assertEqual(len(page.get("plotly_chart")), 2)
-        # A compacted call says nothing of what came in before it.
+        # The compacted call no longer repeats known additions from earlier calls.
         self.assertEqual(page.dataframe[0].value[["what", "calls", "added", "input tokens caused"]].values.tolist(),
-                         [["review_get_context", 1, 2990, 8970], ["rg", 1, 990, 1980]])
+                         [["review_get_context", 1, 2990, 5980], ["rg", 1, 990, 990]])
         page.segmented_control(key="span").set_value("All").run()
         self.assertEqual(page.metric[0].value, "5")  # the turn of September too
 

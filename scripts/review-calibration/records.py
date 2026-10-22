@@ -15,8 +15,8 @@ import saved
 # repository and the setup. Titles, prompts, plans and every other text column stay unread.
 COLUMNS = {
     "agent_turn": ("id", "task_id", "started_at", "elapsed_millis", "model", "requested_model", "effort", "state", "input_tokens", "cached_input_tokens", "output_tokens",
-                   "cost", "tool_calls", "context_compactions", "setup_fingerprint"),
-    "agent_task": ("id", "lane_id", "repository_owner", "repository_name"),
+                   "cost", "tool_calls", "context_compactions", "setup_fingerprint", "lane_id"),
+    "agent_task": ("id", "repository_owner", "repository_name"),
     "agent_review": ("id", "repo"),
     "agent_review_run": ("id", "review_id", "state", "created_at", "ended_at", "completion_repair_used", "turn_ids_json"),
     "agent_review_finding": ("run_id", "state", "severity"),
@@ -24,7 +24,7 @@ COLUMNS = {
 QUERY = """
     SELECT turn.task_id, turn.id, turn.started_at, turn.elapsed_millis, COALESCE(NULLIF(turn.model, ''), turn.requested_model), turn.effort, turn.state,
            turn.input_tokens, turn.cached_input_tokens, turn.output_tokens, turn.cost, turn.tool_calls, turn.context_compactions,
-           task.lane_id, task.repository_owner, task.repository_name, turn.setup_fingerprint
+           turn.lane_id, task.repository_owner, task.repository_name, turn.setup_fingerprint
     FROM agent_turn turn LEFT JOIN agent_task task ON task.id = turn.task_id"""
 SETUP = "setup_fingerprint"  # only a database from after ByteQuay began to name a turn's setup has this column
 RUNS = """
@@ -93,7 +93,7 @@ def reviews(path, turns, since=None, task=None):
 
 def record(started, elapsed, model, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions, lane, owner, name, setup):
     return {"start": moment(started), "seconds": (elapsed or 0) / 1000,
-            # A lane is named after its provider, sometimes followed by the id of an account or a key. Only the provider is kept.
+            # The turn's lane preserves its provider when the task later changes providers; account and key ids are left out.
             "provider": lane.split("-")[0] if lane else None, "model": model or None, "effort": effort.lower() if effort else None,
             "repository": f"{owner}/{name}" if owner and name else None, "outcome": state.lower() if state else None,
             "inputTokens": tokens_in, "cachedInputTokens": cached, "outputTokens": tokens_out, "cost": None if cost is None else float(cost),

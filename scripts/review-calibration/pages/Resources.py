@@ -21,7 +21,7 @@ import resources
 import saved
 import suggest
 
-GUIDE = "Start the monitor with `uv run monitor.py --start`"
+GUIDE = "Start resource monitoring on App health, or use Start the monitor on Processes."
 RISK = {"high": ("High risk", ":material/error:", "red"), "medium": ("Medium risk", ":material/warning:", "orange"), "low": ("Low risk", ":material/info:", "blue")}
 
 
@@ -230,8 +230,8 @@ def over_time(folder, mode):
     if idle is None:
         st.info("No sample of this stretch was taken while no turn ran.")
     else:
-        st.caption("The typical memory of each group in MB on each day, from the samples when no turn ran. A column that rises day after day "
-                   "holds on to memory with no work to do; a restart of the app starts it low again.")
+        st.caption("The typical memory of each group in MB on each day when no agent turn ran. Browser pages, refreshes and other background work may still run; "
+                   "caches and app restarts also affect these values. Growth alone does not prove a leak. App health compares growth within one process session.")
         st.dataframe(idle, hide_index=True, column_config={group: st.column_config.NumberColumn(format="%,.0f") for group in resources.GROUPS})
     mine = parts[parts["part"] == "monitor"]
     if len(mine):

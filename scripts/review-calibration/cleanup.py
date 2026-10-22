@@ -28,7 +28,7 @@ STATE = "cleanup.json"
 # Why git keeps a worktree, from what it says; anything else is "git refused to remove it". Its own words name paths.
 REFUSALS = {"modified or untracked": "it holds changes not committed", "locked": "it is locked"}
 # What makes a repository's own folder hold work found nowhere else, asked of git in this order.
-UNSAVED = ((("status", "--porcelain"), "it holds changes not committed"), (("log", "--branches", "--not", "--remotes", "--oneline", "-1"), "it has commits on no remote"),
+UNSAVED = ((("status", "--porcelain"), "it holds changes not committed"), (("log", "HEAD", "--branches", "--tags", "--not", "--remotes", "--oneline", "-1"), "it has commits on no remote"),
            (("stash", "list"), "it has a stash"))
 
 
@@ -102,12 +102,19 @@ def unsaved(repository):
 def let_go(tree):
     """Let a git worktree or repository go: None when it may be deleted, or is gone already, else why it stays. A worktree is
     removed through git, which refuses one with changes not committed or files it does not track; its branch stays in the
-    repository, so no commit is lost. A repository's own folder is kept while it holds work found nowhere else."""
+    repository. A detached HEAD stays unless a branch, tag or remote also holds its commits. A repository's own folder
+    is kept while it holds work found nowhere else."""
     if (tree / ".git").is_dir():
         return unsaved(tree)
     common = subprocess.run(["git", "-C", str(tree), "rev-parse", "--path-format=absolute", "--git-common-dir"], capture_output=True, text=True)
     if common.returncode:
         return "git cannot read it"
+    unreferenced = subprocess.run(["git", "-C", str(tree), "log", "HEAD", "--not", "--branches", "--tags", "--remotes", "--oneline", "-1"],
+                                 capture_output=True, text=True)
+    if unreferenced.returncode:
+        return "git cannot read it"
+    if unreferenced.stdout.strip():
+        return "it has commits on no branch, tag or remote"
     done = subprocess.run(["git", "--git-dir", common.stdout.strip(), "worktree", "remove", str(tree)], capture_output=True, text=True)
     if done.returncode == 0:
         return None

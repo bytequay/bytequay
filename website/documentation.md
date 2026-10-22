@@ -530,7 +530,22 @@ Choose **Settings → Integrations → Lab → Open Lab**. ByteQuay refreshes th
 statistics and opens the dashboard automatically. Turn on **Show the Lab** for
 a sidebar shortcut. No terminal commands or Python installation are needed.
 
-Use the dashboard to inspect resources, test review guidance,
+Start with **App health** for recent backend errors, measured send latency,
+resource status, and actions supported by those measurements. Choose **Analyze
+now** at the top of Lab whenever you want to read the latest logs and resource
+samples and update the health assessment and suggestions. The button shows
+progress and completion or an error, and can be used again after every run.
+Missing, partial, or stale evidence stays visible; a quiet log does not prove
+every app feature is healthy.
+
+Choose **Start resource monitoring** to collect memory, CPU, open-file and
+process trends. Monitoring is optional and continues after ByteQuay quits;
+stop it on **Processes**. A detached descendant or rising memory is a reason
+to investigate, not proof of a leak. Health actions include their evidence,
+source location and a measurement to verify. **Investigate in ByteQuay** opens
+a task brief for you to read and send. These suggestions need no model key.
+
+Use **Agent activity** to inspect agent performance, test review guidance,
 and understand context costs. Record a change and check the results.
 
 [Explore the Lab](dist/lab.html) · [Start the Lab](dist/lab-guide.html)

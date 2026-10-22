@@ -64,14 +64,57 @@ class TestParts(unittest.TestCase):
         def program(pid):
             reads.append(pid)
             return table[pid][1:]
-        listed = lambda attributes: [mock.Mock(pid=pid, info={"ppid": parent, "exe": executable}) for pid, (parent, executable, _) in table.items()]
+        cached = []  # psutil caches a process's executable and creation time until its iterator cache is cleared.
+
+        def listed(attributes):
+            if not cached:
+                cached.extend(mock.Mock(pid=pid, info={"ppid": parent, "exe": executable, "create_time": 100.0}) for pid, (parent, executable, _) in table.items())
+            return cached
+
         watch = monitor.Watch(database=Path("/nowhere/bytequay.db"))
-        with mock.patch.object(monitor.psutil, "process_iter", listed), mock.patch.object(monitor, "program", program):
+        with mock.patch.object(monitor.psutil, "process_iter", side_effect=listed) as inventory, mock.patch.object(monitor, "program", program):
+            inventory.cache_clear.side_effect = cached.clear
             self.assertNotIn("backend", watch.parts().values())
             table[11] = (10, "/usr/bin/java", ["java", "-jar", "/tmp/bytequay-backend.x/bytequay-backend.jar"])
             self.assertEqual(watch.parts().get(11), "backend")
             watch.parts()
         self.assertEqual(reads, [10, 11, 11])  # when first seen and when its program changed, not on every look
+
+    def test_detached_descendants_stay_visible_until_the_process_identity_exits(self):
+        table = {100: (1, "/jdk/bin/java", ["java", "-jar", "bytequay-backend.jar"], 10.0),
+                 101: (100, "/bin/sh", ["sh"], 11.0), 102: (101, "/bin/sleep", ["sleep", "30"], 12.0)}
+        listed = lambda attributes: [mock.Mock(pid=pid, info={"ppid": parent, "exe": executable, "create_time": created})
+                                     for pid, (parent, executable, _, created) in table.items()]
+        watch = monitor.Watch(database=Path("/nowhere/bytequay.db"))
+        with mock.patch.object(monitor.psutil, "process_iter", side_effect=listed), mock.patch.object(monitor, "program", side_effect=lambda pid: table[pid][1:3]):
+            self.assertEqual(watch.parts()[102], "commands")
+            session = watch.sessions["backend_session"]
+            del table[101]
+            table[102] = (1, *table[102][1:])
+            self.assertEqual(watch.parts()[102], "orphaned")
+            table[103] = (102, "/bin/sleep", ["sleep", "30"], 13.0)
+            self.assertEqual(watch.parts()[103], "orphaned")
+            watch.counted[102] = object()
+            # The OS reuses the PID for the same executable; it is no longer ByteQuay's process.
+            table[102] = (*table[102][:3], 20.0)
+            del table[103]
+            self.assertNotIn(102, watch.parts())
+            self.assertNotIn(102, watch.counted)
+            self.assertEqual(watch.sessions["backend_session"], session)
+            table[100] = (*table[100][:3], 21.0)
+            watch.parts()
+            self.assertNotEqual(watch.sessions["backend_session"], session)
+
+    def test_processes_with_unknown_identity_do_not_get_a_session_or_survive_by_pid(self):
+        table = {100: (1, "/jdk/bin/java", ["java", "-jar", "bytequay-backend.jar"]), 101: (100, "/bin/sleep", ["sleep", "30"])}
+        listed = lambda attributes: [mock.Mock(pid=pid, info={"ppid": parent, "exe": executable, "create_time": None})
+                                     for pid, (parent, executable, _) in table.items()]
+        watch = monitor.Watch(database=Path("/nowhere/bytequay.db"))
+        with mock.patch.object(monitor.psutil, "process_iter", side_effect=listed), mock.patch.object(monitor, "program", side_effect=lambda pid: table[pid][1:]):
+            self.assertEqual(watch.parts()[101], "commands")
+            self.assertIsNone(watch.sessions["backend_session"])
+            table[101] = (1, *table[101][1:])
+            self.assertNotIn(101, watch.parts())
 
     def test_a_process_the_monitor_starts_is_its_own_cost(self):
         child = subprocess.Popen(["sleep", "30"])
@@ -90,9 +133,23 @@ class TestParts(unittest.TestCase):
         mine = totals["monitor"]
         self.assertEqual(mine["processes"], 1)
         self.assertTrue(mine["memory"] > 0 and mine["threads"] >= 1 and mine["files"] >= 1)
-        self.assertTrue(0.3 < mine["cpu"] <= 1.5, mine["cpu"])  # in cores: about one, never a hundred
+        self.assertTrue(0 < mine["cpu"] <= 1.5, mine["cpu"])  # competing builds can leave this process only a small share of a core
         self.assertTrue(0 < machine["memory_used"] < machine["memory_total"])
         self.assertEqual((machine["turns"], machine["tasks"], machine["queued"]), (None, None, None))  # no database: not known, and not zero
+
+    def test_cpu_percent_is_reported_as_cores(self):
+        watch = monitor.Watch()
+        process = mock.MagicMock()
+        process.memory_info.return_value.rss = 1024
+        process.cpu_percent.return_value = 125.0
+        process.num_threads.return_value, process.num_fds.return_value = 10, 4
+        with mock.patch.object(watch, "parts", return_value={123: "backend"}), mock.patch.object(monitor.psutil, "Process", return_value=process), \
+                mock.patch.object(monitor.psutil, "virtual_memory", return_value=mock.Mock(total=8192, available=2048)), \
+                mock.patch.object(monitor.psutil, "cpu_percent", return_value=25.0), mock.patch.object(monitor.psutil, "cpu_count", return_value=8), \
+                mock.patch.object(monitor, "records", return_value={"turns": 0, "tasks": 0, "queued": 0}):
+            totals, machine = watch.sample()
+        self.assertEqual(totals["backend"]["cpu"], 1.25)
+        self.assertEqual(machine["cpu"], 2.0)
 
 
 class TestRecords(Folder):
@@ -124,7 +181,7 @@ class TestStore(Folder):
     def test_samples_are_kept_and_those_older_than_a_week_are_folded_into_hours(self):
         connection = monitor.store(self.folder)
         self.addCleanup(connection.close)
-        machine = {"memory_used": 4, "memory_total": 8, "cpu": 1.5, "turns": 1, "tasks": 2, "queued": None}
+        machine = {"memory_used": 4, "memory_total": 8, "cpu": 1.5, "turns": 1, "tasks": 2, "queued": None, "app_session": "11:12.0", "backend_session": "13:14.0"}
         now = 100 * 86400.0
         old = now - 8 * 86400  # a whole hour that is more than a week old
         hour = old // 3600 * 3600
@@ -140,6 +197,7 @@ class TestStore(Folder):
         self.assertEqual(rows, [(hour, 3600, 200, 300, 1.0, 1.5), (hour + 3600, 3600, 50, 50, 0.1, 0.1), (now - 60, 5, 7, 7, 0.2, 0.2)])
         self.assertEqual(connection.execute("SELECT at, seconds, memory_used, cpu, turns, queued FROM machine ORDER BY at").fetchall(),
                          [(hour, 3600, 4, 1.5, 1, None), (hour + 3600, 3600, 4, 1.5, 1, None), (now - 60, 5, 4, 1.5, 1, None)])
+        self.assertEqual(connection.execute("SELECT * FROM sessions").fetchall(), [(now - 60, "11:12.0", "13:14.0")])
         monitor.fold(connection, now)  # folding again changes nothing
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM parts WHERE part = 'app'").fetchone(), (3,))
 

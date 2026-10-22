@@ -20,6 +20,7 @@ from streamlit.runtime.scriptrunner import get_script_run_ctx
 
 import activity
 import advisor
+import app_logs
 import approvals
 import batch
 import charts
@@ -496,6 +497,7 @@ def settle(folder, runtime):
     """Note the change of each ByteQuay task started from a brief that was completed, on the day it was completed, and return
     the noted changes with the day each fix still open began, by title. Both pages that hand out briefs call it, so a
     completed task is noted whichever of them is opened first."""
+    invalidate_logs(folder)
     fixes = read_fixes(str(runtime))
     noted = digest.changes(folder)
     for title, day in record.unnoted(fixes, noted):
@@ -513,24 +515,47 @@ def task_link(text):
     return f"http://{HOST}:{st.get_option('server.port')}/{base}/task?" + urlencode({"repository": suggest.REPOSITORY, "text": text})
 
 
-def refresh(folder, runtime, database):
+def refresh(folder, runtime, database, logs=app_logs.LOGS):
     """Read the same statistics as Open Lab, without starting a monitor or model run."""
-    with st.sidebar:
-        if not st.button("Refresh data", key="refresh", help="Refreshes activity, reviews, tuning, context and memory from ByteQuay's local records"):
-            return
-        with st.spinner("Refreshing Lab data"):
-            try:
-                done = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("desktop.py")), "--folder", str(folder), "--runtime", str(runtime), "--database", str(database)],
-                                      capture_output=True, text=True, timeout=600)
-                problem = (done.stderr.strip().splitlines() or ["it gave no reason"])[-1] if done.returncode else None
-            except OSError as error:
-                problem = str(error)
-            except subprocess.TimeoutExpired:
-                problem = "it took more than ten minutes"
+    requested = st.button("Analyze now", key="refresh", type="primary", help="Read the latest local logs and collected resource samples, then update health and suggestions")
+    st.caption("Run an analysis whenever you want. Each run reads the latest logs and measurements available on this Mac.")
+    if not requested:
+        return
+    with st.spinner("Analyzing ByteQuay logs and measurements…"):
+        try:
+            done = subprocess.run([sys.executable, "-B", str(Path(__file__).with_name("desktop.py")), "--folder", str(folder), "--runtime", str(runtime), "--database", str(database), "--logs", str(logs)],
+                                  capture_output=True, text=True, timeout=600)
+            problem = (done.stderr.strip().splitlines() or ["it gave no reason"])[-1] if done.returncode else None
+        except OSError as error:
+            problem = str(error)
+        except subprocess.TimeoutExpired:
+            problem = "it took more than ten minutes"
+    invalidate_logs(folder)
+    read_logs.clear()
+    read_fixes.clear()
+    if problem:
+        st.error(f"Analysis could not finish: {problem}. You can try Analyze now again.")
+    else:
+        st.success("Analysis complete. App health and suggestions are updated below.")
+
+
+def invalidate_logs(folder):
+    global read_logs, read_fixes
+    # CLI imports can load this shared module before Streamlit starts its script context.
+    if not hasattr(read_logs, "clear"):
+        read_logs = st.cache_data(ttl=300, show_spinner=False)(read_logs)
+        read_fixes = st.cache_data(ttl=300, show_spinner=False)(read_fixes)
+    stamp = []
+    for name in ("turns.json", app_logs.FILE):
+        try:
+            stamp.append((str(folder), name, (folder / name).stat().st_mtime_ns))
+        except OSError:
+            stamp.append((str(folder), name, None))
+    key = "read_logs_saved_at:" + __name__
+    if st.session_state.get(key) != stamp:
         read_logs.clear()
         read_fixes.clear()
-        if problem:
-            st.error(f"The data could not be refreshed: {problem}")
+        st.session_state[key] = stamp
 
 
 def suggestions(made, table, folder, runtime):
@@ -688,10 +713,21 @@ def timed(tab, logged, *more):
         st.info("No turn of this choice has a log.")
 
 
-def page(folder, runtime, database):
+def page(folder, runtime, database, logs=app_logs.LOGS):
     start_page()
     st.title("ByteQuay Lab")
-    refresh(folder, runtime, database)
+    refresh(folder, runtime, database, logs)
+    view = st.segmented_control("View", ["App health", "Agent activity"], default="App health", key="lab_view")
+    if view != "Agent activity":
+        import health_view
+        health_view.render(folder, runtime)
+        return
+    try:
+        health = saved.read(folder, app_logs.FILE)
+        if health and health.get("activityProblem"):
+            st.warning(health["activityProblem"])
+    except (OSError, ValueError):
+        pass
     try:
         table = saved.read(folder, "turns.json")
         made = None if table is None else charts.frames(table)
@@ -702,9 +738,7 @@ def page(folder, runtime, database):
     if made is None:
         st.info(f"Nothing saved yet. Save the turn table with `{SAVE}`")
         return
-    if st.session_state.get("read_logs_saved_at") != table["savedAt"]:
-        read_logs.clear()
-        st.session_state["read_logs_saved_at"] = table["savedAt"]
+    invalidate_logs(folder)
     if made["turns"].empty:
         st.info("The saved turn table holds no turn.")
         return
@@ -755,6 +789,7 @@ def main():
     parser.add_argument("--base-path", default="", help="Path under the local server used by the desktop's managed dashboard")
     parser.add_argument("--runtime", type=Path, default=activity.RUNTIME, help="Folder with the task logs: read for the approvals, and by the button that saves again")
     parser.add_argument("--database", type=Path, help="ByteQuay's database, read only (default: beside the runtime folder)")
+    parser.add_argument("--logs", type=Path, default=app_logs.LOGS, help="Folder containing backend.log and rotated logs, read only")
     args = parser.parse_args()
     database = args.database or args.runtime.parent / monitor.DATABASE.name
     if get_script_run_ctx(suppress_warning=True) is None:
@@ -763,9 +798,9 @@ def main():
         stop_with_parent()
         sys.argv = ["streamlit", "run", __file__, "--server.address", HOST, "--server.port", str(args.port), "--server.headless", "true",
                     "--server.baseUrlPath", args.base_path, "--browser.gatherUsageStats", "false", "--client.toolbarMode", "minimal",
-                    "--", str(args.folder), "--runtime", str(args.runtime), "--database", str(database)]
+                    "--", str(args.folder), "--runtime", str(args.runtime), "--database", str(database), "--logs", str(args.logs)]
         sys.exit(cli.main())
-    page(args.folder, args.runtime, database)
+    page(args.folder, args.runtime, database, args.logs)
 
 
 if __name__ == "__main__":

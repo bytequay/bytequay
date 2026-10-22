@@ -11,7 +11,7 @@ import records
 BACKEND = Path(__file__).resolve().parents[2] / "backend"
 ENTITIES = BACKEND / "persistence-sqlite/src/main/java/com/bytequay/persistence/sqlite/entity"
 # What the application's own tables also hold, and the lab must never read.
-PRIVATE = {"agent_turn": ("plan_json", "development_result", "terminal_reason"), "agent_task": ("title", "summary_json", "worktree"),
+PRIVATE = {"agent_turn": ("plan_json", "development_result", "terminal_reason"), "agent_task": ("title", "summary_json", "worktree", "lane_id"),
            "agent_review": ("number", "task_id"), "agent_review_run": ("outcome", "summary_json", "investigation_json"),
            "agent_review_finding": ("title", "body", "state_reason", "evidence_json")}
 ALIASES = {"turn": "agent_turn", "task": "agent_task", "review": "agent_review", "run": "agent_review_run", "finding": "agent_review_finding"}
@@ -22,14 +22,15 @@ def database(path, turns=(), tasks=(), without=(), reviews=(), runs=(), findings
     """A database with the tables the lab reads. A turn is (task, id, started, elapsed ms, model, requested model,
     effort, state, tokens in, cached, tokens out, cost, tools, compactions); a task is (id, lane, owner, name); a review is
     (id, repository); a run is (id, review, state, created, ended, repaired, turn ids); a finding is (run, state, severity).
-    Every other column holds text the lab must never read."""
+    A turn snapshots its task's lane. Every other column is not read by the lab."""
     made = sqlite3.connect(path)
     for table, columns in records.COLUMNS.items():
         made.execute(f"CREATE TABLE {table} ({', '.join(name for name in (*columns, *PRIVATE[table]) if name not in without)})")
+    lanes = {task: lane for task, lane, _, _ in tasks}
     for task, turn, started, elapsed, model, requested, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions in turns:
         made.execute("INSERT INTO agent_turn (id, task_id, started_at, elapsed_millis, model, requested_model, effort, state, input_tokens, cached_input_tokens, output_tokens, cost, "
-                     "tool_calls, context_compactions, plan_json, development_result, terminal_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                     (turn, task, started, elapsed, model, requested, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions, SECRET, SECRET, SECRET))
+                     "tool_calls, context_compactions, plan_json, development_result, terminal_reason, lane_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                     (turn, task, started, elapsed, model, requested, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions, SECRET, SECRET, SECRET, lanes.get(task)))
     for task, lane, owner, name in tasks:
         made.execute("INSERT INTO agent_task (id, lane_id, repository_owner, repository_name, title, summary_json, worktree) VALUES (?, ?, ?, ?, ?, ?, ?)",
                      (task, lane, owner, name, SECRET, SECRET, SECRET))
@@ -86,8 +87,23 @@ class TestRecords(unittest.TestCase):
         self.assertEqual((second["toolCalls"], second["compactions"]), (None, None))  # not recorded is not zero
         gone = made[("gone", "t7")]
         self.assertEqual((gone["provider"], gone["model"], gone["effort"], gone["repository"], gone["outcome"], gone["seconds"]), (None, None, None, None, None, 0))
-        # Its task is gone, so nobody can say which provider counted these amounts, or how: none are shown.
+        # No provider snapshot is present, so nobody can say how these amounts were counted: none are shown.
         self.assertEqual((gone["inputTokens"], gone["cachedInputTokens"], gone["outputTokens"], gone["cost"]), (None, None, None, None))
+
+    def test_each_turn_keeps_its_provider_after_a_task_switch_or_removal(self):
+        turn = lambda name, model: ("task", name, "2026-01-01T00:00:00Z", 1000, model, model, "high", "COMPLETED", 100, 80, 10, 0.5, 1, 0)
+        database(self.path, tasks=[("task", "claude", "o", "n")], turns=[turn("first", "gpt-6-sol"), turn("second", "opus"), turn("unknown", "m")],
+                 reviews=[("review", "o/n")], runs=[("run", "review", "ACCEPTED", "2026-01-01T00:00:00Z", "2026-01-01T00:01:00Z", 0, '["first"]')])
+        with closing(sqlite3.connect(self.path)) as made, made:
+            made.execute("UPDATE agent_turn SET lane_id = 'codex' WHERE id = 'first'")
+            made.execute("UPDATE agent_turn SET lane_id = NULL WHERE id = 'unknown'")
+        found = records.read(self.path)
+        self.assertEqual([found[("task", name)]["provider"] for name in ("first", "second", "unknown")], ["codex", "claude", None])
+        self.assertEqual([found[("task", name)]["inputTokens"] for name in ("first", "second", "unknown")], [100, 100, None])
+        self.assertEqual(records.reviews(self.path, found)["runs"][0]["provider"], "codex")
+        with closing(sqlite3.connect(self.path)) as made, made:
+            made.execute("DELETE FROM agent_task")
+        self.assertEqual(records.read(self.path)[("task", "first")]["provider"], "codex")
 
     def test_turn_keeps_the_setup_it_ran_with_and_a_database_from_before_setups_has_none(self):
         turns = [("aaaa", name, f"2026-01-01T0{hour}:00:00Z", 1000, None, "m", "max", "COMPLETED", 1, 1, 1, None, 1, 0) for hour, name in enumerate(("t1", "t2"))]

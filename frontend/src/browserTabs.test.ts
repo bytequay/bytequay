@@ -20,6 +20,10 @@ import type { EventEmitter } from 'node:events';
 import { BrowserTabs, browserBounds, registerBrowserTabIpc } from './browserTabs';
 
 const electron = vi.hoisted(() => ({ views: [] as unknown[], handlers: new Map<string, (...args: unknown[]) => unknown>() }));
+const lab = vi.hoisted(() => ({ resolve: vi.fn() }));
+vi.mock('@bytequay/lab/main', async importOriginal => ({
+  ...await importOriginal<typeof import('@bytequay/lab/main')>(), resolveLabPage: lab.resolve,
+}));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
@@ -69,6 +73,7 @@ let contentView: { addChildView: ReturnType<typeof vi.fn>; removeChildView: Retu
 beforeEach(() => {
   electron.views.length = 0;
   electron.handlers.clear();
+  lab.resolve.mockReset().mockImplementation(async (url: string) => url);
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-browser-test-'));
   file = path.join(directory, 'browser-tabs.json');
   sender = { mainFrame: {}, send: vi.fn(), focus: vi.fn(), getZoomFactor: vi.fn(() => 1), isDestroyed: () => false };
@@ -197,6 +202,51 @@ it('restores a minimized pin in a new app instance until explicitly unpinned', (
   tabs.releaseWindow();
   tabs = new BrowserTabs(() => window, () => file);
   expect(tabs.getState()).toEqual({ activeTabId: null, tabs: [] });
+});
+
+it('starts the current dashboard when a saved Lab pin is selected and keeps its page and name', async () => {
+  const old = 'http://127.0.0.1:45000/lab-01234567-89ab-cdef-0123-456789abcdef/Resources';
+  const current = 'http://127.0.0.1:45001/lab-11111111-2222-3333-4444-555555555555/Resources';
+  const id = open(old);
+  await vi.waitFor(() => expect(view(0).webContents.loadURL).toHaveBeenCalledWith(old));
+  tabs.pin(id, true);
+  tabs.rename(id, 'App health');
+  tabs.releaseWindow();
+  tabs = new BrowserTabs(() => window, () => file);
+  lab.resolve.mockReset().mockResolvedValue(current);
+  expect(tabs.getState().tabs[0]).toMatchObject({ id, url: old, pinned: true, name: 'App health' });
+  expect(lab.resolve).not.toHaveBeenCalled();
+  tabs.select(id);
+  await vi.waitFor(() => expect(view(1).webContents.loadURL).toHaveBeenCalledWith(current));
+  expect(lab.resolve).toHaveBeenCalledWith(old);
+  expect(view(1).webContents.loadURL).not.toHaveBeenCalledWith(old);
+  expect(tabs.getState().tabs).toEqual([expect.objectContaining({ id, url: current, pinned: true, name: 'App health' })]);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))[0].url).toBe(current);
+  tabs.reload(id);
+  await vi.waitFor(() => expect(view(1).webContents.loadURL).toHaveBeenCalledTimes(2));
+  expect(lab.resolve).toHaveBeenLastCalledWith(current);
+});
+
+it('reports Lab startup failure on its pin and lets reload retry', async () => {
+  const url = 'http://127.0.0.1:45000/lab-01234567-89ab-cdef-0123-456789abcdef/';
+  lab.resolve.mockRejectedValueOnce(new Error('Could not refresh Lab data.'));
+  const id = open(url);
+  await vi.waitFor(() => expect(tabs.getState().tabs[0].error).toBe('Could not refresh Lab data.'));
+  expect(view(0).webContents.loadURL).not.toHaveBeenCalled();
+  tabs.reload(id);
+  await vi.waitFor(() => expect(view(0).webContents.loadURL).toHaveBeenCalledWith(url));
+  expect(tabs.getState().tabs[0].error).toBeNull();
+});
+
+it('does not load a Lab page after its tab is closed during startup', async () => {
+  const url = 'http://127.0.0.1:45000/lab-01234567-89ab-cdef-0123-456789abcdef/';
+  let ready: (url: string) => void = () => {};
+  lab.resolve.mockImplementationOnce(() => new Promise<string>(resolve => { ready = resolve; }));
+  const id = open(url);
+  tabs.close(id);
+  ready(url);
+  await Promise.resolve();
+  expect(view(0).webContents.loadURL).not.toHaveBeenCalled();
 });
 
 it('opens Cmd/middle-click links in distinct background tabs without replacing or blurring the current page', () => {

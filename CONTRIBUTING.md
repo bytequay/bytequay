@@ -339,6 +339,12 @@ and license notices remain in the bundle.
 Choose **Settings → Integrations → Lab → Open Lab** to refresh the local
 statistics and start its dashboard. Electron owns that process, chooses an
 available loopback port, reuses it on later opens, and stops it on quit.
+The **App health** landing view analyzes existing backend logs and optional
+resource samples, with local suggestions and task briefs. Choose **Analyze now**
+at the top of Lab to run the analysis again at any time. Use **Agent activity**
+for the turn and review measurements. **Start resource monitoring** explicitly
+enables the persistent sampler; stop it on **Processes**. No model key is needed
+for health suggestions. Log coverage and stale or unavailable sources stay visible.
 
 Electron 44 requires a code-signed macOS app to display native PR and task
 notifications. Unsigned development and packaged builds still show PR updates

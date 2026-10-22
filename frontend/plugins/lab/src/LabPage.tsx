@@ -21,7 +21,7 @@ export default function LabPage({ onOpen }: { onOpen: () => Promise<void> }) {
   return (
     <div className="setw-page">
       <h1>Lab</h1>
-      <p className="setw-footnote">Explore how ByteQuay and its agents work. Opening the Lab starts its local dashboard and refreshes its data.</p>
+      <p className="setw-footnote">Check ByteQuay's health and find ways to improve it. Use Analyze now in the Lab whenever you want to run the analysis again.</p>
       {error !== null && <div className="setw-error" role="alert">Could not open the Lab: {error}</div>}
       <SettingsCard>
         <SettingsRow title="Show the Lab" subtitle="Adds a Lab shortcut to the sidebar.">
@@ -29,7 +29,7 @@ export default function LabPage({ onOpen }: { onOpen: () => Promise<void> }) {
         </SettingsRow>
         <SettingsRow
           title="Open Lab"
-          subtitle={opening ? 'Starting the dashboard and refreshing its data…' : 'Refreshes activity, context, tuning, and memory statistics on this Mac.'}
+          subtitle={opening ? 'Starting the dashboard and analyzing local data…' : 'Analyzes existing logs, resource measurements, and agent activity on this Mac.'}
         >
           <button
             type="button"

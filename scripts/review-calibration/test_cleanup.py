@@ -104,6 +104,18 @@ class TestRemove(Data):
         (broken / ".git").write_text("gitdir: /nowhere/.git/worktrees/broken\n")  # its repository is gone, so git cannot say what it holds
         self.assertEqual((cleanup.let_go(broken), broken.exists()), ("git cannot read it", True))
 
+    def test_detached_worktree_keeps_commits_until_a_durable_ref_holds_them(self):
+        tree = self.trees["gone-clean"]
+        git("checkout", "-q", "--detach", cwd=tree)
+        git("commit", "-q", "--allow-empty", "-m", "detached work", cwd=tree)
+        head = git("rev-parse", "HEAD", cwd=tree).strip()
+        self.assertEqual(cleanup.let_go(tree), "it has commits on no branch, tag or remote")
+        self.assertEqual(git("rev-parse", "HEAD", cwd=tree).strip(), head)
+        git("tag", "saved-detached-work", head, cwd=self.repository)
+        self.assertIsNone(cleanup.let_go(tree))
+        self.assertFalse(tree.exists())
+        self.assertEqual(git("rev-parse", "saved-detached-work", cwd=self.repository).strip(), head)
+
     def test_a_folder_with_a_kept_worktree_loses_everything_else(self):
         (self.trees["flow"] / "tracked.txt").write_text("changed")
         kept = cleanup.remove(self.data / "new-flow-worktrees")
@@ -169,6 +181,17 @@ class TestRepositories(unittest.TestCase):
         git("push", "-q", "origin", "open", cwd=self.clone)
         self.assertEqual(cleanup.remove(self.repos / "o"), {self.clone: "a worktree made from it is still there"})
         self.assertTrue((elsewhere / "tracked.txt").exists())
+
+    def test_repository_keeps_detached_head_and_unpublished_tag_commits(self):
+        git("checkout", "-q", "--detach", cwd=self.clone)
+        git("commit", "-q", "--allow-empty", "-m", "detached work", cwd=self.clone)
+        head = git("rev-parse", "HEAD", cwd=self.clone).strip()
+        self.assertEqual(cleanup.remove(self.repos), {self.clone: "it has commits on no remote"})
+        self.assertEqual(git("rev-parse", "HEAD", cwd=self.clone).strip(), head)
+        git("tag", "saved-detached-work", head, cwd=self.clone)
+        git("checkout", "-q", "-", cwd=self.clone)
+        self.assertEqual(cleanup.remove(self.repos), {self.clone: "it has commits on no remote"})
+        self.assertEqual(git("rev-parse", "saved-detached-work", cwd=self.clone).strip(), head)
 
 
 class TestApply(Data):

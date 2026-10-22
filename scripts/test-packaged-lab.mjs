@@ -15,7 +15,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, cp, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -34,9 +34,12 @@ try {
   const emptyPath = join(temporary, 'empty-path');
   const runtime = join(temporary, 'runtime');
   const results = join(temporary, 'results');
+  const logs = join(temporary, 'logs');
   await mkdir(emptyPath);
   await mkdir(runtime);
   await mkdir(results);
+  await mkdir(logs);
+  await writeFile(join(logs, 'backend.log'), `${new Date().toISOString()} ERROR 12 --- [bytequay-backend] [main] c.b.Test : database is locked\n`);
   const env = { PATH: emptyPath, HOME: temporary, TMPDIR: temporary, BYTEQUAY_LAB_PARENT_PID: String(process.pid) };
   const python = join(lab, 'python', 'bin', 'python3');
   const database = join(temporary, 'fixture.db');
@@ -45,12 +48,15 @@ try {
     'import sys; from pathlib import Path; sys.path.insert(0, sys.argv[1]); from test_desktop import database; database(Path(sys.argv[2]))',
     join(root, 'scripts', 'review-calibration'), database], { cwd: temporary, env, stdio: 'inherit' });
   const before = await readFile(database);
-  execFileSync(python, ['-E', '-s', '-B', join(lab, 'app', 'desktop.py'), '--folder', results, '--runtime', runtime, '--database', database],
+  execFileSync(python, ['-E', '-s', '-B', join(lab, 'app', 'desktop.py'), '--folder', results, '--runtime', runtime, '--database', database, '--logs', logs],
     { cwd: temporary, env, stdio: 'inherit' });
   for (const [file, rows] of [['turns.json', 'turns'], ['reviews.json', 'runs'], ['tuning.json', 'turns'], ['context.json', 'calls'], ['memory.json', 'memories']]) {
     const table = JSON.parse(await readFile(join(results, file), 'utf8'));
     assert.deepEqual(table[rows], [], `${file} must contain refreshed empty statistics`);
   }
+  const health = JSON.parse(await readFile(join(results, 'app-health.json'), 'utf8'));
+  assert.equal(health.errors, 1, 'Packaged Lab must analyze existing backend logs');
+  assert.equal(health.groups[0].category, 'database');
   assert.deepEqual(await readFile(database), before, 'Lab must not change the application database');
   const listener = createServer();
   await new Promise((resolveListen, reject) => {
@@ -63,7 +69,7 @@ try {
   const url = `http://127.0.0.1:${port}/${basePath}`;
   const started = Date.now();
   child = spawn(python, ['-E', '-s', '-B', join(lab, 'app', 'dashboard.py'), results,
-    '--runtime', runtime, '--database', database, '--port', String(port), '--base-path', basePath], {
+    '--runtime', runtime, '--database', database, '--logs', logs, '--port', String(port), '--base-path', basePath], {
     cwd: temporary, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
     env,
   });

@@ -38,7 +38,7 @@ SAVE_EVERY = 3600  # the lab's tables are read again every hour, so no page show
 HEAP_EVERY = 60  # seconds between two asks of the backend's JVM how full its heap is; an ask takes about a second
 RAW = 7 * 86400  # seconds every sample is kept; older ones are folded into one row an hour
 HOURLY = 90 * 86400  # seconds an hourly row is kept
-PARTS = ("app", "window", "gpu", "helpers", "backend", "agents", "commands", "monitor")
+PARTS = ("app", "window", "gpu", "helpers", "backend", "agents", "commands", "orphaned", "monitor")
 AMOUNTS = ("processes", "memory", "cpu", "threads", "files")
 AGENTS = ("codex", "claude")
 # What TurnState.active() and QueuedAgentInput.State.live() hold in the backend; a test reads them from its source.
@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS parts (at REAL, seconds REAL, part TEXT, processes RE
 CREATE INDEX IF NOT EXISTS parts_at ON parts (at);
 CREATE TABLE IF NOT EXISTS machine (at REAL, seconds REAL, memory_used REAL, memory_total REAL, cpu REAL, turns REAL, tasks REAL, queued REAL);
 CREATE INDEX IF NOT EXISTS machine_at ON machine (at);
+CREATE TABLE IF NOT EXISTS sessions (at REAL PRIMARY KEY, app TEXT, backend TEXT);
 CREATE TABLE IF NOT EXISTS space (at REAL, owner TEXT, place TEXT, bytes REAL, files REAL);
 CREATE TABLE IF NOT EXISTS heap (at REAL, used REAL, committed REAL, most REAL, old REAL);
 CREATE INDEX IF NOT EXISTS heap_at ON heap (at);
@@ -93,20 +94,26 @@ def kind(program, arguments):
     return "agents" if {Path(word).name for word in [program, *arguments[:2]]} & set(AGENTS) else "commands"
 
 
-def assign(parents, programs):
+def assign(parents, programs, remembered=()):
     """{pid: part} for every process of ByteQuay: the app and its helpers, the backend, and all that they started.
-    `parents` maps every pid to its parent's, `programs` every pid to its program and arguments."""
+    `parents` maps every pid to its parent's, `programs` every pid to its program and arguments. Previously observed
+    descendants whose identities are still alive stay visible after losing their parent, together with their children."""
     children = defaultdict(list)
     for pid, parent in parents.items():
         children[parent].append(pid)
     made = {pid: "app" for pid, (program, arguments) in programs.items() if is_app(program, arguments)}
     made |= {pid: "backend" for pid, (_, arguments) in programs.items() if is_backend(arguments)}
-    waiting = list(made)
-    while waiting:
-        for child in children[waiting.pop()]:
-            if child not in made:
-                made[child] = kind(*programs.get(child, ("", [])))
-                waiting.append(child)
+    def descend(waiting, orphaned=False):
+        while waiting:
+            for child in children[waiting.pop()]:
+                if child not in made:
+                    made[child] = "orphaned" if orphaned else kind(*programs.get(child, ("", [])))
+                    waiting.append(child)
+
+    descend(list(made))
+    detached = {pid: "orphaned" for pid in remembered if pid in parents and pid not in made}
+    made.update(detached)
+    descend(list(detached), orphaned=True)
     return made
 
 
@@ -173,19 +180,33 @@ class Watch:
 
     def __init__(self, database=DATABASE):
         self.database, self.programs, self.counted = database, {}, {}
+        self.identities, self.owned, self.sessions = {}, {}, {}
 
     def parts(self):
-        seen = {process.pid: (process.info["ppid"], process.info["exe"] or "") for process in psutil.process_iter(["ppid", "exe"])}
+        # psutil caches executable and creation time by PID, so reuse and exec need a fresh process inventory.
+        psutil.process_iter.cache_clear()
+        seen = {process.pid: (process.info["ppid"], process.info["exe"] or "", process.info["create_time"])
+                for process in psutil.process_iter(["ppid", "exe", "create_time"])}
         for gone in self.programs.keys() - seen.keys():
             del self.programs[gone]
-        for pid, (_, executable) in seen.items():
+        for pid, (_, executable, created) in seen.items():
             # A process can turn into another program and keep its pid: dev.sh's backend subshell becomes Java after copying
             # the JAR. The executable comes with the parent at no extra cost, so a change is noticed at once.
-            if pid not in self.programs or self.programs[pid][0] != executable:
+            if self.identities.get(pid) != created:
+                self.counted.pop(pid, None)
+            if pid not in self.programs or self.programs[pid][0] != executable or self.identities.get(pid) != created:
                 self.programs[pid] = program(pid)
-        parents = {pid: parent for pid, (parent, _) in seen.items()}
+        self.identities = {pid: created for pid, (_, _, created) in seen.items()}
+        self.owned = {pid: created for pid, created in self.owned.items() if created is not None and self.identities.get(pid) == created}
+        parents = {pid: parent for pid, (parent, _, _) in seen.items()}
+        made = assign(parents, self.programs, self.owned)
+        for part in ("app", "backend"):
+            roots = [(pid, self.identities[pid]) for pid, who in made.items() if who == part]
+            self.sessions[f"{part}_session"] = ",".join(f"{pid}:{created}" for pid, created in sorted(roots)) if roots and all(created is not None for _, created in roots) else None
         # Its own cost is counted apart from the app's, with the disk count it runs as a process of its own.
-        return assign(parents, self.programs) | {pid: "monitor" for pid, parent in parents.items() if parent == os.getpid()} | {os.getpid(): "monitor"}
+        made |= {pid: "monitor" for pid, parent in parents.items() if parent == os.getpid()} | {os.getpid(): "monitor"}
+        self.owned = {pid: self.identities[pid] for pid, part in made.items() if part != "monitor" and self.identities.get(pid) is not None}
+        return made
 
     def sample(self):
         """The numbers of every part, of the machine, and of ByteQuay's records at one moment. CPU is in cores: 1.0 is one
@@ -204,7 +225,7 @@ class Watch:
             del self.counted[gone]
         memory = psutil.virtual_memory()
         machine = {"memory_used": memory.total - memory.available, "memory_total": memory.total, "cpu": psutil.cpu_percent(None) / 100 * psutil.cpu_count()}
-        return totals, machine | records(self.database)
+        return totals, machine | records(self.database) | self.sessions
 
 
 def store(folder):
@@ -220,6 +241,7 @@ def keep(connection, now, totals, machine):
                            [(now, EVERY, part, made["processes"], made["memory"], made["memory"], made["cpu"], made["cpu"], made["threads"], made["files"]) for part, made in totals.items()])
     connection.execute("INSERT INTO machine VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                        (now, EVERY, *(machine[name] for name in ("memory_used", "memory_total", "cpu", "turns", "tasks", "queued"))))
+    connection.execute("INSERT INTO sessions VALUES (?, ?, ?)", (now, machine.get("app_session"), machine.get("backend_session")))
     connection.commit()
 
 
@@ -235,6 +257,7 @@ def fold(connection, now):
         connection.execute(f"DELETE FROM {table} WHERE seconds < 3600 AND at < ?", (edge,))
     for table in ("parts", "machine", "space", "heap"):
         connection.execute(f"DELETE FROM {table} WHERE at < ?", (now - HOURLY,))
+    connection.execute("DELETE FROM sessions WHERE at < ?", (edge,))
     connection.commit()
 
 

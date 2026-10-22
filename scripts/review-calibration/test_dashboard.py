@@ -82,14 +82,16 @@ class Page(unittest.TestCase):
         self.addCleanup(directory.cleanup)
         self.folder = Path(directory.name)
         self.runtime = self.folder / "runtime"  # the page reads no real task log
-        arguments = mock.patch.object(sys, "argv", ["dashboard.py", str(self.folder), "--runtime", str(self.runtime)])
+        arguments = mock.patch.object(sys, "argv", ["dashboard.py", str(self.folder), "--runtime", str(self.runtime), "--logs", str(self.folder / "logs")])
         arguments.start()
         self.addCleanup(arguments.stop)
         config.set_option("server.address", dashboard.HOST)  # what the page's own start-up sets
         self.addCleanup(config.set_option, "server.address", None)
 
     def page(self):
-        return AppTest.from_file(dashboard.__file__, default_timeout=30).run()
+        page = AppTest.from_file(dashboard.__file__, default_timeout=30)
+        page.session_state["lab_view"] = "Agent activity"
+        return page.run()
 
     def save(self, text=None):
         (self.folder / "turns.json").write_text(EXAMPLE.read_text() if text is None else text)
@@ -643,7 +645,7 @@ class Page(unittest.TestCase):
         self.save()
         page = self.page()
         page.button(key="refresh").click().run()
-        self.assertEqual([note.value for note in page.error], [f"The data could not be refreshed: Lab statistics could not be refreshed: {self.folder / 'bytequay-1.0.db'} is not there"])
+        self.assertEqual([note.value for note in page.warning], ["Application records could not be refreshed; agent statistics may be stale."])
         database(self.folder / "bytequay-1.0.db")
         self.write_log(ended(43200, 43800))
         page.button(key="refresh").click().run()
@@ -667,6 +669,22 @@ class Page(unittest.TestCase):
         page.run()
         self.assertEqual(list(page.exception), [])
         self.assertEqual(asks(), "2")
+
+    def test_external_refresh_also_invalidates_completed_fix_status(self):
+        import test_record
+        started_by_bytequay(self)
+        self.save_turns(*[test_suggest.row("2026-01-01T12:00:00Z", task=f"task-{number}", long_runs=[("maven", 600)]) for number in range(3)])
+        page = self.page()
+        self.assertTrue(any(button.label == "Fix it" for button in page.get("link_button")))
+        write_fix(self.runtime, test_record.asked(test_record.BRIEF, "2026-01-01T13:00:00Z"), test_record.phase("TASK_COMPLETED", "2026-01-02T00:00:00Z"))
+        made = json.loads((self.folder / "turns.json").read_text())
+        self.save(json.dumps(made | {"savedAt": "2026-01-02T01:00:00Z"}))
+        page.run()
+        self.assertEqual(list(page.exception), [])
+        changes = json.loads((self.folder / "changes.json").read_text())["changes"]
+        self.assertTrue(any(change["what"] == test_record.MAVEN for change in changes))
+        self.assertFalse(any(button.label == "Fix it" and test_record.MAVEN in parse_qs(urlsplit(button.url).query).get("text", [""])[0]
+                             for button in page.get("link_button")))
 
     def test_approvals_tab_shows_the_asks_and_what_the_rules_picked_would_answer(self):
         self.save_turns(test_suggest.row("2026-01-01T12:00:00Z"))
@@ -730,15 +748,16 @@ class TestStart(unittest.TestCase):
         self.assertEqual((options["--server.address"], options["--server.port"], options["--server.headless"], options["--browser.gatherUsageStats"]),
                          ("127.0.0.1", "9000", "true", "false"))
         self.assertEqual(options["--server.baseUrlPath"], "lab-session")
-        self.assertEqual(seen[separator:], ["--", "/some/folder", "--runtime", str(activity.RUNTIME), "--database", str(activity.RUNTIME.parent / dashboard.monitor.DATABASE.name)])
+        self.assertEqual(seen[separator:], ["--", "/some/folder", "--runtime", str(activity.RUNTIME), "--database", str(activity.RUNTIME.parent / dashboard.monitor.DATABASE.name),
+                                           "--logs", str(dashboard.app_logs.LOGS)])
 
     def test_explicit_database_and_runtime_are_forwarded_to_every_page(self):
         seen = []
-        with mock.patch.object(sys, "argv", ["dashboard.py", "/lab", "--runtime", "/logs", "--database", "/db"]), \
+        with mock.patch.object(sys, "argv", ["dashboard.py", "/lab", "--runtime", "/logs", "--database", "/db", "--logs", "/backend-logs"]), \
                 mock.patch.object(dashboard, "get_script_run_ctx", return_value=None), \
                 mock.patch("streamlit.web.cli.main", side_effect=lambda: seen.extend(sys.argv) or 0), self.assertRaises(SystemExit):
             dashboard.main()
-        self.assertEqual(seen[seen.index("--"):], ["--", "/lab", "--runtime", "/logs", "--database", "/db"])
+        self.assertEqual(seen[seen.index("--"):], ["--", "/lab", "--runtime", "/logs", "--database", "/db", "--logs", "/backend-logs"])
 
     def test_managed_dashboard_exits_when_its_parent_disappears(self):
         with mock.patch.dict(os.environ, {"BYTEQUAY_LAB_PARENT_PID": "321"}), mock.patch.object(dashboard.threading, "Thread") as thread:

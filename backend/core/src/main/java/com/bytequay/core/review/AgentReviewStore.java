@@ -48,6 +48,9 @@ public interface AgentReviewStore
     /** Writes a message and the run that records the operation replaying it in one transaction. */
     ReviewMessage insertMessage(ReviewMessage message, ReviewRun run);
 
+    /** Writes a withdrawn finding, the message explaining it, and the run that records the operation in one transaction. */
+    void withdrawFinding(ReviewFinding finding, ReviewMessage message, ReviewRun run);
+
     Optional<ReviewRun> findRun(String runId);
 
     List<ReviewRun> listRuns(String reviewId);

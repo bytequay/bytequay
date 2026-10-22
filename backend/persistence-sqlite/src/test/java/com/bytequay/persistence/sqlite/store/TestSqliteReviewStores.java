@@ -574,6 +574,32 @@ class TestSqliteReviewStores
         assertThat(store.findFinding(finding.id())).contains(resolved.withVersion(concurrent.version() + 1));
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void withdrawalCommitsTheFindingItsMessageAndTheRunTogetherOrRollsBack()
+    {
+        store.insertReview(newReview("review-withdrawn", "workspace-withdrawn", "bytequay/withdrawn", 7, "task-withdrawn", NOW));
+        ReviewRun run = store.insertRun(newRun("run-withdrawn", "review-withdrawn"));
+        ReviewFinding finding = store.insertFinding(newFinding("finding-withdrawn", "review-withdrawn", "run-withdrawn"));
+        ReviewFinding withdrawn = finding.withState(ReviewFinding.State.WITHDRAWN, Optional.of("Unreachable"), NOW.plusSeconds(1));
+        ReviewMessage message = new ReviewMessage("message-withdrawn", "review-withdrawn", Optional.of(finding.id()), Optional.empty(), ReviewMessage.Author.AGENT,
+                "Withdrawn: Unreachable", 2, "run-withdrawn", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1), Optional.empty());
+        ReviewRun concurrent = store.updateRun(run.withCoverage(COVERAGE, NOW.plusSeconds(1)));
+        ReviewOperation operation = new ReviewOperation("sha256:22cd", "accepted");
+
+        assertThatThrownBy(() -> store.withdrawFinding(withdrawn, message, run.withOperation("review_withdraw_finding:1", operation, NOW.plusSeconds(1))))
+                .isInstanceOf(ReviewConflictException.class);
+
+        assertThat(store.findFinding(finding.id())).contains(finding);
+        assertThat(store.listMessages("review-withdrawn")).isEmpty();
+
+        store.withdrawFinding(withdrawn, message, concurrent.withOperation("review_withdraw_finding:1", operation, NOW.plusSeconds(1)));
+
+        assertThat(store.findFinding(finding.id()).orElseThrow().state()).isEqualTo(ReviewFinding.State.WITHDRAWN);
+        assertThat(store.listMessages("review-withdrawn")).extracting(ReviewMessage::id).containsExactly("message-withdrawn");
+        assertThat(store.findRun("run-withdrawn").orElseThrow().operations()).containsEntry("review_withdraw_finding:1", operation);
+    }
+
     private static AgentReview newReview(String id, String workspaceId, String repo, int number, String taskId, Instant createdAt)
     {
         return new AgentReview(

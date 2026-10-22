@@ -151,6 +151,15 @@ public class SqliteAgentReviewStore
     }
 
     @Override
+    @Transactional
+    public void withdrawFinding(ReviewFinding finding, ReviewMessage message, ReviewRun run)
+    {
+        updateFinding(finding);
+        insertMessage(message);
+        updateRun(run);
+    }
+
+    @Override
     public Optional<ReviewRun> findRun(String runId)
     {
         return runs.findById(runId).map(AgentReviewRunEntity::toDomain);

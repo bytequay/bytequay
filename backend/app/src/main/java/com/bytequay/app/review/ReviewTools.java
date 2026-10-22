@@ -1137,8 +1137,7 @@ public class ReviewTools
                 "Withdrawn: " + explanation + (refs.isEmpty() ? "" : "\n\nEvidence: " + String.join(", ", refs)),
                 finding.revision(), call.run().id(), Optional.empty(), Optional.empty(), 0, now, Optional.empty());
         ObjectNode result = objectMapper.createObjectNode().put("findingId", finding.id()).put("state", updated.state().name()).put("status", "accepted");
-        store.saveFinding(updated, false, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now));
-        store.insertMessage(message);
+        store.withdrawFinding(updated, message, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now));
         return result;
     }
 

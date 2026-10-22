@@ -14,12 +14,11 @@
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, CirclePause, CircleX, LoaderCircle, TriangleAlert } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceCherryPickRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
-import { RUNNING_TASK_LABELS, visibleRunningTasks, type RunningTask } from './runningTaskModel';
+import { RUNNING_TASK_LABELS, RUNNING_TASK_TYPES, visibleRunningTasks, type RunningTask } from './runningTaskModel';
 import { TaskTypeIcon } from './TaskListCards';
 import '../css/running-tasks.css';
 
 const POLL_MS = 5000;
-const KIND_TYPES = { TASK: 'dev', REVIEW: 'review', CHERRY_PICK: 'cherry', CI_FIX: 'ci' } as const;
 
 export default function RunningTasks() {
   const [tasks, setTasks] = useState<RunningTask[]>([]);
@@ -85,7 +84,7 @@ export function RunningTaskList({ tasks }: { tasks: RunningTask[] }) {
         return <button key={task.id} type="button" className={`app-sidebar__item app-sidebar__running-item is-${task.status.toLowerCase()}`}
           aria-label={`${task.title}, ${label}, ${task.repository}`} title={`${task.title} · ${task.repository} · ${label}`}
           onClick={() => { window.location.hash = runningTaskRoute(task); }}>
-          <span aria-hidden="true"><TaskTypeIcon type={KIND_TYPES[task.kind]} size={16} /></span>
+          <span aria-hidden="true"><TaskTypeIcon type={RUNNING_TASK_TYPES[task.kind]} size={16} /></span>
           {/* The eye icon already says "Review". */}
           <span className="app-sidebar__label">{task.kind === 'REVIEW' ? task.title.replace(/^Review:? /, '') : task.title}</span>
           <span className="app-sidebar__running-status" role="status" aria-label={label}><Icon size={14} aria-hidden="true" /></span>

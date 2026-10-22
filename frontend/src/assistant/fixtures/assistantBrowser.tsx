@@ -19,10 +19,11 @@ import type { WorkItemDto } from '../../workitems/contracts';
 import type { ReviewDraftDto } from '../../pulls/agent-review/contracts';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
 import AssistantPanel from '../AssistantPanel';
+import type { AgentEventEnvelope } from '../../agents/events';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
 import type {
-  AgendaDto, AgendaTargetDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantViewDto, Bridge,
+  AgendaDto, AgendaTargetDto, AgentHistoryPageDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantViewDto, Bridge,
 } from '../../types';
 import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
@@ -104,8 +105,19 @@ const APPROVAL: AgentPendingApprovalDto = {
 
 const RUNNING: RunningTask = {
   id: 'run-1', workspaceId: 'ws1', title: 'Expose snapshot id in metadata', repository: 'trinodb/trino', kind: 'REVIEW', targetId: 'r7', status: 'RUNNING',
-  startedAt: '2026-10-16T07:20:00Z', expiresAt: null,
+  startedAt: '2026-10-16T07:20:00Z', expiresAt: null, pullRequestNumber: 31377, branch: 'chenjian2664/snapshot-id',
 };
+
+/** A step of the running review, as its event log holds it. */
+const step = (sequence: number, argv: string, action: string, name: string | null): AgentEventEnvelope => ({
+  schemaVersion: 2, eventId: `step-${sequence}`, sequence, taskId: RUNNING.id, turnId: 'review-turn', occurredAt: '2026-10-16T07:21:00Z',
+  source: { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: `step-${sequence}`, providerEventId: null },
+  type: 'command',
+  payload: { state: 'STARTED', argv: [argv], output: null, exitCode: null, truncated: false, cwd: '.', durationMs: null,
+    actions: [{ kind: action, name, path: null, query: null }], description: null },
+} as AgentEventEnvelope);
+
+let history: AgentEventEnvelope[] = [];
 
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
@@ -118,6 +130,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
   completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}, chatEnabled = true): Mounted {
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
   let failures = failSends;
+  history = [step(1, 'sed -n 1,100p IcebergMetadata.java', 'READ', 'IcebergMetadata.java')];
   let today = view;
   window.bridge = {
     getAssistantToday: async () => today,
@@ -133,6 +146,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     makeAgendaAgain: async () => AGENDA,
     markAgendaItem: async () => AGENDA,
     listRunningTasks: async () => running,
+    readAgentHistory: async (): Promise<AgentHistoryPageDto> => ({ events: history, beforeCursor: null, afterCursor: null, latestSequence: history.length }),
     readAgentPendingApprovals: async (taskId: string, turnId: string) => taskId === APPROVAL.taskId && turnId === APPROVAL.turnId ? [APPROVAL] : [],
     resolveAgentApproval: async (...args: unknown[]) => { calls.resolved.push(args); return {}; },
     recordAssistantAnswer: async (id: string) => { calls.answered.push(id); },
@@ -337,6 +351,19 @@ async function movesWithTheKeyboard(): Promise<void> {
     assert(document.activeElement === input, 'Typing on a pill goes back to the composer');
     view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="running"]')?.click();
     await settle();
+    const card = top(view.host);
+    assert(card?.querySelector('.assistant-kind.is-running')?.textContent === 'Reviewing'
+      && card.querySelector('.assistant-task__where')?.textContent === 'trinodb/trinoT#31377·chenjian2664/snapshot-id',
+    `A running review names its pull request and branch: ${card?.querySelector('.assistant-task__where')?.textContent}`);
+    assert(card?.querySelector('.assistant-step')?.textContent === 'READIcebergMetadata.java', `It shows its newest step: ${card?.querySelector('.assistant-step')?.textContent}`);
+    history = [...history, step(2, '/bin/zsh -lc "./mvnw -pl :trino-iceberg test"', 'OTHER', null)];
+    // A return to the app reads the task at once, rather than at its next poll.
+    document.dispatchEvent(new Event('visibilitychange'));
+    await settle();
+    assert(card?.querySelector('.assistant-step__kind')?.textContent === 'RUN'
+      && card.querySelector('.assistant-step__text.is-in')?.textContent === './mvnw -pl :trino-iceberg test'
+      && card.querySelector('.assistant-step__text.is-out')?.textContent === 'IcebergMetadata.java',
+    `A new step rolls in over the last one: ${card?.querySelector('.assistant-step')?.innerHTML}`);
     [...(top(view.host)?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'Open task')?.click();
     assert(window.location.hash === workspaceReviewTaskRoute('ws1', 'r7') && view.calls.closed === 1, `Open task goes to the running task: ${window.location.hash}`);
   }

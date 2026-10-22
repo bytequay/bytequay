@@ -15,10 +15,11 @@ package com.bytequay.app.agent;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 
-/** A navigable task in the sidebar, with a deadline only after its work has settled. */
+/** A navigable task in the sidebar, with a deadline only after its work has settled; the pull request and branch are what its card names. */
 public record RunningTask(String id, String workspaceId, String title, String repository, Kind kind, String targetId,
-        Status status, Instant startedAt, Optional<Instant> expiresAt)
+        Status status, Instant startedAt, Optional<Instant> expiresAt, OptionalInt pullRequestNumber, Optional<String> branch)
 {
     public enum Kind { TASK, REVIEW, CHERRY_PICK, CI_FIX }
 

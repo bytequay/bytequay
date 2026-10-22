@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import type { AgentProviderStatus, AgentQueuedInputDto, AgentTaskDto, AgentTurnDto, ModelOptionDto } from '../types';
 import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
-import { TurnView } from './AgentConversation';
+import { latestStep, TurnView } from './AgentConversation';
 import { draftPullRequestRequest } from './DevelopmentFacts';
 import { ciActivity, ciAutofixRequest, ciMessage, ciMessageUnavailable } from './ciAutofix';
 import { parseAgentDevelopmentCi, parseAgentTask, parseAgentTurn, parseCiAutofixRun } from './contracts';
@@ -29,7 +29,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { CI_PROJECTION, CI_RUN } from './fixtures/ciAutofix';
 import contracts from './fixtures/agent-contracts-v1.json';
 import fixture from './fixtures/agent-events-v2.json';
-import type { TranscriptTurn } from './transcript';
+import { projectTranscript, type CommandAction, type TranscriptTurn } from './transcript';
 
 describe('the queue behind a running turn', () => {
   // The fixture's open approval would put the header on 'waiting on you'; the count needs a plain running turn.
@@ -197,6 +197,30 @@ describe('the queue behind a running turn', () => {
     expect(markup).toMatch(/<textarea[^>]*disabled/);
     expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
   });
+});
+
+describe('the step a running task card shows', () => {
+  const source = parseAgentEventSequence(fixture.events)[0].source;
+  const command = (item: string, sequence: number, state: string, argv: string[], actions: unknown[], description: string | null = null): AgentEventEnvelope => ({
+    schemaVersion: 2, eventId: `${item}-${sequence}`, sequence, taskId: 'task', turnId: 'turn', occurredAt: '2026-10-22T09:00:00Z',
+    source: { ...source, providerItemId: item, providerEventId: null }, type: 'command',
+    payload: { state, argv, output: null, exitCode: null, truncated: false, cwd: '.', durationMs: null, actions, description },
+  } as AgentEventEnvelope);
+  const step = (events: AgentEventEnvelope[]) => latestStep(projectTranscript(events));
+  const read: CommandAction = { kind: 'READ', name: 'DomainTranslator.java', path: 'core/trino-main/DomainTranslator.java', query: null };
+
+  it('names the newest command by what it parsed, the command inside its login shell, or the provider\'s label', () => {
+    expect(step([])).toBeNull();
+    expect(step([command('read', 1, 'COMPLETED', ['/bin/zsh -lc "sed -n 1,100p DomainTranslator.java"'], [read])]))
+      .toMatchObject({ kind: 'READ', text: 'DomainTranslator.java' });
+    // A finished read gives way to the command still running after it, unwrapped from its shell.
+    expect(step([command('read', 1, 'COMPLETED', ['sed'], [read]),
+      command('build', 2, 'STARTED', ['/bin/zsh -lc \'./mvnw clean install -DskipTests\''], [{ kind: 'OTHER', name: null, path: null, query: null }])]))
+      .toMatchObject({ kind: 'RUN', text: './mvnw clean install -DskipTests' });
+    expect(step([command('test', 1, 'STARTED', ['./mvnw test'], [], 'Run the domain translator tests')]))
+      .toMatchObject({ kind: 'RUN', text: 'Run the domain translator tests' });
+  });
+
 });
 
 describe('historical activity presentation', () => {

@@ -19,7 +19,7 @@ import { parseRunningTasks, visibleRunningTasks, type RunningTask } from './runn
 const now = Date.parse('2026-10-01T10:00:00Z');
 const task: RunningTask = {
   id: 'one', workspaceId: 'ws-1', title: 'Fix the connector', repository: 'owner/repo', kind: 'TASK', targetId: 'one',
-  status: 'RUNNING', startedAt: new Date(now).toISOString(), expiresAt: null,
+  status: 'RUNNING', startedAt: new Date(now).toISOString(), expiresAt: null, pullRequestNumber: null, branch: null,
 };
 
 describe('Running sidebar', () => {
@@ -63,7 +63,7 @@ describe('Running sidebar', () => {
   it('validates the IPC boundary and strips fields outside the sidebar contract', () => {
     expect(parseRunningTasks([{ ...task, runtimePath: '/private/path' }])).toEqual([task]);
     for (const input of [null, [{}], [{ ...task, status: 'IDLE' }], [{ ...task, startedAt: 'invalid' }], [{ ...task, expiresAt: 500 }],
-      [{ ...task, kind: 'CI_FIX', targetId: 'invalid' }]]) {
+      [{ ...task, kind: 'CI_FIX', targetId: 'invalid' }], [{ ...task, pullRequestNumber: 0 }], [{ ...task, branch: ' ' }], [{ ...task, branch: undefined }]]) {
       expect(() => parseRunningTasks(input)).toThrow();
     }
   });

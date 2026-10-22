@@ -77,7 +77,7 @@ describe('waitingCards', () => {
   });
   const task = (id: string, status: RunningTask['status'], minute: number): RunningTask => ({
     id, workspaceId: 'ws', title: id, repository: 'trinodb/trino', kind: 'TASK', targetId: id, status, startedAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
-    expiresAt: null,
+    expiresAt: null, pullRequestNumber: null, branch: null,
   });
 
   it('puts what needs the user under Decision, finished turns under Finished and running tasks under Running, newest first', () => {

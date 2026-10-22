@@ -147,8 +147,9 @@ class TestAssistantRows
         when(tasks.find(ENDED.id())).thenReturn(Optional.of(ENDED));
         // The sidebar still lists a turn that completed a minute ago; the task is open and waits for the user.
         when(running.current()).thenReturn(ImmutableList.of(new RunningTask(WAITING.id().toString(), "ws1", WAITING.title(), "trinodb/trino", RunningTask.Kind.TASK,
-                WAITING.id().toString(), RunningTask.Status.WAITING, NOW.minusSeconds(240), Optional.empty()), new RunningTask(SETTLED.id().toString(), "ws1",
-                SETTLED.title(), "trinodb/trino", RunningTask.Kind.TASK, SETTLED.id().toString(), RunningTask.Status.COMPLETED, NOW.minusSeconds(900), Optional.empty())));
+                WAITING.id().toString(), RunningTask.Status.WAITING, NOW.minusSeconds(240), Optional.empty(), OptionalInt.empty(), Optional.empty()),
+                new RunningTask(SETTLED.id().toString(), "ws1", SETTLED.title(), "trinodb/trino", RunningTask.Kind.TASK, SETTLED.id().toString(),
+                        RunningTask.Status.COMPLETED, NOW.minusSeconds(900), Optional.empty(), OptionalInt.empty(), Optional.empty())));
         when(activities.read(ImmutableList.of(WAITING))).thenReturn(ImmutableMap.of(WAITING.id(), new TaskActivity(Optional.of(new TaskMessage(TaskMessage.Author.AGENT,
                 "Which table should hold the snapshot id?", NOW.minusSeconds(240), Optional.empty())), Optional.empty(), Optional.empty())));
         when(reviews.findReview("r7")).thenReturn(Optional.of(new AgentReview("r7", "ws1", "trinodb/trino", OptionalInt.of(31377), OptionalLong.of(8), IDLE.id().toString(),

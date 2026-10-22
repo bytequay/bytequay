@@ -91,6 +91,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.IntStream;
 
@@ -149,9 +150,9 @@ class TestAssistantContext
         when(agenda.read(any(), any(), eq(false), anyList(), any())).thenAnswer(ignored -> AgendaFixtures.friday(1));
         when(running.current()).thenReturn(ImmutableList.of(
                 new RunningTask(TASK.id().toString(), "ws1", TASK.title(), "trinodb/trino", RunningTask.Kind.TASK, TASK.id().toString(), RunningTask.Status.WAITING,
-                        NOW.minusSeconds(600), Optional.empty()),
+                        NOW.minusSeconds(600), Optional.empty(), OptionalInt.empty(), Optional.empty()),
                 new RunningTask(FINISHED.id().toString(), "ws1", "Get CI green on #31402", "trinodb/trino", RunningTask.Kind.CI_FIX, "31402", RunningTask.Status.RUNNING,
-                        NOW.minusSeconds(60), Optional.empty())));
+                        NOW.minusSeconds(60), Optional.empty(), OptionalInt.of(31402), Optional.of("ci-fix"))));
         for (AgentTask task : ImmutableList.of(TASK, ASKING, FINISHED)) {
             when(tasks.find(task.id())).thenReturn(Optional.of(task));
         }

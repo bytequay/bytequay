@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -41,6 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.Set;
 
@@ -102,6 +104,8 @@ public class RunningTaskReader
         Kind kind = Kind.TASK;
         String targetId = task.id().toString();
         String title = task.title();
+        OptionalInt number = OptionalInt.empty();
+        Optional<String> branch = task.taskWorktree().map(TaskWorktree::generatedBranch);
         Optional<ReviewRun> run = Optional.empty();
         if (!task.interactive()) {
             var review = reviews.findReviewByTask(task.id().toString());
@@ -109,11 +113,12 @@ public class RunningTaskReader
                 kind = Kind.REVIEW;
                 targetId = review.orElseThrow().id();
                 run = reviews.listRuns(targetId).stream().max(comparing(ReviewRun::createdAt));
+                number = review.orElseThrow().number();
                 // The stored task title is only "Review owner/repo#N"; the cached pull request title says what is being reviewed.
                 OptionalLong pullRequestId = review.orElseThrow().pullRequestId();
-                if (pullRequestId.isPresent()) {
-                    title = pullRequests.findById(pullRequestId.getAsLong()).map(PullRequest::title).orElse(title);
-                }
+                Optional<PullRequest> pullRequest = pullRequestId.isPresent() ? pullRequests.findById(pullRequestId.getAsLong()) : Optional.empty();
+                title = pullRequest.map(PullRequest::title).orElse(title);
+                branch = pullRequest.map(PullRequest::headRef);
             }
             else {
                 var cherry = cherryPicks.findByAgentTaskId(task.id().toString());
@@ -166,7 +171,7 @@ public class RunningTaskReader
         if (latest.isEmpty() && status == Status.COMPLETED) {
             return Optional.empty();
         }
-        return Optional.of(item(task, kind, targetId, title, status, startedAt, endedAt));
+        return Optional.of(item(task, kind, targetId, title, status, startedAt, endedAt, number, branch));
     }
 
     private static RunningTask cherryPick(AgentTask task, CherryPickExecution execution)
@@ -176,7 +181,7 @@ public class RunningTaskReader
             case PAUSED -> Status.WAITING;
             case FINISHED -> execution.finishReason().orElseThrow() == CherryPickExecution.FinishReason.COMPLETED ? Status.COMPLETED : Status.STOPPED;
         };
-        return item(task, Kind.CHERRY_PICK, execution.id().toString(), task.title(), status, execution.createdAt(), execution.terminalAt());
+        return item(task, Kind.CHERRY_PICK, execution.id().toString(), task.title(), status, execution.createdAt(), execution.terminalAt(), OptionalInt.empty(), Optional.empty());
     }
 
     private static RunningTask ciFix(AgentTask task, CiAutofixRun run)
@@ -190,13 +195,15 @@ public class RunningTaskReader
                 case CANCELLED, STALE_HEAD, AUTHORIZATION_EXPIRED -> Status.STOPPED;
             };
         };
-        return item(task, Kind.CI_FIX, Integer.toString(run.scope().pullRequest().number()), "Get CI green on #" + run.scope().pullRequest().number(),
-                status, run.createdAt(), run.terminalAt());
+        int number = run.scope().pullRequest().number();
+        return item(task, Kind.CI_FIX, Integer.toString(number), "Get CI green on #" + number, status, run.createdAt(), run.terminalAt(),
+                OptionalInt.of(number), Optional.of(run.scope().headRef()));
     }
 
-    private static RunningTask item(AgentTask task, Kind kind, String targetId, String title, Status status, Instant startedAt, Optional<Instant> endedAt)
+    private static RunningTask item(AgentTask task, Kind kind, String targetId, String title, Status status, Instant startedAt, Optional<Instant> endedAt,
+            OptionalInt number, Optional<String> branch)
     {
         return new RunningTask(task.id().toString(), task.workspaceId().orElseThrow(), title, task.repository().toString(), kind, targetId,
-                status, startedAt, endedAt.map(at -> at.plus(COMPLETION_RETENTION)));
+                status, startedAt, endedAt.map(at -> at.plus(COMPLETION_RETENTION)), number, branch);
     }
 }

@@ -197,6 +197,8 @@ class TestRunningTaskReader
             assertThat(item.kind()).isEqualTo(Kind.REVIEW);
             assertThat(item.targetId()).isEqualTo("review");
             assertThat(item.title()).isEqualTo(task.title());
+            assertThat(item.pullRequestNumber()).hasValue(42);
+            assertThat(item.branch()).isEmpty();
             assertThat(item.status()).isEqualTo(Status.RUNNING);
             assertThat(item.expiresAt()).isEmpty();
         });
@@ -210,10 +212,13 @@ class TestRunningTaskReader
 
         PullRequest pullRequest = new PullRequest(7, "owner/repo", 42, "Add read support for deletion vectors", "author", "https://github.com/owner/repo/pull/42", NOW, NOW,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.PASSING, 0, 0, 0,
-                "open", null, null, true, "clean", NOW, "main", null, NOW, null, null);
+                "open", null, null, true, "clean", NOW, "author/deletion-vectors", null, NOW, null, null);
         when(pullRequests.findById(7)).thenReturn(Optional.of(pullRequest));
         when(reviews.findReviewByTask(task.id().toString())).thenReturn(Optional.of(review.withPullRequest(42, OptionalLong.of(7), NOW)));
-        assertThat(reader.current()).singleElement().extracting(RunningTask::title).isEqualTo("Add read support for deletion vectors");
+        assertThat(reader.current()).singleElement().satisfies(item -> {
+            assertThat(item.title()).isEqualTo("Add read support for deletion vectors");
+            assertThat(item.branch()).contains("author/deletion-vectors");
+        });
     }
 
     @Test
@@ -249,6 +254,8 @@ class TestRunningTaskReader
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.kind()).isEqualTo(Kind.CI_FIX);
             assertThat(item.targetId()).isEqualTo("42");
+            assertThat(item.pullRequestNumber()).hasValue(42);
+            assertThat(item.branch()).contains("feature");
             assertThat(item.status()).isEqualTo(Status.RUNNING);
         });
         when(ciFixes.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(run.finish(CiAutofixRun.FinishReason.GREEN, "Passed", NOW)));

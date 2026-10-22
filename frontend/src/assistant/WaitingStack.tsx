@@ -13,9 +13,11 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import { CalendarCheck, ChevronLeft, ChevronRight, CircleCheck, List, X } from 'lucide-react';
-import { PendingApprovalCard, type ApprovalDecider } from '../agents/AgentConversation';
+import { latestStep, PendingApprovalCard, type ApprovalDecider, type TaskStep } from '../agents/AgentConversation';
 import { runningTaskRoute } from '../agents/RunningTasks';
-import type { RunningTask } from '../agents/runningTaskModel';
+import { RUNNING_TASK_TYPES, type RunningTask } from '../agents/runningTaskModel';
+import { TaskTypeIcon } from '../agents/TaskListCards';
+import { projectTranscript } from '../agents/transcript';
 import { IconButton } from '../cards/Card';
 import TodayList, { openTarget } from '../home/TodayList';
 import { clockTime, doneRatio, showsToday } from '../home/today';
@@ -23,12 +25,14 @@ import { useTodayAgenda } from '../home/useTodayAgenda';
 import { pollVisible } from '../ide/pollVisible';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
+import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentPendingApprovalDto } from '../types';
 import { GROUPS, stackOf, waitingCards, type Group, type WaitingCard } from './model';
 
 const LABELS: Record<Group, string> = { all: 'All', decision: 'Decision', running: 'Running', finished: 'Finished', today: 'Today' };
 const RUNNING_POLL_MS = 5000;
+const STEP_POLL_MS = 2000;
 
 const heading = (notice: AppNotice): string => notice.pullRequestTitle ?? notice.title;
 const cardTitle = (card: WaitingCard): string => 'notice' in card ? heading(card.notice) : card.task.title;
@@ -293,11 +297,52 @@ function ApprovalCard({ notice, pager, onAnswered, onOpen, onClear }: {
   </>;
 }
 
+type Steps = { step: TaskStep; previous: TaskStep | null };
+
+/** The task's newest step from its latest history page, and the one it replaced while that rolls away. */
+function useLatestStep(taskId: string): Steps | null {
+  const [steps, setSteps] = useState<Steps | null>(null);
+  useEffect(() => pollVisible(async () => {
+    try {
+      const step = latestStep(projectTranscript((await window.bridge.readAgentHistory(taskId)).events));
+      if (step !== null) setSteps(old => old === null || old.step.id === step.id ? { step, previous: old?.previous ?? null } : { step, previous: old.step });
+    }
+    catch { /* The last step stays through a failed read. */ }
+  }, STEP_POLL_MS), [taskId]);
+  return steps;
+}
+
 function TaskCard({ task, pager, onOpen }: { task: RunningTask; pager: ReactNode; onOpen: () => void }) {
+  const steps = useLatestStep(task.id);
+  const [owner, repo] = task.repository.split('/');
   return <>
-    <CardHead kind="Running" time={relativeTime(task.startedAt, { suffix: false })} pager={pager} />
-    <CardTitle title={task.title} where={task.repository} />
-    <div className="assistant-card__actions">
+    <div className="assistant-task">
+      <span className="assistant-task__icon" aria-hidden="true"><TaskTypeIcon type={RUNNING_TASK_TYPES[task.kind]} size={16} /></span>
+      <div className="assistant-task__main">
+        <div className="assistant-task__title">
+          <span className="assistant-card__title" title={task.title}>{task.title}</span>
+          <span className="assistant-kind is-running"><span className="assistant-spinner" aria-hidden="true" />{task.kind === 'REVIEW' ? 'Reviewing' : 'Running'}</span>
+        </div>
+        <div className="assistant-task__where">
+          <span>{task.repository}</span>
+          <RepoAvatar owner={owner} repo={repo ?? ''} size={14} radius={4} />
+          {task.pullRequestNumber !== null && <span className="assistant-task__number">#{task.pullRequestNumber}</span>}
+          {task.branch !== null && <><span aria-hidden="true">·</span><span className="assistant-task__branch" title={task.branch}>{task.branch}</span></>}
+        </div>
+      </div>
+      <span className="assistant-card__time">{relativeTime(task.startedAt, { suffix: false })}</span>
+      {pager}
+    </div>
+    {steps !== null && (
+      <div className="assistant-step" title={steps.step.text}>
+        <span className="assistant-step__kind">{steps.step.kind}</span>
+        <span className="assistant-step__roll">
+          {steps.previous !== null && <span key={steps.previous.id} className="assistant-step__text is-out" aria-hidden="true">{steps.previous.text}</span>}
+          <span key={steps.step.id} className={`assistant-step__text${steps.previous === null ? '' : ' is-in'}`}>{steps.step.text}</span>
+        </span>
+      </div>
+    )}
+    <div className="assistant-card__actions assistant-task__actions">
       <button type="button" className="assistant-button" onClick={onOpen}>Open task</button>
     </div>
   </>;

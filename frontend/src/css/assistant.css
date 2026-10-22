@@ -468,6 +468,125 @@
   gap: 8px;
 }
 
+/* A running task: its kind icon, the title with a live chip after it, then where it runs; its step and actions line up under the title. */
+.assistant-task {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.assistant-task__icon {
+  display: flex;
+  height: 22px;
+  flex: none;
+  align-items: center;
+  color: var(--fg-muted);
+}
+
+.assistant-task__main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.assistant-task__title {
+  display: flex;
+  height: 22px;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.assistant-task > .assistant-card__time { line-height: 22px; }
+
+.assistant-task__where {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.assistant-task__number { color: var(--fg-default); }
+
+.assistant-task__branch {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.assistant-kind.is-running {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  padding-left: 6px;
+  color: var(--fg-warning);
+}
+
+.assistant-kind.is-running .assistant-spinner {
+  width: 10px;
+  height: 10px;
+  border-width: 1.5px;
+  border-top-color: var(--assistant-gold);
+}
+
+.assistant-step,
+.assistant-task__actions { margin-left: 26px; }
+
+.assistant-step {
+  display: flex;
+  height: 30px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: var(--surface-inset);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.assistant-step__kind {
+  width: 46px;
+  flex: none;
+  color: var(--fg-dim);
+  font-size: 11px;
+}
+
+/* A new step rolls up into the line as the one before it rolls out above. */
+.assistant-step__roll {
+  position: relative;
+  height: 18px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.assistant-step__text {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.assistant-step__text.is-out { opacity: 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .assistant-step__text.is-in { animation: assistant-step-in 350ms ease; }
+  .assistant-step__text.is-out { animation: assistant-step-out 350ms ease; }
+}
+
+@keyframes assistant-step-in { from { opacity: 0; transform: translateY(100%); } }
+@keyframes assistant-step-out { from { opacity: 1; transform: none; } to { transform: translateY(-100%); } }
+
 .assistant-button {
   height: 26px;
   padding: 0 10px;

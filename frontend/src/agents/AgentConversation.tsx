@@ -238,18 +238,40 @@ function CommandRows({ member }: { member: CommandMember }): React.JSX.Element {
   );
 }
 
-/** One parsed fragment as its row reads it: "Read src/auth.ts", "Searched token in src". */
-function actionLabel(action: CommandAction): string {
-  const target = action.kind === 'SEARCH'
+/** What one parsed fragment acted on: a file, or a query and where it looked. */
+function actionTarget(action: CommandAction): string {
+  return action.kind === 'SEARCH'
     ? `${action.query ?? action.name ?? 'files'}${action.path === null ? '' : ` in ${action.path}`}`
     : action.name ?? action.path ?? (action.kind === 'READ' ? 'file' : 'files');
-  return `${ACTION_VERBS[action.kind]} ${target}`;
+}
+
+/** One parsed fragment as its row reads it: "Read src/auth.ts", "Searched token in src". */
+function actionLabel(action: CommandAction): string {
+  return `${ACTION_VERBS[action.kind]} ${actionTarget(action)}`;
 }
 
 /** What a command's row calls itself: the provider's own label, else what it parsed the shell as. */
 function commandLabel(member: CommandMember): string {
   const parsed = member.actions.find((action) => action.kind !== 'OTHER');
   return member.description ?? (parsed === undefined ? 'Ran command' : actionLabel(parsed));
+}
+
+const STEP_KINDS = { READ: 'READ', LIST_FILES: 'LIST', SEARCH: 'SEARCH', OTHER: 'RUN' } as const;
+// Codex runs each command through a login shell; a step shows the command inside it.
+const LOGIN_SHELL = /^\S*\/(?:ba|z)?sh -l?c (["'])([\s\S]*)\1$/;
+
+export type TaskStep = { id: string; kind: string; text: string };
+
+/** The newest step of the task's own agent, as a task card's log line shows it: a short kind, then what it acted on. */
+export function latestStep(turns: TranscriptTurn[]): TaskStep | null {
+  const block = turns.at(-1)?.blocks.findLast((each) => each.kind === 'activity');
+  const member = block?.kind === 'activity' ? currentActivity(block.members) ?? block.members.at(-1) : undefined;
+  if (member === undefined) return null;
+  if (member.kind === 'file') return { id: member.id, kind: 'EDIT', text: member.path };
+  if (member.kind === 'tool') return { id: member.id, kind: 'TOOL', text: runningActivityLabel(member) };
+  const action = member.description === null ? member.actions.find((each) => each.kind !== 'OTHER') : undefined;
+  const text = action === undefined ? member.description ?? member.command.replace(LOGIN_SHELL, '$2') : actionTarget(action);
+  return { id: member.id, kind: STEP_KINDS[action?.kind ?? 'OTHER'], text: text || 'Running command' };
 }
 
 /** Summary titles use provider facts; the exact shell command stays in the disclosure. */

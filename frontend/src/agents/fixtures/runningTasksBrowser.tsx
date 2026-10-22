@@ -25,7 +25,8 @@ export async function run() {
   let now = Date.parse('2026-10-01T10:00:00Z');
   Date.now = () => now;
   const task: RunningTask = { id: 'one', workspaceId: 'ws-2', title: 'Fix timestamp encoding in the connector', repository: 'owner/repo',
-    kind: 'TASK', targetId: 'one', status: 'RUNNING', startedAt: new Date(now).toISOString(), expiresAt: null };
+    kind: 'TASK', targetId: 'one', status: 'RUNNING', startedAt: new Date(now).toISOString(), expiresAt: null,
+    pullRequestNumber: null, branch: null };
   let snapshot: RunningTask[] = [];
   let fail = false;
   let pending: ((tasks: RunningTask[]) => void) | null = null;

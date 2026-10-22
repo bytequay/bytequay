@@ -17,6 +17,7 @@ import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderServiceTier;
@@ -242,6 +243,13 @@ public class ModelSettingsService
                 .map(type -> agentModel(type, workspaceId))
                 .collect(toImmutableList());
         return new ModelSettings(agents, providers, keys, keyProviders, checkedAt);
+    }
+
+    /** Whether the last provider check, the one Settings shows, found this lane usable under the policy. */
+    public boolean lastCheckedReady(AgentLaneId laneId, AgentPermissionPolicy policy)
+    {
+        return providerStatuses.stream()
+                .anyMatch(status -> status.laneId().equals(laneId) && status.available() && status.capabilities().permissionPolicies().contains(policy));
     }
 
     public void validateWorkspaceAccess(String configId, Optional<String> workspaceId)

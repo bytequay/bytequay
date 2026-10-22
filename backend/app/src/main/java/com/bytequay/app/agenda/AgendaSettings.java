@@ -57,7 +57,7 @@ public class AgendaSettings
     {
         requireNonNull(schedule, "schedule is null");
         if (schedule.enabled() && !schedule().enabled()) {
-            setup.requireUsableDevelopmentAgent();
+            setup.requireDevelopmentAgentToEnable();
         }
         try {
             settings.put(KEY, mapper.writeValueAsString(schedule));

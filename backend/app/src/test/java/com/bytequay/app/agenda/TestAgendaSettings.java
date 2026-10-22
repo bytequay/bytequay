@@ -15,12 +15,8 @@ package com.bytequay.app.agenda;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
-import com.bytequay.app.service.settings.AgentModelSetting;
-import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.SetupSettingsService;
 import org.junit.jupiter.api.Test;
-
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,14 +34,13 @@ class TestAgendaSettings
         AgendaSettings settings = new AgendaSettings(new InMemoryAppSettingsStore(), AgendaFixtures.mapper(), setup);
         AgendaSchedule defaults = AgendaSchedule.DEFAULT;
         AgendaSchedule enabled = new AgendaSchedule(true, defaults.minute(), defaults.days(), defaults.calendarAccountId());
-        AgentModelSetting model = new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude", "sonnet", "Sonnet", Optional.empty());
-        doThrow(new AgentUnavailableException("Sign in first")).doReturn(model).when(setup).requireUsableDevelopmentAgent();
+        doThrow(new AgentUnavailableException("Sign in first")).doNothing().when(setup).requireDevelopmentAgentToEnable();
 
         assertThatThrownBy(() -> settings.save(enabled)).isInstanceOf(AgentUnavailableException.class);
         assertThat(settings.schedule().enabled()).isFalse();
         assertThat(settings.save(enabled).enabled()).isTrue();
         assertThat(settings.save(enabled).enabled()).isTrue();
         assertThat(settings.save(defaults).enabled()).isFalse();
-        verify(setup, times(2)).requireUsableDevelopmentAgent();
+        verify(setup, times(2)).requireDevelopmentAgentToEnable();
     }
 }

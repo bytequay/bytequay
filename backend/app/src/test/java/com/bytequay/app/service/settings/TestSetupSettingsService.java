@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
@@ -36,6 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -109,6 +111,19 @@ class TestSetupSettingsService
         readyAgent();
         assertThat(setup.save(enabled)).isEqualTo(enabled);
         verify(models, atLeastOnce()).validateWorkspaceAccess("claude", Optional.empty());
+    }
+
+    @Test
+    void enablingTrustsTheLastProviderCheckWhileRunsProbeAgain()
+    {
+        readyAgent();
+        when(models.lastCheckedReady(LANE, AgentPermissionPolicy.AUTO)).thenReturn(true);
+
+        assertThat(setup.save(new SetupPreferences(SetupPreferences.Step.FEATURES, true)).assistantEnabled()).isTrue();
+        verify(driver, never()).probe();
+
+        setup.requireUsableDevelopmentAgent();
+        verify(driver).probe();
     }
 
     @Test

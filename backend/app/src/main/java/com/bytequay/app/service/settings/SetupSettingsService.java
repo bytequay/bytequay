@@ -78,7 +78,7 @@ public class SetupSettingsService
         requireNonNull(preferences, "preferences is null");
         SetupPreferences current = preferences();
         if (preferences.assistantEnabled() && !current.assistantEnabled()) {
-            requireUsableDevelopmentAgent();
+            requireDevelopmentAgentToEnable();
         }
         write(preferences);
         return preferences;
@@ -87,12 +87,28 @@ public class SetupSettingsService
     /** Assistant and the daily agenda run outside repositories and require the global Development model. */
     public AgentModelSetting requireUsableDevelopmentAgent()
     {
+        return requireDevelopmentAgent(true);
+    }
+
+    /**
+     * Turning a feature on trusts the readiness Settings already shows, because a provider probe runs several CLI commands that
+     * can take tens of seconds. Each run still probes before it starts.
+     */
+    public void requireDevelopmentAgentToEnable()
+    {
+        requireDevelopmentAgent(false);
+    }
+
+    private AgentModelSetting requireDevelopmentAgent(boolean probe)
+    {
         AgentModelSetting model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.empty());
         models.validateWorkspaceAccess(model.configId(), Optional.empty());
         models.validateSelection(model.configId(), model.model(), model.effort(), Optional.empty());
         AgentLaneId lane = new AgentLaneId(model.configId());
         drivers.checkWorkspaceAccess(lane, Optional.empty());
-        WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO, Optional.of(model.model()));
+        if (probe || !models.lastCheckedReady(lane, AgentPermissionPolicy.AUTO)) {
+            WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO, Optional.of(model.model()));
+        }
         return model;
     }
 

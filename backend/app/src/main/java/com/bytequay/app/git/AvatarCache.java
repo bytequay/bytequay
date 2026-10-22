@@ -67,6 +67,7 @@ public class AvatarCache
 
     private final Path root;
     private final HttpClient client;
+    private final Duration timeout;
     private final Striped<Lock> refreshLocks = Striped.lock(64);
 
     @Autowired
@@ -80,8 +81,14 @@ public class AvatarCache
 
     AvatarCache(Path root, HttpClient client)
     {
+        this(root, client, TIMEOUT);
+    }
+
+    AvatarCache(Path root, HttpClient client, Duration timeout)
+    {
         this.root = requireNonNull(root, "root is null").toAbsolutePath().normalize();
         this.client = requireNonNull(client, "client is null");
+        this.timeout = requireNonNull(timeout, "timeout is null");
     }
 
     /** Downloads an uncached HTTPS image and returns its stable local key. */
@@ -128,14 +135,14 @@ public class AvatarCache
     {
         try {
             HttpRequest request = HttpRequest.newBuilder(source)
-                    .timeout(TIMEOUT)
+                    .timeout(timeout)
                     .header("Accept", "image/*")
                     .GET()
                     .build();
             var download = client.sendAsync(request, HttpResponse.BodyHandlers.limiting(HttpResponse.BodyHandlers.ofByteArray(), MAX_BYTES));
             HttpResponse<byte[]> response;
             try {
-                response = download.get(TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+                response = download.get(timeout.toMillis(), TimeUnit.MILLISECONDS);
             }
             finally {
                 // The deadline includes the body; cancelling also releases a stalled connection.

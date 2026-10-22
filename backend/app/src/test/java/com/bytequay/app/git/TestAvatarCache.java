@@ -25,6 +25,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
@@ -97,7 +98,7 @@ class TestAvatarCache
     }
 
     @Test
-    @Timeout(25)
+    @Timeout(10)
     void cancelsADownloadWhoseBodyNeverCompletes()
             throws Exception
     {
@@ -105,7 +106,7 @@ class TestAvatarCache
         CompletableFuture<HttpResponse<byte[]>> stalledBody = new CompletableFuture<>();
         doReturn(stalledBody).when(client).sendAsync(any(), any(HttpResponse.BodyHandler.class));
 
-        assertThat(new AvatarCache(root, client).cache(URL)).isEmpty();
+        assertThat(new AvatarCache(root, client, Duration.ofMillis(100)).cache(URL)).isEmpty();
 
         assertThat(stalledBody).isCancelled();
         try (var files = Files.list(root)) {

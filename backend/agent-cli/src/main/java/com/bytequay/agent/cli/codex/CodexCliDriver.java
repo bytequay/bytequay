@@ -1404,10 +1404,7 @@ public final class CodexCliDriver
                 return;
             }
             if (running == null) {
-                if (parked && (notification instanceof CodexProtocol.TurnStartedNotification || CodexAppServerClient.meaningfulOutput(notification)
-                        || notification instanceof CodexProtocol.AutoApprovalReviewStartedNotification
-                        || notification instanceof CodexProtocol.AutoApprovalReviewCompletedNotification || notification instanceof CodexProtocol.ErrorNotification
-                        || notification instanceof CodexProtocol.ThreadStartedNotification && !notification.threadId().equals(reference.providerValue()))) {
+                if (parked && startsIdleWork(notification)) {
                     reuseBlocked = true;
                     Thread.ofVirtual().name("bytequay-codex-unexpected-idle-work").start(this::close);
                 }
@@ -1416,11 +1413,7 @@ public final class CodexCliDriver
             // Every thread in this process belongs to this task, so a thread that is not the root
             // is one of its subagents. Global account/status notifications have no thread.
             boolean rootThread = notification.threadId().equals(reference.providerValue());
-            if (!rootThread && !notification.threadId().isBlank() || notification instanceof CodexProtocol.AutoApprovalReviewStartedNotification
-                    || notification instanceof CodexProtocol.AutoApprovalReviewCompletedNotification || notification instanceof CodexProtocol.ErrorNotification
-                    || notification instanceof CodexProtocol.ItemStartedNotification started
-                    && preventsReuse(started.params().item())
-                    || notification instanceof CodexProtocol.ItemCompletedNotification completed && preventsReuse(completed.params().item())) {
+            if (!rootThread && !notification.threadId().isBlank() || blocksReuse(notification)) {
                 reuseBlocked = true;
             }
             if (rootThread
@@ -2234,19 +2227,45 @@ public final class CodexCliDriver
          * @param notification an inbound notification from a non-root thread
          * @return true when it describes work the task should show
          */
-        private boolean subagentActivity(CodexProtocol.Notification notification)
+        private static boolean subagentActivity(CodexProtocol.Notification notification)
         {
-            return notification instanceof CodexProtocol.ThreadStartedNotification
-                    || notification instanceof CodexProtocol.TurnCompletedNotification
-                    || notification instanceof CodexProtocol.ItemStartedNotification
-                    || notification instanceof CodexProtocol.ItemCompletedNotification
-                    || notification instanceof CodexProtocol.AgentMessageDeltaNotification
-                    || notification instanceof CodexProtocol.PlanDeltaNotification
-                    || notification instanceof CodexProtocol.PlanUpdatedNotification
-                    || notification instanceof CodexProtocol.CommandOutputNotification
-                    || notification instanceof CodexProtocol.AutoApprovalReviewStartedNotification
-                    || notification instanceof CodexProtocol.AutoApprovalReviewCompletedNotification
-                    || notification instanceof CodexProtocol.ErrorNotification;
+            return switch (notification) {
+                case CodexProtocol.ThreadStartedNotification _, CodexProtocol.TurnCompletedNotification _, CodexProtocol.ItemStartedNotification _,
+                        CodexProtocol.ItemCompletedNotification _, CodexProtocol.AgentMessageDeltaNotification _, CodexProtocol.PlanDeltaNotification _,
+                        CodexProtocol.PlanUpdatedNotification _, CodexProtocol.CommandOutputNotification _, CodexProtocol.AutoApprovalReviewStartedNotification _,
+                        CodexProtocol.AutoApprovalReviewCompletedNotification _, CodexProtocol.ErrorNotification _ -> true;
+                case CodexProtocol.TurnStartedNotification _, CodexProtocol.TokenUsageUpdatedNotification _, CodexProtocol.ServerRequestResolvedNotification _,
+                        CodexProtocol.UnknownNotification _ -> false;
+            };
+        }
+
+        /** True when a parked process reports work nobody asked for, so it cannot be reused. */
+        private boolean startsIdleWork(CodexProtocol.Notification notification)
+        {
+            return switch (notification) {
+                case CodexProtocol.TurnStartedNotification _, CodexProtocol.AutoApprovalReviewStartedNotification _,
+                        CodexProtocol.AutoApprovalReviewCompletedNotification _, CodexProtocol.ErrorNotification _ -> true;
+                case CodexProtocol.ThreadStartedNotification started -> !started.threadId().equals(reference.providerValue());
+                case CodexProtocol.AgentMessageDeltaNotification _, CodexProtocol.PlanDeltaNotification _, CodexProtocol.CommandOutputNotification _,
+                        CodexProtocol.ItemStartedNotification _, CodexProtocol.ItemCompletedNotification _, CodexProtocol.PlanUpdatedNotification _ ->
+                        CodexAppServerClient.meaningfulOutput(notification);
+                case CodexProtocol.TurnCompletedNotification _, CodexProtocol.TokenUsageUpdatedNotification _, CodexProtocol.ServerRequestResolvedNotification _,
+                        CodexProtocol.UnknownNotification _ -> false;
+            };
+        }
+
+        /** True when a notification shows work the next turn must not inherit through a reused process. */
+        private static boolean blocksReuse(CodexProtocol.Notification notification)
+        {
+            return switch (notification) {
+                case CodexProtocol.AutoApprovalReviewStartedNotification _, CodexProtocol.AutoApprovalReviewCompletedNotification _, CodexProtocol.ErrorNotification _ -> true;
+                case CodexProtocol.ItemStartedNotification started -> preventsReuse(started.params().item());
+                case CodexProtocol.ItemCompletedNotification completed -> preventsReuse(completed.params().item());
+                case CodexProtocol.TurnStartedNotification _, CodexProtocol.TurnCompletedNotification _, CodexProtocol.CommandOutputNotification _,
+                        CodexProtocol.AgentMessageDeltaNotification _, CodexProtocol.PlanDeltaNotification _, CodexProtocol.PlanUpdatedNotification _,
+                        CodexProtocol.TokenUsageUpdatedNotification _, CodexProtocol.ThreadStartedNotification _, CodexProtocol.ServerRequestResolvedNotification _,
+                        CodexProtocol.UnknownNotification _ -> false;
+            };
         }
 
         @Override
@@ -2342,94 +2361,89 @@ public final class CodexCliDriver
 
         private CompletionStage<?> registerApproval(CodexProtocol.ServerRequest serverRequest, CodexRunningTurn expectedTurn)
         {
-            if (serverRequest instanceof CodexProtocol.UserInputRequest question) {
-                return askUser(question, expectedTurn);
-            }
-            ProviderApprovalRequest.Kind kind;
-            String title;
-            String detail;
-            String itemId;
-            List<ProviderApprovalRequest.Decision> availableDecisions;
-            long startedAtMs;
-            if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
-                if (approval.params().kind().filter(commandKind -> !commandKind.equals("command")).isPresent()) {
-                    return CompletableFuture.failedFuture(new AgentUnavailableException("Unsupported Codex command approval kind"));
-                }
-                Optional<String> command = approval.params().command().filter(value -> !value.isBlank());
-                if (command.isEmpty()) {
-                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex command approval has no displayable command"));
-                }
-                kind = ProviderApprovalRequest.Kind.COMMAND;
-                title = "Allow Codex command";
-                String rawCommand = command.orElseThrow();
-                if (codeQueries.flatMap(McpRegistration::review).isPresent()
-                        && ReviewBridge.deniedReason(rawCommand).isPresent()) {
-                    // A review session's remote-write guard answers before any card exists.
-                    try {
-                        return CompletableFuture.completedFuture(approvalResponse(serverRequest, ProviderApprovalDecision.deny(), expectedTurn));
-                    }
-                    catch (AgentUnavailableException failure) {
-                        return CompletableFuture.failedFuture(failure);
-                    }
-                }
-                StringBuilder requested = new StringBuilder(rawCommand);
-                approval.params().reason().filter(value -> !value.isBlank())
-                        .ifPresent(value -> requested.append("\nReason: ").append(value));
-                approval.params().additionalPermissions().ifPresent(value -> requested.append("\nAdditional permissions: ").append(value));
-                approval.params().networkApprovalContext().ifPresent(value -> requested.append("\nNetwork approval: ").append(value));
-                detail = sessionRedactor.redact(requested.toString());
-                itemId = approval.params().itemId();
-                availableDecisions = supportedCommandDecisions(approval.params().availableDecisions());
-                startedAtMs = approval.params().startedAtMs();
-            }
-            else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
-                if (approval.params().grantRoot().filter(String::isBlank).isPresent()) {
-                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex file approval has a blank write root"));
-                }
-                if (approval.params().grantRoot().isPresent()) {
-                    try {
-                        Path requested = Path.of(approval.params().grantRoot().orElseThrow());
-                        if (AgentPermissionManager.allowsFileWrite(requested, context.worktree(), environment, permissionScope)) {
-                            return CompletableFuture.completedFuture(approvalResponse(serverRequest, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
-                        }
-                    }
-                    catch (InvalidPathException ignored) {
-                        // An unrecognized root needs an explicit user decision.
-                    }
-                    catch (AgentUnavailableException failure) {
-                        return CompletableFuture.failedFuture(failure);
-                    }
-                }
-                kind = ProviderApprovalRequest.Kind.FILE_CHANGE;
-                title = "Allow Codex file change";
-                detail = approval.params().reason()
-                        .filter(value -> !value.isBlank())
-                        .orElse("File change approval");
-                if (approval.params().grantRoot().isPresent()) {
-                    detail += "\nRequested write root: " + approval.params().grantRoot().orElseThrow();
-                }
-                detail = sessionRedactor.redact(detail);
-                itemId = approval.params().itemId();
-                availableDecisions = ImmutableList.of(ALLOW_ONCE, DENY);
-                startedAtMs = approval.params().startedAtMs();
-            }
-            else if (serverRequest instanceof CodexProtocol.PermissionsApprovalRequest approval) {
-                if (!approval.params().permissions().isObject()) {
-                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex requested permissions have an unsupported shape"));
-                }
-                kind = ProviderApprovalRequest.Kind.OTHER;
-                title = "Allow Codex requested permissions";
-                detail = sessionRedactor.redact(approval.params().reason().filter(value -> !value.isBlank())
-                        .orElse("Permission request") + "\nWorking directory: " + approval.params().cwd()
-                        + "\nPermissions: " + approval.params().permissions());
-                itemId = approval.params().itemId();
-                availableDecisions = ImmutableList.of(ALLOW_ONCE, DENY);
-                startedAtMs = approval.params().startedAtMs();
-            }
-            else {
-                return CompletableFuture.failedFuture(new AgentUnavailableException("Unsupported Codex request"));
-            }
+            return switch (serverRequest) {
+                case CodexProtocol.UserInputRequest question -> askUser(question, expectedTurn);
+                case CodexProtocol.CommandApprovalRequest approval -> askCommand(approval, expectedTurn);
+                case CodexProtocol.FileChangeApprovalRequest approval -> askFileChange(approval, expectedTurn);
+                case CodexProtocol.PermissionsApprovalRequest approval -> askPermissions(approval, expectedTurn);
+                case CodexProtocol.DynamicToolCallRequest _, CodexProtocol.UnknownServerRequest _ ->
+                        CompletableFuture.failedFuture(new AgentUnavailableException("Unsupported Codex request"));
+            };
+        }
 
+        private CompletionStage<?> askCommand(CodexProtocol.CommandApprovalRequest approval, CodexRunningTurn expectedTurn)
+        {
+            if (approval.params().kind().filter(commandKind -> !commandKind.equals("command")).isPresent()) {
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Unsupported Codex command approval kind"));
+            }
+            Optional<String> command = approval.params().command().filter(value -> !value.isBlank());
+            if (command.isEmpty()) {
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Codex command approval has no displayable command"));
+            }
+            String rawCommand = command.orElseThrow();
+            if (codeQueries.flatMap(McpRegistration::review).isPresent()
+                    && ReviewBridge.deniedReason(rawCommand).isPresent()) {
+                // A review session's remote-write guard answers before any card exists.
+                try {
+                    return CompletableFuture.completedFuture(approvalResponse(approval, ProviderApprovalDecision.deny(), expectedTurn));
+                }
+                catch (AgentUnavailableException failure) {
+                    return CompletableFuture.failedFuture(failure);
+                }
+            }
+            StringBuilder requested = new StringBuilder(rawCommand);
+            approval.params().reason().filter(value -> !value.isBlank())
+                    .ifPresent(value -> requested.append("\nReason: ").append(value));
+            approval.params().additionalPermissions().ifPresent(value -> requested.append("\nAdditional permissions: ").append(value));
+            approval.params().networkApprovalContext().ifPresent(value -> requested.append("\nNetwork approval: ").append(value));
+            return askApproval(approval, ProviderApprovalRequest.Kind.COMMAND, "Allow Codex command", sessionRedactor.redact(requested.toString()),
+                    supportedCommandDecisions(approval.params().availableDecisions()), approval.params().itemId(), approval.params().startedAtMs(), expectedTurn);
+        }
+
+        private CompletionStage<?> askFileChange(CodexProtocol.FileChangeApprovalRequest approval, CodexRunningTurn expectedTurn)
+        {
+            if (approval.params().grantRoot().filter(String::isBlank).isPresent()) {
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Codex file approval has a blank write root"));
+            }
+            if (approval.params().grantRoot().isPresent()) {
+                try {
+                    Path requested = Path.of(approval.params().grantRoot().orElseThrow());
+                    if (AgentPermissionManager.allowsFileWrite(requested, context.worktree(), environment, permissionScope)) {
+                        return CompletableFuture.completedFuture(approvalResponse(approval, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
+                    }
+                }
+                catch (InvalidPathException ignored) {
+                    // An unrecognized root needs an explicit user decision.
+                }
+                catch (AgentUnavailableException failure) {
+                    return CompletableFuture.failedFuture(failure);
+                }
+            }
+            String detail = approval.params().reason()
+                    .filter(value -> !value.isBlank())
+                    .orElse("File change approval");
+            if (approval.params().grantRoot().isPresent()) {
+                detail += "\nRequested write root: " + approval.params().grantRoot().orElseThrow();
+            }
+            return askApproval(approval, ProviderApprovalRequest.Kind.FILE_CHANGE, "Allow Codex file change", sessionRedactor.redact(detail),
+                    ImmutableList.of(ALLOW_ONCE, DENY), approval.params().itemId(), approval.params().startedAtMs(), expectedTurn);
+        }
+
+        private CompletionStage<?> askPermissions(CodexProtocol.PermissionsApprovalRequest approval, CodexRunningTurn expectedTurn)
+        {
+            if (!approval.params().permissions().isObject()) {
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Codex requested permissions have an unsupported shape"));
+            }
+            String detail = sessionRedactor.redact(approval.params().reason().filter(value -> !value.isBlank())
+                    .orElse("Permission request") + "\nWorking directory: " + approval.params().cwd()
+                    + "\nPermissions: " + approval.params().permissions());
+            return askApproval(approval, ProviderApprovalRequest.Kind.OTHER, "Allow Codex requested permissions", detail,
+                    ImmutableList.of(ALLOW_ONCE, DENY), approval.params().itemId(), approval.params().startedAtMs(), expectedTurn);
+        }
+
+        private CompletionStage<?> askApproval(CodexProtocol.ServerRequest serverRequest, ProviderApprovalRequest.Kind kind, String title, String detail,
+                List<ProviderApprovalRequest.Decision> availableDecisions, String itemId, long startedAtMs, CodexRunningTurn expectedTurn)
+        {
             ProviderApprovalRequest approvalRequest = new ProviderApprovalRequest(
                     kind,
                     title,
@@ -2664,24 +2678,23 @@ public final class CodexCliDriver
                 }
                 boolean allow = decision.decision() == ProviderApprovalDecision.Decision.ALLOW;
                 JsonNode wireDecision = TextNode.valueOf(decision.timedOut() ? "cancel" : allow ? "accept" : "decline");
-                if (serverRequest instanceof CodexProtocol.CommandApprovalRequest command) {
-                    // Only an allow has to be offered; a decline is always legal and widens nothing.
-                    if (allow && command.params().availableDecisions().isPresent()
-                            && !command.params().availableDecisions().orElseThrow().contains(wireDecision)) {
-                        throw new AgentUnavailableException("Codex command approval did not offer decision " + wireDecision.textValue());
+                return switch (serverRequest) {
+                    case CodexProtocol.CommandApprovalRequest command -> {
+                        // Only an allow has to be offered; a decline is always legal and widens nothing.
+                        if (allow && command.params().availableDecisions().isPresent()
+                                && !command.params().availableDecisions().orElseThrow().contains(wireDecision)) {
+                            throw new AgentUnavailableException("Codex command approval did not offer decision " + wireDecision.textValue());
+                        }
+                        yield new CodexProtocol.CommandApprovalResponse(wireDecision);
                     }
-                    return new CodexProtocol.CommandApprovalResponse(wireDecision);
-                }
-                if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest) {
-                    return new CodexProtocol.FileChangeApprovalResponse(wireDecision);
-                }
-                if (serverRequest instanceof CodexProtocol.PermissionsApprovalRequest permissions) {
-                    return new CodexProtocol.PermissionsApprovalResponse(
+                    case CodexProtocol.FileChangeApprovalRequest _ -> new CodexProtocol.FileChangeApprovalResponse(wireDecision);
+                    case CodexProtocol.PermissionsApprovalRequest permissions -> new CodexProtocol.PermissionsApprovalResponse(
                             allow ? permissions.params().permissions() : objectMapper.createObjectNode(),
                             allow ? Optional.of("turn") : Optional.empty(),
                             Optional.empty());
-                }
-                throw new AgentUnavailableException("Unsupported Codex approval response");
+                    case CodexProtocol.UserInputRequest _, CodexProtocol.DynamicToolCallRequest _, CodexProtocol.UnknownServerRequest _ ->
+                            throw new AgentUnavailableException("Unsupported Codex approval response");
+                };
             }
         }
     }

@@ -53,7 +53,7 @@ testBrowserScenarios([
     },
   },
   {
-    name: 'edits workspace relationships and opens their folded navigation within the current workspace',
+    name: 'edits workspace relationships and opens related views within the current workspace',
     expected: 2, timeout: 120_000,
     fixture: { prefix: 'bytequay-related-',
       entry: 'src/workspaces/fixtures/relatedWorkspacesBrowser.tsx', global: 'RelatedWorkspacesTests', styles: true, charset: true,

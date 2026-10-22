@@ -11,7 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, FlaskConical, GitBranch, Globe, History, House, KeyRound,
@@ -365,7 +364,6 @@ export default function AppSidebar({
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.map(workspaceItem)}
           </nav>
-          <RelatedWorkspaceNavigation key={workspace.id} workspaceId={workspace.id} activeWorkspaceId={relatedWorkspaceId} activeTab={workspaceTab} />
         </>
       )}
       <div className="app-sidebar__task-sections">

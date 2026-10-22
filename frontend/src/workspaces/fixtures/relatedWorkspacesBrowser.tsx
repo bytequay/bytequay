@@ -14,7 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { workspaceFixture } from './workspace';
-import { RelatedWorkspaceNavigation, RelatedWorkspaceSettings } from '../RelatedWorkspaces';
+import { RelatedWorkspaceSettings } from '../RelatedWorkspaces';
 import App from '../../App';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { relatedWorkspaceRoute, workspaceRoute } from '../model';
@@ -56,8 +56,7 @@ export function mount() {
   host.style.cssText = 'display:flex;max-width:1000px;margin:36px auto;gap:32px';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<><aside style={{ width: 190 }}><RelatedWorkspaceNavigation workspaceId="trino" /></aside>
-    <main className="setw-page" style={{ flex: 1 }}><h1>Repository</h1><RelatedWorkspaceSettings workspace={trino} /></main></>));
+  flushSync(() => root.render(<main className="setw-page" style={{ flex: 1 }}><h1>Repository</h1><RelatedWorkspaceSettings workspace={trino} /></main>));
   return { host, reject: (value: boolean) => { reject = value; },
     missingCheckout: () => { links = [{ workspaceId: 'iceberg', kind: 'DEPENDENCY', backportByDefault: false, guidance: 'Keep this', unavailableReason: 'Managed checkout missing' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
     unavailable: () => { links = [{ workspaceId: 'missing', kind: 'FORK', backportByDefault: false, guidance: 'Saved guidance' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
@@ -99,25 +98,18 @@ async function settingsScenario() {
     view.reject(false);
     await click('Add');
     assert(view.host.querySelector('textarea') === null, 'Successful save closes form');
-    assert(view.host.querySelectorAll('a[href="#/workspaces/trino/related/iceberg/commits"]').length === 2, 'Settings and sidebar keep the current workspace');
-    assert(view.host.querySelectorAll('a').length === 4, 'Memory and commits links on both surfaces');
-    const row = view.host.querySelector<HTMLDetailsElement>('.related-nav-row');
-    assert(row !== null && !row.open, 'Related repository starts collapsed');
-    row.querySelector('summary')?.click(); await settle();
-    assert(row.open, 'Clicking the repository expands its links');
-    row.querySelector('summary')?.click(); await settle();
-    assert(!row.open, 'Clicking again folds its links');
+    assert(view.host.querySelectorAll('a[href="#/workspaces/trino/related/iceberg/commits"]').length === 1, 'Settings links keep the current workspace');
+    assert(view.host.querySelectorAll('a').length === 2, 'Memory and commits links');
     await click('Edit Apache Iceberg');
     await click('Fork');
     const backport = element<HTMLInputElement>('input[type="checkbox"]', view.host, 'Fork exposes a default backport source');
     backport.click(); await settle();
     await click('Save');
     assert(view.host.textContent?.includes('Upstream in Trino’s repo line'), 'The chosen upstream is saved and shown');
-    assert(view.host.querySelector('.related-kind')?.textContent === 'Upstream', 'Edit updates sidebar');
     await click('Remove Apache Iceberg');
-    assert(view.host.querySelector('[aria-label="Related workspaces"]') === null, 'Removed link disappears from sidebar');
+    assert(view.host.textContent?.includes('No related workspaces'), 'Removed link disappears');
     view.missingCheckout(); await settle();
-    assert(view.host.querySelectorAll('a').length === 0, 'Missing checkout disables links on both surfaces');
+    assert(view.host.querySelectorAll('a').length === 0, 'Missing checkout disables links');
     assert(view.host.textContent?.includes('Keep this'), 'Missing checkout keeps guidance');
     view.unavailable(); await settle();
     assert(view.host.textContent?.includes('Workspace unavailable'), 'Unavailable destination keeps saved relationship visible');
@@ -126,8 +118,7 @@ async function settingsScenario() {
     assert(view.host.textContent?.includes('Takes changes from Trino. Edit it in Apache Iceberg.'), 'A link saved by another workspace shows read-only');
     assert(view.host.querySelector('[aria-label="Edit Apache Iceberg"]') === null, 'Another workspace’s link cannot be edited here');
     assert([...view.host.querySelectorAll('.related-line-repo')].map(item => item.textContent).join(' → ') === 'Trino → Apache Iceberg', 'Repo line runs downstream');
-    assert(view.host.querySelector('.related-kind')?.textContent === 'Downstream', 'Sidebar shows the downstream repository');
-    return [{ name: 'settings, server errors, navigation, edit, removal and links saved elsewhere' }];
+    return [{ name: 'settings, server errors, edit, removal and links saved elsewhere' }];
   } finally { view.close(); }
 }
 
@@ -186,18 +177,16 @@ async function navigationScenario() {
   const root = createRoot(host);
   flushSync(() => root.render(<App />));
   const ownTab = (label: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Workspace navigation"] [aria-label="${label}"]`);
-  const relatedLink = (tab: 'commits' | 'context') => host.querySelector<HTMLAnchorElement>(`a[href="${relatedWorkspaceRoute(trino.id, iceberg.id, tab)}"]`);
-  const selected = (tab: 'commits' | 'context') => relatedLink(tab)?.getAttribute('aria-current') === 'page';
+  const openRelated = (tab: 'commits' | 'context') => { window.location.hash = relatedWorkspaceRoute(trino.id, iceberg.id, tab); };
+  const selected = (tab: 'commits' | 'context') => window.location.hash === relatedWorkspaceRoute(trino.id, iceberg.id, tab);
   const staysHere = () => {
     assert(host.querySelector('.app-sidebar__ws-name')?.textContent === trino.name, 'Current workspace stays selected');
     assert(!reads.includes(`workspace:${iceberg.id}`), 'App never switches to the related workspace');
   };
   try {
-    await until(() => host.querySelector('.related-nav-row') !== null && host.querySelector('.mem-head')?.textContent === trino.id, 'Current workspace loaded');
-    const row = host.querySelector<HTMLDetailsElement>('.related-nav-row');
-    assert(row !== null && !row.open, 'Related repository starts folded in the app');
-    row.querySelector('summary')?.click(); await settle();
-    relatedLink('commits')?.click();
+    await until(() => host.querySelector('.mem-head')?.textContent === trino.id, 'Current workspace loaded');
+    assert(host.querySelector('[aria-label="Related workspaces"]') === null, 'Sidebar lists no related workspaces');
+    openRelated('commits');
     await until(() => selected('commits') && host.querySelector('.related-view')?.textContent?.includes('iceberg commit') === true, 'Related commits loaded');
     staysHere();
     assert(ownTab('Commits')?.getAttribute('aria-current') === null, 'Current repository commits are not highlighted');
@@ -205,21 +194,21 @@ async function navigationScenario() {
     const bounds = host.querySelector('.related-view')?.getBoundingClientRect();
     assert(bounds !== undefined && bounds.height > 300 && bounds.bottom <= window.innerHeight, 'Related content fits the main panel');
 
-    relatedLink('context')?.click();
+    openRelated('context');
     await until(() => selected('context') && host.querySelector('.related-view .mem-head')?.textContent === iceberg.id, 'Related memory loaded');
     staysHere();
     assert(ownTab('Memory')?.getAttribute('aria-current') === null, 'Current repository memory is not highlighted');
     window.history.back();
-    await until(() => selected('commits'), 'Back restores related commits');
+    await until(() => selected('commits') && host.querySelector('.related-view')?.textContent?.includes('iceberg commit') === true, 'Back restores related commits');
     window.history.forward();
-    await until(() => selected('context'), 'Forward restores related memory');
+    await until(() => selected('context') && host.querySelector('.related-view .mem-head')?.textContent === iceberg.id, 'Forward restores related memory');
     staysHere();
 
     ownTab('Memory')?.click();
     await until(() => window.location.hash === workspaceRoute(trino.id, 'context') && host.querySelector('.mem-head')?.textContent === trino.id, 'Own memory tab returns to the current repository');
     assert(host.querySelector('.related-view') === null, 'Related panel closes on own tab');
-    relatedLink('commits')?.click();
-    await until(() => selected('commits'), 'Related commits reopen');
+    openRelated('commits');
+    await until(() => selected('commits') && host.querySelector('.related-view') !== null, 'Related commits reopen');
     ownTab('Commits')?.click();
     await until(() => window.location.hash === workspaceRoute(trino.id, 'commits') && host.textContent?.includes('trino commit') === true, 'Own commits tab returns to current repository data');
 

@@ -13,11 +13,11 @@
  */
 import { useAsyncAction } from '../useAsyncAction';
 import { useId, useState, useEffect } from 'react';
-import { ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 import type { RelatedWorkspaceDto, RepoLineNodeDto, WorkspaceDto, WorkspaceRelationshipDto, WorkspaceRelationshipsDto } from '../types';
 import { Badge, Segmented, SelectPill, SettingsCard } from '../settings/primitives';
 import RepoAvatar from '../RepoAvatar';
-import { relatedWorkspaceRoute, workspaceHasReadableCode, type WorkspaceTab } from './model';
+import { relatedWorkspaceRoute, workspaceHasReadableCode } from './model';
 import '../css/related-workspaces.css';
 
 const changed = 'bytequay:relationships-changed';
@@ -71,39 +71,13 @@ export function RepoLine({ line, workspaces, current }: { line: RepoLineNodeDto[
   </ol>;
 }
 
-function ViewLinks({ workspaceId, relatedWorkspaceId, unavailable, activeTab }: {
-  workspaceId: string; relatedWorkspaceId: string; unavailable: string | null; activeTab?: WorkspaceTab;
+function ViewLinks({ workspaceId, relatedWorkspaceId, unavailable }: {
+  workspaceId: string; relatedWorkspaceId: string; unavailable: string | null;
 }) {
   return <span className="related-links">{(['commits', 'context'] as const).map(view => unavailable
     ? <span key={view} role="link" aria-disabled="true" title={unavailable}>{view === 'commits' ? 'Commits' : 'Memory'}</span>
-    : <a key={view} href={relatedWorkspaceRoute(workspaceId, relatedWorkspaceId, view)} aria-current={activeTab === view ? 'page' : undefined}>
+    : <a key={view} href={relatedWorkspaceRoute(workspaceId, relatedWorkspaceId, view)}>
       {view === 'commits' ? 'Commits' : 'Memory'}</a>)}</span>;
-}
-
-export function RelatedWorkspaceNavigation({ workspaceId, activeWorkspaceId, activeTab }: {
-  workspaceId: string; activeWorkspaceId?: string | null; activeTab?: WorkspaceTab;
-}) {
-  const { data, error } = useRelationships(workspaceId);
-  if (error !== null) return <div className="related-nav" role="status">Related workspaces unavailable</div>;
-  if (!data?.related.length) return null;
-  return <nav className="related-nav" aria-label="Related workspaces">
-    <div className="related-heading">Related</div>
-    {data.related.map(link => {
-      const workspace = data.workspaces.find(item => item.id === link.workspaceId);
-      const unavailable = unavailableReason(link, workspace);
-      const guidance = data.links.find(item => item.workspaceId === link.workspaceId)?.guidance;
-      return <details className={`related-nav-row${unavailable ? ' is-unavailable' : ''}`} key={link.workspaceId}>
-        <summary className="related-nav-title" title={unavailable ?? guidance}>
-          <ChevronRight className="related-chevron" size={12} aria-hidden="true" />
-          {workspace && <RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={16} radius={4} />}
-          <span className="related-name">{workspace?.name ?? link.workspaceId}</span>
-          <span className="related-kind">{unavailable ? 'Unavailable' : positionLabel[link.position]}</span>
-        </summary>
-        <ViewLinks workspaceId={workspaceId} relatedWorkspaceId={link.workspaceId} unavailable={unavailable}
-          activeTab={activeWorkspaceId === link.workspaceId ? activeTab : undefined} />
-      </details>;
-    })}
-  </nav>;
 }
 
 type Draft = Omit<WorkspaceRelationshipDto, 'kind'> & { kind: WorkspaceRelationshipDto['kind'] | '' };

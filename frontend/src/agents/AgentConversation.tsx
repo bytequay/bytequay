@@ -175,6 +175,9 @@ const ACTION_ICONS: Record<CommandAction['kind'], LucideIcon> = {
 };
 
 const TOOL_ICONS: Record<string, LucideIcon> = {
+  Read: BookOpen,
+  Grep: Search,
+  Glob: FolderOpen,
   'Web search': Globe,
   WebSearch: Globe,
   WebFetch: Globe,
@@ -268,7 +271,12 @@ export function latestStep(turns: TranscriptTurn[]): TaskStep | null {
   const member = block?.kind === 'activity' ? currentActivity(block.members) ?? block.members.at(-1) : undefined;
   if (member === undefined) return null;
   if (member.kind === 'file') return { id: member.id, kind: 'EDIT', text: member.path };
-  if (member.kind === 'tool') return { id: member.id, kind: 'TOOL', text: runningActivityLabel(member) };
+  if (member.kind === 'tool') {
+    // A described tool step says what it read or searched in a parsed command's verbs, so that verb gives its kind.
+    const label = runningActivityLabel(member);
+    const verb = (['READ', 'LIST_FILES', 'SEARCH'] as const).find((kind) => label.startsWith(`${ACTION_VERBS[kind]} `));
+    return { id: member.id, kind: verb === undefined ? 'TOOL' : STEP_KINDS[verb], text: verb === undefined ? label : label.slice(ACTION_VERBS[verb].length + 1) };
+  }
   const action = member.description === null ? member.actions.find((each) => each.kind !== 'OTHER') : undefined;
   const text = action === undefined ? member.description ?? member.command.replace(LOGIN_SHELL, '$2') : actionTarget(action);
   return { id: member.id, kind: STEP_KINDS[action?.kind ?? 'OTHER'], text: text || 'Running command' };

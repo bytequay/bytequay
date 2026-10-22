@@ -221,6 +221,18 @@ describe('the step a running task card shows', () => {
       .toMatchObject({ kind: 'RUN', text: 'Run the domain translator tests' });
   });
 
+  it('takes a described tool step\'s kind from its verb, and calls any other tool a tool', () => {
+    const tool = (name: string, description: string | null): AgentEventEnvelope => ({
+      schemaVersion: 2, eventId: name, sequence: 1, taskId: 'task', turnId: 'turn', occurredAt: '2026-10-22T09:00:00Z',
+      source: { ...source, providerItemId: name, providerEventId: null }, type: 'tool',
+      payload: { name, state: 'STARTED', summary: name, durationMs: null, description },
+    } as AgentEventEnvelope);
+    expect(step([tool('Read', 'Read core/trino-main/DomainTranslator.java · lines 240–380')]))
+      .toMatchObject({ kind: 'READ', text: 'core/trino-main/DomainTranslator.java · lines 240–380' });
+    expect(step([tool('Grep', 'Searched extractDecimal in plugin/trino-hive')])).toMatchObject({ kind: 'SEARCH', text: 'extractDecimal in plugin/trino-hive' });
+    expect(step([tool('Glob', 'Listed **/*.java')])).toMatchObject({ kind: 'LIST', text: '**/*.java' });
+    expect(step([tool('mcp__bytequay__work_items', null)])).toMatchObject({ kind: 'TOOL', text: 'work_items' });
+  });
 });
 
 describe('historical activity presentation', () => {

@@ -90,7 +90,8 @@ final class ClaudeProtocol
             Optional<Integer> attempt,
             @JsonProperty("retry_delay_ms") Optional<Long> retryDelayMs,
             Optional<List<BackgroundTask>> tasks,
-            Optional<TaskPatch> patch)
+            Optional<TaskPatch> patch,
+            Optional<String> cwd)
             implements Message
     {
         SystemMessage
@@ -120,6 +121,7 @@ final class ClaudeProtocol
             requireNonNull(retryDelayMs, "retryDelayMs is null");
             tasks = tasks.map(ImmutableList::copyOf);
             requireNonNull(patch, "patch is null");
+            requireNonNull(cwd, "cwd is null");
         }
 
         @Override
@@ -398,7 +400,12 @@ final class ClaudeProtocol
             Optional<JsonNode> todos,
             Optional<String> url,
             Optional<String> query,
-            Optional<String> name)
+            Optional<String> name,
+            // Read, Grep and Glob arguments, kept raw: every tool's input decodes here, and an MCP tool may use these names for other types.
+            Optional<JsonNode> pattern,
+            Optional<JsonNode> path,
+            Optional<JsonNode> offset,
+            Optional<JsonNode> limit)
     {
         ToolInput
         {
@@ -412,6 +419,10 @@ final class ClaudeProtocol
             requireNonNull(url, "url is null");
             requireNonNull(query, "query is null");
             requireNonNull(name, "name is null");
+            requireNonNull(pattern, "pattern is null");
+            requireNonNull(path, "path is null");
+            requireNonNull(offset, "offset is null");
+            requireNonNull(limit, "limit is null");
         }
     }
 

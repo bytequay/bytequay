@@ -277,6 +277,48 @@ class TestClaudeEventMapper
     }
 
     @Test
+    void describesFileStepsWithPathsAsTheWorktreeNamesThem()
+    {
+        map("""
+                {"type":"system","subtype":"init","session_id":"session-1","uuid":"init-1","cwd":"/work/trino/"}
+                """);
+        ProviderAgentEvent.Tool read = only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"read-1","name":"Read","input":{"file_path":"/work/trino/core/trino-main/DomainTranslator.java","offset":240,"limit":141}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-read"}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(read.description()).contains("Read core/trino-main/DomainTranslator.java · lines 240–380");
+        ProviderAgentEvent.Tool readResult = only("""
+                {"type":"user","message":{"role":"user","content":[
+                {"type":"tool_result","tool_use_id":"read-1","content":"final class DomainTranslator {}","is_error":false}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"user-read"}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(readResult.description()).isEqualTo(read.description());
+
+        assertThat(only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"grep-1","name":"Grep","input":{"pattern":"extractDecimal","path":"/work/trino/plugin/trino-hive"}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-grep"}
+                """, ProviderAgentEvent.Tool.class).description()).contains("Searched extractDecimal in plugin/trino-hive");
+        assertThat(only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"glob-1","name":"Glob","input":{"pattern":"**/*.java","path":"/work/trino"}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-glob"}
+                """, ProviderAgentEvent.Tool.class).description()).contains("Listed **/*.java");
+        assertThat(only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"read-2","name":"Read","input":{"file_path":"/home/me/.m2/settings.xml","offset":7}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-read-2"}
+                """, ProviderAgentEvent.Tool.class).description()).contains("Read /home/me/.m2/settings.xml · from line 7");
+        // Any tool's input decodes into the same record, so an MCP tool may use these names for other types.
+        assertThat(only("""
+                {"type":"assistant","message":{"role":"assistant","content":[
+                {"type":"tool_use","id":"mcp-1","name":"mcp__notes__find","input":{"path":["a","b"],"pattern":{"any":true},"limit":"all"}}]},
+                "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-mcp"}
+                """, ProviderAgentEvent.Tool.class).description()).isEmpty();
+    }
+
+    @Test
     void correlatesReindexedCompletionWithinItsParent()
     {
         ProviderAgentEvent.Message rootPartial = only("""

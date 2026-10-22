@@ -60,6 +60,7 @@ final class ClaudeEventMapper
     private final Map<TextStreamKey, TextStream> textStreams = new HashMap<>();
     private Optional<String> latestRootTextItemId = Optional.empty();
     private Optional<String> sessionId = Optional.empty();
+    private Optional<String> cwd = Optional.empty();
     private boolean rootTerminal;
     private boolean activityUncertain;
 
@@ -114,6 +115,7 @@ final class ClaudeEventMapper
         return switch (message.subtype()) {
             case "init" -> {
                 rootTerminal = false;
+                cwd = message.cwd().map(path -> path.endsWith("/") ? path.substring(0, path.length() - 1) : path);
                 yield ImmutableList.of(lifecycle(message.uuid(), ProviderAgentEvent.LifecyclePhase.SESSION_OPENED, "Claude session opened"));
             }
             case "status" -> {
@@ -277,7 +279,8 @@ final class ClaudeEventMapper
                 ToolCall call = tools.get(result.toolUseId());
                 if (call == null) {
                     call = new ToolCall("tool", new ClaudeProtocol.ToolInput(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
+                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
                             message.parentToolUseId());
                 }
                 activeTools.remove(result.toolUseId());
@@ -438,7 +441,42 @@ final class ClaudeEventMapper
                 call.name(),
                 ProviderAgentEvent.ActivityState.STARTED,
                 bounded(webTarget(call).or(() -> call.input().description()).orElse(call.name())),
-                source(call.parentToolUseId(), Optional.of(toolUseId)));
+                source(call.parentToolUseId(), Optional.of(toolUseId)),
+                Optional.empty(),
+                fileStep(call));
+    }
+
+    /** File steps say what they read or searched, in the verbs a command's parsed actions use, with paths as the worktree names them. */
+    private Optional<String> fileStep(ToolCall call)
+    {
+        ClaudeProtocol.ToolInput input = call.input();
+        String where = text(input.path()).map(this::relative).filter(path -> !path.isEmpty()).map(path -> " in " + path).orElse("");
+        Optional<String> step = switch (call.name()) {
+            case "Read" -> input.filePath().filter(path -> !path.isBlank()).map(path -> "Read " + relative(path) + lines(input));
+            case "Grep" -> text(input.pattern()).map(pattern -> "Searched " + pattern + where);
+            case "Glob" -> text(input.pattern()).map(pattern -> "Listed " + pattern + where);
+            default -> Optional.empty();
+        };
+        return step.map(this::bounded);
+    }
+
+    private static Optional<String> text(Optional<JsonNode> value)
+    {
+        return value.filter(JsonNode::isTextual).map(JsonNode::asText).filter(text -> !text.isBlank());
+    }
+
+    private static String lines(ClaudeProtocol.ToolInput input)
+    {
+        Optional<Integer> offset = input.offset().filter(JsonNode::canConvertToInt).map(JsonNode::asInt).filter(value -> value > 0);
+        Optional<Integer> limit = input.limit().filter(JsonNode::canConvertToInt).map(JsonNode::asInt).filter(value -> value > 0);
+        int first = offset.orElse(1);
+        return limit.map(count -> " · lines " + first + "–" + (first + count - 1)).or(() -> offset.map(value -> " · from line " + value)).orElse("");
+    }
+
+    /** Claude names files by absolute path; inside its working directory they read as the repository names them, and the directory itself as nothing. */
+    private String relative(String path)
+    {
+        return cwd.filter(root -> path.equals(root) || path.startsWith(root + "/")).map(root -> path.substring(Math.min(path.length(), root.length() + 1))).orElse(path);
     }
 
     /** Web steps name the page they fetched or the query they searched. */
@@ -477,7 +515,7 @@ final class ClaudeEventMapper
                 summary,
                 source(call.parentToolUseId(), Optional.of(result.toolUseId())),
                 Optional.empty(),
-                !result.error() && call.name().startsWith("mcp__bytequay__") ? ToolActivityLine.fromResult(result.content()) : Optional.empty());
+                !result.error() && call.name().startsWith("mcp__bytequay__") ? ToolActivityLine.fromResult(result.content()) : fileStep(call));
     }
 
     /**

@@ -108,9 +108,9 @@ const RUNNING: RunningTask = {
   startedAt: '2026-10-16T07:20:00Z', expiresAt: null, pullRequestNumber: 31377, branch: 'chenjian2664/snapshot-id',
 };
 
-/** A step of the running review, as its event log holds it. */
+/** A step of the running review, as its event log holds it, started 12 s ago. */
 const step = (sequence: number, argv: string, action: string, name: string | null): AgentEventEnvelope => ({
-  schemaVersion: 2, eventId: `step-${sequence}`, sequence, taskId: RUNNING.id, turnId: 'review-turn', occurredAt: '2026-10-16T07:21:00Z',
+  schemaVersion: 2, eventId: `step-${sequence}`, sequence, taskId: RUNNING.id, turnId: 'review-turn', occurredAt: new Date(Date.now() - 12_000).toISOString(),
   source: { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: `step-${sequence}`, providerEventId: null },
   type: 'command',
   payload: { state: 'STARTED', argv: [argv], output: null, exitCode: null, truncated: false, cwd: '.', durationMs: null,
@@ -355,7 +355,8 @@ async function movesWithTheKeyboard(): Promise<void> {
     assert(card?.querySelector('.assistant-kind.is-running')?.textContent === 'Reviewing'
       && card.querySelector('.assistant-task__where')?.textContent === 'trinodb/trinoT#31377·chenjian2664/snapshot-id',
     `A running review names its pull request and branch: ${card?.querySelector('.assistant-task__where')?.textContent}`);
-    assert(card?.querySelector('.assistant-step')?.textContent === 'READIcebergMetadata.java', `It shows its newest step: ${card?.querySelector('.assistant-step')?.textContent}`);
+    assert(card?.querySelector('.assistant-step__kind')?.textContent === 'READ' && card.querySelector('.assistant-step__text')?.textContent === 'IcebergMetadata.java'
+      && /^1\ds$/.test(card.querySelector('.assistant-step__time')?.textContent ?? ''), `It shows its newest step and how long it has run: ${card?.querySelector('.assistant-step')?.textContent}`);
     history = [...history, step(2, '/bin/zsh -lc "./mvnw -pl :trino-iceberg test"', 'OTHER', null)];
     // A return to the app reads the task at once, rather than at its next poll.
     document.dispatchEvent(new Event('visibilitychange'));

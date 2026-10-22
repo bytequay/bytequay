@@ -29,7 +29,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { CI_PROJECTION, CI_RUN } from './fixtures/ciAutofix';
 import contracts from './fixtures/agent-contracts-v1.json';
 import fixture from './fixtures/agent-events-v2.json';
-import { projectTranscript, type CommandAction, type TranscriptTurn } from './transcript';
+import type { CommandAction, TranscriptTurn } from './transcript';
 
 describe('the queue behind a running turn', () => {
   // The fixture's open approval would put the header on 'waiting on you'; the count needs a plain running turn.
@@ -201,12 +201,13 @@ describe('the queue behind a running turn', () => {
 
 describe('the step a running task card shows', () => {
   const source = parseAgentEventSequence(fixture.events)[0].source;
-  const command = (item: string, sequence: number, state: string, argv: string[], actions: unknown[], description: string | null = null): AgentEventEnvelope => ({
-    schemaVersion: 2, eventId: `${item}-${sequence}`, sequence, taskId: 'task', turnId: 'turn', occurredAt: '2026-10-22T09:00:00Z',
+  const command = (item: string, sequence: number, state: string, argv: string[], actions: unknown[], description: string | null = null,
+    occurredAt = '2026-10-22T09:00:00Z'): AgentEventEnvelope => ({
+    schemaVersion: 2, eventId: `${item}-${sequence}`, sequence, taskId: 'task', turnId: 'turn', occurredAt,
     source: { ...source, providerItemId: item, providerEventId: null }, type: 'command',
     payload: { state, argv, output: null, exitCode: null, truncated: false, cwd: '.', durationMs: null, actions, description },
   } as AgentEventEnvelope);
-  const step = (events: AgentEventEnvelope[]) => latestStep(projectTranscript(events));
+  const step = latestStep;
   const read: CommandAction = { kind: 'READ', name: 'DomainTranslator.java', path: 'core/trino-main/DomainTranslator.java', query: null };
 
   it('names the newest command by what it parsed, the command inside its login shell, or the provider\'s label', () => {
@@ -219,6 +220,14 @@ describe('the step a running task card shows', () => {
       .toMatchObject({ kind: 'RUN', text: './mvnw clean install -DskipTests' });
     expect(step([command('test', 1, 'STARTED', ['./mvnw test'], [], 'Run the domain translator tests')]))
       .toMatchObject({ kind: 'RUN', text: 'Run the domain translator tests' });
+  });
+
+  it('times a step from its first event, and to its last once it has finished', () => {
+    const started = command('test', 1, 'STARTED', ['./mvnw test'], [], null, '2026-10-22T09:00:00Z');
+    const at = Date.parse('2026-10-22T09:00:00Z');
+    expect(step([started])).toMatchObject({ startedAt: at, endedAt: null });
+    expect(step([started, command('test', 2, 'PROGRESS', [], [], null, '2026-10-22T09:00:05Z')])).toMatchObject({ startedAt: at, endedAt: null });
+    expect(step([started, command('test', 3, 'COMPLETED', ['./mvnw test'], [], null, '2026-10-22T09:00:12Z')])).toMatchObject({ startedAt: at, endedAt: at + 12_000 });
   });
 
   it('takes a described tool step\'s kind from its verb, and calls any other tool a tool', () => {

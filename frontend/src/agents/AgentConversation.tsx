@@ -46,7 +46,7 @@ import ComposerModelControls from './ComposerModelControls';
 import { IssueRequestCard } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { agentDisplayName,activitySummary,formatDuration,planChip,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+import { agentDisplayName,activitySummary,formatDuration,itemKey,planChip,projectTranscript,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** Answers accompany a question tool's allow; every other approval sends the decision alone. */
 export type ApprovalDecider = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => void;
@@ -263,23 +263,29 @@ const STEP_KINDS = { READ: 'READ', LIST_FILES: 'LIST', SEARCH: 'SEARCH', OTHER: 
 // Codex runs each command through a login shell; a step shows the command inside it.
 const LOGIN_SHELL = /^\S*\/(?:ba|z)?sh -l?c (["'])([\s\S]*)\1$/;
 
-export type TaskStep = { id: string; kind: string; text: string };
+/** A task card's step; it ran from its first event to its last, and endedAt is null while it still runs. */
+export type TaskStep = { id: string; kind: string; text: string; startedAt: number; endedAt: number | null };
 
-/** The newest step of the task's own agent, as a task card's log line shows it: a short kind, then what it acted on. */
-export function latestStep(turns: TranscriptTurn[]): TaskStep | null {
-  const block = turns.at(-1)?.blocks.findLast((each) => each.kind === 'activity');
+/** The newest step of the task's own agent in these events, as a task card's log line shows it: a short kind, then what it acted on. */
+export function latestStep(events: AgentEventEnvelope[]): TaskStep | null {
+  const block = projectTranscript(events).at(-1)?.blocks.findLast((each) => each.kind === 'activity');
   const member = block?.kind === 'activity' ? currentActivity(block.members) ?? block.members.at(-1) : undefined;
-  if (member === undefined) return null;
-  if (member.kind === 'file') return { id: member.id, kind: 'EDIT', text: member.path };
+  // A member is named for its first event in these events, and its later events share that event's item.
+  const first = member === undefined ? undefined : events.find((event) => event.eventId === member.id);
+  if (member === undefined || first === undefined) return null;
+  const last = events.findLast((event) => itemKey(event) === itemKey(first)) ?? first;
+  const times = { startedAt: Date.parse(first.occurredAt), endedAt: memberState(member) === 'running' ? null : Date.parse(last.occurredAt) };
+  if (member.kind === 'file') return { id: member.id, kind: 'EDIT', text: member.path, ...times };
   if (member.kind === 'tool') {
     // A described tool step says what it read or searched in a parsed command's verbs, so that verb gives its kind.
     const label = runningActivityLabel(member);
     const verb = (['READ', 'LIST_FILES', 'SEARCH'] as const).find((kind) => label.startsWith(`${ACTION_VERBS[kind]} `));
-    return { id: member.id, kind: verb === undefined ? 'TOOL' : STEP_KINDS[verb], text: verb === undefined ? label : label.slice(ACTION_VERBS[verb].length + 1) };
+    return { id: member.id, kind: verb === undefined ? 'TOOL' : STEP_KINDS[verb], text: verb === undefined ? label : label.slice(ACTION_VERBS[verb].length + 1),
+      ...times };
   }
   const action = member.description === null ? member.actions.find((each) => each.kind !== 'OTHER') : undefined;
   const text = action === undefined ? member.description ?? member.command.replace(LOGIN_SHELL, '$2') : actionTarget(action);
-  return { id: member.id, kind: STEP_KINDS[action?.kind ?? 'OTHER'], text: text || 'Running command' };
+  return { id: member.id, kind: STEP_KINDS[action?.kind ?? 'OTHER'], text: text || 'Running command', ...times };
 }
 
 /** Summary titles use provider facts; the exact shell command stays in the disclosure. */

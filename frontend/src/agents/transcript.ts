@@ -159,7 +159,7 @@ export type TranscriptTurn = {
 
 type Message = AgentEventEnvelope & { type: 'assistant_message' };
 
-function itemKey(event: AgentEventEnvelope): string {
+export function itemKey(event: AgentEventEnvelope): string {
   return event.source.providerItemId ?? event.eventId;
 }
 

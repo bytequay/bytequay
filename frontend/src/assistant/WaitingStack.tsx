@@ -17,7 +17,7 @@ import { latestStep, PendingApprovalCard, type ApprovalDecider, type TaskStep } 
 import { runningTaskRoute } from '../agents/RunningTasks';
 import { RUNNING_TASK_TYPES, type RunningTask } from '../agents/runningTaskModel';
 import { TaskTypeIcon } from '../agents/TaskListCards';
-import { projectTranscript } from '../agents/transcript';
+import { formatDuration } from '../agents/transcript';
 import { IconButton } from '../cards/Card';
 import TodayList, { openTarget } from '../home/TodayList';
 import { clockTime, doneRatio, showsToday } from '../home/today';
@@ -25,6 +25,7 @@ import { useTodayAgenda } from '../home/useTodayAgenda';
 import { pollVisible } from '../ide/pollVisible';
 import { APPROVAL_NOTICE, NOTICE_ACTIONS, noticeLabel, type AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
+import { useNow } from '../useNow';
 import RepoAvatar from '../RepoAvatar';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type { AgentPendingApprovalDto } from '../types';
@@ -304,7 +305,7 @@ function useLatestStep(taskId: string): Steps | null {
   const [steps, setSteps] = useState<Steps | null>(null);
   useEffect(() => pollVisible(async () => {
     try {
-      const step = latestStep(projectTranscript((await window.bridge.readAgentHistory(taskId)).events));
+      const step = latestStep((await window.bridge.readAgentHistory(taskId)).events);
       if (step !== null) setSteps(old => old === null || old.step.id === step.id ? { step, previous: old?.previous ?? null } : { step, previous: old.step });
     }
     catch { /* The last step stays through a failed read. */ }
@@ -314,7 +315,9 @@ function useLatestStep(taskId: string): Steps | null {
 
 function TaskCard({ task, pager, onOpen }: { task: RunningTask; pager: ReactNode; onOpen: () => void }) {
   const steps = useLatestStep(task.id);
+  const now = useNow(steps?.step.endedAt === null);
   const [owner, repo] = task.repository.split('/');
+  const took = steps === null ? 0 : (steps.step.endedAt ?? now) - steps.step.startedAt;
   return <>
     <div className="assistant-task">
       <span className="assistant-task__icon" aria-hidden="true"><TaskTypeIcon type={RUNNING_TASK_TYPES[task.kind]} size={16} /></span>
@@ -340,6 +343,8 @@ function TaskCard({ task, pager, onOpen }: { task: RunningTask; pager: ReactNode
           {steps.previous !== null && <span key={steps.previous.id} className="assistant-step__text is-out" aria-hidden="true">{steps.previous.text}</span>}
           <span key={steps.step.id} className={`assistant-step__text${steps.previous === null ? '' : ' is-in'}`}>{steps.step.text}</span>
         </span>
+        {/* A running step counts up; a finished one keeps its time, unless it was too quick to matter. */}
+        {(steps.step.endedAt === null || took >= 1000) && <span className="assistant-step__time">{formatDuration(took)}</span>}
       </div>
     )}
     <div className="assistant-card__actions assistant-task__actions">

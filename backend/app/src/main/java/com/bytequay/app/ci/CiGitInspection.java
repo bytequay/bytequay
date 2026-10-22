@@ -13,53 +13,38 @@
  */
 package com.bytequay.app.ci;
 
-import com.google.common.collect.ImmutableList;
+import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.core.domain.Checks.checkOptionalText;
-import static com.bytequay.core.domain.Checks.checkSha;
-import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record CiGitInspection(Outcome outcome, Optional<String> localHead, Optional<String> fingerprint, List<String> changedPaths, List<String> commitSubjects, String diagnostics)
+public record CiGitInspection(Outcome outcome, Optional<GitResult> result, String diagnostics)
 {
     public CiGitInspection
     {
         requireNonNull(outcome, "outcome is null");
-        requireNonNull(localHead, "localHead is null");
-        localHead.ifPresent(sha -> checkSha(sha, "localHead"));
-        checkOptionalText(fingerprint, "fingerprint", 200);
-        requireNonNull(changedPaths, "changedPaths is null");
-        changedPaths = ImmutableList.copyOf(changedPaths);
-        checkArgument(changedPaths.size() <= 1000, "changedPaths exceeds 1000 values");
-        changedPaths.forEach(path -> checkText(path, "changedPath", 500));
-        requireNonNull(commitSubjects, "commitSubjects is null");
-        commitSubjects = ImmutableList.copyOf(commitSubjects);
-        checkArgument(commitSubjects.size() <= 1000, "commitSubjects exceeds 1000 values");
-        commitSubjects.forEach(subject -> checkText(subject, "commitSubject", 500));
+        requireNonNull(result, "result is null");
         requireNonNull(diagnostics, "diagnostics is null");
         checkArgument(diagnostics.length() <= 8 * 1024, "diagnostics exceeds 8192 characters");
-        checkArgument((outcome == Outcome.READY) == (localHead.isPresent() && fingerprint.isPresent()), "only READY contains a local head and fingerprint");
-        checkArgument(outcome == Outcome.READY || changedPaths.isEmpty(), "only READY contains changed paths");
-        checkArgument(outcome == Outcome.READY || commitSubjects.isEmpty(), "only READY contains commit subjects");
+        checkArgument((outcome == Outcome.READY) == result.isPresent(), "only READY contains a Git result");
     }
 
     public static CiGitInspection noChange()
     {
-        return new CiGitInspection(Outcome.NO_CHANGE, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), "");
+        return new CiGitInspection(Outcome.NO_CHANGE, Optional.empty(), "");
     }
 
     public static CiGitInspection ready(String localHead, String fingerprint, List<String> changedPaths, List<String> commitSubjects)
     {
-        return new CiGitInspection(Outcome.READY, Optional.of(localHead), Optional.of(fingerprint), changedPaths, commitSubjects, "");
+        return new CiGitInspection(Outcome.READY, Optional.of(new GitResult(localHead, fingerprint, changedPaths, commitSubjects)), "");
     }
 
     public static CiGitInspection invalid(String diagnostics)
     {
-        return new CiGitInspection(Outcome.INVALID, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), diagnostics);
+        return new CiGitInspection(Outcome.INVALID, Optional.empty(), diagnostics);
     }
 
     public enum Outcome

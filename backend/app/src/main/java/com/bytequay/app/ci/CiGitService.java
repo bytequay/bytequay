@@ -130,6 +130,11 @@ public class CiGitService
         catch (GitProblem problem) {
             return CiGitInspection.invalid(problem.getMessage());
         }
+        catch (IllegalArgumentException rejected) {
+            // Git accepts commits the result refuses, such as an empty or very long subject. Throwing would retry the
+            // same commits on every monitor pass instead of pausing the run.
+            return CiGitInspection.invalid(rejected.getMessage());
+        }
     }
 
     /**

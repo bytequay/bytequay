@@ -15,6 +15,7 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
@@ -109,9 +110,25 @@ class TestCiGitService
         CiGitInspection repeated = service.inspectAgentResult(inspect(fixture));
 
         assertThat(ready.outcome()).isEqualTo(READY);
-        assertThat(ready.changedPaths()).containsExactly("source.txt");
-        assertThat(ready.localHead()).contains(head(fixture.worktree()));
-        assertThat(repeated.fingerprint()).isEqualTo(ready.fingerprint());
+        assertThat(ready.result().orElseThrow().changedPaths()).containsExactly("source.txt");
+        assertThat(ready.result().orElseThrow().localHead()).isEqualTo(head(fixture.worktree()));
+        assertThat(repeated.result().orElseThrow().fingerprint()).isEqualTo(ready.result().orElseThrow().fingerprint());
+    }
+
+    @Test
+    void rejectsCommitSubjectsTheResultCannotHold()
+            throws IOException
+    {
+        Repository blank = repository("blank-subject");
+        write(blank.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
+        git(blank.worktree(), "add", "-A");
+        git(blank.worktree(), "commit", "--quiet", "--allow-empty-message", "-m", "");
+        assertInvalid(service(), blank, "commitSubject is blank");
+
+        Repository longSubject = repository("long-subject");
+        write(longSubject.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
+        commit(longSubject.worktree(), "Fix " + "x".repeat(500));
+        assertInvalid(service(), longSubject, "commitSubject exceeds 500 characters");
     }
 
     @Test
@@ -213,8 +230,8 @@ class TestCiGitService
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
-        PushJournal journal = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(),
-                inspection.fingerprint().orElseThrow(), NOW.minus(Duration.ofDays(1)), 0);
+        PushJournal journal = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.result().orElseThrow().localHead(),
+                inspection.result().orElseThrow().fingerprint(), NOW.minus(Duration.ofDays(1)), 0);
         PushCiHeadCommand command = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, journal);
 
         CiPushResult pushed = service().push(command);
@@ -224,7 +241,7 @@ class TestCiGitService
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(reconciled.outcome()).isEqualTo(PUSHED);
-        assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
+        assertThat(remoteHead(fixture)).isEqualTo(inspection.result().orElseThrow().localHead());
     }
 
     @Test
@@ -242,7 +259,7 @@ class TestCiGitService
         CiPushResult pushed = service().push(push(fixture, inspection, 0));
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
-        assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
+        assertThat(remoteHead(fixture)).isEqualTo(inspection.result().orElseThrow().localHead());
         assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), false))
                 .containsExactly("push", "--porcelain", "--force-with-lease=refs/heads/feature:" + fixture.inputSha(), "origin", "HEAD:refs/heads/feature")
                 .doesNotContain("--force");
@@ -288,15 +305,15 @@ class TestCiGitService
         CiGitService service = service();
         CiGitInspection inspection = service.inspectAgentResult(inspect(fixture));
         assertThat(inspection.outcome()).isEqualTo(READY);
-        gitFailure(worktree, "merge-base", "--is-ancestor", original, inspection.localHead().orElseThrow());
+        gitFailure(worktree, "merge-base", "--is-ancestor", original, inspection.result().orElseThrow().localHead());
 
         CiPushResult result = service.push(push(fixture, inspection, 0));
 
         assertThat(result.outcome()).isEqualTo(PUSHED);
-        assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
+        assertThat(remoteHead(fixture)).isEqualTo(inspection.result().orElseThrow().localHead());
         assertThat(git(fork, "rev-parse", "refs/heads/main")).isEqualTo(base);
         assertThat(git(upstream, "show-ref")).isEqualTo(upstreamRefs);
-        gitFailure(upstream, "cat-file", "-e", inspection.localHead().orElseThrow());
+        gitFailure(upstream, "cat-file", "-e", inspection.result().orElseThrow().localHead());
     }
 
     @Test
@@ -345,7 +362,7 @@ class TestCiGitService
         commit(fixture.worktree(), "fixup! Target change");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
-        PushJournal altered = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(), "changed-fingerprint", NOW, 0);
+        PushJournal altered = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.result().orElseThrow().localHead(), "changed-fingerprint", NOW, 0);
         PushCiHeadCommand alteredCommand = new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, altered);
         assertThat(service().push(alteredCommand).outcome()).isEqualTo(REJECTED);
         assertThat(remoteHead(fixture)).isEqualTo(fixture.inputSha());
@@ -404,7 +421,7 @@ class TestCiGitService
         String rewriteKey = "url." + redirected.toUri() + ".pushInsteadOf";
         git(fixture.worktree(), "config", rewriteKey, "https://github.com/other/project.git");
         assertThat(service().push(command).outcome()).isEqualTo(PUSHED);
-        assertThat(remoteHead(fixture)).isEqualTo(inspection.localHead().orElseThrow());
+        assertThat(remoteHead(fixture)).isEqualTo(inspection.result().orElseThrow().localHead());
         gitFailure(redirected, "show-ref", "--verify", "refs/heads/" + HEAD_REF);
     }
 
@@ -535,7 +552,8 @@ class TestCiGitService
 
     private static PushJournal journal(Repository fixture, CiGitInspection inspection, int retries)
     {
-        return new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.localHead().orElseThrow(), inspection.fingerprint().orElseThrow(), NOW, retries);
+        GitResult result = inspection.result().orElseThrow();
+        return new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), result.localHead(), result.fingerprint(), NOW, retries);
     }
 
     private static void assertInvalid(CiGitService service, Repository fixture, String message)

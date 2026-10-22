@@ -926,8 +926,7 @@ public class CiAutofixService
 
     private CiAutofixRun journalPush(CiAutofixRun run, CiAutofixAttempt attempt, CiGitInspection inspection, Instant now)
     {
-        GitResult gitResult = new GitResult(inspection.localHead().orElseThrow(), inspection.fingerprint().orElseThrow(), inspection.changedPaths(), inspection.commitSubjects());
-        CiAutofixAttempt inspected = attempt.withGitResult(gitResult, now);
+        CiAutofixAttempt inspected = attempt.withGitResult(inspection.result().orElseThrow(), now);
         return recordPushJournal(run.updateAttempt(inspected, now), inspected, now);
     }
 
@@ -965,8 +964,7 @@ public class CiAutofixService
             return pauseAndRefresh(run, PauseReason.INVALID_GIT_RESULT, summary("Agent Git result is invalid", inspection.diagnostics()), now);
         }
         if (inspection.outcome() == CiGitInspection.Outcome.READY && attempt.gitResult().isEmpty()) {
-            GitResult result = new GitResult(inspection.localHead().orElseThrow(), inspection.fingerprint().orElseThrow(), inspection.changedPaths(), inspection.commitSubjects());
-            return store.update(run.updateAttempt(attempt.withGitResult(result, now), now));
+            return store.update(run.updateAttempt(attempt.withGitResult(inspection.result().orElseThrow(), now), now));
         }
         String currentBody = gitHub.readDescription(run.scope().pullRequest());
         if (change.writeStartedAt().isPresent()) {

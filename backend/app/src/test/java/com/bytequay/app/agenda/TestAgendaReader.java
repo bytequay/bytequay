@@ -22,6 +22,7 @@ import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
+import com.bytequay.app.service.attention.AttentionMarkService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.team.TeamService;
@@ -87,6 +88,7 @@ class TestAgendaReader
     private final WorkItemService work = mock(WorkItemService.class);
     private final EpicStore epics = mock(EpicStore.class);
     private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
+    private final AttentionMarkService marks = mock(AttentionMarkService.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
 
     @Test
@@ -143,6 +145,21 @@ class TestAgendaReader
     }
 
     @Test
+    void leavesSnoozedPullRequestsOutUntilTheSnoozeEnds()
+    {
+        PullRequest asked = pullRequest(31377, "marlo-t", PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of("me"), null, 120, 14);
+        PullRequest snoozed = pullRequest(31378, "marlo-t", PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of("me"), null, 10, 1);
+        when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
+        when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(asked, snoozed));
+        when(marks.snoozedKeys()).thenReturn(ImmutableSet.of("trinodb/trino#31378"));
+
+        AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
+
+        assertThat(snapshot.asks()).extracting(AgendaSnapshot.Ask::ref).containsExactly("pr:trinodb/trino#31377");
+        assertThat(snapshot.refs()).doesNotContainKey("pr:trinodb/trino#31378");
+    }
+
+    @Test
     void readsCirclesWithoutAskingGitHubWhoTheUserIs()
     {
         // The assistant reads this inside a turn; on a cold cache, naming the account would be a request to GitHub.
@@ -184,7 +201,7 @@ class TestAgendaReader
         return new AgendaReader(pullRequests, details, credentials, workspaces, mock(AppNoticeService.class), mock(AgentTaskStore.class),
                 mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), items, work, epics,
                 markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityReader.class),
-                new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), mock(AgendaDone.class));
+                new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), marks, mock(AgendaDone.class));
     }
 
     private static WorkItemView work(String id, String epicId)

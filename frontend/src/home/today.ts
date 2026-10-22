@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaLinkDto, AgendaTargetDto } from '../types';
+import type { Handled } from './attention';
 
 export type TodayScope = 'global' | 'workspace';
 
@@ -81,6 +82,13 @@ export function attentionKey(target: AgendaTargetDto): string | null {
 }
 
 /** The keys of today's open items, for the sun beside a Needs attention row. */
+/** A snoozed item leaves Today until its snooze ends, whatever happens to it meanwhile, as its Needs attention card does. */
+export function withoutSnoozed(agenda: AgendaDto, handled: Handled, now: number): AgendaDto {
+  const snoozed = new Set(Object.entries(handled).filter(([, entry]) => entry.kind === 'snooze' && entry.until !== null && now < entry.until)
+    .map(([key]) => key.toLowerCase()));
+  return snoozed.size === 0 ? agenda : { ...agenda, items: agenda.items.filter(item => !snoozed.has(attentionKey(item.target)?.toLowerCase() ?? '')) };
+}
+
 export function todayKeys(agenda: AgendaDto | null): ReadonlySet<string> {
   if (agenda === null) return new Set();
   return new Set(agenda.items.filter(item => item.status === 'open').map(item => attentionKey(item.target)).filter((key): key is string => key !== null));

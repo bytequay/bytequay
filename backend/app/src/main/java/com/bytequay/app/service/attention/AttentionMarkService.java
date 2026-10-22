@@ -26,8 +26,11 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -72,6 +75,14 @@ public class AttentionMarkService
     public void change(List<AttentionMark> saved, List<String> removed)
     {
         store.change(saved, removed);
+    }
+
+    /** The lowercased keys of items snoozed to a time still ahead: until then nothing that happens to them shows them. */
+    public Set<String> snoozedKeys()
+    {
+        Instant now = clock.instant();
+        return store.all().stream().filter(mark -> mark.until().filter(now::isBefore).isPresent())
+                .map(mark -> mark.key().toLowerCase(Locale.ROOT)).collect(toImmutableSet());
     }
 
     /**

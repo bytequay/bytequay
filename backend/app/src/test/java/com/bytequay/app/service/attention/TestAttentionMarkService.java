@@ -30,6 +30,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class TestAttentionMarkService
 {
@@ -65,5 +66,16 @@ class TestAttentionMarkService
         assertThat(until.toInstant()).isAfter(NOW.plusSeconds(6 * 24 * 3600));
         assertThat(monday.label()).isEqualTo("next monday");
         assertThat(monday.kind()).isEqualTo(AttentionMark.Kind.SNOOZE);
+    }
+
+    @Test
+    void namesOnlySnoozesThatHaveNotEnded()
+    {
+        when(store.all()).thenReturn(ImmutableList.of(
+                new AttentionMark("TrinoDB/trino#1", AttentionMark.Kind.SNOOZE, Optional.of(NOW.plusSeconds(60)), NOW.toString(), Optional.empty(), "1 hour", Optional.empty()),
+                new AttentionMark("trinodb/trino#2", AttentionMark.Kind.SNOOZE, Optional.of(NOW), NOW.toString(), Optional.empty(), "1 hour", Optional.empty()),
+                new AttentionMark("trinodb/trino#3", AttentionMark.Kind.ACK, Optional.empty(), NOW.toString(), Optional.empty(), "acknowledged", Optional.empty())));
+
+        assertThat(marks.snoozedKeys()).containsExactly("trinodb/trino#1");
     }
 }

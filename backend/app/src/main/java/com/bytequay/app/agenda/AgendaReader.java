@@ -35,6 +35,7 @@ import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.localreview.LocalReviewService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
+import com.bytequay.app.service.attention.AttentionMarkService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -136,6 +137,7 @@ public class AgendaReader
     private final ObjectProvider<JiraService> jira;
     private final JiraActivityReader jiraActivity;
     private final TeamService teams;
+    private final AttentionMarkService marks;
     private final AgendaDone done;
 
     AgendaReader(
@@ -156,6 +158,7 @@ public class AgendaReader
             ObjectProvider<JiraService> jira,
             JiraActivityReader jiraActivity,
             TeamService teams,
+            AttentionMarkService marks,
             AgendaDone done)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -175,6 +178,7 @@ public class AgendaReader
         this.jira = requireNonNull(jira, "jira is null");
         this.jiraActivity = requireNonNull(jiraActivity, "jiraActivity is null");
         this.teams = requireNonNull(teams, "teams is null");
+        this.marks = requireNonNull(marks, "marks is null");
         this.done = requireNonNull(done, "done is null");
     }
 
@@ -192,7 +196,10 @@ public class AgendaReader
         watched.forEach(workspace -> workspaceByRepo.putIfAbsent(lower(workspace.monitoredRepository().fullName()), workspace.id()));
         List<TeamCircle> circles = read("circles", teams::cachedCircles, ImmutableList.of());
 
-        List<PullRequest> candidates = read("pull requests", pullRequests::listAttentionCandidates, ImmutableList.of());
+        // A snoozed item stays out of the agenda and the assistant's answers until its snooze ends, as it stays out of Needs attention.
+        Set<String> snoozed = read("snoozes", marks::snoozedKeys, ImmutableSet.of());
+        List<PullRequest> candidates = read("pull requests", () -> pullRequests.listAttentionCandidates().stream()
+                .filter(pr -> !snoozed.contains(markKey(pr.repo(), pr.number()))).collect(toImmutableList()), ImmutableList.of());
         Set<Long> mentioned = read("mentions", () -> pullRequests.findMentioned(candidates), ImmutableSet.of());
         Map<Long, List<PrCommitLine>> afterReview = read("commits", () -> pullRequests.findCachedCommitsSinceReview(candidates), ImmutableMap.of());
         Map<Long, List<String>> failing = read("checks", () -> pullRequests.findCachedFailingChecks(candidates), ImmutableMap.of());
@@ -214,7 +221,8 @@ public class AgendaReader
         for (Workspace workspace : watched) {
             workByWorkspace.put(workspace.id(), read("work of " + workspace.id(), () -> workItems.list(workspace.id()), ImmutableList.of()));
         }
-        List<JiraIssue> tickets = read("Jira tickets", () -> jira.getObject().attention(), ImmutableList.of());
+        List<JiraIssue> tickets = read("Jira tickets", () -> jira.getObject().attention().stream()
+                .filter(ticket -> !snoozed.contains(("jira:" + ticket.cloudId() + ":" + ticket.id()).toLowerCase(Locale.ROOT))).collect(toImmutableList()), ImmutableList.of());
 
         List<Change> changes = new ArrayList<>();
         changes.addAll(pullRequestChanges(involved, latest, since, viewer));
@@ -226,7 +234,7 @@ public class AgendaReader
         List<Ask> asks = new ArrayList<>();
         asks.addAll(pullRequestAsks(involved, viewer, mentioned, afterReview, circles));
         for (Workspace workspace : watched) {
-            asks.addAll(read("issues of " + workspace.id(), () -> issueAsks(workspace, viewer, circles, refs), ImmutableList.of()));
+            asks.addAll(read("issues of " + workspace.id(), () -> issueAsks(workspace, viewer, circles, refs, snoozed), ImmutableList.of()));
         }
         asks.addAll(ticketAsks(tickets, refs));
         asks.sort(Comparator.comparing((Ask ask) -> !ask.circle()).thenComparing(ask -> ask.since().orElse(Instant.MAX)));
@@ -479,7 +487,7 @@ public class AgendaReader
         return asks.build();
     }
 
-    private List<Ask> issueAsks(Workspace workspace, Optional<String> viewer, List<TeamCircle> circles, Map<String, RefInfo> refs)
+    private List<Ask> issueAsks(Workspace workspace, Optional<String> viewer, List<TeamCircle> circles, Map<String, RefInfo> refs, Set<String> snoozed)
     {
         if (viewer.isEmpty()) {
             return ImmutableList.of();
@@ -487,7 +495,7 @@ public class AgendaReader
         String repo = workspace.monitoredRepository().fullName();
         ImmutableList.Builder<Ask> asks = ImmutableList.builder();
         for (RepositoryIssue issue : issueDevelopment.attention(workspace.id()).issues()) {
-            if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase)) {
+            if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase) || snoozed.contains(markKey(repo, issue.number()))) {
                 continue;
             }
             String ref = AgendaRefs.issue(repo, issue.number());
@@ -672,6 +680,12 @@ public class AgendaReader
     }
 
     /** One source's facts, or nothing when they cannot be read: a missing source narrows the agenda instead of failing it. */
+    /** A pull request's or an issue's key in Needs attention marks, lowercased as snoozedKeys gives them. */
+    private static String markKey(String repo, int number)
+    {
+        return (repo + "#" + number).toLowerCase(Locale.ROOT);
+    }
+
     private static <T> T read(String what, Supplier<T> source, T fallback)
     {
         try {

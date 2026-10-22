@@ -78,8 +78,9 @@ tasks, PRs, work items, commits, and memory.
 - Choose **Direct clone** to work in the selected repository, or **Personal
   fork** to publish through your fork. Review the source, push, and PR
   destinations before confirming.
-- **My PRs** shows your open work. **Snooze** hides a card temporarily; **Needs
-  attention** shows up to five updates needing a response.
+- **My PRs** shows your open work. **Snooze** hides a card, its Today row and
+  the Assistant's mention of it until the time you pick, whatever happens
+  meanwhile; **Needs attention** shows up to five updates needing a response.
 - An acknowledged PR returns for comments, reviews, a review request to you, a
   new title, description or state, leaving draft, becoming ready to merge, and
   a CI result on your own PR. Pushes, labels, bot comments and other people's

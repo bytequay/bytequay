@@ -17,7 +17,8 @@ import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaTargetDto } fro
 import { AgentHomeView } from '../agents/AgentHome';
 import { inQuietHours } from '../settings/FeaturesPage';
 import TodayList from './TodayList';
-import { allDone, attentionKey, calendarFact, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayKeys, todayRows, whereText } from './today';
+import { allDone, attentionKey, calendarFact, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayKeys, todayRows, whereText, withoutSnoozed } from './today';
+import type { Handled } from './attention';
 import type { TodayAgenda } from './useTodayAgenda';
 
 const pull = (repo: string, number: number): AgendaTargetDto =>
@@ -69,6 +70,15 @@ describe('the Today model', () => {
     expect(attentionKey({ ...pull('x/y', 1), kind: 'JIRA', id: '10042', cloudId: 'cloud' })).toBe('jira:cloud:10042');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'WORK', id: 'w1' })).toBeNull();
     expect([...todayKeys(agenda({ items }))]).toEqual(['trinodb/trino#31377']);
+  });
+
+  it('leaves a snoozed item off Today until its snooze ends', () => {
+    const value = agenda({ items: [item('a', 'open'), item('b', 'open', { target: pull('trinodb/trino', 31402) })] });
+    const snoozed: Handled = { 'TrinoDB/trino#31402': { kind: 'snooze', until: 2_000, seenUpdatedAt: '', label: '1 hour' } };
+    expect(withoutSnoozed(value, snoozed, 1_000).items.map(row => row.ref)).toEqual(['a']);
+    expect(withoutSnoozed(value, snoozed, 2_000).items.map(row => row.ref)).toEqual(['a', 'b']);
+    const acknowledged: Handled = { 'trinodb/trino#31402': { kind: 'ack', until: null, seenUpdatedAt: '', label: 'acknowledged' } };
+    expect(withoutSnoozed(value, acknowledged, 1_000)).toBe(value);
   });
 
   it('says what closed a done row and when', () => {

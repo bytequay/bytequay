@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 import { useAgentAvailability } from '../agents/availability';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { pollVisible } from '../ide/pollVisible';
 import type { AgendaDto } from '../types';
+import { loadHandled } from './attention';
+import { withoutSnoozed } from './today';
 
 /** How often a Home looks again while today's agenda is being made. */
 const MAKING_POLL_MS = 10_000;
@@ -98,5 +100,14 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
     });
   }, [act, agenda, workspaceId]);
 
-  return { agenda, error, makeAgain, mark, start, showHidden };
+  // The agenda is made once a day, so an item snoozed after that is left out here rather than when it is made.
+  const [handled, setHandled] = useState(loadHandled);
+  useEffect(() => {
+    const changed = () => setHandled(loadHandled());
+    window.addEventListener('bytequay:attention-handled-changed', changed);
+    return () => window.removeEventListener('bytequay:attention-handled-changed', changed);
+  }, []);
+  const shown = useMemo(() => agenda === null ? null : withoutSnoozed(agenda, handled, Date.now()), [agenda, handled]);
+
+  return { agenda: shown, error, makeAgain, mark, start, showHidden };
 }

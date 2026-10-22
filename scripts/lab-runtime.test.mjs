@@ -83,6 +83,7 @@ fs.writeFileSync('../smoke-passed', 'yes');
     'pandas/tests/test_frame.py', 'pandas/testing.py', 'pandas/_testing/__init__.py',
     'numpy/testing/tests/test_utils.py', 'numpy/testing/__init__.py', 'numpy/_core/tests/test_api.py', 'numpy/_core/include/numpy/random/LICENSE.txt',
     'pyarrow/include/arrow/api.h', 'pyarrow/src/module.cpp', 'pyarrow/tests/test_array.py', 'pyarrow/libarrow.dylib',
+    'pyarrow/flight.py', 'pyarrow/libarrow_flight.2500.dylib', 'pyarrow/libarrow_python_flight.dylib',
     'pydeck/nbextension/__init__.py', 'pydeck/nbextension/static/index.js', 'pydeck/nbextension/static/index.js.map',
     'share/jupyter/nbextensions/pydeck/index.js', 'share/jupyter/nbextensions/pydeck/index.js.map',
     'plotly/labextension/static/chart.js', 'plotly/labextension/static/third-party-licenses.json',
@@ -117,6 +118,8 @@ test('ships the runtime, locked dependencies, sources and licenses after a reloc
   for (const path of ['include', 'lib/python3.14/site-packages/pandas/tests', 'lib/python3.14/site-packages/numpy/testing/tests',
     'lib/python3.14/site-packages/numpy/_core/tests', 'lib/python3.14/site-packages/pyarrow/include',
     'lib/python3.14/site-packages/pyarrow/src', 'lib/python3.14/site-packages/pyarrow/tests',
+    'lib/python3.14/site-packages/pyarrow/flight.py', 'lib/python3.14/site-packages/pyarrow/libarrow_flight.2500.dylib',
+    'lib/python3.14/site-packages/pyarrow/libarrow_python_flight.dylib',
     'lib/python3.14/site-packages/pydeck/nbextension/static/index.js.map', 'lib/python3.14/site-packages/share/jupyter/nbextensions/pydeck',
     'lib/python3.14/site-packages/plotly/labextension/static/chart.js']) {
     await assert.rejects(readFile(join(python, path)), { code: 'ENOENT' });

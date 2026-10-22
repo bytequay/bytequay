@@ -332,8 +332,8 @@ with an empty `PATH`. Run `node --test scripts/lab-runtime.test.mjs` to check
 packaging behavior. Changes to Lab sources or its dependency lock rebuild the
 bundle on the next start or package.
 
-Lab packaging excludes dependency test suites, build headers, and duplicate
-notebook assets. Runtime libraries, offline chart exports, package metadata,
+Lab packaging excludes dependency test suites, build headers, duplicate
+notebook assets, and the unused Arrow Flight client. Runtime libraries, offline chart exports, package metadata,
 and license notices remain in the bundle.
 
 Choose **Settings → Integrations → Lab → Open Lab** to refresh the local

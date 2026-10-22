@@ -75,6 +75,9 @@ try {
     'share/jupyter/nbextensions/pydeck', 'pydeck/nbextension/static/index.js.map',
   ];
   for (const path of unusedPackages) await rm(join(sitePackages, path), { recursive: true, force: true });
+  // Lab never opens an Arrow Flight connection, and only Flight's own modules link its libraries.
+  const pyarrow = join(sitePackages, 'pyarrow');
+  for (const name of (await readdir(pyarrow)).filter(name => name.includes('flight'))) await rm(join(pyarrow, name));
   // These duplicate bundles serve Jupyter only; preserve their license manifests and pydeck's offline HTML bundle.
   for (const path of ['plotly/labextension/static', 'share/jupyter/labextensions/jupyterlab-plotly/static']) {
     const directory = join(sitePackages, path);

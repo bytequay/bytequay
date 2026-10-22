@@ -105,7 +105,7 @@ const APPROVAL: AgentPendingApprovalDto = {
 
 const RUNNING: RunningTask = {
   id: 'run-1', workspaceId: 'ws1', title: 'Expose snapshot id in metadata', repository: 'trinodb/trino', kind: 'REVIEW', targetId: 'r7', status: 'RUNNING',
-  startedAt: '2026-10-16T07:20:00Z', expiresAt: null, pullRequestNumber: 31377, branch: 'chenjian2664/snapshot-id',
+  startedAt: '2026-10-16T07:20:00Z', expiresAt: null, pullRequestNumber: 31377, branch: 'feature/snapshot-id',
 };
 
 /** A step of the running review, as its event log holds it, started 12 s ago. */
@@ -364,7 +364,7 @@ async function movesWithTheKeyboard(): Promise<void> {
     await settle();
     const card = top(view.host);
     assert(card?.querySelector('.assistant-kind.is-running')?.textContent === 'Reviewing'
-      && card.querySelector('.assistant-task__where')?.textContent === 'trinodb/trinoT#31377·chenjian2664/snapshot-id',
+      && card.querySelector('.assistant-task__where')?.textContent === 'trinodb/trinoT#31377·feature/snapshot-id',
     `A running review names its pull request and branch: ${card?.querySelector('.assistant-task__where')?.textContent}`);
     assert(card?.querySelector('.assistant-step__kind')?.textContent === 'READ' && card.querySelector('.assistant-step__text')?.textContent === 'IcebergMetadata.java'
       && /^1\ds$/.test(card.querySelector('.assistant-step__time')?.textContent ?? ''), `It shows its newest step and how long it has run: ${card?.querySelector('.assistant-step')?.textContent}`);

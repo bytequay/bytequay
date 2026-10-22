@@ -63,6 +63,9 @@ function SummaryItem({ card, review, run, viewerLogin, viewerAvatarUrl, busy, on
   };
   const commit = card.commit;
   const [title, ...message] = commit?.message.split('\n') ?? [];
+  const messages = cardMessages(review, run, card.id);
+  const ask = !composing && <button type="button" className="agr-link" disabled={busy || review.state === 'CLOSED'}
+    title={askQueues(review) ? 'Agent is busy — your question will queue' : undefined} onClick={() => setComposing(true)}>Ask reviewer</button>;
   return <div className="agr-summary-card" data-review-card={card.id}>
     <ChangedItem sha={commit?.sha} byline={`Agent review · ${relativeTime(run.endedAt ?? run.createdAt)} · Private`}
       title={commit ? <>{title}{message.join('').trim() !== '' && <button type="button" className="agr-commit__more" aria-expanded={messageOpen}
@@ -71,16 +74,17 @@ function SummaryItem({ card, review, run, viewerLogin, viewerAvatarUrl, busy, on
       onViewChanges={commit && onSelectCommit ? () => onSelectCommit(commit.sha, { headSha: run.headSha, baseSha: run.mergeBaseSha }) : undefined}
       badges={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
         {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}</>}
-      ask={!composing && <button type="button" className="agr-link" disabled={busy || review.state === 'CLOSED'}
-        title={askQueues(review) ? 'Agent is busy — your question will queue' : undefined} onClick={() => setComposing(true)}>Ask reviewer</button>}>
+      ask={messages.length === 0 && ask}>
       {card.body}
     </ChangedItem>
+    <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
+    {/* Once discussed, the next question continues below the last answer. */}
+    {messages.length > 0 && ask && <div className="agr-changed__foot"><span className="agr-spacer" />{ask}</div>}
     {composing && <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
       placeholder={`Ask the reviewer about ${card.title.toLowerCase()}…`}
       ariaLabel={`Ask the reviewer about ${card.title.toLowerCase()}`} primaryLabel={askLabel(review)}
       onChange={setText} onSubmit={submit} onCancel={close} />}
     {error && <span className="lrc__error" role="alert">{error}</span>}
-    <ReviewThread review={review} messages={cardMessages(review, run, card.id)} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
   </div>;
 }
 

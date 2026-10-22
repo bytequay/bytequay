@@ -362,6 +362,18 @@ async function independentLearningCards(): Promise<void> {
     'The commit must retain only its own user question and agent answer after reload');
     assert([purpose, commit].every(card => card.querySelectorAll('.agr-changed__item').length === 1 && card.querySelectorAll('.lrc-message').length === 2),
       'Each item must show its report, then its question and answer as shared comment rows');
+    const thread = purpose.querySelector('.agr-thread');
+    textButton('Ask reviewer', purpose).click();
+    await settle();
+    const followUp = fixtureElement<HTMLTextAreaElement>('textarea', purpose, 'A discussed card must open another question');
+    assert(thread !== null && (thread.compareDocumentPosition(followUp) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
+      'A follow-up question must be written below the answer it continues');
+    changeInput(followUp, 'And after the fix?');
+    await settle();
+    textButton('Ask reviewer', purpose).click();
+    await settle();
+    assert(Number(requests.length) === 3 && requests[2] === purposeId && purpose.querySelectorAll('.lrc-message').length === 4,
+      'A follow-up question must join the same discussion');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

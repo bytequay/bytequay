@@ -469,6 +469,22 @@ export function reviewConversationEvents(events: AgentEventEnvelope[], requests:
   return visible.length === events.length ? events : visible;
 }
 
+const FOLLOW_UPS: Partial<Record<ReviewRunDto['steps'][number]['kind'], { action: string; retry: string; body: string }>> = {
+  INVESTIGATE: { action: 'Investigate', retry: 'Retry investigation', body: 'Map the change and record candidates.' },
+  COLLECT_EVIDENCE: { action: 'Collect evidence', retry: 'Retry evidence collection', body: 'Gather evidence for each open candidate.' },
+  VALIDATE: { action: 'Validate candidates', retry: 'Retry validation', body: 'Accept or reject each candidate.' },
+};
+
+/**
+ * The step each of a run's turns ran, in turn order. Ordinary steps never repeat a kind, so a retry step after one of its own kind
+ * replaced a stale report under a new number; any other retry reran its step under a second turn.
+ */
+function turnSteps(run: ReviewRunDto): Array<{ kind: ReviewRunDto['steps'][number]['kind']; retry: boolean }> {
+  return run.steps.flatMap((step, index) => step.repair && run.steps[index - 1]?.kind !== step.kind
+    ? [{ kind: step.kind, retry: false }, { kind: step.kind, retry: true }]
+    : [{ kind: step.kind, retry: step.repair }]);
+}
+
 /** Saved discussion and delivery identities select cards, never words in the generated prompt. */
 export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
   const seen = new Set<string>();
@@ -499,15 +515,19 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
   const generated = [...generatedTurnIds].map((turnId): ReviewRequest => {
     const run = review.runs.find(item => item.turnIds.includes(turnId));
     const followUp = run !== undefined && run.turnIds.indexOf(turnId) > 0;
+    const step = followUp ? turnSteps(run)[run.turnIds.indexOf(turnId)] : undefined;
+    const named = step && FOLLOW_UPS[step.kind];
     const incremental = run?.scope === 'INCREMENTAL';
     const explaining = run !== undefined && isExplanationRun(run);
     const scope = run ? `${run.commits.length} ${incremental ? 'new ' : ''}${run.commits.length === 1 ? 'commit' : 'commits'} across `
       + `${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}` : 'the pull request';
     return {
-      action: explaining ? 'Refresh explanation' : followUp ? 'Follow-up review' : incremental ? 'Review new commits' : review.number === null ? 'Review changes' : 'Review pull request',
+      action: explaining ? 'Refresh explanation' : followUp ? (named === undefined ? 'Follow-up review' : step?.retry ? named.retry : named.action)
+        : incremental ? 'Review new commits' : review.number === null ? 'Review changes' : 'Review pull request',
       generated: true,
       topic: review.number !== null ? `${review.repo}#${review.number}` : `${review.repo} · ${review.replay ? 'Past change' : 'Local changes'}`,
-      body: explaining ? `Regenerate the change intention and commit summaries for ${scope}.` : followUp ? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
+      body: explaining ? `Regenerate the change intention and commit summaries for ${scope}.`
+        : followUp ? named?.body ?? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
       detail: run ? `Private · ${explaining ? 'Explanation' : 'Review'} ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
       turnId,
       target: run ? { kind: 'card', runId: run.id, cardId: `${run.id}:${run.summary === null || explaining && run.state !== 'ACCEPTED' ? 'details' : 'purpose'}` } : undefined,

@@ -670,8 +670,9 @@ describe('review request navigation and generated turns', () => {
   it('renders initial, incremental and completion-repair requests from durable turn identities', () => {
     const review = reviewFixture();
     const original = review.runs[0];
+    const retried: ReviewStepDto = { number: 1, kind: 'INVESTIGATE', repair: true, investigation: null, validation: null };
     const updated = { ...original, id: 'run-2', ordinal: 2, scope: 'INCREMENTAL' as const,
-      headSha: 'e'.repeat(40), commits: [original.commits[0]], changedFiles: 1, turnIds: ['update-turn', 'repair-turn'] };
+      headSha: 'e'.repeat(40), commits: [original.commits[0]], changedFiles: 1, turnIds: ['update-turn', 'repair-turn'], steps: [retried] };
     const requests = reviewRequests({ ...review, messages: [], runs: [original, updated],
       byteQuayTurnIds: [...original.turnIds, 'update-turn', 'repair-turn', 'missing-run-turn'] });
     expect(requests).toHaveLength(4);
@@ -681,11 +682,22 @@ describe('review request navigation and generated turns', () => {
     expect(requests[1]).toMatchObject({ action: 'Review new commits', body: 'Review 1 new commit across 1 file.',
       turnId: 'update-turn', detail: 'Private · Review 2 · Head eeeeeee',
       target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
-    expect(requests[2]).toMatchObject({ action: 'Follow-up review', body: 'Continue the investigation, validate suspected issues, and complete the review report.',
+    expect(requests[2]).toMatchObject({ action: 'Retry investigation', body: 'Map the change and record candidates.',
       turnId: 'repair-turn', target: { kind: 'card', runId: updated.id, cardId: `${updated.id}:purpose` } });
     expect(requests[3]).toMatchObject({ action: 'Review pull request', body: 'Review the pull request.', turnId: 'missing-run-turn' });
     expect(requests[3].target).toBeUndefined();
     expect(reviewRequests({ ...review, messages: [], byteQuayTurnIds: [] })).toHaveLength(1);
+  });
+
+  it('names each follow-up turn after the step it ran, telling a rerun step from a replaced stale report', () => {
+    const review = reviewFixture();
+    const step = (number: number, kind: ReviewStepDto['kind'], repair = false): ReviewStepDto => ({ number, kind, repair, investigation: null, validation: null });
+    const run = { ...review.runs[0], turnIds: ['t1', 't2', 't3', 't4', 't5', 't6'],
+      steps: [step(1, 'INVESTIGATE'), step(2, 'VALIDATE', true), step(3, 'COLLECT_EVIDENCE'), step(4, 'VALIDATE'), step(5, 'VALIDATE', true)] };
+    const requests = reviewRequests({ ...review, messages: [], byteQuayTurnIds: [], runs: [run] });
+    expect(requests.map(request => request.action)).toEqual(
+      ['Review pull request', 'Validate candidates', 'Retry validation', 'Collect evidence', 'Validate candidates', 'Retry validation']);
+    expect(requests[3].body).toBe('Gather evidence for each open candidate.');
   });
 
   it('keeps original discussion targets after a later report and groups unscoped summary replies with purpose', () => {

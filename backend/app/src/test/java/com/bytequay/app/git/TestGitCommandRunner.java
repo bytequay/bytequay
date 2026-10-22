@@ -96,6 +96,20 @@ class TestGitCommandRunner
     }
 
     @Test
+    void defaultExecutableKeepsThePathGitUnlessItIsTheMacosLauncher()
+            throws IOException
+    {
+        Path directory = Files.createDirectories(temporaryDirectory.resolve("bin"));
+        Path installed = Files.writeString(directory.resolve("git"), "#!/bin/sh\n");
+        assertThat(installed.toFile().setExecutable(true)).isTrue();
+        assertThat(GitCommandRunner.defaultExecutable(directory + ":/usr/bin")).isEqualTo("git");
+
+        String developerGit = GitCommandRunner.defaultExecutable("/usr/bin");
+        assertThat(developerGit).endsWith("/usr/bin/git").isNotEqualTo("/usr/bin/git");
+        assertThat(new GitCommandRunner(developerGit).run(repository, "--version").output()).startsWith("git version");
+    }
+
+    @Test
     void reportsNoPathsOutsideARepository()
             throws IOException
     {

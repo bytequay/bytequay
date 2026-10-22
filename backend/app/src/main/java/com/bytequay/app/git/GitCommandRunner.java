@@ -15,11 +15,14 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.SequenceState.ConflictedPath;
 import com.bytequay.app.git.SequenceState.ConflictedPath.IndexStage;
+import com.google.common.base.Splitter;
+import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -39,6 +42,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -56,6 +60,8 @@ public class GitCommandRunner
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
     // Local object reads never fetch from a promisor remote or follow replacement objects.
     private static final Map<String, String> LOCAL_ONLY = ImmutableMap.of("GIT_NO_LAZY_FETCH", "1", "GIT_NO_REPLACE_OBJECTS", "1");
+    // macOS's /usr/bin/git looks up the developer tools on every call, which costs more than most Git commands themselves.
+    private static final Supplier<String> DEFAULT_EXECUTABLE = Suppliers.memoize(() -> defaultExecutable(System.getenv().getOrDefault("PATH", "")));
     // Bash job control gives the command its own group, including helpers reparented after Git exits.
     private static final String COMMAND_LAUNCHER = """
             bq_pid=
@@ -94,12 +100,37 @@ public class GitCommandRunner
 
     public GitCommandRunner()
     {
-        this("git");
+        this(DEFAULT_EXECUTABLE.get());
     }
 
     public GitCommandRunner(String executable)
     {
         this.executable = requireNonNull(executable, "executable is null");
+    }
+
+    /** The Git that {@code path} finds first, or the developer tools' own Git when that is the macOS launcher. */
+    static String defaultExecutable(String path)
+    {
+        Optional<Path> first = Splitter.on(File.pathSeparatorChar).omitEmptyStrings().splitToStream(path)
+                .map(directory -> Path.of(directory, "git"))
+                .filter(Files::isExecutable)
+                .findFirst();
+        if (!first.equals(Optional.of(Path.of("/usr/bin/git")))) {
+            return "git";
+        }
+        try {
+            Result developerDirectory = execute(new ProcessBuilder("/usr/bin/xcode-select", "--print-path"), Duration.ofSeconds(10), 4096, "xcode-select", true, 0);
+            if (developerDirectory.successful()) {
+                Path git = Path.of(developerDirectory.output().strip(), "usr", "bin", "git");
+                if (Files.isExecutable(git)) {
+                    return git.toString();
+                }
+            }
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        return "git";
     }
 
     public Result run(Path worktree, String... arguments)

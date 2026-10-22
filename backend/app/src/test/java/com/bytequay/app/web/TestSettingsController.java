@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.AppTheme;
+import com.bytequay.app.service.settings.ClaudeAccount;
 import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.QuietHours;
@@ -37,6 +38,7 @@ import java.util.Optional;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -51,6 +53,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestSettingsController
 {
+    private static final ClaudeAccount WORK = new ClaudeAccount("3fc79e41-f2c8-4d04-b4fc-bc6e658f4e56", "Work", Optional.of("work@example.com"), Optional.empty());
+
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
     private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
@@ -73,24 +77,24 @@ class TestSettingsController
     }
 
     @Test
-    void removingAClaudeAccountRefreshesItsChoices()
+    void removingAClaudeAccountReturnsItsChoicesWithoutCheckingProviders()
             throws Exception
     {
-        String id = "3fc79e41-f2c8-4d04-b4fc-bc6e658f4e56";
-        mvc().perform(delete("/api/settings/claude-accounts/" + id)).andExpect(status().isOk());
-        verify(claudeAccounts).remove(id);
-        verify(models).refreshCatalogs();
+        mvc().perform(delete("/api/settings/claude-accounts/" + WORK.id())).andExpect(status().isOk());
+        verify(claudeAccounts).remove(WORK.id());
+        verify(models, never()).refreshCatalogs();
         verify(models).get();
     }
 
     @Test
-    void addingAClaudeAccountRefreshesItsReadiness()
+    void addingAClaudeAccountChecksOnlyItsOwnLane()
             throws Exception
     {
+        when(models.addClaudeAccount("Work", "work@example.com", Optional.empty())).thenReturn(WORK);
         mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Work\",\"email\":\"work@example.com\"}"))
                 .andExpect(status().isOk());
-        verify(models).addClaudeAccount("Work", "work@example.com", Optional.empty());
-        verify(models).refreshCatalogs();
+        verify(models).checkNewLane(WORK.laneId());
+        verify(models, never()).refreshCatalogs();
         verify(models).get(Optional.empty());
     }
 
@@ -98,6 +102,7 @@ class TestSettingsController
     void accountCreationAndRestrictionBindToTheRequestedWorkspace()
             throws Exception
     {
+        when(models.addClaudeAccount(any(), any(), any())).thenReturn(WORK);
         when(workspaces.findById("cork")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
         mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"label\":\"Work\",\"email\":\"work@example.com\",\"workspaceId\":\"cork\"}"))
@@ -191,7 +196,7 @@ class TestSettingsController
                         .content("{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"theme\":\"SYSTEM\",\"prWarmCount\":30}"))
                 .andExpect(status().isBadRequest());
 
-        verify(settings, org.mockito.Mockito.never()).savePreferences(any());
+        verify(settings, never()).savePreferences(any());
     }
 
     @Test

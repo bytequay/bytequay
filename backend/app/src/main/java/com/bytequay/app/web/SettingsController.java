@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.ClaudeAccount;
 import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
@@ -101,8 +102,9 @@ public class SettingsController
         checkText(request.email(), "account email");
         Optional<String> workspaceId = Optional.ofNullable(request.workspaceId());
         workspaceId.ifPresent(this::requireWorkspace);
-        models.addClaudeAccount(request.label(), request.email(), workspaceId);
-        models.refreshCatalogs();
+        ClaudeAccount account = models.addClaudeAccount(request.label(), request.email(), workspaceId);
+        // After the account's transaction commits, so the check never holds the database connection.
+        models.checkNewLane(account.laneId());
         return models.get(workspaceId);
     }
 
@@ -129,8 +131,8 @@ public class SettingsController
     @DeleteMapping("/claude-accounts/{id}")
     public ModelSettings removeClaudeAccount(@PathVariable String id)
     {
+        // Settings already hide a removed account's lane, so nothing needs checking again.
         claudeAccounts.remove(id);
-        models.refreshCatalogs();
         return models.get();
     }
 

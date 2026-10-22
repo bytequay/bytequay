@@ -40,6 +40,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
@@ -109,7 +110,7 @@ public class ModelSettingsService
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final Clock clock;
-    private volatile List<AgentProviderStatus> providerStatuses = ImmutableList.of();
+    private final AtomicReference<List<AgentProviderStatus>> providerStatuses = new AtomicReference<>(ImmutableList.of());
     private volatile Optional<Instant> checkedAt = Optional.empty();
 
     public ModelSettingsService(AgentDriverRegistry drivers, ModelApiKeyStore apiKeys, ClaudeAccounts claudeAccounts, AppSettingsStore settings, ObjectMapper mapper, Clock clock)
@@ -147,7 +148,7 @@ public class ModelSettingsService
      */
     public void refreshMissingCatalogs(List<AgentProviderStatus> statuses)
     {
-        providerStatuses = ImmutableList.copyOf(statuses);
+        providerStatuses.set(ImmutableList.copyOf(statuses));
         // Takes statuses the caller already probed; re-probing to decide whether to probe is waste.
         refreshCatalogs(statuses, true);
     }
@@ -168,9 +169,29 @@ public class ModelSettingsService
             return;
         }
         List<AgentProviderStatus> statuses = drivers.statuses();
-        providerStatuses = ImmutableList.copyOf(statuses);
+        providerStatuses.set(ImmutableList.copyOf(statuses));
         refreshCatalogs(statuses, false);
         checkedAt = Optional.of(clock.instant());
+    }
+
+    /**
+     * Checks a lane just added by an account or key and keeps every other provider's last result, so adding one waits on its
+     * own check instead of every provider's CLI. Account and key lanes take their models from stored data, not this check.
+     */
+    public void checkNewLane(AgentLaneId laneId)
+    {
+        AgentProviderStatus status;
+        try {
+            status = drivers.require(laneId).probe();
+        }
+        catch (RuntimeException failure) {
+            // Provider errors can include HTTP response bodies; never echo them into settings.
+            status = new AgentProviderStatus(laneId, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "Could not be checked. Try again.",
+                    AgentCapabilities.none());
+        }
+        AgentProviderStatus checked = status;
+        providerStatuses.updateAndGet(statuses -> Stream.concat(statuses.stream().filter(value -> !value.laneId().equals(laneId)), Stream.of(checked))
+                .collect(toImmutableList()));
     }
 
     private void refreshCatalogs(List<AgentProviderStatus> statuses, boolean onlyMissing)
@@ -225,7 +246,7 @@ public class ModelSettingsService
     public ModelSettings get(Optional<String> workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        List<Provider> providers = providerStatuses.stream()
+        List<Provider> providers = providerStatuses.get().stream()
                 .filter(status -> !status.laneId().value().startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX)
                         || claudeAccounts.find(status.laneId().value()).filter(account -> account.availableIn(workspaceId)).isPresent())
                 .filter(status -> (!status.laneId().value().startsWith(DEEPSEEK_LANE_PREFIX)
@@ -248,7 +269,7 @@ public class ModelSettingsService
     /** Whether the last provider check, the one Settings shows, found this lane usable under the policy. */
     public boolean lastCheckedReady(AgentLaneId laneId, AgentPermissionPolicy policy)
     {
-        return providerStatuses.stream()
+        return providerStatuses.get().stream()
                 .anyMatch(status -> status.laneId().equals(laneId) && status.available() && status.capabilities().permissionPolicies().contains(policy));
     }
 
@@ -357,8 +378,12 @@ public class ModelSettingsService
         if (apiKeys.findAll().stream().anyMatch(key -> key.alias().equals(trimmedAlias))) {
             throw new IllegalArgumentException("An API key named " + trimmedAlias + " already exists.");
         }
-        apiKeys.save(new ModelApiKey(trimmedAlias, provider, SecretMasker.mask(secret), clock.instant()), secret);
-        refreshCatalogs();
+        ModelApiKey key = new ModelApiKey(trimmedAlias, provider, SecretMasker.mask(secret), clock.instant());
+        apiKeys.save(key, secret);
+        // Only DeepSeek keys get an agent lane; the other providers have nothing to check.
+        if (provider.equals("DeepSeek")) {
+            checkNewLane(new AgentLaneId(DEEPSEEK_LANE_PREFIX + key.id()));
+        }
         return get();
     }
 
@@ -450,7 +475,7 @@ public class ModelSettingsService
      */
     private String defaultLaneId()
     {
-        return providerStatuses.stream()
+        return providerStatuses.get().stream()
                 .filter(AgentProviderStatus::available)
                 .map(status -> status.laneId().value())
                 .filter(laneId -> !laneId.startsWith(DEEPSEEK_LANE_PREFIX))

@@ -44,6 +44,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -325,6 +326,25 @@ class TestModelSettingsService
         service.clearAgentModel(AgentModelType.REVIEW);
         assertThat(service.get().agents()).containsExactly(development, new AgentModelSetting(
                 AgentModelType.REVIEW, false, development.configId(), development.label(), development.model(), development.modelLabel(), development.effort()));
+    }
+
+    @Test
+    void addingAKeyChecksOnlyItsOwnLane()
+    {
+        AgentDriver deepSeek = mock(AgentDriver.class);
+        when(deepSeek.probe()).thenAnswer(invocation -> new AgentProviderStatus(new AgentLaneId("deepseek-key-" + apiKeys.findAll().getLast().id()),
+                Readiness.READY, Optional.of("0.156.1"), "ready", AgentCapabilities.none()));
+        when(drivers.require(argThat(lane -> lane != null && lane.value().startsWith("deepseek-key-")))).thenReturn(deepSeek);
+        clearInvocations(drivers);
+
+        service.addApiKey("OpenAI", "team", "sk-secret");
+        service.addApiKey("DeepSeek", "personal-deepseek", "sk-4fabcdefghijklmnope2a1");
+
+        verify(drivers, never()).statuses();
+        verify(deepSeek).probe();
+        String lane = "deepseek-key-" + apiKeys.findAll().getLast().id();
+        assertThat(service.get().providers()).extracting(ModelSettingsService.Provider::id).containsExactly("claude", "codex", lane);
+        assertThat(service.get().providers().getLast().readiness()).isEqualTo(Readiness.READY);
     }
 
     @Test

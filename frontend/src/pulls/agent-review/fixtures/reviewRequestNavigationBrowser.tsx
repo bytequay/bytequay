@@ -267,8 +267,15 @@ export async function run(): Promise<string[]> {
     pane.querySelector<HTMLElement>('.agr-summary > .review-comment-scroll')?.scrollTo(0, 0);
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
     await open('turn-finding', '[data-finding-id="finding-1"]');
-    await open('turn-local', '[data-local-review-thread="local-navigation"]');
-    results.push('Clicking cards changes PR tabs, opens, focuses and scrolls summary, commit, finding and local discussions');
+    button(pane, 'Changes').click(); await settle();
+    const localCard = request('turn-local');
+    const inPlace = localCard.querySelector<HTMLButtonElement>('.agt-review-request__open');
+    assert(inPlace !== null && !/in Summary$/.test(inPlace.getAttribute('aria-label') ?? ''), 'A code discussion card must not lead to Summary');
+    inPlace.click(); await settle();
+    assert(button(pane, 'Changes').getAttribute('aria-pressed') === 'true' && localCard.classList.contains('is-open')
+      && localCard.querySelector('[data-local-review-thread="local-navigation"]') !== null,
+    'A code discussion card must open its thread in place and leave the pane on Changes');
+    results.push('Clicking cards changes PR tabs, opens, focuses and scrolls summary, commit and finding cards; code discussions open in place');
 
     await open('turn-older', `[data-review-card="${original.id}:purpose"]`);
     assert(target(`[data-review-card="${original.id}:purpose"]`).textContent?.includes('Lets') === true,

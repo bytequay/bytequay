@@ -814,7 +814,8 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
                 topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
                 detail={localThread.learningAnchor ? 'Private summary discussion' : 'Private code discussion'}
                 body={localBody}
-                onOpen={onOpenReview === undefined ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
+                // A code thread lives in Changes, not Summary, so its card opens in place with the whole thread and Reply.
+                onOpen={onOpenReview === undefined || !localThread.learningAnchor ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>
             </div>

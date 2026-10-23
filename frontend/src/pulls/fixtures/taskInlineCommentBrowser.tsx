@@ -330,16 +330,17 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       for (let attempt = 0; attempt < 20 && ![...host.querySelectorAll('.agt-review-request__open')].some(candidate => candidate.textContent?.includes('Reply to review')); attempt++) await settle();
       const replyRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
         .find(candidate => candidate.textContent?.includes('Reply to review'));
-      assert(replyRequest !== undefined, 'A transcript reply must offer navigation to its private discussion');
+      assert(replyRequest !== undefined, 'A transcript reply must keep its private discussion card');
+      const replyCard = replyRequest.closest<HTMLElement>('.agt-review-request');
       replyRequest.click(); await settle();
+      const inlineThread = replyCard?.querySelector<HTMLElement>(`[data-local-review-thread="${request.id}"]`);
+      assert(host.querySelector('.agt-panel[aria-label="Summary"]') === null && host.querySelector('.pr-timeline [data-local-review-thread]') !== null
+        && replyCard?.classList.contains('is-open') === true && inlineThread?.textContent?.includes('The implementation is simpler now.') === true,
+      'Clicking a reply on code must open its discussion in place and leave the panel on the PR');
+      assertViewerAvatar(inlineThread);
+      [...host.querySelectorAll<HTMLButtonElement>('.agt-panel button')].find(candidate => candidate.textContent?.trim().startsWith('WorkBench'))?.click(); await settle();
+      button(host, 'Summary').click(); await settle();
       const learningCard = host.querySelector<HTMLDetailsElement>(`.agt-panel [data-local-review-thread="${request.id}"]`);
-      assert(host.querySelector('.agt-panel[aria-label="Summary"]') !== null && learningCard?.open === true,
-        'Clicking a reply must select Summary and expand its exact resolved discussion');
-      assertViewerAvatar(learningCard);
-      assert(learningCard.contains(document.activeElement), 'The matching panel discussion must receive focus instead of its transcript copy');
-      learningCard.open = false;
-      replyRequest.click(); await settle();
-      assert(learningCard.open, 'Clicking the same reply again must reopen the matching discussion');
       assert(learningCard?.textContent?.includes('The implementation is simpler now.') === true && learningCard.textContent?.includes('Resolved') === true,
         'Summary must show the same private discussion before the first agent review');
       assert(![...host.querySelectorAll('button')].some(element => element.textContent === 'Start review')

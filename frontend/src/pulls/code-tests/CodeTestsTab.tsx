@@ -53,6 +53,7 @@ export default function CodeTestsTab({
   active,
   ownReviewStream,
   onUnsavedChange,
+  onAgentDraft,
   comments,
   bridge = window.bridge,
 }: {
@@ -68,6 +69,8 @@ export default function CodeTestsTab({
   ownReviewStream: boolean;
   /** How many files hold unsaved drafts, so the host can confirm before unmounting them. */
   onUnsavedChange?: (count: number) => void;
+  /** Shows the conversation a run's failure was drafted into; false when this page does not show it. */
+  onAgentDraft?: (taskId: string) => boolean;
   /** Review comment plumbing shared with Changes; absent when the pull request page cannot comment. */
   comments?: CodeCommentsOptions;
   bridge?: CodeTestsBridge;
@@ -84,6 +87,7 @@ export default function CodeTestsTab({
         host={{ kind: 'task', task, workspaceId }}
         onReviewChange={onReviewChange}
         onUnsavedChange={onUnsavedChange}
+        onAgentDraft={onAgentDraft}
         comments={comments}
         active={active}
         ownReviewStream={ownReviewStream}
@@ -107,6 +111,7 @@ export default function CodeTestsTab({
       onReviewChange={review === null ? setEndedReview : onReviewChange}
       onExit={review === null ? () => setEndedReview(null) : undefined}
       onUnsavedChange={onUnsavedChange}
+      onAgentDraft={onAgentDraft}
       comments={comments}
       active={active}
       ownReviewStream={ownReviewStream}

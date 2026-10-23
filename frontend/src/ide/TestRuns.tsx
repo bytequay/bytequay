@@ -77,7 +77,8 @@ export default function TestRuns({ context, files, runtime, mode }: {
       <RunPanel embedded runs={runs.filter(run => testRunPanel(run) === panel)} files={files} showRunHint={showRunHint} hostKind={host.kind}
         onStop={run => { void stop(run); }} readOutput={output} selectedRunId={selected[panel]} onSelectRun={id => setSelected(current => ({ ...current, [panel]: id }))}
         onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
-          void window.ideWorkbench.request('run.ask', run.id, text).then(() => setNotice('Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
+          void window.ideWorkbench.request('run.ask', run.id, text).then(shown => setNotice(shown === true ? null
+            : 'Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
         } : undefined} />
     </div>)}
   </div>;

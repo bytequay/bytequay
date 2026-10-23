@@ -1257,6 +1257,12 @@ export default function PullsScreen({
                   active={detailTab === 'code'}
                   ownReviewStream={reviewWorkspace === undefined}
                   onUnsavedChange={count => { codeUnsaved.current = count; }}
+                  onAgentDraft={reviewWorkspace === undefined ? undefined : taskId => {
+                    if (taskId !== review?.task.id) return false;
+                    // The zoomed card covers the review conversation that now holds the draft.
+                    if (detailZoomed) zoom.close();
+                    return true;
+                  }}
                   comments={{
                     repo: detail.repo,
                     number: detail.number,

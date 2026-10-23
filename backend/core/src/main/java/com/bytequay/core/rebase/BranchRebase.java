@@ -14,10 +14,13 @@
 package com.bytequay.core.rebase;
 
 import com.bytequay.core.domain.RepoRef;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.bytequay.core.domain.Checks.checkOptionalSha;
 import static com.bytequay.core.domain.Checks.checkOptionalText;
@@ -28,6 +31,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** Durable facts for one program-owned rebase of a leased work branch. */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record BranchRebase(
         BranchRebaseId id,
         String startIdempotencyKey,
@@ -109,13 +113,13 @@ public record BranchRebase(
     public BranchRebase withJournal(ActionJournal entry, Instant now)
     {
         requireRunning();
-        return copy(status, currentStep, pauseReason, finishReason, summary, conflictCommitSha, attemptCount, currentTurnId, Optional.of(entry), resultWorkTip, now, terminalAt);
+        return edit(now, draft -> draft.journal = Optional.of(entry));
     }
 
     public BranchRebase withoutJournal(Instant now)
     {
         requireMutable();
-        return copy(status, currentStep, pauseReason, finishReason, summary, conflictCommitSha, attemptCount, currentTurnId, Optional.empty(), resultWorkTip, now, terminalAt);
+        return edit(now, draft -> draft.journal = Optional.empty());
     }
 
     public BranchRebase resolving(String stoppedCommitSha, Instant now)
@@ -123,14 +127,21 @@ public record BranchRebase(
         requireRunning();
         checkSha(stoppedCommitSha, "stoppedCommitSha");
         int attempts = conflictCommitSha.filter(stoppedCommitSha::equals).isPresent() ? attemptCount : 0;
-        return copy(status, Optional.of(Step.RESOLVING), pauseReason, finishReason, summary,
-                Optional.of(stoppedCommitSha), attempts, currentTurnId, journal, resultWorkTip, now, terminalAt);
+        return edit(now, draft -> {
+            draft.currentStep = Optional.of(Step.RESOLVING);
+            draft.conflictCommitSha = Optional.of(stoppedCommitSha);
+            draft.attemptCount = attempts;
+        });
     }
 
     public BranchRebase replaying(Instant now)
     {
         requireRunning();
-        return copy(status, Optional.of(Step.REPLAYING), pauseReason, finishReason, summary, Optional.empty(), 0, currentTurnId, journal, resultWorkTip, now, terminalAt);
+        return edit(now, draft -> {
+            draft.currentStep = Optional.of(Step.REPLAYING);
+            draft.conflictCommitSha = Optional.empty();
+            draft.attemptCount = 0;
+        });
     }
 
     public BranchRebase recordTurnStarted(Instant now)
@@ -138,7 +149,7 @@ public record BranchRebase(
         requireRunning();
         checkState(currentStep.filter(Step.RESOLVING::equals).isPresent(), "rebase is not resolving");
         checkState(attemptCount < MAX_AGENT_TURNS, "agent turn limit reached");
-        return copy(status, currentStep, pauseReason, finishReason, summary, conflictCommitSha, attemptCount + 1, currentTurnId, journal, resultWorkTip, now, terminalAt);
+        return edit(now, draft -> draft.attemptCount = attemptCount + 1);
     }
 
     public BranchRebase withTurn(String turnId, Instant now)
@@ -146,13 +157,13 @@ public record BranchRebase(
         requireRunning();
         checkText(turnId, "turnId", 128);
         checkState(currentTurnId.isEmpty(), "rebase already has an active turn");
-        return copy(status, currentStep, pauseReason, finishReason, summary, conflictCommitSha, attemptCount, Optional.of(turnId), journal, resultWorkTip, now, terminalAt);
+        return edit(now, draft -> draft.currentTurnId = Optional.of(turnId));
     }
 
     public BranchRebase withoutTurn(Instant now)
     {
         requireRunning();
-        return copy(status, currentStep, pauseReason, finishReason, summary, conflictCommitSha, attemptCount, Optional.empty(), journal, resultWorkTip, now, terminalAt);
+        return edit(now, draft -> draft.currentTurnId = Optional.empty());
     }
 
     public BranchRebase pause(PauseReason reason, String diagnostic, Instant now)
@@ -161,16 +172,22 @@ public record BranchRebase(
         requireNonNull(reason, "reason is null");
         checkText(diagnostic, "diagnostic", MAX_SUMMARY_CHARACTERS);
         checkState(currentTurnId.isEmpty(), "cannot pause with an active turn");
-        return copy(Status.PAUSED, currentStep, Optional.of(reason), Optional.empty(),
-                Optional.of(diagnostic), conflictCommitSha, attemptCount, Optional.empty(), journal,
-                Optional.empty(), now, Optional.empty());
+        return edit(now, draft -> {
+            draft.status = Status.PAUSED;
+            draft.pauseReason = Optional.of(reason);
+            draft.summary = Optional.of(diagnostic);
+            draft.resultWorkTip = Optional.empty();
+        });
     }
 
     public BranchRebase resume(Instant now)
     {
         checkState(status == Status.PAUSED, "rebase is not paused");
-        return copy(Status.RUNNING, currentStep, Optional.empty(), Optional.empty(), Optional.empty(),
-                conflictCommitSha, attemptCount, Optional.empty(), journal, Optional.empty(), now, Optional.empty());
+        return edit(now, draft -> {
+            draft.status = Status.RUNNING;
+            draft.pauseReason = Optional.empty();
+            draft.summary = Optional.empty();
+        });
     }
 
     public BranchRebase requestAbort(ActionJournal entry, Instant now)
@@ -178,9 +195,14 @@ public record BranchRebase(
         requireMutable();
         requireNonNull(entry, "entry is null");
         checkArgument(entry.type() == ActionType.ABORT, "abort journal has another action type");
-        return copy(Status.RUNNING, currentStep.or(() -> Optional.of(Step.REPLAYING)),
-                Optional.empty(), Optional.empty(), Optional.empty(), conflictCommitSha,
-                attemptCount, currentTurnId, Optional.of(entry), Optional.empty(), now, Optional.empty());
+        return edit(now, draft -> {
+            draft.status = Status.RUNNING;
+            draft.currentStep = currentStep.or(() -> Optional.of(Step.REPLAYING));
+            draft.pauseReason = Optional.empty();
+            draft.summary = Optional.empty();
+            draft.journal = Optional.of(entry);
+            draft.resultWorkTip = Optional.empty();
+        });
     }
 
     public BranchRebase finish(FinishReason reason, String finalSummary, Optional<String> resultTip, Instant now)
@@ -190,39 +212,39 @@ public record BranchRebase(
         checkText(finalSummary, "finalSummary", MAX_SUMMARY_CHARACTERS);
         checkOptionalSha(resultTip, "resultTip");
         checkArgument((reason == FinishReason.COMPLETED) == resultTip.isPresent(), "only a completed rebase has a result tip");
-        return copy(Status.FINISHED, Optional.empty(), Optional.empty(), Optional.of(reason),
-                Optional.of(finalSummary), Optional.empty(), 0, Optional.empty(), Optional.empty(),
-                resultTip, now, Optional.of(now));
+        return edit(now, draft -> {
+            draft.status = Status.FINISHED;
+            draft.currentStep = Optional.empty();
+            draft.pauseReason = Optional.empty();
+            draft.finishReason = Optional.of(reason);
+            draft.summary = Optional.of(finalSummary);
+            draft.conflictCommitSha = Optional.empty();
+            draft.attemptCount = 0;
+            draft.currentTurnId = Optional.empty();
+            draft.journal = Optional.empty();
+            draft.resultWorkTip = resultTip;
+            draft.terminalAt = Optional.of(now);
+        });
     }
 
     public BranchRebase withVersion(long nextVersion)
     {
-        return new BranchRebase(
-                id, startIdempotencyKey, agentTaskId, repository, worktree, workBranch, baseBranch,
-                originalWorkTip, baseSha, status, currentStep, pauseReason, finishReason, summary,
-                conflictCommitSha, attemptCount, currentTurnId, journal, resultWorkTip, nextVersion,
-                createdAt, updatedAt, terminalAt);
+        Draft draft = toBuilder();
+        draft.version = nextVersion;
+        return draft.build();
     }
 
-    private BranchRebase copy(
-            Status nextStatus,
-            Optional<Step> nextStep,
-            Optional<PauseReason> nextPauseReason,
-            Optional<FinishReason> nextFinishReason,
-            Optional<String> nextSummary,
-            Optional<String> nextConflictCommit,
-            int nextAttemptCount,
-            Optional<String> nextTurn,
-            Optional<ActionJournal> nextJournal,
-            Optional<String> nextResultTip,
-            Instant now,
-            Optional<Instant> nextTerminalAt)
+    /**
+     * Applies {@code edits} to a mutable copy of this rebase and stamps it with {@code now}. A
+     * running or paused rebase cannot hold finish facts or, except while running, a turn, so each
+     * transition names only the fields it actually changes.
+     */
+    private BranchRebase edit(Instant now, Consumer<Draft> edits)
     {
-        return new BranchRebase(
-                id, startIdempotencyKey, agentTaskId, repository, worktree, workBranch, baseBranch,
-                originalWorkTip, baseSha, nextStatus, nextStep, nextPauseReason, nextFinishReason,
-                nextSummary, nextConflictCommit, nextAttemptCount, nextTurn, nextJournal, nextResultTip,
-                version, createdAt, now, nextTerminalAt);
+        Draft draft = toBuilder();
+        draft.updatedAt = now;
+        edits.accept(draft);
+        return draft.build();
     }
 
     private void requireRunning()

@@ -19,16 +19,21 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.google.common.collect.ImmutableList;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Saved route and child references; cherry-pick and CI services own execution. A chain started in Commits has no requesting conversation. */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record BackportChain(
         String id, String workspaceId, Optional<String> requestingTaskId, Optional<String> sourceTaskId, String sourceBranch, Route source,
         Optional<PullRequestRef> sourcePullRequest, boolean sourceMerged, List<Acceptance> acceptances, List<Hop> hops,
@@ -101,6 +106,7 @@ public record BackportChain(
         }
     }
 
+    @Builder(builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
     public record Hop(int sourceHop, Route route, String laneId, Optional<String> model, Optional<String> effort,
             Optional<MergedPullRequestRange> landedSource, Optional<Selection> selection, Optional<Plan> plan, Optional<String> executionId, boolean publicationAttempted,
             Optional<PullRequestRef> pullRequest, boolean completed, boolean noOp)
@@ -122,12 +128,12 @@ public record BackportChain(
 
         public Hop withSource(MergedPullRequestRange source)
         {
-            return new Hop(sourceHop, route, laneId, model, effort, Optional.of(source), selection, plan, executionId, publicationAttempted, pullRequest, completed, noOp);
+            return toBuilder().landedSource(Optional.of(source)).build();
         }
 
         public Hop withSelection(Selection value)
         {
-            return new Hop(sourceHop, route, laneId, model, effort, landedSource, Optional.of(value), plan, executionId, publicationAttempted, pullRequest, completed, noOp);
+            return toBuilder().selection(Optional.of(value)).build();
         }
 
         public String sourceBaseSha()
@@ -147,27 +153,27 @@ public record BackportChain(
 
         public Hop withPlan(Plan value)
         {
-            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, Optional.of(value), executionId, publicationAttempted, pullRequest, completed, noOp);
+            return toBuilder().plan(Optional.of(value)).build();
         }
 
         public Hop withExecution(String id)
         {
-            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, Optional.of(id), publicationAttempted, pullRequest, completed, noOp);
+            return toBuilder().executionId(Optional.of(id)).build();
         }
 
         public Hop publishing()
         {
-            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, executionId, true, pullRequest, completed, noOp);
+            return toBuilder().publicationAttempted(true).build();
         }
 
         public Hop withPullRequest(PullRequestRef pr)
         {
-            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, executionId, publicationAttempted, Optional.of(pr), completed, noOp);
+            return toBuilder().pullRequest(Optional.of(pr)).build();
         }
 
         public Hop finish(boolean empty)
         {
-            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, executionId, publicationAttempted, pullRequest, true, empty);
+            return toBuilder().completed(true).noOp(empty).build();
         }
     }
 
@@ -220,37 +226,44 @@ public record BackportChain(
 
     public BackportChain withState(State next, Optional<String> message, Instant now)
     {
-        return copy(sourcePullRequest, acceptances, hops, next, message, version, now);
+        return edit(now, draft -> {
+            draft.state = next;
+            draft.reason = message;
+        });
     }
 
     public BackportChain withSource(PullRequestRef pr, Instant now)
     {
-        return copy(Optional.of(pr), acceptances, hops, state, reason, version, now);
+        return edit(now, draft -> draft.sourcePullRequest = Optional.of(pr));
     }
 
     public BackportChain withSourceMerged(Instant now)
     {
         checkArgument(sourcePullRequest.isPresent(), "No source PR to mark merged");
-        return new BackportChain(id, workspaceId, requestingTaskId, sourceTaskId, sourceBranch, source, sourcePullRequest, true,
-                acceptances, hops, state, reason, version, createdAt, now);
+        return edit(now, draft -> draft.sourceMerged = true);
     }
 
     public BackportChain withHop(int index, Hop hop, Instant now)
     {
-        var next = new java.util.ArrayList<>(hops);
+        List<Hop> next = new ArrayList<>(hops);
         next.set(index, hop);
-        return copy(sourcePullRequest, acceptances, next, state, reason, version, now);
+        return edit(now, draft -> draft.hops = next);
     }
 
     public BackportChain append(Acceptance authority, List<Hop> next, Instant now)
     {
-        return copy(sourcePullRequest, ImmutableList.<Acceptance>builder().addAll(acceptances).add(authority).build(),
-                ImmutableList.<Hop>builder().addAll(hops).addAll(next).build(), state == State.COMPLETED ? State.ACTIVE : state, reason, version, now);
+        return edit(now, draft -> {
+            draft.acceptances = ImmutableList.<Acceptance>builder().addAll(acceptances).add(authority).build();
+            draft.hops = ImmutableList.<Hop>builder().addAll(hops).addAll(next).build();
+            draft.state = state == State.COMPLETED ? State.ACTIVE : state;
+        });
     }
 
     public BackportChain withVersion(long next)
     {
-        return copy(sourcePullRequest, acceptances, hops, state, reason, next, updatedAt);
+        Draft draft = toBuilder();
+        draft.version = next;
+        return draft.build();
     }
 
     public boolean involves(String workspace)
@@ -259,9 +272,12 @@ public record BackportChain(
                 || hops.stream().anyMatch(hop -> hop.route().workspaceId().equals(workspace));
     }
 
-    private BackportChain copy(Optional<PullRequestRef> pr, List<Acceptance> authority, List<Hop> next, State status, Optional<String> message, long nextVersion, Instant now)
+    /** Applies {@code edits} to a mutable copy of this chain and stamps it with {@code now}, so each update names only what it changes. */
+    private BackportChain edit(Instant now, Consumer<Draft> edits)
     {
-        return new BackportChain(id, workspaceId, requestingTaskId, sourceTaskId, sourceBranch, source, pr, sourceMerged, authority, next,
-                status, message, nextVersion, createdAt, now);
+        Draft draft = toBuilder();
+        draft.updatedAt = now;
+        edits.accept(draft);
+        return draft.build();
     }
 }

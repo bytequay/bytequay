@@ -28,13 +28,26 @@ export type Group = typeof GROUPS[number];
 export type WaitingCard = { key: string; group: 'decision' | 'finished'; at: number; notice: AppNotice }
   | { key: string; group: 'running'; at: number; task: RunningTask };
 
-/** Newest first: notices that need the user are Decisions, finished turns are Finished, and running tasks are Running. */
+/**
+ * Newest first, one card for each task and each reviewed pull request: notices that need the user are Decisions, finished turns are
+ * Finished, and running tasks are Running. A newer card replaces an older one about the same thing, but only a Decision's own task
+ * replaces it, so another task on the pull request never hides a question.
+ */
 export function waitingCards(notices: AppNotice[], tasks: RunningTask[]): WaitingCard[] {
   const cards: WaitingCard[] = notices.map(notice => ({ key: notice.id, group: needsAction(notice) ? 'decision' : 'finished', at: Date.parse(notice.occurredAt), notice }));
   for (const task of tasks) {
     if (task.status === 'RUNNING') cards.push({ key: `running:${task.id}`, group: 'running', at: Date.parse(task.startedAt), task });
   }
-  return cards.sort((left, right) => right.at - left.at);
+  const seen = new Set<string>();
+  return cards.sort((left, right) => right.at - left.at).filter(card => {
+    const task = `task:${'notice' in card ? card.notice.taskId : card.task.id}`;
+    // A running task's repository is its workspace's, which can differ from the reviewed pull request's, so it matches by task only.
+    const pull = 'notice' in card && card.notice.pullRequest !== null ? `pr:${card.notice.pullRequest.toLowerCase()}` : null;
+    const replaced = seen.has(task) || card.group !== 'decision' && pull !== null && seen.has(pull);
+    seen.add(task);
+    if (pull !== null) seen.add(pull);
+    return !replaced;
+  });
 }
 
 const REPLY_WORDS = 50;

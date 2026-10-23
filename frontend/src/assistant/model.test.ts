@@ -72,9 +72,10 @@ describe('linkRefs', () => {
 });
 
 describe('waitingCards', () => {
-  const notice = (id: string, kind: AppNotice['kind'], minute: number): AppNotice => ({
+  const notice = (id: string, kind: AppNotice['kind'], minute: number, fields: Partial<AppNotice> = {}): AppNotice => ({
     id, kind, taskId: id, workspaceId: 'ws', turnId: null, reviewId: null, title: id, pullRequest: null, pullRequestTitle: null, changes: null,
     message: '', repository: 'owner/repository', laneId: 'claude', occurredAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+    ...fields,
   });
   const task = (id: string, status: RunningTask['status'], minute: number): RunningTask => ({
     id, workspaceId: 'ws', title: id, repository: 'owner/repository', kind: 'TASK', targetId: id, status, startedAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
@@ -85,6 +86,16 @@ describe('waitingCards', () => {
     const cards = waitingCards([notice('approval:a', 'APPROVAL', 49), notice('done', 'TURN_FINISHED', 31), notice('failed', 'FAILURE', 58)],
       [task('t1', 'RUNNING', 50), task('t2', 'COMPLETED', 59)]);
     expect(cards.map(card => [card.key, card.group])).toEqual([['failed', 'decision'], ['running:t1', 'running'], ['approval:a', 'decision'], ['done', 'finished']]);
+  });
+
+  it('keeps only the newest card for a task or a reviewed pull request, but never hides another task’s question', () => {
+    const cards = waitingCards([
+      notice('finished:old', 'TURN_FINISHED', 10, { taskId: 't1' }),
+      notice('review:new', 'TURN_FINISHED', 40, { taskId: 'r1', pullRequest: 'Owner/Repository#7' }),
+      notice('review:old', 'TURN_FINISHED', 30, { taskId: 'r2', pullRequest: 'owner/repository#7' }),
+      notice('approval:q', 'QUESTION', 20, { taskId: 'r3', pullRequest: 'owner/repository#7' }),
+    ], [task('t1', 'RUNNING', 15)]);
+    expect(cards.map(card => card.key)).toEqual(['review:new', 'approval:q', 'running:t1']);
   });
 });
 

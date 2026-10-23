@@ -84,6 +84,16 @@ class TestCiAutofixRun
     }
 
     @Test
+    void resumingAfterAFailedFinalCheckChecksAgain()
+    {
+        CiAutofixRun run = newRun("start-recheck", "feature-recheck", NOW)
+                .withFinalFixupCheck(new FinalFixupCheck(HEAD, CheckResult.INVALID, "fixup is misplaced", NOW.plusSeconds(1)), NOW.plusSeconds(1))
+                .pause(PauseReason.INVALID_FIXUP_POSITION, "Fixup commits are not in the required positions", NOW.plusSeconds(2));
+
+        assertThat(run.resume(NOW.plusSeconds(3)).finalFixupCheck()).isEmpty();
+    }
+
+    @Test
     void enforcesAttemptOrderBudgetAndOneCurrentTurn()
     {
         CiAutofixRun run = newRun("start-2", "feature-2", NOW);

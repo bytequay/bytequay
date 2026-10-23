@@ -406,6 +406,8 @@ public record CiAutofixRun(
             run.summary = Optional.empty();
             run.currentTurnId = Optional.empty();
             run.terminalAt = Optional.empty();
+            // A reply to a failed final check is answered by checking again; the stored result would only pause the run once more.
+            run.finalFixupCheck = Optional.empty();
         });
     }
 

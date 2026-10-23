@@ -129,14 +129,16 @@ export default function ReviewZones({ runtime, uri, cards, renderCard, onComment
   useLayoutEffect(() => {
     if (!editor) return;
     const attached = zones.current;
-    const layout = editor.onDidLayoutChange(() => { for (const zone of attached.values()) zone.layout(); });
-    return () => {
-      layout.dispose();
-      editor.changeViewZones(access => {
-        for (const zone of attached.values()) { zone.resize.disconnect(); access.removeZone(zone.id); editor.removeOverlayWidget(zone.widget); }
-        attached.clear();
-      });
+    // Monaco drops view zones with a detached model but keeps and re-attaches overlay widgets, and skips
+    // changeViewZones while no model is set, so cards are removed outside it and rebuilt for the next model.
+    const detach = () => {
+      editor.changeViewZones(access => { for (const zone of attached.values()) access.removeZone(zone.id); });
+      for (const zone of attached.values()) { zone.resize.disconnect(); editor.removeOverlayWidget(zone.widget); }
+      attached.clear();
     };
+    const layout = editor.onDidLayoutChange(() => { for (const zone of attached.values()) zone.layout(); });
+    const model = editor.onDidChangeModel(() => { detach(); setPlaced([]); });
+    return () => { layout.dispose(); model.dispose(); detach(); };
   }, [editor, uri]);
 
   useLayoutEffect(() => {

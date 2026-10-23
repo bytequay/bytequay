@@ -173,9 +173,9 @@ export async function verifyReviewComments() {
         assert(Reflect.get(window, 'reviewCaptured') === mode, 'Capture the comment appearance');
       }
     } finally { reference.unmount(); referenceHost.remove(); }
-    const checkPosition = () => {
+    const checkPosition = (target = card) => {
       const line = code.getScrolledVisiblePosition({ lineNumber: 4, column: 1 }); assert(line !== null, 'Anchor line is visible');
-      assert(Math.abs(card.getBoundingClientRect().top - (native.getBoundingClientRect().top + line.top + line.height + 5)) <= 1,
+      assert(Math.abs(target.getBoundingClientRect().top - (native.getBoundingClientRect().top + line.top + line.height + 5)) <= 1,
         'The card must stay immediately below its source line across native layout passes');
     };
     checkPosition();
@@ -185,6 +185,15 @@ export async function verifyReviewComments() {
     code.setScrollTop(1400); await settle();
     assert(getComputedStyle(zone).visibility === 'hidden', 'Offscreen cards must not leave a blank overlay across source');
     code.setScrollTop(0); code.layout({ width: 1050, height: 650 }); await settle(); await settle(); checkPosition();
+    // Hidden editor panes drop their model, and a file can move to another editor and back.
+    code.setModel(null); code.setModel(model); await settle(); await settle();
+    code.setScrollTop(20); await settle(); checkPosition(element<HTMLElement>('.lrc', native, 'A reattached file must show its card'));
+    const peer = editor.create(host.appendChild(document.createElement('div')));
+    code.setModel(null); peer.setModel(model); peer.focus(); render(); await settle(); await settle();
+    peer.dispose(); code.setModel(model); code.focus(); render(); await settle(); await settle();
+    code.setScrollTop(20); await settle();
+    assert(document.querySelectorAll('.ide-review-zone').length === 1, 'Moving between editors must leave one card overlay');
+    checkPosition(element<HTMLElement>('.lrc', native, 'A file back from another editor must show its card'));
     code.setModel(other); render(); await settle();
     assert(native.querySelector('.ide-review-zone') === null, 'Switching to a file without comments removes the old overlays');
   } finally {

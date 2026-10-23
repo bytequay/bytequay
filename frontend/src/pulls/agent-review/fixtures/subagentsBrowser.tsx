@@ -15,7 +15,7 @@ import { prDetail } from '../../fixtures/pullRequest';
 import { installDesktopFixture } from '../../../ide/fixtures/desktop';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
-import type { Bridge, PullRequestDetailDto } from '../../../types';
+import type { Bridge, PullRequestDetailDto, PullRequestDto } from '../../../types';
 import type { TaskDiscussionDto } from '../../../agents/discussions/contracts';
 import type { AgentEventEnvelope } from '../../../agents/events';
 import { agentTurn, createPreviewBridge } from '../../../agents/fixtures/previewBridge';
@@ -114,7 +114,8 @@ export async function run(local = false): Promise<string> {
       listener({ kind: 'state', state: 'open', subscriptionId: 'review-stream', taskId: review.task.id });
       return () => { stops++; };
     },
-    fetchAttentionPrs: async () => [],
+    // The whole attention list can take seconds to rebuild; the review's pull request must open without it.
+    fetchAttentionPrs: () => new Promise<PullRequestDto[]>(() => {}),
     fetchPullRequestDetailByRef: async () => detail,
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
     refreshAllPullRequestDetailByRef: async () => detail,

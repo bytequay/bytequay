@@ -24,7 +24,8 @@ import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/pulls.css';
 import '../css/review-tasks.css';
 import { isFindShortcut } from '../FindBar';
-import { pullRequestItem } from '../home/attention';
+import { getCached } from '../dataCache';
+import { ATTENTION_SEED, pullRequestItem } from '../home/attention';
 import PinButton from '../home/PinButton';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import type { NavigationMode } from '../navigationHistory';
@@ -716,12 +717,10 @@ export default function PullsScreen({
     // Not an effect cleanup: this effect re-runs on every prs change (the first row's
     // own detail load is one), which would abandon the lookup and leave that row showing.
     const stillRouting = () => routingInitialPr.current === initialPrKey;
-    Promise.all([
-      window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number),
-      window.bridge.fetchAttentionPrs().catch((): PullRequestDto[] => []),
-    ]).then(([value, tracked]) => {
+    window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number).then(value => {
       if (!stillRouting()) return;
-      const remote = tracked.find(pr => pr.id === value.id) ?? remotePullRequest(value, viewerLogin ?? undefined);
+      // Rebuilding the whole attention list takes seconds; its next push replaces a row built from the detail.
+      const remote = getCached<PullRequestDto[]>(ATTENTION_SEED.prs)?.find(pr => pr.id === value.id) ?? remotePullRequest(value, viewerLogin ?? undefined);
       setPrs(current => current.some(pr => pr.id === remote.id) ? current : [remote, ...current]);
       setTab(current => tabForInitialPullRequest(remote, current, viewerLogin));
       setSelected(remote.id);

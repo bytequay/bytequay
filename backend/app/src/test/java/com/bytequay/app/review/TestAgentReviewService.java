@@ -2995,6 +2995,28 @@ class TestAgentReviewService
     }
 
     @Test
+    void readingACurrentReviewSkipsTheWorkingCopyStatusWalk(@TempDir Path repository)
+    {
+        GitCommandRunner realGit = new GitCommandRunner();
+        assertThat(realGit.run(repository, "init", "-b", taskWorktree().generatedBranch()).successful()).isTrue();
+        assertThat(realGit.run(repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "Initial").successful()).isTrue();
+        String realHead = realGit.run(repository, "rev-parse", "HEAD").output().strip();
+        Fixture fixture = rewrittenHistory();
+        new AutoCheckout(fixture);
+        String reviewId = fixture.store.listOpenReviews().getFirst().id();
+        fixture.store.updateReview(fixture.store.findReview(reviewId).orElseThrow().withObservedHead(realHead, NOW));
+        when(fixture.git.run(taskWorktree().canonicalWorktree(), "rev-parse", "HEAD", "--symbolic-full-name", "HEAD"))
+                .thenAnswer(invocation -> realGit.run(repository, "rev-parse", "HEAD", "--symbolic-full-name", "HEAD"));
+        clearInvocations(fixture.git);
+
+        AgentReviewProjection.WorktreeSyncView sync = fixture.service.get(reviewId).worktreeSync().orElseThrow();
+
+        assertThat(sync.state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.CURRENT);
+        assertThat(sync.headSha()).contains(realHead);
+        verify(fixture.git, never()).runLocalBoundedStdout(eq(taskWorktree().canonicalWorktree()), any(Duration.class), anyInt(), anyList());
+    }
+
+    @Test
     void projectionParsesRealNullDelimitedPorcelainWithoutWritingTheIndex(@TempDir Path repository)
             throws Exception
     {
@@ -3522,6 +3544,8 @@ class TestAgentReviewService
         {
             Path checkout = taskWorktree().canonicalWorktree();
             when(fixture.worktrees.ownedCheckout(taskWorktree())).thenReturn(checkout);
+            when(fixture.git.run(checkout, "rev-parse", "HEAD", "--symbolic-full-name", "HEAD"))
+                    .thenAnswer(invocation -> ok(head + "\nrefs/heads/" + taskWorktree().generatedBranch() + "\n"));
             when(fixture.git.runLocalBoundedStdout(eq(checkout), eq(Duration.ofSeconds(2)), eq(128 * 1024), anyList()))
                     .thenAnswer(invocation -> ok("# branch.oid " + head + "\0# branch.head " + taskWorktree().generatedBranch() + "\0" + entries));
             when(fixture.git.gitPaths(eq(checkout), anyList())).thenAnswer(invocation -> invocation.<List<String>>getArgument(1).stream()

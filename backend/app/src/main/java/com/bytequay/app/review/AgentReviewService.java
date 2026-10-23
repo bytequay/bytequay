@@ -932,10 +932,10 @@ public class AgentReviewService
             if (syncBusy(task, runs)) {
                 return;
             }
-            CheckoutState checkout = checkoutState(task);
-            if (checkout.head().equals(target) && review.worktreeHeadSha().equals(Optional.of(target))) {
+            if (review.worktreeHeadSha().equals(Optional.of(target)) && checkoutHead(task).equals(Optional.of(target))) {
                 return;
             }
+            CheckoutState checkout = checkoutState(task);
             if (syncBlocker(review, task, runs, checkout).isPresent()) {
                 return;
             }
@@ -1008,6 +1008,9 @@ public class AgentReviewService
         Optional<String> head = Optional.empty();
         boolean dirty = false;
         try {
+            if (checkoutHead(task).equals(review.observedHeadSha())) {
+                return Optional.of(new WorktreeSyncView(WorktreeSyncView.State.CURRENT, review.observedHeadSha(), review.observedHeadSha(), false, Optional.empty()));
+            }
             CheckoutState checkout = checkoutState(task);
             head = Optional.of(checkout.head());
             dirty = checkout.dirty();
@@ -1054,11 +1057,28 @@ public class AgentReviewService
         return Optional.empty();
     }
 
+    /**
+     * HEAD while the checkout is on its review branch. Every review read inspects the checkout, and on a large repository the
+     * status walk over untracked files costs most of that read; a checkout already at its target needs only HEAD.
+     */
+    private Optional<String> checkoutHead(AgentTask task)
+    {
+        TaskWorktree worktree = reviewWorktree(task);
+        GitCommandRunner.Result result = git.run(worktrees.ownedCheckout(worktree), "rev-parse", "HEAD", "--symbolic-full-name", "HEAD");
+        List<String> lines = result.successful() ? result.output().strip().lines().collect(toImmutableList()) : ImmutableList.of();
+        return lines.size() == 2 && lines.getLast().equals("refs/heads/" + worktree.generatedBranch()) ? Optional.of(lines.getFirst()) : Optional.empty();
+    }
+
+    private static TaskWorktree reviewWorktree(AgentTask task)
+    {
+        checkState(task.worktreeRemovedAt().isEmpty(), "The review working copy is no longer available");
+        return task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review has no managed working copy"));
+    }
+
     /** One bounded status read provides actual HEAD and dirtiness without refreshing Git's index. */
     private CheckoutState checkoutState(AgentTask task)
     {
-        checkState(task.worktreeRemovedAt().isEmpty(), "The review working copy is no longer available");
-        TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new ReviewConflictException("The review has no managed working copy"));
+        TaskWorktree worktree = reviewWorktree(task);
         Path checkout = worktrees.ownedCheckout(worktree);
         GitCommandRunner.Result status = git.runLocalBoundedStdout(checkout, Duration.ofSeconds(2), 128 * 1024, ImmutableList.of(
                 "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "status", "--porcelain=v2", "--branch", "-z",

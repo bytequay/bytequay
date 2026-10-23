@@ -67,7 +67,10 @@ public record AgentReviewProjection(
         requireNonNull(worktreeSync, "worktreeSync is null");
     }
 
-    /** Live checkout facts; catching up does not change the reviewed run or its findings. */
+    /**
+     * Live checkout facts; catching up does not change the reviewed run or its findings. Local changes only matter to catching up,
+     * so a CURRENT checkout is not inspected for them and reports clean.
+     */
     public record WorktreeSyncView(State state, Optional<String> headSha, Optional<String> targetHeadSha, boolean dirty, Optional<String> reason)
     {
         public WorktreeSyncView

@@ -215,7 +215,7 @@ abstract class AbstractTestAgentHttpApi
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Sam", "", "", 0, 0, 0, "", "", "", "")));
         doReturn(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())).when(developmentGit).inspectPublication(any(), any());
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();

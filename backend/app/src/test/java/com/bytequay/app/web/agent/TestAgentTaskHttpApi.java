@@ -338,26 +338,26 @@ class TestAgentTaskHttpApi
         TaskWorktree worktree = task.taskWorktree().orElseThrow();
         assertThat(task.repository()).isEqualTo(new RepositoryIdentity(fork.owner(), fork.repo()));
         assertThat(worktree.physicalRepository()).isEqualTo(task.repository());
-        String branch = "reuse-resolved-field-index";
+        String branch = "cache-table-stats";
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31022, branch)), "upstream-pr");
+        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)), "upstream-pr");
         pullRequests.saveRepositorySyncPage(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)), "unrelated-fork-pr");
         String path = "/agent/tasks/" + taskId + "/pull-requests";
 
         JsonNode cached = get(path + "?workspaceId=" + workspaceId).getBody();
         assertThat(cached).hasSize(1);
         assertThat(cached.get(0).get("repo").asText()).isEqualTo("owner/repository");
-        assertThat(cached.get(0).get("number").asInt()).isEqualTo(31022);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        assertThat(cached.get(0).get("number").asInt()).isEqualTo(41);
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Sam", "", "", 0, 0, 0, "", "", "", "")));
         // The user's own fork branch: its pull request is theirs, which a renamed-branch match requires.
         when(gitHub.fetchPullRequestsByHead("pat", upstream, "contributor:" + branch))
-                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch, "contributor")));
+                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 42, branch, "contributor")));
 
         JsonNode refreshed = post(path + "/sync?workspaceId=" + workspaceId, ImmutableMap.of(), null).getBody();
 
         assertThat(refreshed).hasSize(2);
         assertThat(refreshed.get(0).get("repo").asText()).isEqualTo("owner/repository");
-        assertThat(refreshed.get(0).get("number").asInt()).isEqualTo(31023);
+        assertThat(refreshed.get(0).get("number").asInt()).isEqualTo(42);
         verify(gitHub).fetchPullRequestsByHead("pat", upstream, "contributor:" + branch);
         verify(gitHub).fetchPullRequestsByHead("pat", upstream, "contributor:" + worktree.generatedBranch());
         verify(gitHub, never()).fetchPullRequestsByHead("pat", fork, "contributor:" + branch);

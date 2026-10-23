@@ -116,13 +116,13 @@ public class CiGitService
             requireCommit(worktree, command.remoteHeadSha(), "attempt input");
             requireCommit(worktree, command.baseSha(), "pull request base");
             requireCleanAndResolved(worktree);
-            requireLinearRange(worktree, command.baseSha(), head);
-            requireDiffCheck(worktree, command.baseSha(), head);
+            String start = requireLinearRange(worktree, command.baseSha(), head);
+            requireDiffCheck(worktree, start, head);
             if (head.equals(command.remoteHeadSha())) {
                 return CiGitInspection.noChange();
             }
-            List<String> changedPaths = changedPaths(worktree, command.baseSha(), head);
-            List<String> commitSubjects = commits(worktree, command.baseSha(), head).stream()
+            List<String> changedPaths = changedPaths(worktree, start, head);
+            List<String> commitSubjects = commits(worktree, start, head).stream()
                     .map(Commit::subject)
                     .collect(toImmutableList());
             return CiGitInspection.ready(head, fingerprint(worktree, command.localBranch(), head), changedPaths, commitSubjects);
@@ -198,8 +198,7 @@ public class CiGitService
                 throw problem("Local HEAD differs from the head selected for the final check");
             }
             requireCommit(worktree, command.baseSha(), "pull request base");
-            requireLinearRange(worktree, command.baseSha(), head);
-            List<Commit> commits = commits(worktree, command.baseSha(), head);
+            List<Commit> commits = commits(worktree, requireLinearRange(worktree, command.baseSha(), head), head);
             Set<String> fixedTargets = new HashSet<>();
             for (int index = 0; index < commits.size(); index++) {
                 Commit commit = commits.get(index);
@@ -301,19 +300,25 @@ public class CiGitService
         }
     }
 
-    private void requireLinearRange(Path worktree, String baseSha, String headSha)
+    /**
+     * Returns where the pull request's own commits start. The observed base is the base branch tip, which moves on after the
+     * branch was cut or rebased, so the range starts at the fork point, as GitHub computes it, rather than at that tip.
+     */
+    private String requireLinearRange(Path worktree, String baseSha, String headSha)
     {
-        Result ancestor = runner.run(worktree, "merge-base", "--is-ancestor", baseSha, headSha);
-        if (ancestor.exitCode() == 1) {
+        Result forkPoint = runner.run(worktree, "merge-base", baseSha, headSha);
+        if (forkPoint.exitCode() == 1) {
             throw problem("Local HEAD contains commits outside the authorized PR range");
         }
-        if (!ancestor.successful()) {
-            throw problem("Git could not validate the pull request range: " + ancestor.output());
+        if (!forkPoint.successful()) {
+            throw problem("Git could not validate the pull request range: " + forkPoint.output());
         }
-        String merges = requiredOutput(worktree, "rev-list", "--min-parents=2", baseSha + ".." + headSha);
+        String start = forkPoint.output().strip();
+        String merges = requiredOutput(worktree, "rev-list", "--min-parents=2", start + ".." + headSha);
         if (!merges.isEmpty()) {
             throw problem("Pull request history is not linear; merge commit: " + merges.lines().findFirst().orElseThrow());
         }
+        return start;
     }
 
     private void requireDiffCheck(Path worktree, String baseSha, String headSha)

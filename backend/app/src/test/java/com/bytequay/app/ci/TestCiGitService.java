@@ -455,6 +455,24 @@ class TestCiGitService
     }
 
     @Test
+    void measuresThePullRequestFromItsForkPointAfterTheBaseMoves()
+            throws IOException
+    {
+        Repository fixture = repository("moved-base");
+        write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
+        commit(fixture.worktree(), "fixup! Target change");
+        String movedBase = advanceRemoteBase(fixture);
+        git(fixture.worktree(), "fetch", fixture.remote().toString(), "main");
+
+        CiGitInspection inspection = service().inspectAgentResult(new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, movedBase, fixture.inputSha()));
+        FixupPositionCheck check = service().checkFixupPositions(new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, movedBase, head(fixture.worktree())));
+
+        assertThat(inspection.outcome()).isEqualTo(READY);
+        assertThat(inspection.result().orElseThrow().changedPaths()).containsExactly("source.txt");
+        assertThat(check.result()).isEqualTo(VALID);
+    }
+
+    @Test
     void boundsProcessOutputAndRejectsUnsafeRef()
             throws IOException
     {

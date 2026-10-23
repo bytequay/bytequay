@@ -92,9 +92,10 @@ message. Available commands are:
 - `/quit` — exit; `Ctrl-C`, `quit`, and `exit` also stop the shell.
 
 The shell intentionally has no deterministic mode. Automated HTTP, replay,
-SSE, idempotency, completion, and cleanup coverage lives in
-`TestAgentHttpApi`; this script exercises a real provider only. It is a
-credentialed diagnostic, not evidence that a packaged release journey passed.
+SSE, idempotency, completion, and cleanup coverage lives in the
+`TestAgent*HttpApi` classes; this script exercises a real provider only. It
+is a credentialed diagnostic, not evidence that a packaged release journey
+passed.
 
 ## Message and shutdown flow
 

@@ -117,6 +117,7 @@ import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
+import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingUserMessage;
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.impl.AgentEventOutboxDrainer.drainPending;
 import static com.bytequay.agent.core.impl.AgentFailures.failureMessage;
@@ -1020,14 +1021,8 @@ public final class DefaultAgentTurnService
                 outboxStore.insert(pendingLifecycle(EventId.random(), task.id(), Optional.of(turn.id()),
                         AgentEventPayload.LifecyclePhase.QUEUE_CHANGED, "Queued input steered into the running turn", acceptedAt));
             });
-            outboxStore.insert(new AgentEventOutboxEntry(
-                    messageEventId,
-                    task.id(),
-                    Optional.of(turn.id()),
-                    root(),
-                    new AgentEventOutboxPayload.UserMessageBlob(messageBlob, references(command.attachments()), AgentEventPayload.DeliveryKind.STEER),
-                    acceptedAt,
-                    Optional.empty()));
+            outboxStore.insert(pendingUserMessage(messageEventId, task.id(), turn.id(), messageBlob, references(command.attachments()),
+                    AgentEventPayload.DeliveryKind.STEER, acceptedAt));
             return null;
         });
         return new SteerAcceptance(delivery, messageEventId, new AgentTurnInput(command.message(), command.attachments()));
@@ -1360,35 +1355,13 @@ public final class DefaultAgentTurnService
         EventId messageEventId = head.messageEventId().orElseGet(EventId::random);
         EventId deliveryEventId = head.messageEventId().isPresent() ? EventId.random() : messageEventId;
         AgentTask executionTask = selectProvider(task, settings, acceptedAt);
+        AgentEventOutboxEntry announcement = head.messageEventId().isEmpty()
+                ? pendingUserMessage(messageEventId, task.id(), turnId, head.textBlob(), settings.attachments(), AgentEventPayload.DeliveryKind.QUEUED, acceptedAt)
+                : pendingLifecycle(deliveryEventId, task.id(), Optional.of(turnId), AgentEventPayload.LifecyclePhase.RETRYING, "Retrying queued input", acceptedAt);
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=queue.persist.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
-        unitOfWork.execute(() -> {
-            taskStore.update(claimAcceptedTurn(executionTask, turn));
-            turnStore.insert(turn);
-            queueStore.update(head.starting(turnId, messageEventId, acceptedAt));
-            if (head.messageEventId().isEmpty()) {
-                outboxStore.insert(new AgentEventOutboxEntry(
-                        messageEventId,
-                        task.id(),
-                        Optional.of(turnId),
-                        root(),
-                        new AgentEventOutboxPayload.UserMessageBlob(head.textBlob(), settings.attachments(), AgentEventPayload.DeliveryKind.QUEUED),
-                        acceptedAt,
-                        Optional.empty()));
-            }
-            else {
-                outboxStore.insert(pendingLifecycle(
-                        deliveryEventId,
-                        task.id(),
-                        Optional.of(turnId),
-                        AgentEventPayload.LifecyclePhase.RETRYING,
-                        "Retrying queued input",
-                        acceptedAt));
-            }
-            return null;
-        });
+        persistAcceptance(executionTask, turn, announcement, () -> queueStore.update(head.starting(turnId, messageEventId, acceptedAt)));
         sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=queue.persist.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
-        runtimeRegistry.recordAcceptedTurn(turn);
         return new TurnAcceptance(turn, deliveryEventId, text, attachments);
     }
 
@@ -1564,22 +1537,26 @@ public final class DefaultAgentTurnService
         BlobRef messageBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(message.getBytes(UTF_8)), "text/plain; charset=utf-8");
         EventId messageEventId = EventId.random();
         AgentTask executionTask = selectProvider(task, settings, acceptedAt);
+        persistAcceptance(executionTask, turn,
+                pendingUserMessage(messageEventId, turn.taskId(), turn.id(), messageBlob, settings.attachments(), AgentEventPayload.DeliveryKind.TURN, acceptedAt), () -> {});
+        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.persist.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
+        return new TurnAcceptance(turn, messageEventId, message, attachments);
+    }
+
+    /**
+     * Commits an accepted turn with the task's worktree claim and the event that announces it, then records it as the
+     * task's latest accepted turn. {@code alsoInUnit} runs in the same unit of work, before the announcement.
+     */
+    private void persistAcceptance(AgentTask executionTask, AgentTurn turn, AgentEventOutboxEntry announcement, Runnable alsoInUnit)
+    {
         unitOfWork.execute(() -> {
             taskStore.update(claimAcceptedTurn(executionTask, turn));
             turnStore.insert(turn);
-            outboxStore.insert(new AgentEventOutboxEntry(
-                    messageEventId,
-                    turn.taskId(),
-                    Optional.of(turn.id()),
-                    root(),
-                    new AgentEventOutboxPayload.UserMessageBlob(messageBlob, settings.attachments(), AgentEventPayload.DeliveryKind.TURN),
-                    acceptedAt,
-                    Optional.empty()));
+            alsoInUnit.run();
+            outboxStore.insert(announcement);
             return null;
         });
-        sendTiming.log(System.Logger.Level.DEBUG, () -> "send-timing phase=turn.persist.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         runtimeRegistry.recordAcceptedTurn(turn);
-        return new TurnAcceptance(turn, messageEventId, message, attachments);
     }
 
     private AgentTask selectProvider(AgentTask task, AgentTurnSettings settings, Instant acceptedAt)

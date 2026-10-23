@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
@@ -51,6 +52,20 @@ public record AgentEventOutboxEntry(
             Instant occurredAt)
     {
         return new AgentEventOutboxEntry(eventId, taskId, turnId, source, new AgentEventOutboxPayload.Inline(payload), occurredAt, Optional.empty());
+    }
+
+    /** The user's message to a turn, kept as a blob so the event log reads its text without copying it into SQLite. */
+    public static AgentEventOutboxEntry pendingUserMessage(
+            EventId eventId,
+            TaskId taskId,
+            TurnId turnId,
+            BlobRef text,
+            List<AgentAttachmentReference> attachments,
+            AgentEventPayload.DeliveryKind deliveryKind,
+            Instant occurredAt)
+    {
+        return new AgentEventOutboxEntry(eventId, taskId, Optional.of(turnId), root(),
+                new AgentEventOutboxPayload.UserMessageBlob(text, attachments, deliveryKind), occurredAt, Optional.empty());
     }
 
     public static AgentEventOutboxEntry pendingLifecycle(

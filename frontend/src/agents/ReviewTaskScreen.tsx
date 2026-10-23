@@ -65,7 +65,7 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
     target: { kind: 'review', workspaceId, reviewId: review.id },
   }} />{headerAction}</>;
   if (review.number === null) return <LocalReviewWorkspace key={review.id} review={review} onReviewChange={updateReview} onBack={onBack} headerAction={reviewActions} />;
-  return <PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id}
+  return <PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id} initialReview={review}
     repositoryScope={{ workspaceId, repository: review.repo }} browserOpen={browserOpen}
     reviewWorkspace={{ onBack, headerAction: reviewActions }} />;
 }

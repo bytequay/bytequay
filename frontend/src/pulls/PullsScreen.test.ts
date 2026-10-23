@@ -78,6 +78,17 @@ describe('loadAgentReviewContext', () => {
       .rejects.toThrow('does not belong');
   });
 
+  it('uses a review the caller already read without reading it again', async () => {
+    const review = reviewFixture();
+    const bridge = reviewContextBridge();
+
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number, review.workspaceId, review))
+      .resolves.toEqual({ workspaceId: review.workspaceId, review, developerTask: null });
+    expect(bridge.getAgentReview).not.toHaveBeenCalled();
+    await expect(loadAgentReviewContext(bridge, review.repo, review.number, 'other-workspace', review))
+      .rejects.toThrow('does not belong');
+  });
+
   it('keeps an explicitly opened workspace as the review context', async () => {
     const review = reviewFixture();
     const bridge = reviewContextBridge();

@@ -108,15 +108,17 @@ export async function loadAgentReviewContext(
   repo: string,
   number: number,
   workspaceId?: string,
-  reviewId?: string,
+  /** The exact review, or its id to read it. */
+  requested?: string | AgentReviewDto,
   findTask?: Bridge['findPullRequestTask'],
 ): Promise<AgentReviewContext> {
   const context = async (workspaceId: string, knownTask?: PullRequestTaskLink | null): Promise<AgentReviewContext> => {
     const developerTask = knownTask === undefined ? await bridge.findPullRequestTask(workspaceId, repo, number) : knownTask;
     return { workspaceId, developerTask, review: await findConversationReview(bridge, workspaceId, developerTask?.taskId, { repo, number }) };
   };
-  if (reviewId !== undefined) {
-    const review = await bridge.getAgentReview(reviewId);
+  if (requested !== undefined) {
+    const reviewId = typeof requested === 'string' ? requested : requested.id;
+    const review = typeof requested === 'string' ? await bridge.getAgentReview(reviewId) : requested;
     if (review.id !== reviewId || review.repo.toLowerCase() !== repo.toLowerCase() || review.number !== number
       || (workspaceId !== undefined && review.workspaceId !== workspaceId)) {
       throw new Error('This review does not belong to the selected pull request and workspace.');
@@ -327,6 +329,7 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
 export default function PullsScreen({
   initialPr,
   initialReviewId,
+  initialReview,
   repositoryScope,
   browserOpen = false,
   onSelectPullRequest,
@@ -336,6 +339,8 @@ export default function PullsScreen({
   initialPr?: { repo: string; number: number };
   /** Opens an exact retained review from the workspace Tasks list. */
   initialReviewId?: string;
+  /** That review when the caller has just read it; only the first load uses it, so a retry reads it again. */
+  initialReview?: AgentReviewDto;
   repositoryScope?: { workspaceId: string; repository: string };
   browserOpen?: boolean;
   onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
@@ -354,6 +359,7 @@ export default function PullsScreen({
   const [viewer, setViewer] = useState<UserProfileDto | null>(null);
   /** The open review of the selected pull request, loaded once per selection and kept live by its tab. */
   const [reviewContext, setReviewContext] = useState<(AgentReviewContext & { key: string; error: string | null }) | null>(null);
+  const preloadedReview = useRef(initialReview);
   // Looked up apart from the review, so a slow or failed task lookup never holds up Summary.
   const [codeTaskLookup, setCodeTaskLookup] = useState<{ key: string; task: AgentTaskDto | null } | null>(null);
   const [reviewReload, setReviewReload] = useState(0);
@@ -853,7 +859,9 @@ export default function PullsScreen({
     setReviewCardFocus(null);
     if (reviewKey === null || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
-    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, requestedReviewId,
+    const preloaded = preloadedReview.current?.id === requestedReviewId ? preloadedReview.current : undefined;
+    preloadedReview.current = undefined;
+    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, preloaded ?? requestedReviewId,
       authored ? window.bridge.findPullRequestTask : undefined)
       .then(context => {
         if (!cancelled) setReviewContext({ ...context, key: reviewKey, error: null });

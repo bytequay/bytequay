@@ -20,7 +20,6 @@ import type { TaskDiscussionDto } from '../../../agents/discussions/contracts';
 import type { AgentEventEnvelope } from '../../../agents/events';
 import { agentTurn, createPreviewBridge } from '../../../agents/fixtures/previewBridge';
 import { element as fixtureElement, assert, changeInput, settle } from '../../../fixtures/harness';
-import PullsScreen from '../../PullsScreen';
 import ReviewTaskScreen from '../../../agents/ReviewTaskScreen';
 import { runningReviewFixture } from './review';
 import '../../../css/base.css';
@@ -68,6 +67,8 @@ export async function run(local = false): Promise<string> {
   let discussion: TaskDiscussionDto | null = null;
   let opens = 0;
   let replies = 0;
+  let reviewReads = 0;
+  let readsBeforeHistory: number | null = null;
   const stubs = {
     listReviewDiscussions: async () => discussion === null ? [] : [discussion],
     openReviewDiscussion: async (reviewId, request) => {
@@ -99,10 +100,13 @@ export async function run(local = false): Promise<string> {
     },
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
-    getAgentReview: async () => review,
+    getAgentReview: async () => { reviewReads++; return review; },
     getAgentTurn: async () => agentTurn('RUNNING', { taskId: review.task.id,
       createdAt: '2026-09-06T16:03:00Z', startedAt: '2026-09-06T16:03:01Z' }),
-    readAgentReviewHistory: async () => ({ events: [...events], beforeCursor: null, afterCursor: null, latestSequence: events.length }),
+    readAgentReviewHistory: async () => {
+      readsBeforeHistory ??= reviewReads;
+      return { events: [...events], beforeCursor: null, afterCursor: null, latestSequence: events.length };
+    },
     readAgentReviewApprovals: async () => [],
     subscribeAgentReview: async (_id, _after, listener) => {
       subscriptions++;
@@ -145,11 +149,9 @@ export async function run(local = false): Promise<string> {
   const panel = () => host.querySelector<HTMLElement>('.pull-detail > .agt-panel__scroll');
   const tab = () => host.querySelector('[aria-label="Task destinations"] .pull-detail__utility');
   try {
-    flushSync(() => root.render(local
-      ? <ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false} onBack={() => {}} />
-      : <PullsScreen initialPr={{ repo: review.repo, number: initial.number }} initialReviewId={review.id}
-        repositoryScope={{ workspaceId: review.workspaceId, repository: review.repo }} reviewWorkspace={{ onBack: () => {} }} />));
+    flushSync(() => root.render(<ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false} onBack={() => {}} />));
     for (let attempt = 0; attempt < 60 && host.querySelector('.agt-agent-chip') === null; attempt++) await settle();
+    assert(readsBeforeHistory === 1, `The task screen's review read must open the conversation; it read ${readsBeforeHistory} times`);
     const conversation = host.querySelector('.agr-workspace-conversation');
     assert(conversation !== null && tab() === null, 'Subagents must remain a conversation destination until clicked');
     assert(!conversation.textContent?.includes('Tracing the blocked writer.'), 'Child messages must stay out of the root transcript');

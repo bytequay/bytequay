@@ -85,9 +85,9 @@ ownership boundaries; they are not independently deployed services.
 
 ```text
 app -> app-work, persistence-sqlite
-app-work -> app-delivery, integration-google
-app-delivery -> app-review
+app-work -> app-review, app-delivery, integration-google
 app-review -> app-git
+app-delivery -> app-git
 app-git -> app-github
 app-github -> app-base, integration-jira
 app-base -> core, agent-core, agent-cli
@@ -100,19 +100,20 @@ integration-jira -> core
 ```
 
 Dependencies point toward framework-free contracts. No module depends on `app`;
-it is the composition root and executable. The application layers between
-`app-base` and `app` each use only the layers below them, so a change runs the
-tests of its own layer and those above it. Where lower code must reach a higher
-feature, such as stopping an editor before a worktree is removed, it names a
-small interface that the higher feature implements. Persistence details stay
-behind storage contracts, and provider adapters do not own application tables or
-user-interface transport. Integration APIs and domain values live in
-`com.bytequay.integration.google` and `com.bytequay.integration.jira`; concrete
-implementations stay in each module's `impl` package. The application explicitly
-assembles integrations and retains HTTP authentication, task authorization,
-agenda coordination, local work-item workflows, and background refresh policy.
-Jira operations and task admission share the same issue locks across this
-boundary.
+it is the composition root and executable. The application modules between
+`app-base` and `app` each use only modules below them, so a change runs the
+tests of its own module and those above it; `app-review` and `app-delivery` do
+not depend on each other, so Maven can build and test them in parallel. Where
+lower code must reach a higher feature, such as stopping an editor before a
+worktree is removed, it names a small interface that the higher feature
+implements. Persistence details stay behind storage contracts, and provider
+adapters do not own application tables or user-interface transport. Integration
+APIs and domain values live in `com.bytequay.integration.google` and
+`com.bytequay.integration.jira`; concrete implementations stay in each module's
+`impl` package. The application explicitly assembles integrations and retains
+HTTP authentication, task authorization, agenda coordination, local work-item
+workflows, and background refresh policy. Jira operations and task admission
+share the same issue locks across this boundary.
 
 The frontend is an npm workspace. `plugins/google`, `plugins/jira`, and
 `plugins/lab` expose separate contracts, renderer, preload, and Electron main

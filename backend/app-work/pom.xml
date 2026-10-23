@@ -17,6 +17,12 @@
     <dependencies>
         <dependency>
             <groupId>com.bytequay</groupId>
+            <artifactId>app-review</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
             <artifactId>app-delivery</artifactId>
             <version>${project.version}</version>
         </dependency>

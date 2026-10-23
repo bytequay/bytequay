@@ -33,7 +33,7 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.discussion.ReviewFixService;
+import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -245,7 +245,7 @@ public class RelatedWorkspaceWork
         AgentTask task = eligible(taskId).orElseThrow(() -> new AgentConflictException("The source conversation is unavailable"));
         AgentTurn active = turns.findActive(task.id()).filter(turn -> turn.id().equals(turnId) && turn.cancellationRequestedAt().isEmpty())
                 .orElseThrow(() -> new AgentConflictException("The requesting turn is no longer active"));
-        checkArgument(!start || (active.developmentOrigin().isEmpty() && !active.idempotencyKey().equals("related-work:" + taskId) && !ReviewFixService.fixTurn(active)),
+        checkArgument(!start || (active.developmentOrigin().isEmpty() && !active.idempotencyKey().equals("related-work:" + taskId) && !ReviewFixTurns.isFixTurn(active)),
                 "An automated turn cannot authorize new related work");
         return task;
     }

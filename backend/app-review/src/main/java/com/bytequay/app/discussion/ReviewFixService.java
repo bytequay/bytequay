@@ -25,6 +25,7 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.agent.runtime.AgentServingGate;
+import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.app.agent.runtime.TaskInput;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
@@ -66,7 +67,6 @@ public class ReviewFixService
 {
     static final int MAXIMUM_THREADS = 10;
     static final int MAXIMUM_ROUNDS = 3;
-    private static final String TURN_KEY = "review-fix:";
     private static final Duration POST_OUTCOME_WAIT = Duration.ofMinutes(5);
     private static final Duration DETAIL_FRESHNESS = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(ReviewFixService.class);
@@ -164,7 +164,7 @@ public class ReviewFixService
         if (threads.isEmpty()) {
             return;
         }
-        String key = TURN_KEY + taskId + ":" + threads.getFirst().latestCommentId();
+        String key = ReviewFixTurns.KEY_PREFIX + taskId + ":" + threads.getFirst().latestCommentId();
         Instant now = clock.instant();
         // Saved before sending: a send that fails or is lost is sent again under the same key by the next pass.
         threads.forEach(thread -> store.insertIfAbsent(ReviewFixReply.requested(taskId, pr.repo(), pr.number(), thread.rootCommentId(), thread.latestCommentId(), key, now)));
@@ -215,12 +215,6 @@ public class ReviewFixService
                 }
             }
         }
-    }
-
-    /** Whether this service started the turn. Its message carries reviewers' words, not the user's: it authorizes no work and scopes no CI repair. */
-    public static boolean fixTurn(AgentTurn turn)
-    {
-        return turn.idempotencyKey().startsWith(TURN_KEY);
     }
 
     /** Whether an answer is saved but not posted, which only a delivery that pushes its fix can release. */

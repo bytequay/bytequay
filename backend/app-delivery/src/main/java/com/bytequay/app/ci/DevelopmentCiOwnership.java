@@ -25,7 +25,7 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.app.discussion.ReviewFixService;
+import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -246,7 +246,7 @@ public final class DevelopmentCiOwnership
         Set<TurnId> userTurns = new HashSet<>();
         for (AgentTurn turn : turns.list(parent)) {
             checkState(turn.taskId().equals(parent), "Development turn history belongs to another task");
-            if (turn.developmentOrigin().isEmpty() && !turn.knownUnsent() && !ReviewFixService.fixTurn(turn)) {
+            if (turn.developmentOrigin().isEmpty() && !turn.knownUnsent() && !ReviewFixTurns.isFixTurn(turn)) {
                 userTurns.add(turn.id());
             }
         }

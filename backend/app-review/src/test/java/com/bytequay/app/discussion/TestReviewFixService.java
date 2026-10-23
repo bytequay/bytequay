@@ -36,6 +36,7 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.agent.runtime.AgentServingGate;
+import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.ReviewFixReply;
@@ -125,7 +126,7 @@ class TestReviewFixService
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turns).start(started.capture());
         assertThat(started.getValue().idempotencyKey()).isEqualTo("review-fix:" + task.id() + ":11");
-        assertThat(ReviewFixService.fixTurn(turn(started.getValue().idempotencyKey()))).isTrue();
+        assertThat(ReviewFixTurns.isFixTurn(turn(started.getValue().idempotencyKey()))).isTrue();
         assertThat(started.getValue().message()).contains("commentId 11: ", "Rename it.", "commentId 21: ", "Null check missing.")
                 .doesNotContain("commentId 32", "Typo.", "Old.", "Before the task.", "commentId 71", "gist");
         assertThat(rows.values()).extracting(ReviewFixReply::commentId, ReviewFixReply::rootCommentId).containsExactly(

@@ -17,7 +17,7 @@
     <dependencies>
         <dependency>
             <groupId>com.bytequay</groupId>
-            <artifactId>app-review</artifactId>
+            <artifactId>app-git</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -40,14 +40,6 @@
         <dependency>
             <groupId>com.bytequay</groupId>
             <artifactId>app-git</artifactId>
-            <version>${project.version}</version>
-            <type>test-jar</type>
-            <scope>test</scope>
-        </dependency>
-
-        <dependency>
-            <groupId>com.bytequay</groupId>
-            <artifactId>app-review</artifactId>
             <version>${project.version}</version>
             <type>test-jar</type>
             <scope>test</scope>

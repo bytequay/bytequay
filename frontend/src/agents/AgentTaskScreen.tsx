@@ -1662,6 +1662,10 @@ export default function AgentTaskScreen({
 
   useEffect(() => {
     mountedRef.current = true;
+    // A hidden page comes back here keeping its state: a send the cleanup below orphaned no longer owns the composer,
+    // and the reloaded history shows whatever it delivered.
+    if (stateRef.current.sending) dispatch({ type: 'composer/sending', sending: false });
+    if (stateRef.current.pendingMessage !== null) dispatch({ type: 'message/cleared' });
     const projectionRevision = projectionRevisionRef;
     return () => {
       mountedRef.current = false;
@@ -2231,7 +2235,8 @@ export default function AgentTaskScreen({
       }
       catch (failure) {
         if (!current()) {
-          if (!unconfirmedRequest(failure) && !alreadySent(failure) && !mountedRef.current) prepareAgentInput(taskId, message);
+          // Shown again while it was in flight, the page no longer holds this draft either.
+          if (!unconfirmedRequest(failure) && !alreadySent(failure)) prepareAgentInput(taskId, message);
           throw failure;
         }
         if (alreadySent(failure)) {

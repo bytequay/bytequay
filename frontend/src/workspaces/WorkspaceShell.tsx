@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Activity, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import { useTaskAttention } from '../agents/attention';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
@@ -50,6 +50,10 @@ import {
   type WorkspaceTab,
 } from './model';
 import '../css/workspaces.css';
+
+type TaskPage = { kind: 'cherry-pick' | 'review' | 'task'; id: string };
+// ponytail: the open task page and the two before it stay mounted; raise it if switching among more tasks matters more than their memory.
+const KEPT_TASK_PAGES = 3;
 
 export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
@@ -93,6 +97,15 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   const monitoredRepository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const agentScreens = tab === 'home' || tab === 'tasks';
   const taskDetail = tab === 'tasks' && (initialAgentTaskId !== null || initialAgentReviewId !== null);
+  const openTaskPage: TaskPage | null = tab !== 'tasks' ? null
+    : initialCherryPickId !== null ? { kind: 'cherry-pick', id: initialCherryPickId }
+    : initialAgentReviewId !== null ? { kind: 'review', id: initialAgentReviewId }
+    : initialAgentTaskId !== null ? { kind: 'task', id: initialAgentTaskId } : null;
+  const openTaskKey = openTaskPage === null ? null : `${openTaskPage.kind}:${openTaskPage.id}`;
+  const [keptTaskPages, setKeptTaskPages] = useState<TaskPage[]>([]);
+  if (openTaskPage !== null && (keptTaskPages[0] === undefined || `${keptTaskPages[0].kind}:${keptTaskPages[0].id}` !== openTaskKey)) {
+    setKeptTaskPages(pages => [openTaskPage, ...pages.filter(page => page.kind !== openTaskPage.kind || page.id !== openTaskPage.id)].slice(0, KEPT_TASK_PAGES));
+  }
   // A cherry-pick execution zooms over the task list; an agent task owns the page instead.
   const zoomedCherryPick = tab === 'tasks' && openCherryPick !== null;
   const zoom = useZoom(useCallback(() => setOpenCherryPick(null), []), zoomedCherryPick);
@@ -188,6 +201,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   useEffect(() => {
     if (tab !== 'commits') setInitialCommitsRepo(null);
     if (tab !== 'tasks') {
+      setKeptTaskPages([]);
       setOpenCherryPick(null);
       setStartWork(undefined);
       setStartNow(undefined);
@@ -283,37 +297,20 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
       return <MemoryPage workspace={workspace} />;
     }
     if (tab === 'tasks') {
-      if (initialCherryPickId !== null) return stage(<CherryPickTaskScreen key={initialCherryPickId} executionId={initialCherryPickId}
-        onBack={() => onSelectAgentTask(null, 'push')} headerAction={overviewOpen ? undefined : overviewToggle} onOpenPullRequest={zoomPullRequest} />);
-      if (initialAgentReviewId !== null) return stage(<ReviewTaskScreen
-        key={initialAgentReviewId}
-        workspaceId={workspace.id}
-        reviewId={initialAgentReviewId}
-        onBack={() => onSelectAgentTask(null, 'push')}
-        headerAction={overviewOpen ? undefined : overviewToggle}
-        browserOpen={browserOpen}
-      />);
-      if (initialAgentTaskId !== null) {
-        // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
-        // Keyed by task: moving between two open tasks must not carry one task's transcript and
-        // sequence cursor into the other, which would drop the second task's early events as
-        // duplicates.
-        return stage(
-          <AgentTaskScreen
-            key={initialAgentTaskId}
-            workspaceId={workspace.id}
-            taskId={initialAgentTaskId}
-            onBack={() => onSelectAgentTask(null, 'push')}
-            headerAction={overviewOpen ? undefined : overviewToggle}
-            onOpenPullRequest={zoomPullRequest}
-            workspace={workspace}
-            onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }}
-          />,
-        );
-      }
+      // Recently opened task pages stay mounted but hidden, so switching back shows them at once; their effects
+      // stop while hidden and run again when shown, which refreshes them.
+      // Keyed by page: moving between two open tasks must not carry one task's transcript and
+      // sequence cursor into the other, which would drop the second task's early events as
+      // duplicates.
+      const taskPages = keptTaskPages.map(page => {
+        const key = `${page.kind}:${page.id}`;
+        return <Activity key={key} mode={key === openTaskKey ? 'visible' : 'hidden'}>{renderTaskPage(page)}</Activity>;
+      });
       // The agent view owns the page: every kind of task is listed there, above its composer.
       return stage(
         <>
+          {taskPages}
+          {openTaskPage === null && <>
           <AgentTasksView
             key={sourceIssueNumber ?? startWork?.key ?? 'new-task'}
             workspaceId={workspace.id}
@@ -350,6 +347,7 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
                 headerAction={<ZoomActions {...zoom} label="cherry-pick" className="agt-headbtn" />} onOpenPullRequest={zoomPullRequest} />
             </div>
           )}
+          </>}
         </>,
       );
     }
@@ -387,6 +385,16 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
         onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
       />
     </>);
+  }
+
+  function renderTaskPage(page: TaskPage): React.JSX.Element {
+    const onBack = () => onSelectAgentTask(null, 'push');
+    const headerAction = overviewOpen ? undefined : overviewToggle;
+    if (page.kind === 'cherry-pick') return <CherryPickTaskScreen executionId={page.id} onBack={onBack} headerAction={headerAction} onOpenPullRequest={zoomPullRequest} />;
+    if (page.kind === 'review') return <ReviewTaskScreen workspaceId={workspace.id} reviewId={page.id} onBack={onBack} headerAction={headerAction} browserOpen={browserOpen} />;
+    // Not wrapped in ws-tab-page: the screen scrolls its transcript, not the whole page.
+    return <AgentTaskScreen workspaceId={workspace.id} taskId={page.id} onBack={onBack} headerAction={headerAction} onOpenPullRequest={zoomPullRequest}
+      workspace={workspace} onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }} />;
   }
 }
 

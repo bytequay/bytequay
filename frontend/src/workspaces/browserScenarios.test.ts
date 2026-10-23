@@ -43,6 +43,11 @@ testBrowserScenarios([
     },
   },
   {
+    name: 'keeps recently opened task pages and refreshes them when shown again in Chromium',
+    expected: 2, timeout: 30_000,
+    fixture: { prefix: 'bytequay-task-switch-', entry: 'src/workspaces/fixtures/taskSwitchBrowser.tsx', global: 'TaskSwitchTests', styles: true },
+  },
+  {
     name: 'filters loaded issues, keeps a closed issue in view and zooms a named issue in Chromium',
     expected: 5, timeout: 30_000,
     fixture: {

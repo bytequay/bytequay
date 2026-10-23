@@ -152,6 +152,7 @@ export default function AgentReviewTab({
   const [reviewSequence, setReviewSequence] = useState(0);
   const conversationRef = useRef(conversation);
   conversationRef.current = conversation;
+  const conversationOwner = useRef<string | null>(null);
   const followingHistory = useRef(true);
   const historyRequestRef = useRef<symbol | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -364,8 +365,12 @@ export default function AgentReviewTab({
     let live = true;
     const revisions = projectionRevision;
     let settlingRefresh: ReturnType<typeof setTimeout> | undefined;
-    setConversation(initialAgentTaskState());
-    setReviewSequence(0);
+    // A hidden task page runs this again when shown: its conversation stays on screen while the session re-reads the latest page.
+    if (conversationOwner.current !== `${reviewId}:${taskId}`) {
+      conversationOwner.current = `${reviewId}:${taskId}`;
+      setConversation(initialAgentTaskState());
+      setReviewSequence(0);
+    }
     followingHistory.current = true;
     let reloading = false;
     let nextRefresh: { turnId: string | null; sequence: number } | null = null;

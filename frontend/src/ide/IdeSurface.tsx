@@ -131,10 +131,10 @@ export default function IdeSurface(props: IdeSurfaceProps) {
       if (event.closed) { idRef.current = null; setId(null); setStartRequested(false); setNeedsStart(true); }
       if (event.error) setError(event.error);
     });
+    // A hidden task page runs this cleanup and later subscribes again with its editor still open, so the id stays.
     return () => {
       stopRequest(); stopEvent();
       if (idRef.current) void window.ide.present(idRef.current, null).catch(() => {});
-      idRef.current = null;
     };
   }, []);
 

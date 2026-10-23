@@ -13,15 +13,15 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.ci.CiHeadSnapshot;
-import com.bytequay.app.ci.CiRerunResult;
-import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
+import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
+import com.bytequay.app.repository.github.actions.CiRerunResult;
+import com.bytequay.app.repository.github.actions.CiWorkflowRun;
+import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;

@@ -17,7 +17,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.app.agent.WorkflowAgentTasks;
+import com.bytequay.app.agent.runtime.WorkflowAgentTasks;
 import com.bytequay.app.json.JsonContracts;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -33,7 +33,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.bytequay.app.context.ContextText.unfence;
+import static com.bytequay.app.utils.ContextText.unfence;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;

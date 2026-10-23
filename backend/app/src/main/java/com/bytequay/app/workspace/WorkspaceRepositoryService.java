@@ -50,7 +50,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
-import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;

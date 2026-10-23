@@ -15,7 +15,7 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.app.context.ContextText;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixRun;

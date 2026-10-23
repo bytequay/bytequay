@@ -13,7 +13,8 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.google.common.base.CharMatcher;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

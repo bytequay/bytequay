@@ -31,7 +31,7 @@ import com.bytequay.app.ci.CiPushResult;
 import com.bytequay.app.ci.PushCiHeadCommand;
 import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;

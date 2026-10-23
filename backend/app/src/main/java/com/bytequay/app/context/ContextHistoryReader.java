@@ -17,6 +17,7 @@ import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;

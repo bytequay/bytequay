@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.memory;
 
-import com.bytequay.app.context.ContextText;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;

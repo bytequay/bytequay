@@ -37,9 +37,9 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
-import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
-import com.bytequay.app.git.SequenceState;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.SequenceState;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -191,7 +191,7 @@ class TestBranchRebaseService
         BranchRebase started = service.start(command("recover-clean"));
 
         assertThat(driver.begin(repository, tips.original(), tips.base()).kind())
-                .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
+                .isEqualTo(com.bytequay.app.git.command.SequenceState.Kind.COMPLETED);
         String rebased = head(repository);
         BranchRebase recovered = service.advance(started.id());
 
@@ -260,7 +260,7 @@ class TestBranchRebaseService
         BranchRebase.ActionJournal action = rebase.journal().orElseThrow();
 
         assertThat(driver.continueRebase(repository, action.expectedHead(), action.stoppedCommitSha().orElseThrow()).kind())
-                .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
+                .isEqualTo(com.bytequay.app.git.command.SequenceState.Kind.COMPLETED);
         BranchRebase recovered = service.advance(rebase.id());
 
         assertThat(recovered.status()).isEqualTo(Status.FINISHED);
@@ -281,7 +281,7 @@ class TestBranchRebaseService
         BranchRebase.ActionJournal action = rebase.journal().orElseThrow();
 
         assertThat(driver.skipEmpty(repository, action.expectedHead(), action.stoppedCommitSha().orElseThrow()).kind())
-                .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
+                .isEqualTo(com.bytequay.app.git.command.SequenceState.Kind.COMPLETED);
         BranchRebase recovered = service.advance(rebase.id());
 
         assertThat(recovered.status()).isEqualTo(Status.FINISHED);

@@ -25,7 +25,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Set;
 
-import static com.bytequay.app.context.ContextText.unfence;
+import static com.bytequay.app.utils.ContextText.unfence;
 
 /** The verdict a summary request asks for, and the only judge of whether an answer is one. */
 final class CommentSummary

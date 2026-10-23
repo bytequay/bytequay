@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.core.ci.CiAutofixAttempt;
 
 import java.util.List;

@@ -14,8 +14,8 @@
 package com.bytequay.app.ci.e2e;
 
 import com.bytequay.app.ci.RoutedGitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

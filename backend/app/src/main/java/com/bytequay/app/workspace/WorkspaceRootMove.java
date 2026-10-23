@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;

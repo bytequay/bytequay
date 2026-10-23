@@ -14,8 +14,8 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;

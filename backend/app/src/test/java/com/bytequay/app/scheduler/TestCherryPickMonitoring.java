@@ -19,7 +19,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.backport.BackportChainService;
 import com.bytequay.app.cherrypick.CherryPickExecutionService;
 import com.bytequay.app.ci.CiAutofixService;
@@ -48,7 +48,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
-import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
+import static com.bytequay.app.agent.runtime.AgentServingGates.readyAgentServingGate;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;

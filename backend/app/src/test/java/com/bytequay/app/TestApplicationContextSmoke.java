@@ -13,8 +13,8 @@
  */
 package com.bytequay.app;
 
-import com.bytequay.app.agent.AgentProperties;
-import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

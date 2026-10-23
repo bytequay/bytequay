@@ -15,7 +15,7 @@ package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickCommitPreview;
 import com.bytequay.app.cherrypick.CherryPickPreview;
-import com.bytequay.app.cherrypick.PullRequestAssociation;
+import com.bytequay.app.git.PullRequestAssociation;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;

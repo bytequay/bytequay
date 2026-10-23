@@ -24,7 +24,7 @@ import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.app.agent.AgentStartupRecovery;
+import com.bytequay.app.agent.runtime.AgentStartupRecovery;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;

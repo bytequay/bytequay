@@ -33,7 +33,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSessionRef;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.pr.PullRequestRefreshService;

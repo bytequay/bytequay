@@ -32,7 +32,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 

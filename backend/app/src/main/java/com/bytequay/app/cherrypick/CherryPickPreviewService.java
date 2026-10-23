@@ -14,8 +14,9 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.PullRequestAssociation;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;

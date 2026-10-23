@@ -14,9 +14,9 @@
 package com.bytequay.app.memory;
 
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.app.agent.RepositoryGuidelineReader;
 import com.bytequay.app.context.ContextBuildService;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.context.RepositoryGuidelineReader;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;

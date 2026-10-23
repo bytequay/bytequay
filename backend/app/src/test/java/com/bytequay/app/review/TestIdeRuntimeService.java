@@ -25,7 +25,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
-import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;

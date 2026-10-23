@@ -14,8 +14,8 @@
 package com.bytequay.app.web.cherrypick;
 
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.app.agent.AgentProperties;
-import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.cherrypick.CherryPickExecutionService;
 import com.bytequay.app.cherrypick.StartCherryPickExecutionCommand;
 import com.bytequay.app.web.GlobalExceptionHandler;
@@ -47,7 +47,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
-import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
+import static com.bytequay.app.agent.runtime.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;

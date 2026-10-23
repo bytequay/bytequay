@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.workitem;
 
-import com.bytequay.app.review.PullRequestDetailRefreshed;
-import com.bytequay.app.review.PullRequestsRefreshed;
 import com.bytequay.app.service.epic.EpicNextWork;
+import com.bytequay.app.service.pr.PullRequestDetailRefreshed;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.pr.PullRequestsRefreshed;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;

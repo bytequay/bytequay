@@ -26,7 +26,7 @@ import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.InMemoryMemoryStore;
 import com.bytequay.app.memory.MemoryFixtures;
 import com.bytequay.app.memory.MemoryService;

@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.app.git.GitCommandRunner.Result;
-import com.bytequay.app.git.SequenceState.ConflictedPath;
-import com.bytequay.app.git.SequenceState.Kind;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
+import com.bytequay.app.git.command.SequenceState;
+import com.bytequay.app.git.command.SequenceState.ConflictedPath;
+import com.bytequay.app.git.command.SequenceState.Kind;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
@@ -26,8 +28,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.bytequay.app.git.SequenceState.completed;
-import static com.bytequay.app.git.SequenceState.unsafe;
+import static com.bytequay.app.git.command.SequenceState.completed;
+import static com.bytequay.app.git.command.SequenceState.unsafe;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 

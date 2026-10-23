@@ -14,7 +14,7 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;

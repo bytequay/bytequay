@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
+import com.bytequay.app.agent.runtime.WorkflowAgentTasks;
 import com.bytequay.core.domain.ModelApiKey;
 import com.bytequay.core.store.ModelApiKeyStore;
 import com.google.common.collect.ImmutableList;
@@ -35,7 +36,7 @@ import static java.util.Objects.requireNonNull;
 final class DeepSeekAgentDriverRegistry
         implements AgentDriverRegistry
 {
-    static final String PREFIX = "deepseek-key-";
+    static final String PREFIX = WorkflowAgentTasks.DEEPSEEK_LANE_PREFIX;
 
     private final AgentDriverRegistry cliDrivers;
     private final ModelApiKeyStore keys;

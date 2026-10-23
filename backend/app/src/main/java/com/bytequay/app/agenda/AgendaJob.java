@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.agenda;
 
-import com.bytequay.app.review.PullRequestsRefreshed;
+import com.bytequay.app.service.pr.PullRequestsRefreshed;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;

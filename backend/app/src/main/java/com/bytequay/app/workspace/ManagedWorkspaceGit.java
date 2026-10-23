@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.Workspace;
@@ -40,14 +40,14 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Performs filesystem and Git operations inside a ByteQuay-owned workspace checkout. */
 @Component
-class ManagedWorkspaceGit
+public class ManagedWorkspaceGit
 {
     private static final Logger log = LoggerFactory.getLogger(ManagedWorkspaceGit.class);
     private static final Duration NETWORK_TIMEOUT = Duration.ofMinutes(10);
@@ -90,7 +90,7 @@ class ManagedWorkspaceGit
     }
 
     /** Pushes one retained ByteQuay task branch to the persisted {@code origin} without force. */
-    void pushBranch(Workspace workspace, String branch, String expectedSha)
+    public void pushBranch(Workspace workspace, String branch, String expectedSha)
     {
         Path repository = requireBranchAt(workspace, branch, expectedSha);
         String localRef = "refs/heads/" + branch;
@@ -103,7 +103,7 @@ class ManagedWorkspaceGit
     }
 
     /** Replaces one ByteQuay task branch on {@code origin} only while it still points at {@code leaseSha}. */
-    void replaceBranch(Workspace workspace, String branch, String expectedSha, String leaseSha)
+    public void replaceBranch(Workspace workspace, String branch, String expectedSha, String leaseSha)
     {
         requireNonNull(leaseSha, "leaseSha is null");
         Path repository = requireBranchAt(workspace, branch, expectedSha);
@@ -117,7 +117,7 @@ class ManagedWorkspaceGit
     }
 
     /** Deletes one ByteQuay task branch from {@code origin} only while it still points at {@code leaseSha}. */
-    void deleteBranch(Workspace workspace, String branch, String leaseSha)
+    public void deleteBranch(Workspace workspace, String branch, String leaseSha)
     {
         requireNonNull(branch, "branch is null");
         requireNonNull(leaseSha, "leaseSha is null");
@@ -156,7 +156,7 @@ class ManagedWorkspaceGit
         }
     }
 
-    Optional<String> remoteBranchSha(Workspace workspace, String branch)
+    public Optional<String> remoteBranchSha(Workspace workspace, String branch)
     {
         validateRouting(workspace);
         Path repository = requireOwnedCheckout(workspace);
@@ -430,7 +430,7 @@ class ManagedWorkspaceGit
         return new Failure("Managed checkout remotes do not match this workspace. Move the checkout and retry.", internalMessage);
     }
 
-    static final class Failure
+    public static final class Failure
             extends RuntimeException
     {
         private final String safeMessage;
@@ -447,7 +447,7 @@ class ManagedWorkspaceGit
             this.safeMessage = safeMessage;
         }
 
-        String safeMessage()
+        public String safeMessage()
         {
             return safeMessage;
         }

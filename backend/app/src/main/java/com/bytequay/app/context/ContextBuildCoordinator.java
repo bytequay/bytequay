@@ -16,7 +16,7 @@ package com.bytequay.app.context;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.app.agent.TaskEventWatcher;
+import com.bytequay.app.agent.runtime.TaskEventWatcher;
 import com.bytequay.core.store.WorkspaceStore;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;

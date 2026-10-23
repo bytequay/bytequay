@@ -32,7 +32,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.context.ContextSpecCheckService;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;

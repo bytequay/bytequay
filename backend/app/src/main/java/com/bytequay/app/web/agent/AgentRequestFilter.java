@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web.agent;
 
-import com.bytequay.app.agent.AgentProperties;
-import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.web.ErrorResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;

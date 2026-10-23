@@ -22,7 +22,7 @@ import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.TaskWorktree;
-import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.review.ReviewConflictException;
 import com.fasterxml.jackson.databind.JsonNode;

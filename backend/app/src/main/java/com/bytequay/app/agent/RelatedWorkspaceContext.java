@@ -15,7 +15,7 @@ package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.review.AgentReviewStore;

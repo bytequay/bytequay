@@ -24,7 +24,7 @@ import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
@@ -118,6 +118,7 @@ import static com.fasterxml.jackson.annotation.JsonInclude.Include.NON_ABSENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
+
 /**
  * The fixed review tools, bound to one review by the task token that calls them. Every write
  * is validated here against the bound run, replays by operation key, and commits its replay

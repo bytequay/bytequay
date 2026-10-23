@@ -18,17 +18,17 @@ import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.app.ci.BoundedCiLog;
-import com.bytequay.app.ci.CiHeadSnapshot;
-import com.bytequay.app.ci.CiJob;
-import com.bytequay.app.ci.CiLogExcerpt;
-import com.bytequay.app.ci.CiRawLogStore;
-import com.bytequay.app.ci.CiRerunResult;
-import com.bytequay.app.ci.CiStep;
-import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.ReadCiLogQuery;
-import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.GitHubPaginator.Page;
+import com.bytequay.app.repository.github.actions.BoundedCiLog;
+import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
+import com.bytequay.app.repository.github.actions.CiJob;
+import com.bytequay.app.repository.github.actions.CiLogExcerpt;
+import com.bytequay.app.repository.github.actions.CiRawLogStore;
+import com.bytequay.app.repository.github.actions.CiRerunResult;
+import com.bytequay.app.repository.github.actions.CiStep;
+import com.bytequay.app.repository.github.actions.CiWorkflowRun;
+import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
+import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
@@ -80,9 +80,6 @@ import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.ci.CiRerunResult.Outcome.ACCEPTED;
-import static com.bytequay.app.ci.CiRerunResult.Outcome.OBSOLETE;
-import static com.bytequay.app.ci.CiRerunResult.Outcome.REJECTED;
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.extractGitHubErrorMessage;
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
@@ -91,13 +88,16 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.repository.github.GitHubPaginator.forEachCompletePage;
+import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.ACCEPTED;
+import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.OBSOLETE;
+import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.REJECTED;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 @Component
 public class GitHubActionsClient
-        implements com.bytequay.app.ci.GitHubActionsClient
+        implements com.bytequay.app.repository.github.actions.GitHubActionsClient
 {
     private static final int PAGE_SIZE = 100;
     private static final int MAX_PAGES = 10;

@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.app.git.SequenceState.Kind;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.SequenceState;
+import com.bytequay.app.git.command.SequenceState.Kind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

@@ -20,7 +20,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.spi.CodeQuery;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;

@@ -15,6 +15,7 @@ package com.bytequay.app.context;
 
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.memory.MemorySource;

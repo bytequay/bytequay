@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.github;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;

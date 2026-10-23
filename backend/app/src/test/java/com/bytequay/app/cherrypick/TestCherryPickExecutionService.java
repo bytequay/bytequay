@@ -30,12 +30,11 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.ci.CiAutofixService;
-import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
-import com.bytequay.app.workspace.WorkspacePullRequestService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService.WorkspaceRemote;
@@ -867,14 +866,14 @@ class TestCherryPickExecutionService
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
         GitSequencerDriver driver = new GitSequencerDriver(GIT);
-        com.bytequay.app.git.SequenceState empty = driver.beginCherryPick(worktree, started.currentTargetSha(), source);
-        assertThat(empty.kind()).isEqualTo(com.bytequay.app.git.SequenceState.Kind.STOPPED_EMPTY);
+        com.bytequay.app.git.command.SequenceState empty = driver.beginCherryPick(worktree, started.currentTargetSha(), source);
+        assertThat(empty.kind()).isEqualTo(com.bytequay.app.git.command.SequenceState.Kind.STOPPED_EMPTY);
         CherryPickExecution journalled = store.save(started
                 .withStep(Step.APPLYING, CLOCK.instant())
                 .withJournal(new ActionJournal(ActionType.SKIP_EMPTY, Optional.of(source), started.currentTargetSha(), 1, "skip", CLOCK.instant()), CLOCK.instant()));
 
         assertThat(driver.skipEmpty(worktree, started.currentTargetSha(), source).kind())
-                .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
+                .isEqualTo(com.bytequay.app.git.command.SequenceState.Kind.COMPLETED);
         CherryPickExecution finished = runToCompletion(journalled);
 
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
@@ -894,7 +893,7 @@ class TestCherryPickExecutionService
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
         GitSequencerDriver driver = new GitSequencerDriver(GIT);
-        com.bytequay.app.git.SequenceState conflict = driver.beginCherryPick(worktree, started.currentTargetSha(), source);
+        com.bytequay.app.git.command.SequenceState conflict = driver.beginCherryPick(worktree, started.currentTargetSha(), source);
         CherryPickExecution journalled = store.save(started
                 .recordConflict(source, conflictPaths(conflict), CLOCK.instant())
                 .withStep(Step.RESOLVING, CLOCK.instant())
@@ -1226,7 +1225,7 @@ class TestCherryPickExecutionService
         throw new AssertionError("execution did not reach conflict-pair finalization");
     }
 
-    private static List<CherryPickItem.ConflictPath> conflictPaths(com.bytequay.app.git.SequenceState state)
+    private static List<CherryPickItem.ConflictPath> conflictPaths(com.bytequay.app.git.command.SequenceState state)
     {
         return state.conflicts().stream()
                 .map(conflict -> new CherryPickItem.ConflictPath(

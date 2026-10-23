@@ -32,7 +32,7 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agenda.AgendaFixtures;
-import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;

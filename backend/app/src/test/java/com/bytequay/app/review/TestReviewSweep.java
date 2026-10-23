@@ -23,7 +23,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.DiffFile;

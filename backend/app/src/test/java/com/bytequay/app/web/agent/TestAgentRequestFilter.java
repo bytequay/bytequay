@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web.agent;
 
-import com.bytequay.app.agent.AgentProperties;
-import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.jira.JiraController;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
@@ -45,7 +45,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.util.Optional;
 
-import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
+import static com.bytequay.app.agent.runtime.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;

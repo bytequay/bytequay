@@ -28,7 +28,7 @@ import com.bytequay.app.context.ContextBuild.HarvestPull;
 import com.bytequay.app.context.ContextBuild.HarvestThread;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.context.ContextBuildStore;
-import com.bytequay.app.context.ContextText;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.memory.Memory;

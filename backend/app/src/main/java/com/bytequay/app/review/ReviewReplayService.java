@@ -13,14 +13,14 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.app.context.ContextText;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubHarvestClient;
 import com.bytequay.app.repository.github.GitHubHarvestClient.PullReplay;
 import com.bytequay.app.repository.github.GitHubHarvestClient.SubmittedReview;
 import com.bytequay.app.repository.github.GitHubHarvestClient.ThreadStart;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.review.AgentReview;

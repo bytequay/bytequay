@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
+import com.bytequay.app.git.PullRequestAssociation;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;

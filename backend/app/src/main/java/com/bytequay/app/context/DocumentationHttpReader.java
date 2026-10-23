@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.context;
 
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.context.RegisteredContextSource;
 import com.google.common.collect.ImmutableList;

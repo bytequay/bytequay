@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web.cherrypick;
 
-import com.bytequay.app.agent.AgentProperties;
-import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.cherrypick.CherryPickPreviewService;
 import com.bytequay.app.cherrypick.MergedPullRequestResolver;
 import com.bytequay.app.cherrypick.PreviewCherryPickRangeCommand;
@@ -42,7 +42,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.OptionalLong;
 
-import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
+import static com.bytequay.app.agent.runtime.AgentServingGates.readyAgentServingGate;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;

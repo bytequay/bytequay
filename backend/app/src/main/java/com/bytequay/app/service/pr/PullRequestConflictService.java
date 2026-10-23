@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;

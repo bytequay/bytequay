@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;

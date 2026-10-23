@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;

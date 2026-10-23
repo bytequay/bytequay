@@ -15,7 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.agent.cli.claude.ClaudeHome;
 import com.bytequay.agent.cli.codex.CodexHome;
-import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;

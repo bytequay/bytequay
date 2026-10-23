@@ -14,7 +14,7 @@
 package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.ConflictPreview.Status;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

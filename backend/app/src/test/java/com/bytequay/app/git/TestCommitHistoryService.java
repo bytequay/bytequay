@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.github.GitHubRepoClient;

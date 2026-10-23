@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.ci;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.google.common.collect.ImmutableList;
 
 import java.nio.file.Path;

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.core.domain.DiffFile;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

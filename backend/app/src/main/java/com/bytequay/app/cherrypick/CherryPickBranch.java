@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickLifecycle.BranchCommit;

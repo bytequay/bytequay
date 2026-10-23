@@ -34,7 +34,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.discussion.ReviewFixService;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;

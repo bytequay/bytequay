@@ -32,7 +32,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.review.ReviewToolAssignment;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;

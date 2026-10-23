@@ -25,7 +25,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.regex.Pattern;
 
-import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 

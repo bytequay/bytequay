@@ -27,7 +27,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
-import com.bytequay.app.agent.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.core.discussion.DiscussionSession;

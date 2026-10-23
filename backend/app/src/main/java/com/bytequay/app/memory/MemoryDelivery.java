@@ -21,7 +21,7 @@ import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnMemory;
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.memory.Memory;

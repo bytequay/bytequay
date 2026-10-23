@@ -34,7 +34,7 @@ import com.bytequay.app.context.ContextSpecCheck.Candidate;
 import com.bytequay.app.context.ContextSpecCheck.Duplicate;
 import com.bytequay.app.context.ContextSpecCheck.Predicted;
 import com.bytequay.app.context.ContextSpecCheck.Status;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.InMemoryMemoryStore;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubRepoClient;

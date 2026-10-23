@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitTestSupport;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

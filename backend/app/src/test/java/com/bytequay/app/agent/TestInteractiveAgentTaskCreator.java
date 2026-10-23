@@ -38,7 +38,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AppSettingsService;

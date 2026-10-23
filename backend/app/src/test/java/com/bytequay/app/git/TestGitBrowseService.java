@@ -17,6 +17,7 @@ import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.git.GitBrowseService.DiffFile;
 import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
+import com.bytequay.app.git.command.GitCommandRunner;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

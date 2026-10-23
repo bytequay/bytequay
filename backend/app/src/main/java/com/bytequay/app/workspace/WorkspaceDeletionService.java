@@ -22,7 +22,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.context.ContextSpecCheckService;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;

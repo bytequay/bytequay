@@ -14,6 +14,7 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.impl.AgentMaintenance;
+import com.bytequay.app.agent.runtime.AgentServingGate;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;

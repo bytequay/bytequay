@@ -13,9 +13,9 @@
  */
 package com.bytequay.app.cherrypick;
 
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
-import com.bytequay.app.git.SequenceState.ConflictedPath;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
+import com.bytequay.app.git.command.SequenceState.ConflictedPath;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;

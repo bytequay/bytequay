@@ -13,12 +13,9 @@
  */
 package com.bytequay.app.git;
 
-import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
-import com.bytequay.app.cherrypick.PullRequestAssociation;
-import com.bytequay.app.cherrypick.PullRequestLookupResult;
-import com.bytequay.app.cherrypick.PullRequestLookupResult.Association;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
+import com.bytequay.app.git.PullRequestLookupResult.Association;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;

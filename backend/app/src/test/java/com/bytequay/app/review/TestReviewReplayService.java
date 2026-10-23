@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.InMemoryMemoryStore;
 import com.bytequay.app.memory.MemoryFixtures;
 import com.bytequay.app.memory.MemoryService;

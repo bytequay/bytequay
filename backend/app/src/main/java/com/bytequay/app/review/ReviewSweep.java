@@ -24,7 +24,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.PullRequestDetail;

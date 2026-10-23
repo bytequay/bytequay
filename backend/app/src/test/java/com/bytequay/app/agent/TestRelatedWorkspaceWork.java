@@ -52,7 +52,7 @@ import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.backport.BackportChainService;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;

@@ -27,7 +27,7 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
-import com.bytequay.app.context.ContextText;
+import com.bytequay.app.utils.ContextText;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Multimaps;

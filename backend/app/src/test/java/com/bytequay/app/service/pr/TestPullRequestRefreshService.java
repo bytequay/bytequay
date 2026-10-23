@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;

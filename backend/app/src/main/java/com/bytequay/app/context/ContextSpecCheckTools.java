@@ -23,6 +23,7 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.context.ContextSpecCheck.Duplicate;
+import com.bytequay.app.utils.ContextText;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ContextLimits;
 import com.fasterxml.jackson.core.JsonProcessingException;

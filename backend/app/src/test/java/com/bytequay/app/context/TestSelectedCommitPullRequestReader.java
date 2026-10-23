@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
-import com.bytequay.app.cherrypick.PullRequestAssociation;
-import com.bytequay.app.cherrypick.PullRequestLookupResult;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.CherryPickPullRequestLookup;
+import com.bytequay.app.git.PullRequestAssociation;
+import com.bytequay.app.git.PullRequestLookupResult;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;

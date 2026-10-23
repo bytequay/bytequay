@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.github;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;

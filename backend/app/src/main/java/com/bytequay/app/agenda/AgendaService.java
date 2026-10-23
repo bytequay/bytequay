@@ -24,7 +24,7 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
-import com.bytequay.app.agent.WorkflowAgentTasks;
+import com.bytequay.app.agent.runtime.WorkflowAgentTasks;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;

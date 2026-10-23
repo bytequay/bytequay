@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.git;
 
+import com.bytequay.app.git.command.GitCommandRunner;
+
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;

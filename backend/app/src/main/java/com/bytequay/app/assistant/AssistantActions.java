@@ -28,7 +28,7 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaRefs;
 import com.bytequay.app.agenda.ItemTaskStarter;
-import com.bytequay.app.agent.TaskInput;
+import com.bytequay.app.agent.runtime.TaskInput;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.attention.AttentionMarkService;

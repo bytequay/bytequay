@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.cherrypick;
 
-import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.MergedPullRequest;
 import com.bytequay.app.service.credentials.CredentialService;

@@ -13,11 +13,6 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.ci.CiHeadSnapshot;
-import com.bytequay.app.ci.CiJob;
-import com.bytequay.app.ci.CiRerunResult;
-import com.bytequay.app.ci.CiWorkflowRun;
-import com.bytequay.app.ci.RerunFailedJobsCommand;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
@@ -32,6 +27,11 @@ import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
+import com.bytequay.app.repository.github.actions.CiJob;
+import com.bytequay.app.repository.github.actions.CiRerunResult;
+import com.bytequay.app.repository.github.actions.CiWorkflowRun;
+import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.recent.RecentTouchRecorder;

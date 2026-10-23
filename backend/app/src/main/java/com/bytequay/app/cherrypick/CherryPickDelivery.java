@@ -18,11 +18,10 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.SendCiAutofixMessageCommand;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
-import com.bytequay.app.workspace.WorkspacePullRequestService;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
@@ -52,7 +51,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
-import static com.bytequay.app.agent.WorkflowAgentTasks.repositoryIdentity;
+import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.repositoryIdentity;
 import static java.util.Objects.requireNonNull;
 
 /**

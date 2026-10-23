@@ -45,7 +45,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.ProviderTurnRef;
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;

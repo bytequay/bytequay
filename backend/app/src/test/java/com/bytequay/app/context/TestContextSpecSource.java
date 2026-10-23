@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;

@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.rebase;
 
-import com.bytequay.app.git.SequenceState;
+import com.bytequay.app.git.command.SequenceState;
 import com.bytequay.core.rebase.BranchRebase;
 
 import java.util.Optional;

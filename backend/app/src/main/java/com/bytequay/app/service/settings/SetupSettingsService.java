@@ -16,7 +16,7 @@ package com.bytequay.app.service.settings;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.agent.WorkflowAgentTasks;
+import com.bytequay.app.agent.runtime.WorkflowAgentTasks;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.CredentialStore;
 import com.fasterxml.jackson.core.JsonProcessingException;

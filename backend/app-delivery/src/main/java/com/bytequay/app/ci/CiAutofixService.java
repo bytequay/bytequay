@@ -615,12 +615,14 @@ public class CiAutofixService
             }
         }
 
-        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
-        validatePullRequest(snapshot, run.scope().pullRequest(), currentUser());
-        if (!snapshot.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
-                || !snapshot.headRef().equals(run.scope().headRef())
-                || !snapshot.baseRef().equals(run.scope().baseRef())
-                || !snapshot.headSha().equals(run.expectedRemoteHead())) {
+        // Only the head facts matter here; reading every CI job takes seconds on a large matrix, and the next poll reads them.
+        GitHubPullRequestIdentity head = pullRequestReads.fetchPullRequestIdentity(credentials.resolveGitHubToken(), run.scope().pullRequest());
+        checkArgument(head.state() == GitHubPullRequestIdentity.State.OPEN, "Pull request is not open");
+        checkArgument(head.author().equalsIgnoreCase(currentUser()), "CI Autofix is available only to the pull request author");
+        if (!head.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
+                || !head.headBranch().equals(run.scope().headRef())
+                || !head.baseBranch().equals(run.scope().baseRef())
+                || !head.headSha().equals(run.expectedRemoteHead())) {
             throw new CiAutofixConflictException("Pull request head or base branch changed outside this CI Autofix run");
         }
         requireWorkspace(run);

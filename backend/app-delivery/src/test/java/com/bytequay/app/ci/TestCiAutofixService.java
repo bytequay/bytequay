@@ -137,6 +137,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -248,6 +249,7 @@ class TestCiAutofixService
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspaceContext());
         when(provisioning.synchronizeCode("workspace-1")).thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW), ImmutableSet.of()));
         when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(pullRequestReads.fetchPullRequestIdentity(eq("token"), any())).thenAnswer(_ -> identity(snapshot));
         when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(new com.bytequay.agent.core.BlobRef(
                 runtime.relativize(log).toString(),
                 "text/plain",
@@ -614,7 +616,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.start(startCommand("fork-changed-before-message"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("repair failed")));
         CiAutofixRun paused = service.advance(run.id());
-        when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
+        when(pullRequestReads.fetchPullRequestIdentity(eq("token"), any())).thenReturn(identity(changedScopeSnapshot(baseRetarget)));
 
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "Retry", "fork-resume", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("head or base branch changed");
@@ -1678,7 +1680,9 @@ class TestCiAutofixService
         when(worktreeService.inspect(taskWorktree)).thenReturn(worktree(true, "c".repeat(40)));
 
         SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(paused.id(), "Please finish resolving the conflict", "message-key", Optional.empty());
+        clearInvocations(gitHub);
         CiAutofixRun resumed = service.sendMessage(command);
+        verify(gitHub, never()).inspect(any());
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
         assertThat(resumed.currentTurnId()).contains(recoveryId.toString());
         assertThat(resumed.attemptsUsed()).isEqualTo(1);
@@ -1747,7 +1751,7 @@ class TestCiAutofixService
 
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
         CiAutofixRun paused = service.advance(active.id());
-        when(gitHub.inspect(any())).thenReturn(snapshot(true, "author", true, "c".repeat(40), true));
+        when(pullRequestReads.fetchPullRequestIdentity(eq("token"), any())).thenReturn(identity(snapshot(true, "author", true, "c".repeat(40), true)));
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "retry", "stale-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("head or base branch changed");
@@ -2470,6 +2474,13 @@ class TestCiAutofixService
     {
         return new CiHeadSnapshot(snapshot.pullRequest(), snapshot.open(), snapshot.author(), repository, snapshot.headRef(), snapshot.headSha(),
                 snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
+    }
+
+    private static GitHubPullRequestIdentity identity(CiHeadSnapshot head)
+    {
+        return new GitHubPullRequestIdentity(head.pullRequest(), head.url(), head.headRepository(), head.headRef(), head.headSha(),
+                RepoRef.of(head.pullRequest().owner(), head.pullRequest().repo()), head.baseRef(), head.baseSha(),
+                head.open() ? GitHubPullRequestIdentity.State.OPEN : GitHubPullRequestIdentity.State.CLOSED, false, head.author());
     }
 
     private CiHeadSnapshot changedScopeSnapshot(boolean baseRetarget)

@@ -101,6 +101,7 @@ import java.util.function.Supplier;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -202,6 +203,7 @@ class TestCiAutofixEndToEnd
     {
         gitHub.reset();
         agent.reset();
+        when(publicationReads.fetchPullRequestIdentity(any(), any())).thenAnswer(invocation -> gitHub.identity(invocation.getArgument(1)));
         harness = new CiAutofixE2eHarness(
                 mvc,
                 objectMapper,
@@ -254,7 +256,7 @@ class TestCiAutofixEndToEnd
         when(gh.readToken()).thenReturn("test-token");
         when(publicationReads.fetchPullRequestIdentities("test-token", repo, repo, branch))
                 .thenAnswer(ignored -> published.get() ? ImmutableList.of(identity.get()) : ImmutableList.of());
-        when(publicationReads.fetchPullRequestIdentity("test-token", pr)).thenAnswer(ignored -> identity.get());
+        doAnswer(ignored -> identity.get()).when(publicationReads).fetchPullRequestIdentity("test-token", pr);
         when(publicationReads.fetchDeliveryChecks("test-token", pr))
                 .thenAnswer(ignored -> new GitHubDeliveryChecks("development-pr-node", identity.get(), ImmutableList.of(), ImmutableList.of()));
         doAnswer(ignored -> {

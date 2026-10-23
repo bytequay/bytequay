@@ -730,7 +730,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, repository, workspaceId, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
+export function TurnView({ turn, repository, workspaceId, first, open, now, models, durableTurns, durableTurnsLoading = false, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
@@ -756,6 +756,8 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   now: number;
   models: ModelOptionDto[];
   durableTurns: Record<string, AgentTurnDto>;
+  /** Missing durable turns are still being read; see AgentConversation. */
+  durableTurnsLoading?: boolean;
   activityChoice: Record<string, boolean>;
   previews: Record<string, AttachmentPreview>;
   agentLabels: Record<string, string>;
@@ -770,6 +772,9 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const opening = turn.users[0];
+  // Development follow-up prompts open with this header. It only delays the message; the durable
+  // origin alone decides between card and bubble, so a typed lookalike still shows as sent.
+  const openingPending = durableTurnsLoading && durable === undefined && turn.turnId !== null && opening?.text.startsWith('ByteQuay · ') === true;
   const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) ?? workflowRequest(durable, opening.text) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
   const ciRequest = opening?.delivery === 'TURN' ? ciAutofixRequest(durable, opening.text) : null;
@@ -793,7 +798,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
         return (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
-          {localThread !== undefined && localMessage !== undefined && localReview !== undefined ? (
+          {index === 0 && user.delivery === 'TURN' && openingPending ? null : localThread !== undefined && localMessage !== undefined && localReview !== undefined ? (
             <div className="agt-user agt-local-review" data-history-anchor={user.id}>
               <ReviewRequestCard action={`${localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`}
                 topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
@@ -1144,7 +1149,7 @@ function pendingTurn(message: PendingMessage, now: number): TranscriptTurn {
 }
 
 export function AgentConversation({
-  turns, repository, durableTurns, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
+  turns, repository, durableTurns, durableTurnsLoading = false, models, now, scroll, connection, running, activeTurn, activeTurnId = activeTurn?.id, waiting, gap = false, pendingMessage = null,
   activityChoice, turnChoice, onToggleTurn, onToggleActivity, onDecide,
   previews = {}, agentLabels = {}, pendingApprovals = [], generatedTurnIds, generatedBranch,
   onOpenAgent, children, transcriptFooter, turnFooter, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy, focusedDiscussion, onHoverDiscussion, label = 'Task transcript',
@@ -1154,6 +1159,11 @@ export function AgentConversation({
   /** `owner/repo` a bare `#1234` in the transcript refers to. */
   repository?: string | null;
   durableTurns: Record<string, AgentTurnDto>;
+  /**
+   * Only a turn's durable record says ByteQuay generated its request, so until that record arrives
+   * a generated-looking opening message waits rather than showing the raw prompt the card replaces.
+   */
+  durableTurnsLoading?: boolean;
   models: ModelOptionDto[];
   now: number;
   scroll: ReturnType<typeof useConversationHistory>;
@@ -1249,7 +1259,7 @@ export function AgentConversation({
             // From the first block on the turn is its own height, so output stays just above the composer.
             const reserve = latest && turn.blocks.length === 0 && turn.answer === null;
             return <TurnView key={id} turn={turn} repository={repository} workspaceId={workspaceId} first={index === 0} open={open} now={now}
-              models={models} durableTurns={durableTurns} activityChoice={activityChoice}
+              models={models} durableTurns={durableTurns} durableTurnsLoading={durableTurnsLoading} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}
               localReview={localReview} discussions={discussions} onOpenDiscussion={onOpenDiscussion} onSelectPassage={onSelectPassage}

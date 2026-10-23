@@ -412,6 +412,31 @@ describe('generated development request presentation', () => {
     }
   });
 
+  it('holds an opening request until its durable turn says whether ByteQuay generated it', () => {
+    const prompt = 'ByteQuay · Refining summary\nRefresh this task’s private Review & Learning cards.';
+    const steer = 'Also check the docs.';
+    const html = (durable: AgentTurnDto | undefined, loading: boolean) => renderToStaticMarkup(<TurnView
+      turn={{ turnId: baseTurn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+        users: [{ id: 'request', text: prompt, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' },
+          { id: 'steered', text: steer, attachments: [], delivery: 'STEER', at: '2026-01-01T12:00:01Z' }] }}
+      first={false} open={false} now={0} models={[]} durableTurns={durable === undefined ? {} : { [durable.id]: durable }} durableTurnsLoading={loading}
+      activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
+    const pending = html(undefined, true);
+    expect(pending).not.toContain('Refining summary');
+    expect(pending).toContain(steer);
+    // A person's own message is never held, even while records load.
+    expect(renderToStaticMarkup(<TurnView
+      turn={{ turnId: baseTurn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+        users: [{ id: 'request', text: steer, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
+      first={false} open={false} now={0} models={[]} durableTurns={{}} durableTurnsLoading
+      activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />)).toContain(steer);
+    const generated = { ...baseTurn, developmentOrigin: { kind: 'REFINE_SUMMARY' as const, parentUserTurnId: 'source-turn' } };
+    expect(html(generated, true)).toContain('ByteQuay · Refine summary');
+    expect(html(generated, true)).not.toContain('Refining summary');
+    // Without a load in flight, a missing record leaves the message as sent.
+    expect(html(undefined, false)).toContain('Refining summary');
+  });
+
   it('uses Idle for settled runtime and preserves live automation and recovery precedence in task cards', () => {
     expect(taskHtml({ ...baseTurn, state: 'COMPLETED' })).toContain('>Idle<');
     const task = previewTask('workspace-1', baseTurn.taskId);

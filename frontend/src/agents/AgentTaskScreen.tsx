@@ -946,6 +946,7 @@ export function AgentTaskBody({
   onResumeQueue = () => {},
   onCleanup = () => {},
   historyLoading = false,
+  durableTurnsLoading = false,
   onLoadHistory = () => {},
   onFollowHistory = () => {},
   pendingApprovals = null,
@@ -977,6 +978,7 @@ export function AgentTaskBody({
   onOpenReview?: (target: ReviewRequestTarget) => void;
   models: ModelOptionDto[];
   historyLoading?: boolean;
+  durableTurnsLoading?: boolean;
   onLoadHistory?: (direction: 'older' | 'newer' | 'latest') => void;
   onFollowHistory?: (following: boolean) => void;
   pendingApprovals?: AgentPendingApprovalDto[] | null;
@@ -1294,7 +1296,7 @@ export function AgentTaskBody({
           .map(work => <LinkedWorkCard key={`${work.createdAt}:${work.targetWorkspaceId}`} work={work} />)}
           {backports.chains.filter(view => view.chain.requestingTaskId === state.task?.id && view.chain.acceptances[0]?.turnId === turnId)
             .map(view => <BackportChainCard key={view.chain.id} view={view} />)}</>}
-        turns={turns} repository={repository} durableTurns={state.turns} models={models} now={now} scroll={scroll} workspaceId={state.task?.workspaceId}
+        turns={turns} repository={repository} durableTurns={state.turns} durableTurnsLoading={durableTurnsLoading} models={models} now={now} scroll={scroll} workspaceId={state.task?.workspaceId}
         localReview={localReview} onOpenReview={onOpenReview} issueSource={state.task?.issueSource} jiraSource={state.task?.jiraSource}
         discussions={discussions?.discussions} discussionBusy={discussions?.busy} onSelectPassage={onSelectPassage} onOpenDiscussion={onOpenDiscussion}
         generatedBranch={state.task?.generatedBranch}
@@ -1808,6 +1810,8 @@ export default function AgentTaskScreen({
 
   // Each message shows the settings its turn ran with, which only the durable turn records.
   const unloaded = unloadedTurnIds(state).join(',');
+  // After a failed read the messages show as sent rather than staying hidden.
+  const [failedTurns, setFailedTurns] = useState('');
   useEffect(() => {
     if (unloaded === '') return;
     let active = true;
@@ -1817,7 +1821,9 @@ export default function AgentTaskScreen({
         turns.forEach((turn) => dispatch({ type: 'turn/loaded', turn }));
       })
       .catch((failure: unknown) => {
-        if (active) dispatch({ type: 'notice/changed', notice: failureText(failure) });
+        if (!active) return;
+        setFailedTurns(unloaded);
+        dispatch({ type: 'notice/changed', notice: failureText(failure) });
       });
     return () => { active = false; };
   }, [live, unloaded]);
@@ -2739,6 +2745,7 @@ export default function AgentTaskScreen({
         localReview={localReview} bridge={live()} />}
       automation={automationEligible ? automationSelection : undefined}
       historyLoading={historyLoading}
+      durableTurnsLoading={unloaded !== '' && unloaded !== failedTurns}
       onLoadHistory={(direction) => { void loadHistory(direction); }}
       onFollowHistory={(following) => {
         const resumed = following && !followingHistory.current;

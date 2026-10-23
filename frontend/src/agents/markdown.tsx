@@ -14,6 +14,7 @@
 
 import React, { memo } from 'react';
 import { inline, markdownBlocks } from '../pulls/MarkdownBody';
+import MermaidDiagram from '../pulls/MermaidDiagram';
 
 /** A discussion attaches its footer to the block containing the quoted passage. */
 export type MarkdownBlock = { node: React.ReactNode; text: string };
@@ -27,7 +28,9 @@ export function renderMarkdownBlocks(text: string, repository?: string | null, p
         return { node: <p key={key}>{marks(source)}</p>, text: source };
       }
       case 'heading': return { node: <p key={key}><strong>{marks(block.text)}</strong></p>, text: block.text };
-      case 'code': return { node: <pre className="agt-code" key={key}>{block.text}</pre>, text: block.text };
+      case 'code': return { node: block.language.toLowerCase() === 'mermaid'
+        ? <MermaidDiagram source={block.text} key={key} />
+        : <pre className="agt-code" key={key}>{block.text}</pre>, text: block.text };
       case 'quote': return { node: <blockquote key={key}>{marks(block.text)}</blockquote>, text: block.text };
       case 'task': return { node: <ul key={key}><li className="agt-md__task"><input type="checkbox" checked={block.checked} disabled
         aria-label={block.text} /><span>{marks(block.text)}</span></li></ul>, text: block.text };

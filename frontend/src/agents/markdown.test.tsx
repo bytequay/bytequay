@@ -40,6 +40,12 @@ describe('agent markdown', () => {
     expect(out).toContain('<a href="https://example.com/x" target="_blank" rel="noreferrer">the docs</a>');
   });
 
+  it('draws a mermaid fence as a diagram instead of printing its source as code', () => {
+    const out = html('The call flow is:\n\n```mermaid\nflowchart TD\n    A --> B\n```');
+    expect(out).toContain('<div class="md-mermaid">');
+    expect(out).not.toContain('agt-code');
+  });
+
   it('unwraps angle-delimited destinations with spaces and parentheses', () => {
     const out = html('See [Main.java:12](</Users/me/Application Support/worktree (review)/Main.java:12>) and [docs](<https://example.com/api(value)>).');
     expect(out).toContain('<code title="/Users/me/Application Support/worktree (review)/Main.java:12">Main.java:12</code>');

@@ -379,11 +379,11 @@ final class ClaudeEventMapper
     {
         String toolUseId = progress.toolUseId();
         if (progress.heartbeat().orElse(false)) {
-            // Claude's synthetic heartbeat IDs name observations of an existing tool, not new tools.
+            // Claude's synthetic heartbeat IDs name observations of an existing tool, not new tools, and Claude parents them on that tool itself.
             String originalId = toolUseId.replaceFirst("-heartbeat-[0-9]+$", "");
             ToolCall original = tools.get(originalId);
             if (!originalId.equals(toolUseId) && original != null && original.name().equals(progress.toolName())
-                    && original.parentToolUseId().equals(progress.parentToolUseId())) {
+                    && (progress.parentToolUseId().equals(Optional.of(originalId)) || original.parentToolUseId().equals(progress.parentToolUseId()))) {
                 if (!activeTools.contains(originalId)) {
                     return ImmutableList.of();
                 }
@@ -395,7 +395,9 @@ final class ClaudeEventMapper
         if (call == null && (progress.toolName().equals("Agent") || progress.toolName().equals("Task"))) {
             activityUncertain = true;
         }
-        Optional<String> parentToolId = progress.parentToolUseId().or(() -> progress.taskId().map(tasks::get).flatMap(TaskActivity::toolUseId).filter(agents::containsKey));
+        Optional<String> parentToolId = call != null
+                ? call.parentToolUseId()
+                : progress.parentToolUseId().or(() -> progress.taskId().map(tasks::get).flatMap(TaskActivity::toolUseId).filter(agents::containsKey));
         if (call != null && call.isCommand()) {
             return ImmutableList.of(new ProviderAgentEvent.Command(
                     progress.uuid(),

@@ -684,16 +684,18 @@ class TestClaudeEventMapper
     @Test
     void correlatesHeartbeatProgressWithoutCreatingOrRevivingToolWork()
     {
-        map("""
+        ProviderAgentEvent.Command started = only("""
                 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"bash-1","name":"Bash","input":{"command":"npm ci"}}]},
                 "session_id":"session-1","uuid":"bash-start"}
-                """);
+                """, ProviderAgentEvent.Command.class);
         for (int heartbeat = 0; heartbeat < 2; heartbeat++) {
+            // Claude 2.1.304 parents a heartbeat on the tool it observes.
             ProviderAgentEvent.Command progress = only("""
                     {"type":"tool_progress","tool_use_id":"bash-1-heartbeat-%s","tool_name":"Bash","heartbeat":true,
-                    "elapsed_time_seconds":30,"parent_tool_use_id":null,"session_id":"session-1","uuid":"heartbeat-%s"}
+                    "elapsed_time_seconds":30,"parent_tool_use_id":"bash-1","session_id":"session-1","uuid":"heartbeat-%s"}
                     """.formatted(heartbeat, heartbeat), ProviderAgentEvent.Command.class);
-            assertThat(progress.source().providerItemId()).contains("bash-1");
+            assertThat(progress.source()).isEqualTo(started.source());
+            assertThat(progress.argv()).containsExactly("npm ci");
             assertThat(progress.state()).isEqualTo(ProviderAgentEvent.ActivityState.PROGRESS);
         }
         result();
@@ -706,7 +708,7 @@ class TestClaudeEventMapper
         assertThat(mapper.hasFinishedWork()).isTrue();
         assertThat(map("""
                 {"type":"tool_progress","tool_use_id":"bash-1-heartbeat-2","tool_name":"Bash","heartbeat":true,
-                "elapsed_time_seconds":90,"parent_tool_use_id":null,"session_id":"session-1","uuid":"late-heartbeat"}
+                "elapsed_time_seconds":90,"parent_tool_use_id":"bash-1","session_id":"session-1","uuid":"late-heartbeat"}
                 """)).isEmpty();
         assertThat(mapper.hasFinishedWork()).isTrue();
     }

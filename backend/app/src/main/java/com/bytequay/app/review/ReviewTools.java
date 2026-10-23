@@ -509,7 +509,7 @@ public class ReviewTools
                         && !(bound.step().isEmpty() && tool.equals("review_reply"))) {
                     return error("assignment", "this explanation refresh can only read context and save its explanation; findings require a review assignment");
                 }
-                JsonNode result = handler.apply(new Call(review, bound.run(), bound.step(), bound.discussion(), turnId, (ObjectNode) parsed));
+                JsonNode result = handler.apply(new Call(tool, review, bound.run(), bound.step(), bound.discussion(), turnId, (ObjectNode) parsed));
                 if (!(result instanceof ObjectNode object) || object.has("error")) {
                     return result.toString();
                 }
@@ -554,7 +554,7 @@ public class ReviewTools
                         .filter(run -> run.ordinal() < call.run().ordinal()).collect(toImmutableList())).isPresent())) {
             throw new ReviewInvalidRequestException("summary: retain the initial change explanation; focus on findings and use review_reply for discussion");
         }
-        Replay replay = replay(call, "review_save_summary");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -583,13 +583,13 @@ public class ReviewTools
                 previous.flatMap(ReviewSummary::evidence),
                 previous.map(ReviewSummary::criticalFindingIds).orElseGet(ImmutableList::of));
         ObjectNode result = objectMapper.createObjectNode().put("revision", revision).put("status", "accepted");
-        store.updateRun(call.run().withSummary(summary, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.updateRun(replay.recordedOn(call.run().withSummary(summary, now()), result, now()));
         return result;
     }
 
     private JsonNode recordDiscovery(Call call)
     {
-        Replay replay = replay(call, "review_record_discovery");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -633,7 +633,7 @@ public class ReviewTools
                 draft.validations(), draft.answers(), draft.verification(), perspectives, draft.testCheck());
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidateCount", candidates.size());
         result.set("recordedCandidates", objectMapper.valueToTree(added));
-        store.updateRun(call.run().withInvestigation(updated, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.updateRun(replay.recordedOn(call.run().withInvestigation(updated, now()), result, now()));
         return result;
     }
 
@@ -719,7 +719,7 @@ public class ReviewTools
 
     private JsonNode saveInvestigation(Call call)
     {
-        Replay replay = replay(call, "review_save_investigation");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -793,7 +793,7 @@ public class ReviewTools
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size()).put("investigationStep", step.number())
                 .put("next", "End this investigation turn; ByteQuay will start a separate validation turn");
         ReviewRun updated = call.run().withInvestigation(investigation, now()).replaceCurrentStep(step.withInvestigation(investigation), now());
-        store.updateRun(updated.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.updateRun(replay.recordedOn(updated, result, now()));
         return result;
     }
 
@@ -879,7 +879,7 @@ public class ReviewTools
 
     private JsonNode saveFinding(Call call)
     {
-        Replay replay = replay(call, "review_save_finding");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -1030,7 +1030,7 @@ public class ReviewTools
                 .put("revision", saved.revision())
                 .put("location", ReviewPrompts.location(saved))
                 .put("status", "accepted");
-        store.saveFinding(saved, insert, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.saveFinding(saved, insert, replay.recordedOn(call.run(), result, now()));
         if (call.review().replay().isEmpty()) {
             memoryStore.countCited(saved.memories().stream().map(ReviewFinding.MemoryCitation::id).filter(id -> !citedBefore.contains(id)).collect(toImmutableSet()));
         }
@@ -1065,7 +1065,7 @@ public class ReviewTools
         ObjectNode arguments = call.arguments();
         String target = text(arguments, "target", 200, true);
         discussionTarget(call, target);
-        Replay replay = replay(call, "review_reply");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -1102,13 +1102,13 @@ public class ReviewTools
                 0,
                 now(), Optional.empty());
         ObjectNode result = objectMapper.createObjectNode().put("messageId", message.id()).put("status", "accepted");
-        store.insertMessage(message, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.insertMessage(message, replay.recordedOn(call.run(), result, now()));
         return result;
     }
 
     private JsonNode withdraw(Call call)
     {
-        Replay replay = replay(call, "review_withdraw_finding");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -1137,13 +1137,13 @@ public class ReviewTools
                 "Withdrawn: " + explanation + (refs.isEmpty() ? "" : "\n\nEvidence: " + String.join(", ", refs)),
                 finding.revision(), call.run().id(), Optional.empty(), Optional.empty(), 0, now, Optional.empty());
         ObjectNode result = objectMapper.createObjectNode().put("findingId", finding.id()).put("state", updated.state().name()).put("status", "accepted");
-        store.withdrawFinding(updated, message, call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now));
+        store.withdrawFinding(updated, message, replay.recordedOn(call.run(), result, now));
         return result;
     }
 
     private JsonNode finish(Call call)
     {
-        Replay replay = replay(call, "review_finish");
+        Replay replay = replay(call);
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
@@ -1171,7 +1171,7 @@ public class ReviewTools
             if (complete.asBoolean() || !array(arguments, "validations", maxCandidates).isEmpty()) {
                 throw new ReviewInvalidRequestException("validation: finish investigation before submitting a validated report");
             }
-            store.updateRun(call.run().withCoverage(coverage, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+            store.updateRun(replay.recordedOn(call.run().withCoverage(coverage, now()), result, now()));
             return result;
         }
         int investigationStep = integer(arguments, "investigationStep")
@@ -1285,7 +1285,7 @@ public class ReviewTools
         if (validations.stream().noneMatch(value -> value.outcome() == NEEDS_EVIDENCE)) {
             run = run.withCoverage(coverage, now());
         }
-        store.updateRun(run.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+        store.updateRun(replay.recordedOn(run, result, now()));
         return result;
     }
 
@@ -2321,10 +2321,10 @@ public class ReviewTools
         return MAX_CANDIDATES + (int) store.listFindings(run.reviewId()).stream().filter(finding -> !finding.runId().equals(run.id())).count();
     }
 
-    private Replay replay(Call call, String tool)
+    private Replay replay(Call call)
     {
         String operationKey = text(call.arguments(), "operationKey", MAX_KEY, true);
-        String key = call.step().map(step -> "review-step:" + call.run().id() + ":" + step.number() + ":").orElse("") + tool + ":" + operationKey;
+        String key = call.step().map(step -> "review-step:" + call.run().id() + ":" + step.number() + ":").orElse("") + call.tool() + ":" + operationKey;
         String digest = Hashing.sha256().hashString(canonical(call.arguments()), StandardCharsets.UTF_8).toString();
         ReviewOperation stored = call.run().operations().get(key);
         if (stored == null) {
@@ -2432,7 +2432,14 @@ public class ReviewTools
         return Instant.now(clock);
     }
 
-    private record Call(AgentReview review, ReviewRun run, Optional<ReviewStep> step, Optional<ReviewMessage> discussion, Optional<TurnId> turnId, ObjectNode arguments) {}
+    private record Call(
+            String tool,
+            AgentReview review,
+            ReviewRun run,
+            Optional<ReviewStep> step,
+            Optional<ReviewMessage> discussion,
+            Optional<TurnId> turnId,
+            ObjectNode arguments) {}
 
     /** The user's threads on one pull request read: the first {@code listed} of them, and how many more were left out. */
     private record OwnThreads(String login, int number, SelectedPullRequestReader.Read read, List<ReviewOwnThreads.Thread> listed, int omitted) {}
@@ -2447,7 +2454,14 @@ public class ReviewTools
     private record CommitPullRequestEntry(String sha, Optional<Integer> pullRequestNumber, Optional<String> pullRequestTitle, Optional<String> pullRequestUrl,
             Optional<String> checkedAt, boolean lookupAttempted, boolean lookupFailed, boolean persisted, String status) {}
 
-    private record Replay(String key, String digest, Optional<JsonNode> result) {}
+    private record Replay(String key, String digest, Optional<JsonNode> result)
+    {
+        /** The run with this call's result stored under its key, so a retry returns it instead of writing again. */
+        ReviewRun recordedOn(ReviewRun run, JsonNode result, Instant now)
+        {
+            return run.withOperation(key, new ReviewOperation(digest, result.toString()), now);
+        }
+    }
 
     static List<String> requiredScopeFiles(GitCommandRunner git, Path repository, ReviewRun run, Optional<ReviewRun> previous)
     {

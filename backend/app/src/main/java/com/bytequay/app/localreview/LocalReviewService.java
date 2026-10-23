@@ -436,9 +436,10 @@ public class LocalReviewService
             return new LocalReviewView.Message(message.id(), message.author(), message.body(), message.createdAt(), turnId, queued.map(value -> value.id().toString()),
                     queued.flatMap(QueuedAgentInput::messageEventId).map(Object::toString), state, error);
         }).collect(toImmutableList());
+        AgentTask task = tasks.get(TaskId.valueOf(thread.taskId()));
         return new LocalReviewView(thread.id(), thread.taskId(), thread.workspaceId(), thread.repo(), thread.number(), thread.path(), thread.side(),
                 thread.startLine(), thread.line(), thread.baseSha(), thread.headSha(), thread.code(), thread.resolved(), thread.version(),
-                thread.createdAt(), thread.updatedAt(), tasks.get(TaskId.valueOf(thread.taskId())).version(), messages, thread.learningAnchor());
+                thread.createdAt(), thread.updatedAt(), task.version(), task.laneId().value(), messages, thread.learningAnchor());
     }
 
     private AgentTask task(String taskId, String workspaceId, boolean open)

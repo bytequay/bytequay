@@ -68,7 +68,7 @@ describe('the unified review conversation', () => {
   it('folds saved local discussions and retains the exact generated prompt for inspection', () => {
     const first = events[0];
     const html = render({ localReview: {
-      threads: [{ id: 'local-review', taskId: props.review.task.id, taskVersion: 1, workspaceId: props.review.workspaceId,
+      threads: [{ id: 'local-review', taskId: props.review.task.id, taskVersion: 1, laneId: 'codex', workspaceId: props.review.workspaceId,
         repo: props.review.repo, number: props.review.number, path: 'src/Example.java', side: 'RIGHT', startLine: null,
         line: 2, baseSha: null, headSha: null, code: 'return value;', resolved: false, version: 1,
         createdAt: first.occurredAt, updatedAt: first.occurredAt,

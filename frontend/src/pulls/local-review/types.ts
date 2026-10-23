@@ -31,6 +31,8 @@ export type LocalReviewThreadDto = {
   id: string;
   taskId: string;
   taskVersion: number;
+  /** The task's agent lane, so its replies show that agent's logo. */
+  laneId: string;
   workspaceId: string;
   repo: string;
   number: number;

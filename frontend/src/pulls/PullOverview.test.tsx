@@ -67,7 +67,7 @@ describe('PullOverview', () => {
   it('places private local review cards among GitHub activity without changing remote comments', () => {
     const pr = pullRequest();
     const local: LocalReviewThreadDto = {
-      id: 'local-comment', taskId: 'task', taskVersion: 1, workspaceId: 'workspace', repo: pr.repo, number: pr.number,
+      id: 'local-comment', taskId: 'task', taskVersion: 1, laneId: 'codex', workspaceId: 'workspace', repo: pr.repo, number: pr.number,
       path: 'src/Example.java', side: 'RIGHT' as const, startLine: 10, line: 10, baseSha: null, headSha: 'a'.repeat(40),
       code: 'private Result result() {}', resolved: false, version: 1,
       createdAt: '2026-08-20T09:15:00Z', updatedAt: '2026-08-20T09:15:00Z',

@@ -20,7 +20,7 @@ import { parseLocalReviewThread } from './contracts';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './types';
 
 const thread: LocalReviewThreadDto = {
-  id: 'local-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1', repo: 'owner/repo', number: 10,
+  id: 'local-1', taskId: 'task-1', taskVersion: 1, laneId: 'codex', workspaceId: 'workspace-1', repo: 'owner/repo', number: 10,
   path: 'src/Example.java', side: 'RIGHT', startLine: 12, line: 13, baseSha: null, headSha: 'a'.repeat(40),
   code: 'private Result result() {\n  return value;\n}', resolved: false, version: 1,
   createdAt: '2026-01-01T10:00:00Z', updatedAt: '2026-01-01T10:00:00Z',
@@ -107,4 +107,11 @@ it('folds local review replies around the specific saved user message', () => {
   expect(html).toContain('>Resolve</button>');
   expect(html).not.toContain('agt-review-request__prompt');
   expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+});
+
+it("shows the agent's reply with its provider's logo", () => {
+  const answer = { ...thread.messages[0], id: 'answer', author: 'AGENT' as const, body: 'Yes, it reads no fields.' };
+  const html = render(turn, { ...actions, threads: [{ ...thread, messages: [...thread.messages, answer] }] });
+  expect(html).toContain(answer.body);
+  expect(html).toMatch(/<span class="provider-avatar"[^>]*><svg class="provider-icon" data-brand="openai"/);
 });

@@ -55,7 +55,7 @@ const review = { ...base, state: 'CLOSED' as const, runs: [original, current], l
   findings: [{ ...base.findings[0], runId: current.id, state: 'RESOLVED' as const, validatedHeadSha: current.headSha }],
 };
 const local: LocalReviewThreadDto = {
-  id: 'local-navigation', taskId: review.task.id, taskVersion: review.task.version, workspaceId: review.workspaceId,
+  id: 'local-navigation', taskId: review.task.id, taskVersion: review.task.version, laneId: 'codex', workspaceId: review.workspaceId,
   repo: review.repo, number: review.number, path: 'src/Example.java', side: 'RIGHT', startLine: 12, line: 13,
   baseSha: current.baseSha, headSha: current.headSha, code: 'return fieldId;', resolved: true, version: 1,
   createdAt: current.createdAt, updatedAt: current.createdAt,

@@ -449,6 +449,7 @@ class TestLocalReviewService
 
         LocalReviewView comment = create(0);
         assertThat(comment.taskVersion()).isEqualTo(task.version());
+        assertThat(comment.laneId()).isEqualTo(task.laneId().value());
         assertThat(service.availableForAgent(taskId.toString())).isTrue();
         assertThat(service.replyFromAgent(taskId.toString(), comment.id(), "The value is nullable", "answer").messages()).hasSize(2);
         assertThat(service.list(taskId.toString(), "workspace")).hasSize(1);

@@ -79,7 +79,7 @@ export function parseLocalReviewThread(value: unknown): LocalReviewThreadDto {
     ...(row.learningAnchor === undefined ? {} : { learningAnchor: anchor === null ? null : {
       turnId: text(anchor.turnId), cardId: text(anchor.cardId), title: text(anchor.title), body: text(anchor.body),
     } }),
-    id: text(row.id), taskId: text(row.taskId), taskVersion: count(row.taskVersion), workspaceId: text(row.workspaceId),
+    id: text(row.id), taskId: text(row.taskId), taskVersion: count(row.taskVersion), laneId: text(row.laneId), workspaceId: text(row.workspaceId),
     repo: text(row.repo), number: count(row.number), path: text(row.path), side, startLine, line,
     baseSha: optionalText(row.baseSha), headSha: optionalText(row.headSha), code: text(row.code),
     resolved: flag(row.resolved), version: count(row.version),

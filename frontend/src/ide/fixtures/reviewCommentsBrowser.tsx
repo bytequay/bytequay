@@ -144,7 +144,7 @@ export async function verifyReviewComments() {
     enabled = false; render(); await click(2); assert(input() === null, 'Unavailable comments remove the gesture');
 
     enabled = true; code.setModel(model); code.updateOptions({ lineNumbers: 'on', lineNumbersMinChars: 5 }); code.setScrollTop(0);
-    const thread: LocalReviewThreadDto = { id: 'saved', taskId: 'task', taskVersion: 1, workspaceId: 'workspace', repo: 'owner/repo', number: 0,
+    const thread: LocalReviewThreadDto = { id: 'saved', taskId: 'task', taskVersion: 1, laneId: 'codex', workspaceId: 'workspace', repo: 'owner/repo', number: 0,
       path: '/comments.txt', side: 'RIGHT', startLine: null, line: 4, baseSha: null, headSha: 'head', code: 'line 4', resolved: false, version: 1,
       createdAt: '', updatedAt: '', messages: [{ id: 'message', author: 'USER', body: 'Why is this implementation different? Please explain the tradeoff.',
         createdAt: '', turnId: null, queuedInputId: null, messageEventId: null, deliveryState: null, deliveryError: null }] };

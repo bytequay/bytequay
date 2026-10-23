@@ -40,7 +40,7 @@ import { useLocalReviewThreads, type LocalReviewBridgePort } from '../useLocalRe
 import { runScenarios, textButton, element as fixtureElement, assert, changeInput, settle, until } from '../../../fixtures/harness';
 
 function initialThread(): LocalReviewThreadDto {
-  return { id: 'local-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1', repo: 'owner/repo', number: 17,
+  return { id: 'local-1', taskId: 'task-1', taskVersion: 1, laneId: 'codex', workspaceId: 'workspace-1', repo: 'owner/repo', number: 17,
     path: 'src/Example.java', side: 'RIGHT', startLine: null, line: 2, baseSha: '1111111', headSha: '2222222',
     code: 'new value', resolved: false, version: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     messages: [{ id: 'user-1', author: 'USER', body: 'Why is this needed?', createdAt: '2026-01-01T00:00:00Z',

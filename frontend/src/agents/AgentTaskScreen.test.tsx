@@ -540,7 +540,7 @@ describe('agent task side panel', () => {
 
   it('lists private review comments as Summary findings, one round per pull request head they were written against', () => {
     const pull = pullRequest(482, 'Fix preview output limit');
-    const thread = (id: string, headSha: string): LocalReviewThreadDto => ({ id, taskId: 't-1', taskVersion: 1, workspaceId: 'w', repo: pull.repo, number: pull.number,
+    const thread = (id: string, headSha: string): LocalReviewThreadDto => ({ id, taskId: 't-1', taskVersion: 1, laneId: 'codex', workspaceId: 'w', repo: pull.repo, number: pull.number,
       path: 'src/Main.java', side: 'RIGHT' as const, startLine: null, line: 3, baseSha: null, headSha, code: 'x', resolved: false, version: 1,
       createdAt: `2026-10-0${id}T00:00:00Z`, updatedAt: '2026-10-09T00:00:00Z', messages: [] });
     const localReview = { threads: [thread('1', '1'.repeat(40)), thread('2', '1'.repeat(40)), thread('3', '2'.repeat(40))],

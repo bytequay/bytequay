@@ -30,7 +30,7 @@ import '../../css/commits.css';
 const base = reviewFixture();
 const timestamp = base.createdAt;
 const local: LocalReviewThreadDto = {
-  id: 'local-index', taskId: base.task.id, taskVersion: base.task.version, workspaceId: base.workspaceId,
+  id: 'local-index', taskId: base.task.id, taskVersion: base.task.version, laneId: 'codex', workspaceId: base.workspaceId,
   repo: base.repo, number: base.number, path: 'src/Example.java', side: 'RIGHT', startLine: 12, line: 13,
   baseSha: null, headSha: base.observedHeadSha, code: 'return fieldId;', resolved: false, version: 1,
   createdAt: timestamp, updatedAt: timestamp,

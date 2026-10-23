@@ -126,7 +126,7 @@ it('keeps whole-change local findings and nested code fences readable without in
 });
 
 it('exports saved local code and learning discussions with their delivery failures and immutable snapshots', () => {
-  const thread: LocalReviewThreadDto = { id: 'thread-1', taskId: 'task-1', taskVersion: 1, workspaceId: 'workspace-1',
+  const thread: LocalReviewThreadDto = { id: 'thread-1', taskId: 'task-1', taskVersion: 1, laneId: 'codex', workspaceId: 'workspace-1',
     repo: 'owner/repo', number: 4, path: 'src/Example.java', side: 'LEFT', startLine: 2, line: 4, baseSha: 'base', headSha: 'head',
     code: 'old code', resolved: true, version: 1, createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z',
     messages: [{ id: 'message-1', author: 'USER', body: 'Is this needed?', createdAt: '2026-01-01T00:00:00Z', turnId: null,

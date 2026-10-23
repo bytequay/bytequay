@@ -21,14 +21,21 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
-/** Display projection; input keys and mutation replay records never reach the model or renderer. */
+import static java.util.Objects.requireNonNull;
+
+/**
+ * Display projection; input keys and mutation replay records never reach the model or renderer.
+ *
+ * @param laneId the task's agent lane, so the renderer can show which agent answers
+ */
 public record LocalReviewView(String id, String taskId, String workspaceId, String repo, int number,
         String path, String side, int startLine, int line, Optional<String> baseSha, Optional<String> headSha, String code,
-        boolean resolved, long version, Instant createdAt, Instant updatedAt, long taskVersion, List<Message> messages,
+        boolean resolved, long version, Instant createdAt, Instant updatedAt, long taskVersion, String laneId, List<Message> messages,
         Optional<LocalReviewLearningAnchor> learningAnchor)
 {
     public LocalReviewView
     {
+        requireNonNull(laneId, "laneId is null");
         messages = ImmutableList.copyOf(messages);
     }
 

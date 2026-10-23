@@ -66,7 +66,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       const message: LocalReviewMessageDto = { id: `${source.id}-learning-message`, author: 'USER', body: 'Why was the offline build unavailable?',
         createdAt: turn.createdAt, turnId: `${source.id}-learning-turn`, queuedInputId: null, messageEventId: `${source.id}-learning-event`,
         deliveryState: 'COMPLETED', deliveryError: null };
-      saved.set(`${source.id}-learning-thread`, { id: `${source.id}-learning-thread`, taskId: task.id, taskVersion: task.version,
+      saved.set(`${source.id}-learning-thread`, { id: `${source.id}-learning-thread`, taskId: task.id, taskVersion: task.version, laneId: 'codex',
         workspaceId: task.workspaceId, repo: '', number: 0, path: '', side: 'RIGHT', startLine: null, line: 0,
         baseSha: null, headSha: null, code: '', resolved: true, version: 1, createdAt: turn.createdAt, updatedAt: turn.createdAt,
         learningAnchor: { turnId: source.summary, cardId: source.card, title: source.title, body: 'The offline build was unavailable.' },
@@ -125,7 +125,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       messageEventId: mode === 'idle' ? 'inline-event' : null,
       deliveryState: mode === 'unsent' ? 'UNSENT' : mode === 'queued' ? 'QUEUED' : 'COMPLETED',
       deliveryError: mode === 'unsent' ? 'Agent unavailable; retry this saved comment' : null };
-    const thread: LocalReviewThreadDto = { id: request.id, taskId: request.taskId, taskVersion: task.version, workspaceId: request.workspaceId,
+    const thread: LocalReviewThreadDto = { id: request.id, taskId: request.taskId, taskVersion: task.version, laneId: 'codex', workspaceId: request.workspaceId,
       repo: request.repo, number: request.number, path: request.path, side: request.side, startLine: request.startLine,
       line: request.line, baseSha: request.baseSha, headSha: request.headSha, code: request.code,
       resolved: false, version: 1, createdAt, updatedAt: createdAt, messages: [message] };

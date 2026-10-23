@@ -14,6 +14,7 @@
 import { useRef, useState, type ReactNode } from 'react';
 import { useReviewDraft } from '../ReviewDrafts';
 import Avatar from '../../Avatar';
+import { ProviderAvatar } from '../../agents/ProviderIcon';
 import UserAvatar from '../../UserAvatar';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import BetterWordsButton from '../BetterWordsButton';
@@ -105,7 +106,7 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
     title={learning !== null ? <SummaryCardTitle sha={learningSha} tooltip={learning.title} /> : <CodeCardTitle path={thread.path} range={range} />}
     code={snapshot} controls={controls}>
     {learning !== null && <LocalCardMessage timestamp={thread.createdAt} author="Developer"
-      avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}
+      avatar={<ProviderAvatar id={thread.laneId} />}
       tag={<span className="lrc-message__meta">Summary at time of question</span>}>
       <MarkdownBody body={learning.body} repository={thread.repo} />
     </LocalCardMessage>}
@@ -115,7 +116,7 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
         `${message.author === 'USER' ? 'You' : 'Agent'} · ${learning?.title ?? `${thread.path}:${range}`} · ${thread.resolved ? 'Resolved' : 'Open'} · ${outdated ? 'Outdated' : ''}`, message.body)}
       avatar={message.author === 'USER' && viewer?.login
         ? <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} />
-        : <Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />}
+        : message.author === 'USER' ? <Avatar login="You" size={22} allowGitHubFallback={false} /> : <ProviderAvatar id={thread.laneId} />}
       menu={message.author === 'USER' && message.deliveryState !== null && message.deliveryState !== 'COMPLETED'
         && <span className="pr-local-review__delivery">{message.deliveryState === 'UNSENT' ? 'Not sent'
           : message.deliveryState.toLowerCase().replaceAll('_', ' ')}</span>}>

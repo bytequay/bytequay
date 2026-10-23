@@ -236,7 +236,7 @@ export async function localDiscussion(learning = false, snapshot = false) {
     : 'Read list_local_review_comments with commentId="local-thread". Keep this discussion private.';
   const comment: LocalReviewMessageDto = { id: 'question', author: 'USER', body: 'Why is this change needed?', createdAt: '2026-01-01T12:00:00Z',
     turnId: 'previous-turn', queuedInputId: 'queue', messageEventId: 'local-event', deliveryState: 'COMPLETED', deliveryError: null };
-  const thread: LocalReviewThreadDto = { id: 'local-thread', taskId: turn.taskId, taskVersion: 1, workspaceId: 'workspace', repo: 'acme/demo', number: learning ? 0 : 17,
+  const thread: LocalReviewThreadDto = { id: 'local-thread', taskId: turn.taskId, taskVersion: 1, laneId: 'codex', workspaceId: 'workspace', repo: 'acme/demo', number: learning ? 0 : 17,
     path: learning ? '' : 'src/Example.java', side: 'RIGHT', startLine: learning ? 0 : 12, line: learning ? 0 : 13,
     baseSha: null, headSha: null, code: learning ? '' : savedContext, resolved: false, version: 1,
     createdAt: comment.createdAt, updatedAt: comment.createdAt, messages: [comment],

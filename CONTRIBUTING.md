@@ -219,7 +219,13 @@ Key creation and billing remain in Google AI Studio.
 │   ├── agent-cli/    # Codex App Server and Claude CLI adapters
 │   ├── persistence-sqlite/ # JPA, SQLite, and credential storage
 │   ├── plugins/      # Independently built Google and Jira integration modules
-│   └── app/          # Application workflows, HTTP, and executable packaging
+│   ├── app-base/     # Shared agent workflow helpers, Git runner, configuration
+│   ├── app-github/   # GitHub clients, credentials, and settings
+│   ├── app-git/      # Git history, workspaces, worktrees, and pull-request refresh
+│   ├── app-review/   # Reviews, discussions, context, memory, and artifacts
+│   ├── app-delivery/ # CI Autofix, cherry-picks, and rebases
+│   ├── app-work/     # Agent task flows, work items, agenda, and assistant
+│   └── app/          # Spring composition, HTTP, and executable packaging
 ├── frontend/         # Electron + React + TypeScript npm workspaces
 │   ├── plugins/      # Google, Jira, and Lab desktop integration packages
 │   ├── packages/ui/  # Shared host-independent UI primitives
@@ -258,6 +264,19 @@ the executable application:
 mvn -pl :integration-google -am verify
 mvn -pl :integration-jira -am verify
 ```
+
+To test one application layer after a change, install the reactor without
+tests, then run that module's tests. Add `-amd` to also run the layers that
+depend on it, which is what a change there can break:
+
+```bash
+mvn -q install -DskipTests -Dcheckstyle.skip -Dlicense.skip
+mvn -pl :app-review verify
+mvn -pl :app-review -amd verify
+```
+
+The install step puts this checkout's modules in the local Maven repository;
+without it, `-pl` tests against whatever another checkout installed last.
 
 The full backend verification checks license headers, Checkstyle, the retained
 unit tests, and a full Spring context boot. Hibernate creates or updates the current SQLite

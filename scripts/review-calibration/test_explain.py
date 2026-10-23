@@ -7,7 +7,7 @@ import unittest
 
 import explain
 
-REVIEW = "backend/app/src/main/java/com/bytequay/app/review/ReviewTools.java"
+REVIEW = "backend/app-review/src/main/java/com/bytequay/app/review/ReviewTools.java"
 
 WHOLE = "{:,.0f}".format
 

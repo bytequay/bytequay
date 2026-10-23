@@ -26,6 +26,12 @@
         <module>persistence-sqlite</module>
         <module>plugins/google</module>
         <module>plugins/jira</module>
+        <module>app-base</module>
+        <module>app-github</module>
+        <module>app-git</module>
+        <module>app-review</module>
+        <module>app-delivery</module>
+        <module>app-work</module>
         <module>app</module>
     </modules>
 

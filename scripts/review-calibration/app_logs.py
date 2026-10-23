@@ -17,12 +17,12 @@ REACH = 86400
 MAX_FILES, MAX_BYTES = 8, 4 * 1024 * 1024
 HEADER = re.compile(r"^(\d{4}-\d\d-\d\d[T ][\d:.]+(?:Z|[+-]\d\d:\d\d)?)\s+(TRACE|DEBUG|INFO|WARN|ERROR)\s+(\d+)\s+.*?\s(\S+)\s+:\s?(.*)$")
 FIELD = re.compile(r"\b(phase|epochMs|taskId|turnId|clientId|providerThreadId|providerTurnId)=([\w.:-]+)")
-PR = "backend/app/src/main/java/com/bytequay/app/service/pr/PullRequestService.java"
+PR = "backend/app-git/src/main/java/com/bytequay/app/service/pr/PullRequestService.java"
 PROCESS = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/process"
 RULES = {
     "heap": (r"outofmemoryerror|java heap space|gc overhead limit", "Backend memory exhaustion", "high",
              "Inspect heap retention and bound the growing cache or collection. Measure retained memory before changing the heap limit.",
-             "backend/app/src/main/java", "memory-exhaustion errors and backend retained memory"),
+             "backend", "memory-exhaustion errors and backend retained memory"),
     "database": (r"sqlite_busy|database is locked|connection is not available.*timed out", "Database contention", "medium",
                  "Find the operation holding the database connection; move network and process waits outside its transaction and retest concurrent reads.",
                  "backend/app/src/main/resources/application.properties", "database-contention errors per hour"),
@@ -41,7 +41,7 @@ RULES = {
 }
 PATTERNS = {key: re.compile(rule[0], re.I) for key, rule in RULES.items()}
 PHASES = {
-    "task.worktree": ("Worktree preparation", "backend/app/src/main/java/com/bytequay/app/workspace/ManagedWorktreeService.java"),
+    "task.worktree": ("Worktree preparation", "backend/app-git/src/main/java/com/bytequay/app/workspace/ManagedWorktreeService.java"),
     "turn.persist": ("Turn persistence", "backend/agent-core/src/main/java/com/bytequay/agent/core/impl/DefaultAgentTurnService.java"),
     "turn.session_open": ("Agent session startup", "backend/agent-core/src/main/java/com/bytequay/agent/core/impl/DefaultAgentTurnService.java"),
     "codex.initialize": ("Codex initialization", "backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexAppServerClient.java"),

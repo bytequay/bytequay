@@ -63,7 +63,7 @@ Dock badge counts the notices that need the user.
 
 ## Backend organization
 
-The backend is an eight-module Maven application. Modules define dependency and
+The backend is a fourteen-module Maven application. Modules define dependency and
 ownership boundaries; they are not independently deployed services.
 
 | Module | Responsibility |
@@ -75,10 +75,22 @@ ownership boundaries; they are not independently deployed services.
 | `persistence-sqlite` | Hibernate entities, repositories, credential persistence, and implementations of storage contracts. |
 | `plugins/google` | Google connector processes, accounts, and bounded in-memory mail/calendar caches. |
 | `plugins/jira` | Jira authentication, remote API operations, mapping, and cached provider data. |
-| `app` | Spring composition, HTTP and event endpoints, GitHub, cross-feature workflows, and Git/worktree operations. |
+| `app-base` | Agent workflow helpers, the Git command runner, configuration, and utilities shared by every application layer. |
+| `app-github` | GitHub API and Actions clients, credentials, settings, recent items, and writing assistance. |
+| `app-git` | Git history, workspaces and task worktrees, and pull-request snapshots and refresh. |
+| `app-review` | Agent and local reviews, discussions, context and spec checks, memory, and artifacts. |
+| `app-delivery` | CI Autofix, cherry-picks, rebases, and their remote delivery. |
+| `app-work` | Agent task flows, work items, Jira links, agenda, assistant, teams, epics, backports, and schedules. |
+| `app` | Spring composition, HTTP and event endpoints, and the tests that start the whole application. |
 
 ```text
-app -> core, persistence-sqlite, agent-core, agent-cli, integration-google, integration-jira
+app -> app-work, persistence-sqlite
+app-work -> app-delivery, integration-google
+app-delivery -> app-review
+app-review -> app-git
+app-git -> app-github
+app-github -> app-base, integration-jira
+app-base -> core, agent-core, agent-cli
 persistence-sqlite -> core, agent-core
 agent-spi -> core
 agent-core -> agent-spi
@@ -88,14 +100,19 @@ integration-jira -> core
 ```
 
 Dependencies point toward framework-free contracts. No module depends on `app`;
-it is the composition root and executable. Persistence details stay behind
-storage contracts, and provider adapters do not own application tables or
+it is the composition root and executable. The application layers between
+`app-base` and `app` each use only the layers below them, so a change runs the
+tests of its own layer and those above it. Where lower code must reach a higher
+feature, such as stopping an editor before a worktree is removed, it names a
+small interface that the higher feature implements. Persistence details stay
+behind storage contracts, and provider adapters do not own application tables or
 user-interface transport. Integration APIs and domain values live in
 `com.bytequay.integration.google` and `com.bytequay.integration.jira`; concrete
 implementations stay in each module's `impl` package. The application explicitly
 assembles integrations and retains HTTP authentication, task authorization,
 agenda coordination, local work-item workflows, and background refresh policy.
-Jira operations and task admission share the same issue locks across this boundary.
+Jira operations and task admission share the same issue locks across this
+boundary.
 
 The frontend is an npm workspace. `plugins/google`, `plugins/jira`, and
 `plugins/lab` expose separate contracts, renderer, preload, and Electron main

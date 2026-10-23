@@ -18,13 +18,13 @@ ROOT = Path(__file__).resolve().parents[2]  # ByteQuay's repository, which the l
 # Where a commit to the agent code landed, by the folders and files of ByteQuay that make up each part.
 AREAS = {
     "instructions and context": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/ProviderInstructions.java",
-                                 "backend/agent-spi/src/main/java/com/bytequay/agent/spi/AgentCommandPolicy.java", "backend/app/src/main/java/com/bytequay/app/agent/",
-                                 "backend/app/src/main/java/com/bytequay/app/context/", "backend/app/src/main/java/com/bytequay/app/memory/"),
+                                 "backend/agent-spi/src/main/java/com/bytequay/agent/spi/AgentCommandPolicy.java", "backend/app-work/src/main/java/com/bytequay/app/agent/",
+                                 "backend/app-review/src/main/java/com/bytequay/app/context/", "backend/app-review/src/main/java/com/bytequay/app/memory/"),
     "tools and approvals": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/mcp/",),
     "the Codex lane": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/",),
     "the Claude lane": ("backend/agent-cli/src/main/java/com/bytequay/agent/cli/claude/",),
     "turns and tasks": ("backend/agent-core/src/main/",),
-    "reviews": ("backend/app/src/main/java/com/bytequay/app/review/",),
+    "reviews": ("backend/app-review/src/main/java/com/bytequay/app/review/",),
 }
 
 UNKNOWN = "no model known"  # the turns the database does not know

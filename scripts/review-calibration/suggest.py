@@ -32,11 +32,11 @@ START, AFTER_TOOLS = "at the start of a turn", "after " + activity.BYTEQUAY
 CODEX_DRIVER = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexCliDriver.java"
 PERMISSIONS = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/mcp/PermissionBroker.java"
 INSTRUCTIONS = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/ProviderInstructions.java"
-MEMORY = "backend/app/src/main/java/com/bytequay/app/memory/MemoryDelivery.java"
-CONTEXT = "backend/app/src/main/java/com/bytequay/app/context/ContextBuildService.java"
-GUIDELINES = "backend/app/src/main/java/com/bytequay/app/context/RepositoryGuidelineReader.java"
-REVIEW_TOOLS = "backend/app/src/main/java/com/bytequay/app/review/ReviewTools.java"
-REVIEW_SERVICE = "backend/app/src/main/java/com/bytequay/app/review/AgentReviewService.java"
+MEMORY = "backend/app-review/src/main/java/com/bytequay/app/memory/MemoryDelivery.java"
+CONTEXT = "backend/app-review/src/main/java/com/bytequay/app/context/ContextBuildService.java"
+GUIDELINES = "backend/app-review/src/main/java/com/bytequay/app/context/RepositoryGuidelineReader.java"
+REVIEW_TOOLS = "backend/app-review/src/main/java/com/bytequay/app/review/ReviewTools.java"
+REVIEW_SERVICE = "backend/app-review/src/main/java/com/bytequay/app/review/AgentReviewService.java"
 RECIPE = (None, "a recipe in the repository's memory, on the Memory page, which every turn of that repository is given")
 PROVIDERS = {
     "codex": ("Codex", (CODEX_DRIVER, "registerApproval"),

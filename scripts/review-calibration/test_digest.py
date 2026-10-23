@@ -222,7 +222,7 @@ class TestFair(unittest.TestCase):
         made = [{**turn(day, 600, task=f"t-{day}"), "setup": setup}
                 for day, setup in ((2, "aaaaaaaa-11111111"), (9, "aaaaaaaa-11111111"), (10, "bbbbbbbb-11111111"), (11, "bbbbbbbb-22222222"), (12, None))]
         codex = "backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexCliDriver.java"
-        found = [(0, "Retry rate limits", (codex,)), (0, "Shorter review rules", ("backend/app/src/main/java/com/bytequay/app/review/ReviewTools.java", "README.md", codex)),
+        found = [(0, "Retry rate limits", (codex,)), (0, "Shorter review rules", ("backend/app-review/src/main/java/com/bytequay/app/review/ReviewTools.java", "README.md", codex)),
                  (0, "Codex timeouts", (codex,))]
         asked = []
         text = report(turns={**TABLE, "turns": made}, reviews=None, commits=lambda first, last: asked.append((first, last)) or found)

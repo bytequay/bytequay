@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import hljs from 'highlight.js/lib/common';
+import hljs from '../highlight';
 import { RefreshCw } from 'lucide-react';
 import type { CodeTestsBridge, CodeTestsHost } from './CodeTestsTab';
 import type { CodeHostRef, LineChangeDto, LocalRunDto, ReviewCodeFileDto, ReviewCodeFilesDto } from './contracts';

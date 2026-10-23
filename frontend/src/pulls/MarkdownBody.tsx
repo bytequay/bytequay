@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { shortSha } from '@bytequay/ui/displayText';
-import hljs from 'highlight.js/lib/common';
+import hljs from './highlight';
 import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
 import { Fragment, useEffect, useId, useMemo, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
 import { once } from '../dataCache';

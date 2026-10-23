@@ -84,6 +84,7 @@ class TestGoalDeliveries
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
         verify(next).merged(any(WorkItemView.class), eq("#31260"));
+        verify(work).deliver("workspace", "work-1");
 
         WorkItemEvent recorded = new WorkItemEvent("merged:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 merged", NOW);
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(recorded),
@@ -155,14 +156,26 @@ class TestGoalDeliveries
     }
 
     @Test
-    void concludedWorkAndWorkOutsideAnEpicAreNotFollowed()
+    void concludedWorkIsNotFollowed()
     {
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.DONE, ImmutableList.of(), pull(31260, GoalItemState.MERGED)),
-                item(Optional.empty(), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.DONE, ImmutableList.of(), pull(31260, GoalItemState.MERGED))));
         deliveries.listsRefreshed(new PullRequestsRefreshed());
         verify(work, never()).linkRelated(anyString(), anyString());
         verify(refresh, never()).refreshDetail(anyString(), anyInt());
         verify(work, never()).receipt(anyString(), anyString(), anyString(), anyString());
+        verify(work, never()).deliver(anyString(), anyString());
+    }
+
+    @Test
+    void aMergeConcludesWorkOutsideAnEpicWithoutPickingNextWork()
+    {
+        WorkItemView loose = item(Optional.empty(), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(loose));
+        when(work.linkRelated("workspace", "work-1")).thenReturn(loose);
+        deliveries.listsRefreshed(new PullRequestsRefreshed());
+        verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
+        verify(work).deliver("workspace", "work-1");
+        verify(next, never()).merged(any(WorkItemView.class), anyString());
     }
 
     @Test

@@ -287,6 +287,56 @@ class TestWorkItemService
     }
 
     @Test
+    void aRecordedMergeConcludesMergedDeliveryUntilTheUserReopensIt()
+    {
+        WorkItemView created = service.create("workspace", UUID.randomUUID().toString(), "Fix bug", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY);
+        AgentTask attempt = task();
+        service.persistAttempt(attempt, created.id());
+        WorkItemLink taskLink = GoalReferenceReader.taskLink(attempt);
+        WorkItemLink merged = pull(3, GoalItemState.MERGED);
+        WorkItemLink stillOpen = pull(4, GoalItemState.WORKING);
+        when(references.related("workspace", taskLink)).thenReturn(ImmutableList.of(taskLink, merged, stillOpen));
+        service.linkRelated("workspace", created.id());
+        service.deliver("workspace", created.id());
+        assertThat(service.requireItem("workspace", created.id()).state()).as("no merge is recorded yet").isEqualTo(WorkItem.State.WORKING);
+
+        service.receipt("workspace", created.id(), "merged:org/repo#3", "Pull request #3 merged: Fix");
+        service.deliver("workspace", created.id());
+        assertThat(service.requireItem("workspace", created.id()).state()).as("#4 is still open").isEqualTo(WorkItem.State.WORKING);
+
+        pull(4, GoalItemState.ENDED);
+        service.deliver("workspace", created.id());
+        WorkItemView done = service.list("workspace").getFirst();
+        assertThat(done.state()).isEqualTo(WorkItem.State.DONE);
+        assertThat(done.history().getLast().action()).isEqualTo("DELIVERED");
+        assertThat(done.history().getLast().detail()).contains("Observed merged PRs: https://github.com/org/repo/pull/3",
+                "Abandoned PRs, closed without merging: https://github.com/org/repo/pull/4");
+
+        service.change("workspace", created.id(), decision(done, WorkItemCommand.Action.REOPEN, "One more fix"));
+        service.deliver("workspace", created.id());
+        assertThat(service.requireItem("workspace", created.id()).state()).isEqualTo(WorkItem.State.WORKING);
+
+        service.receipt("workspace", created.id(), "merged:org/repo#5", "Pull request #5 merged: Fix");
+        service.deliver("workspace", created.id());
+        assertThat(service.requireItem("workspace", created.id()).state()).isEqualTo(WorkItem.State.DONE);
+    }
+
+    @Test
+    void aRecordedMergeLeavesAcceptedResultWorkToTheUser()
+    {
+        WorkItemView created = service.create("workspace", UUID.randomUUID().toString(), "Fix bug", WorkItem.Kind.DEVELOP, "Fixed", WorkItem.CompletionRule.ACCEPTED_RESULT);
+        AgentTask attempt = task();
+        service.persistAttempt(attempt, created.id());
+        WorkItemLink taskLink = GoalReferenceReader.taskLink(attempt);
+        WorkItemLink merged = pull(3, GoalItemState.MERGED);
+        when(references.related("workspace", taskLink)).thenReturn(ImmutableList.of(taskLink, merged));
+        service.linkRelated("workspace", created.id());
+        service.receipt("workspace", created.id(), "merged:org/repo#3", "Pull request #3 merged: Fix");
+        service.deliver("workspace", created.id());
+        assertThat(service.requireItem("workspace", created.id()).state()).isEqualTo(WorkItem.State.WORKING);
+    }
+
+    @Test
     void attemptsOnOneSourceStayOneOutcomeAndConcludedOrForeignWorkRefusesAnother()
     {
         WorkItemLink source = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 42, "org/repo", 1, "https://github.com/org/repo/issues/1",

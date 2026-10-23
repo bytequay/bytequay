@@ -51,10 +51,10 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Follows the pull requests of the Epics' open work: the work picks up a pull request its task published, a linked one still open is
- * refreshed whenever the lists are, and each change in its real status is recorded once on the work it concerns: a pull request open and
- * waiting for review, a review approving it or still requesting changes, checks failing on its head commit, and its merge. Whether the work is
- * done stays the user's decision; a merge only has the Epic's next work picked for the user to start.
+ * Follows the pull requests of open work: the work picks up a pull request its task published, a linked one still open is refreshed
+ * whenever the lists are, and each change in its real status is recorded once on the work it concerns: a pull request open and waiting for
+ * review, a review approving it or still requesting changes, checks failing on its head commit, and its merge. A merge concludes work done on
+ * a merged delivery and has an Epic's next work picked for the user to start.
  */
 @Component
 public class GoalDeliveries
@@ -99,7 +99,7 @@ public class GoalDeliveries
         executor.execute(() -> record(Optional.empty()));
     }
 
-    /** A detail refresh may show the merge of a pull request that Epic work links. */
+    /** A detail refresh may show the merge of a pull request that open work links. */
     @EventListener
     public void detailRefreshed(PullRequestDetailRefreshed event)
     {
@@ -107,7 +107,7 @@ public class GoalDeliveries
         executor.execute(() -> record(Optional.of(key)));
     }
 
-    /** A list refresh says nothing about a linked pull request, so the Epics' open work asks for each one it should follow. */
+    /** A list refresh says nothing about a linked pull request, so open work asks for each one it should follow. */
     @EventListener
     public void listsRefreshed(PullRequestsRefreshed event)
     {
@@ -134,8 +134,9 @@ public class GoalDeliveries
     }
 
     /**
-     * Records each change in the real status of the work's pull requests once per work item, as a receipt: its merge; while it is open, that
-     * it waits for review, each reviewer's latest verdict approving it or still requesting changes, and checks failing on its head commit.
+     * Records each change in the real status of the work's pull requests once per work item, as a receipt: its merge, which may conclude the
+     * work; while it is open, that it waits for review, each reviewer's latest verdict approving it or still requesting changes, and checks
+     * failing on its head commit.
      *
      * @param pullRequest the one pull request a detail refresh read, or every linked one
      */
@@ -147,9 +148,10 @@ public class GoalDeliveries
                     continue;
                 }
                 if (link.state() == GoalItemState.MERGED) {
-                    if (recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title())) {
+                    if (recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title()) && item.epicId().isPresent()) {
                         next.getObject().merged(item, link.label());
                     }
+                    deliver(item);
                 }
                 else if (link.state() == GoalItemState.WORKING) {
                     recordOnce(item, "opened:" + link.key(), "Pull request " + link.label() + " opened: " + link.title());
@@ -192,6 +194,16 @@ public class GoalDeliveries
         }
     }
 
+    private void deliver(WorkItemView item)
+    {
+        try {
+            work.getObject().deliver(item.workspaceId(), item.id());
+        }
+        catch (RuntimeException failure) {
+            log.warn("Work {} was not concluded on its merge", item.id(), failure);
+        }
+    }
+
     /** A pull request's stored detail, when ByteQuay holds one. */
     private Optional<StoredPrDetail> stored(String key)
     {
@@ -212,7 +224,7 @@ public class GoalDeliveries
     private List<WorkItemView> open()
     {
         return workspaces.findAll().stream().map(Workspace::id).flatMap(workspaceId -> work.getObject().list(workspaceId).stream())
-                .filter(item -> item.epicId().isPresent() && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
+                .filter(item -> item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
                 .collect(toImmutableList());
     }
 

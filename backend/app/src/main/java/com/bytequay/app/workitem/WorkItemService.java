@@ -259,10 +259,36 @@ public class WorkItemService
         });
     }
 
-    /** Records a task result in the work item's history, once per operation; whether the item is done stays the user's decision. */
+    /** Records a task result in the work item's history, once per operation; it does not change the item's state. */
     public void receipt(String workspaceId, String id, String operationId, String detail)
     {
         record(workspaceId, id, operationId, "RECEIPT", detail);
+    }
+
+    /**
+     * Concludes open work done on a merged delivery once a merge is recorded on it and its pull requests are settled, as accepting it would.
+     * A merge the user reopened the work after does not conclude it again; the next one does.
+     */
+    public void deliver(String workspaceId, String id)
+    {
+        unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, id);
+            boolean merged = item.history().reversed().stream().takeWhile(event -> !event.action().equals("REOPEN"))
+                    .anyMatch(event -> event.action().equals("RECEIPT") && event.operationId().startsWith("merged:"));
+            if (!open(item) || item.completionRule() != WorkItem.CompletionRule.MERGED_DELIVERY || !merged) {
+                return null;
+            }
+            List<GoalItemView> pulls = pulls(workspaceId, item);
+            if (!delivered(pulls)) {
+                return null;
+            }
+            Instant now = clock.instant();
+            update(new WorkItem(id, workspaceId, item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), WorkItem.State.DONE,
+                    item.revision() + 1, item.links(), ImmutableList.<WorkItemEvent>builder().addAll(item.history())
+                            .add(new WorkItemEvent("delivered:" + item.revision(), "", "DELIVERED", deliveryText(pulls), now)).build(), item.createdAt(), now,
+                    item.priority(), item.blockedBy(), item.epicId(), item.epicRank(), item.contextLinks()), item.revision());
+            return null;
+        });
     }
 
     /** Saves a summary of finished work in its history, once per operation; it changes neither the item's state nor its accepted scope. */
@@ -327,17 +353,9 @@ public class WorkItemService
                     checkText(criteria, "acceptanceCriteria");
                     checkText(detail, "accepted result and scope coverage");
                     if (rule == WorkItem.CompletionRule.MERGED_DELIVERY) {
-                        List<GoalItemView> pulls = item.links().stream().filter(link -> link.reference().kind() == GoalItemKind.PULL_REQUEST)
-                                .map(link -> references.view(workspaceId, link.reference())).collect(toImmutableList());
-                        // A PR closed without merging is an abandoned attempt: never delivery, and never a blocker for the PR that replaced it.
-                        // ponytail: links are never removed, so a wrongly linked open PR blocks until it closes; add unlink if that bites.
-                        boolean delivered = pulls.stream().anyMatch(pull -> pull.state() == GoalItemState.MERGED);
-                        boolean settled = pulls.stream().allMatch(pull -> pull.state() == GoalItemState.MERGED || pull.state() == GoalItemState.ENDED);
-                        checkArgument(delivered && settled, "Link a merged PR and refresh the others until each is merged or closed before accepting delivery");
-                        detail += "\nObserved merged PRs: " + urls(pulls, GoalItemState.MERGED);
-                        if (pulls.stream().anyMatch(pull -> pull.state() == GoalItemState.ENDED)) {
-                            detail += "\nAbandoned PRs, closed without merging: " + urls(pulls, GoalItemState.ENDED);
-                        }
+                        List<GoalItemView> pulls = pulls(workspaceId, item);
+                        checkArgument(delivered(pulls), "Link a merged PR and refresh the others until each is merged or closed before accepting delivery");
+                        detail += "\n" + deliveryText(pulls);
                     }
                     detail = "User accepted all criteria: " + criteria + "\n" + detail;
                     state = WorkItem.State.DONE;
@@ -650,6 +668,28 @@ public class WorkItemService
         if (item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED) {
             throw conflict("Reopen the work item before starting another attempt.");
         }
+    }
+
+    private List<GoalItemView> pulls(String workspaceId, WorkItem item)
+    {
+        return item.links().stream().filter(link -> link.reference().kind() == GoalItemKind.PULL_REQUEST)
+                .map(link -> references.view(workspaceId, link.reference())).collect(toImmutableList());
+    }
+
+    /** A merged pull request and every other one merged or closed. */
+    private static boolean delivered(List<GoalItemView> pulls)
+    {
+        // A PR closed without merging is an abandoned attempt: never delivery, and never a blocker for the PR that replaced it.
+        // ponytail: links are never removed, so a wrongly linked open PR blocks until it closes; add unlink if that bites.
+        return pulls.stream().anyMatch(pull -> pull.state() == GoalItemState.MERGED)
+                && pulls.stream().allMatch(pull -> pull.state() == GoalItemState.MERGED || pull.state() == GoalItemState.ENDED);
+    }
+
+    private static String deliveryText(List<GoalItemView> pulls)
+    {
+        String merged = "Observed merged PRs: " + urls(pulls, GoalItemState.MERGED);
+        return pulls.stream().noneMatch(pull -> pull.state() == GoalItemState.ENDED) ? merged
+                : merged + "\nAbandoned PRs, closed without merging: " + urls(pulls, GoalItemState.ENDED);
     }
 
     private static String urls(List<GoalItemView> pulls, GoalItemState state)

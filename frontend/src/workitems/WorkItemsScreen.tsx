@@ -70,6 +70,7 @@ const EVENTS: Record<string, [string, typeof Plus, string]> = {
   REOPEN: ['Reopened this', RotateCcw, ' is-success'],
   BEGIN: ['Started work', Play, ' is-warning'],
   ACCEPT: ['Marked this done', CircleCheck, ' is-purple'],
+  DELIVERED: ['Done on merge', CircleCheck, ' is-purple'],
   PUBLISHED: ['Pushed this to remote', Upload, ' is-link'],
   LINKED: ['Linked', Link2, ''],
   CONTEXT_UPDATED: ['Updated context links', Link2, ''],

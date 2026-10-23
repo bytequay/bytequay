@@ -24,6 +24,7 @@ import com.bytequay.agent.core.QueuedInputNotFoundException;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.context.ContextStorageException;
+import com.bytequay.app.review.LocalRunRefusedException;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
@@ -142,6 +143,13 @@ public class GlobalExceptionHandler
     public ResponseEntity<ErrorResponse> handleAgentConflict(RuntimeException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.CONFLICT.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    @ExceptionHandler(LocalRunRefusedException.class)
+    public ResponseEntity<ErrorResponse> handleLocalRunRefused(LocalRunRefusedException exception, HttpServletRequest request)
+    {
+        log.warn("Local run refused: {} ({})", request.getRequestURI(), exception.getMessage());
+        return errorResponse(HttpStatus.UNPROCESSABLE_ENTITY.value(), exception.getMessage(), request.getRequestURI());
     }
 
     @ExceptionHandler(ContextStorageException.class)

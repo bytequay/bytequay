@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.review.LocalRunRefusedException;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +38,16 @@ class TestGlobalExceptionHandler
                 .andExpect(jsonPath("$.path").value("/ci-autofix/runs/missing"));
     }
 
+    @Test
+    void reportsLocalRunRefusalReason()
+            throws Exception
+    {
+        standaloneSetup(new MissingResourceController()).setControllerAdvice(new GlobalExceptionHandler()).build()
+                .perform(get("/agent/ide/refused"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.message").value("Your login shell environment could not be read"));
+    }
+
     @RestController
     static class MissingResourceController
     {
@@ -45,6 +56,12 @@ class TestGlobalExceptionHandler
                 throws NoResourceFoundException
         {
             throw new NoResourceFoundException(HttpMethod.GET, "ci-autofix/runs/missing");
+        }
+
+        @GetMapping("/agent/ide/refused")
+        void refused()
+        {
+            throw new LocalRunRefusedException("Your login shell environment could not be read");
         }
     }
 }

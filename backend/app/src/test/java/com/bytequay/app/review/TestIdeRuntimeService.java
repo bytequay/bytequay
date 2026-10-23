@@ -167,6 +167,8 @@ class TestIdeRuntimeService
         Files.writeString(javaState, "bundled");
         runtime.open(worktree);
         assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.java.home").asText()).isEqualTo(System.getProperty("java.home"));
+        // The extension's 2 GB default runs out building a large project.
+        assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.vmargs").asText()).contains("-XX:MaxRAMPercentage=25").doesNotContain("-Xmx");
         assertThat(storage.resolve("redhat.java")).doesNotExist();
         assertThat(otherState).hasContent("kept");
         runtime.stopWorktree(worktree);

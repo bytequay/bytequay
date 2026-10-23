@@ -77,6 +77,10 @@ public class IdeRuntimeService
     private static final Duration CLIENT_TIMEOUT = Duration.ofSeconds(90);
     // The oldest release the bundled Java extension accepts for its language server.
     private static final int MINIMUM_JAVA_SERVER_RELEASE = 21;
+    // The Java extension's default arguments with its 2 GB heap cap replaced by a share of memory: eight parallel builders
+    // of a large multi-module project run out at 2 GB, leaving class folders half written for test launches.
+    private static final String JAVA_SERVER_ARGUMENTS = "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true "
+            + "-XX:MaxRAMPercentage=25 -Xms100m -Xlog:disable";
     private final ProcessSupervisor supervisor;
     private final LaunchIntentRecorder intents;
     private final LoginShellEnvironment loginShell;
@@ -366,7 +370,7 @@ public class IdeRuntimeService
         }
         // Machine-scoped settings are read from the server's own profile; the renderer's user settings cannot set them.
         Path settings = Files.createDirectories(userData.resolve("Machine")).resolve("settings.json");
-        mapper.writeValue(settings.toFile(), ImmutableMap.of("java.jdt.ls.java.home", selected));
+        mapper.writeValue(settings.toFile(), ImmutableMap.of("java.jdt.ls.java.home", selected, "java.jdt.ls.vmargs", JAVA_SERVER_ARGUMENTS));
     }
 
     private void stop(Live live)

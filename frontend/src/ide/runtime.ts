@@ -92,6 +92,9 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
     // Library JARs cannot call project code, so searching them only slows usages; their index is the same for every task.
     'java.search.scope': 'projectOnly', 'java.sharedIndexes.enabled': 'on',
+    // A pipe start that outlasts 30 seconds, as a fresh workspace's can, makes the extension start a second stdio server
+    // without stopping the first; both then import the same workspace and corrupt its project state.
+    'java.transport': 'stdio',
     'go.showWelcome': false, 'go.toolsManagement.autoUpdate': false, 'go.toolsManagement.checkForUpdates': 'off',
     'rust-analyzer.testExplorer': true, 'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
     'testing.saveBeforeTest': false, 'debug.saveBeforeStart': 'none', 'task.saveBeforeRun': 'never',

@@ -14,6 +14,7 @@
 package com.bytequay.agent.core;
 
 import java.math.BigDecimal;
+import java.math.MathContext;
 import java.time.Duration;
 import java.util.Optional;
 
@@ -35,7 +36,8 @@ public record AgentMetrics(long inputTokens, long cachedInputTokens, long output
         checkArgument(inputTokens >= 0 && cachedInputTokens >= 0 && outputTokens >= 0, "token counts must not be negative");
         checkArgument(cost.stream().noneMatch(value -> value.signum() < 0), "cost must not be negative");
         checkArgument(!elapsed.isNegative(), "elapsed is negative");
-        cost = cost.map(BigDecimal::stripTrailingZeros);
+        // A REAL column reads back only 15 significant digits, so a longer sum of turn costs would no longer match its summary copy.
+        cost = cost.map(value -> value.round(new MathContext(15)).stripTrailingZeros());
     }
 
     public static AgentMetrics empty()

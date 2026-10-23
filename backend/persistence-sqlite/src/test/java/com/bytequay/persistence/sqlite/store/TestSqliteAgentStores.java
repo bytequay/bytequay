@@ -156,7 +156,8 @@ class TestSqliteAgentStores
     void roundTripsTaskSummarySessionMetricsAndCleanupFacts()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentMetrics metrics = new AgentMetrics(10, 2, 5, Optional.of(new BigDecimal("0.1873740")), Duration.ofSeconds(3), new ToolCounters(4, 2, 1));
+        // A sum of turn costs with more digits than the REAL cost column keeps.
+        AgentMetrics metrics = new AgentMetrics(10, 2, 5, Optional.of(new BigDecimal("24.44559499999999")), Duration.ofSeconds(3), new ToolCounters(4, 2, 1));
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
                 taskId,

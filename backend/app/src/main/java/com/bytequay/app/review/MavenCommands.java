@@ -42,12 +42,15 @@ public final class MavenCommands
     private static final Set<String> WRAPPERS = ImmutableSet.of("env", "exec", "time", "command", "nohup");
     private static final Set<String> MAVEN = ImmutableSet.of("mvn", "mvnw");
     private static final Set<String> SEPARATORS = ImmutableSet.of("&&", "||", ";", "|", "&");
+    private static final Set<String> REDIRECTS = ImmutableSet.of(">", ">>", "<", ">&", "<&");
+    private static final Pattern SAVED_STATUS = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)=\\$\\?");
 
     private MavenCommands() {}
 
     /**
      * @param script the unwrapped script, bounded for display
-     * @param lone the script is one Maven invocation with no separator or redirection, so its exit status is Maven's
+     * @param lone the script's exit status is Maven's: it is one Maven invocation, redirects aside, or it saves that invocation's
+     * status and exits with it
      * @param testClass the class of the script's only {@code -Dtest} selector, when that selector names one class
      * @param testMethod the method of that selector, when it names one
      */
@@ -71,34 +74,37 @@ public final class MavenCommands
             words = split(script);
         }
 
-        boolean maven = false;
-        boolean anyOperator = false;
-        int segments = 0;
-        List<String> selectors = new ArrayList<>();
+        // Each segment with the separator that ends it, "" for the last.
+        List<List<Word>> segments = new ArrayList<>();
+        List<String> separators = new ArrayList<>();
         List<Word> segment = new ArrayList<>();
         for (int index = 0; index <= words.size(); index++) {
             Word word = index < words.size() ? words.get(index) : null;
             if (word == null || word.operator() && SEPARATORS.contains(word.text())) {
                 if (!segment.isEmpty()) {
-                    segments++;
-                    if (runsMaven(segment)) {
-                        maven = true;
-                        segment.stream()
-                                .filter(part -> !part.operator() && part.text().startsWith("-Dtest="))
-                                .map(part -> part.text().substring("-Dtest=".length()))
-                                .forEach(selectors::add);
-                    }
+                    segments.add(ImmutableList.copyOf(segment));
+                    separators.add(word == null ? "" : word.text());
                 }
-                anyOperator |= word != null;
                 segment.clear();
                 continue;
             }
-            anyOperator |= word.operator();
             segment.add(word);
         }
-        if (!maven) {
+        List<Integer> mavenSegments = new ArrayList<>();
+        List<String> selectors = new ArrayList<>();
+        for (int index = 0; index < segments.size(); index++) {
+            if (runsMaven(segments.get(index))) {
+                mavenSegments.add(index);
+                segments.get(index).stream()
+                        .filter(part -> !part.operator() && part.text().startsWith("-Dtest="))
+                        .map(part -> part.text().substring("-Dtest=".length()))
+                        .forEach(selectors::add);
+            }
+        }
+        if (mavenSegments.isEmpty()) {
             return Optional.empty();
         }
+        boolean lone = mavenSegments.size() == 1 && exitsWithMaven(segments, separators, mavenSegments.getFirst());
 
         Optional<String> testClass = Optional.empty();
         Optional<String> testMethod = Optional.empty();
@@ -110,7 +116,31 @@ public final class MavenCommands
             }
         }
         String display = script.length() <= MAXIMUM_DISPLAY_CHARACTERS ? script.strip() : script.substring(0, MAXIMUM_DISPLAY_CHARACTERS) + "…";
-        return Optional.of(new Maven(display, segments == 1 && !anyOperator, testClass, testMethod));
+        return Optional.of(new Maven(display, lone, testClass, testMethod));
+    }
+
+    /** Whether the script ends with the status of its Maven segment: that segment is the whole script, or the script saves its status and exits with it. */
+    private static boolean exitsWithMaven(List<List<Word>> segments, List<String> separators, int maven)
+    {
+        if (segments.get(maven).stream().anyMatch(word -> word.operator() && !REDIRECTS.contains(word.text()))) {
+            return false;
+        }
+        if (segments.size() == 1) {
+            return true;
+        }
+        // An agent that trims long output keeps Maven's status: `mvn … > log 2>&1; status=$?; tail log; exit "$status"`.
+        int last = segments.size() - 1;
+        if (maven + 2 > last || maven > 0 && !separators.get(maven - 1).equals(";") || !separators.get(maven).equals(";") || !separators.get(last - 1).equals(";")) {
+            return false;
+        }
+        List<Word> save = segments.get(maven + 1);
+        Matcher saved = SAVED_STATUS.matcher(save.getFirst().text());
+        List<Word> exit = segments.get(last);
+        return save.size() == 1
+                && saved.matches()
+                && exit.size() == 2
+                && exit.getFirst().text().equals("exit")
+                && (exit.getLast().text().equals("$" + saved.group(1)) || exit.getLast().text().equals("${" + saved.group(1) + "}"));
     }
 
     /**
@@ -219,6 +249,11 @@ public final class MavenCommands
                 String operator = character == '\n' ? ";" : String.valueOf(character);
                 if ((character == '&' || character == '|' || character == '>') && index + 1 < text.length() && text.charAt(index + 1) == character) {
                     operator += character;
+                    index++;
+                }
+                // `2>&1` duplicates a descriptor; its `&` does not end the command.
+                else if ((character == '>' || character == '<') && index + 1 < text.length() && text.charAt(index + 1) == '&') {
+                    operator += '&';
                     index++;
                 }
                 words.add(new Word(operator, true));

@@ -41,9 +41,30 @@ class TestMavenCommands
         // Claude sends the bare script.
         assertThat(MavenCommands.detect(ImmutableList.of("cd core && ../mvnw test -Dtest=TestAccess | tail -40")))
                 .contains(new Maven("cd core && ../mvnw test -Dtest=TestAccess | tail -40", false, Optional.of("TestAccess"), Optional.empty()));
-        assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test > build.log 2>&1")).orElseThrow().lone()).isFalse();
+        assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test > build.log 2>&1")).orElseThrow().lone()).isTrue();
         assertThat(MavenCommands.detect(ImmutableList.of("git status; mvn -q\ttest")).orElseThrow().lone()).isFalse();
         assertThat(MavenCommands.detect(ImmutableList.of("time ./mvnw test")).orElseThrow().lone()).isTrue();
+    }
+
+    @Test
+    void aScriptThatSavesMavensStatusAndExitsWithItKeepsItsExit()
+    {
+        String script = """
+                JAVA_HOME=/jdk ./mvnw -B -pl core -Dtest=TestAccess#testRead test > build.log 2>&1
+                review_exit=$?
+                tail -n 28 build.log
+                exit "$review_exit"
+                """;
+        assertThat(MavenCommands.detect(ImmutableList.of(script)).orElseThrow())
+                .isEqualTo(new Maven(script.strip(), true, Optional.of("TestAccess"), Optional.of("testRead")));
+        assertThat(MavenCommands.detect(ImmutableList.of("/bin/zsh -lc 'cd core; ./mvnw test > log; status=$?; tail log; exit ${status}'")).orElseThrow().lone()).isTrue();
+
+        // The saved status is another command's, or the script may end on another one.
+        assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test | tee log; status=$?; exit $status")).orElseThrow().lone()).isFalse();
+        assertThat(MavenCommands.detect(ImmutableList.of("cd core && ./mvnw test; status=$?; exit $status")).orElseThrow().lone()).isFalse();
+        assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test; status=$?; tail log && exit $status")).orElseThrow().lone()).isFalse();
+        assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test; status=$?; tail log; exit $other")).orElseThrow().lone()).isFalse();
+        assertThat(MavenCommands.detect(ImmutableList.of("./mvnw test; tail log; exit $?")).orElseThrow().lone()).isFalse();
     }
 
     @Test

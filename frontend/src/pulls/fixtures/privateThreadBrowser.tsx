@@ -23,6 +23,7 @@ import { privateThreadSource } from '../PrivateThread';
 import { useTaskDiscussions, type DiscussionBridgePort } from '../../agents/discussions/useTaskDiscussions';
 import { SUMMARY_REQUEST, type AskCommentDiscussionRequest, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import type { Bridge } from '../../types';
+import type { FixableComment } from '../../agents/taskFix';
 import { element as fixtureElement, assert, settle } from '../../fixtures/harness';
 import { remotePullRequest } from '../PullsScreen';
 
@@ -45,6 +46,7 @@ const SUMMARY = JSON.stringify({ ask: 'Rename helper to resolveOwner.', valid: '
   do: 'yes', plan: 'Rename it and its two callers.', size: 'trivial' });
 
 let refresh: () => Promise<void> = async () => {};
+const fixes: FixableComment[] = [];
 
 function Harness({ bridge }: { bridge: DiscussionBridgePort }) {
   const discussions = useTaskDiscussions({ taskId: 'task-1', workspaceId: 'workspace-1' }, { bridge });
@@ -53,7 +55,7 @@ function Harness({ bridge }: { bridge: DiscussionBridgePort }) {
     <div className="pull-detail__body" style={{ height: 880 }}>
       <TaskPullRequestView pr={pr} workspaceId="workspace-1" detail={detail} loading={false} error={null}
         onRefresh={async () => {}} onDetailUpdate={() => {}} onDetailChange={() => {}}
-        privateThreads={privateThreadSource(discussions, pr)} />
+        privateThreads={{ ...privateThreadSource(discussions, pr), fix: async comment => { fixes.push(comment); } }} />
     </div>
   );
 }
@@ -119,9 +121,19 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
 
     await step('Only other people’s comments offer Ask agent', async () => {
-      const asks = host.querySelectorAll('.pr-ask-agent').length;
+      const asks = [...host.querySelectorAll('.pr-ask-agent')].filter(ask => ask.textContent === 'Ask agent').length;
       assert(asks === 1 && host.textContent?.includes('Thanks, renaming it now.') === true,
         `Only bob's review comment may offer Ask agent, not alice's own comment; found ${asks}`);
+    });
+
+    await step('Fix with agent hands bob’s review comment to the task once, with its lines and link', async () => {
+      assert([...host.querySelectorAll('button')].filter(fix => fix.textContent === 'Fix with agent').length === 1,
+        'Only bob’s review comment may offer Fix with agent');
+      button(host, 'Fix with agent').click();
+      await settle();
+      assert(JSON.stringify(fixes) === JSON.stringify([{ author: 'bob', body: 'Rename `helper` to `resolveOwner`.',
+        url: 'https://github.com/owner/repo/pull/7', location: 'src/Owner.java:R3' }]), `Fix sent ${JSON.stringify(fixes)}`);
+      assert(button(host, 'Sent to agent').disabled, 'A sent fix cannot be sent again from the same button');
     });
 
     await step('Ask agent brings the thread forward and Cmd+Enter asks for the summary', async () => {

@@ -61,7 +61,7 @@ testBrowserScenarios([
   },
   {
     name: 'keeps private threads local until the user posts a drafted reply, in Chromium',
-    expected: 9, timeout: 30_000,
+    expected: 10, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-private-thread-',
       entry: 'src/pulls/fixtures/privateThreadBrowser.tsx',

@@ -138,6 +138,7 @@ import {
   type RetryableInput
 } from './model';
 import { prepareAgentInput, usePreparedAgentInput } from './preparedInput';
+import { commentFixPrompt, requestTaskFix, type FixableComment } from './taskFix';
 import { useReviewCardFocus } from './reviewCardNavigation';
 import {
   activeAgents,
@@ -554,7 +555,7 @@ function SidePanel({
   pullRequestDetail, pullRequestChanges, pullRequestCommitRange, pullRequestPendingComments,
   onPullRequestCommitRangeChange, onPullRequestPendingCommentsChange, workspaceId, branch, repository,
   activityChoice, onOpenAgent, onCloseAgent, onToggleActivity, onDecide, onSelectTab, onOpenPullRequest,
-  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onCodeUnsavedChange,
+  onAskAgent, onAskAgentDisabled, onFixComment, localReview, learning, reviewFocus, onCodeUnsavedChange,
   width, showAgents, utilityTabs, onCloseUtility, logChoice = null, onToggleLog = () => {}, historyUnloaded = false, onLoadEarlier = () => {}, historyLoading = false,
 }: {
   agents: AgentNode[];
@@ -595,6 +596,7 @@ function SidePanel({
   onOpenPullRequest?: (number: number) => void;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
+  onFixComment?: (comment: FixableComment) => Promise<void>;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussions;
   onJumpToPassage?: (target: { turnId: string; discussionId?: string }) => void;
@@ -717,7 +719,7 @@ function SidePanel({
       .then(value => setReview(current => (current === shown ? value : current)), () => {});
   }, [activeTurn]);
   const privateThreads = discussions === undefined || pullRequest === null || task?.interactive !== true ? undefined
-    : privateThreadSource(discussions, pullRequest, undefined, workspaceId);
+    : { ...privateThreadSource(discussions, pullRequest, undefined, workspaceId), fix: onFixComment, fixDisabledReason: onAskAgentDisabled };
   const agentCount = agents.length + expiredChildren.length;
   const shownUtilities = utilityTabs.filter(utility => (utility === 'agents' ? showAgents : discussions !== undefined));
   const agentTab = shownUtilities.map(utility => <ConversationUtilityTab key={utility} tab={utility}
@@ -954,7 +956,7 @@ export function AgentTaskBody({
   headerAction,
   attentionStatus,
   submissionBlocked = false,
-  onAskAgent, onAskAgentDisabled, localReview, learning, reviewFocus, onOpenReview,
+  onAskAgent, onAskAgentDisabled, onFixComment, localReview, learning, reviewFocus, onOpenReview,
 }: {
   state: AgentTaskState;
   /** The task's accepted automation, null while it loads; absent for a task without automation. */
@@ -964,6 +966,7 @@ export function AgentTaskBody({
   submissionBlocked?: boolean;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
   onAskAgentDisabled?: string | null;
+  onFixComment?: (comment: FixableComment) => Promise<void>;
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussions;
   onSelectPassage?: (passage: SelectedPassage, question: string) => Promise<unknown>;
@@ -1454,6 +1457,7 @@ export function AgentTaskBody({
             reviewFocus={reviewFocus}
             onAskAgent={state.task?.state === 'OPEN' ? onAskAgent : undefined}
             onAskAgentDisabled={onAskAgentDisabled}
+            onFixComment={state.task?.state === 'OPEN' ? onFixComment : undefined}
             onPullRequestCommitRangeChange={onPullRequestCommitRangeChange}
             onPullRequestPendingCommentsChange={onPullRequestPendingCommentsChange}
             workspaceId={state.task.workspaceId}
@@ -2311,6 +2315,14 @@ export default function AgentTaskScreen({
     }
   }, [agentCommentDisabled, createLocalReview, recordProviderUnavailable, refreshProjection, taskId, taskPr, workspaceId]);
 
+  const fixKeys = useRef(new Map<string, string>());
+  const fixComment = useCallback(async (comment: FixableComment) => {
+    const message = commentFixPrompt(comment);
+    await requestTaskFix(live(), fixKeys.current, message, taskId, workspaceId, message);
+    attentionAction('prompt');
+    await refreshProjection(stateRef.current.latestTurnId).catch(() => {});
+  }, [attentionAction, live, refreshProjection, taskId, workspaceId]);
+
   /** One click, one publication: ByteQuay builds the request, starts the turn and owns the write. */
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
@@ -2737,6 +2749,7 @@ export default function AgentTaskScreen({
       submissionBlocked={automationBlocked}
       onAskAgent={state.task?.interactive === true ? sendAgentComment : undefined}
       onAskAgentDisabled={agentCommentDisabled}
+      onFixComment={state.task?.interactive === true ? fixComment : undefined}
       localReview={localReview}
       discussions={discussions}
       onSelectPassage={(passage, question) => discussions.open({ ...passage, question }).then(() => openUtility('discussions'))}

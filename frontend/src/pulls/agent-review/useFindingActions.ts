@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useRef, useState } from 'react';
-import { alreadySent } from '../../agents/contracts';
+import { requestTaskFix } from '../../agents/taskFix';
 import { recordAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../../remoteError';
 import { findingFixPrompt } from '../local-review/conversation';
@@ -77,35 +77,8 @@ export function useFindingActions({
     onRequestFix: review.sourceTaskId == null ? undefined : (finding, instruction) => guard(async () => {
       const sourceTaskId = review.sourceTaskId;
       if (sourceTaskId == null) return;
-      const task = await window.bridge.getAgentTask(sourceTaskId, review.workspaceId);
-      if (task.state !== 'OPEN' || task.checkoutRemovedAt !== null) throw new Error('The development task is no longer available for changes');
-      if (task.developmentContinuationUnfinished) throw new Error('Wait for development automation to finish before requesting a fix');
       const message = findingFixPrompt(review, finding, instruction);
-      const identity = `${finding.id}:${finding.revision}:${message}`;
-      let idempotencyKey = fixKeys.current.get(identity);
-      if (idempotencyKey === undefined) {
-        idempotencyKey = `review-fix:${crypto.randomUUID()}`;
-        fixKeys.current.set(identity, idempotencyKey);
-      }
-      // The same key whichever way it goes: a fix whose answer was lost is refused as already sent, not run twice.
-      try {
-        if (task.mutationClaim?.kind === 'TURN') {
-          await window.bridge.queueAgentInput({ taskId: sourceTaskId, workspaceId: review.workspaceId,
-            expectedVersion: task.version, message, idempotencyKey });
-        }
-        else {
-          const turn = await window.bridge.startAgentTurn({ taskId: sourceTaskId, expectedTaskVersion: task.version, message, idempotencyKey });
-          if (turn.state === 'FAILED' && turn.knownUnsent) {
-            // A retried key answered with an earlier attempt that never reached the developer; the next try is a new one.
-            fixKeys.current.delete(identity);
-            throw new Error(`Not sent: ${turn.terminalReason ?? 'the developer did not start'}`);
-          }
-        }
-      }
-      catch (failure) {
-        if (!alreadySent(failure)) throw failure;
-      }
-      fixKeys.current.delete(identity);
+      await requestTaskFix(window.bridge, fixKeys.current, `${finding.id}:${finding.revision}:${message}`, sourceTaskId, review.workspaceId, message);
       recordReviewAttentionAction(review, 'prompt');
     }, true),
     onAsk: (finding, message) => guard(async () => {

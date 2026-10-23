@@ -259,6 +259,10 @@ provisional until the review finishes.
 **Resolve locally** closes the private discussion without resolving the GitHub
 thread.
 
+On a development task’s pull request, **Fix with agent** sends the comment to
+that task’s agent as a new turn, queued behind a running one. No reply is
+posted on the comment.
+
 <a id="link-previews"></a>
 
 ## Preview PR and issue links

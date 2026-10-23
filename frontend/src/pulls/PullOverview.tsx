@@ -949,7 +949,7 @@ function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate
           {badge && <span className={`pr-review-badge ${badge.className}`}>{badge.text}</span>}</>}
         menu={<>{reaction && <ReactionPicker action={reaction} />}
           {privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey}
-            own={isViewerComment(activity.actor, viewerLogin)} />}
+            own={isViewerComment(activity.actor, viewerLogin)} comment={{ author: actor, body, url: activity.payload.htmlUrl ?? pr.htmlUrl, location: null }} />}
           <CardActionsMenu actions={{ link: activity.payload.htmlUrl ?? pr.htmlUrl, markdown: body,
             onQuote: () => onQuote(body), onEdit: canEdit ? () => setEditDraft(body) : undefined }} />
         </>}
@@ -1200,6 +1200,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
       badges={pendingReplies.length > 0 && <span className="pull-diff-pending__badge">Pending</span>}
       code={commentedLines.length > 0 && <CodeExcerpt path={payload.path} lines={commentedLines} />} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
+        location={threadLocation(payload.path, targetLine, payload.side, startLine)}
         indexLabel={`${threadLocation(payload.path, targetLine, payload.side, startLine)} · ${resolved ? 'Resolved' : 'Open'} · ${payload.outdated ? 'Outdated · ' : ''}`}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
         privateThreads={privateThreads}
@@ -1216,8 +1217,9 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange, privateThreads, onDraftReply, indexLabel }: {
+function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange, privateThreads, onDraftReply, location, indexLabel }: {
   comment: PullTimelineCommentDto;
+  location: string;
   privateThreads?: PrivateThreads;
   onDraftReply?: (thread: TaskDiscussionDto) => void;
   fallbackUrl: string;
@@ -1258,7 +1260,8 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
       </>}
       menu={<>{reaction && <ReactionPicker action={reaction} />}
         {privateThreads !== undefined && threadKey !== null && <PrivateThreadControls threads={privateThreads} threadKey={threadKey}
-          own={isViewerComment(comment.actor, viewerLogin)} />}
+          own={isViewerComment(comment.actor, viewerLogin)}
+          comment={{ author: displayActor(comment.actor ?? 'github'), body: comment.body ?? '', url: comment.htmlUrl ?? fallbackUrl, location }} />}
         {comment.body && <CardActionsMenu actions={{
           link: comment.htmlUrl ?? fallbackUrl,
           markdown: comment.body,

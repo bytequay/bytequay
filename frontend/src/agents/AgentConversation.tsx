@@ -26,6 +26,7 @@ import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewMessageDto, LocalReviewThreads } from '../pulls/local-review/types';
 import { findingFixRequest } from '../pulls/local-review/conversation';
+import { commentFixRequest } from './taskFix';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { remoteErrorMessage } from '../remoteError';
 import { MEMORY_CHANGED } from '../memory/model';
@@ -803,7 +804,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
         const reviewRequest = reviewRequests?.find(message => message.messageEventId === user.id
           || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId));
         const reviewTarget = reviewRequest?.target;
-        const fixRequest = findingFixRequest(user.text, durable?.taskId);
+        const fixRequest = findingFixRequest(user.text, durable?.taskId) ?? commentFixRequest(user.text);
         const fixTarget = fixRequest?.target;
         return (
         <React.Fragment key={user.id}>

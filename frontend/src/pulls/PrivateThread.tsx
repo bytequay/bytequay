@@ -26,6 +26,7 @@ import { remoteErrorMessage } from '../remoteError';
 import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
 import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import { ProviderAvatar } from '../agents/ProviderIcon';
+import type { FixableComment } from '../agents/taskFix';
 
 /** What the conversation's host supplies; absent where the pull request has none, so nothing here renders there. */
 export type PrivateThreadSource = {
@@ -48,6 +49,9 @@ export type PrivateThreadSource = {
   resolve: (thread: TaskDiscussionDto, resolved: boolean) => Promise<void>;
   retry: (thread: TaskDiscussionDto, messageId: string) => Promise<void>;
   draftReply: (thread: TaskDiscussionDto) => Promise<string>;
+  /** A development task's own agent fixes the comment in a normal turn; other hosts have no code to change. */
+  fix?: (comment: FixableComment) => Promise<void>;
+  fixDisabledReason?: string | null;
 };
 
 /** The source plus the client-only view state the pull-request tab owns. */
@@ -186,11 +190,45 @@ export function PrivateThreadsToggle({ threads }: { threads: PrivateThreads }) {
   );
 }
 
+function FixWithAgent({ fix, comment, disabledReason }: {
+  fix: (comment: FixableComment) => Promise<void>;
+  comment: FixableComment;
+  disabledReason: string | null;
+}) {
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [error, setError] = useState<string | null>(null);
+  const send = async (): Promise<void> => {
+    setState('sending');
+    setError(null);
+    try {
+      await fix(comment);
+      setState('sent');
+    }
+    catch (cause) {
+      setError(remoteErrorMessage(cause));
+      setState('idle');
+    }
+  };
+  return <>
+    {error !== null && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+    <button type="button" className="pr-ask-agent" disabled={state !== 'idle' || disabledReason !== null}
+      title={disabledReason ?? (state === 'sent' ? 'Sent to this task’s agent' : 'This task’s agent checks the comment and fixes it in a new turn.')}
+      onClick={() => { void send(); }}>
+      {state === 'sending' ? 'Sending…' : state === 'sent' ? 'Sent to agent' : 'Fix with agent'}
+    </button>
+  </>;
+}
+
 /**
- * The header chip of a thread behind its comment, then Ask agent, which sit right before the comment's menu. Only other people's
- * comments offer Ask agent; a thread already behind the user's own comment keeps its chip.
+ * The header chip of a thread behind its comment, then Ask agent and, on a development task, Fix with agent, which sit right before
+ * the comment's menu. Only other people's comments offer them; a thread already behind the user's own comment keeps its chip.
  */
-export function PrivateThreadControls({ threads, threadKey, own }: { threads: PrivateThreads; threadKey: string; own: boolean }) {
+export function PrivateThreadControls({ threads, threadKey, own, comment }: {
+  threads: PrivateThreads;
+  threadKey: string;
+  own: boolean;
+  comment: FixableComment;
+}) {
   threads = { ...threads, ...threads.statusFor?.(threadKey) };
   const available = useAgentAvailability(threads.workspaceId);
   const thread = held(threads, threadKey);
@@ -213,6 +251,8 @@ export function PrivateThreadControls({ threads, threadKey, own }: { threads: Pr
       title={threads.disabledReason ?? 'Ask the agent about this comment. Private.'} onClick={() => threads.setForward(threadKey)}>
       Ask agent
     </button>}
+    {!own && threads.fix !== undefined
+      && <FixWithAgent fix={threads.fix} comment={comment} disabledReason={threads.fixDisabledReason ?? null} />}
   </>;
 }
 

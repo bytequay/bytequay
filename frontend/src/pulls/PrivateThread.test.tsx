@@ -47,7 +47,9 @@ function threads(over: Partial<PrivateThreads> = {}, value: TaskDiscussionDto | 
   };
 }
 
-const controls = (value: PrivateThreads, own = false): string => renderToStaticMarkup(<PrivateThreadControls threads={value} threadKey={KEY} own={own} />);
+const COMMENT = { author: 'bob', body: 'Please rename this.', url: 'https://github.com/o/r/pull/12#discussion_r7', location: 'src/A.java:R3' };
+const controls = (value: PrivateThreads, own = false): string => renderToStaticMarkup(
+  <PrivateThreadControls threads={value} threadKey={KEY} own={own} comment={COMMENT} />);
 const forward = (value: PrivateThreads, draft = false): string => renderToStaticMarkup(
   <PrivateThreadForward threads={value} threadKey={KEY} author="bob" avatarUrl={null} timestamp={AT} body="Please **rename** this."
     repository="o/r" viewerLogin="alice" onDraftReply={draft ? () => {} : undefined} />);
@@ -137,7 +139,7 @@ describe('private thread surfaces', () => {
   it('keeps history and saved drafts usable while agent readiness is unavailable', () => {
     const saved = threads({}, thread({ replyDraft: 'I will rename it.' }));
     const html = renderToStaticMarkup(<AgentAvailabilityProvider>
-      <PrivateThreadControls threads={saved} threadKey={KEY} own={false} />
+      <PrivateThreadControls threads={saved} threadKey={KEY} own={false} comment={COMMENT} />
       <PrivateThreadForward threads={saved} threadKey={KEY} author="bob" avatarUrl={null} timestamp={AT} body="Rename it."
         repository="o/r" onDraftReply={() => {}} />
     </AgentAvailabilityProvider>);
@@ -197,6 +199,15 @@ describe('private thread surfaces', () => {
     const own = controls(threads(), true);
     expect(own).toContain('Local · 2 replies ↑');
     expect(own).not.toContain('Ask agent');
+  });
+
+  it('offers Fix with agent only where a development task supplies it, and only on other people’s comments', () => {
+    const fix = async () => {};
+    expect(controls(threads())).not.toContain('Fix with agent');
+    expect(controls(threads({ fix }))).toMatch(/Ask agent<\/button><button[^>]*>Fix with agent<\/button>/);
+    expect(controls(threads({ fix }), true)).not.toContain('Fix with agent');
+    expect(controls(threads({ fix, fixDisabledReason: 'Wait for the current follow-up to finish.' })))
+      .toMatch(/<button[^>]*disabled=""[^>]*title="Wait for the current follow-up to finish."[^>]*>Fix with agent/);
   });
 
   it('disables Ask agent once the task released its files', () => {

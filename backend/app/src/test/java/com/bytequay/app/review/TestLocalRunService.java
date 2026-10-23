@@ -228,7 +228,11 @@ class TestLocalRunService
         String argv = "/bin/zsh -lc './mvnw -B -pl core test -Dtest=demo.TestCode'";
         String fingerprint = code.workingCopySource(checkout).fingerprint();
         Instant started = Instant.now().minusSeconds(30);
-        service.recordAgentCommand(REVIEW_ID, command(ActivityState.STARTED, argv, Optional.empty(), Optional.empty(), Optional.empty(), false, "exec-1", started));
+        AgentEventEnvelope start = command(ActivityState.STARTED, argv, Optional.empty(), Optional.empty(), Optional.empty(), false, "exec-1", started);
+        service.recordAgentCommand(REVIEW_ID, start);
+        LocalRun running = runs.list().getFirst();
+        assertThat(running.status()).isEqualTo(Status.RUNNING);
+        assertThat(running.testClass()).contains("demo.TestCode");
         report(PASSING_REPORT, Instant.now().minusSeconds(10));
         // A report an earlier command wrote is not this command's.
         Path stale = checkout.resolve("target/surefire-reports/TEST-demo.Older.xml");
@@ -241,6 +245,8 @@ class TestLocalRunService
         service.recordAgentCommand(REVIEW_ID, completed);
 
         LocalRun run = runs.list().getFirst();
+        assertThat(runs.list()).hasSize(1);
+        assertThat(run.id()).isEqualTo(running.id());
         assertThat(run.initiator()).isEqualTo(LocalRun.Initiator.AGENT);
         assertThat(run.scope()).isEqualTo(LocalRun.Scope.CLASS);
         assertThat(run.testClass()).contains("demo.TestCode");
@@ -250,8 +256,8 @@ class TestLocalRunService
         assertThat(run.exitCode()).hasValue(0);
         assertThat(run.sourceHeadSha()).contains(head);
         assertThat(run.sourceFingerprint()).contains(fingerprint);
-        assertThat(run.startedAt()).isEqualTo(completed.occurredAt().minusMillis(20_000));
-        assertThat(run.agentEventId()).contains(completed.eventId().toString());
+        assertThat(run.startedAt()).isEqualTo(started);
+        assertThat(run.agentEventId()).contains(start.eventId().toString());
         assertThat(run.treeUnverified()).isFalse();
         assertThat(runs.findOutput(run.id())).contains("[INFO] BUILD SUCCESS");
         verify(turns, never()).claimLocalRun(any(), anyString());
@@ -303,6 +309,22 @@ class TestLocalRunService
         assertThat(run.sourceHeadSha()).isEmpty();
         assertThat(run.outputTruncated()).isTrue();
         assertThat(run.omittedBytes()).isEmpty();
+    }
+
+    @Test
+    void stopsAnAgentRunWhoseCommandNeverRanOrWhoseTurnEndedWithoutItsResult()
+    {
+        String argv = "./mvnw test -Dtest=demo.TestCode";
+        service.recordAgentCommand(REVIEW_ID, command(ActivityState.STARTED, argv, Optional.empty(), Optional.empty(), Optional.empty(), false, "declined", NOW));
+        service.recordAgentCommand(REVIEW_ID, command(ActivityState.FAILED, argv, Optional.empty(), Optional.empty(), Optional.empty(), false, "declined", NOW));
+        service.recordAgentCommand(REVIEW_ID, command(ActivityState.STARTED, argv, Optional.empty(), Optional.empty(), Optional.empty(), false, "cut-short", NOW));
+        assertThat(runs.list()).extracting(LocalRun::status).containsExactlyInAnyOrder(Status.RUNNING, Status.STOPPED);
+
+        service.settleAgentRuns(REVIEW_ID);
+        assertThat(runs.list()).allSatisfy(run -> {
+            assertThat(run.status()).isEqualTo(Status.STOPPED);
+            assertThat(run.endedAt()).isPresent();
+        });
     }
 
     @Test

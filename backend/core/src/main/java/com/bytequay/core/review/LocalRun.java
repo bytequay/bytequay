@@ -123,6 +123,27 @@ public record LocalRun(
                 Optional.empty(), Optional.of(launchId), false, 0);
     }
 
+    /** A Maven command the review agent has started; a single class or method selector gives it that scope. */
+    public static LocalRun mirroring(
+            String id,
+            String taskId,
+            String workspaceId,
+            int ordinal,
+            Optional<String> testClass,
+            Optional<String> testMethod,
+            String command,
+            Optional<String> sourceHeadSha,
+            List<String> localPaths,
+            Optional<String> sourceFingerprint,
+            Instant startedAt,
+            String agentEventId)
+    {
+        Scope scope = testClass.isEmpty() ? Scope.COMMAND : testMethod.isPresent() ? Scope.METHOD : Scope.CLASS;
+        return new LocalRun(id, taskId, workspaceId, ordinal, Initiator.AGENT, scope, Optional.empty(), testClass, testMethod, Optional.empty(), command,
+                sourceHeadSha, localPaths, sourceFingerprint, Status.RUNNING, startedAt, Optional.empty(), OptionalInt.empty(), Optional.empty(), false,
+                OptionalLong.empty(), ImmutableList.of(), Optional.of(agentEventId), Optional.empty(), false, 0);
+    }
+
     /** A finished Maven command the review agent ran itself; a single class or method selector gives it that scope. */
     public static LocalRun mirrored(
             String id,
@@ -145,10 +166,8 @@ public record LocalRun(
             OptionalLong omittedBytes,
             String agentEventId)
     {
-        Scope scope = testClass.isEmpty() ? Scope.COMMAND : testMethod.isPresent() ? Scope.METHOD : Scope.CLASS;
-        return new LocalRun(id, taskId, workspaceId, ordinal, Initiator.AGENT, scope, Optional.empty(), testClass, testMethod, Optional.empty(), command,
-                sourceHeadSha, localPaths, sourceFingerprint, status, startedAt, Optional.of(endedAt), exitCode, counts, outputTruncated, omittedBytes, results,
-                Optional.of(agentEventId), Optional.empty(), false, 0);
+        return mirroring(id, taskId, workspaceId, ordinal, testClass, testMethod, command, sourceHeadSha, localPaths, sourceFingerprint, startedAt, agentEventId)
+                .finished(status, endedAt, exitCode, counts, results, outputTruncated, omittedBytes);
     }
 
     public LocalRun finished(

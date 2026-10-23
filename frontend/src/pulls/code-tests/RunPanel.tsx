@@ -308,7 +308,8 @@ export default function RunPanel({
           ) : (
             <>
               <div className="ct-run__toolbar">
-                <button type="button" className="ct-run__action" disabled={run.status !== 'RUNNING' && !run.treeUnverified} aria-label="Stop" title="Stop"
+                <button type="button" className="ct-run__action" disabled={run.initiator === 'AGENT' || (run.status !== 'RUNNING' && !run.treeUnverified)} aria-label="Stop"
+                  title={run.initiator === 'AGENT' ? 'The review agent runs this command' : 'Stop'}
                   onClick={() => onStop(run)}><Square size={12} strokeWidth={2} aria-hidden="true" /></button>
                 <button type="button" className="ct-run__action is-failed-only" aria-pressed={failedOnly}
                   aria-label="Show only failed tests" title={failedOnly ? 'Showing only failed tests — click to show all' : 'Show only failed tests'}
@@ -387,7 +388,8 @@ export default function RunPanel({
                     <div className="ct-run__output" hidden={failureShown}>
                       {output === null ? <div className="ct-run__note" role="status">Reading output…</div> : <TerminalOutput key={run.id} text={output.text} onSelect={setSelection} />}
                       <div className="ct-run__note">
-                        {run.status === 'RUNNING' ? 'Streaming — test rows appear when the runner finishes.'
+                        {run.status === 'RUNNING' ? run.initiator === 'AGENT' ? 'The review agent is running this command — its output and test rows appear when it finishes.'
+                          : 'Streaming — test rows appear when the runner finishes.'
                           : run.outputTruncated
                             ? run.omittedBytes === null
                               ? run.initiator === 'USER' ? 'Output truncated; how much was omitted is unknown.' : 'Output truncated by the agent; the end is not available.'

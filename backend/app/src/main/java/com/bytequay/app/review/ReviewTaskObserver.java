@@ -35,6 +35,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
 
@@ -156,9 +157,11 @@ public class ReviewTaskObserver
         requireNonNull(review, "review is null");
         watcher.watch(review.id(), TaskId.valueOf(review.taskId()), item -> {
             if (mirrorsAgentCommand(item)) {
-                mirrorLater(review.id(), item);
+                runsLater(review.id(), runs -> runs.recordAgentCommand(review.id(), item));
             }
             if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {
+                // Queued after every command event of the turn, so a completion that did arrive always wins.
+                runsLater(review.id(), runs -> runs.settleAgentRuns(review.id()));
                 reconcileLater(review.id());
             }
         }, () -> reconcileLater(review.id()));
@@ -196,21 +199,21 @@ public class ReviewTaskObserver
         }
     }
 
-    private void mirrorLater(String reviewId, AgentEventEnvelope item)
+    private void runsLater(String reviewId, Consumer<LocalRunService> action)
     {
         try {
             executor.execute(() -> {
                 try {
-                    // Reports are parsed here, off the stream, and the row is one short insert.
-                    localRuns.getObject().recordAgentCommand(reviewId, item);
+                    // Reports are parsed here, off the stream, and each row change is one short write.
+                    action.accept(localRuns.getObject());
                 }
                 catch (RuntimeException failure) {
-                    log.warn("Review {} could not mirror an agent command: {}", reviewId, failure.toString());
+                    log.warn("Review {} could not mirror its agent's runs: {}", reviewId, failure.toString());
                 }
             });
         }
         catch (RuntimeException rejected) {
-            log.debug("Review {} is closing; an agent command is not mirrored: {}", reviewId, rejected.toString());
+            log.debug("Review {} is closing; its agent's runs are not mirrored: {}", reviewId, rejected.toString());
         }
     }
 

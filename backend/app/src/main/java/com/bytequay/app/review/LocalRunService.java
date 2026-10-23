@@ -138,9 +138,9 @@ public class LocalRunService
     }
 
     /**
-     * Mirrors a Maven command the review agent ran into its task's run history when it completes. Its source facts are read when it
-     * starts; a command whose start this backend did not see has none, and without a provider duration it reads no reports.
-     * Nothing is caught up after a restart.
+     * Mirrors a Maven command the review agent runs into its task's run history: running from its start, with its source facts read then,
+     * and finished when it completes. A command whose start this backend did not see appears only when it completes, with no source facts,
+     * and without a provider duration it reads no reports. Nothing is caught up after a restart.
      */
     public void recordAgentCommand(String reviewId, AgentEventEnvelope envelope)
     {
@@ -161,11 +161,37 @@ public class LocalRunService
         switch (command.state()) {
             case STARTED -> {
                 agentStarts.values().removeIf(start -> start.occurredAt().isBefore(envelope.occurredAt().minus(AGENT_COMMAND_MEMORY)));
-                agentStarts.put(key, new AgentStart(envelope.occurredAt(), code.workingCopySource(root)));
+                agentStarts.put(key, startAgentRun(task, worktree.orElseThrow(), root, envelope, maven.orElseThrow()));
             }
             case COMPLETED, FAILED -> recordAgentFinish(task, worktree.orElseThrow(), root, envelope, command, maven.orElseThrow(), Optional.ofNullable(agentStarts.remove(key)));
             default -> {}
         }
+    }
+
+    private AgentStart startAgentRun(AgentTask task, TaskWorktree worktree, Path root, AgentEventEnvelope envelope, MavenCommands.Maven maven)
+    {
+        WorkingCopySource source = code.workingCopySource(root);
+        LocalRun run = runs.insert(LocalRun.mirroring(UUID.randomUUID().toString(), task.id().toString(), worktree.workspaceId(), nextOrdinal(task.id()),
+                maven.testClass(), maven.testMethod(), maven.script(), Optional.of(source.head()), source.localPaths(), Optional.of(source.fingerprint()),
+                envelope.occurredAt(), envelope.eventId().toString()));
+        return new AgentStart(envelope.occurredAt(), source, run.id());
+    }
+
+    /** A command whose completion never came, as when its turn was cut short, stops showing as running once its turn settles. */
+    public void settleAgentRuns(String reviewId)
+    {
+        String prefix = reviews.task(reviewId).id() + "/";
+        Instant now = clock.instant();
+        agentStarts.forEach((key, start) -> {
+            if (key.startsWith(prefix) && agentStarts.remove(key, start)) {
+                runs.find(start.runId()).filter(run -> run.status() == Status.RUNNING).ifPresent(run -> runs.update(stopped(run, now)));
+            }
+        });
+    }
+
+    private static LocalRun stopped(LocalRun run, Instant endedAt)
+    {
+        return run.finished(Status.STOPPED, endedAt, OptionalInt.empty(), Optional.empty(), ImmutableList.of(), false, OptionalLong.empty());
     }
 
     private void recordAgentFinish(
@@ -177,17 +203,29 @@ public class LocalRunService
             MavenCommands.Maven maven,
             Optional<AgentStart> start)
     {
+        Instant endedAt = envelope.occurredAt();
+        Optional<LocalRun> started = start.flatMap(value -> runs.find(value.runId()));
         // Codex reports a declined or interrupted command as failed with no exit code: it never ran. Claude also gives none for a command that timed out, which did run.
         if (!task.laneId().usesClaude() && command.state() == ActivityState.FAILED && command.exitCode().isEmpty()) {
+            started.ifPresent(run -> runs.update(stopped(run, endedAt)));
             return;
         }
-        Instant endedAt = envelope.occurredAt();
         Optional<Instant> startedAt = command.durationMs().map(endedAt::minusMillis).or(() -> start.map(AgentStart::occurredAt));
         Optional<List<TestClass>> reports = startedAt.isEmpty() ? Optional.of(ImmutableList.of()) : SurefireReports.readWindow(root, startedAt.orElseThrow(), endedAt);
         List<TestClass> results = reports.orElse(ImmutableList.of());
         RunOutput output = new RunOutput();
         output.append(command.output().orElse(""));
         RunOutput.Stored stored = output.finish();
+        Status status = mirroredStatus(maven, reports, command.exitCode());
+        OptionalInt exitCode = command.exitCode().map(OptionalInt::of).orElse(OptionalInt.empty());
+        Optional<LocalRun.Counts> counts = results.isEmpty() ? Optional.empty() : Optional.of(SurefireReports.counts(results));
+        boolean truncated = stored.truncated() || command.truncated();
+        // The provider cut the output itself, so how much is missing is unknown.
+        OptionalLong omitted = command.truncated() ? OptionalLong.empty() : stored.omittedCharacters();
+        if (started.isPresent()) {
+            runs.update(started.orElseThrow().finished(status, endedAt, exitCode, counts, results, truncated, omitted), stored.output());
+            return;
+        }
         Optional<WorkingCopySource> source = start.map(AgentStart::source);
         int ordinal = nextOrdinal(task.id());
         LocalRun run = LocalRun.mirrored(
@@ -201,15 +239,14 @@ public class LocalRunService
                 source.map(WorkingCopySource::head),
                 source.map(WorkingCopySource::localPaths).orElse(ImmutableList.of()),
                 source.map(WorkingCopySource::fingerprint),
-                mirroredStatus(maven, reports, command.exitCode()),
+                status,
                 startedAt.orElse(endedAt),
                 endedAt,
-                command.exitCode().map(OptionalInt::of).orElse(OptionalInt.empty()),
-                results.isEmpty() ? Optional.empty() : Optional.of(SurefireReports.counts(results)),
+                exitCode,
+                counts,
                 results,
-                stored.truncated() || command.truncated(),
-                // The provider cut the output itself, so how much is missing is unknown.
-                command.truncated() ? OptionalLong.empty() : stored.omittedCharacters(),
+                truncated,
+                omitted,
                 envelope.eventId().toString());
         runs.update(runs.insert(run), stored.output());
     }
@@ -341,5 +378,5 @@ public class LocalRunService
         }
     }
 
-    private record AgentStart(Instant occurredAt, WorkingCopySource source) {}
+    private record AgentStart(Instant occurredAt, WorkingCopySource source, String runId) {}
 }

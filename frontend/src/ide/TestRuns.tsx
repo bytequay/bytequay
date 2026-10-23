@@ -82,7 +82,7 @@ export default function TestRuns({ context, files, runtime, mode }: {
         } : undefined}
         onRunWithAgent={host.kind === 'review' && context.review?.state === 'OPEN' ? (run, tests) => {
           void window.ideWorkbench.request('run.agent', run.id, tests)
-            .then(() => setNotice('Asked the review agent to run these tests. Its run shows here when it finishes.'), error => setNotice(String(error)));
+            .then(() => setNotice('Asked the review agent to run these tests. Its run shows here, running, as soon as it starts Maven.'), error => setNotice(String(error)));
         } : undefined} />
     </div>)}
   </div>;

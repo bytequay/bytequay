@@ -19,6 +19,11 @@ let rendering = Promise.resolve();
 
 type Diagram = { source: string; image?: string; width?: number; height?: number };
 
+// Agents write ';' in sequence-diagram messages and notes, where Mermaid reads it as the end of a statement.
+const escapeSequenceSemicolons = (source: string) => /^\s*sequenceDiagram\b/m.test(source)
+  ? source.replace(/^([^:\n]*:)(.*)$/gm, (_, head: string, text: string) => head + text.replaceAll(';', '#59;'))
+  : source;
+
 export default function MermaidDiagram({ source }: { source: string }) {
   const id = `mermaid-${useId().replace(/[^a-zA-Z0-9-]/g, '')}`;
   const [diagram, setDiagram] = useState<Diagram>();
@@ -43,7 +48,12 @@ export default function MermaidDiagram({ source }: { source: string }) {
           // breaks and clips long labels; SVG text labels wrap by their measured length instead.
           mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, htmlLabels: false,
             theme: dark ? 'dark' : 'default' });
-          const { svg } = await mermaid.render(id, source, host);
+          const draw = (text: string) => mermaid.render(id, text, host);
+          const { svg } = await draw(source).catch((error: unknown) => {
+            const escaped = escapeSequenceSemicolons(source);
+            if (escaped === source) throw error;
+            return draw(escaped);
+          });
           const element = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;
           const bounds = element.getAttribute('viewBox')?.split(/\s+/).map(Number);
           if (!cancelled && current === revision) setDiagram({ source,

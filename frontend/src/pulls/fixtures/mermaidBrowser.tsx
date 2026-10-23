@@ -90,6 +90,11 @@ export async function run() {
   assert(flowchart.includes('Current'), 'Source edits must not display stale diagrams');
   assert(!flowchart.includes('<foreignObject'), 'Flowchart labels must be SVG text, which wraps correctly at any page zoom');
 
+  show(fence('sequenceDiagram\n A->>B: Plan\n Note over B: Count requests; parent plans'));
+  await waitFor(() => !!host.querySelector('img') || !!host.querySelector('[role="status"]')?.textContent?.includes('Unable'));
+  assert(decodeURIComponent(host.querySelector<HTMLImageElement>('img')?.src ?? '').includes('Count requests; parent plans'),
+    'A semicolon in sequence text must stay text rather than end the statement');
+
   show(fence('const value = 1;', 'typescript'));
   assert(!host.querySelector('.md-mermaid') && !!host.querySelector('code.hljs'), 'Ordinary code must retain highlighting');
 

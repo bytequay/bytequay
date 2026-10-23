@@ -157,6 +157,33 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert(requested.length === 2 && requested[1] === 0, 'Completion must reread the compacted final output instead of losing its tail at the live offset');
     results.push({ name: 'Run history reloads final evidence after live output compaction' });
   } catch (error) { results.push({ name: 'Run history final output', error: String(error) }); }
+  try {
+    const run: LocalRunDto = { id: 'failed', ordinal: 1, initiator: 'USER', scope: 'TESTS', path: 'TestExample.java', testClass: null, testMethod: null,
+      module: null, command: 'Run tests', sourceHeadSha: 'abc', localPaths: [], sourceFingerprint: 'fingerprint', status: 'FAILED_ASSERTION',
+      startedAt: '2026-01-01T00:00:00Z', endedAt: '2026-01-01T00:00:01Z', exitCode: null, tests: 2, failures: 1, errors: 0, skipped: 0,
+      outputTruncated: false, omittedBytes: null, treeUnverified: false, results: [{ className: 'TestExample', durationMs: 10, methods: [
+        { name: 'fails', status: 'FAILED', durationMs: 5, message: 'NoClassDefFoundError: com/example/TestSupport', trace: 'at TestExample.fails' },
+        { name: 'passes', status: 'PASSED', durationMs: 5, message: null, trace: null }] }] };
+    const asked: string[] = [];
+    flushSync(() => root.render(<RunPanel embedded runs={[run]} files={null} hostKind="review" onStop={() => {}}
+      readOutput={async () => ({ text: 'runner output line', nextOffset: 18, skippedBytes: 0, complete: true })}
+      selectedRunId={run.id} onSelectRun={() => {}} onAskAgent={(_run, text) => asked.push(text)} />));
+    await settle(); await settle();
+    const views = () => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Run log views"] [role="tab"]')];
+    const output = () => fixtureElement<HTMLElement>('.ct-run__output', host, 'The run output must stay mounted');
+    assert(views().map(tab => `${tab.textContent}:${tab.getAttribute('aria-selected')}`).join() === 'Failure:true,Output:false', 'A failed run opens on its failure');
+    assert(host.querySelector('[aria-label="Test failure details"]')?.textContent?.includes('TestSupport') === true && output().hidden, 'The failure fills the log pane alone');
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Ask agent about failure')?.click();
+    assert(asked.length === 1 && asked[0].includes('TestSupport') && asked[0].includes('at TestExample.fails'), 'Ask agent sends the failure message and trace');
+    views()[1].click(); await settle();
+    assert(host.querySelector('[aria-label="Test failure details"]') === null && !output().hidden && output().textContent?.includes('runner output line') === true,
+      'Output shows the whole run log in place of the failure');
+    [...host.querySelectorAll<HTMLButtonElement>('.ct-run__row-name')].find(button => button.textContent?.startsWith('fails'))?.click(); await settle();
+    assert(views()[0].getAttribute('aria-selected') === 'true' && output().hidden, 'Picking a failed test shows its failure again');
+    [...host.querySelectorAll<HTMLButtonElement>('.ct-run__row-name')].find(button => button.textContent?.startsWith('passes'))?.click(); await settle();
+    assert(views().length === 0 && !output().hidden, 'A passing test has no failure tab, only the output');
+    results.push({ name: 'A failure and the run output take separate tabs' });
+  } catch (error) { results.push({ name: 'Run failure and output tabs', error: String(error) }); }
   const originalWorkbench = window.ideWorkbench;
   try {
     const run = (id: string, ordinal: number, debug = false): LocalRunDto => ({ id, ordinal, initiator: 'USER', scope: 'TESTS',

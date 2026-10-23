@@ -128,6 +128,8 @@ export default function RunPanel({
   const [open, setOpen] = useState(true);
   const [selection, setSelection] = useState('');
   const [failureDetail, setFailureDetail] = useState<LocalRunMethodDto | null>(null);
+  // A failure and the run's output each take the whole log pane; the failure shows first.
+  const [showOutput, setShowOutput] = useState(false);
   const panel = useResizablePane(236, MIN_HEIGHT, MAX_HEIGHT, 'start', 'y');
   // Null keeps the stylesheet's share until the divider is first moved.
   const results = useRef<HTMLDivElement>(null);
@@ -193,7 +195,7 @@ export default function RunPanel({
 
   useEffect(() => {
     if (run === null) return;
-    setSubTab('tests'); setSelection(''); setFailureDetail(null);
+    setSubTab('tests'); setSelection(''); setFailureDetail(null); setShowOutput(false);
   }, [run?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const startResize = (event: ReactMouseEvent) => {
@@ -230,6 +232,8 @@ export default function RunPanel({
   const tree = run === null ? [] : shownResults(run, failedOnly);
   const firstFailed = run === null ? undefined : failedRows(run)[0];
   const failure = failureDetail ?? firstFailed;
+  const failureText = failure === undefined ? '' : [failure.message, failure.trace].filter(Boolean).join('\n');
+  const failureShown = failureText !== '' && !showOutput;
   const output = run === null ? null : outputs.get(run.id) ?? null;
 
   useLayoutEffect(() => {
@@ -237,7 +241,7 @@ export default function RunPanel({
     if (element === null || run === null) return;
     if (logFollows.current.runId !== run.id) logFollows.current = { runId: run.id, follows: true };
     if (logFollows.current.follows) element.scrollTop = element.scrollHeight;
-  }, [run?.id, output?.text, subTab, open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [run?.id, output?.text, subTab, open, failureShown]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className={`ct-run${open ? ' is-open' : ''}${embedded ? ' is-embedded' : ''}`} aria-label="Runs">
@@ -347,7 +351,7 @@ export default function RunPanel({
                           <div key={`${method.name}:${index}`} role="treeitem" className="ct-run__row">
                             <span className="ct-run__row-label">
                               <RowIcon row={method} />
-                              <button type="button" className="ct-run__row-name ct-text-button" onClick={() => setFailureDetail(method)}>{method.name}{run.scope === 'CLASS' || run.scope === 'METHOD' ? '()' : ''}</button>
+                              <button type="button" className="ct-run__row-name ct-text-button" onClick={() => { setFailureDetail(method); setShowOutput(false); }}>{method.name}{run.scope === 'CLASS' || run.scope === 'METHOD' ? '()' : ''}</button>
                             </span>
                             <span className="ct-run__duration">{formatDuration(method.durationMs)}</span>
                           </div>
@@ -361,18 +365,27 @@ export default function RunPanel({
                     const element = event.currentTarget;
                     logFollows.current.follows = element.scrollHeight - element.scrollTop - element.clientHeight < 24;
                   }}>
-                    {failure && (failure.message || failure.trace) && <div className="ct-run__failure" aria-label="Test failure details">
-                      <strong>{failure.name}</strong><pre>{[failure.message, failure.trace].filter(Boolean).join('\n')}</pre>
-                      {onAskAgent && <button type="button" className="ct-text-button" onClick={() => onAskAgent(run, [failure.message, failure.trace].filter(Boolean).join('\n').slice(0, 30_000))}>Ask agent about failure</button>}
-                    </div>}
-                    {output === null ? <div className="ct-run__note" role="status">Reading output…</div> : <TerminalOutput key={run.id} text={output.text} onSelect={setSelection} />}
-                    <div className="ct-run__note">
-                      {run.status === 'RUNNING' ? 'Streaming — test rows appear when the runner finishes.'
-                        : run.outputTruncated
-                          ? run.omittedBytes === null
-                            ? run.initiator === 'USER' ? 'Output truncated; how much was omitted is unknown.' : 'Output truncated by the agent; the end is not available.'
-                            : `Output truncated — ${run.omittedBytes.toLocaleString()} characters omitted.`
-                          : `Exit status ${run.exitCode ?? '—'}`}
+                    {failure !== undefined && failureText !== '' && <>
+                      <div className="ct-run__subtabs ct-run__log-tabs" role="tablist" aria-label="Run log views">
+                        <button type="button" role="tab" aria-selected={failureShown} onClick={() => setShowOutput(false)}>Failure</button>
+                        <button type="button" role="tab" aria-selected={!failureShown} onClick={() => setShowOutput(true)}>Output</button>
+                      </div>
+                      {failureShown && <div className="ct-run__failure" aria-label="Test failure details">
+                        <strong>{failure.name}</strong><pre>{failureText}</pre>
+                        {onAskAgent && <button type="button" className="ct-text-button" onClick={() => onAskAgent(run, failureText.slice(0, 30_000))}>Ask agent about failure</button>}
+                      </div>}
+                    </>}
+                    {/* Hidden rather than unmounted, so the terminal keeps its scroll position and selection. */}
+                    <div className="ct-run__output" hidden={failureShown}>
+                      {output === null ? <div className="ct-run__note" role="status">Reading output…</div> : <TerminalOutput key={run.id} text={output.text} onSelect={setSelection} />}
+                      <div className="ct-run__note">
+                        {run.status === 'RUNNING' ? 'Streaming — test rows appear when the runner finishes.'
+                          : run.outputTruncated
+                            ? run.omittedBytes === null
+                              ? run.initiator === 'USER' ? 'Output truncated; how much was omitted is unknown.' : 'Output truncated by the agent; the end is not available.'
+                              : `Output truncated — ${run.omittedBytes.toLocaleString()} characters omitted.`
+                            : `Exit status ${run.exitCode ?? '—'}`}
+                      </div>
                     </div>
                   </div>
                 </div>

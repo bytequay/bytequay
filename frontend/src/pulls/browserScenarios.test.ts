@@ -16,7 +16,7 @@ import { testBrowserScenarios } from '../fixtures/browserScenarios';
 testBrowserScenarios([
   {
     name: 'sends private comments through shared diff and task controls in Chromium',
-    expected: 21, timeout: 30_000,
+    expected: 22, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-diff-agent-comments-',
       entry: 'src/pulls/fixtures/diffAgentCommentBrowser.tsx',

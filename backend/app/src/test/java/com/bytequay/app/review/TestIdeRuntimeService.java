@@ -34,6 +34,8 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
@@ -149,6 +151,34 @@ class TestIdeRuntimeService
         Files.delete(link);
         Files.createDirectory(link);
         assertThatThrownBy(() -> runtime.open(worktree)).hasMessageContaining("extension profile changed");
+    }
+
+    @Test
+    void restartsOnThePreviousPortWhileItIsFreeSoRestoredEditorsStayInTheTask()
+            throws IOException
+    {
+        IdeConnection first = runtime.open(worktree);
+        Path port = Path.of(first.cacheRoot(), "port");
+        assertThat(port).hasContent("54321");
+        runtime.stopWorktree(worktree);
+
+        int free;
+        try (ServerSocket socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+            free = socket.getLocalPort();
+        }
+        Files.writeString(port, Integer.toString(free));
+        runtime.open(worktree);
+        runtime.stopWorktree(worktree);
+        try (ServerSocket taken = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+            Files.writeString(port, Integer.toString(taken.getLocalPort()));
+            runtime.open(worktree);
+        }
+        ArgumentCaptor<ProcessSpec> spec = ArgumentCaptor.forClass(ProcessSpec.class);
+        verify(supervisor, times(3)).prepare(spec.capture());
+        assertThat(spec.getAllValues().get(0).argv()).containsSubsequence("--port", "0");
+        assertThat(spec.getAllValues().get(1).argv()).containsSubsequence("--port", Integer.toString(free));
+        assertThat(spec.getAllValues().get(2).argv()).containsSubsequence("--port", "0");
+        runtime.stopWorktree(worktree);
     }
 
     @Test

@@ -39,6 +39,9 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -295,8 +298,9 @@ public class IdeRuntimeService
             Files.deleteIfExists(tokenFile);
             Files.createFile(tokenFile, PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
             Files.writeString(tokenFile, token);
+            Path portFile = profile.resolve("port");
             var argv = ImmutableList.of(bundle.resolve("server/node").toString(), bundle.resolve("server/out/server-main.js").toString(),
-                    "--host", "127.0.0.1", "--port", "0", "--connection-token-file", tokenFile.toString(),
+                    "--host", "127.0.0.1", "--port", Integer.toString(previousPort(portFile)), "--connection-token-file", tokenFile.toString(),
                     "--server-data-dir", profile.resolve("data").toString(), "--extensions-dir", extensions.toString(),
                     "--telemetry-level", "off", "--log", "warn", "--reconnection-grace-time", "0");
             Map<String, String> environment = ImmutableMap.<String, String>builder().putAll(loginShell.get())
@@ -306,8 +310,10 @@ public class IdeRuntimeService
             CompletableFuture<Integer> port = new CompletableFuture<>();
             StringBuilder output = new StringBuilder();
             String sessionId = UUID.randomUUID().toString();
-            CompletableFuture<IdeConnection> connection = port.thenApply(listening -> new IdeConnection(worktree.taskId().toString(), sessionId,
-                    "127.0.0.1:" + listening, token, root.toString(), bundle.toString(), profile.toString(), commit));
+            CompletableFuture<IdeConnection> connection = port.thenApply(listening -> {
+                rememberPort(portFile, listening);
+                return new IdeConnection(worktree.taskId().toString(), sessionId, "127.0.0.1:" + listening, token, root.toString(), bundle.toString(), profile.toString(), commit);
+            });
             Live live = new Live(sessionId, root, prepared.launchId(), connection, clock.instant());
             try {
                 ManagedProcess process = prepared.start((stream, bytes) -> {
@@ -338,6 +344,36 @@ public class IdeRuntimeService
         }
         catch (IOException failure) {
             throw new ReviewConflictException("Cannot prepare the IDE runtime: " + failure.getMessage(), failure);
+        }
+    }
+
+    /**
+     * The port this task's server last listened on, while it is free, otherwise any port. The editor restores open files, breakpoints and
+     * views under the URI authority they were saved with, which includes the port; on another port they open as files outside the task,
+     * with no language project, test buttons or saving.
+     */
+    private static int previousPort(Path file)
+    {
+        // ponytail: a port another process took meanwhile still strands the previous session's editors; a stable workbench
+        // authority with a socket factory that dials the current port would remove that ceiling.
+        try (ServerSocket probe = new ServerSocket()) {
+            int port = Integer.parseInt(Files.readString(file).strip());
+            probe.setReuseAddress(true);
+            probe.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), port));
+            return port;
+        }
+        catch (IOException | IllegalArgumentException unavailable) {
+            return 0;
+        }
+    }
+
+    private static void rememberPort(Path file, int port)
+    {
+        try {
+            Files.writeString(file, Integer.toString(port));
+        }
+        catch (IOException failure) {
+            log.debug("The IDE server port could not be remembered: {}", failure.toString());
         }
     }
 

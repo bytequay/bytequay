@@ -14,13 +14,13 @@
 
 import type { AgentTurnDto } from '../types';
 
+/** Refining the summary needs no head: its one line says what ByteQuay asked for. */
+export function refineSummaryRequest(turn: AgentTurnDto | null | undefined): string | null {
+  return turn?.developmentOrigin?.kind === 'REFINE_SUMMARY'
+    ? 'Refresh the change intention and commit explanations from the current code and commit history.' : null;
+}
+
 export function developmentTurnRequest(turn: AgentTurnDto | null | undefined) {
-  if (turn?.developmentOrigin?.kind === 'REFINE_SUMMARY') return {
-    action: 'ByteQuay · Refine summary',
-    topic: 'WorkBench',
-    body: 'Refresh the change intention and commit explanations from the current code and commit history.',
-    detail: 'Private summary · Reporting only',
-  };
   if (turn?.developmentOrigin?.kind === 'AUTO_COMMIT') return {
     action: 'ByteQuay · Auto commit',
     topic: 'Working changes',

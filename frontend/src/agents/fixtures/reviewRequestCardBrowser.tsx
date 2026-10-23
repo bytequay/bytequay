@@ -158,12 +158,17 @@ export async function generatedPrompt(kind: 'AUTO_COMMIT' | 'REFINE_SUMMARY' | '
     onToggle={() => {}} onToggleActivity={() => {}} />));
   await settle();
   const request = card();
+  assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Keep my requested behavior.'), 'User steering must stay visible');
+  if (kind === 'REFINE_SUMMARY') {
+    assert(request.querySelector('.agt-review-request__bar') === null && request.innerText.includes('Refresh the change intention')
+      && !request.innerText.includes('/private/worktree'), 'Refining the summary must show only what it does');
+    assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'The request must fit narrow conversations');
+    return { width: innerWidth, kind, snapshot, existing };
+  }
   const content = request.querySelector<HTMLElement>('.agt-review-request__content');
-  const action = kind === 'AUTO_COMMIT' ? 'ByteQuay · Auto commit' : kind === 'REFINE_SUMMARY' ? 'ByteQuay · Refine summary'
-    : existing ? 'Update pull request #12' : 'Open draft pull request';
+  const action = kind === 'AUTO_COMMIT' ? 'ByteQuay · Auto commit' : existing ? 'Update pull request #12' : 'Open draft pull request';
   assert(request.querySelector('.agt-user__request-action')?.textContent === action, 'The trusted origin must determine the action');
   assert(content !== null && content.hidden && !request.innerText.includes('/private/worktree'), 'Machine instructions must start hidden');
-  assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Keep my requested behavior.'), 'User steering must stay visible');
   assert(request.getBoundingClientRect().height <= 130 && request.scrollWidth <= request.clientWidth + 1, 'Generated requests must stay compact');
   const topic = request.querySelector<HTMLElement>('.agt-review-request__topic');
   assert(topic !== null && topic.clientWidth >= 140, 'Scope must have its own readable line at narrow widths');
@@ -171,7 +176,7 @@ export async function generatedPrompt(kind: 'AUTO_COMMIT' | 'REFINE_SUMMARY' | '
   toggle().click(); await settle();
   assert(!content.hidden && request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes('/private/worktree'),
     'Opening details must not show the prompt sent to the agent');
-  assert(request.innerText.includes(kind === 'REFINE_SUMMARY' ? 'Reporting only' : kind === 'AUTO_COMMIT' ? 'Authorized local commits' : 'authorized publication'),
+  assert(request.innerText.includes(kind === 'AUTO_COMMIT' ? 'Authorized local commits' : 'authorized publication'),
     'Expanded details must explain the authorization scope');
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded details must fit narrow conversations');
   toggle().click(); await settle();

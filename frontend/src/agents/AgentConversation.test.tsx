@@ -323,7 +323,7 @@ describe('generated development request presentation', () => {
     for (const [kind, shown, activity] of [
       ['AUTO_COMMIT', 'ByteQuay · Auto commit', 'Committing'],
       ['CREATE_DRAFT_PR', 'Open draft pull request', 'Creating draft PR'],
-      ['REFINE_SUMMARY', 'ByteQuay · Refine summary', 'Refining summary'],
+      ['REFINE_SUMMARY', 'Refresh the change intention', 'Refining summary'],
     ] as const) {
       const origin = { kind, parentUserTurnId: 'source-turn' };
       const turn = parseAgentTurn({ ...contracts.turn, state: 'RUNNING', developmentOrigin: { ...origin, hiddenPath: '/secret' } });
@@ -390,9 +390,16 @@ describe('generated development request presentation', () => {
     for (const kind of ['REFINE_SUMMARY', 'AUTO_COMMIT', 'CREATE_DRAFT_PR'] as const) {
       const generated = { ...baseTurn, developmentOrigin: { kind, parentUserTurnId: 'source-turn' } };
       const markup = html(generated);
-      expect(markup).toContain('agt-review-request__preview');
-      expect(markup).toContain('aria-expanded="false"');
-      expect(markup).toContain('class="agt-review-request__content" hidden=""');
+      if (kind === 'REFINE_SUMMARY') {
+        // One line says what it does, so there is no head to expand.
+        expect(markup).toContain('agt-review-request__summary');
+        expect(markup).not.toContain('agt-review-request__bar');
+      }
+      else {
+        expect(markup).toContain('agt-review-request__preview');
+        expect(markup).toContain('aria-expanded="false"');
+        expect(markup).toContain('class="agt-review-request__content" hidden=""');
+      }
       expect(markup).not.toContain('agt-review-request__prompt');
       expect(markup).not.toContain(`<div class="agt-review-request__body">${promptHtml}</div>`);
       expect(markup).not.toContain('agt-user__bubble');
@@ -431,7 +438,7 @@ describe('generated development request presentation', () => {
       first={false} open={false} now={0} models={[]} durableTurns={{}} durableTurnsLoading
       activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />)).toContain(steer);
     const generated = { ...baseTurn, developmentOrigin: { kind: 'REFINE_SUMMARY' as const, parentUserTurnId: 'source-turn' } };
-    expect(html(generated, true)).toContain('ByteQuay · Refine summary');
+    expect(html(generated, true)).toContain('Refresh the change intention');
     expect(html(generated, true)).not.toContain('Refining summary');
     // Without a load in flight, a missing record leaves the message as sent.
     expect(html(undefined, false)).toContain('Refining summary');

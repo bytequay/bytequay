@@ -31,7 +31,7 @@ import { remoteErrorMessage } from '../remoteError';
 import { MEMORY_CHANGED } from '../memory/model';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ModelProviderDto } from '../types';
 import { AgentMark } from './AgentMark';
-import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
+import { developmentTurnRequest,draftPullRequestRequest,refineSummaryRequest } from './DevelopmentFacts';
 import { ciAutofixRequest } from './ciAutofix';
 import { workflowRequest } from './WorkflowRequest';
 import type { AgentEventEnvelope } from './events';
@@ -775,6 +775,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   // Development follow-up prompts open with this header. It only delays the message; the durable
   // origin alone decides between card and bubble, so a typed lookalike still shows as sent.
   const openingPending = durableTurnsLoading && durable === undefined && turn.turnId !== null && opening?.text.startsWith('ByteQuay · ') === true;
+  const refineRequest = opening?.delivery === 'TURN' ? refineSummaryRequest(durable) : null;
   const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) ?? workflowRequest(durable, opening.text) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
   const ciRequest = opening?.delivery === 'TURN' ? ciAutofixRequest(durable, opening.text) : null;
@@ -842,6 +843,10 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
                 </div>}
               </ReviewRequestCard>
+            ) : index === 0 && refineRequest !== null ? (
+              <article className="agt-user__request agt-review-request">
+                <div className="agt-review-request__summary"><MessageSquare aria-hidden="true" />{refineRequest}</div>
+              </article>
             ) : index === 0 && developmentRequest !== null ? (
               <ReviewRequestCard {...developmentRequest}>
                 <div className="agt-review-request__body">{developmentRequest.body}</div>

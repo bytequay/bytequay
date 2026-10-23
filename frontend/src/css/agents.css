@@ -3935,6 +3935,8 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-review-request__topic,
 .agt-review-request__preview { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .agt-review-request__preview { padding: 7px 14px 9px 38px; color: var(--fg-muted); }
+.agt-review-request__summary { display: flex; align-items: center; gap: 8px; padding: 9px 14px; }
+.agt-review-request__summary > svg { flex: none; width: 16px; height: 16px; color: light-dark(#4d8075, var(--dark-teal)); }
 .agt-review-request__content { padding: 12px 14px; border-top: 1px solid light-dark(#cce4df, var(--dark-teal-border)); overflow-wrap: anywhere; }
 .agt-review-request__body { white-space: pre-wrap; }
 .agt-review-request__body > .agt-md { line-height: 1.6; }

@@ -80,10 +80,11 @@ public class IdeRuntimeService
     private static final Duration CLIENT_TIMEOUT = Duration.ofSeconds(90);
     // The oldest release the bundled Java extension accepts for its language server.
     private static final int MINIMUM_JAVA_SERVER_RELEASE = 21;
-    // The Java extension's default arguments with its 2 GB heap cap replaced by a share of memory: eight parallel builders
-    // of a large multi-module project run out at 2 GB, leaving class folders half written for test launches.
+    // The Java extension's default arguments with its 2 GB heap cap raised: eight parallel builders of a large multi-module
+    // project run out at 2 GB, leaving class folders half written for test launches. The cap stays fixed because the parallel
+    // collector keeps what it once took; a share of a large Mac's memory grew one idle server past 13 GB around a 2 GB live set.
     private static final String JAVA_SERVER_ARGUMENTS = "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true "
-            + "-XX:MaxRAMPercentage=25 -Xms100m -Xlog:disable";
+            + "-Xmx6g -Xms100m -Xlog:disable";
     private final ProcessSupervisor supervisor;
     private final LaunchIntentRecorder intents;
     private final LoginShellEnvironment loginShell;

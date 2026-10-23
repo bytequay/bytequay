@@ -39,7 +39,9 @@ export default function MermaidDiagram({ source }: { source: string }) {
         document.body.append(host);
         try {
           const { default: mermaid } = await import('mermaid');
-          mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true,
+          // Mermaid wraps an HTML label only when its measured width equals the limit exactly, which page zoom
+          // breaks and clips long labels; SVG text labels wrap by their measured length instead.
+          mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', suppressErrorRendering: true, htmlLabels: false,
             theme: dark ? 'dark' : 'default' });
           const { svg } = await mermaid.render(id, source, host);
           const element = new DOMParser().parseFromString(svg, 'image/svg+xml').documentElement;

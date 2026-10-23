@@ -86,7 +86,9 @@ export async function run() {
   show(fence('flowchart LR\n Old --> Result'));
   show(fence('flowchart LR\n Current --> Result'));
   await waitFor(() => !!host.querySelector('img'));
-  assert(decodeURIComponent(host.querySelector<HTMLImageElement>('img')?.src ?? '').includes('Current'), 'Source edits must not display stale diagrams');
+  const flowchart = decodeURIComponent(host.querySelector<HTMLImageElement>('img')?.src ?? '');
+  assert(flowchart.includes('Current'), 'Source edits must not display stale diagrams');
+  assert(!flowchart.includes('<foreignObject'), 'Flowchart labels must be SVG text, which wraps correctly at any page zoom');
 
   show(fence('const value = 1;', 'typescript'));
   assert(!host.querySelector('.md-mermaid') && !!host.querySelector('code.hljs'), 'Ordinary code must retain highlighting');

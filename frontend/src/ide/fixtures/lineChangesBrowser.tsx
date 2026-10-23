@@ -68,10 +68,12 @@ export async function verifyLineChanges() {
       for (let attempt = 0; attempt < 200 && Reflect.get(window, 'lineChangesCaptured') !== mode; attempt++) await new Promise(resolve => setTimeout(resolve, 50));
       assert(Reflect.get(window, 'lineChangesCaptured') === mode, 'The native gutter must reach the capture checkpoint');
     }
-    model.setValue('unsaved\n' + text);
-    assert(changes().length === 0, 'Saved line positions must not decorate an unsaved draft');
+    model.pushEditOperations([], [{ range: { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 }, text: 'unsaved\n' }], () => null);
+    assert(changes().some(item => item.range.startLineNumber === 3 && item.range.endLineNumber === 5), 'Unsaved edits move the saved markers with their lines');
+    model.pushEditOperations([], [3, 4, 5].map(line => ({ range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 }, text: '\t' })), () => null);
+    assert(changes().length === 4 && changes().some(item => item.range.startLineNumber === 3 && item.range.endLineNumber === 5), 'Indenting a changed block keeps its markers');
     model.setValue(text);
-    assert(changes().length === 4, 'Undoing the draft restores the saved markers');
+    assert(changes().length === 4 && changes().some(item => item.range.startLineNumber === 2 && item.range.endLineNumber === 4), 'Returning to the saved text places the saved markers again');
     file = { ...file, content: 'saved\n' + text, lineChanges: [{ kind: 'ADDED', line: 1, count: 1 }] };
     model.setValue(file.content ?? ''); render();
     assert(changes().length === 1 && changes()[0].range.startLineNumber === 1, 'Saving and refreshing replaces the previous ranges');

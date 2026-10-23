@@ -23,9 +23,10 @@ export default function LineChanges({ runtime, uri, file }: { runtime: IdeRuntim
     if (!model || !file || file.content === null) return;
     let decorations: string[] = [];
     const update = () => {
-      // ponytail: saved ranges cannot locate unsaved edits; hide them until the contents match again.
-      const markers = model.getValue() === file.content?.replace(/^\uFEFF/, '') ? lineChangeMarkers(file.lineChanges, model.getLineCount()) : [];
-      decorations = model.deltaDecorations(decorations, markers.map(marker => ({
+      // Monaco carries the saved ranges through unsaved edits, so only the saved contents place them again.
+      // ponytail: lines first changed in the unsaved draft get no marker until it is saved; a live diff needs the base text here.
+      if (model.getValue() !== file.content?.replace(/^\uFEFF/, '')) return;
+      decorations = model.deltaDecorations(decorations, lineChangeMarkers(file.lineChanges, model.getLineCount()).map(marker => ({
         range: { startLineNumber: marker.start, endLineNumber: marker.end, startColumn: 1, endColumn: 1 },
         options: { description: 'ByteQuay line change', isWholeLine: true,
           linesDecorationsClassName: marker.className, linesDecorationsTooltip: marker.title },

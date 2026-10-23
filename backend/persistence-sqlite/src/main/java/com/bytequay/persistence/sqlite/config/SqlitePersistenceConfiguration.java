@@ -13,7 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.config;
 
+import com.google.common.collect.ImmutableList;
+import org.hibernate.jpa.boot.spi.IntegratorProvider;
+import org.hibernate.jpa.boot.spi.JpaSettings;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
@@ -24,4 +29,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 @EnableJpaRepositories("com.bytequay.persistence.sqlite")
 public class SqlitePersistenceConfiguration
 {
+    @Bean
+    HibernatePropertiesCustomizer unmappedColumnCleanup()
+    {
+        return properties -> properties.put(JpaSettings.INTEGRATOR_PROVIDER, (IntegratorProvider) () -> ImmutableList.of(new UnmappedColumnCleanup()));
+    }
 }

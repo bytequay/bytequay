@@ -53,6 +53,7 @@ interface Terminal {
   sender: TerminalSender;
   process: TerminalProcess;
   scrollback: string;
+  lastUsed: number;
 }
 
 // ponytail: trims by UTF-16 units, not bytes; close enough for a replay buffer.
@@ -103,11 +104,15 @@ export class CodeTerminals {
       }
       terminal = await pending;
     }
+    terminal.lastUsed = Date.now();
     return { terminalId: terminal.id, scrollback: terminal.scrollback };
   }
 
   write(sender: TerminalSender, terminalId: string, data: string): void {
-    this.owned(sender, terminalId)?.process.write(data);
+    const terminal = this.owned(sender, terminalId);
+    if (!terminal) return;
+    terminal.lastUsed = Date.now();
+    terminal.process.write(data);
   }
 
   resize(sender: TerminalSender, terminalId: string, cols: number, rows: number): void {
@@ -121,8 +126,9 @@ export class CodeTerminals {
     }
   }
 
-  has(sender: TerminalSender): boolean {
-    return [...this.terminals.values()].some(terminal => terminal.sender === sender);
+  /** When this window last attached to, typed into or got output from one of its shells; 0 when it has none. */
+  lastUsed(sender: TerminalSender): number {
+    return Math.max(0, ...[...this.terminals.values()].filter(terminal => terminal.sender === sender).map(terminal => terminal.lastUsed));
   }
 
   stopAll(): void {
@@ -131,10 +137,11 @@ export class CodeTerminals {
 
   private start(key: string, sender: TerminalSender, hostKey: string, launch: TerminalLaunch, cols: number, rows: number, command?: string): Terminal {
     if (sender.isDestroyed()) throw new Error('The window closed before the terminal opened');
-    const terminal: Terminal = { id: randomUUID(), key, hostKey, sender, process: this.spawn(launch, cols, rows, command), scrollback: '' };
+    const terminal: Terminal = { id: randomUUID(), key, hostKey, sender, process: this.spawn(launch, cols, rows, command), scrollback: '', lastUsed: Date.now() };
     this.terminals.set(key, terminal);
     this.watch(sender);
     terminal.process.onData(data => {
+      terminal.lastUsed = Date.now();
       const scrollback = terminal.scrollback + data;
       terminal.scrollback = scrollback.length > SCROLLBACK_LIMIT ? scrollback.slice(scrollback.length - SCROLLBACK_LIMIT) : scrollback;
       if (!sender.isDestroyed()) sender.send('terminal:data', { terminalId: terminal.id, data });

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { CodeTerminals, parseTerminalLaunch, terminalEnvironment, type TerminalLaunch, type TerminalProcess } from './terminals';
 
 class FakeProcess implements TerminalProcess {
@@ -71,6 +71,29 @@ describe('code terminals', () => {
     expect(processes[0].killed).toBe(false);
     await terminals.open(other, 'review:r1', 80, 24, cwd);
     expect(processes).toHaveLength(2);
+  });
+
+  it('reports when a window last attached to, typed into or got output from its shells', async () => {
+    vi.useFakeTimers({ now: 1_000 });
+    try {
+      const { terminals, processes, cwd } = setup();
+      const sender = new FakeSender();
+      expect(terminals.lastUsed(sender)).toBe(0);
+      const { terminalId } = await terminals.open(sender, 'task:t1', 80, 24, cwd);
+      expect(terminals.lastUsed(sender)).toBe(1_000);
+      vi.setSystemTime(2_000);
+      processes[0].data('$ ');
+      expect(terminals.lastUsed(sender)).toBe(2_000);
+      vi.setSystemTime(3_000);
+      terminals.write(new FakeSender(), terminalId, 'ls\r');
+      expect(terminals.lastUsed(sender)).toBe(2_000);
+      terminals.write(sender, terminalId, 'ls\r');
+      expect(terminals.lastUsed(sender)).toBe(3_000);
+      processes[0].exit({ exitCode: 0 });
+      expect(terminals.lastUsed(sender)).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('kills shells when their host worktree goes, their window reloads, or they exit', async () => {

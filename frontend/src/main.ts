@@ -318,7 +318,7 @@ const appNotices = new NoticeHost(() => mainWindow,
     mainWindow?.webContents.focus();
   }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'),
   () => ensureWindow().then(() => { mainWindow?.show(); mainWindow?.focus(); }));
-const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());
+const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.lastUsed(sender), () => appNotices.raise());
 const artifactView = new ArtifactView(() => mainWindow,
   target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}/pages/${encodeURIComponent(target.pageId)}`))
     .then(parseArtifactPage), () => appNotices.raise());

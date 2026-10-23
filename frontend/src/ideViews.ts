@@ -29,6 +29,9 @@ import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest } from '
 
 declare const IDE_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 
+// A forgotten shell would otherwise keep a hidden editor's language server, which can hold gigabytes, alive indefinitely.
+const IDLE_TERMINAL_MS = 60 * 60_000;
+
 protocol.registerSchemesAsPrivileged([{ scheme: 'bytequay-ide', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 
 type Editor = {
@@ -83,7 +86,7 @@ export class IdeViews {
   private readonly opening = new Map<string, Promise<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
-  constructor(private readonly window: () => BrowserWindow | null, private readonly terminalOpen: (sender: WebContents) => boolean = () => false,
+  constructor(private readonly window: () => BrowserWindow | null, private readonly terminalUsed: (sender: WebContents) => number = () => 0,
     private readonly onPresent: () => void = () => {}) {
     this.timer = setInterval(() => { void this.maintain(); }, 15_000);
     this.timer.unref();
@@ -450,7 +453,7 @@ export class IdeViews {
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.contents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && !this.terminalOpen(editor.contents) && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.contents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && Date.now() - this.terminalUsed(editor.contents) > IDLE_TERMINAL_MS && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
         await this.close(editor.id);
         return;
       }

@@ -440,9 +440,10 @@ it('binds execution metadata to the owning task and keeps cleanup-pending runs a
 });
 
 
-it('binds an interactive terminal to its known editor and retains that hidden shell', async () => {
+it('binds an interactive terminal to its known editor and retains that hidden shell for an hour after its last use', async () => {
   views.dispose();
-  const terminal = vi.fn(() => true);
+  let used = Date.now();
+  const terminal = vi.fn(() => used);
   views = new IdeViews(() => window, terminal); views.register();
   const id = await invoke('ide:open', parent(), host);
   expect(() => views.terminalHost(child() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
@@ -451,8 +452,10 @@ it('binds an interactive terminal to its known editor and retains that hidden sh
   expect(() => views.terminalHost(parent() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
   await vi.advanceTimersByTimeAsync(150_000);
   expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
-  terminal.mockReturnValue(false);
-  await vi.advanceTimersByTimeAsync(15_000);
+  used = Date.now();
+  await vi.advanceTimersByTimeAsync(3_585_000);
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(45_000);
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 

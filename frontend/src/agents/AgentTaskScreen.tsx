@@ -2196,7 +2196,6 @@ export default function AgentTaskScreen({
           attentionAction('prompt');
           ciRequest.current = null;
           dispatch({ type: 'composer/changed', text: '' });
-          dispatch({ type: 'notice/changed', notice: 'Message sent to CI Autofix.' });
           try { await refreshProjection(stateRef.current.latestTurnId); }
           catch { /* The CI service accepted the message; task polling will refresh its activity. */ }
         } finally {

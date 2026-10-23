@@ -180,13 +180,20 @@ export async function run() {
   const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
   createRoot(host).render(<WorkItemsScreen workspace={workspace} tab="issues" github={<WorkspaceIssuesScreen
     workspaceId={workspace.id} repository="bytequay/bytequay" initialIssueNumber={null} />} />); await settle(); await settle();
-  assert([...document.querySelectorAll('[role="tab"]')].map(value => value.textContent).join('|') === 'GitHub issues|Jira|Local', 'Work items has three source tabs');
-  assert(document.querySelector('.issues-page .issues-search') !== null, 'The default tab keeps the original GitHub issue UI');
+  assert([...document.querySelectorAll('[role="tab"]')].map(value => value.textContent).join('|') === 'Local|GitHub issues|Jira', 'Local is the leftmost source tab');
+  assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Local' && document.querySelector('.work-items') !== null, 'Work items opens on Local by default');
+  button('Local').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await settle(); await settle();
+  assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'GitHub issues', 'The GitHub tab remains selectable');
+  assert(document.querySelector('.issues-page .issues-search') !== null, 'GitHub keeps the original issue UI');
   assert(document.querySelector('.work-items') === null, 'GitHub is not rendered in the local list');
   button('GitHub issues').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await settle(); await settle();
   assert(document.querySelector('.jira-screen .jira-header') !== null, 'Jira keeps the original screen under its tab');
   assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Jira', 'Jira links select the Jira subtab');
   assert(document.activeElement === button('Jira'), 'Arrow keys move focus with the selected subtab');
+  button('Jira').dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true })); await settle(); await settle();
+  assert(document.activeElement === button('Local'), 'Home moves focus to the leftmost Local tab');
+  window.location.hash = '#/workspaces/workspace/issues/42'; await settle(); await settle();
+  assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'GitHub issues', 'Direct GitHub issue links select GitHub');
   button('Local').click(); await settle(); await settle();
   const rows = () => [...document.querySelectorAll<HTMLElement>('.work-items .pull-row')];
   const states = () => document.querySelector('.work-items .pulls-tabs')?.textContent;

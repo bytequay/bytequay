@@ -407,7 +407,8 @@ Cherry pick** of every repository they touch; you can also ask an agent with
 
 ## Start from a work item
 
-Open **Work items** and choose **Local**, **GitHub issues**, or **Jira**.
+Open **Work items** to start on **Local**, the leftmost tab. Choose **GitHub
+issues** or **Jira** to view remote work.
 
 1. Choose **Local → New** and add context and acceptance criteria. It stays on
    your Mac.

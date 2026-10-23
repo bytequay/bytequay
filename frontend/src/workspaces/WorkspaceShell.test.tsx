@@ -269,6 +269,7 @@ describe('watched repository workspace UI', () => {
     };
 
     const pulls = renderToStaticMarkup(<WorkspaceShell {...props} tab="prs" />);
+    vi.stubGlobal('window', { location: { hash: `#/workspaces/${value.id}/issues?source=github` } });
     const issues = renderToStaticMarkup(<WorkspaceShell {...props} tab="issues" />);
 
     expect(pulls).toContain('upstream/project');

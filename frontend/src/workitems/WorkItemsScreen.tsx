@@ -88,7 +88,7 @@ function StateIcon({ state, size = 16 }: { state: WorkItemDto['state']; size?: n
   return <Icon size={size} strokeWidth={1.6} aria-hidden="true" />;
 }
 
-const TABS = [['github', 'GitHub issues'], ['jira', 'Jira'], ['local', 'Local']] as const;
+const TABS = [['local', 'Local'], ['github', 'GitHub issues'], ['jira', 'Jira']] as const;
 
 export default function WorkItemsScreen({ workspace, tab, github }: { workspace: WorkspaceDto; tab: 'issues' | 'jira'; github: ReactNode }) {
   const [hash, setHash] = useState(() => typeof window === 'undefined' ? '' : window.location.hash);
@@ -97,11 +97,13 @@ export default function WorkItemsScreen({ workspace, tab, github }: { workspace:
     window.addEventListener('hashchange', changed);
     return () => window.removeEventListener('hashchange', changed);
   }, []);
-  const query = new URLSearchParams(hash.split('?')[1]);
-  const active = hash ? hash.split('?')[0].endsWith('/jira') ? 'jira' : query.get('source') === 'local' || query.has('work') ? 'local' : 'github'
-    : tab === 'jira' ? 'jira' : 'github';
+  const [path, search] = hash.split('?');
+  const query = new URLSearchParams(search);
+  const active = hash ? path.endsWith('/jira') ? 'jira' : query.get('source') === 'github' || /\/issues\/\d+$/.test(path) ? 'github' : 'local'
+    : tab === 'jira' ? 'jira' : 'local';
   const select = (source: typeof TABS[number][0]) => {
-    window.location.hash = source === 'local' ? workItemRoute(workspace.id) : workspaceRoute(workspace.id, source === 'jira' ? 'jira' : 'issues');
+    window.location.hash = source === 'local' ? workItemRoute(workspace.id)
+      : source === 'jira' ? workspaceRoute(workspace.id, 'jira') : `${workspaceRoute(workspace.id, 'issues')}?source=github`;
   };
   return <div className="work-sources">
     <div className="work-sources__tabs" role="tablist" aria-label="Work item sources">

@@ -35,9 +35,9 @@ it('retains recent completions at startup without replaying popups', () => {
   const store = new NoticeStore(() => file);
   const old = notice('old'); const question = notice('question', 'QUESTION', 'other');
   store.update([old, question], now);
-  expect(store.snapshot(true)).toMatchObject({ notices: [question, old], popupIds: [] });
+  expect(store.snapshot(true)).toMatchObject({ notices: [question, old], popupIds: [], viewedIds: [question.id, old.id] });
   const fresh = notice('new'); store.update([fresh, question], now);
-  expect(store.snapshot(true).popupIds).toEqual(['new']);
+  expect(store.snapshot(true)).toMatchObject({ popupIds: ['new'], viewedIds: [question.id] });
   store.dismiss('new'); store.update([fresh, question], now);
   expect(store.snapshot(true).popupIds).toEqual([]);
   store.update([fresh], now);
@@ -86,7 +86,7 @@ it.each(NOTICE_KINDS)('removes a closed %s notice across refreshes and restarts 
   expect(fs.existsSync(`${file}.tmp`)).toBe(false);
 });
 
-it('persists only explicit removals, leaving timed-out and viewed notices available after restart', () => {
+it('persists only explicit removals, keeping timed-out and viewed notices after restart as seen', () => {
   const store = new NoticeStore(() => file); store.update([], now);
   const timedOut = notice('timed-out');
   const viewed = notice('viewed', 'TURN_FINISHED', 'viewed-task');
@@ -95,7 +95,7 @@ it('persists only explicit removals, leaving timed-out and viewed notices availa
   store.dismiss(timedOut.id); store.markViewed(viewed.id); store.remove(removed.id);
   const restarted = new NoticeStore(() => file);
   restarted.update([timedOut, viewed, removed], now);
-  expect(restarted.snapshot(true)).toMatchObject({ notices: [timedOut, viewed], popupIds: [], viewedIds: [] });
+  expect(restarted.snapshot(true)).toMatchObject({ notices: [timedOut, viewed], popupIds: [], viewedIds: [timedOut.id, viewed.id] });
 });
 
 it.each(['writeFileSync', 'renameSync'] as const)('keeps the card and previous dismissals when %s fails, then retries safely', operation => {

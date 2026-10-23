@@ -61,10 +61,12 @@ export class NoticeHost {
     // The Assistant panel lists the same notices, so the main window may read and open them too.
     const ownerOrChild = (event: IpcMainInvokeEvent): void => { if (!owner(event)) child(event); };
     ipcMain.handle('notices:read', event => { ownerOrChild(event); return this.snapshot(); });
-    ipcMain.handle('notices:dismiss', (event, id: unknown) => {
+    ipcMain.handle('notices:dismiss', (event, id: unknown, seen: unknown) => {
       child(event);
-      if (typeof id !== 'string') throw new Error('Invalid notice');
-      this.store.dismiss(id); this.publish();
+      if (typeof id !== 'string' || typeof seen !== 'boolean') throw new Error('Invalid notice');
+      if (seen) this.store.markViewed(id);
+      else this.store.dismiss(id);
+      this.publish();
     });
     // Only the panel clears a notice for good; an alert's × just closes the alert.
     ipcMain.handle('notices:remove', (event, id: unknown) => {
@@ -148,7 +150,7 @@ export class NoticeHost {
     }
     else await this.openNotice(notice);
     if (notice.kind === 'TURN_FINISHED') this.store.remove(id);
-    else this.store.dismiss(id);
+    else this.store.markViewed(id);
     this.publish();
   }
 
@@ -217,8 +219,8 @@ export class NoticeHost {
     }
     if (this.view === null) this.create(window);
     this.view?.webContents.send('notices:changed', state);
-    // Window events publish often; the panel needs only a changed list.
-    const notices = JSON.stringify(state.notices);
+    // Window events publish often; the panel and the sidebar's unread dot need only a changed list or viewed set.
+    const notices = JSON.stringify([state.notices, state.viewedIds]);
     if (notices !== this.mainNotices) { this.mainNotices = notices; window.webContents.send('notices:changed', state); }
     this.layout();
   }

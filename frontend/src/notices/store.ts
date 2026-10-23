@@ -54,6 +54,8 @@ export class NoticeStore {
         }
         this.notices.set(notice.id, notice);
         if (!known && this.initialized && (this.settling.get(notice.id)?.popup ?? true)) this.popups.add(notice.id);
+        // Notices already waiting at startup are old news: no alert and no unread dot.
+        if (!known && !this.initialized) this.viewed.add(notice.id);
       }
       this.remember(notice.id);
     }

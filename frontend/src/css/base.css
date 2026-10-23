@@ -921,6 +921,15 @@ samp {
   line-height: 18px;
 }
 
+.app-sidebar__dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  margin: 0 6px 0 auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
 .app-sidebar__hint {
   color: var(--fg-dim);
   font-size: 11.5px;
@@ -1008,7 +1017,8 @@ samp {
 .app-sidebar.is-collapsed .app-sidebar__traffic .app-sidebar__spacer,
 .app-sidebar.is-collapsed .app-sidebar__label,
 .app-sidebar.is-collapsed .app-sidebar__hint,
-.app-sidebar.is-collapsed .app-sidebar__badge { display: none; }
+.app-sidebar.is-collapsed .app-sidebar__badge,
+.app-sidebar.is-collapsed .app-sidebar__dot { display: none; }
 .app-sidebar.is-collapsed .app-sidebar__ws-head { justify-content: center; padding: 8px 0 10px; }
 .app-sidebar.is-collapsed .app-sidebar__traffic { justify-content: center; padding: 0; }
 .app-sidebar.is-collapsed .app-sidebar__toggle { margin-left: 0; }

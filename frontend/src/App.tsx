@@ -64,7 +64,7 @@ import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
 import WorkspaceItemLayer from './workspaces/WorkspaceItemLayer';
 import { LayerCovered } from './Zoom';
-import { needsAction, type AppNotice } from './notices/contracts';
+import { needsAction, type AppNotice, type NoticeSnapshot } from './notices/contracts';
 import {
   workspaceIssueRoute,
   workspaceIssueTaskRoute,
@@ -135,6 +135,7 @@ function AppContent() {
   // A new object for every Answer, so the panel shows the card again even when the same one was asked for last.
   const [assistantCard, setAssistantCard] = useState<{ id: string } | null>(null);
   const [notices, setNotices] = useState<AppNotice[]>([]);
+  const [viewedIds, setViewedIds] = useState<string[]>([]);
   const [assistantHasHistory, setAssistantHasHistory] = useState(false);
   const assistantEnabled = setup?.assistantEnabled === true;
   const assistantAvailable = assistantEnabled && availability.development;
@@ -284,8 +285,9 @@ function AppContent() {
 
   useEffect(() => {
     let received = false;
-    const stop = window.bridge.onAppNotices?.(state => { received = true; setNotices(state.notices); });
-    void window.bridge.readAppNotices?.().then(state => { if (!received) setNotices(state.notices); }).catch(() => {});
+    const show = (state: NoticeSnapshot) => { setNotices(state.notices); setViewedIds(state.viewedIds); };
+    const stop = window.bridge.onAppNotices?.(state => { received = true; show(state); });
+    void window.bridge.readAppNotices?.().then(state => { if (!received) show(state); }).catch(() => {});
     return () => { received = true; stop?.(); };
   }, []);
 
@@ -624,6 +626,7 @@ function AppContent() {
           relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
           assistant={assistantAccessible ? { open: assistantShown, waiting: notices.filter(needsAction).length,
+            unread: notices.some(notice => !needsAction(notice) && !viewedIds.includes(notice.id)),
             label: assistantEnabled ? 'Assistant' : 'Task notices', onToggle: () => setAssistantOpen(open => !open) } : undefined}
         />
         <main className="app-content">

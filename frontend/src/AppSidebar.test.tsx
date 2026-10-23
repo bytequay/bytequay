@@ -36,7 +36,8 @@ function render(page: AppPage, workspace: WorkspaceDto | null, {
   jiraConnected = false,
   googleConnected = false,
   workspaceTab = 'home',
-}: { settings?: boolean; jiraConnected?: boolean; googleConnected?: boolean; workspaceTab?: WorkspaceTab } = {}) {
+  assistant,
+}: { settings?: boolean; jiraConnected?: boolean; googleConnected?: boolean; workspaceTab?: WorkspaceTab; assistant?: { waiting: number; unread: boolean } } = {}) {
   return renderToStaticMarkup(
     <AppSidebar
       page={page}
@@ -52,6 +53,7 @@ function render(page: AppPage, workspace: WorkspaceDto | null, {
       onWorkspaceTab={vi.fn()}
       jiraConnected={jiraConnected}
       googleConnected={googleConnected}
+      assistant={assistant && { open: false, ...assistant, onToggle: vi.fn() }}
       settings={settings ? {
         section: 'models',
         workspaces: [WORKSPACE],
@@ -89,6 +91,18 @@ describe('app sidebar', () => {
     expect(workspace).toContain('aria-label="Workspace home" aria-current="page"');
     expect(workspace).not.toContain('aria-label="App home"');
     expect(workspace).not.toContain('aria-label="All workspaces"');
+  });
+
+  it('marks unseen finished work with a dot that a waiting count replaces', () => {
+    const unread = render('home', null, { assistant: { waiting: 0, unread: true } });
+    expect(unread).toContain('aria-label="Assistant, unread"');
+    expect(unread).toContain('app-sidebar__dot');
+    const waiting = render('home', null, { assistant: { waiting: 2, unread: true } });
+    expect(waiting).toContain('aria-label="Assistant, 2 need you"');
+    expect(waiting).not.toContain('app-sidebar__dot');
+    const seen = render('home', null, { assistant: { waiting: 0, unread: false } });
+    expect(seen).toContain('aria-label="Assistant"');
+    expect(seen).not.toContain('app-sidebar__dot');
   });
 
   it('keeps global Jira discovery and combines workspace sources in Work items', () => {

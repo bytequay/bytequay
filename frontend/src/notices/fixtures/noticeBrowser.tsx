@@ -31,12 +31,12 @@ export async function run() {
   let listener: (value: NoticeSnapshot) => void = () => {};
   let rejectDismiss = false;
   let rejectOpen = false;
-  const opened: string[] = []; const dismissed: string[] = []; const sizes: number[] = [];
+  const opened: string[] = []; const dismissed: string[] = []; const seen: string[] = []; const sizes: number[] = [];
   const bridge: NoticeBridge = {
     read: async () => state, subscribe: callback => { listener = callback; return () => {}; },
-    dismiss: async id => {
+    dismiss: async (id, closed) => {
       if (rejectDismiss) throw new Error('Dismiss failed');
-      dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
+      dismissed.push(id); if (closed) seen.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
     },
     open: async id => {
       if (rejectOpen) throw new Error('Open failed');
@@ -121,7 +121,8 @@ export async function run() {
     await wait(); assert(Number(timers.size) === 0, 'Keyboard focus pauses expiry');
     view.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await wait();
     [...timers.values()][0].callback(); await wait();
-    assert(dismissed.join() === 'done' && state.notices.some(notice => notice.id === 'done'), 'An expired completion only stops alerting; it stays for the panel');
+    assert(dismissed.join() === 'done' && !seen.includes('done') && state.notices.some(notice => notice.id === 'done'),
+      'An expired completion only stops alerting; it stays for the panel, still unseen');
     front = alert();
     assert(front?.classList.contains('is-approval') && host.querySelectorAll('.app-notice').length === 1, 'The next newest notice alerts once the last one closes');
     assert(Number(timers.size) === 0, 'An alert that needs the user does not expire');
@@ -140,8 +141,8 @@ export async function run() {
     assert(alert()?.classList.contains('is-question') && action()?.textContent === 'Answer'
       && host.querySelector('[role="alert"]')?.textContent === 'Unable to dismiss this notice.', 'A failed close keeps the alert');
     rejectDismiss = false; close.click(); await wait();
-    assert(dismissed.at(-1) === 'approval:q' && state.notices.some(notice => notice.id === 'approval:q') && !opened.includes('approval:q')
-      && !host.querySelector('[role="alert"]'), '× only closes the alert; the notice stays for the panel');
+    assert(dismissed.at(-1) === 'approval:q' && seen.join() === 'approval:q' && state.notices.some(notice => notice.id === 'approval:q') && !opened.includes('approval:q')
+      && !host.querySelector('[role="alert"]'), '× only closes the alert as seen; the notice stays for the panel');
     assert(alert()?.classList.contains('is-question') && action()?.textContent === 'Reply', 'A task waiting for a reply keeps Reply');
     action()?.click(); await wait();
     assert(opened.at(-1) === 'question:t', 'Reply opens its task');

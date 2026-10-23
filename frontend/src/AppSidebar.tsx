@@ -144,8 +144,8 @@ export default function AppSidebar({
   onToggleBrowserRail: () => void;
   /** Present only while settings is open, when the sidebar becomes its category nav. */
   settings?: SettingsNav;
-  /** The Assistant panel's toggle; `waiting` counts the notices that need the user. */
-  assistant?: { open: boolean; waiting: number; label?: string; onToggle: () => void };
+  /** The Assistant panel's toggle; `waiting` counts the notices that need the user, `unread` marks finished work not seen yet. */
+  assistant?: { open: boolean; waiting: number; unread?: boolean; label?: string; onToggle: () => void };
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [query, setQuery] = useState('');
@@ -170,7 +170,7 @@ export default function AppSidebar({
   );
 
   /** Every sidebar row, whichever shape renders it. */
-  const row = ({ key, label, icon, active, pressed, disabled, title, hint, badge, onClick }: {
+  const row = ({ key, label, icon, active, pressed, disabled, title, hint, badge, unread, onClick }: {
     key: string;
     label: string;
     icon: ReactNode;
@@ -182,13 +182,15 @@ export default function AppSidebar({
     /** Dim text after the label, such as a shortcut. */
     hint?: string;
     badge?: { count: number; label: string };
+    /** A dot for something new that needs no action; a badge's count takes its place. */
+    unread?: boolean;
     onClick: () => void;
   }) => (
     <button
       key={key}
       type="button"
       className={`app-sidebar__item${active || pressed ? ' is-active' : ''}`}
-      aria-label={badge === undefined ? label : `${label}, ${badge.label}`}
+      aria-label={badge !== undefined ? `${label}, ${badge.label}` : unread ? `${label}, unread` : label}
       aria-current={active ? 'page' : undefined}
       aria-pressed={pressed}
       title={title ?? label}
@@ -198,7 +200,8 @@ export default function AppSidebar({
       <span aria-hidden="true">{icon}</span>
       <span className="app-sidebar__label">{label}</span>
       {hint !== undefined && <span className="app-sidebar__hint" aria-hidden="true">{hint}</span>}
-      {badge !== undefined && <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>}
+      {badge !== undefined ? <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>
+        : unread && <span className="app-sidebar__dot" aria-hidden="true" />}
     </button>
   );
 
@@ -346,6 +349,7 @@ export default function AppSidebar({
           title: `${assistant.label ?? 'Assistant'} (⌘J)`,
           hint: '⌘J',
           badge: assistant.waiting > 0 ? { count: assistant.waiting, label: `${assistant.waiting} need you` } : undefined,
+          unread: assistant.unread,
           onClick: assistant.onToggle,
         })}
         {GLOBAL_NAV_ITEMS.map(navItem)}

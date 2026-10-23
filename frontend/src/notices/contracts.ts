@@ -29,7 +29,8 @@ export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; viewedI
 export type NoticeBridge = {
   read: () => Promise<NoticeSnapshot>;
   subscribe: (listener: (state: NoticeSnapshot) => void) => () => void;
-  dismiss: (id: string) => Promise<void>;
+  /** `seen` when the user closed the alert, not when it timed out. */
+  dismiss: (id: string, seen: boolean) => Promise<void>;
   open: (id: string) => Promise<void>;
   resize: (height: number) => void;
 };

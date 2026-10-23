@@ -21,7 +21,7 @@ const bridge: NoticeBridge = {
     ipcRenderer.on('notices:changed', receive);
     return () => { ipcRenderer.removeListener('notices:changed', receive); };
   },
-  dismiss: id => ipcRenderer.invoke('notices:dismiss', id),
+  dismiss: (id, seen) => ipcRenderer.invoke('notices:dismiss', id, seen),
   open: id => ipcRenderer.invoke('notices:open', id),
   resize: height => ipcRenderer.send('notices:resize', height),
 };

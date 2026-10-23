@@ -339,6 +339,31 @@ it('releases native input while a modal is open and restores pending notices aft
   host.stop();
 });
 
+it('tells the main window when opening the Assistant panel marks a finished turn seen', async () => {
+  const { host, read, window } = setup();
+  await host.refresh();
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  const finished = { ...notice, kind: 'TURN_FINISHED', occurredAt: new Date().toISOString() };
+  read.mockResolvedValue([finished]); await host.refresh();
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:changed', expect.objectContaining({ notices: [finished], viewedIds: [] }));
+  desktop.handlers.get('notices:suppress')?.(owner, true);
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:changed', expect.objectContaining({ notices: [finished], viewedIds: [finished.id] }));
+  host.stop();
+});
+
+it.each([true, false])('marks a closed alert seen only when the user closed it (seen: %s)', async seen => {
+  const { host, read } = setup();
+  await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object } };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  const finished = { ...notice, kind: 'TURN_FINISHED', occurredAt: new Date().toISOString() };
+  read.mockResolvedValue([finished]); await host.refresh();
+  expect(() => desktop.handlers.get('notices:dismiss')?.(child, finished.id)).toThrow('Invalid notice');
+  await desktop.handlers.get('notices:dismiss')?.(child, finished.id, seen);
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ notices: [finished], popupIds: [], viewedIds: seen ? [finished.id] : [] });
+  host.stop();
+});
+
 it('hides the alert while the Assistant panel lists the notices, and keeps them from popping up after', async () => {
   const { host, read, open, window } = setup();
   await host.refresh();

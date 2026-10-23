@@ -19,7 +19,7 @@ import { APPROVAL_NOTICE, NOTICE_ACTIONS as ACTIONS, needsAction, noticeLabel as
 const describe = (notice: AppNotice): string => `${label(notice)}: ${notice.pullRequestTitle ?? notice.title}`;
 const count = (value: number, noun: string): string => `${value} ${noun}${value === 1 ? '' : 's'}`;
 
-function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; active: boolean; onDismiss: () => void; onOpen: () => void }) {
+function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; active: boolean; onDismiss: (seen: boolean) => void; onOpen: () => void }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
   const remaining = useRef(8000);
@@ -29,7 +29,8 @@ function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; 
   useEffect(() => {
     if (actionable || !active || hovered || focused) return;
     const start = Date.now();
-    const timer = window.setTimeout(() => dismiss.current(), remaining.current);
+    // A timed-out alert may never have been read, so it keeps the sidebar's unread dot.
+    const timer = window.setTimeout(() => dismiss.current(false), remaining.current);
     return () => { window.clearTimeout(timer); remaining.current = Math.max(0, remaining.current - (Date.now() - start)); };
   }, [actionable, active, hovered, focused]);
   const heading = notice.pullRequestTitle ?? notice.title;
@@ -39,7 +40,7 @@ function NoticeCard({ notice, active, onDismiss, onOpen }: { notice: AppNotice; 
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     <div className="app-notice__head"><span className="app-notice__dot" aria-hidden="true" /><span>{label(notice)}</span>
       <time className="app-notice__time" dateTime={notice.occurredAt}>{ago(notice.occurredAt)}</time>
-      <button type="button" className="app-notice__close" aria-label={`Close ${label(notice).toLowerCase()} notification`} onClick={onDismiss}><X size={14} /></button>
+      <button type="button" className="app-notice__close" aria-label={`Close ${label(notice).toLowerCase()} notification`} onClick={() => onDismiss(true)}><X size={14} /></button>
     </div>
     <div className="app-notice__subject"><h2 title={heading}>{heading}</h2>
       {notice.pullRequest && <div className="app-notice__ref" title={notice.pullRequest}>{notice.pullRequest}</div>}</div>
@@ -93,7 +94,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     <span className="app-notices__sr" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
     <section className="app-notices__cards" aria-label="App notices">
       {/* × only closes the alert; the notice stays in the Assistant panel. */}
-      <NoticeCard key={alert.id} notice={alert} active={state.active} onDismiss={() => act(bridge.dismiss(alert.id), 'Unable to dismiss this notice.')}
+      <NoticeCard key={alert.id} notice={alert} active={state.active} onDismiss={seen => act(bridge.dismiss(alert.id, seen), 'Unable to dismiss this notice.')}
         onOpen={() => act(bridge.open(alert.id), 'Unable to open this notice. Try again.')} />
     </section>
     {error?.id === alert.id && <div className="app-notices__error" role="alert">{error.message}</div>}

@@ -82,7 +82,7 @@ describe('PullOverview', () => {
       localReview={{ threads: [local], onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} }} />);
     expect(html.indexOf('Earlier public discussion')).toBeLessThan(html.indexOf('Private implementation question'));
     expect(html.indexOf('Private implementation question')).toBeLessThan(html.indexOf('Later public discussion'));
-    expect(html).toContain('<details class="lrc is-local" open="" data-local-review-thread="local-comment">');
+    expect(html).toContain('<details class="lrc is-local is-compact" open="" data-local-review-thread="local-comment">');
     expect(value.recentActivity).toHaveLength(2);
   });
 
@@ -1060,9 +1060,8 @@ describe('PullOverview', () => {
     ]);
     expect(commentedCodeLines(patch, 'RIGHT', null, 3)).toEqual([]);
     expect(html).toContain('<code>src/PageSourceProvider.java</code></bdi></span><span class="lrc__badge is-warn">Outdated</span>');
-    expect(html).toContain('class="pr-commented-code-line is-add"');
-    expect(html).toContain('pr-commented-code-line__number">44</span>');
-    expect(html).toContain('<code>    interface MemoryUsageTracker</code>');
+    expect(html).toContain('<tr class="is-add"><td class="is-line">44</td>');
+    expect(html).toContain('<span class="hljs-keyword">interface</span>');
     expect(html).not.toContain('createTracker');
   });
 
@@ -1080,10 +1079,10 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
-    expect(html).toContain('pr-commented-code-line__number">42</span>');
-    expect(html).toContain('<code>    MemoryUsageTracker createTracker();</code>');
-    expect(html).toContain('pr-commented-code-line__number">44</span>');
-    expect(html).toContain('<code>    interface MemoryUsageTracker</code>');
+    expect(html).toContain('<td class="is-line">42</td>');
+    expect(html).toContain('createTracker');
+    expect(html).toContain('<td class="is-line">44</td>');
+    expect(html).toContain('<span class="hljs-keyword">interface</span>');
   });
 
   it('offers reply and unresolve actions inside a resolved review thread', () => {
@@ -1112,8 +1111,8 @@ describe('PullOverview', () => {
       onRefresh={async () => {}} onDetailUpdate={() => {}} activity={timelineActivity({}, { path: 'src/Example.java', line: 11, originalLine: 11, side: 'RIGHT', resolved,
           diffHunk: '@@ -10,2 +10,2 @@ class Example\n a\n+b' })} />);
 
-    expect(html).toContain('<div class="lrc__code">');
-    expect(html).toContain('<code>b</code>');
+    expect(html).toContain('<table class="pull-diff-code is-excerpt">');
+    expect(html).toContain('<td class="is-line">11</td><td class="is-source"><span>+</span><code class="hljs">b</code></td>');
   });
 
   it('reads a new-side thread suggestion base from its original hunk lines', () => {

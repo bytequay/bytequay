@@ -42,6 +42,7 @@ import type {
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
 import BetterWordsButton from './BetterWordsButton';
+import CodeExcerpt, { type ReviewCommentLine } from './CodeExcerpt';
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './local-review/types';
 import MergeQueueRemoval from './MergeQueueRemoval';
@@ -1197,9 +1198,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     <ReviewThreadCard title={<span className={`lrc__title${showCode ? ' is-path' : ''}`} title={showCode ? payload.path ?? undefined : undefined}>{location}</span>}
       resolved={resolved} outdated={payload.outdated}
       badges={pendingReplies.length > 0 && <span className="pull-diff-pending__badge">Pending</span>}
-      code={commentedLines.length > 0 && <div className="lrc__code">
-        {commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
-      </div>} controls={controls}>
+      code={commentedLines.length > 0 && <CodeExcerpt path={payload.path} lines={commentedLines} />} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
         indexLabel={`${threadLocation(payload.path, targetLine, payload.side, startLine)} · ${resolved ? 'Resolved' : 'Open'} · ${payload.outdated ? 'Outdated · ' : ''}`}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
@@ -1328,12 +1327,6 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
   );
 }
 
-export type ReviewCommentLine = {
-  lineNumber: number | null;
-  prefix: ' ' | '+' | '-';
-  text: string;
-};
-
 /** The commented lines of a range, read from a thread's diff_hunk or from a whole-file patch of several hunks. */
 export function commentedCodeLines(patch: string | null, side: string | null, startLine: number | null, endLine: number | null): ReviewCommentLine[] {
   if (endLine === null) return [];
@@ -1370,17 +1363,6 @@ export function reviewThreadSuggestion(payload: PullTimelinePayloadDto): Suggest
     startLine: payload.line !== null ? payload.startLine ?? payload.line : range.start,
     lines: lines.length > 0 && lines.length === range.end - range.start + 1 ? lines.map(line => line.text) : null,
   };
-}
-
-export function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {
-  const className = line.prefix === '+' ? 'is-add' : line.prefix === '-' ? 'is-del' : '';
-  return (
-    <pre className={`pr-commented-code-line${className ? ` ${className}` : ''}`}>
-      <span className="pr-commented-code-line__number">{line.lineNumber}</span>
-      <span className="pr-commented-code-line__marker" aria-hidden="true">{line.prefix}</span>
-      <code>{line.text}</code>
-    </pre>
-  );
 }
 
 function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; headRef: string | null; pr: PullRequestDto }) {

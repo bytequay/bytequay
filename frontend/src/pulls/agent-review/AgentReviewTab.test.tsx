@@ -612,8 +612,8 @@ describe('the finding card', () => {
     // Only the GitHub-bound action carries the primary treatment.
     expect(html.match(/lrc__action is-primary/g) ?? []).toHaveLength(1);
     expect(html).toContain('<button type="button" class="lrc__action is-primary">Post now</button>');
-    // The Changes copy of the card keeps its own wording.
-    expect(card(review, finding, 'changes')).toContain('>Post comment now</button>');
+    // The Changes copy of the card is the same card.
+    expect(card(review, finding, 'changes')).toContain('<button type="button" class="lrc__action is-primary">Post now</button>');
   });
 
   it('labels the way back differently in each projection but keeps one identity', () => {
@@ -639,7 +639,7 @@ describe('the finding card', () => {
     const outdated = { ...finding, outdated: true };
     const html = card(reviewFixture({ findings: [outdated] }), outdated);
     expect(html).toContain('Its comment stays attached to that commit');
-    expect(html).toContain('pr-commented-code-line');
+    expect(html).toContain('pull-diff-code is-excerpt');
     expect(html).toContain('resolveNestedFieldId');
     expect(html).toContain('Post now');
   });
@@ -667,7 +667,7 @@ describe('the finding card', () => {
       }]),
     });
     const html = card(withDraft, finding);
-    // On the Summary the comment takes the finding's place; the Changes copy keeps the finding with the comment below.
+    // The comment takes the finding's place, in Changes too.
     expect(html).toContain('Your comment');
     expect(html).not.toContain('Editing this never changes the finding');
     expect(html).not.toContain('<h3 class="agr-finding__title">');
@@ -679,9 +679,9 @@ describe('the finding card', () => {
     expect(html).not.toContain('Add to my review');
     expect(html).toContain('>✓ In my review</button>');
     const inChanges = card(withDraft, finding, 'changes');
-    expect(inChanges).toContain('Outgoing comment · in your pending review');
-    expect(inChanges).toContain('Editing this never changes the finding');
-    expect(inChanges).toContain('<h3 class="agr-finding__title">');
+    expect(inChanges).toContain('Your comment');
+    expect(inChanges).not.toContain('<h3 class="agr-finding__title">');
+    expect(inChanges).toContain('>✓ In my review</button>');
   });
 
   it.each(['OPEN', 'RESOLVED', 'WITHDRAWN'] as const)('keeps a published %s finding’s thread open and private', state => {
@@ -731,7 +731,7 @@ describe('styles', () => {
       expect(html).not.toContain('pr-thread-comment');
     }
     expect(summary(reviewFixture())).not.toContain('class="lrc is-');
-    expect(card(reviewFixture(), reviewFixture().findings[0])).toContain('<details class="lrc is-local" open="">');
+    expect(card(reviewFixture(), reviewFixture().findings[0])).toContain('<details class="lrc is-local is-compact" open="">');
     expect(declarations(':is(.agr-summary-card, .agr-finding, .agr-local-comments) .lrc')).toContain('margin-left: 0');
   });
 

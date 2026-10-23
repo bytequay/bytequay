@@ -17,10 +17,11 @@ import Avatar from '../../Avatar';
 import UserAvatar from '../../UserAvatar';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import BetterWordsButton from '../BetterWordsButton';
+import CodeExcerpt from '../CodeExcerpt';
 import MarkdownBody from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 import { commentIndexTarget } from '../ReviewCommentIndex';
-import LocalCard, { LocalCardMessage, SummaryCardTitle } from './LocalCard';
+import LocalCard, { CodeCardTitle, LocalCardMessage, SummaryCardTitle } from './LocalCard';
 import { canSendAgain, localReviewConversation } from './conversation';
 import type { LocalReviewThreadActions, LocalReviewThreadDto, LocalReviewThreads } from './types';
 
@@ -91,17 +92,17 @@ export default function LocalReviewThreadCard({ thread, viewer, onReply, onResol
       {pending === 'resolve' ? 'Saving…' : thread.resolved ? 'Reopen' : 'Resolve'}
     </button>
   </footer>;
-  const snapshot = showCode && thread.code ? <div className="pr-local-review__snapshot">
-    <div>{outdated ? 'Recorded code' : 'Selected code'} · {thread.side === 'LEFT' ? 'base' : 'head'}{' '}
-      <code>{(thread.side === 'LEFT' ? thread.baseSha : thread.headSha)?.slice(0, 8) ?? 'at recorded PR revision'}</code></div>
-    <pre>{thread.code}</pre>
-  </div> : undefined;
-  return <LocalCard tone={learning === null ? 'local' : learningSha === undefined ? 'purpose' : 'commit'}
+  const codeLines = thread.code.replace(/\n$/, '').split('\n');
+  // A selection that does not span its whole range has no line numbers to trust.
+  const numbered = codeLines.length === thread.line - start + 1;
+  const snapshot = showCode && thread.code ? <CodeExcerpt path={thread.path}
+    caption={<>{outdated ? 'Recorded code' : 'Selected code'} · {thread.side === 'LEFT' ? 'base' : 'head'}{' '}
+      {(thread.side === 'LEFT' ? thread.baseSha : thread.headSha)?.slice(0, 8) ?? 'at recorded PR revision'}</>}
+    lines={codeLines.map((text, index) => ({ lineNumber: numbered ? start + index : null, prefix: thread.side === 'LEFT' ? '-' : ' ', text }))} /> : undefined;
+  return <LocalCard tone={learning === null ? 'local' : learningSha === undefined ? 'purpose' : 'commit'} compact={learning === null}
     resolved={thread.resolved} outdated={outdated} attributes={{ 'data-local-review-thread': thread.id }}
     badges={<>{badges}<CopyLinkButton label="conversation" value={localReviewConversation(thread, outdated)} /></>}
-    title={learning !== null ? <SummaryCardTitle sha={learningSha} tooltip={learning.title} />
-      : showCode ? <code className="lrc__title is-path" title={thread.path}><bdi dir="ltr">{thread.path}:{range}</bdi></code>
-      : <span className="lrc__title">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}
+    title={learning !== null ? <SummaryCardTitle sha={learningSha} tooltip={learning.title} /> : <CodeCardTitle path={thread.path} range={range} />}
     code={snapshot} controls={controls}>
     {learning !== null && <LocalCardMessage timestamp={thread.createdAt} author="Developer"
       avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}

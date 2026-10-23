@@ -277,7 +277,7 @@ describe('DiffViewer', () => {
     expect(html).toContain('Resolved discussion');
     expect(html).toContain('>Unresolve</button>');
     expect(html).toContain('>Resolve</button>');
-    expect(html).not.toContain('pr-commented-code-line');
+    expect(html).not.toContain('is-excerpt');
     expect(html).not.toContain('Review comments outside the visible lines');
   });
 
@@ -599,12 +599,17 @@ describe('the same finding in Changes', () => {
     expect(html).toContain('data-diff-row="plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java:RIGHT:131"');
   });
 
+  it('colors the diff rows by their file language, as the cards beside them do', () => {
+    const html = changes(null);
+    expect(html).toContain('<td class="is-source"><span>+</span><code class="hljs">                <span class="hljs-keyword">return</span> match.<span class="hljs-title function_ invoke__">get</span>();</code></td>');
+  });
+
   it('offers the same actions and the way back to Summary', () => {
     const html = changes(review);
     expect(html).toContain('Ask reviewer');
     expect(html).toContain('>Resolve</button>');
     expect(html).toContain('Add to my review');
-    expect(html).toContain('Post comment now');
+    expect(html).toContain('Post now');
     expect(html).toContain('Open in Summary');
     expect(html).not.toContain('View in Changes');
   });

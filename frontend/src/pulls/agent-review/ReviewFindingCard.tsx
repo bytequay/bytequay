@@ -17,15 +17,15 @@ import { relativeTime } from '@bytequay/ui/relativeTime';
 import { Chevron } from '../../Chevron';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
-import { CommentedCodeLine } from '../PullOverview';
-import LocalCard, { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';
+import CodeExcerpt from '../CodeExcerpt';
+import LocalCard, { CodeCardTitle } from '../local-review/LocalCard';
 import { commentIndexTarget } from '../ReviewCommentIndex';
 import { findingConversation } from '../local-review/conversation';
 import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, findingReviewText, messagesFor, queued, shortPath, shortSha } from './model';
+import { askLabel, draftItemFor, findingPill, findingPublication, findingReviewText, messagesFor, queued, shortPath, shortSha } from './model';
 
 export type FindingActions = {
   onRequestFix?: (finding: ReviewFindingDto, instruction: string) => Promise<void>;
@@ -54,7 +54,7 @@ function severityTone(severity: string | null): string {
  * One finding, with its evidence, its private discussion, and the two kinds of action it offers.
  *
  * The same card renders in the Agent review tab and at the finding's diff location in Changes:
- * one finding ID, one discussion, two projections. The diff projection leaves out the code and path,
+ * one finding ID, one discussion, one layout. Changes leaves out the code its diff rows already show,
  * and the navigation label always offers the way back to the other one.
  */
 export default function ReviewFindingCard({
@@ -71,7 +71,7 @@ export default function ReviewFindingCard({
   finding: ReviewFindingDto;
   viewerLogin: string;
   viewerAvatarUrl: string | null;
-  /** Which surface is drawing it, which is the one thing the two projections do differently. */
+  /** Which surface is drawing it: Changes has the code above the card and offers the way back to the Summary. */
   projection: 'review' | 'changes';
   actions: FindingActions;
   busy?: boolean;
@@ -97,7 +97,6 @@ export default function ReviewFindingCard({
     : review.state === 'OPEN' && messages.some(message => message.author === 'USER' && queued(review, message)) ? 'Question queued' : null;
   const actionsDisabled = busy || waitingReason !== null;
   const item = draftItemFor(review.draft, finding.id);
-  const itemCommit = item === null ? null : draftCommentCommit(item, review.findings);
   const reviewText = item === null && finding.path === null && review.draft?.body.includes(finding.body.trim()) ? review.draft.body : null;
   const outgoingBody = reviewText ?? (item !== null && !item.published ? item.body : null);
   // Null for a finding about the whole pull request, such as a commit message: it has no code, no suggestion and no line to post on.
@@ -106,15 +105,13 @@ export default function ReviewFindingCard({
     ? { startLine: lines.startLine, lines: finding.excerpt }
     : undefined;
   const withdrawn = finding.state === 'WITHDRAWN';
-  // The diff row above already shows the file and its lines, as for GitHub threads drawn there.
-  const inDiff = projection === 'changes';
   // Deleted ranges can omit intervening context; do not invent their individual line numbers.
   const completeExcerpt = lines !== null && finding.excerpt.length === lines.endLine - lines.startLine + 1;
   const evidenceLabel = finding.evidence.length === 1
     ? '1 reference'
     : `${finding.evidence.length} references`;
-  // On the Summary, an outgoing comment takes the finding's place; the finding stays one click away.
-  const replaced = !inDiff && (outgoingBody !== null || composer === 'draft');
+  // An outgoing comment takes the finding's place; the finding stays one click away.
+  const replaced = outgoingBody !== null || composer === 'draft';
   const edited = outgoingBody !== null && reviewText === null && outgoingBody.trim() !== findingReviewText(finding);
   const idLabel = <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span>;
   const provisionalPill = publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>;
@@ -255,30 +252,20 @@ export default function ReviewFindingCard({
     </> : outgoingBody !== null && (
       <div className="agr-draft">
         <div className="agr-draft__head">
-          {inDiff ? <>
-            {reviewText !== null ? 'Outgoing review summary' : publication.kind === 'uncertain' ? 'Outgoing comment · delivery unconfirmed'
-              : publication.kind === 'sending' ? 'Outgoing comment · sending' : 'Outgoing comment · in your pending review'}
-            {item !== null && itemCommit !== null && <span className="agr-draft__note">
-              · {shortPath(item.path, 28)} · commit {shortSha(itemCommit)}
-            </span>}
-            <span className="agr-spacer" />
-            <span className="agr-draft__note">Editing this never changes the finding</span>
-          </> : <>
-            {reviewText !== null ? 'Your review summary' : publication.kind === 'uncertain' ? 'Your comment · delivery unconfirmed'
-              : publication.kind === 'sending' ? 'Your comment · sending' : 'Your comment'}
-            {edited && <><span className="agr-draft__note">· edited</span>
-              <button type="button" className="agr-link" aria-expanded={originalOpen} onClick={() => setOriginalOpen(value => !value)}>
-                {originalOpen ? 'Hide original' : 'Show original'}</button></>}
-            <span className="agr-spacer" />
-            <span className="agr-draft__note">Agent · {relativeTime(finding.updatedAt)}</span>
-          </>}
+          {reviewText !== null ? 'Your review summary' : publication.kind === 'uncertain' ? 'Your comment · delivery unconfirmed'
+            : publication.kind === 'sending' ? 'Your comment · sending' : 'Your comment'}
+          {edited && <><span className="agr-draft__note">· edited</span>
+            <button type="button" className="agr-link" aria-expanded={originalOpen} onClick={() => setOriginalOpen(value => !value)}>
+              {originalOpen ? 'Hide original' : 'Show original'}</button></>}
+          <span className="agr-spacer" />
+          <span className="agr-draft__note">Agent · {relativeTime(finding.updatedAt)}</span>
           <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? undefined}
             onClick={() => { setEditVersion(review.draft?.version ?? 0); openComposer('draft', outgoingBody); }}>Edit</button>
           <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? (reviewText !== null ? "Remove this finding's text from your review summary" : undefined)}
             onClick={() => { void remove(); }}>Remove</button>
         </div>
         <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>
-        {!inDiff && edited && originalOpen && <div className="agr-draft__original">
+        {edited && originalOpen && <div className="agr-draft__original">
           <span>Original finding</span>
           <MarkdownBody body={findingReviewText(finding)} repository={review.repo} />
         </div>}
@@ -307,23 +294,17 @@ export default function ReviewFindingCard({
   );
 
   return (
-    <article className={`agr-finding${inDiff ? '' : ' is-summary'}${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
+    <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
       id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id} data-review-closed={withdrawn || undefined}>
-      <LocalCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} open={defaultOpen}
-        title={lines === null
-          ? <span className="lrc__title">Whole change</span>
-          : inDiff
-            ? <span className="lrc__title">Comment on {lines.startLine === lines.endLine ? 'line' : 'lines'} <strong>{lines.range}</strong></span>
-            : <code className="lrc__title" title={lines.path}>{shortPath(lines.path)} <span className="agr-finding__range">{lines.range}</span></code>}
-        badges={<>{!inDiff && idLabel}
+      <LocalCard compact resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} open={defaultOpen}
+        title={lines === null ? <span className="lrc__title">Whole change</span> : <CodeCardTitle path={lines.path} range={lines.range} />}
+        badges={<>{idLabel}
           {!accepted && pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
           <CopyLinkButton label="conversation" value={findingConversation(review, finding)} />
           {accepted && <span className="lrc__badge is-ready" title="Posted to GitHub in your review">Accepted</span>}</>}
-        code={!inDiff && lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
-          {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
-            line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
-        </div>}
+        code={projection === 'review' && lines !== null && finding.excerpt.length > 0 && <CodeExcerpt path={lines.path}
+          lines={finding.excerpt.map((text, index) => ({ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }))} />}
         controls={composer !== 'draft' && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
           {responding && <span className="pr-local-review__progress" role="status"><span className="sr-only">Agent responding</span></span>}
           {editor}
@@ -341,7 +322,7 @@ export default function ReviewFindingCard({
                 {projection === 'review' ? 'View in Changes' : 'Open in Summary'}
               </button>
             )}
-            {!inDiff && <span className="agr-spacer" />}
+            <span className="agr-spacer" />
             {finding.state === 'OPEN' && (
               <button type="button" className="lrc__action" disabled={actionsDisabled} title={waitingReason ?? undefined}
                 onClick={() => openComposer('resolve', '')}>Resolve</button>
@@ -354,31 +335,25 @@ export default function ReviewFindingCard({
                     : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.')}
                   onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
                 {lines !== null && <button type="button" className="lrc__action is-primary" disabled={actionsDisabled} title={waitingReason ?? undefined}
-                  onClick={() => openComposer('post', findingReviewText(finding))}>{inDiff ? 'Post comment now' : 'Post now'}</button>}
+                  onClick={() => openComposer('post', findingReviewText(finding))}>Post now</button>}
               </>
             )}
             {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}
-            {!inDiff && (publication.kind === 'draft' || publication.kind === 'inReviewText') ? <>
+            {(publication.kind === 'draft' || publication.kind === 'inReviewText') && <>
               <span className="agr-actions__divider" aria-hidden="true" />
               <button type="button" className="lrc__action is-added" disabled={actionsDisabled}
                 title={waitingReason ?? (publication.kind === 'draft' ? 'In your pending review. Click to remove it.' : 'In your review summary. Click to remove it.')}
                 onClick={() => { void remove(); }}>✓ In my review</button>
-            </> : <>
-              {publication.kind === 'draft' && <span className="agr-actions__blocked">In your pending review</span>}
-              {publication.kind === 'inReviewText' && <span className="agr-actions__blocked">In your review summary</span>}
             </>}
           </>}
           {error && <span className="lrc__error" role="alert">{error}</span>}
         </footer>}>
-        {inDiff ? <LocalCardMessage timestamp={finding.updatedAt} author="Agent review" avatar={<ReviewerAvatar />}
-          attributes={indexTarget} menu={<>{provisionalPill}{idLabel}</>}>
-          {title}{body}{details}
-        </LocalCardMessage> : <div className="lrc-message agr-finding__message" {...indexTarget}>
+        <div className="lrc-message agr-finding__message" {...indexTarget}>
           {!replaced && <div className="agr-finding__head">{title}{provisionalPill}
             <span className="agr-finding__by">Agent · <time>{relativeTime(finding.updatedAt)}</time></span></div>}
           {!replaced && body}
           {details}
-        </div>}
+        </div>
         <ReviewThread review={review} messages={messages} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} />
       </LocalCard>
     </article>

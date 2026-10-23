@@ -287,12 +287,12 @@ async function anchoredDiff(): Promise<void> {
   try {
     const inline = host.querySelector('[data-local-review-thread="local-1"]');
     assert(inline?.closest('tr')?.classList.contains('is-local-review-thread') === true
-      && inline.querySelector('.pr-local-review__snapshot') === null, 'Exact selected revision and code must place one normal local card under the diff line');
+      && inline.querySelector('.is-excerpt') === null, 'Exact selected revision and code must place one normal local card under the diff line');
     render('3333333');
     await settle();
     let saved = host.querySelector('[data-local-review-thread="local-1"]');
     assert(saved !== null && saved.closest('tr') === null && saved.textContent?.includes('Outdated') === true
-      && saved.querySelector('.pr-local-review__snapshot')?.textContent?.includes('new value') === true,
+      && saved.querySelector('.is-excerpt')?.textContent?.includes('new value') === true,
     'A new revision must retain the recorded snapshot outside current code lines');
     render('2222222', 'unrelated value');
     await settle();
@@ -661,8 +661,11 @@ async function sharedCardLayout(): Promise<void> {
   host.className = 'pull-diff-threads';
   const thread = initialThread();
   const noAction = async () => {};
+  const review = reviewFixture();
   try {
     flushSync(() => root.render(<>
+      <ReviewFindingCard review={review} finding={review.findings[0]} projection="changes" viewerLogin="me" viewerAvatarUrl={null}
+        actions={{ onAsk: noAction, onResolve: noAction, onReopen: noAction, onAddToReview: noAction, onPostNow: noAction, onEditDraft: noAction, onRemoveFromReview: noAction }} />
       <ReviewThreadCard title={<span className="lrc__title">{thread.path}:R2</span>} resolved={false} controls={null}>
         <ReviewThreadMessage timestamp={thread.createdAt} author={<strong>You</strong>}>
           <MarkdownBody body={thread.messages[0].body} />
@@ -677,13 +680,19 @@ async function sharedCardLayout(): Promise<void> {
       await settle();
       const cards = [...host.querySelectorAll<HTMLDetailsElement>(':scope > details')];
       assert(cards.length === 3, 'GitHub, local and pending comments must all render the shared disclosure');
-      const styles = cards.map(card => [card, card.querySelector('.lrc__head'), card.querySelector('.lrc-message'), card.querySelector('.lrc-message__head')]
-        .map(element => {
-          assert(element !== null, 'Every review comment must use the shared header and message layout');
-          const style = getComputedStyle(element);
-          return [style.borderRadius, style.padding, style.fontFamily, style.fontSize, style.lineHeight].join('|');
-        }).join(';'));
-      assert(new Set(styles).size === 1, 'All review comment variants must have the same base spacing and typography');
+      const look = (elements: Array<Element | null>) => elements.map(element => {
+        assert(element !== null, 'Every review comment must use the shared header and message layout');
+        const style = getComputedStyle(element);
+        return [style.borderRadius, style.padding, style.fontFamily, style.fontSize, style.lineHeight].join('|');
+      }).join(';');
+      const frame = (card: Element) => look([card, card.querySelector('.lrc__head')]);
+      const finding = fixtureElement<HTMLDetailsElement>('.agr-finding > details', host, 'The agent finding must render beside the comments');
+      assert(new Set(cards.map(card => look([card.querySelector('.lrc-message'), card.querySelector('.lrc-message__head')]))).size === 1,
+        'All review comment variants must have the same message spacing and typography');
+      assert(frame(cards[0]) === frame(cards[2]), 'GitHub and pending comments must share one frame');
+      assert(frame(cards[1]) === frame(finding) && frame(cards[1]) !== frame(cards[0])
+        && look([cards[1].querySelector('.lrc__foot')]) === look([finding.querySelector('.lrc__foot')]),
+      'Private threads on code must share the compact frame and actions of agent findings');
       for (const card of cards) {
         assert(card.scrollWidth <= card.clientWidth + 1, 'Review cards must fit narrow panes');
         card.querySelector('summary')?.click(); await settle();
@@ -789,9 +798,7 @@ async function pendingFindingResponse(): Promise<void> {
       const unrelated = host.querySelector<HTMLElement>(`[data-finding-id="${other.id}"]`);
       assert(card !== null && unrelated !== null, `Both reviewer findings must render in ${projection}`);
       if (projection === 'changes') assert(card.closest('tr.is-review-finding') !== null, 'Exercise the actual inline Changes card');
-      // The Summary's compact card says Post now; the Changes copy keeps its longer label.
-      const post = projection === 'review' ? 'Post now' : 'Post comment now';
-      const actionLabels = ['Ask reviewer', 'Resolve', 'Add to my review', post,
+      const actionLabels = ['Ask reviewer', 'Resolve', 'Add to my review', 'Post now',
         ...(projection === 'review' ? ['View in Changes', 'Request fix'] : ['Open in Summary'])];
       for (const state of ['ACCEPTED', 'RUNNING', 'QUEUED']) {
         setResponse(state);
@@ -803,7 +810,7 @@ async function pendingFindingResponse(): Promise<void> {
         await settle();
         assert(card.querySelector('textarea') === null && writes === 0 && navigations === 0,
           'Blocked controls must not open an editor, perform a mutation or navigate');
-        assert(getComputedStyle(textButton(post, card)).color === getComputedStyle(textButton('Resolve', card)).color,
+        assert(getComputedStyle(textButton('Post now', card)).color === getComputedStyle(textButton('Resolve', card)).color,
           'The primary publish action must also look disabled');
         const progress = card.querySelector<HTMLElement>('.pr-local-review__progress');
         assert((progress !== null) === (state !== 'QUEUED') && unrelated.querySelector('.pr-local-review__progress') === null,
@@ -840,7 +847,7 @@ async function pendingFindingResponse(): Promise<void> {
         textButton('Cancel', card).click(); await settle();
       };
       for (const [openLabel, submitLabel] of [['Ask reviewer', 'Ask reviewer'], ['Resolve', 'Resolve locally'],
-        [post, 'Post now'], ...(projection === 'review' ? [['Request fix', 'Send to developer']] : [])]) {
+        ['Post now', 'Post now'], ...(projection === 'review' ? [['Request fix', 'Send to developer']] : [])]) {
         await checkPendingEditor(openLabel, submitLabel);
       }
       review = { ...review, draft: reviewDraftFixture({ repo: review.repo, number: review.number,

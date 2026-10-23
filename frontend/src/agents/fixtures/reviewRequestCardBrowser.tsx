@@ -257,8 +257,9 @@ export async function localDiscussion(learning = false, snapshot = false) {
   toggle().click(); await settle();
   assert(request.querySelector('.agt-review-request__prompt') === null && !request.textContent?.includes(prompt),
     'Opening the discussion must not show the prompt sent to the agent');
-  const saved = request.querySelector<HTMLElement>(learning ? '.lrc-message__body' : '.pr-local-review__snapshot pre');
-  assert(saved !== null && saved.textContent?.trim() === savedContext.trim() && saved.getBoundingClientRect().height > 0,
+  const saved = request.querySelector<HTMLElement>(learning ? '.lrc-message__body' : '.is-excerpt');
+  const savedText = learning ? saved?.textContent : [...saved?.querySelectorAll('.is-source code') ?? []].map(code => code.textContent).join('\n');
+  assert(saved !== null && savedText?.trim() === savedContext.trim() && saved.getBoundingClientRect().height > 0,
     `The saved ${learning ? 'summary' : 'code'} must remain readable`);
   assert(request.innerText.includes(learning ? 'Private summary discussion' : 'Private code discussion'), 'The discussion must show its private scope');
   const buttons = Array.from(request.querySelectorAll('button')).filter(button => button.getBoundingClientRect().height > 0).map(button => button.textContent);

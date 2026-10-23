@@ -31,10 +31,12 @@ export type ReviewRequest = {
   messageEventId?: string | null;
   target?: ReviewRequestTarget;
   icon?: LucideIcon;
+  /** The private card the request discusses, shown in full instead of the bare question. */
+  card?: ReactNode;
 };
 
 /** The preview names the saved request; optional children supply its full details on expansion. */
-export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = MessageSquare, children, onOpen }: ReviewRequest & { children?: ReactNode; onOpen?: () => void }) {
+export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = MessageSquare, card, children, onOpen }: ReviewRequest & { children?: ReactNode; onOpen?: () => void }) {
   const [open, setOpen] = useState(false);
   const contentId = useId();
   const toggle = () => setOpen(value => !value);
@@ -57,7 +59,7 @@ export function ReviewRequestCard({ action, topic, body, detail, icon: Icon = Me
     {!open && <div className="agt-review-request__preview">{body}</div>}
     <div id={contentId} className="agt-review-request__content" hidden={!open}>
       {detail && <div className="agt-review-request__detail">{detail}</div>}
-      {children ?? <div className="agt-review-request__body">{body}</div>}
+      {children ?? card ?? <div className="agt-review-request__body">{body}</div>}
     </div>
   </article>;
 }

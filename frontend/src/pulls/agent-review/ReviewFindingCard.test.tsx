@@ -85,23 +85,23 @@ describe('finding suggestions', () => {
   it.each(['review', 'changes'] as const)('compares a suggestion with its exact reviewed range in %s', projection => {
     const html = render(finding, undefined, projection);
     if (projection === 'review') {
-      expect(html).toContain('<span class="pr-commented-code-line__number">118</span>');
-      expect(html).toContain('<span class="pr-commented-code-line__number">119</span>');
-      expect(html).toContain('<code>    Value result = input.get();</code>');
-      expect(html).toContain('<code>    return result;</code>');
+      expect(html).toContain('<td class="is-line">118</td>');
+      expect(html).toContain('<td class="is-line">119</td>');
+      expect(html).toContain('<code class="hljs">    <span class="hljs-keyword">return</span> result;</code>');
     }
     else {
-      // The diff row above shows the code, as for GitHub threads there.
-      expect(html).not.toContain('lrc__code');
-      expect(html).toContain('<span class="lrc__title">Comment on lines <strong>R118–R119</strong></span>');
+      // The diff rows above show the code, as for GitHub threads there.
+      expect(html).not.toContain('is-excerpt');
     }
+    // One title on every surface.
+    expect(html).toContain(`<code class="lrc__title" title="${finding.path}">`);
+    expect(html).toContain('<span class="lrc__range">R118–R119</span>');
     expect(html.match(/class="md-suggestion"/g)).toHaveLength(1);
     expect(html).toContain('<td class="md-suggestion__number">118</td><td class="md-suggestion__code"><span>−</span>    Value result = input.get();</td>');
     expect(html).toContain('<td class="md-suggestion__number">119</td><td class="md-suggestion__code"><span>−</span>    return result;</td>');
     expect(html).toContain('<td class="md-suggestion__number">118</td><td class="md-suggestion__code"><span>+</span>    return input.orElseThrow();</td>');
     expect(html).not.toContain('<span>suggestion</span>');
     expect(html).not.toContain('Reviewed code');
-    expect(html).not.toContain('pr-local-review__snapshot');
   });
 
   it("names a development agent's reply apart from the reviewer's own", () => {
@@ -114,7 +114,7 @@ describe('finding suggestions', () => {
     expect(html).toContain('data-review-comment-label="Developer" data-review-comment-preview="Fixed in abc1234."');
     expect(html).toContain('<strong>Developer</strong>');
     // Only the reviewer's own messages carry the reviewer's mark: its answer, not the developer's reply.
-    // On the Summary the finding itself names its author beside its title instead.
+    // The finding itself names its author beside its title instead.
     expect(html.match(/class="lrc-bot"/g)).toHaveLength(1);
     expect(html).toContain('<span class="agr-finding__by">Agent · <time>');
   });
@@ -155,7 +155,7 @@ describe('finding suggestions', () => {
 
   it('keeps suggestions on deleted lines as ordinary code, like GitHub review comments', () => {
     const html = render({ ...finding, side: 'LEFT', range: 'L118–L119' });
-    expect(html.match(/class="pr-commented-code-line is-del"/g)).toHaveLength(2);
+    expect(html.match(/<tr class="is-del">/g)).toHaveLength(2);
     expect(html).toContain('<span>suggestion</span>');
     expect(html).not.toContain('md-suggestion');
   });
@@ -163,8 +163,8 @@ describe('finding suggestions', () => {
   it('does not invent line numbers when a saved deletion excerpt has gaps', () => {
     const html = render({ ...finding, side: 'LEFT', endLine: 123, range: 'L118–L123' });
     expect(html).toContain('L118–L123');
-    expect(html.match(/class="pr-commented-code-line__number"><\/span>/g)).toHaveLength(2);
-    expect(html).toContain('<code>    return result;</code>');
+    expect(html.match(/<td class="is-line"><\/td>/g)).toHaveLength(2);
+    expect(html).toContain('<span class="hljs-keyword">return</span> result;');
   });
 
   it('shows a finding about the whole pull request without code, and offers only the review summary', () => {

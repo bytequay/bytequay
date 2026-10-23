@@ -41,6 +41,7 @@ import AgentReviewTab, { type ReviewNavigationTarget } from './agent-review/Agen
 import type { AgentReviewDto, ReviewDraftDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
 import { draftCommentCommit, mergeReviewFindings, pendingDraftCount, reviewStatus } from './agent-review/model';
 import BetterWordsButton from './BetterWordsButton';
+import CodeExcerpt from './CodeExcerpt';
 import CodeTestsTab from './code-tests/CodeTestsTab';
 import DetailSkeleton from './DetailSkeleton';
 import type { LocalReviewThreads } from './local-review/types';
@@ -65,7 +66,7 @@ import {
 } from './model';
 import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
-import PullOverview, { CommentedCodeLine, commentedCodeLines, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
+import PullOverview, { commentedCodeLines, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
 import { remoteErrorMessage } from '../remoteError';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
 import MergeQueueRemoval from './MergeQueueRemoval';
@@ -2026,9 +2027,7 @@ export function ReviewDialog({
                 title={<span className="lrc__title"><code title={comment.path}>{comment.path}</code>
                   {comment.replyToCommentId != null && <span> · Reply to thread</span>}
                   {comment.replyToCommentId == null && comment.commitId !== null && <span> · commit {shortSha(comment.commitId)}</span>}</span>}
-                code={lines.length > 0 && <div className="lrc__code">
-                  {lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
-                </div>}>
+                code={lines.length > 0 && <CodeExcerpt path={comment.path} lines={lines} />}>
                 <ReviewThreadMessage timestamp={null}
                   author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
                     <span className="pull-diff-pending__badge">{publication?.state === 'UNCERTAIN' ? 'Delivery unconfirmed'

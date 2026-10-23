@@ -909,6 +909,8 @@ export default function AgentReviewTab({
           review={review}
           onOpenReview={onOpenReview}
           localReview={localReview === undefined ? undefined : { ...localReview, threads: localReview.threads.filter(thread => thread.taskId === review.task.id) }}
+          findingCard={finding => <ReviewFindingCard review={review} finding={finding} viewerLogin={viewer?.login ?? ''} viewerAvatarUrl={viewer?.avatarUrl ?? null}
+            projection="review" actions={actions} busy={busy || recovery || findingActions.busy} />}
           events={events}
           pendingMessage={conversation.pendingMessage}
           turns={turns}

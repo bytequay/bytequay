@@ -31,7 +31,7 @@ export function recordReviewAttentionAction(review: AgentReviewDto, action: Atte
  * Changes projection cannot drift.
  *
  * <p>None of these reuses a GitHub reply, resolve or submit callback: Ask agent and Resolve locally
- * are review-service calls that never reach GitHub, and only Post comment now crosses that line,
+ * are review-service calls that never reach GitHub, and only Post now crosses that line,
  * through the durable draft so a single item can never be sent twice.
  */
 export function useFindingActions({

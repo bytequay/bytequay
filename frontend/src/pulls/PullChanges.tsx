@@ -38,6 +38,7 @@ import { findingInResults } from './agent-review/model';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
 import { useFindingActions } from './agent-review/useFindingActions';
 import BetterWordsButton from './BetterWordsButton';
+import { codeLanguage, SourceCode } from './CodeExcerpt';
 import { buildFileTree, type FileTreeItem } from './fileTree';
 import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from './lineRangeSelection';
 import LocalReviewThreadCard, { localReviewMatchesRevision } from './local-review/LocalReviewThreadCard';
@@ -746,6 +747,7 @@ function DiffFileCard({
   const filenameStart = file.filename.lastIndexOf('/') + 1;
   const directory = file.filename.slice(0, filenameStart);
   const filename = file.filename.slice(filenameStart);
+  const language = codeLanguage(file.filename);
   const [content, setContent] = useState<DiffFileContentDto | null>(null);
   const [contentLoading, setContentLoading] = useState(false);
   const [contentError, setContentError] = useState<string | null>(null);
@@ -1027,7 +1029,7 @@ function DiffFileCard({
                   selectLine(target.side, target.line, event.shiftKey, row);
                 }}>+</button>
             )}
-            <span>{displayRow.kind === 'add' ? '+' : displayRow.kind === 'del' ? '−' : ' '}</span>{displayRow.content || ' '}
+            <span>{displayRow.kind === 'add' ? '+' : displayRow.kind === 'del' ? '−' : ' '}</span><SourceCode text={displayRow.content} language={language} />
           </td>
         </tr>
         {agentReview !== undefined && rowFindings.map(finding => (

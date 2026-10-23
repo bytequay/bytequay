@@ -289,7 +289,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     for (let attempt = 0; attempt < 20 && host.querySelector(`.agt-local-review [data-local-review-thread="${request.id}"]`) === null; attempt++) await settle();
     const transcriptCard = fixtureElement<HTMLElement>(`.agt-local-review [data-local-review-thread="${request.id}"]`, host, 'Task transcript must load the saved private card after the bounded history refresh');
     assert(transcriptCard.textContent?.includes(request.body) === true
-      && transcriptCard.querySelector('.pr-local-review__snapshot')?.textContent?.includes(request.code) === true,
+      && transcriptCard.querySelector('.is-excerpt')?.textContent?.includes(request.code) === true,
     'Task transcript card must show the human comment and its reference code');
     const assertViewerAvatar = (card: Element) => {
       const avatar = card.querySelector<HTMLImageElement>('.user-avatar-trigger img.avatar');

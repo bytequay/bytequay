@@ -26,7 +26,7 @@ import { projectAgents, projectTranscript, withApprovalAuthority } from '../../a
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { PendingMessage } from '../../agents/model';
 import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto, ModelProviderDto } from '../../types';
-import type { AgentReviewDto, ReviewModelSelection } from './contracts';
+import type { AgentReviewDto, ReviewFindingDto, ReviewModelSelection } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
 import { reviewConversationEvents, reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
 
@@ -44,13 +44,15 @@ export type ReviewConversationPanel = {
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
   review, events, turns, models, providers, onSelectModel, pendingApprovals, now, composer, busy,
-  localReview, onOpenReview, conversationPanel, composerContext, pendingMessage = null,
+  localReview, findingCard, onOpenReview, conversationPanel, composerContext, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   reviewSequence = lastSequence,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued, onResumeQueue,
 }: {
   review: AgentReviewDto;
   localReview?: LocalReviewThreads;
+  /** The finding's own card, so a question about it opens on the same card as Summary and Changes. */
+  findingCard?: (finding: ReviewFindingDto) => ReactNode;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   conversationPanel?: ReviewConversationPanel;
   /** What the conversation is about, shown above the composer the way a development task shows its pull request. */
@@ -160,7 +162,11 @@ export default function ReviewActivity({
       onSelectPassage={conversationPanel === undefined || discussions.disabledReason !== null ? undefined
         : async (passage, question) => { const discussion = await discussions.open({ ...passage, question }); openDiscussion(discussion.id); }}
       onOpenDiscussion={openDiscussion} focusedDiscussion={hoveredDiscussion} onHoverDiscussion={setHoveredDiscussion}
-      localReview={localReview} reviewRequests={requests} onOpenReview={onOpenReview}
+      localReview={localReview} reviewRequests={findingCard === undefined ? requests : requests.map(request => {
+        const target = request.target;
+        const finding = target?.kind === 'finding' ? review.findings.find(item => item.id === target.findingId) : undefined;
+        return finding === undefined ? request : { ...request, card: findingCard(finding) };
+      })} onOpenReview={onOpenReview}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={visiblePendingMessage}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"

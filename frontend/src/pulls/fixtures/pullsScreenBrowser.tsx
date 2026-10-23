@@ -666,8 +666,8 @@ export async function runReviewSheet(): Promise<string> {
     assert(cards.length === 2 && cards[0].textContent?.includes('Written comment text') === true
       && cards[1].textContent?.includes('src/Finding.java') === true && cards[1].textContent.includes('Promoted finding text'),
     'The sheet must list added findings beside written comments as review cards');
-    assert(cards[1].querySelector('.pr-commented-code-line')?.textContent === '12+int findingLine = 12;'
-      && cards[0].querySelector('.pr-commented-code-line') === null,
+    assert(cards[1].querySelector('.is-excerpt tr')?.textContent === '12+int findingLine = 12;'
+      && cards[0].querySelector('.is-excerpt') === null,
     `A card shows its commented line only when the stored diff has the comment's revision: ${cards.map(card => card.textContent).join(' | ')}`);
     host.querySelector<HTMLInputElement>('input[type="radio"]')?.click();
     await settle();
@@ -694,7 +694,7 @@ export async function runReviewSheet(): Promise<string> {
     mount([]);
     await settle();
     const olderFinding = host.querySelector('.pr-review-sheet__pending > .pr-inline-thread');
-    assert(olderFinding?.querySelector('.pr-commented-code-line') === null
+    assert(olderFinding?.querySelector('.is-excerpt') === null
       && olderFinding?.textContent?.includes(`commit ${draft.items[0].commitId?.slice(0, 7)}`) === true,
     'An older finding shows its saved commit and never previews current code at the old line number');
     await submit();

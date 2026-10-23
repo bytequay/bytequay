@@ -56,9 +56,9 @@ describe('Local review conversation projection', () => {
     const saved = parseLocalReviewThread(JSON.parse(JSON.stringify(thread)));
     const html = render(turn, { ...actions, threads: [saved] });
     expect(html).toContain('Can this method be static?');
-    expect(html).toContain('private Result result()');
+    expect(html).toContain('<span class="hljs-keyword">private</span> <span class="hljs-type">Result</span> <span class="hljs-title function_">result</span>');
     expect(html).toContain('src/Example.java:R12–R13');
-    expect(html).toContain('class="lrc is-local"');
+    expect(html).toContain('class="lrc is-local is-compact"');
     expect(html).not.toContain('agt-review-request__prompt');
     expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
   });

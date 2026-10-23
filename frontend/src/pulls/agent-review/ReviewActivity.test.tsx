@@ -18,7 +18,7 @@ import { parseAgentEventSequence, type AgentEventEnvelope } from '../../agents/e
 import fixture from '../../agents/fixtures/agent-events-v2.json';
 import ReviewActivity from './ReviewActivity';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
-import { parseAgentReview } from './contracts';
+import { parseAgentReview, type ReviewMessageDto } from './contracts';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
 
 const events = parseAgentEventSequence(fixture.events).map(event => ({ ...event, turnId: 'turn-1' }));
@@ -184,6 +184,17 @@ describe('compact review requests', () => {
     expect(html).not.toContain(prompt);
     // Only a completed review read can establish that an unmatched input is ordinary user text.
     expect(render({ review: base, events: [event], reviewSequence: event.sequence })).toContain(prompt);
+  });
+
+  it('opens a question about a finding on the finding card itself, as private threads do', () => {
+    const finding = base.findings[0];
+    const onFinding: ReviewMessageDto = { ...question, cardId: null, findingId: finding.id, targetRevision: finding.revision };
+    const review = { ...base, messages: [onFinding] };
+    const html = render({ review, events: [questionEvent], findingCard: value => <article data-finding-card={value.id} /> });
+    expect(html).toContain(`Ask about review</span><span class="agt-review-request__topic" title="${finding.label} · ${finding.title}">`);
+    expect(html).toContain(`<article data-finding-card="${finding.id}"></article>`);
+    expect(html).not.toContain('<div class="agt-review-request__body">Which Maven');
+    expect(render({ review, events: [questionEvent] })).toContain('<div class="agt-review-request__body">Which Maven');
   });
 
   it('renders the saved question and topic after reload without exposing the generated prompt', () => {

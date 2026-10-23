@@ -70,9 +70,15 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
 export function WindowControls() {
   return (
     <div className="app-sidebar__lights" aria-label="Window controls">
-      <button type="button" aria-label="Close" onClick={() => { void window.bridge.controlWindow('close'); }} />
-      <button type="button" aria-label="Minimize" onClick={() => { void window.bridge.controlWindow('minimize'); }} />
-      <button type="button" aria-label="Toggle fullscreen" onClick={() => { void window.bridge.controlWindow('zoom'); }} />
+      <button type="button" aria-label="Close" onClick={() => { void window.bridge.controlWindow('close'); }}>
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.5 3.5l5 5m0-5l-5 5" stroke="currentColor" strokeWidth="1.3" /></svg>
+      </button>
+      <button type="button" aria-label="Minimize" onClick={() => { void window.bridge.controlWindow('minimize'); }}>
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 6h7" stroke="currentColor" strokeWidth="1.3" /></svg>
+      </button>
+      <button type="button" aria-label="Toggle fullscreen" onClick={() => { void window.bridge.controlWindow('zoom'); }}>
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M3.3 3.3h3.9L3.3 7.2zM8.7 8.7H4.8l3.9-3.9z" fill="currentColor" /></svg>
+      </button>
     </div>
   );
 }

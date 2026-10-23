@@ -699,6 +699,8 @@ class TestDefaultProcessSupervisor
         }
         finally {
             process.close();
+            // The terminal receipt is written into the launch directory after the stop completes.
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
     }
 
@@ -721,6 +723,7 @@ class TestDefaultProcessSupervisor
         }
         finally {
             process.close();
+            process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
     }
 

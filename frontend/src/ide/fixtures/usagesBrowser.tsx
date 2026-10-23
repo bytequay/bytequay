@@ -14,10 +14,11 @@
 /* eslint-disable import/no-unresolved -- This fixture uses the real native editor and reference registry. */
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { getService, ICodeEditorService, IEditorService, ITextModelService } from '@codingame/monaco-vscode-api';
+import { getService, ICodeEditorService, IEditorService, IExtensionStatusBarItemService, ITextModelService } from '@codingame/monaco-vscode-api';
 import { attachPart, Parts } from '@codingame/monaco-vscode-views-service-override';
 import { editor, languages, Uri } from 'monaco-editor';
 import Usages from '../Usages';
+import LanguageStatus from '../LanguageStatus';
 import { assert, settle } from '../../fixtures/harness';
 
 export async function verifyUsages() {
@@ -62,12 +63,12 @@ export async function verifyUsages() {
     return [links[2], links[0], links[1], links[0]];
   } });
   let references = registerReferences();
-  let definition = [declaration];
+  let definition: languages.Location[] | Promise<languages.Location[]> = [declaration];
   const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => definition });
   let overriding: languages.Location[] = [];
   const implementations = languages.registerImplementationProvider('java', { provideImplementation: () => overriding });
   const root = createRoot(shell);
-  flushSync(() => root.render(<Usages editors={codeEditors} workspace={workspace} />));
+  flushSync(() => root.render(<><Usages editors={codeEditors} workspace={workspace} /><LanguageStatus /></>));
   const until = async (test: () => boolean, message: string) => {
     for (let attempt = 0; attempt < 100; attempt++) { if (test()) return; await new Promise(resolve => setTimeout(resolve, 50)); }
     throw new Error(`${message}: ${host.querySelector('.ide-usages')?.textContent ?? 'no popup'}; active: ${editors.activeEditor?.resource?.toString()}`);
@@ -150,6 +151,14 @@ export async function verifyUsages() {
     assert(!appeared && !popup() && cancelled, 'Opening the declaration neither flashes the usages popup nor keeps searching');
     const api = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === elsewhere.uri.toString());
     assert(api?.getSelection()?.startLineNumber === 2 && api.getSelection()?.startColumn === 13, 'The declaration is selected');
+    let answer: ((found: languages.Location[]) => void) | undefined;
+    definition = new Promise(resolve => { answer = resolve; }); finish = undefined; mode = 'slow';
+    await editors.openEditor({ resource: source, options: { pinned: true } }); await settle(); click();
+    await until(() => popup()?.querySelector('[role="status"]')?.textContent === 'Finding declaration…', 'A busy language service is still finding the declaration');
+    assert(!popup()?.textContent?.includes('Usages of') && !popup()?.textContent?.includes('Finding usages'), 'An undecided click is not presented as a usages search');
+    await until(() => popup()?.textContent?.includes('A call opens its declaration') === true, 'A slow answer explains what the click will do');
+    answer?.([elsewhere]);
+    await until(() => editors.activeEditor?.resource?.toString() === elsewhere.uri.toString() && !popup(), 'A late declaration still opens');
     definition = [declaration];
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
     mode = 'declared'; click();
@@ -166,17 +175,38 @@ export async function verifyUsages() {
     finish = undefined; mode = 'slow'; click();
     await until(() => rows().length === 1 && rows()[0].title === 'Service.java:4' && popup()?.querySelector('[role="status"]')?.textContent === 'Finding more…', 'Usages in the open file are listed while the project search runs, without the declaration');
     assert(rows()[0].querySelector('code')?.textContent === 'void again() { request(); }' && rows()[0].querySelector('code strong')?.textContent === 'request', 'An early usage shows its source line');
+    // The Java extension's server status, as its status bar item reports project import and builds.
+    const status = await getService(IExtensionStatusBarItemService);
+    const javaStatus = (text: string) => status.setOrUpdateEntry('redhat.java.java.serverStatus', 'java.serverStatus', 'redhat.java', 'Java', text, undefined, undefined, undefined, undefined, true, undefined, undefined);
+    const progress = () => popup()?.querySelector('progress');
     await until(() => popup()?.textContent?.includes('Still searching.') === true, 'A long search explains the wait');
+    const background = () => shell.querySelector('.ide-language-status');
+    javaStatus('$(sync~spin) Java: 30% Building');
+    await until(() => progress()?.value === 30 && popup()?.textContent?.includes('Java: 30% Building') === true, 'A search waiting on the language service shows its progress');
+    assert(background()?.textContent === 'Waiting for "Java: Building" to complete…' && background()?.querySelector('progress')?.value === 30, 'The tools bar says what the search waits for');
+    javaStatus('$(coffee) Java: Ready');
+    await until(() => background()?.textContent === 'Waiting for the language service…', 'A search still waits when the language service reports no work, as while it indexes');
     finish?.([links[2], sameFile, links[0]]);
     await until(() => rows().length === 3 && popup()?.querySelector('[role="status"]')?.textContent === '3 usages', 'The project search completes the list');
     assert(rows()[0].title === 'Service.java:4' && rows()[1].title === 'src/main/java/Caller.java:2' && rows()[2].title === 'src/test/java/Caller.java:3', 'Usages in the open file stay first');
-    assert(!popup()?.textContent?.includes('Still searching.'), 'A finished search no longer reports waiting');
+    assert(!popup()?.textContent?.includes('Still searching.') && !progress() && !background(), 'A finished search no longer reports waiting');
+    javaStatus('$(sync~spin) Java: 60% Building');
+    await until(() => background()?.textContent === 'Java: 60% Building' && background()?.querySelector('progress')?.value === 60, 'The tools bar shows background work without a waiting search');
+    javaStatus('$(coffee) Java: Ready');
+    await until(() => !background(), 'The tools bar drops finished work');
     highlights.dispose(); mode = 'ready';
     code.getModel()?.applyEdits([{ range: { startLineNumber: 3, endLineNumber: 3, startColumn: 1, endColumn: 1 }, text: ' ' }]);
     await settle(); assert(!popup(), 'Editing the queried document dismisses stale locations');
     references.dispose(); click();
     await until(() => popup()?.textContent?.includes('Preparing reference search…') === true, 'An importing project waits for a reference provider');
     assert(!popup()?.querySelector('[role="alert"]') && !popup()?.textContent?.includes('0 usages'), 'Project import is pending, not a failed or empty search');
+    assert(progress()?.hasAttribute('value') === false, 'Work without a reported percentage shows a moving bar');
+    javaStatus('$(sync~spin) Java: 45% Importing Maven project(s)');
+    await until(() => progress()?.value === 45 && popup()?.textContent?.includes('Java: 45% Importing Maven project(s)') === true, 'The language service reports its import progress while the search waits');
+    assert(background()?.textContent === 'Waiting for "Java: Importing Maven project(s)" to complete…' && background()?.querySelector('progress')?.value === 45, 'The tools bar says the search waits for the project import');
+    javaStatus('$(coffee) Java: Ready');
+    await until(() => progress()?.hasAttribute('value') === false && popup()?.textContent?.includes('Importing') === false, 'Finished work no longer shows its progress');
+    assert(background()?.textContent === 'Waiting for the language service…', 'The search still waits for a reference provider');
     const otherLanguage = languages.registerReferenceProvider('go', { provideReferences: () => [] });
     await settle(); assert(popup()?.textContent?.includes('Preparing reference search…'), 'Another language becoming ready must not finish this search');
     otherLanguage.dispose();
@@ -184,13 +214,14 @@ export async function verifyUsages() {
     await settle(); assert(popup()?.textContent?.includes('Preparing reference search…'), 'A provider removed during startup must not produce an empty search');
     references = registerReferences();
     await until(() => rows().length === 3, 'Provider registration automatically runs the pending search without refreshing');
+    assert(!background(), 'A search that ran no longer waits in the tools bar');
     key('Escape'); await settle();
     references.dispose(); click();
     await until(() => popup()?.textContent?.includes('Preparing reference search…') === true, 'A second import wait can start');
     key('Escape'); await settle();
     const before = searches;
     references = registerReferences(); await settle();
-    assert(!popup() && searches === before, 'Closing during import cancels the wait without launching a late search');
+    assert(!popup() && searches === before && !background(), 'Closing during import cancels the wait without launching a late search');
     references.dispose();
     const model = code.getModel(); assert(model !== null, 'The queried document remains open');
     editor.setModelLanguage(model, 'plaintext'); click();

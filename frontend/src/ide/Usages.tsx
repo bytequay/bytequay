@@ -27,6 +27,7 @@ import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/c
 import { ReferencesModel, type OneReference } from '@codingame/monaco-vscode-api/vscode/vs/editor/contrib/gotoSymbol/browser/referencesModel';
 import { fileName, isTestFile } from '../pulls/code-tests/codeModel';
 import { serviceLanguages } from './languages';
+import { progressOf, useBusyStatus, waitForLanguageService } from './statusEntries';
 
 type Request = { id: number; editor: ICodeEditor; model: ITextModel; position: Position; name: string; x: number; y: number };
 type Usage = { reference: OneReference; code?: string; start?: number; end?: number; unavailable?: boolean };
@@ -93,11 +94,16 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
   const [rows, setRows] = useState<Usage[]>([]);
   const [loading, setLoading] = useState(true);
   const [waiting, setWaiting] = useState(false);
+  // Until the definition answers, a click may be on a call, which opens its declaration, rather than a usages search.
+  const [deciding, setDeciding] = useState(true);
   const [shown, setShown] = useState(false);
   const [slow, setSlow] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [refresh, setRefresh] = useState(0);
+  const status = useBusyStatus();
+  const stalled = waiting || (loading && slow);
+  useEffect(() => stalled ? waitForLanguageService() : undefined, [stalled]);
   const close = () => { closeRef.current(); if (request.editor.getDomNode()?.isConnected) request.editor.focus(); };
   useEffect(() => {
     const outside = (event: PointerEvent) => { if (event.target instanceof Node && !popup.current?.contains(event.target)) closeRef.current(); };
@@ -113,7 +119,7 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
     const results: ReferencesModel[] = [];
     const here = request.model.uri.toString();
     let complete = false;
-    setRows([]); setLoading(true); setWaiting(false); setSlow(false); setMessage(null); setSelected(0);
+    setRows([]); setLoading(true); setWaiting(false); setDeciding(true); setSlow(false); setMessage(null); setSelected(0);
     const reveal = setTimeout(() => setShown(true), REVEAL_DELAY);
     const slowSearch = setTimeout(() => setSlow(true), SLOW_SEARCH);
     void (async () => {
@@ -146,7 +152,8 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       // implementation, lists its usages.
       const elsewhere = (found: Declaration[]) => found.length > 0 && !found.some(item => item.uri === here && Range.containsPosition(item.range, request.position));
       void definitions.then(found => {
-        if (!elsewhere(found) || source.token.isCancellationRequested) return;
+        if (source.token.isCancellationRequested) return;
+        if (!elsewhere(found)) { setDeciding(false); return; }
         request.editor.focus();
         request.editor.trigger('bytequay', 'editor.action.revealDefinition', {});
         closeRef.current();
@@ -189,7 +196,7 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       const local = all.filter(reference => reference.uri.toString() === here);
       setRows([...local.map(reference => ({ reference, ...snippet(request.model, reference) })), ...all.filter(reference => reference.uri.toString() !== here).map(reference => ({ reference }))]);
       setSelected(current => Math.max(0, Math.min(current, all.length - 1)));
-      setLoading(false); setShown(true);
+      setLoading(false); setDeciding(false); setShown(true);
       // Read each source once and release it immediately; even a large result list does not hold open every file.
       for (const group of references.groups) {
         if (source.token.isCancellationRequested) return;
@@ -206,7 +213,7 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       }
     })().catch(error => {
       complete = true;
-      if (!source.token.isCancellationRequested) { setRows([]); setMessage(String(error instanceof Error ? error.message : error)); setLoading(false); setShown(true); }
+      if (!source.token.isCancellationRequested) { setRows([]); setMessage(String(error instanceof Error ? error.message : error)); setLoading(false); setDeciding(false); setShown(true); }
     });
     return () => { clearTimeout(reveal); clearTimeout(slowSearch); source.dispose(true); results.forEach(result => result.dispose()); };
   }, [request, refresh]);
@@ -221,15 +228,21 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
   };
   if (!shown) return null;
   const top = Math.max(12, Math.min(request.y + 18, window.innerHeight - 440));
-  return <section ref={popup} className="ide-usages" role="dialog" aria-label={`Usages of ${request.name}`} tabIndex={-1}
+  const title = deciding ? request.name : `Usages of ${request.name}`;
+  return <section ref={popup} className="ide-usages" role="dialog" aria-label={title} tabIndex={-1}
     style={{ left: Math.max(12, Math.min(request.x, window.innerWidth - 1052)), top, maxHeight: window.innerHeight - top - 12 }}
     onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }}>
-    <header><strong>Usages of {request.name}</strong><span role="status">{waiting ? 'Preparing reference search…' : loading ? rows.length ? 'Finding more…' : 'Finding usages…' : message ? 'Search unavailable' : `${rows.length} ${rows.length === 1 ? 'usage' : 'usages'}`}</span>
+    <header><strong>{title}</strong><span role="status">{waiting ? 'Preparing reference search…' : deciding ? 'Finding declaration…' : loading ? rows.length ? 'Finding more…' : 'Finding usages…' : message ? 'Search unavailable' : `${rows.length} ${rows.length === 1 ? 'usage' : 'usages'}`}</span>
       <button aria-label="Refresh usages" title="Refresh usages" onClick={() => setRefresh(value => value + 1)}><RotateCw size={14} /></button>
       <button aria-label="Close usages" title="Close (Escape)" onClick={close}><X size={15} /></button></header>
     {message && <p role="alert">{message}</p>}
-    {waiting && <p>Waiting for the language service to finish preparing reference search. Results will appear automatically.</p>}
-    {loading && !waiting && slow && <p>Still searching. The first search after a project opens waits for indexing, which can take a few minutes.</p>}
+    {waiting && <p>Waiting for the language service to finish preparing reference search. A large project can take several minutes. Results will appear automatically.</p>}
+    {deciding && !waiting && slow && <p>Waiting for the language service. A call opens its declaration, and a declaration lists its usages, once it answers.</p>}
+    {loading && !deciding && !waiting && slow && <p>Still searching. The first search after a project opens waits for indexing, which can take a few minutes.</p>}
+    {stalled && <>
+      <progress max={100} value={progressOf(status)} aria-label="Language service progress" />
+      {status && <p className="ide-usages__status">{status}</p>}
+    </>}
     {!loading && !message && rows.length === 0 && <p>No usages found.</p>}
     {rows.length > 0 && <div ref={list} className="ide-usages__list" role="listbox" aria-label="Usages" tabIndex={0} aria-activedescendant={`ide-usage-${selected}`}
       onKeyDown={event => {

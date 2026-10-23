@@ -35,6 +35,7 @@ import { openReviewComment, reviewCommentCards } from './reviewCommentModel';
 import LineChanges from './LineChanges';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
+import LanguageStatus from './LanguageStatus';
 import Search from './Search';
 import { installGitHistory } from './gitHistory';
 import { codeHostKey } from '../pulls/code-tests/contracts';
@@ -316,6 +317,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         <button aria-pressed={!panelCollapsed && bottom === 'terminal'} onClick={() => { void selectBottom('terminal'); }}><TerminalSquare size={14} /> Terminal</button>
         <button aria-pressed={!panelCollapsed && bottom === 'history'} onClick={() => { void selectBottom('history'); }}><GitCommitHorizontal size={14} /> Git history</button>
         <span className="ide-spacer" />
+        <LanguageStatus />
         <button aria-label={panelCollapsed ? 'Expand tools panel' : 'Collapse tools panel'} title={panelCollapsed ? 'Expand tools panel' : 'Collapse tools panel'}
           aria-expanded={!panelCollapsed} onClick={() => setPanelCollapsed(value => !value)}>{panelCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
       </nav>

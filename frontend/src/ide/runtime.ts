@@ -46,6 +46,7 @@ import { installTestTabColors } from './testTabColors';
 import { coordinateSaves } from './save';
 import { coordinateExecutions } from './executions';
 import { ExtensionPolicy } from './extensionPolicy';
+import getStatus from './statusEntries';
 import manifest from './runtimeManifest.json';
 import light from './ideaLight.json';
 import dark from './darcula.json';
@@ -125,7 +126,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     [IWorkbenchExtensionEnablementService.toString()]: new SyncDescriptor(ExtensionPolicy, [versions]),
     ...getConfiguration(), ...getModel(), ...getStorage(), ...getViews(), ...getTheme(), ...getTextmate(),
     ...getLanguages(), ...getExplorer(), ...getTesting(), ...getDebug(), ...getTerminal(), ...getTasks(), ...getSearch(), ...getScm(),
-    ...getRemote({ scanRemoteExtensions: true }),
+    ...getRemote({ scanRemoteExtensions: true }), ...getStatus(),
   }, container, {
     resourceUriProvider: uri => URI.from({ scheme: 'https', authority: 'ide-assets.bytequay.invalid', path: uri.path }),
     remoteAuthority: connection.authority, connectionToken: connection.connectionToken,

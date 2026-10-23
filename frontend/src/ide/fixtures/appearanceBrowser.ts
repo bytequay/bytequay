@@ -30,6 +30,7 @@ import '@codingame/monaco-vscode-go-default-extension';
 import '@codingame/monaco-vscode-rust-default-extension';
 import { editor, languages, Uri } from 'monaco-editor';
 import { installHeaderFolding } from '../folding';
+import getStatus from '../statusEntries';
 import light from '../ideaLight.json';
 import dark from '../darcula.json';
 import github from '../githubLight.json';
@@ -57,7 +58,7 @@ export async function run() {
   extension.registerFileUrl('githubDark.json', `data:application/json,${encodeURIComponent(JSON.stringify(githubDark))}`);
   const container = document.createElement('div');
   container.style.cssText = 'width:1050px;height:680px'; document.body.append(container);
-  await initialize({ ...getConfiguration(), ...getModel(), ...getViews(), ...getTheme(), ...getTextmate(), ...getLanguages(), ...getSearch() });
+  await initialize({ ...getConfiguration(), ...getModel(), ...getViews(), ...getTheme(), ...getTextmate(), ...getLanguages(), ...getSearch(), ...getStatus() });
   installHeaderFolding(await getService(ICodeEditorService));
   const code = editor.create(container, { automaticLayout: true, fontSize: 16, fontFamily: 'Menlo, monospace', minimap: { enabled: false } });
   const source = `/*

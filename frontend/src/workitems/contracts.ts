@@ -197,7 +197,7 @@ export type EpicRecordDto = {
 export type WorkItemDecision = {
   operationId: string;
   expectedRevision: number;
-  action: 'EDIT' | 'BEGIN' | 'ACCEPT' | 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'BLOCK' | 'UNBLOCK';
+  action: 'EDIT' | 'BEGIN' | 'ACCEPT' | 'FINISH' | 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'BLOCK' | 'UNBLOCK';
   title?: string;
   acceptanceCriteria?: string;
   completionRule?: CompletionRule;

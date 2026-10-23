@@ -11,6 +11,7 @@
    those sheets lack: the state colours, the form, the Development rows, the history and the push panel. */
 .work-items > .pulls-list { flex: 1; }
 .work-items > .pull-detail { flex: 0 1 auto; min-width: 0; }
+.work-items .pull-detail__header-actions { flex: 0 1 auto; flex-wrap: wrap; }
 .work-items .pulls-list__toolbar { height: auto; min-height: 47px; flex: 0 0 auto; flex-wrap: wrap; }
 .work-items__scope { display: inline-flex; flex: none; align-items: center; gap: 4px; margin-right: 4px; }
 .pulls-toolbar-button.work-items__new { width: auto; flex: none; gap: 5px; padding: 0 9px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }

@@ -55,12 +55,13 @@ const GROUPS: [Group, string][] = [['open', 'Open'], ['done', 'Done'], ['closed'
 const STATE: Record<WorkItemDto['state'], { label: string; group: Group; pill: string; order: number }> = {
   WORKING: { label: 'Working', group: 'open', pill: ' is-queued', order: 0 },
   PLANNED: { label: 'Planned', group: 'open', pill: '', order: 1 },
-  DONE: { label: 'Done', group: 'done', pill: ' is-merged', order: 2 },
+  DONE: { label: 'Finished', group: 'done', pill: ' is-merged', order: 2 },
   DROPPED: { label: 'Closed', group: 'closed', pill: ' is-draft', order: 3 },
 };
 const LINK_KIND: Record<GoalItemDto['kind'], string> = { ISSUE: 'GitHub issue', JIRA: 'Jira ticket', TASK: 'Agent task', PULL_REQUEST: 'Pull request' };
 const LINK_TONE: Record<GoalItemDto['state'], AttentionTone> = { WORKING: 'blue', MERGED: 'purple', IDLE: 'neutral', ENDED: 'neutral', UNKNOWN: 'neutral' };
 const CLOSED_BY_USER = 'Closed by the user';
+const FINISHED_BY_USER = 'Marked finished by user';
 const REOPENED_BY_USER = 'Reopened by the user';
 /** What each history action says and the icon it shows; any other action is named as recorded. */
 const EVENTS: Record<string, [string, typeof Plus, string]> = {
@@ -70,6 +71,7 @@ const EVENTS: Record<string, [string, typeof Plus, string]> = {
   REOPEN: ['Reopened this', RotateCcw, ' is-success'],
   BEGIN: ['Started work', Play, ' is-warning'],
   ACCEPT: ['Marked this done', CircleCheck, ' is-purple'],
+  FINISH: ['Marked this finished', CircleCheck, ' is-purple'],
   DELIVERED: ['Done on merge', CircleCheck, ' is-purple'],
   PUBLISHED: ['Pushed this to remote', Upload, ' is-link'],
   LINKED: ['Linked', Link2, ''],
@@ -81,7 +83,7 @@ const remoteOf = (work: WorkItemDto) => work.links.find(link => link.kind === 'I
 const pullOf = (work: WorkItemDto) => work.links.filter(link => link.kind === 'PULL_REQUEST').at(-1);
 /** The attempt under way; another starts only once it ends. */
 const taskOf = (work: WorkItemDto) => work.links.filter(link => link.kind === 'TASK' && link.state !== 'ENDED').at(-1);
-const settledWord = (work: WorkItemDto) => `${work.state === 'DONE' ? 'done' : work.state === 'DROPPED' ? 'closed' : 'updated'} ${relativeTime(work.updatedAt)}`;
+const settledWord = (work: WorkItemDto) => `${work.state === 'DONE' ? 'finished' : work.state === 'DROPPED' ? 'closed' : 'updated'} ${relativeTime(work.updatedAt)}`;
 
 function StateIcon({ state, size = 16 }: { state: WorkItemDto['state']; size?: number }) {
   const Icon = state === 'DONE' ? CircleCheck : state === 'DROPPED' ? CircleX : state === 'WORKING' ? CircleDotDashed : CircleDot;
@@ -410,7 +412,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
     await onChanged();
     window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspace.id }));
   });
-  const decide = (command: { action: 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'EDIT'; detail: string; priority?: WorkItemPriority; completionRule?: CompletionRule }) => run(async () => {
+  const decide = (command: { action: 'FINISH' | 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'EDIT'; detail: string; priority?: WorkItemPriority; completionRule?: CompletionRule }) => run(async () => {
     await goals.decideWork(work, { operationId: crypto.randomUUID(), expectedRevision: work.revision, ...command }); await onChanged();
   });
   const openLink = (link: GoalItemDto) => {
@@ -436,6 +438,8 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
       {canPublish && <button type="button" aria-expanded={publishing} onClick={() => { setWorkShown(false); onPublishing(!publishing); }}><Upload size={14} aria-hidden="true" />Push to remote…</button>}
       {canStart && <button className="pull-detail__review-action" type="button" onClick={onStart}><Play size={13} aria-hidden="true" />Start development</button>}
       {task && <button type="button" onClick={onViewTask}><ListTodo size={14} aria-hidden="true" />View task</button>}
+      {work.state !== 'DONE' && <button type="button" disabled={busy} onClick={() => void decide({ action: 'FINISH', detail: FINISHED_BY_USER })}>
+        <CircleCheck size={14} aria-hidden="true" />Mark finished</button>}
       {headerAction}
     </DetailHeader>
     {error && <div className="pull-detail__error" role="alert">{error}</div>}
@@ -526,7 +530,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
             <div className="pr-timeline">
               {work.history.map(event => {
                 const [words, Icon, tone] = EVENTS[event.action] ?? [`${event.action.charAt(0)}${event.action.slice(1).toLowerCase().replaceAll('_', ' ')}`, CircleDot, ''];
-                const canned = event.detail === CLOSED_BY_USER || event.detail === REOPENED_BY_USER;
+                const canned = event.detail === CLOSED_BY_USER || event.detail === FINISHED_BY_USER || event.detail === REOPENED_BY_USER;
                 return <div className="pr-event work-items__event" key={event.operationId}>
                   <span className={`issues-event-marker${tone}`}><Icon size={13} aria-hidden="true" /></span>
                   <div>

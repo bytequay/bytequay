@@ -243,6 +243,77 @@ export async function run() {
   return { sources: 3, publications: publicationCount(), count: items.length };
 }
 
+export async function finishLocalWork() {
+  let work = local('finish', 'Finish the connector cleanup', 'Keep the original completion rule.');
+  const decisions: string[] = [];
+  let failFinish = true;
+  let pauseFinish = true;
+  const pending: { resolve?: () => void } = {};
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    listUnifiedWorkItems: async () => [{ ...projected(work), status: work.state, closed: work.state === 'DONE' || work.state === 'DROPPED' }],
+    listWorkItems: async () => [work],
+    decideWorkItem: async (_workspace, id, command) => {
+      assert(id === work.id && command.expectedRevision === work.revision, 'Decisions use the retained item and current revision');
+      assert(command.action === 'FINISH' || command.action === 'REOPEN' || command.action === 'DROP', 'Only explicit lifecycle actions are sent');
+      decisions.push(command.action);
+      if (command.action === 'FINISH') {
+        assert(command.completionRule === undefined, 'Finishing does not replace the completion rule');
+        if (failFinish) { failFinish = false; throw new Error('Unable to save finished status'); }
+        if (pauseFinish) { await new Promise<void>(resolve => { pending.resolve = resolve; }); pauseFinish = false; }
+      }
+      work = { ...work, state: command.action === 'FINISH' ? 'DONE' : command.action === 'DROP' ? 'DROPPED' : 'WORKING', revision: work.revision + 1,
+        history: [...work.history, { operationId: command.operationId, action: command.action, detail: command.detail, at: now }] };
+      return work;
+    },
+  } satisfies Partial<Bridge> });
+  window.location.hash = workItemRoute(workspace.id, work.id);
+  const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
+  const root = createRoot(host);
+  const states = () => document.querySelector('.work-items .pulls-tabs')?.textContent;
+  const status = () => document.querySelector('.work-items .pr-state')?.textContent?.trim();
+  const rows = () => document.querySelectorAll('.work-items .pull-row');
+  try {
+    root.render(<LocalWorkItems workspace={workspace} />); await settle(); await settle();
+    const pane = element<HTMLElement>('.work-items .pull-detail');
+    const width = pane.style.width; pane.style.width = '360px'; await settle();
+    const bounds = pane.getBoundingClientRect();
+    assert([...pane.querySelectorAll('.pull-detail__header-actions button')].every(control => {
+      const rectangle = control.getBoundingClientRect(); return rectangle.left >= bounds.left && rectangle.right <= bounds.right;
+    }), 'All detail actions remain inside a narrow work-item pane');
+    pane.style.width = width; await settle();
+    button('Mark finished').click();
+    await until(() => document.querySelector('[role="alert"]')?.textContent === 'Unable to save finished status', 'Save failures are visible');
+    assert(states() === 'Open 1Done 0Closed 0' && !button('Mark finished').disabled, 'A failed finish leaves work open and can be retried');
+    button('Mark finished').click(); await settle();
+    assert(button('Mark finished').disabled && button('Close locally').disabled, 'Lifecycle actions are disabled while finishing');
+    button('Mark finished').click(); await settle();
+    assert(decisions.length === 2 && states() === 'Open 1Done 0Closed 0', 'Pending clicks do not send duplicate decisions or show unsaved completion');
+    assert(pending.resolve !== undefined, 'The finish request is waiting'); pending.resolve();
+    await until(() => status() === 'Finished', 'Successful completion shows Finished');
+    assert(states() === 'Open 0Done 1Closed 0' && rows().length === 0, 'Finished work leaves Open and counts under Done');
+    assert(document.querySelector('[role="alert"]') === null, 'Retry clears the failed save error');
+    assert([...document.querySelectorAll('button')].every(value => value.textContent?.trim() !== 'Mark finished'), 'Finished work does not offer completion again');
+    assert(document.querySelector('.work-items__history')?.textContent?.includes('Marked this finished') === true, 'History names the completion action');
+    assert(element<HTMLSelectElement>('[aria-label="Done when"]').value === 'MERGED_DELIVERY', 'The completion rule remains unchanged');
+    button('Done 1').click(); await settle();
+    assert(rows().length === 1 && document.querySelector('.work-items__state')?.getAttribute('title') === 'Finished', 'Done lists the item with its Finished status');
+    button('Reopen local work').click();
+    await until(() => states() === 'Open 1Done 0Closed 0', 'Finished work can be reopened');
+    button('Open 1').click(); await settle();
+    button('Close locally').click();
+    await until(() => status() === 'Closed', 'Closing still records the separate Closed state');
+    assert(states() === 'Open 0Done 0Closed 1', 'Closed work remains separate from Done');
+    button('Closed 1').click(); await settle();
+    assert(rows().length === 1, 'The Closed tab lists closed work');
+    button('Mark finished').click();
+    await until(() => status() === 'Finished', 'Closed work can be marked Finished directly');
+    assert(states() === 'Open 0Done 1Closed 0' && rows().length === 0, 'Finishing closed work moves it from Closed to Done');
+    assert(decisions.join(',') === 'FINISH,FINISH,REOPEN,DROP,FINISH', 'Only the intended lifecycle decisions were sent');
+    return true;
+  }
+  finally { root.unmount(); host.remove(); }
+}
+
 export async function localEpic() {
   const epicId = 'LOCAL:parent';
   window.location.hash = workItemRoute(workspace.id, 'parent');

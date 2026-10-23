@@ -418,7 +418,12 @@ issues** or **Jira** to view remote work.
 3. Open the item to follow tasks, PRs, and history. In an Epic, select a card to
    zoom in; **Escape** returns to the Epic. With **Done when** set to **Merged
    delivery**, the default for Develop work, the item is done once its PR
-   merges. If you reopen it, it stays open until another PR merges.
+   merges. If you reopen it, it stays open until another PR merges. Choose
+   **Mark finished** to mark it done yourself, including an item previously
+   closed locally. It shows **Finished** under **Done** and records the decision
+   in history. **Close locally** keeps unfinished work separate under **Closed**;
+   **Reopen local work** makes either available again. These actions change only
+   the local work item.
 4. To publish an item, use **Push to remote…**, inspect the preview, then create
    the GitHub issue or Jira ticket. Conversations and local history are not
    included.

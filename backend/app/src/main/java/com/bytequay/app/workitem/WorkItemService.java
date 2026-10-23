@@ -360,6 +360,11 @@ public class WorkItemService
                     detail = "User accepted all criteria: " + criteria + "\n" + detail;
                     state = WorkItem.State.DONE;
                 }
+                case FINISH -> {
+                    checkArgument(state != WorkItem.State.DONE, "Work is already finished");
+                    state = WorkItem.State.DONE;
+                    detail = "Marked finished by user";
+                }
                 case DROP -> {
                     checkArgument(state != WorkItem.State.DROPPED, "Work is already dropped");
                     checkText(detail, "reason");

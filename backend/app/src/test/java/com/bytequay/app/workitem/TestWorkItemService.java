@@ -30,6 +30,7 @@ import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemContextLink;
+import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
@@ -38,6 +39,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
@@ -258,6 +261,53 @@ class TestWorkItemService
         assertThat(reopened.history().get(1).detail()).contains("Reviewed the saved call-path notes");
         assertThatThrownBy(() -> service.change("other", id, decision(reopened, WorkItemCommand.Action.DROP, "wrong workspace")))
                 .hasMessageContaining("belongs to workspace");
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = WorkItem.State.class, names = {"PLANNED", "WORKING", "DROPPED"})
+    void explicitlyFinishesOpenOrClosedWorkWithoutChangingItsScope(WorkItem.State state)
+    {
+        WorkItemView item = epicWork(EPIC, "Fix the reader");
+        if (state != WorkItem.State.PLANNED) {
+            WorkItemCommand.Action action = state == WorkItem.State.WORKING ? WorkItemCommand.Action.BEGIN : WorkItemCommand.Action.DROP;
+            item = service.change("workspace", item.id(), decision(item, action, "Closed by user"));
+        }
+
+        WorkItemView finished = service.change("workspace", item.id(), decision(item, WorkItemCommand.Action.FINISH, ""));
+
+        assertThat(finished.state()).isEqualTo(WorkItem.State.DONE);
+        assertThat(finished.revision()).isEqualTo(item.revision() + 1);
+        assertThat(finished.title()).isEqualTo(item.title());
+        assertThat(finished.acceptanceCriteria()).isEmpty();
+        assertThat(finished.completionRule()).isEqualTo(WorkItem.CompletionRule.MERGED_DELIVERY);
+        assertThat(finished.epicId()).isEqualTo(item.epicId());
+        assertThat(finished.history()).startsWith(item.history().toArray(WorkItemEvent[]::new));
+        assertThat(finished.history().getLast().action()).isEqualTo("FINISH");
+        assertThat(finished.history().getLast().detail()).isEqualTo("Marked finished by user");
+    }
+
+    @Test
+    void finishingRetainsAttemptsAndUsesTheExistingRevisionAndReplayGuards()
+    {
+        WorkItemView created = service.create("workspace", UUID.randomUUID().toString(), "Learn the code", WorkItem.Kind.LEARN, "Explain the call path",
+                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        service.persistAttempt(task(), created.id());
+        WorkItemView working = find(created.id());
+        WorkItemCommand finish = decision(working, WorkItemCommand.Action.FINISH, "Marked finished by user");
+        assertThatThrownBy(() -> service.change("other", created.id(), finish)).hasMessageContaining("belongs to workspace");
+        assertThatThrownBy(() -> service.change("workspace", created.id(), decision(created, WorkItemCommand.Action.FINISH, ""))).hasMessageContaining("changed");
+
+        WorkItemView finished = service.change("workspace", created.id(), finish);
+
+        assertThat(finished.links()).isEqualTo(working.links());
+        assertThat(finished.acceptanceCriteria()).isEqualTo(working.acceptanceCriteria());
+        assertThat(finished.completionRule()).isEqualTo(WorkItem.CompletionRule.ACCEPTED_RESULT);
+        assertThat(service.change("workspace", created.id(), finish)).isEqualTo(finished);
+        assertThatThrownBy(() -> service.change("workspace", created.id(), decision(finished, WorkItemCommand.Action.FINISH, "")))
+                .hasMessageContaining("already finished");
+        WorkItemView reopened = service.change("workspace", created.id(), decision(finished, WorkItemCommand.Action.REOPEN, "Investigate another path"));
+        assertThat(reopened.state()).isEqualTo(WorkItem.State.WORKING);
+        assertThat(reopened.history().get(reopened.history().size() - 2).action()).isEqualTo("FINISH");
     }
 
     @Test

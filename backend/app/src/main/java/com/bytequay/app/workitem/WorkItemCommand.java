@@ -53,5 +53,5 @@ public record WorkItemCommand(
         requireNonNull(blocker, "blocker is null");
     }
 
-    public enum Action { EDIT, BEGIN, ACCEPT, DROP, REOPEN, PRIORITIZE, BLOCK, UNBLOCK }
+    public enum Action { EDIT, BEGIN, ACCEPT, FINISH, DROP, REOPEN, PRIORITIZE, BLOCK, UNBLOCK }
 }

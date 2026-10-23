@@ -78,7 +78,7 @@ import static org.mockito.Mockito.when;
 class TestReviewReplayService
 {
     private static final String WORKSPACE = "workspace";
-    private static final RepoRef REPOSITORY = RepoRef.of("trinodb", "trino");
+    private static final RepoRef REPOSITORY = RepoRef.of("owner", "repository");
     private static final int NUMBER = 31201;
     private static final Instant FIRST_REVIEW = MemoryFixtures.NOW.plusSeconds(3600);
 
@@ -132,7 +132,7 @@ class TestReviewReplayService
     {
         when(github.replay("token", REPOSITORY, NUMBER)).thenReturn(Optional.of(pull(Optional.of(firstHead))));
 
-        ReviewReplayService.ReplayView started = service.start(WORKSPACE, "TrinoDB/Trino", NUMBER);
+        ReviewReplayService.ReplayView started = service.start(WORKSPACE, "Owner/Repository", NUMBER);
 
         ArgumentCaptor<AgentReviewService.ReplayStart> starts = ArgumentCaptor.forClass(AgentReviewService.ReplayStart.class);
         verify(reviews, times(2)).startReplay(eq(WORKSPACE), starts.capture());
@@ -161,7 +161,7 @@ class TestReviewReplayService
         assertThat(marked.comments().getFirst().marks()).extracting(ReviewReplayService.Mark::raised).containsExactly(true, true);
         assertThat(marked.comments().getFirst().marks()).extracting(ReviewReplayService.Mark::corrected).containsExactly(false, true);
 
-        assertThatThrownBy(() -> service.start(WORKSPACE, "trinodb/trino", NUMBER)).isInstanceOf(ReviewConflictException.class)
+        assertThatThrownBy(() -> service.start(WORKSPACE, "owner/repository", NUMBER)).isInstanceOf(ReviewConflictException.class)
                 .hasMessage("A replay of #31201 is still running");
         assertThatThrownBy(() -> service.delete(WORKSPACE, view.id())).isInstanceOf(ReviewConflictException.class);
         sideOf("review-without", ReviewRun.State.ACCEPTED);
@@ -176,7 +176,7 @@ class TestReviewReplayService
     {
         when(github.replay("token", REPOSITORY, NUMBER)).thenReturn(Optional.of(pull(Optional.of("f".repeat(40)))));
 
-        ReviewReplayService.ReplayView started = service.start(WORKSPACE, "trinodb/trino", NUMBER);
+        ReviewReplayService.ReplayView started = service.start(WORKSPACE, "owner/repository", NUMBER);
 
         assertThat(started.head()).isEqualTo(laterHead);
         assertThat(started.fallback()).contains("The head of the first maintainer review is gone from GitHub, so this replays " + laterHead.substring(0, 7)
@@ -188,7 +188,7 @@ class TestReviewReplayService
     void explanationRefreshDoesNotReplaceTheReplayResult()
     {
         when(github.replay("token", REPOSITORY, NUMBER)).thenReturn(Optional.of(pull(Optional.of(firstHead))));
-        service.start(WORKSPACE, "trinodb/trino", NUMBER);
+        service.start(WORKSPACE, "owner/repository", NUMBER);
         sideOf("review-with", ReviewRun.State.INCOMPLETE);
         ReviewRun result = store.listRuns("review-with").getFirst().ended(ReviewRun.State.INCOMPLETE, Optional.of("Missing caller evidence"), MemoryFixtures.NOW);
         ReviewRun refresh = new ReviewRun("refresh", "review-with", 2, ReviewRun.Scope.FULL, "master", fork, fork, firstHead, Optional.empty(),
@@ -209,15 +209,15 @@ class TestReviewReplayService
     @Test
     void refusesWhatItCannotCompare()
     {
-        assertThatThrownBy(() -> service.start(WORKSPACE, "trinodb/other", NUMBER)).isInstanceOf(ReviewInvalidRequestException.class)
-                .hasMessage("Pull request trinodb/other#31201 does not belong to this workspace");
+        assertThatThrownBy(() -> service.start(WORKSPACE, "owner/other", NUMBER)).isInstanceOf(ReviewInvalidRequestException.class)
+                .hasMessage("Pull request owner/other#31201 does not belong to this workspace");
         PullReplay pull = pull(Optional.of(firstHead));
         when(github.replay("token", REPOSITORY, NUMBER)).thenReturn(Optional.of(new PullReplay(NUMBER, pull.title(), pull.url(), false, pull.author(), pull.baseRef(),
                 pull.mergeCommit(), pull.reviews(), pull.threads())));
-        assertThatThrownBy(() -> service.start(WORKSPACE, "trinodb/trino", NUMBER)).hasMessage("Only a merged pull request can be replayed");
+        assertThatThrownBy(() -> service.start(WORKSPACE, "owner/repository", NUMBER)).hasMessage("Only a merged pull request can be replayed");
         when(github.replay("token", REPOSITORY, NUMBER)).thenReturn(Optional.of(new PullReplay(NUMBER, pull.title(), pull.url(), true, pull.author(), pull.baseRef(),
                 pull.mergeCommit(), pull.reviews(), pull.threads().stream().filter(thread -> !thread.comment().maintainer()).collect(toImmutableList()))));
-        assertThatThrownBy(() -> service.start(WORKSPACE, "trinodb/trino", NUMBER))
+        assertThatThrownBy(() -> service.start(WORKSPACE, "owner/repository", NUMBER))
                 .hasMessage("No maintainer commented on a line of #31201, so a replay has nothing to compare with");
         verify(reviews, never()).startReplay(any(), any());
     }
@@ -234,19 +234,19 @@ class TestReviewReplayService
                 thread("alice", true, "plugin/x/A.java", 1, firstHead),
                 thread("eve", false, "plugin/x/A.java", 2, firstHead),
                 thread("cy", true, "plugin/x/B.java", 1, laterHead));
-        return new PullReplay(NUMBER, "Add a property", "https://github.com/trinodb/trino/pull/31201", true, "alice", "master", Optional.of(merge), submitted, threads);
+        return new PullReplay(NUMBER, "Add a property", "https://github.com/owner/repository/pull/31201", true, "alice", "master", Optional.of(merge), submitted, threads);
     }
 
     private static ThreadStart thread(String author, boolean maintainer, String path, int line, String commit)
     {
         return new ThreadStart(path, "RIGHT", Optional.empty(), Optional.empty(), Optional.of(line), Optional.empty(),
-                new Note("note-" + author, author, false, maintainer, "Please check this.", "https://github.com/trinodb/trino/pull/31201#discussion_" + author,
+                new Note("note-" + author, author, false, maintainer, "Please check this.", "https://github.com/owner/repository/pull/31201#discussion_" + author,
                         FIRST_REVIEW), Optional.of(commit));
     }
 
     private void sideOf(String reviewId, ReviewRun.State state, ReviewFinding... findings)
     {
-        AgentReview review = new AgentReview(reviewId, WORKSPACE, "trinodb/trino", OptionalInt.empty(), OptionalLong.empty(), "task-" + reviewId, Optional.empty(),
+        AgentReview review = new AgentReview(reviewId, WORKSPACE, "owner/repository", OptionalInt.empty(), OptionalLong.empty(), "task-" + reviewId, Optional.empty(),
                 AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW, Optional.empty(),
                 Optional.of(new AgentReview.Replay("replay", NUMBER, reviewId.equals("review-with"), FIRST_REVIEW)));
         List<ReviewFinding> scopedFindings = Arrays.stream(findings)
@@ -281,7 +281,7 @@ class TestReviewReplayService
 
     private static AgentReviewProjection projection(String reviewId)
     {
-        AgentReview review = new AgentReview(reviewId, WORKSPACE, "trinodb/trino", OptionalInt.empty(), OptionalLong.empty(), "task-" + reviewId, Optional.empty(),
+        AgentReview review = new AgentReview(reviewId, WORKSPACE, "owner/repository", OptionalInt.empty(), OptionalLong.empty(), "task-" + reviewId, Optional.empty(),
                 AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW, Optional.empty(),
                 Optional.of(new AgentReview.Replay("replay", NUMBER, true, FIRST_REVIEW)));
         return new AgentReviewProjection(review, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),

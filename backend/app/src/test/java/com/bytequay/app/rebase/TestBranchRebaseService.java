@@ -95,7 +95,7 @@ class TestBranchRebaseService
 {
     private static final GitCommandRunner GIT = new GitCommandRunner();
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
-    private static final RepositoryIdentity REPOSITORY_ID = RepositoryIdentity.valueOf("trinodb/trino");
+    private static final RepositoryIdentity REPOSITORY_ID = RepositoryIdentity.valueOf("owner/repository");
 
     @TempDir
     private Path temporaryDirectory;
@@ -116,7 +116,7 @@ class TestBranchRebaseService
         taskId = TaskId.random();
         Path created = Files.createDirectories(temporaryDirectory.resolve(taskId.toString()));
         repository = initRepository(created);
-        git(created, "remote", "add", "origin", "https://github.com/trinodb/trino.git");
+        git(created, "remote", "add", "origin", "https://github.com/owner/repository.git");
         taskWorktree = new TaskWorktree(taskId, "workspace-1", REPOSITORY_ID, repository, workBranch(), "a".repeat(40));
         store = new InMemoryStore();
         turns = new FakeTurns();
@@ -155,7 +155,7 @@ class TestBranchRebaseService
         Tips tips = cleanDivergence();
         BranchRebase started = service.start(command("owned-rebase"));
         CiAutofixRun owner = CiAutofixRun.create(CiAutofixRunId.random(), "owned-ci",
-                new CiAutofixRun.Scope(PullRequestRef.of("trinodb", "trino", 1), RepoRef.of("trinodb", "trino"), "workspace-1", RepoRef.of("trinodb", "trino"),
+                new CiAutofixRun.Scope(PullRequestRef.of("owner", "repository", 1), RepoRef.of("owner", "repository"), "workspace-1", RepoRef.of("owner", "repository"),
                         "author", workBranch(), "main", "claude-cli", Optional.of(TaskId.random().toString())),
                 tips.original(), tips.original(), tips.base(),
                 new CiAutofixRun.Authorization(NOW), NOW).assignAgentTask(taskId.toString(), NOW);

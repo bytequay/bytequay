@@ -37,13 +37,13 @@ const line = lineRepos(here, {
     { workspaceId: 'here', parentWorkspaceId: 'internal' },
     { workspaceId: 'downstream', parentWorkspaceId: 'here' },
   ],
-}, [repo('oss', 'trino', 'oss'), repo('internal', 'acme', 'internal'), repo('downstream', 'acme', 'downstream')]);
+}, [repo('oss', 'upstream', 'oss'), repo('internal', 'acme', 'internal'), repo('downstream', 'acme', 'downstream')]);
 
 const commit = (sha: string, title: string): GitCommitDto => ({
   sha: sha.repeat(40), title, body: '', author: 'Dev', committer: 'Dev', authoredAt: '2026-01-02T00:00:00Z', committedAt: '2026-01-02T00:00:00Z',
 });
 const pull = (number: number, title: string): PullRequestDto => ({
-  id: number, repo: 'trino/oss', number, title, author: 'alice', htmlUrl: `https://github.com/trino/oss/pull/${number}`, createdAt: null,
+  id: number, repo: 'upstream/oss', number, title, author: 'alice', htmlUrl: `https://github.com/upstream/oss/pull/${number}`, createdAt: null,
   updatedAt: '2026-01-02T00:00:00Z', mergedAt: '2026-01-02T00:00:00Z', origin: 'OTHER', labels: [], labelColors: null, draft: false, viewedAt: null,
   reviewedAt: null, handledAction: null, requestedReviewers: [], ciStatus: null, additions: 0, deletions: 0, commentCount: 0, state: 'merged',
   mergeable: null, mergeableState: null, headPushedAt: null, headRef: null,
@@ -53,7 +53,7 @@ function mount() {
   const calls = { logs: [] as string[], merged: [] as string[], previews: [] as CherryPickPullRequestPreviewRequest[], backports: [] as unknown[][] };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     gitOverview: async () => ({ currentBranch: 'main', branches: ['main'], remotes: [
-      { name: 'backport-1', url: 'https://github.com/trino/oss.git', headBranch: 'master' },
+      { name: 'backport-1', url: 'https://github.com/upstream/oss.git', headBranch: 'master' },
       { name: 'backport-2', url: 'https://github.com/acme/internal.git', headBranch: 'main' }] }),
     gitRemoteBranches: async (_: string, remote: string) => (remote === 'backport-1' ? ['master'] : ['main', 'release-1']),
     gitStatus: async (): Promise<GitWorktreeStatusDto> => ({ branch: 'main', files: [] }),
@@ -96,7 +96,7 @@ async function cherryPickAPullRequestFromTheLine() {
     await until(() => view.calls.logs.includes('here:REMOTE:backport-1:master'), 'oss history is read through its line remote on its default branch');
     textButton('Pull requests', view.host).click();
     await until(() => view.calls.merged.includes('oss:') && view.host.textContent?.includes('Retry S3 reads') === true, 'Merged pull requests of oss are listed');
-    changeInput(element<HTMLInputElement>('input[aria-label="Search merged pull requests by title, number, or link"]', view.host), 'https://github.com/trino/oss/pull/28411');
+    changeInput(element<HTMLInputElement>('input[aria-label="Search merged pull requests by title, number, or link"]', view.host), 'https://github.com/upstream/oss/pull/28411');
     await until(() => view.calls.merged.includes('oss:28411'), 'A pasted link searches by its number');
     await until(() => !view.host.textContent?.includes('Retry S3 reads'), 'Only the matching pull request stays');
     element<HTMLButtonElement>('.cmt-merged-row', view.host).click();
@@ -105,7 +105,7 @@ async function cherryPickAPullRequestFromTheLine() {
     textButton('Cherry-pick', view.host).click();
     await until(() => view.calls.previews.length === 1, 'Cherry-pick previews the pull request');
     const [request] = view.calls.previews;
-    assert(JSON.stringify(request) === JSON.stringify({ workspaceId: 'here', sourceRemote: 'backport-1', owner: 'trino', repo: 'oss', number: 28411, targetBranch: 'main' }),
+    assert(JSON.stringify(request) === JSON.stringify({ workspaceId: 'here', sourceRemote: 'backport-1', owner: 'upstream', repo: 'oss', number: 28411, targetBranch: 'main' }),
       `Preview names the source remote, repository and target: ${JSON.stringify(request)}`);
     await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Preview stopped by the fixture', 'A failed preview is reported in place');
   } finally { view.dispose(); }
@@ -140,7 +140,7 @@ async function backportAlongTheLine() {
     textButton('Backport', view.host).click();
     await settle();
     const dialog = element<HTMLDialogElement>('dialog', view.host, 'Backport asks before starting');
-    assert(dialog.textContent?.includes('Backport trino/oss#28411') === true, 'The dialog names the pull request');
+    assert(dialog.textContent?.includes('Backport upstream/oss#28411') === true, 'The dialog names the pull request');
     assert(routeText() === 'internalfrom oss | acme/productfrom internal | downstreamfrom acme/product', `The line below oss is the route: ${routeText()}`);
     assert(view.calls.backports.length === 0, 'Opening the dialog starts nothing');
     const boxes = [...dialog.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')];

@@ -27,8 +27,8 @@ class TestMavenCommands
     @Test
     void unwrapsCodexShellScriptsAndReadsALoneMavenSelector()
     {
-        assertThat(MavenCommands.detect(ImmutableList.of("/bin/zsh -lc './mvnw -B -pl core test -Dtest=io.trino.TestAccess#testBuiltin'")))
-                .contains(new Maven("./mvnw -B -pl core test -Dtest=io.trino.TestAccess#testBuiltin", true, Optional.of("io.trino.TestAccess"), Optional.of("testBuiltin")));
+        assertThat(MavenCommands.detect(ImmutableList.of("/bin/zsh -lc './mvnw -B -pl core test -Dtest=com.example.TestAccess#testBuiltin'")))
+                .contains(new Maven("./mvnw -B -pl core test -Dtest=com.example.TestAccess#testBuiltin", true, Optional.of("com.example.TestAccess"), Optional.of("testBuiltin")));
         assertThat(MavenCommands.detect(ImmutableList.of("bash -c \"mvn test \\\"-Dtest=TestAccess\\\"\"")))
                 .contains(new Maven("mvn test \"-Dtest=TestAccess\"", true, Optional.of("TestAccess"), Optional.empty()));
         assertThat(MavenCommands.detect(ImmutableList.of("MAVEN_OPTS='-Xmx2g' ./mvnw verify")))

@@ -142,7 +142,7 @@ class TestProviderAgentEventAdapter
                 Optional.empty(),
                 "Web search",
                 ProviderAgentEvent.ActivityState.COMPLETED,
-                "trino",
+                "repository",
                 ProviderAgentEventSource.item("tool-1"),
                 Optional.of(Duration.ofMillis(20)));
         assertThat(((AgentEventPayload.ToolActivity) ProviderAgentEventAdapter.adapt(tool).payload()).durationMs())

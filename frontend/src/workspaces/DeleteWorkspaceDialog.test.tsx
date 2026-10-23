@@ -20,7 +20,7 @@ function confirmation(finalConfirmation = false, name = '', busy = false) {
   const onDelete = vi.fn();
   const onCancel = vi.fn();
   const view = DeleteWorkspaceConfirmation({
-    repositoryName: 'octocat/trino',
+    repositoryName: 'octocat/repository',
     finalConfirmation,
     confirmation: name,
     busy,
@@ -50,20 +50,20 @@ describe('workspace deletion confirmations', () => {
     expect(onDelete).not.toHaveBeenCalled();
   });
 
-  it.each(['', 'trino', 'trinodb/trino', 'octocat/trino '])('rejects the final confirmation text %j', name => {
+  it.each(['', 'repository', 'owner/repository', 'octocat/repository '])('rejects the final confirmation text %j', name => {
     const { view, html, onDelete } = confirmation(true, name);
 
     expect(view.key).toBe('final');
     expect(view.props.confirmDisabled).toBe(true);
     expect(html).toContain('Unsaved and unpushed work will be lost.');
-    expect(html).toContain('Type <strong>octocat/trino</strong> to confirm.');
+    expect(html).toContain('Type <strong>octocat/repository</strong> to confirm.');
     view.props.onConfirm();
 
     expect(onDelete).not.toHaveBeenCalled();
   });
 
   it('deletes only after the second confirmation with the exact repository name', () => {
-    const { view, html, onDelete } = confirmation(true, 'octocat/trino');
+    const { view, html, onDelete } = confirmation(true, 'octocat/repository');
 
     expect(view.props.confirmDisabled).toBe(false);
     expect(html).toContain('is-destructive');
@@ -75,7 +75,7 @@ describe('workspace deletion confirmations', () => {
   });
 
   it.each([false, true])('cancels without deleting from either confirmation (final: %s)', finalConfirmation => {
-    const { view, onDelete, onCancel } = confirmation(finalConfirmation, 'octocat/trino');
+    const { view, onDelete, onCancel } = confirmation(finalConfirmation, 'octocat/repository');
 
     view.props.onCancel();
 
@@ -84,7 +84,7 @@ describe('workspace deletion confirmations', () => {
   });
 
   it('prevents another deletion while the confirmed operation is in progress', () => {
-    const { view, html, onDelete } = confirmation(true, 'octocat/trino', true);
+    const { view, html, onDelete } = confirmation(true, 'octocat/repository', true);
 
     expect(html.match(/disabled=""/g)).toHaveLength(3);
     view.props.onConfirm();

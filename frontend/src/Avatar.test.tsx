@@ -51,10 +51,10 @@ describe('avatar image state', () => {
   });
 
   it('shows a same-sized owner initial until the local avatar arrives', () => {
-    const html = renderToStaticMarkup(<RepoAvatar owner="trinodb" repo="trino" size={24} />);
-    expect(html).toContain('aria-label="trinodb/trino"');
+    const html = renderToStaticMarkup(<RepoAvatar owner="owner" repo="repository" size={24} />);
+    expect(html).toContain('aria-label="owner/repository"');
     expect(html).toContain('width:24px;height:24px');
-    expect(html).toContain('>T</span>');
+    expect(html).toContain('>O</span>');
     expect(html).not.toContain('<img');
     expect(html).not.toContain('github.com');
   });

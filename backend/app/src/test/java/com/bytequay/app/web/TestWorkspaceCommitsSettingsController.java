@@ -102,14 +102,14 @@ class TestWorkspaceCommitsSettingsController
     {
         var workspaces = mock(WorkspaceRepositoryService.class);
         var relationships = mock(WorkspaceRelationships.class);
-        when(relationships.list("trino")).thenReturn(ImmutableList.of(
+        when(relationships.list("repository")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml", false)));
-        when(relationships.related("trino")).thenReturn(ImmutableList.of(
+        when(relationships.related("repository")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Version in pom.xml"),
                 new WorkspaceRelationships.Related("oss", WorkspaceRelationships.Position.UPSTREAM, "")));
-        when(relationships.line("trino")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.LineNode("oss", Optional.empty()), new WorkspaceRelationships.LineNode("trino", Optional.of("oss"))));
-        when(relationships.lineRemotes("trino")).thenReturn(ImmutableMap.of("oss", new RemoteSource("trino", "backport-1", "https://github.com/oss/oss.git",
+        when(relationships.line("repository")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.LineNode("oss", Optional.empty()), new WorkspaceRelationships.LineNode("repository", Optional.of("oss"))));
+        when(relationships.lineRemotes("repository")).thenReturn(ImmutableMap.of("oss", new RemoteSource("repository", "backport-1", "https://github.com/oss/oss.git",
                 Optional.of(1L), Optional.of(RepoRef.of("oss", "oss")))));
         when(workspaces.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", directory, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
@@ -120,7 +120,7 @@ class TestWorkspaceCommitsSettingsController
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships);
         var mvc = standaloneSetup(controller).build();
-        mvc.perform(get("/api/workspaces/trino/relationships"))
+        mvc.perform(get("/api/workspaces/repository/relationships"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.links[0].guidance").value("Version in pom.xml"))
                 .andExpect(jsonPath("$.links[0].unavailableReason").value("Managed checkout missing at " + directory))
@@ -130,7 +130,7 @@ class TestWorkspaceCommitsSettingsController
                 .andExpect(jsonPath("$.related[0].remote").doesNotExist())
                 .andExpect(jsonPath("$.line[1].parentWorkspaceId").value("oss"));
         Files.createDirectory(directory.resolve(".git"));
-        mvc.perform(get("/api/workspaces/trino/relationships"))
+        mvc.perform(get("/api/workspaces/repository/relationships"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.links[0].unavailableReason").doesNotExist());
     }

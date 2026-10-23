@@ -53,22 +53,22 @@ describe('agent markdown', () => {
   });
 
   it('links a GitHub pull request or issue as an in-app reference rather than a web page', () => {
-    const out = html('Created draft [PR #31101](https://github.com/trinodb/trino/pull/31101) targeting `master` for [the flaky test](https://github.com/trinodb/trino/issues/7).');
-    expect(out).toContain('<a class="md-reference is-pull" href="https://github.com/trinodb/trino/pull/31101"><svg');
-    expect(out).toContain('</svg>PR #31101</a> targeting <code>master</code> for <a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/7"><svg');
+    const out = html('Created draft [PR #31101](https://github.com/owner/repository/pull/31101) targeting `master` for [the flaky test](https://github.com/owner/repository/issues/7).');
+    expect(out).toContain('<a class="md-reference is-pull" href="https://github.com/owner/repository/pull/31101"><svg');
+    expect(out).toContain('</svg>PR #31101</a> targeting <code>master</code> for <a class="md-reference is-issue" href="https://github.com/owner/repository/issues/7"><svg');
     expect(out).toContain('</svg>the flaky test</a>.');
     expect(out).not.toContain('target="_blank"');
   });
 
   it('links a bare URL, as an in-app reference when it names a pull request or issue', () => {
-    const out = html('https://github.com/trinodb/trino/issues/31072 (opened 2026-09-10) and https://trino.io/docs.');
-    expect(out).toContain('<a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/31072"><svg');
-    expect(out).toContain('</svg>trinodb/trino <small>#31072</small></a> (opened 2026-09-10) and ');
-    expect(out).toContain('<a href="https://trino.io/docs" target="_blank" rel="noreferrer">https://trino.io/docs</a>.');
+    const out = html('https://github.com/owner/repository/issues/31072 (opened 2026-09-10) and https://example.com/docs.');
+    expect(out).toContain('<a class="md-reference is-issue" href="https://github.com/owner/repository/issues/31072"><svg');
+    expect(out).toContain('</svg>owner/repository <small>#31072</small></a> (opened 2026-09-10) and ');
+    expect(out).toContain('<a href="https://example.com/docs" target="_blank" rel="noreferrer">https://example.com/docs</a>.');
   });
 
   it('links #number in the task repository the same way GitHub text does', () => {
-    const out = renderToStaticMarkup(<>{renderMarkdown('Fixed in #1234, see **#7** and [#8](https://example.com).', 'trinodb/trino')}</>);
+    const out = renderToStaticMarkup(<>{renderMarkdown('Fixed in #1234, see **#7** and [#8](https://example.com).', 'owner/repository')}</>);
     expect(out).toMatch(/issues\/1234"><svg[^>]*>.*?<\/svg>#1234<\/a>/);
     expect(out).toMatch(/issues\/7"><svg[^>]*>.*?<\/svg>#7<\/a>/);
     expect(out.match(/md-reference/g)).toHaveLength(2);

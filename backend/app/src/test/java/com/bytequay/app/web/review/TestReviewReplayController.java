@@ -37,12 +37,12 @@ class TestReviewReplayController
 {
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
     private static final ReviewReplayService.ReplayView VIEW = new ReviewReplayService.ReplayView("replay-1", 31201, "Add a property",
-            "https://github.com/trinodb/trino/pull/31201", "a".repeat(40), Optional.empty(), NOW, "bo", 1, NOW,
+            "https://github.com/owner/repository/pull/31201", "a".repeat(40), Optional.empty(), NOW, "bo", 1, NOW,
             ImmutableList.of(new ReviewReplayService.SideView(true, "review-with", "DONE", Optional.empty(), false, ImmutableList.of(
                     new ReviewReplayService.FindingView("finding-1", "F-1", "Missing documentation", Optional.of("Medium"), Optional.of("plugin/x/A.java"),
                             Optional.of("RIGHT"), Optional.of(15), Optional.of(16))))),
             ImmutableList.of(new ReviewReplayService.CommentView("note-1", "bo", "plugin/x/A.java", "RIGHT", Optional.of(14), Optional.empty(), true,
-                    "Please document it.", "https://github.com/trinodb/trino/pull/31201#discussion_r1", NOW,
+                    "Please document it.", "https://github.com/owner/repository/pull/31201#discussion_r1", NOW,
                     ImmutableList.of(new ReviewReplayService.Mark(true, ImmutableList.of("finding-1"), true, false)))));
 
     private final ReviewReplayService replays = mock(ReviewReplayService.class);
@@ -52,9 +52,9 @@ class TestReviewReplayController
     void startsListsMarksAndDeletesReplays()
             throws Exception
     {
-        when(replays.start("workspace", "trinodb/trino", 31201)).thenReturn(VIEW);
+        when(replays.start("workspace", "owner/repository", 31201)).thenReturn(VIEW);
         mvc.perform(post("/api/agent-review/replays").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"workspaceId\":\"workspace\",\"repo\":\"trinodb/trino\",\"number\":31201}"))
+                        .content("{\"workspaceId\":\"workspace\",\"repo\":\"owner/repository\",\"number\":31201}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.sides[0].findings[0].startLine").value(15))
                 .andExpect(jsonPath("$.comments[0].marks[0].findings[0]").value("finding-1"))

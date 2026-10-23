@@ -124,7 +124,7 @@ describe('GitHub references', () => {
     };
     const dispatchEvent = vi.fn();
     vi.stubGlobal('window', { bridge, dispatchEvent });
-    const reference = parseGitHubReference('https://github.com/trinodb/trino/pull/31252');
+    const reference = parseGitHubReference('https://github.com/owner/repository/pull/31252');
     if (!reference) throw new Error('Expected a GitHub reference');
 
     expect(await resolveGitHubReference(reference)).toMatchObject({
@@ -132,15 +132,15 @@ describe('GitHub references', () => {
     });
     await openGitHubReference(reference);
 
-    expect(bridge.fetchPullRequestDetailByRef).toHaveBeenCalledWith('trinodb/trino', 31252);
-    expect(bridge.fetchGitHubIssuePreview).toHaveBeenCalledWith('trinodb', 'trino', 31252);
-    expect(bridge.openInAppBrowser).toHaveBeenCalledWith('https://github.com/trinodb/trino/issues/31252');
+    expect(bridge.fetchPullRequestDetailByRef).toHaveBeenCalledWith('owner/repository', 31252);
+    expect(bridge.fetchGitHubIssuePreview).toHaveBeenCalledWith('owner', 'repository', 31252);
+    expect(bridge.openInAppBrowser).toHaveBeenCalledWith('https://github.com/owner/repository/issues/31252');
     expect(zoomed(dispatchEvent)).toEqual([]);
   });
 
   it.each([false, true])(
     'zooms an uncached issue when its repository has a workspace: %s', async watched => {
-      const workspaces = watched ? [{ id: 'workspace-1', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }] : [];
+      const workspaces = watched ? [{ id: 'workspace-1', monitoredOwner: 'owner', monitoredRepo: 'repository' }] : [];
       const bridge = {
         listWorkspaces: vi.fn().mockResolvedValue(workspaces),
         fetchWorkspaceIssue: vi.fn().mockResolvedValue(null),
@@ -150,20 +150,20 @@ describe('GitHub references', () => {
       };
       const dispatchEvent = vi.fn();
       vi.stubGlobal('window', { bridge, dispatchEvent });
-      const reference = parseGitHubReference('https://github.com/trinodb/trino/issues/30611');
+      const reference = parseGitHubReference('https://github.com/owner/repository/issues/30611');
       if (!reference) throw new Error('Expected a GitHub reference');
 
       expect(await resolveGitHubReference(reference)).toEqual({
         kind: 'issue', workspaceId: workspaces[0]?.id ?? null, issue: issuePreview,
       });
-      expect(bridge.fetchGitHubIssuePreview).toHaveBeenCalledWith('trinodb', 'trino', 30611);
+      expect(bridge.fetchGitHubIssuePreview).toHaveBeenCalledWith('owner', 'repository', 30611);
       expect(bridge.fetchPullRequestDetailByRef).not.toHaveBeenCalled();
 
       await openGitHubReference(reference);
 
       if (workspaces.length > 0) {
         expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
-        expect(zoomed(dispatchEvent)).toEqual([{ kind: 'issue', repo: 'trinodb/trino', number: 30611, workspaceId: 'workspace-1' }]);
+        expect(zoomed(dispatchEvent)).toEqual([{ kind: 'issue', repo: 'owner/repository', number: 30611, workspaceId: 'workspace-1' }]);
       }
       else {
         expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);

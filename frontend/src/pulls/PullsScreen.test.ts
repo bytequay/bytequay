@@ -40,10 +40,10 @@ import {
 
 function workspace(id: string, overrides: Partial<WorkspaceDto> = {}): WorkspaceDto {
   return workspaceFixture({
-    id, name: 'my-fork/trino', localRepositoryPath: '/tmp/trino',
-    selectedRepositoryId: 1, selectedOwner: 'my-fork', selectedRepo: 'trino',
-    upstreamRepositoryId: 2, upstreamOwner: 'trinodb', upstreamRepo: 'trino',
-    monitoredRepositoryId: 2, monitoredOwner: 'trinodb', monitoredRepo: 'trino',
+    id, name: 'my-fork/repository', localRepositoryPath: '/tmp/repository',
+    selectedRepositoryId: 1, selectedOwner: 'my-fork', selectedRepo: 'repository',
+    upstreamRepositoryId: 2, upstreamOwner: 'owner', upstreamRepo: 'repository',
+    monitoredRepositoryId: 2, monitoredOwner: 'owner', monitoredRepo: 'repository',
     topology: 'FORK', defaultBranch: 'master', upstreamDefaultBranch: 'master',
     ...overrides,
   });
@@ -105,7 +105,7 @@ describe('loadAgentReviewContext', () => {
     const bridge = reviewContextBridge();
     bridge.listWorkspaces.mockResolvedValue([
         workspace('workspace-1'),
-        workspace('workspace-2', { monitoredOwner: 'TrinoDB', monitoredRepo: 'Trino' }),
+        workspace('workspace-2', { monitoredOwner: 'Owner', monitoredRepo: 'Repository' }),
         workspace('workspace-3'),
       ]);
     bridge.findAgentReview.mockResolvedValueOnce(null).mockResolvedValue(review);
@@ -127,11 +127,11 @@ describe('loadAgentReviewContext', () => {
     const findTask = vi.fn<Parameters<Bridge['findPullRequestTask']>, ReturnType<Bridge['findPullRequestTask']>>()
       .mockResolvedValueOnce(null).mockResolvedValue({ workspaceId: 'workspace-2', taskId: 'assigned-task' });
 
-    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304, undefined, undefined, findTask))
+    await expect(loadAgentReviewContext(bridge, 'owner/repository', 30304, undefined, undefined, findTask))
       .resolves.toEqual({ workspaceId: 'workspace-2', review: null, developerTask: { workspaceId: 'workspace-2', taskId: 'assigned-task' } });
-    expect(bridge.findAgentReview.mock.calls).toEqual([['workspace-2', 'trinodb/trino', 30304]]);
+    expect(bridge.findAgentReview.mock.calls).toEqual([['workspace-2', 'owner/repository', 30304]]);
     expect(findTask.mock.calls).toEqual([
-      ['workspace-1', 'trinodb/trino', 30304], ['workspace-2', 'trinodb/trino', 30304],
+      ['workspace-1', 'owner/repository', 30304], ['workspace-2', 'owner/repository', 30304],
     ]);
   });
 
@@ -157,7 +157,7 @@ describe('loadAgentReviewContext', () => {
       ]);
     bridge.findAgentReview.mockResolvedValue(null);
 
-    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304))
+    await expect(loadAgentReviewContext(bridge, 'owner/repository', 30304))
       .resolves.toEqual({ workspaceId: 'workspace-1', review: null, developerTask: null });
     expect(bridge.findAgentReview).toHaveBeenCalledTimes(2);
   });
@@ -166,7 +166,7 @@ describe('loadAgentReviewContext', () => {
     const bridge = reviewContextBridge();
     bridge.listWorkspaces.mockResolvedValue([workspace('workspace-1')]);
 
-    await expect(loadAgentReviewContext(bridge, 'my-fork/trino', 30304))
+    await expect(loadAgentReviewContext(bridge, 'my-fork/repository', 30304))
       .resolves.toEqual({ workspaceId: undefined, review: null, developerTask: null });
     await expect(loadAgentReviewContext(bridge, 'other/repo', 30304))
       .resolves.toEqual({ workspaceId: undefined, review: null, developerTask: null });
@@ -180,9 +180,9 @@ describe('loadAgentReviewContext', () => {
         .mockResolvedValue([workspace('workspace-1')]);
     bridge.findAgentReview.mockRejectedValue(failure);
 
-    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
+    await expect(loadAgentReviewContext(bridge, 'owner/repository', 30304)).rejects.toBe(failure);
     expect(bridge.findAgentReview).not.toHaveBeenCalled();
-    await expect(loadAgentReviewContext(bridge, 'trinodb/trino', 30304)).rejects.toBe(failure);
+    await expect(loadAgentReviewContext(bridge, 'owner/repository', 30304)).rejects.toBe(failure);
   });
 });
 
@@ -198,17 +198,17 @@ describe('findCodeTask', () => {
 
   it('binds Tears of time to the owning task while its worktree is present', async () => {
     const ports = bridge(task);
-    await expect(findCodeTask(ports, 'workspace-1', 'trinodb/trino', 30304)).resolves.toEqual(task);
-    expect(ports.findPullRequestTask).toHaveBeenCalledWith('workspace-1', 'trinodb/trino', 30304);
+    await expect(findCodeTask(ports, 'workspace-1', 'owner/repository', 30304)).resolves.toEqual(task);
+    expect(ports.findPullRequestTask).toHaveBeenCalledWith('workspace-1', 'owner/repository', 30304);
     expect(ports.getAgentTask).toHaveBeenCalledWith(task.id, 'workspace-1');
   });
 
   it('ignores a pull request without a task, a removed worktree and a non-interactive task', async () => {
     const none = bridge(null);
-    await expect(findCodeTask(none, 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
+    await expect(findCodeTask(none, 'workspace-1', 'owner/repository', 30304)).resolves.toBeNull();
     expect(none.getAgentTask).not.toHaveBeenCalled();
-    await expect(findCodeTask(bridge({ ...task, checkoutRemovedAt: '2026-09-17T00:00:00Z' }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toBeNull();
-    await expect(findCodeTask(bridge({ ...task, interactive: false }), 'workspace-1', 'trinodb/trino', 30304)).resolves.toEqual({ ...task, interactive: false });
+    await expect(findCodeTask(bridge({ ...task, checkoutRemovedAt: '2026-09-17T00:00:00Z' }), 'workspace-1', 'owner/repository', 30304)).resolves.toBeNull();
+    await expect(findCodeTask(bridge({ ...task, interactive: false }), 'workspace-1', 'owner/repository', 30304)).resolves.toEqual({ ...task, interactive: false });
   });
 });
 

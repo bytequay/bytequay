@@ -28,7 +28,7 @@ export async function run(): Promise<boolean> {
     show: () => {}, hide: () => {}, hold: () => {}, close: () => {}, pin: () => {}, restoreFocus: () => {},
   };
   const item: ReferenceCardItem = {
-    type: 'issue', repo: 'trinodb/trino', number: 31252, title: 'Issue', author: null,
+    type: 'issue', repo: 'owner/repository', number: 31252, title: 'Issue', author: null,
   };
   let opened = '';
   Object.assign(window, { bridge: {
@@ -50,12 +50,12 @@ export async function run(): Promise<boolean> {
       `A short hover card must sit immediately above its link (card=${rect.top}-${rect.bottom}, anchor=${anchor.top}, viewport=${window.innerHeight})`);
 
     flushSync(() => root.render(<MarkdownBody
-      body="- Fixes https://github.com/trinodb/trino/pull/31252" repository="trinodb/trino" />));
+      body="- Fixes https://github.com/owner/repository/pull/31252" repository="owner/repository" />));
     await settle();
     const link = element<HTMLAnchorElement>('.md-reference', host, 'Missing issue reference');
     assert(link.textContent?.includes('Delta Lake checkpoint writer drops files with deletion vectors #31252') === true,
       'The issue title and number must replace the URL label');
-    assert(link.href === 'https://github.com/trinodb/trino/issues/31252', 'The link must point to the issue');
+    assert(link.href === 'https://github.com/owner/repository/issues/31252', 'The link must point to the issue');
     link.click();
     await settle();
     assert(opened === link.href, 'Opening the reference must use the issue URL');

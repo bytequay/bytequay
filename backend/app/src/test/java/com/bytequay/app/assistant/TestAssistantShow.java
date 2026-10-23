@@ -64,7 +64,7 @@ class TestAssistantShow
 {
     private static final Instant NOW = Instant.parse("2026-10-17T10:00:00Z");
     private static final LocalDate DAY = LocalDate.parse("2026-10-17");
-    private static final String PULL = "pr:trinodb/trino#31402";
+    private static final String PULL = "pr:owner/repository#31402";
     private static final Map<String, ServedRef> SERVED = ImmutableMap.of(
             "work:w22", new ServedRef("epics", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))),
             "ws:ws1", new ServedRef("start_options", Optional.empty()));
@@ -81,17 +81,17 @@ class TestAssistantShow
     {
         // The card on screen belongs to task t1, which a message showing it may name.
         when(notices.current()).thenReturn(ImmutableList.of(new AppNotice("approval:a1", AppNotice.Kind.APPROVAL, "t1", "ws1", Optional.of("turn-1"), Optional.empty(),
-                "Retry Iceberg commit on conflict", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "Permission needed", "trinodb/trino", "claude",
+                "Retry Iceberg commit on conflict", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "Permission needed", "owner/repository", "claude",
                 Optional.empty(), NOW)));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         AssistantActions actions = new AssistantActions(new MemoryAssistantStore(), mock(AssistantSettings.class), mock(AgentApprovalStore.class),
                 mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(ItemTaskStarter.class), notices,
                 mock(AgentReviewStore.class), mock(AssistantWork.class), mapper, clock);
         show = new AssistantShow(actions, rows, workspaces, mapper, clock);
-        when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1,
-                RepoRef.of("trinodb", "trino"), Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(),
-                "/managed/trino", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
-        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
+        when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
+                RepoRef.of("owner", "repository"), Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(),
+                "/managed/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
+        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
         when(rows.rows(ImmutableList.of(PULL))).thenReturn(ImmutableMap.of(PULL, new AssistantRow(PULL, AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), pull)));
@@ -102,11 +102,11 @@ class TestAssistantShow
             throws Exception
     {
         JsonNode answer = show(message(), "{\"op\":\"list\",\"style\":\"cards\",\"title\":\"Waiting on you\",\"refs\":[\"" + PULL + "\",\"work:w22\",\"task:t1\","
-                + "\"pr:trinodb/trino#1\",\"ws:ws1\",\"approval:a1\",\"work:w22\"]}");
+                + "\"pr:owner/repository#1\",\"ws:ws1\",\"approval:a1\",\"work:w22\"]}");
 
         // What was on screen, what the day handed out and the tasks of the cards shown; never a card, a repository or an unread ref.
         assertThat(answer.path("outcome").asText()).isEqualTo("done");
-        assertThat(answer.path("dropped").toString()).isEqualTo("[\"pr:trinodb/trino#1\",\"ws:ws1\",\"approval:a1\"]");
+        assertThat(answer.path("dropped").toString()).isEqualTo("[\"pr:owner/repository#1\",\"ws:ws1\",\"approval:a1\"]");
         AssistantItem list = shown.getLast();
         assertThat(list.kind()).isEqualTo(AssistantItem.Kind.LIST);
         assertThat(list.text()).isEqualTo("Waiting on you");
@@ -122,10 +122,10 @@ class TestAssistantShow
     void refusesAListOfNothingTheUserCouldSee()
             throws Exception
     {
-        JsonNode answer = show(message(), "{\"op\":\"list\",\"title\":\"Others\",\"refs\":[\"pr:trinodb/trino#1\",\"task:t9\"]}");
+        JsonNode answer = show(message(), "{\"op\":\"list\",\"title\":\"Others\",\"refs\":[\"pr:owner/repository#1\",\"task:t9\"]}");
 
         assertThat(answer.path("outcome").asText()).isEqualTo("refused");
-        assertThat(answer.path("dropped").toString()).isEqualTo("[\"pr:trinodb/trino#1\",\"task:t9\"]");
+        assertThat(answer.path("dropped").toString()).isEqualTo("[\"pr:owner/repository#1\",\"task:t9\"]");
         assertThat(shown).isEmpty();
     }
 
@@ -169,7 +169,7 @@ class TestAssistantShow
         assertThat(receipt.kind()).isEqualTo(AssistantItem.Kind.RECEIPT);
         // Its name and where it opens come from the stores, and the words it acted on go on the receipt.
         assertThat(receipt.text()).isEqualTo("Opened “Retry Iceberg commit on conflict”");
-        assertThat(receipt.receipt()).contains(AssistantReceipt.done(OPEN, Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))).withWords("open  IT"));
+        assertThat(receipt.receipt()).contains(AssistantReceipt.done(OPEN, Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))).withWords("open  IT"));
     }
 
     @Test
@@ -207,7 +207,7 @@ class TestAssistantShow
     void opensOnlyAnItemOnScreenOrHandedOutThatStillExists()
             throws Exception
     {
-        assertRefused(show(message("open #1"), "{\"op\":\"open\",\"ref\":\"pr:trinodb/trino#1\",\"words\":\"open #1\"}"), "That isn't on screen", "open #1");
+        assertRefused(show(message("open #1"), "{\"op\":\"open\",\"ref\":\"pr:owner/repository#1\",\"words\":\"open #1\"}"), "That isn't on screen", "open #1");
         // Handed out earlier today, but no longer in any store.
         assertRefused(show(message("open the work item"), "{\"op\":\"open\",\"ref\":\"work:w22\",\"words\":\"open the work item\"}"),
                 "That isn't in ByteQuay any more", "open the work item");
@@ -234,7 +234,7 @@ class TestAssistantShow
         assertThat(draft.text()).isEqualTo("Iceberg snapshot metadata");
         AssistantDraft drafted = draft.draft().orElseThrow();
         assertThat(drafted.workspaceId()).isEqualTo("ws1");
-        assertThat(drafted.repository()).isEqualTo("trinodb/trino");
+        assertThat(drafted.repository()).isEqualTo("owner/repository");
         assertThat(drafted.body()).isEqualTo("Track the snapshot work.");
         // The work item the user's click creates is named now, so a retried click creates it once.
         assertThat(UUID.fromString(drafted.workItemId())).isNotNull();
@@ -242,7 +242,7 @@ class TestAssistantShow
         // Only a repository the day handed out, and the assistant writes nothing to GitHub itself.
         assertThat(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws2\",\"title\":\"Elsewhere\"}").path("outcome").asText()).isEqualTo("refused");
         assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws1\"}"))).isEqualTo("draft_epic needs a title");
-        assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"trino\",\"title\":\"Mine\"}"))).isEqualTo("draft_epic needs a ws: ref");
+        assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"repository\",\"title\":\"Mine\"}"))).isEqualTo("draft_epic needs a ws: ref");
         assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws1\",\"title\":\"Mine\",\"words\":\"draft it\"}")))
                 .isEqualTo("draft_epic takes no words");
         assertThat(shown).hasSize(1);

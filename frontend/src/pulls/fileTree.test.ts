@@ -88,13 +88,13 @@ describe('buildFileTree', () => {
 
   it('does not flag a pom.xml under src as a module in the ide layout', () => {
     const tree = buildFileTree([
-      'core/trino-main/pom.xml',
-      'core/trino-main/src/test/resources/fixture/pom.xml',
+      'core/main/pom.xml',
+      'core/main/src/test/resources/fixture/pom.xml',
     ], path => path, { layout: 'ide' });
 
-    const trinoMain = directory(directory(tree, 'core').children, 'trino-main');
-    expect(trinoMain.module).toBe(true);
-    const resources = directory(directory(directory(trinoMain.children, 'src').children, 'test').children, 'resources');
+    const repositoryMain = directory(directory(tree, 'core').children, 'main');
+    expect(repositoryMain.module).toBe(true);
+    const resources = directory(directory(directory(repositoryMain.children, 'src').children, 'test').children, 'resources');
     expect(directory(resources.children, 'fixture').module).toBe(false);
   });
 
@@ -111,11 +111,11 @@ describe('buildFileTree', () => {
 
   it('compacts directory chains without crossing branches or direct files', () => {
     const tree = buildFileTree([
-      'core/trino-main/src/main/java/io/trino/connector/Connector.java',
-      'core/trino-main/src/main/java/io/trino/connector/system/SystemPageSource.java',
-      'core/trino-main/src/main/java/io/trino/operator/TableScanOperator.java',
-      'core/trino-main/src/test/java/io/trino/execution/TestPageSource.java',
-      'core/trino-spi/pom.xml',
+      'core/main/src/main/java/com/example/connector/Connector.java',
+      'core/main/src/main/java/com/example/connector/system/SystemPageSource.java',
+      'core/main/src/main/java/com/example/operator/TableScanOperator.java',
+      'core/main/src/test/java/com/example/execution/TestPageSource.java',
+      'core/spi/pom.xml',
       'LICENSE',
       'legacy',
       'legacy/new.txt',
@@ -124,12 +124,12 @@ describe('buildFileTree', () => {
     expect(tree.map(item => item.name)).toEqual(['core', 'LICENSE', 'legacy', 'legacy']);
     const core = tree[0];
     if (core.kind !== 'directory') throw new Error('core should be a directory');
-    expect(core.children.map(item => item.name)).toEqual(['trino-main/src', 'trino-spi']);
-    const trinoMain = core.children[0];
-    if (trinoMain.kind !== 'directory') throw new Error('trino-main/src should be a directory');
-    expect(trinoMain.children.map(item => item.name)).toEqual(['main/java/io/trino', 'test/java/io/trino/execution']);
-    const main = trinoMain.children[0];
-    if (main.kind !== 'directory') throw new Error('main/java/io/trino should be a directory');
+    expect(core.children.map(item => item.name)).toEqual(['main/src', 'spi']);
+    const repositoryMain = core.children[0];
+    if (repositoryMain.kind !== 'directory') throw new Error('main/src should be a directory');
+    expect(repositoryMain.children.map(item => item.name)).toEqual(['main/java/com/example', 'test/java/com/example/execution']);
+    const main = repositoryMain.children[0];
+    if (main.kind !== 'directory') throw new Error('main/java/com/example should be a directory');
     expect(main.children.map(item => item.name)).toEqual(['connector', 'operator']);
     const connector = main.children[0];
     if (connector.kind !== 'directory') throw new Error('connector should be a directory');

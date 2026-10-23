@@ -90,7 +90,7 @@ const page = (id, version, turnId) => ({ id, key: 'p1', version, title: 'Deletes
 
 conversation('a1', 'Help me learn how Iceberg position deletes work', 12);
 turn('a1', 't1', 'Help me learn how Iceberg position deletes work');
-emit('a1', 't1', 'tool', { name: 'Grep', state: 'COMPLETED', summary: '74:import io.trino.plugin.iceberg.delete.DeleteManager;', durationMs: null, description: 'Find where deletes are read' });
+emit('a1', 't1', 'tool', { name: 'Grep', state: 'COMPLETED', summary: '74:import com.example.iceberg.delete.DeleteManager;', durationMs: null, description: 'Find where deletes are read' });
 answer('a1', 't1', 'Position deletes are applied per data file (\`DeleteManager.java:118\`).');
 done('a1', 't1');
 turn('a1', 't2', 'The read path, and how it differs from equality deletes');

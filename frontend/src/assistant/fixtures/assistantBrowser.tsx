@@ -36,7 +36,7 @@ function assert(condition: boolean, message: string): void {
 const settle = () => new Promise(resolve => setTimeout(resolve, 30));
 const target = (kind: AgendaTargetDto['kind'], extra: Partial<AgendaTargetDto>): AgendaTargetDto =>
   ({ kind, workspaceId: 'ws1', repo: null, number: null, id: null, connectionId: null, cloudId: null, ...extra });
-const PULL = target('PULL', { repo: 'trinodb/trino', number: 31377 });
+const PULL = target('PULL', { repo: 'owner/repository', number: 31377 });
 
 const AGENDA: AgendaDto = {
   day: '2026-10-16', state: 'READY', enabled: true, at: 540, generatedAt: '2026-10-16T07:02:00Z', model: 'Sonnet', summary: null,
@@ -44,7 +44,7 @@ const AGENDA: AgendaDto = {
     { ref: 'work:w22', action: 'start', title: 'Start “Expose snapshot id in metadata”', label: 'Expose snapshot id', at: '2026-10-16T00:14:00Z', workspaceId: 'ws1',
       why: 'This is next and unblocks 2 items.', target: target('WORK', { id: 'w22' }), where: 'Iceberg write path · 3/6', status: 'open', byYou: false,
       doneText: null, doneAt: null },
-    { ref: 'pr:trinodb/trino#31377', action: 'review', title: 'Review #31377 Add Iceberg metadata cache', label: 'Review #31377', at: '2026-10-13T08:00:00Z',
+    { ref: 'pr:owner/repository#31377', action: 'review', title: 'Review #31377 Add Iceberg metadata cache', label: 'Review #31377', at: '2026-10-13T08:00:00Z',
       workspaceId: 'ws1', why: 'Asked 3 days ago. CI green.', target: PULL, where: null, status: 'open', byYou: false, doneText: null, doneAt: null },
   ],
   recap: null, calendar: null, failure: null,
@@ -54,10 +54,10 @@ const VIEW: AssistantViewDto = {
   day: '2026-10-16', model: 'Claude Sonnet', running: false,
   items: [
     { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null },
-    { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:trinodb/trino#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
-      text: 'Start with [#31377](pr:trinodb/trino#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null },
+    { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:owner/repository#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
+      text: 'Start with [#31377](pr:owner/repository#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null },
     { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
-      receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'trinodb/trino · Claude Code Opus 5.5 · Auto-Draft PR', target: target('TASK', { id: 't9' }),
+      receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'owner/repository · Claude Code Opus 5.5 · Auto-Draft PR', target: target('TASK', { id: 't9' }),
         page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null, draft: null },
     { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
       receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null, draft: null },
@@ -71,9 +71,9 @@ const row = (fields: Pick<AssistantRowDto, 'ref' | 'kind' | 'title' | 'target'> 
   key: null, state: null, ci: null, review: null, approvals: null, mine: false, mergeBlocked: false, youApproved: false, head: null, agent: null, epic: null, done: null, total: null, at: null, latest: null, ...fields,
 });
 const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
-  row({ ref: 'pr:trinodb/trino#31377', kind: 'PULL', title: 'Add Iceberg metadata cache', target: PULL, key: '#31377', state: 'open', ci: 'passing',
+  row({ ref: 'pr:owner/repository#31377', kind: 'PULL', title: 'Add Iceberg metadata cache', target: PULL, key: '#31377', state: 'open', ci: 'passing',
     review: 'approved', approvals: 2, head: 'abc123', at: ago(20), latest: { by: 'marlo-t', text: 'approved these changes', at: ago(20) } }),
-  row({ ref: 'pr:trinodb/trino#31402', kind: 'PULL', title: 'Retry Iceberg commit on conflict', target: target('PULL', { repo: 'trinodb/trino', number: 31402 }),
+  row({ ref: 'pr:owner/repository#31402', kind: 'PULL', title: 'Retry Iceberg commit on conflict', target: target('PULL', { repo: 'owner/repository', number: 31402 }),
     key: '#31402', state: 'open', ci: 'failing', review: 'changes_requested', mine: true, at: ago(60 * 26) }),
   row({ ref: 'task:t1', kind: 'TASK', title: 'Expose snapshot id in metadata', target: target('TASK', { id: 't1' }), agent: 'Claude Code', state: 'waiting',
     at: ago(45), latest: { by: 'Claude Code', text: 'Which table should hold the **snapshot id**?', at: ago(45) } }),
@@ -83,7 +83,7 @@ const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
     at: ago(60 * 24 * 3 + 30) }),
   row({ ref: 'epic:LOCAL:w1', kind: 'EPIC', title: 'Iceberg write path', target: target('WORK', { id: 'w1' }), done: 3, total: 6 }),
 ].map(each => [each.ref, each]));
-const REFS = ['pr:trinodb/trino#31377', 'pr:trinodb/trino#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:trinodb/trino#1'];
+const REFS = ['pr:owner/repository#31377', 'pr:owner/repository#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:owner/repository#1'];
 const listView = (style: AssistantListStyle, extra: AssistantRowDto[] = []): AssistantViewDto => {
   const list: AssistantItemDto = { id: 'l1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
     receipt: null, list: { style, refs: [...REFS, ...extra.map(each => each.ref)] }, draft: null };
@@ -92,19 +92,19 @@ const listView = (style: AssistantListStyle, extra: AssistantRowDto[] = []): Ass
 
 const notice = (id: string, kind: AppNotice['kind'], taskId: string, title: string): AppNotice => ({
   id, kind, taskId, workspaceId: 'ws1', turnId: `turn-${taskId}`, reviewId: null, title, pullRequest: null, pullRequestTitle: null, changes: null,
-  message: 'Permission needed', repository: 'trinodb/trino', laneId: 'claude', occurredAt: '2026-10-16T07:10:00Z',
+  message: 'Permission needed', repository: 'owner/repository', laneId: 'claude', occurredAt: '2026-10-16T07:10:00Z',
 });
 const NOTICES = [notice('approval:a1', 'APPROVAL', 'task-1', 'Metadata cache'), notice('finished:turn-2', 'TURN_FINISHED', 'task-2', 'Retry commit on conflict')];
 
 const APPROVAL: AgentPendingApprovalDto = {
   approvalId: 'a1', taskId: 'task-1', turnId: 'turn-task-1', occurredAt: '2026-10-16T07:10:00Z', title: 'Run the focused Maven test',
-  detail: './mvnw -pl :trino-iceberg test -Dtest=TestIcebergSnapshotId', approvalKind: 'COMMAND', scope: [], sandboxed: true,
+  detail: './mvnw -pl :catalog test -Dtest=TestIcebergSnapshotId', approvalKind: 'COMMAND', scope: [], sandboxed: true,
   availableDecisions: ['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY'], actionable: true,
   source: { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: null, providerEventId: null },
 };
 
 const RUNNING: RunningTask = {
-  id: 'run-1', workspaceId: 'ws1', title: 'Expose snapshot id in metadata', repository: 'trinodb/trino', kind: 'REVIEW', targetId: 'r7', status: 'RUNNING',
+  id: 'run-1', workspaceId: 'ws1', title: 'Expose snapshot id in metadata', repository: 'owner/repository', kind: 'REVIEW', targetId: 'r7', status: 'RUNNING',
   startedAt: '2026-10-16T07:20:00Z', expiresAt: null, pullRequestNumber: 31377, branch: 'feature/snapshot-id',
 };
 
@@ -175,7 +175,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     flushSync(() => root.render(
       <div className="browser-workspace">
         <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page under the Assistant</main></div>
-        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} openCard={openCard ?? null} onScreen="pr:trinodb/trino#31377"
+        <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} openCard={openCard ?? null} onScreen="pr:owner/repository#31377"
           onClose={() => { calls.closed++; if (shown) render(false); }} />
       </div>,
     ));
@@ -243,7 +243,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     const links = [...talk.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')].map(link => link.textContent);
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
     const receipt = talk.querySelector<HTMLElement>('.assistant-receipt');
-    assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'trinodb/trino · Claude Code Opus 5.5 · Auto-Draft PR', 'A start says where it runs');
+    assert(receipt?.querySelector('.assistant-receipt__detail')?.textContent === 'owner/repository · Claude Code Opus 5.5 · Auto-Draft PR', 'A start says where it runs');
     assert(receipt?.querySelector('.assistant-receipt__words')?.textContent === '“start the snapshot id one”', 'A receipt shows the exact words it acted on');
     [...receipt.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Stop')?.click();
     await settle();
@@ -253,7 +253,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     window.addEventListener('bytequay:zoom-reference', listener);
     try { talk.querySelector<HTMLAnchorElement>('.assistant-reply a')?.click(); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
-    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'trinodb/trino', number: 31377, workspaceId: 'ws1' }]), `A reply ref opens its pull request: ${JSON.stringify(opened)}`);
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `A reply ref opens its pull request: ${JSON.stringify(opened)}`);
     assert(view.calls.closed === 1, 'Opening something closes the Assistant over it');
     view.render(true);
     await settle();
@@ -300,7 +300,7 @@ async function sendsWithWhatIsShown(): Promise<void> {
     enter(input);
     await settle();
     const [first, second] = view.calls.sent;
-    assert(JSON.stringify(first.slice(0, 3)) === JSON.stringify(['allow it', ['approval:a1', 'finished:turn-2'], 'pr:trinodb/trino#31377']),
+    assert(JSON.stringify(first.slice(0, 3)) === JSON.stringify(['allow it', ['approval:a1', 'finished:turn-2'], 'pr:owner/repository#31377']),
       `A message carries the cards on screen and what is on screen: ${JSON.stringify(first)}`);
     assert(second[3] === first[3], 'Sending the same words again reuses the key');
     assert(input.value === '' && view.host.querySelector('.assistant-error') === null, 'A sent message clears the draft');
@@ -364,16 +364,16 @@ async function movesWithTheKeyboard(): Promise<void> {
     await settle();
     const card = top(view.host);
     assert(card?.querySelector('.assistant-kind.is-running')?.textContent === 'Reviewing'
-      && card.querySelector('.assistant-task__where')?.textContent === 'trinodb/trinoT#31377·feature/snapshot-id',
+      && card.querySelector('.assistant-task__where')?.textContent === 'owner/repositoryO#31377·feature/snapshot-id',
     `A running review names its pull request and branch: ${card?.querySelector('.assistant-task__where')?.textContent}`);
     assert(card?.querySelector('.assistant-step__kind')?.textContent === 'READ' && card.querySelector('.assistant-step__text')?.textContent === 'IcebergMetadata.java'
       && /^1\ds$/.test(card.querySelector('.assistant-step__time')?.textContent ?? ''), `It shows its newest step and how long it has run: ${card?.querySelector('.assistant-step')?.textContent}`);
-    history = [...history, step(2, '/bin/zsh -lc "./mvnw -pl :trino-iceberg test"', 'OTHER', null)];
+    history = [...history, step(2, '/bin/zsh -lc "./mvnw -pl :catalog test"', 'OTHER', null)];
     // A return to the app reads the task at once, rather than at its next poll.
     document.dispatchEvent(new Event('visibilitychange'));
     await settle();
     assert(card?.querySelector('.assistant-step__kind')?.textContent === 'RUN'
-      && card.querySelector('.assistant-step__text.is-in')?.textContent === './mvnw -pl :trino-iceberg test'
+      && card.querySelector('.assistant-step__text.is-in')?.textContent === './mvnw -pl :catalog test'
       && card.querySelector('.assistant-step__text.is-out')?.textContent === 'IcebergMetadata.java',
     `A new step rolls in over the last one: ${card?.querySelector('.assistant-step')?.innerHTML}`);
     [...(top(view.host)?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'Open task')?.click();
@@ -456,7 +456,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
 
     const lines = [...list.querySelectorAll<HTMLElement>('.assistant-row')];
     assert(lines.length === 7 && lines.every(line => line.getBoundingClientRect().height === 32), `Rows are one line each: ${lines.map(line => line.getBoundingClientRect().height)}`);
-    assert(lines[0].getAttribute('title') === 'trinodb/trino #31377 · Add Iceberg metadata cache', `A row's tooltip says where it lives: ${lines[0].getAttribute('title')}`);
+    assert(lines[0].getAttribute('title') === 'owner/repository #31377 · Add Iceberg metadata cache', `A row's tooltip says where it lives: ${lines[0].getAttribute('title')}`);
     const [mine, red, task, ticket, work, epic, gone] = lines;
     assert(mine.textContent?.includes('#31377') === true && mine.querySelector('[title="Checks passing"]') !== null
       && mine.querySelector('[title="2 approvals"]')?.textContent === '2', `A pull request shows its checks and approvals: ${mine.textContent}`);
@@ -495,7 +495,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     switches[2].click();
     await settle();
     const dates = [...list.querySelectorAll('.assistant-items__date')].map(date => date.textContent);
-    const expected = [...new Set(['pr:trinodb/trino#31377', 'task:t1', 'pr:trinodb/trino#31402', 'jira:cloud:10042', 'work:w22'].map(ref => dayLabel(localDay(ROWS[ref].at))))];
+    const expected = [...new Set(['pr:owner/repository#31377', 'task:t1', 'pr:owner/repository#31402', 'jira:cloud:10042', 'work:w22'].map(ref => dayLabel(localDay(ROWS[ref].at))))];
     assert(JSON.stringify(dates) === JSON.stringify(expected), `Days head the timeline, newest first: ${JSON.stringify(dates)} != ${JSON.stringify(expected)}`);
     const timed = [...list.querySelectorAll<HTMLElement>('.assistant-row')];
     assert(timed[0].textContent?.includes('Add Iceberg metadata cache') === true && timed[1].textContent?.includes('Expose snapshot id') === true, 'The newest comes first');
@@ -508,7 +508,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     window.addEventListener('bytequay:zoom-reference', listener);
     try { timed[0].click(); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
-    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'trinodb/trino', number: 31377, workspaceId: 'ws1' }]), `A row opens its item: ${JSON.stringify(opened)}`);
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `A row opens its item: ${JSON.stringify(opened)}`);
     assert(view.calls.closed === 1 && view.host.querySelector('.assistant-float') === null, 'Opening an item closes the Assistant');
   }
   finally { view.dispose(); }
@@ -606,10 +606,10 @@ async function completesATaskFromItsCard(): Promise<void> {
 
 const draftView = (created: boolean): AssistantViewDto => {
   const draft: AssistantItemDto = { id: 'd1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'DRAFT', text: 'Iceberg snapshot metadata', targets: {}, notReady: false,
-    receipt: null, list: null, draft: { workspaceId: 'ws1', repository: 'trinodb/trino', body: 'Track the work that exposes snapshot ids.', workItemId: 'w-new' } };
+    receipt: null, list: null, draft: { workspaceId: 'ws1', repository: 'owner/repository', body: 'Track the work that exposes snapshot ids.', workItemId: 'w-new' } };
   const receipt: AssistantItemDto = { id: 'c9', day: '2026-10-16', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text: 'Created “Iceberg snapshot ids” as an Epic',
     targets: {}, notReady: false, list: null, draft: null,
-    receipt: { operation: 'CREATE_EPIC', outcome: 'DONE', detail: 'trinodb/trino#77', target: target('WORK', { id: 'w-new' }), page: null, turnId: null, fix: null, words: null } };
+    receipt: { operation: 'CREATE_EPIC', outcome: 'DONE', detail: 'owner/repository#77', target: target('WORK', { id: 'w-new' }), page: null, turnId: null, fix: null, words: null } };
   return { ...VIEW, items: created ? [VIEW.items[0], draft, receipt] : [VIEW.items[0], draft] };
 };
 
@@ -630,7 +630,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     publishWorkItem: async (...args: unknown[]) => {
       steps.push(['publish', ...args]);
       if (publishFails-- > 0) throw new Error("Error invoking remote method 'work-items:publish': Error: GitHub's rate limit was reached; try again in a minute");
-      return { id: 'w-new', revision: 2, links: [{ kind: 'ISSUE', key: 'trinodb/trino#77' }] } as unknown as WorkItemDto;
+      return { id: 'w-new', revision: 2, links: [{ kind: 'ISSUE', key: 'owner/repository#77' }] } as unknown as WorkItemDto;
     },
     recordAssistantDraft: async (id: string) => { steps.push(['drafted', id]); created = true; },
   });
@@ -642,7 +642,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     const title = form?.querySelector<HTMLInputElement>('.assistant-draft__title');
     const body = form?.querySelector<HTMLTextAreaElement>('.assistant-draft__body');
     assert(form !== null && title?.value === 'Iceberg snapshot metadata' && body?.value === 'Track the work that exposes snapshot ids.'
-      && form.querySelector('.assistant-draft__repo')?.textContent === 'trinodb/trino', 'The draft shows what the assistant wrote, for the repository it goes to');
+      && form.querySelector('.assistant-draft__repo')?.textContent === 'owner/repository', 'The draft shows what the assistant wrote, for the repository it goes to');
     assert(steps.length === 0, 'Nothing is created until the user clicks');
     changeInput(title, 'Iceberg snapshot ids');
     await settle();
@@ -707,7 +707,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   let written = false;
   let head = 'abc123';
   let release = () => {};
-  const draft: ReviewDraftDto = { repo: 'trinodb/trino', number: 31377, body: '', event: 'COMMENT', reviewPublication: null, items: [], postedSummaryFindingIds: [],
+  const draft: ReviewDraftDto = { repo: 'owner/repository', number: 31377, body: '', event: 'COMMENT', reviewPublication: null, items: [], postedSummaryFindingIds: [],
     version: 3, updatedAt: '2026-10-16T07:00:00Z' };
   // Someone else's pull request the user already approved.
   const approved = row({ ref: 'pr:example/catalogs#4127', kind: 'PULL', title: 'Retry catalog loads after a timeout', key: '#4127', state: 'open',
@@ -756,7 +756,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     unsettled = false;
     press('Approve #31377');
     await settle();
-    assert(JSON.stringify(steps) === '[["save","trinodb/trino",31377,3,"","APPROVE"],["submit","trinodb/trino",31377,4,"","APPROVE","abc123"]]',
+    assert(JSON.stringify(steps) === '[["save","owner/repository",31377,3,"","APPROVE"],["submit","owner/repository",31377,4,"","APPROVE","abc123"]]',
       `Approve goes through the review draft, as the review sheet does: ${JSON.stringify(steps)}`);
     assert(view.calls.closed === 0, 'A card’s button never opens the card it sits on');
 
@@ -780,19 +780,19 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     assert(merging.some(button => button.textContent === 'Merging…') && merging.every(button => button.disabled), 'While it merges, the button says so and none can be pressed');
     release();
     await settle();
-    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"trinodb/trino",31377,"rebase","abc123"]' && refusal('#31377') === undefined,
+    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"owner/repository",31377,"rebase","abc123"]' && refusal('#31377') === undefined,
       `Once ready, it merges only the head commit the check saw: ${JSON.stringify(steps.at(-1))}`);
 
     press('Close #31402');
     await settle();
-    assert(JSON.stringify(steps.at(-1)) === '["close","trinodb/trino",31402]', `Close closes the user's own pull request: ${JSON.stringify(steps.at(-1))}`);
+    assert(JSON.stringify(steps.at(-1)) === '["close","owner/repository",31402]', `Close closes the user's own pull request: ${JSON.stringify(steps.at(-1))}`);
 
     const opened: unknown[] = [];
     const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };
     window.addEventListener('bytequay:zoom-reference', listener);
     try { press('Comment on #31377'); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
-    assert(JSON.stringify(opened) === '[{"kind":"pull","repo":"trinodb/trino","number":31377,"workspaceId":"ws1"}]' && view.calls.closed === 1,
+    assert(JSON.stringify(opened) === '[{"kind":"pull","repo":"owner/repository","number":31377,"workspaceId":"ws1"}]' && view.calls.closed === 1,
       `Comment opens the pull request over the page: ${JSON.stringify(opened)}`);
 
     await reopen();

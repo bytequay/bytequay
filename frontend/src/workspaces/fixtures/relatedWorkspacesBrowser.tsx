@@ -28,7 +28,7 @@ const workspace = (id: string, repositoryId: number, name: string): WorkspaceDto
   selectedRepositoryId: repositoryId, monitoredRepositoryId: repositoryId,
   localRepositoryPath: `/managed/${id}`, lastCodeSyncAt: '2026-01-01T00:00:00Z',
 });
-const trino = workspace('trino', 1, 'Trino');
+const repository = workspace('repo', 1, 'Repository');
 const iceberg = workspace('iceberg', 2, 'Apache Iceberg');
 const alias = workspace('alias', 1, 'Same monitored project');
 
@@ -44,7 +44,7 @@ export function mount() {
   let reject = false;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     getWorkspaceRelationships: async () => relationships(links, incoming, line),
-    listWorkspaces: async () => [trino, iceberg, alias],
+    listWorkspaces: async () => [repository, iceberg, alias],
     saveWorkspaceRelationship: async (_: string, link: WorkspaceRelationshipDto) => {
       if (reject) throw new Error('Workspace became unavailable');
       links = [...links.filter(item => item.workspaceId !== link.workspaceId), link];
@@ -56,14 +56,14 @@ export function mount() {
   host.style.cssText = 'display:flex;max-width:1000px;margin:36px auto;gap:32px';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<main className="setw-page" style={{ flex: 1 }}><h1>Repository</h1><RelatedWorkspaceSettings workspace={trino} /></main>));
+  flushSync(() => root.render(<main className="setw-page" style={{ flex: 1 }}><h1>Repository</h1><RelatedWorkspaceSettings workspace={repository} /></main>));
   return { host, reject: (value: boolean) => { reject = value; },
     missingCheckout: () => { links = [{ workspaceId: 'iceberg', kind: 'DEPENDENCY', backportByDefault: false, guidance: 'Keep this', unavailableReason: 'Managed checkout missing' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
     unavailable: () => { links = [{ workspaceId: 'missing', kind: 'FORK', backportByDefault: false, guidance: 'Saved guidance' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
     downstream: () => {
       links = [];
       incoming = [{ workspaceId: 'iceberg', position: 'DOWNSTREAM', remote: null, unavailableReason: null }];
-      line = [{ workspaceId: 'trino', parentWorkspaceId: null }, { workspaceId: 'iceberg', parentWorkspaceId: 'trino' }];
+      line = [{ workspaceId: 'repo', parentWorkspaceId: null }, { workspaceId: 'iceberg', parentWorkspaceId: 'repo' }];
       window.dispatchEvent(new Event('bytequay:relationships-changed'));
     },
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
@@ -83,7 +83,7 @@ async function settingsScenario() {
     await click('+ Add related workspace');
     await click('Related workspace');
     const options = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')];
-    assert(options.find(item => item.textContent?.includes('Trino'))?.disabled, 'Self disabled');
+    assert(options.find(item => item.textContent?.includes('Repository'))?.disabled, 'Self disabled');
     assert(options.find(item => item.textContent?.includes('Same monitored project'))?.disabled, 'Same logical project disabled');
     await click('Apache Iceberg');
     assert(button('Dependency').getAttribute('aria-checked') === 'false', 'Type requires an explicit choice');
@@ -98,14 +98,14 @@ async function settingsScenario() {
     view.reject(false);
     await click('Add');
     assert(view.host.querySelector('textarea') === null, 'Successful save closes form');
-    assert(view.host.querySelectorAll('a[href="#/workspaces/trino/related/iceberg/commits"]').length === 1, 'Settings links keep the current workspace');
+    assert(view.host.querySelectorAll('a[href="#/workspaces/repo/related/iceberg/commits"]').length === 1, 'Settings links keep the current workspace');
     assert(view.host.querySelectorAll('a').length === 2, 'Memory and commits links');
     await click('Edit Apache Iceberg');
     await click('Fork');
     const backport = element<HTMLInputElement>('input[type="checkbox"]', view.host, 'Fork exposes a default backport source');
     backport.click(); await settle();
     await click('Save');
-    assert(view.host.textContent?.includes('Upstream in Trino’s repo line'), 'The chosen upstream is saved and shown');
+    assert(view.host.textContent?.includes('Upstream in Repository’s repo line'), 'The chosen upstream is saved and shown');
     await click('Remove Apache Iceberg');
     assert(view.host.textContent?.includes('No related workspaces'), 'Removed link disappears');
     view.missingCheckout(); await settle();
@@ -115,9 +115,9 @@ async function settingsScenario() {
     assert(view.host.textContent?.includes('Workspace unavailable'), 'Unavailable destination keeps saved relationship visible');
     await click('Remove missing');
     view.downstream(); await settle();
-    assert(view.host.textContent?.includes('Takes changes from Trino. Edit it in Apache Iceberg.'), 'A link saved by another workspace shows read-only');
+    assert(view.host.textContent?.includes('Takes changes from Repository. Edit it in Apache Iceberg.'), 'A link saved by another workspace shows read-only');
     assert(view.host.querySelector('[aria-label="Edit Apache Iceberg"]') === null, 'Another workspace’s link cannot be edited here');
-    assert([...view.host.querySelectorAll('.related-line-repo')].map(item => item.textContent).join(' → ') === 'Trino → Apache Iceberg', 'Repo line runs downstream');
+    assert([...view.host.querySelectorAll('.related-line-repo')].map(item => item.textContent).join(' → ') === 'Repository → Apache Iceberg', 'Repo line runs downstream');
     return [{ name: 'settings, server errors, edit, removal and links saved elsewhere' }];
   } finally { view.close(); }
 }
@@ -126,7 +126,7 @@ async function navigationScenario() {
   const reads: string[] = [];
   let links: WorkspaceRelationshipDto[] = [{ workspaceId: iceberg.id, kind: 'FORK', guidance: '', backportByDefault: false }];
   const bridge = {
-    ...createPreviewBridge(trino.id),
+    ...createPreviewBridge(repository.id),
     hasPat: async () => true,
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
     onInAppBrowserState: () => () => {},
@@ -146,10 +146,10 @@ async function navigationScenario() {
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
     fetchRecentChanges: async () => [],
     listWorkItems: async () => [],
-    listWorkspaces: async () => [trino, iceberg],
+    listWorkspaces: async () => [repository, iceberg],
     listRetiredWorkspaces: async () => [],
     listCherryPickExecutions: async () => [],
-    getWorkspace: async (id: string) => { reads.push(`workspace:${id}`); return id === trino.id ? trino : iceberg; },
+    getWorkspace: async (id: string) => { reads.push(`workspace:${id}`); return id === repository.id ? repository : iceberg; },
     getWorkspaceRelationships: async () => relationships(links),
     getMemoryPage: async (id: string) => {
       reads.push(`memory:${id}`);
@@ -171,20 +171,20 @@ async function navigationScenario() {
   } satisfies Partial<Bridge>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   window.localStorage.clear();
-  window.location.hash = workspaceRoute(trino.id, 'context');
+  window.location.hash = workspaceRoute(repository.id, 'context');
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<App />));
   const ownTab = (label: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Workspace navigation"] [aria-label="${label}"]`);
-  const openRelated = (tab: 'commits' | 'context') => { window.location.hash = relatedWorkspaceRoute(trino.id, iceberg.id, tab); };
-  const selected = (tab: 'commits' | 'context') => window.location.hash === relatedWorkspaceRoute(trino.id, iceberg.id, tab);
+  const openRelated = (tab: 'commits' | 'context') => { window.location.hash = relatedWorkspaceRoute(repository.id, iceberg.id, tab); };
+  const selected = (tab: 'commits' | 'context') => window.location.hash === relatedWorkspaceRoute(repository.id, iceberg.id, tab);
   const staysHere = () => {
-    assert(host.querySelector('.app-sidebar__ws-name')?.textContent === trino.name, 'Current workspace stays selected');
+    assert(host.querySelector('.app-sidebar__ws-name')?.textContent === repository.name, 'Current workspace stays selected');
     assert(!reads.includes(`workspace:${iceberg.id}`), 'App never switches to the related workspace');
   };
   try {
-    await until(() => host.querySelector('.mem-head')?.textContent === trino.id, 'Current workspace loaded');
+    await until(() => host.querySelector('.mem-head')?.textContent === repository.id, 'Current workspace loaded');
     assert(host.querySelector('[aria-label="Related workspaces"]') === null, 'Sidebar lists no related workspaces');
     openRelated('commits');
     await until(() => selected('commits') && host.querySelector('.related-view')?.textContent?.includes('iceberg commit') === true, 'Related commits loaded');
@@ -205,15 +205,15 @@ async function navigationScenario() {
     staysHere();
 
     ownTab('Memory')?.click();
-    await until(() => window.location.hash === workspaceRoute(trino.id, 'context') && host.querySelector('.mem-head')?.textContent === trino.id, 'Own memory tab returns to the current repository');
+    await until(() => window.location.hash === workspaceRoute(repository.id, 'context') && host.querySelector('.mem-head')?.textContent === repository.id, 'Own memory tab returns to the current repository');
     assert(host.querySelector('.related-view') === null, 'Related panel closes on own tab');
     openRelated('commits');
     await until(() => selected('commits') && host.querySelector('.related-view') !== null, 'Related commits reopen');
     ownTab('Commits')?.click();
-    await until(() => window.location.hash === workspaceRoute(trino.id, 'commits') && host.textContent?.includes('trino commit') === true, 'Own commits tab returns to current repository data');
+    await until(() => window.location.hash === workspaceRoute(repository.id, 'commits') && host.textContent?.includes('repo commit') === true, 'Own commits tab returns to current repository data');
 
     links = [];
-    window.location.hash = relatedWorkspaceRoute(trino.id, iceberg.id, 'context');
+    window.location.hash = relatedWorkspaceRoute(repository.id, iceberg.id, 'context');
     await until(() => host.textContent?.includes('Related workspace unavailable') === true, 'Removed relationship cannot show stale related content');
     staysHere();
     return [{ name: 'related views preserve workspace, content ownership and navigation history' }];

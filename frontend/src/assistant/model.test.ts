@@ -22,11 +22,11 @@ import {
   waitingCards,
 } from './model';
 
-const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'trinodb/trino', number: 31402, id: null, connectionId: null, cloudId: null };
+const target: AgendaTargetDto = { kind: 'PULL', workspaceId: 'ws', repo: 'owner/repository', number: 31402, id: null, connectionId: null, cloudId: null };
 
 describe('screenRef', () => {
   it('names the top layer before the page under it', () => {
-    expect(screenRef({ kind: 'pull', repo: 'TrinoDB/Trino', number: 7 }, workspaceAgentTaskRoute('ws', 't1'), 'trinodb/trino')).toBe('pr:trinodb/trino#7');
+    expect(screenRef({ kind: 'pull', repo: 'Owner/Repository', number: 7 }, workspaceAgentTaskRoute('ws', 't1'), 'owner/repository')).toBe('pr:owner/repository#7');
     expect(screenRef({ kind: 'issue', repo: 'a/B', number: 3, workspaceId: 'ws' }, '#/home', null)).toBe('issue:a/b#3');
     expect(screenRef({ kind: 'jira', connectionId: 'c', cloudId: 'cloud', issueId: '10042' }, '#/home', null)).toBe('jira:cloud:10042');
     expect(screenRef({ kind: 'work', workspaceId: 'ws', itemId: 'w-22' }, '#/home', null)).toBe('work:w-22');
@@ -34,39 +34,39 @@ describe('screenRef', () => {
   });
 
   it('reads pull request, task and review routes, and nothing elsewhere', () => {
-    expect(screenRef(undefined, '#/pulls/TrinoDB/trino/31402', null)).toBe('pr:trinodb/trino#31402');
+    expect(screenRef(undefined, '#/pulls/Owner/repository/31402', null)).toBe('pr:owner/repository#31402');
     expect(screenRef(undefined, workspaceAgentTaskRoute('ws', 't1'), null)).toBe('task:t1');
     expect(screenRef(undefined, workspaceReviewTaskRoute('ws', 'r1'), null)).toBe('review:r1');
-    expect(screenRef(undefined, workspacePullRequestRoute('ws', 12), 'TrinoDB/Trino')).toBe('pr:trinodb/trino#12');
-    expect(screenRef(undefined, workspaceIssueRoute('ws', 5), 'trinodb/trino')).toBe('issue:trinodb/trino#5');
+    expect(screenRef(undefined, workspacePullRequestRoute('ws', 12), 'Owner/Repository')).toBe('pr:owner/repository#12');
+    expect(screenRef(undefined, workspaceIssueRoute('ws', 5), 'owner/repository')).toBe('issue:owner/repository#5');
     expect(screenRef(undefined, workspacePullRequestRoute('ws', 12), null)).toBeNull();
-    expect(screenRef(undefined, '#/home', 'trinodb/trino')).toBeNull();
+    expect(screenRef(undefined, '#/home', 'owner/repository')).toBeNull();
   });
 });
 
 describe('refLabel', () => {
   it('shows numbers for pull requests and issues, and the kind otherwise', () => {
-    expect(refLabel('pr:trinodb/trino#31402')).toBe('#31402');
-    expect(refLabel('issue:trinodb/trino#9')).toBe('#9');
+    expect(refLabel('pr:owner/repository#31402')).toBe('#31402');
+    expect(refLabel('issue:owner/repository#9')).toBe('#9');
     expect(refLabel('work:w-22')).toBe('work item');
     expect(refLabel('jira:cloud:10042')).toBe('Jira ticket');
   });
 });
 
 describe('linkRefs', () => {
-  const targets = { 'pr:trinodb/trino#31402': target };
-  const link = (label: string) => `[${label}](https://bytequay.invalid/ref?r=${encodeURIComponent('pr:trinodb/trino#31402')})`;
+  const targets = { 'pr:owner/repository#31402': target };
+  const link = (label: string) => `[${label}](https://bytequay.invalid/ref?r=${encodeURIComponent('pr:owner/repository#31402')})`;
 
   it('links refs with a target, written as links or bare', () => {
-    expect(linkRefs('Review [#31402](pr:trinodb/trino#31402) first.', targets)).toBe(`Review ${link('#31402')} first.`);
-    expect(linkRefs('Review pr:trinodb/trino#31402.', targets)).toBe(`Review ${link('#31402')}.`);
-    expect(refFromHref(`https://bytequay.invalid/ref?r=${encodeURIComponent('pr:trinodb/trino#31402')}`)).toBe('pr:trinodb/trino#31402');
-    expect(refFromHref('https://github.com/trinodb/trino/pull/31402')).toBeNull();
+    expect(linkRefs('Review [#31402](pr:owner/repository#31402) first.', targets)).toBe(`Review ${link('#31402')} first.`);
+    expect(linkRefs('Review pr:owner/repository#31402.', targets)).toBe(`Review ${link('#31402')}.`);
+    expect(refFromHref(`https://bytequay.invalid/ref?r=${encodeURIComponent('pr:owner/repository#31402')}`)).toBe('pr:owner/repository#31402');
+    expect(refFromHref('https://github.com/owner/repository/pull/31402')).toBeNull();
   });
 
   it('keeps only the label of a ref without a target, and leaves longer refs and code alone', () => {
-    expect(linkRefs('See [the fix](pr:trinodb/trino#1).', targets)).toBe('See the fix.');
-    expect(linkRefs('See pr:trinodb/trino#314021 and `pr:trinodb/trino#31402`.', targets)).toBe('See pr:trinodb/trino#314021 and `pr:trinodb/trino#31402`.');
+    expect(linkRefs('See [the fix](pr:owner/repository#1).', targets)).toBe('See the fix.');
+    expect(linkRefs('See pr:owner/repository#314021 and `pr:owner/repository#31402`.', targets)).toBe('See pr:owner/repository#314021 and `pr:owner/repository#31402`.');
     expect(linkRefs('Nothing to link.', {})).toBe('Nothing to link.');
   });
 });
@@ -74,10 +74,10 @@ describe('linkRefs', () => {
 describe('waitingCards', () => {
   const notice = (id: string, kind: AppNotice['kind'], minute: number): AppNotice => ({
     id, kind, taskId: id, workspaceId: 'ws', turnId: null, reviewId: null, title: id, pullRequest: null, pullRequestTitle: null, changes: null,
-    message: '', repository: 'trinodb/trino', laneId: 'claude', occurredAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+    message: '', repository: 'owner/repository', laneId: 'claude', occurredAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
   });
   const task = (id: string, status: RunningTask['status'], minute: number): RunningTask => ({
-    id, workspaceId: 'ws', title: id, repository: 'trinodb/trino', kind: 'TASK', targetId: id, status, startedAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
+    id, workspaceId: 'ws', title: id, repository: 'owner/repository', kind: 'TASK', targetId: id, status, startedAt: `2026-10-17T09:${String(minute).padStart(2, '0')}:00Z`,
     expiresAt: null, pullRequestNumber: null, branch: null,
   });
 
@@ -140,7 +140,7 @@ describe('lists', () => {
   });
 
   it('names where each kind of row lives in its tooltip', () => {
-    expect(rowTitle(row('pr:trinodb/trino#31402', 'PULL', null, { key: '#31402', title: 'Retry commit' }))).toBe('trinodb/trino #31402 · Retry commit');
+    expect(rowTitle(row('pr:owner/repository#31402', 'PULL', null, { key: '#31402', title: 'Retry commit' }))).toBe('owner/repository #31402 · Retry commit');
     expect(rowTitle(row('jira:c:1', 'JIRA', null, { key: 'ICE-7', title: 'Expire snapshots' }))).toBe('Jira ICE-7 · Expire snapshots');
     expect(rowTitle(row('task:t1', 'TASK', null, { agent: 'Claude Code', title: 'Expose ids' }))).toBe('Claude Code · Expose ids');
     expect(rowTitle(row('work:w1', 'WORK', null, { title: 'Add a column' }))).toBe('Work item · Add a column');

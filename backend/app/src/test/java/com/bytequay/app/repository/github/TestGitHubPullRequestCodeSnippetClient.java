@@ -35,12 +35,12 @@ class TestGitHubPullRequestCodeSnippetClient
     @Test
     void encodesRepositoryPathsAndReturnsOnlyRequestedLines()
     {
-        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/%7Bgenerated%7D.ts?ref=" + COMMIT))
+        server.expect(requestTo("https://api.github.test/repos/owner/repository/contents/src/%7Bgenerated%7D.ts?ref=" + COMMIT))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andExpect(header(HttpHeaders.ACCEPT, "application/vnd.github.raw+json"))
                 .andRespond(withSuccess("first\r\nsecond\nthird\nfourth\n", MediaType.TEXT_PLAIN));
 
-        assertThat(client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/{generated}.ts", COMMIT, 2, 3))
+        assertThat(client.fetchRepositoryFileLines("pat", RepoRef.of("owner", "repository"), "src/{generated}.ts", COMMIT, 2, 3))
                 .hasValue(java.util.List.of("second", "third"));
     }
 
@@ -49,7 +49,7 @@ class TestGitHubPullRequestCodeSnippetClient
     {
         expectSource("first\n" + "x".repeat(1024 * 1024 + 1));
 
-        assertThat(client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
+        assertThat(client.fetchRepositoryFileLines("pat", RepoRef.of("owner", "repository"), "src/Main.java", COMMIT, 1, 1))
                 .hasValue(java.util.List.of("first"));
     }
 
@@ -58,14 +58,14 @@ class TestGitHubPullRequestCodeSnippetClient
     {
         expectSource("x".repeat(1024 * 1024 + 1));
 
-        assertThatThrownBy(() -> client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
+        assertThatThrownBy(() -> client.fetchRepositoryFileLines("pat", RepoRef.of("owner", "repository"), "src/Main.java", COMMIT, 1, 1))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("snippet read limit");
     }
 
     private void expectSource(String source)
     {
-        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/Main.java?ref=" + COMMIT))
+        server.expect(requestTo("https://api.github.test/repos/owner/repository/contents/src/Main.java?ref=" + COMMIT))
                 .andRespond(withSuccess(source, MediaType.TEXT_PLAIN));
     }
 }

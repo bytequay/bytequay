@@ -90,8 +90,8 @@ class TestContextSpecCheckService
     private static final RepoRef REPO = RepoRef.of("owner", "repository");
     private static final String SPEC = "https://github.com/delta-io/delta/blob/master/PROTOCOL.md";
     private static final String GUIDE = "https://docs.delta.io/latest/delta-batch.html";
-    private static final String TEST = "plugin/trino-delta-lake/src/test/java/TestCheckpointKeys.java";
-    private static final String COMMAND = "./mvnw -pl plugin/trino-delta-lake test -Dtest=TestCheckpointKeys";
+    private static final String TEST = "plugin/storage/src/test/java/TestCheckpointKeys.java";
+    private static final String COMMAND = "./mvnw -pl plugin/storage test -Dtest=TestCheckpointKeys";
     private static final Instant NOW = Instant.parse("2026-10-01T00:00:00Z");
 
     @TempDir
@@ -140,7 +140,7 @@ class TestContextSpecCheckService
         when(workspaces.requireReadyRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, REPO, OptionalLong.empty(), REPO,
                 "origin", "origin", "main", ImmutableList.of()));
         when(builds.baseline(WORKSPACE)).thenReturn(Optional.of(new ContextBuildService.Baseline("main", SHA)));
-        when(git.run(repository, "cat-file", "-t", SHA + ":plugin/trino-delta-lake")).thenReturn(new GitCommandRunner.Result(0, "tree\n", false));
+        when(git.run(repository, "cat-file", "-t", SHA + ":plugin/storage")).thenReturn(new GitCommandRunner.Result(0, "tree\n", false));
         when(git.run(repository, "cat-file", "-t", SHA + ":plugin/missing")).thenReturn(new GitCommandRunner.Result(128, "", false));
         when(git.runLocalBoundedStdout(eq(repository), any(), anyInt(), any()))
                 .thenReturn(new GitCommandRunner.Result(0, SPEC + "#checkpoints\n" + SPEC + "#checkpoints\n", false));
@@ -148,19 +148,19 @@ class TestContextSpecCheckService
                 candidate("c2", 2, Status.NOT_REPRODUCED))));
         when(builds.check(eq(WORKSPACE), any(), any(), any())).thenReturn(new ContextBuildService.View(1, false, Optional.empty()));
 
-        assertThat(service.sources(WORKSPACE, "plugin/trino-delta-lake/")).extracting(ContextSpecSource::url, ContextSpecSource::links).containsExactly(tuple(SPEC, 2));
+        assertThat(service.sources(WORKSPACE, "plugin/storage/")).extracting(ContextSpecSource::url, ContextSpecSource::links).containsExactly(tuple(SPEC, 2));
         assertThatThrownBy(() -> service.sources(WORKSPACE, "plugin/missing/")).hasMessageContaining("plugin/missing/ is not a directory on main");
 
         ContextSpecCheckService.Started started = service.start(WORKSPACE,
-                new ContextSpecCheckService.StartRequest("start-key", 0, "plugin/trino-delta-lake/", ImmutableList.of(SPEC), 3));
+                new ContextSpecCheckService.StartRequest("start-key", 0, "plugin/storage/", ImmutableList.of(SPEC), 3));
 
-        assertThat(started.check().directory()).isEqualTo("plugin/trino-delta-lake/");
+        assertThat(started.check().directory()).isEqualTo("plugin/storage/");
         assertThat(started.check().state()).isEqualTo(ContextSpecCheck.State.CHECKING);
         assertThat(started.check().candidates()).extracting(Candidate::id).containsExactly("c1");
         assertThat(store.find(WORKSPACE)).hasSize(1);
         verify(builds).check(eq(WORKSPACE), argThat(request -> request.requestKey().equals("start-key") && request.expectedBuildSequence() == 0), eq(SHA),
-                argThat(check -> check.directory().equals("plugin/trino-delta-lake/") && check.reproduction().isEmpty()
-                        && check.brief().contains("Directory: plugin/trino-delta-lake/")));
+                argThat(check -> check.directory().equals("plugin/storage/") && check.reproduction().isEmpty()
+                        && check.brief().contains("Directory: plugin/storage/")));
     }
 
     @Test
@@ -213,15 +213,15 @@ class TestContextSpecCheckService
         ContextBuild build = build(Optional.empty());
 
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(new ContextSpecCheckService.Found(Predicted.DIVERGES, "Other spec", "MUST x",
-                "https://iceberg.apache.org/spec/#manifests", ImmutableList.of("plugin/trino-delta-lake/src/Writer.java:1-2"), "why", 2, Optional.empty())),
+                "https://iceberg.apache.org/spec/#manifests", ImmutableList.of("plugin/storage/src/Writer.java:1-2"), "why", 2, Optional.empty())),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("is not a spec of this check");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(new ContextSpecCheckService.Found(Predicted.DIVERGES, "Elsewhere", "MUST x",
-                SPEC + "#checkpoints", ImmutableList.of("core/trino-main/src/Planner.java:1-2"), "why", 2, Optional.empty())),
+                SPEC + "#checkpoints", ImmutableList.of("core/main/src/Planner.java:1-2"), "why", 2, Optional.empty())),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
-                .hasMessageContaining("cite at least one location in plugin/trino-delta-lake/");
+                .hasMessageContaining("cite at least one location in plugin/storage/");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(new ContextSpecCheckService.Found(Predicted.DIVERGES, "No lines", "MUST x",
-                SPEC + "#checkpoints", ImmutableList.of("plugin/trino-delta-lake/src/Writer.java"), "why", 2, Optional.empty())),
+                SPEC + "#checkpoints", ImmutableList.of("plugin/storage/src/Writer.java"), "why", 2, Optional.empty())),
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), this::searched))
                 .hasMessageContaining("path:start-end");
         assertThatThrownBy(() -> service.saveCandidates(build, ImmutableList.of(found(Predicted.DIVERGES, "Unknown report", 2, Optional.of(7))),
@@ -248,13 +248,13 @@ class TestContextSpecCheckService
         service.saveCandidates(read, ImmutableList.of(), Optional.of(ImmutableList.of(SPEC, iceberg, parquet)), ImmutableList.of(), ImmutableList.of(), this::searched);
         assertThat(current().checkedAgainst()).containsExactly(SPEC, iceberg, parquet);
         // A directory whose code links no page still starts a check, which proposes the specification.
-        assertThat(new ContextSpecCheckService.StartRequest("key", 0, "plugin/trino-iceberg/", ImmutableList.of(), 3).specs()).isEmpty();
+        assertThat(new ContextSpecCheckService.StartRequest("key", 0, "plugin/catalog/", ImmutableList.of(), 3).specs()).isEmpty();
     }
 
     @Test
     void aCheckReproducesNoMoreCandidatesThanTheUserAllowed()
     {
-        ContextSpecCheck limited = new ContextSpecCheck("check-1", "plugin/trino-delta-lake/", SHA, "check-request", ImmutableList.of(SPEC), ImmutableList.of(),
+        ContextSpecCheck limited = new ContextSpecCheck("check-1", "plugin/storage/", SHA, "check-request", ImmutableList.of(SPEC), ImmutableList.of(),
                 ImmutableList.of(), ContextSpecCheck.State.CHECKING, ImmutableList.of(candidate("c1", 3, Status.PENDING), candidate("c2", 2, Status.PENDING)),
                 ImmutableList.of(), ImmutableList.of(), 0, 1, Optional.empty(), NOW, Optional.empty());
 
@@ -263,7 +263,7 @@ class TestContextSpecCheckService
         assertThat(reproducing.nextToReproduce()).isEmpty();
         assertThat(reproducing.ended(ContextSpecCheck.State.DONE, Optional.empty(), NOW).candidate("c2").reason())
                 .contains("Not reached: this check reproduces at most 1 candidate, most severe first");
-        assertThatThrownBy(() -> new ContextSpecCheckService.StartRequest("key", 0, "plugin/trino-delta-lake/", ImmutableList.of(SPEC), 9))
+        assertThatThrownBy(() -> new ContextSpecCheckService.StartRequest("key", 0, "plugin/storage/", ImmutableList.of(SPEC), 9))
                 .hasMessage("A check reproduces 1 to 8 candidates");
     }
 
@@ -282,7 +282,7 @@ class TestContextSpecCheckService
                 .hasMessageContaining("The test passed (exit 0)");
         assertThatThrownBy(() -> service.saveResult(build, TURN, confirmed(COMMAND + " | tail -50", ImmutableList.of())))
                 .hasMessageContaining("run the test as one command");
-        assertThatThrownBy(() -> service.saveResult(build, TURN, confirmed("./mvnw -pl plugin/trino-delta-lake test", ImmutableList.of())))
+        assertThatThrownBy(() -> service.saveResult(build, TURN, confirmed("./mvnw -pl plugin/storage test", ImmutableList.of())))
                 .hasMessageContaining("does not name the test");
         ran(TURN, COMMAND, 1, "[ERROR] COMPILATION ERROR : cannot find symbol");
         assertThatThrownBy(() -> service.saveResult(build, TURN, confirmed(COMMAND, ImmutableList.of())))
@@ -295,7 +295,7 @@ class TestContextSpecCheckService
         Candidate settled = service.saveResult(build, TURN, confirmed(COMMAND, ImmutableList.of("delta-lake")));
 
         assertThat(settled.status()).isEqualTo(Status.CONFIRMED);
-        verify(localWork).save(WORKSPACE, "plugin/trino-delta-lake/", settled);
+        verify(localWork).save(WORKSPACE, "plugin/storage/", settled);
         assertThat(settled.test().orElseThrow().exitCode()).isEqualTo(1);
         assertThat(settled.test().orElseThrow().command()).isEqualTo(COMMAND);
         assertThat(settled.test().orElseThrow().source()).contains("keysByDeletionVector");
@@ -306,8 +306,8 @@ class TestContextSpecCheckService
                 .startsWith("A checkpoint keeps one of two removes.")
                 .contains("> The checkpoint MUST contain the remove actions keyed by path and deletion vector.")
                 .contains(SPEC + "#checkpoints")
-                .contains("- [`plugin/trino-delta-lake/src/Writer.java:10-20`](https://github.com/owner/repository/blob/" + SHA
-                        + "/plugin/trino-delta-lake/src/Writer.java#L10-L20)")
+                .contains("- [`plugin/storage/src/Writer.java:10-20`](https://github.com/owner/repository/blob/" + SHA
+                        + "/plugin/storage/src/Writer.java#L10-L20)")
                 .contains("### Impact\n\nReaders see a deleted row again.")
                 .contains("```java\nclass TestCheckpointKeys")
                 .contains("`" + COMMAND + "` exits with 1:")
@@ -379,7 +379,7 @@ class TestContextSpecCheckService
         service.continueCheck(WORKSPACE);
 
         verify(builds).check(eq(WORKSPACE), argThat(request -> request.requestKey().equals("check-request:1") && request.expectedBuildSequence() == 1), eq(SHA),
-                argThat(check -> check.reproduction().map(ContextBuild.Reproduction::candidateId).equals(Optional.of("c2")) && check.directory().equals("plugin/trino-delta-lake/")
+                argThat(check -> check.reproduction().map(ContextBuild.Reproduction::candidateId).equals(Optional.of("c2")) && check.directory().equals("plugin/storage/")
                         && check.brief().contains("Rule: \"The checkpoint MUST contain")));
         assertThat(current().state()).isEqualTo(ContextSpecCheck.State.REPRODUCING);
         assertThat(current().candidate("c2").status()).isEqualTo(Status.REPRODUCING);
@@ -432,7 +432,7 @@ class TestContextSpecCheckService
         assertThat(memories.list(WORKSPACE)).singleElement().satisfies(memory -> {
             assertThat(memory.title()).isEqualTo("Checkpoints key removes by path only");
             assertThat(memory.text()).isEqualTo("The writer keys removes by path on purpose until deletion vectors are enabled.");
-            assertThat(memory.scope()).containsExactly("plugin/trino-delta-lake/src/Writer.java");
+            assertThat(memory.scope()).containsExactly("plugin/storage/src/Writer.java");
             assertThat(memory.origin().user()).isTrue();
             assertThat(memory.sources().getFirst().user()).contains(new MemorySource.UserPart(MemorySource.Where.DISMISS, "check-1", "c1"));
         });
@@ -461,7 +461,7 @@ class TestContextSpecCheckService
     {
         ContextSpecCheck check = check(ContextSpecCheck.State.CHECKING, ImmutableList.of());
         String scala = "https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala";
-        ContextSpecCheck earlier = new ContextSpecCheck("check-0", "plugin/trino-delta-lake/", SHA, "old",
+        ContextSpecCheck earlier = new ContextSpecCheck("check-0", "plugin/storage/", SHA, "old",
                 ImmutableList.of(SPEC), ImmutableList.of(SPEC), ImmutableList.of(), ContextSpecCheck.State.DONE, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0,
                 8, Optional.empty(), NOW, Optional.of(NOW));
         ContextSpecCheck withCode = new ContextSpecCheck(check.id(), check.directory(), check.baselineSha(), check.requestKey(), ImmutableList.of(SPEC, GUIDE, scala),
@@ -481,8 +481,8 @@ class TestContextSpecCheckService
                 + "Reference implementations in another engine, for comparison only and never rules:\n- " + scala + " · cited 3 times\n"
                 + propose
                 + "The last check used these as specifications: " + SPEC + "\n"
-                + "Directory: plugin/trino-delta-lake/\n");
-        ContextSpecCheck unlinked = new ContextSpecCheck("check-2", "plugin/trino-iceberg/", SHA, "key", ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                + "Directory: plugin/storage/\n");
+        ContextSpecCheck unlinked = new ContextSpecCheck("check-2", "plugin/catalog/", SHA, "key", ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ContextSpecCheck.State.CHECKING, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), 0, 8, Optional.empty(), NOW, Optional.empty());
         assertThat(ContextSpecCheckService.planningBrief(unlinked, Optional.empty(), ImmutableList.of()))
                 .startsWith("Pages the user kept from the links in the directory's code, most cited first. Decide which are specifications "
@@ -540,7 +540,7 @@ class TestContextSpecCheckService
     private static ContextSpecCheckService.Found found(Predicted predicted, String title, int severity, Optional<Integer> duplicate)
     {
         return new ContextSpecCheckService.Found(predicted, title, "The checkpoint MUST contain the remove actions keyed by path and deletion vector.",
-                SPEC + "#checkpoints", ImmutableList.of("plugin/trino-delta-lake/src/Writer.java:10-20"), "Log replay keys by both; the writer by path.",
+                SPEC + "#checkpoints", ImmutableList.of("plugin/storage/src/Writer.java:10-20"), "Log replay keys by both; the writer by path.",
                 severity, duplicate);
     }
 
@@ -549,13 +549,13 @@ class TestContextSpecCheckService
         Predicted predicted = Predicted.DIVERGES;
         return new Candidate(id, predicted.type(), predicted, id.equals("c1") ? "Checkpoints key removes by path only" : "Gap " + id,
                 "The checkpoint MUST contain the remove actions keyed by path and deletion vector.", SPEC + "#checkpoints",
-                ImmutableList.of("plugin/trino-delta-lake/src/Writer.java:10-20"), "Log replay keys by both; the writer by path.", severity, Optional.empty(), status,
+                ImmutableList.of("plugin/storage/src/Writer.java:10-20"), "Log replay keys by both; the writer by path.", severity, Optional.empty(), status,
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static ContextSpecCheck check(ContextSpecCheck.State state, List<Candidate> candidates)
     {
-        return new ContextSpecCheck("check-1", "plugin/trino-delta-lake/", SHA, "check-request", ImmutableList.of(SPEC, GUIDE), ImmutableList.of(),
+        return new ContextSpecCheck("check-1", "plugin/storage/", SHA, "check-request", ImmutableList.of(SPEC, GUIDE), ImmutableList.of(),
                 ImmutableList.of("delta-lake", "correctness"), state, candidates, ImmutableList.of(),
                 ImmutableList.of(), 0, 8, Optional.empty(), NOW, state.active() ? Optional.empty() : Optional.of(NOW));
     }
@@ -586,7 +586,7 @@ class TestContextSpecCheckService
                 capture,
                 new ContextBuild.Check(
                         "check-1",
-                        "plugin/trino-delta-lake/",
+                        "plugin/storage/",
                         reproduction,
                         "brief"));
     }

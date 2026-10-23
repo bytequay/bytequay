@@ -104,7 +104,7 @@ class TestRebaseMonitoring
                 BranchRebaseId.random(),
                 key,
                 "task-" + key,
-                RepoRef.of("trinodb", "trino"),
+                RepoRef.of("owner", "repository"),
                 Path.of("/tmp/bytequay-rebase/" + key),
                 "feature-" + key,
                 "main",

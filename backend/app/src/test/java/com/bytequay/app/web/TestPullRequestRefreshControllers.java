@@ -107,7 +107,7 @@ class TestPullRequestRefreshControllers
                 .perform(get("/prs/attention"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(12))
-                .andExpect(jsonPath("$[0].repo").value("trinodb/trino"))
+                .andExpect(jsonPath("$[0].repo").value("owner/repository"))
                 .andExpect(jsonPath("$[0].author").value("alice"))
                 .andExpect(jsonPath("$[0].authorAvatarUrl").value(avatar))
                 .andExpect(jsonPath("$[0].latestActivity.event").value("reviewed"))
@@ -145,7 +145,7 @@ class TestPullRequestRefreshControllers
     private static PullRequest attentionPullRequest(long id)
     {
         return new PullRequest(
-                id, "trinodb/trino", (int) id, "Review this", "alice", "https://github.com/trinodb/trino/pull/" + id,
+                id, "owner/repository", (int) id, "Review this", "alice", "https://github.com/owner/repository/pull/" + id,
                 NOW, NOW, PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false,
                 null, null, null, ImmutableList.of("viewer"), null, 0, 0, 0, "open", null, null,
                 null, null, null, "feature", null, null, null, null);
@@ -157,20 +157,20 @@ class TestPullRequestRefreshControllers
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.findStored("trinodb/trino", 12)).thenReturn(Optional.of(attentionPullRequest(12)));
-        when(pullRequests.findStored("trinodb/trino", 13)).thenReturn(Optional.empty());
+        when(pullRequests.findStored("owner/repository", 12)).thenReturn(Optional.of(attentionPullRequest(12)));
+        when(pullRequests.findStored("owner/repository", 13)).thenReturn(Optional.empty());
         var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
 
-        mvc.perform(get("/prs/stored").queryParam("repo", "trinodb/trino").queryParam("number", "12"))
+        mvc.perform(get("/prs/stored").queryParam("repo", "owner/repository").queryParam("number", "12"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(12))
-                .andExpect(jsonPath("$.repo").value("trinodb/trino"));
-        mvc.perform(get("/prs/stored").queryParam("repo", "trinodb/trino").queryParam("number", "13"))
+                .andExpect(jsonPath("$.repo").value("owner/repository"));
+        mvc.perform(get("/prs/stored").queryParam("repo", "owner/repository").queryParam("number", "13"))
                 .andExpect(status().isOk())
                 .andExpect(content().string("null"));
 
-        verify(pullRequests).findStored("trinodb/trino", 12);
-        verify(pullRequests).findStored("trinodb/trino", 13);
+        verify(pullRequests).findStored("owner/repository", 12);
+        verify(pullRequests).findStored("owner/repository", 13);
         verifyNoMoreInteractions(pullRequests);
         verifyNoInteractions(refresh);
     }
@@ -181,19 +181,19 @@ class TestPullRequestRefreshControllers
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.findStoredDescription("trinodb/trino", 12)).thenReturn(Optional.of("Fixes the flaky test"));
-        when(pullRequests.findStoredDescription("trinodb/trino", 13)).thenReturn(Optional.empty());
+        when(pullRequests.findStoredDescription("owner/repository", 12)).thenReturn(Optional.of("Fixes the flaky test"));
+        when(pullRequests.findStoredDescription("owner/repository", 13)).thenReturn(Optional.empty());
         var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
 
-        mvc.perform(get("/prs/stored/description").queryParam("repo", "trinodb/trino").queryParam("number", "12"))
+        mvc.perform(get("/prs/stored/description").queryParam("repo", "owner/repository").queryParam("number", "12"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.body").value("Fixes the flaky test"));
-        mvc.perform(get("/prs/stored/description").queryParam("repo", "trinodb/trino").queryParam("number", "13"))
+        mvc.perform(get("/prs/stored/description").queryParam("repo", "owner/repository").queryParam("number", "13"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"body\":null}", true));
 
-        verify(pullRequests).findStoredDescription("trinodb/trino", 12);
-        verify(pullRequests).findStoredDescription("trinodb/trino", 13);
+        verify(pullRequests).findStoredDescription("owner/repository", 12);
+        verify(pullRequests).findStoredDescription("owner/repository", 13);
         verifyNoMoreInteractions(pullRequests);
         verifyNoInteractions(refresh);
     }

@@ -96,9 +96,9 @@ class TestAgendaService
     private static final String REPLY = """
             {"summary": "Your conflict-retry fix merged last night.", "items": [
               {"ref": "task:t1", "action": "answer", "title": "Answer the retry question", "label": "the retry question", "why": "The agent waits on you."},
-              {"ref": "pr:trinodb/trino-gateway#612", "action": "merge", "title": "Merge #612 Route by client tags", "why": "Approved and green since Wednesday."},
+              {"ref": "pr:owner/gateway#612", "action": "merge", "title": "Merge #612 Route by client tags", "why": "Approved and green since Wednesday."},
               {"ref": "pr:made/up#1", "action": "review", "title": "Review a PR no page named", "why": "x"}],
-             "recap": {"text": "Merged 3 PRs.", "merged": ["pr:trinodb/trino#31390"], "slipped": []}}
+             "recap": {"text": "Merged 3 PRs.", "merged": ["pr:owner/repository#31390"], "slipped": []}}
             """;
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -259,7 +259,7 @@ class TestAgendaService
         AgendaDay day = store.days.get(LocalDate.parse("2026-10-16"));
         assertThat(day.state()).isEqualTo(AgendaDay.State.READY);
         assertThat(day.model()).isEqualTo("Sonnet");
-        assertThat(day.items()).extracting(item -> item.ref()).containsExactly("task:t1", "pr:trinodb/trino-gateway#612");
+        assertThat(day.items()).extracting(item -> item.ref()).containsExactly("task:t1", "pr:owner/gateway#612");
         assertThat(day.recap()).hasValueSatisfying(recap -> assertThat(recap.merged()).hasSize(1));
         AgendaRun run = store.runs.getFirst();
         assertThat(run.trigger()).isEqualTo(AgendaRun.Trigger.SCHEDULED);

@@ -59,7 +59,7 @@ import static org.mockito.Mockito.when;
 
 class TestMemoryHarvestService
 {
-    private static final RepoRef REPOSITORY = RepoRef.of("trinodb", "trino");
+    private static final RepoRef REPOSITORY = RepoRef.of("owner", "repository");
     private static final String HEAD = "a".repeat(40);
     private final GitHubHarvestClient github = mock(GitHubHarvestClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
@@ -161,8 +161,8 @@ class TestMemoryHarvestService
         when(github.discussion("token", REPOSITORY, 42)).thenReturn(Optional.of(discussion(42, at(5), "t42")));
 
         assertThatThrownBy(() -> harvests.start("workspace", new ContextBuildService.Request("key", 0), Optional.of(42), Optional.of("someone/else")))
-                .hasMessageContaining("Only a pull request of trinodb/trino");
-        harvests.start("workspace", new ContextBuildService.Request("key", 0), Optional.of(42), Optional.of("TrinoDB/Trino"));
+                .hasMessageContaining("Only a pull request of owner/repository");
+        harvests.start("workspace", new ContextBuildService.Request("key", 0), Optional.of(42), Optional.of("Owner/Repository"));
 
         ArgumentCaptor<ContextBuild.Harvest> harvest = ArgumentCaptor.forClass(ContextBuild.Harvest.class);
         verify(builds).harvest(eq("workspace"), any(), eq(HEAD), harvest.capture());
@@ -208,12 +208,12 @@ class TestMemoryHarvestService
 
     private static Note note(String id, String author, boolean maintainer, String body)
     {
-        return new Note(id, author, author.endsWith("[bot]"), maintainer, body, "https://github.com/trinodb/trino/pull/1#" + id, NOW);
+        return new Note(id, author, author.endsWith("[bot]"), maintainer, body, "https://github.com/owner/repository/pull/1#" + id, NOW);
     }
 
     private static String url(int number)
     {
-        return "https://github.com/trinodb/trino/pull/" + number;
+        return "https://github.com/owner/repository/pull/" + number;
     }
 
     private static Instant at(int hours)
@@ -230,8 +230,8 @@ class TestMemoryHarvestService
                 "workspace",
                 "11111111-1111-4111-8111-111111111111",
                 new RepositoryIdentity(
-                        "trinodb",
-                        "trino"),
+                        "owner",
+                        "repository"),
                 1,
                 REPOSITORY,
                 HEAD,

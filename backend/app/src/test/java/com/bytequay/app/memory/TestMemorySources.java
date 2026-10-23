@@ -80,7 +80,7 @@ class TestMemorySources
     private final MemorySources sources = new MemorySources(turns, events, logs, reviews, assignments, git);
     private final List<AgentEventEnvelope> log = new ArrayList<>();
     private final AgentTask task = AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI,
-            new TaskWorktree(taskId, "workspace", new RepositoryIdentity("trinodb", "trino"), worktree, "bytequay/task/" + taskId, "a".repeat(40)),
+            new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repository"), worktree, "bytequay/task/" + taskId, "a".repeat(40)),
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
     @BeforeEach
@@ -116,7 +116,7 @@ class TestMemorySources
     @Test
     void bindsAReviewRuleToTheDiscussionQuestionAndNeverToAReviewStep()
     {
-        AgentReview review = pullRequestReview("review", "workspace", "trinodb/trino", 7, taskId.toString(), NOW);
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repository", 7, taskId.toString(), NOW);
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         ReviewMessage question = new ReviewMessage("message-1", "review", Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER,
                 "We never log user input here; please don't suggest it.", 1, "run-1", Optional.empty(), Optional.empty(), 0, NOW, Optional.empty());

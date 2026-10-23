@@ -18,7 +18,7 @@ import type { AgentTaskActivityDto, AgentTaskDto } from '../types';
 import { linkTasks, taskAttentionAfterQueue, taskAttentionItem, taskAttentionItems, taskAttentionKind, taskCardState, taskLastMessage } from './attention';
 import { previewTask } from './fixtures/previewBridge';
 
-const WORKSPACE = { id: 'workspace-1', name: 'trino', repository: 'trinodb/trino' };
+const WORKSPACE = { id: 'workspace-1', name: 'repository', repository: 'owner/repository' };
 
 function task(id: string, overrides: Partial<AgentTaskDto> = {}): AgentTaskDto {
   return {
@@ -33,7 +33,7 @@ function activity(overrides: Partial<AgentTaskActivityDto> = {}): AgentTaskActiv
 
 const COMMAND = {
   approvalId: 'approval-1', occurredAt: '2026-09-27T10:05:00Z', title: 'Re-run the checkpoint tests',
-  detail: JSON.stringify({ command: './mvnw -pl plugin/trino-delta-lake test', description: 'Run the tests' }),
+  detail: JSON.stringify({ command: './mvnw -pl plugin/storage test', description: 'Run the tests' }),
   approvalKind: 'COMMAND', scope: ['Bash'],
 };
 
@@ -103,8 +103,8 @@ describe('task attention', () => {
   it('draws an approval as the exact command, names the lane, and links the task to its ticket, pull request and issue', () => {
     const waiting = task('t-1', {
       jiraSource: {
-        connectionId: 'c', cloudId: 'cloud', issueId: '412', key: 'TRINO-412', title: 'Validate the fix', body: '', updatedAt: '',
-        url: 'https://example.atlassian.net/browse/TRINO-412', initialTurnId: null, instructions: '',
+        connectionId: 'c', cloudId: 'cloud', issueId: '412', key: 'ENG-412', title: 'Validate the fix', body: '', updatedAt: '',
+        url: 'https://example.atlassian.net/browse/ENG-412', initialTurnId: null, instructions: '',
       },
       pullRequest: { number: 31264, title: 'Keep deletion vectors', state: 'open', draft: true },
     });
@@ -112,7 +112,7 @@ describe('task attention', () => {
       new Map([['claude', 'Claude Code']]));
 
     // A card names the lane without its model.
-    expect(item).toMatchObject({ key: 'task:t-1', type: 'task', kind: 'approval', reference: 'Claude Code', updatedAt: COMMAND.occurredAt, workspaceName: 'trino' });
+    expect(item).toMatchObject({ key: 'task:t-1', type: 'task', kind: 'approval', reference: 'Claude Code', updatedAt: COMMAND.occurredAt, workspaceName: 'repository' });
     // Without the catalog the card still names the lane.
     expect(taskAttentionItems([waiting], { 't-1': activity({ pendingApproval: COMMAND }) }, WORKSPACE)[0].reference).toBe('Claude');
     // A DeepSeek key lane goes by the key's name alone.
@@ -120,17 +120,17 @@ describe('task attention', () => {
       new Map([['deepseek-key-7', 'DeepSeek · ds-001']]));
     expect(keyed).toMatchObject({ reference: 'ds-001', author: 'ds-001' });
     expect(item.links).toEqual([
-      { source: 'jira', key: 'TRINO-412', title: 'Validate the fix', status: null, tone: 'neutral' },
+      { source: 'jira', key: 'ENG-412', title: 'Validate the fix', status: null, tone: 'neutral' },
       { source: 'pr', key: '#31264', title: 'Keep deletion vectors', status: 'Draft', tone: 'neutral' },
     ]);
     expect(attentionSummary(item)).toEqual({
       tag: { label: 'Approval needed', tone: 'amber' },
       actor: { name: 'Claude Code', avatarUrl: null },
       verb: 'wants to run a command',
-      detail: { kind: 'command', lead: 'Re-run the checkpoint tests', command: './mvnw -pl plugin/trino-delta-lake test' },
+      detail: { kind: 'command', lead: 'Re-run the checkpoint tests', command: './mvnw -pl plugin/storage test' },
     });
     // Approvals come before every other reason.
-    expect(attentionCandidates([pr({ number: 7, origin: 'AUTHORED', ciStatus: 'FAILING' })], [item], 'jack')[0].key).toBe('task:t-1');
+    expect(attentionCandidates([pr({ number: 7, origin: 'AUTHORED', ciStatus: 'FAILING' })], [item], 'riley')[0].key).toBe('task:t-1');
   });
 
   it('quotes the question or the last answer, and comes back when a later turn finishes after an acknowledgement', () => {
@@ -163,10 +163,10 @@ describe('task attention', () => {
   it('quotes a generated first request as the request it stands for, and every other message as said', () => {
     const issueSource = {
       issueId: 9, number: 31190, updatedAt: '', initialTurnId: 'turn-1', instructions: '', host: 'github.com',
-      repo: 'trinodb/trino', url: '', title: 'Checkpoint drops deletion vectors', body: '',
+      repo: 'owner/repository', url: '', title: 'Checkpoint drops deletion vectors', body: '',
     };
     const generated = { author: 'USER' as const, text: 'INTERNAL GENERATED PROMPT', at: '2026-09-27T10:00:00Z', turnId: 'turn-1' };
-    expect(taskLastMessage(task('t', { issueSource }), activity({ lastMessage: generated }))?.text).toBe('Start development · trinodb/trino#31190');
+    expect(taskLastMessage(task('t', { issueSource }), activity({ lastMessage: generated }))?.text).toBe('Start development · owner/repository#31190');
     expect(taskLastMessage(task('t', { issueSource }), activity({ lastMessage: { ...generated, turnId: 'turn-2', text: 'Also add a test' } }))?.text)
       .toBe('Also add a test');
     expect(taskLastMessage(task('t'), activity({ lastMessage: generated }))?.text).toBe('INTERNAL GENERATED PROMPT');
@@ -174,11 +174,11 @@ describe('task attention', () => {
   });
 
   it('links a pull request card to the task whose branch opened it, in the same repository only', () => {
-    const items = attentionCandidates([pr({ number: 31264, repo: 'trinodb/trino', origin: 'AUTHORED' }), pr({ id: 2, number: 31264, repo: 'other/repo', origin: 'AUTHORED' })], [], 'jack');
+    const items = attentionCandidates([pr({ number: 31264, repo: 'owner/repository', origin: 'AUTHORED' }), pr({ id: 2, number: 31264, repo: 'other/repo', origin: 'AUTHORED' })], [], 'riley');
     const opener = task('t-1', { pullRequest: { number: 31264, title: 'Keep deletion vectors', state: 'open', draft: false } });
 
     const linked = linkTasks(items, [{ task: opener, workspace: WORKSPACE }]);
-    expect(linked.find(item => item.repo === 'trinodb/trino')?.links).toEqual([{ source: 'task', key: 'Task', title: 'Task t-1', status: 'Idle', tone: 'green' }]);
+    expect(linked.find(item => item.repo === 'owner/repository')?.links).toEqual([{ source: 'task', key: 'Task', title: 'Task t-1', status: 'Idle', tone: 'green' }]);
     expect(linked.find(item => item.repo === 'other/repo')?.links).toBeUndefined();
   });
 });

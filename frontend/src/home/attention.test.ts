@@ -67,18 +67,18 @@ describe('attentionKind', () => {
     expect(attentionKind(pr({ state: 'merged' }))).toBe('updated');
     expect(attentionKind(pr({ mergeableState: 'behind', ciStatus: 'PENDING' }))).toBe('updated');
     expect(attentionKind(pr({}))).toBe('merge');
-    expect(attentionKind(pr({ origin: 'OTHER', author: 'JACK', ciStatus: 'FAILING' }), 'jack')).toBe('ci');
+    expect(attentionKind(pr({ origin: 'OTHER', author: 'RILEY', ciStatus: 'FAILING' }), 'riley')).toBe('ci');
   });
 
   it('includes ordinary discovered PR updates without inventing a personal request', () => {
     expect(attentionKind(pr({ origin: 'OTHER', ciStatus: 'FAILING' }))).toBe('updated');
     expect(attentionKind(pr({ origin: 'OTHER' }))).toBe('updated');
-    expect(attentionKind(pr({ origin: 'AUTHORED', author: 'alice' }), 'jack')).toBe('updated');
+    expect(attentionKind(pr({ origin: 'AUTHORED', author: 'alice' }), 'riley')).toBe('updated');
   });
 
   it('includes requests and re-requests after an earlier completed review', () => {
     expect(attentionKind(pr({ origin: 'REVIEW_REQUESTED' }))).toBe('review');
-    expect(attentionKind(pr({ origin: 'OTHER', author: 'alice', requestedReviewers: ['JACK'] }), 'jack')).toBe('review');
+    expect(attentionKind(pr({ origin: 'OTHER', author: 'alice', requestedReviewers: ['RILEY'] }), 'riley')).toBe('review');
     expect(attentionKind(pr({
       origin: 'REVIEW_REQUESTED', handledAction: null,
       reviewedAt: '2026-08-14T00:00:00Z', reviewRequestedAt: '2026-08-15T00:00:00Z',
@@ -88,8 +88,8 @@ describe('attentionKind', () => {
   it('trusts retained approval over a newer timestamp synthesized from an old review-request notification', () => {
     const approved = pr({ origin: 'REVIEW_REQUESTED', author: 'alice', handledAction: 'APPROVED', requestedReviewers: [],
       reviewedAt: '2026-08-14T00:00:00Z', reviewRequestedAt: '2026-08-15T00:00:00Z' });
-    expect(attentionKind(approved, 'jack')).not.toBe('review');
-    expect(attentionKind({ ...approved, handledAction: null, requestedReviewers: ['jack'] }, 'jack')).toBe('review');
+    expect(attentionKind(approved, 'riley')).not.toBe('review');
+    expect(attentionKind({ ...approved, handledAction: null, requestedReviewers: ['riley'] }, 'riley')).toBe('review');
   });
 
   it('follows commits and merge readiness for requested or previously reviewed PRs', () => {
@@ -151,7 +151,7 @@ describe('attentionKind', () => {
   it('uses reason priority only when the source update times match', () => {
     const rows = attentionCandidates(
       [pr({ number: 1, ciStatus: 'FAILING' }), pr({ number: 2, origin: 'REVIEW_REQUESTED' })],
-      issueAttentionItems(snapshot(), 'workspace-id', 'JACK'),
+      issueAttentionItems(snapshot(), 'workspace-id', 'RILEY'),
     );
 
     expect(rows.map(row => row.kind)).toEqual(['review', 'assigned', 'ci']);
@@ -176,16 +176,16 @@ describe('attentionKind', () => {
       { ...source.issues[0], id: 10, number: 8, isEpic: true },
       { ...source.issues[0], id: 11, number: 9, developmentTask: { taskId: 'finished-task', workspaceId: 'other-workspace' } },
     );
-    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7, 8, 9]);
-    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, false, false]);
-    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.isEpic)).toEqual([false, true, false]);
+    expect(issueAttentionItems(source, 'workspace-id', 'riley').map(item => item.number)).toEqual([7, 8, 9]);
+    expect(issueAttentionItems(source, 'workspace-id', 'riley').map(item => item.canStartDevelopment)).toEqual([true, false, false]);
+    expect(issueAttentionItems(source, 'workspace-id', 'riley').map(item => item.isEpic)).toEqual([false, true, false]);
     source.issues[1].isEpic = false;
-    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, true, false]);
+    expect(issueAttentionItems(source, 'workspace-id', 'riley').map(item => item.canStartDevelopment)).toEqual([true, true, false]);
   });
 
   it('deduplicates the upstream issue across workspaces with a stable launch destination', () => {
-    const first = issueAttentionItems(snapshot(), 'workspace-a', 'jack');
-    const second = issueAttentionItems(snapshot(), 'workspace-b', 'jack');
+    const first = issueAttentionItems(snapshot(), 'workspace-a', 'riley');
+    const second = issueAttentionItems(snapshot(), 'workspace-b', 'riley');
     expect(attentionCandidates([], [...second, ...first])).toEqual(first);
     expect(attentionCandidates([], [...first, ...second])).toEqual(first);
     // Repository display names can change without changing the source identity.
@@ -195,12 +195,12 @@ describe('attentionKind', () => {
 
   it('keeps acknowledgement after Epic classification changes', () => {
     const source = snapshot();
-    const original = issueAttentionItems(source, 'workspace-id', 'jack')[0];
+    const original = issueAttentionItems(source, 'workspace-id', 'riley')[0];
     const handled = { [original.key]: handledEntry(original, 'ack', null, 'acknowledged') };
     source.issues[0].isEpic = true;
-    expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
+    expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'riley'), handled, Date.now())).toEqual([]);
     source.issues[0].isEpic = false;
-    expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
+    expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'riley'), handled, Date.now())).toEqual([]);
   });
 });
 
@@ -208,15 +208,15 @@ describe('approvedPullRequestCards', () => {
   const now = Date.parse('2026-08-16T00:00:00Z');
   const approved = (overrides: Partial<PullRequestDto> = {}) => {
     const pull = pr({ origin: 'OTHER', author: 'alice', handledAction: 'APPROVED', reviewedAt: '2026-08-14T00:00:00Z', ...overrides });
-    return pullRequestItem(pull, attentionKind(pull, 'jack'));
+    return pullRequestItem(pull, attentionKind(pull, 'riley'));
   };
 
   it('keeps read approvals accessible and sorts their latest updates first', () => {
     const first = approved({ number: 1 });
     const second = approved({ number: 2, updatedAt: '2026-08-16T00:00:00Z', headPushedAt: '2026-08-16T00:00:00Z', commentCount: 4 });
     const handled = { [first.key]: handledEntry(first, 'ack', null, 'Viewed'), [second.key]: handledEntry(second, 'ack', null, 'acknowledged') };
-    expect(approvedPullRequestCards([first, second], handled, 'jack', now)).toEqual([second, first]);
-    expect(attentionCards([first, second], 'all', undefined, { circles: [], viewerLogin: 'jack' }, now)).toEqual([]);
+    expect(approvedPullRequestCards([first, second], handled, 'riley', now)).toEqual([second, first]);
+    expect(attentionCards([first, second], 'all', undefined, { circles: [], viewerLogin: 'riley' }, now)).toEqual([]);
   });
 
   it('uses my approval rather than the overall verdict or another reviewer’s approval', () => {
@@ -224,8 +224,8 @@ describe('approvedPullRequestCards', () => {
     const someoneElse = approved({ number: 2, handledAction: null, reviewedAt: null, reviewDecision: 'APPROVED', origin: 'REVIEW_REQUESTED',
       latestActivity: { event: 'reviewed', actor: 'bob', timestamp: '2026-08-15T00:00:00Z', state: 'APPROVED', label: null, requestedReviewer: null } });
     const onlyCommented = approved({ number: 3, handledAction: 'COMMENTED', reviewDecision: 'APPROVED' });
-    expect(approvedPullRequestCards([mine, someoneElse, onlyCommented], {}, 'jack', now)).toEqual([mine]);
-    expect(attentionCards([mine, someoneElse, onlyCommented], 'all', undefined, { circles: [], viewerLogin: 'jack' }, now))
+    expect(approvedPullRequestCards([mine, someoneElse, onlyCommented], {}, 'riley', now)).toEqual([mine]);
+    expect(attentionCards([mine, someoneElse, onlyCommented], 'all', undefined, { circles: [], viewerLogin: 'riley' }, now))
       .toEqual([someoneElse, onlyCommented]);
   });
 
@@ -233,10 +233,10 @@ describe('approvedPullRequestCards', () => {
     const first = approved({ number: 1 });
     const candidates = [first, approved({ number: 2, state: 'merged' }), approved({ number: 3, state: 'closed' }),
       approved({ number: 4, handledAction: null, origin: 'REVIEW_REQUESTED' }), approved({ number: 5, handledAction: 'CHANGES_REQUESTED' }),
-      approved({ number: 6, author: 'JACK' })];
+      approved({ number: 6, author: 'RILEY' })];
     const handled = { [first.key]: handledEntry(first, 'snooze', now + 1, 'soon') };
-    expect(approvedPullRequestCards(candidates, handled, 'jack', now)).toEqual([]);
-    expect(approvedPullRequestCards(candidates, handled, 'jack', now + 1)).toEqual([first]);
+    expect(approvedPullRequestCards(candidates, handled, 'riley', now)).toEqual([]);
+    expect(approvedPullRequestCards(candidates, handled, 'riley', now + 1)).toEqual([first]);
   });
 });
 
@@ -246,16 +246,16 @@ describe('attentionRank', () => {
   const theirs: Partial<PullRequestDto> = { origin: 'OTHER', author: 'bob' };
   const row = (overrides: Partial<PullRequestDto>) => {
     const pull = pr({ ...theirs, ...overrides });
-    return pullRequestItem(pull, attentionKind(pull, 'jack'));
+    return pullRequestItem(pull, attentionKind(pull, 'riley'));
   };
-  const rank = (overrides: Partial<PullRequestDto>) => attentionRank(row(overrides), circles, 'jack');
+  const rank = (overrides: Partial<PullRequestDto>) => attentionRank(row(overrides), circles, 'riley');
   const activity = (event: string, actor: string): NonNullable<PullRequestDto['latestActivity']> =>
     ({ event, actor, timestamp: '2026-08-15T00:00:00Z', state: null, label: null, requestedReviewer: null });
 
   it('ranks every event on your own pull requests first', () => {
-    expect(rank({ author: 'JACK', state: 'merged' })).toBe(0);
-    expect(rank({ author: 'jack', draft: true, latestActivity: activity('labeled', 'bob') })).toBe(0);
-    expect(rank({ author: 'jack', latestActivity: activity('commented', 'bob') })).toBe(0);
+    expect(rank({ author: 'RILEY', state: 'merged' })).toBe(0);
+    expect(rank({ author: 'riley', draft: true, latestActivity: activity('labeled', 'bob') })).toBe(0);
+    expect(rank({ author: 'riley', latestActivity: activity('commented', 'bob') })).toBe(0);
   });
 
   it("ranks review requests and mentions next, a circle member's first", () => {
@@ -282,38 +282,38 @@ describe('attentionRank', () => {
     expect(rank({ ...approved, handledAction: null, origin: 'REVIEW_REQUESTED' })).toBe(2);
     expect(rank({ ...approved, state: 'merged' })).toBe(3);
     expect(rank({ ...approved, state: 'closed' })).toBe(3);
-    expect(rank({ ...approved, author: 'jack' })).toBe(0);
+    expect(rank({ ...approved, author: 'riley' })).toBe(0);
   });
 
   it("leaves out updates with no tie to you or your circles, a circle member acting on another person's included", () => {
     expect(rank({})).toBeNull();
     expect(rank({ latestActivity: activity('commented', 'alice') })).toBeNull();
     expect(rank({ requestedReviewers: ['alice'], latestActivity: activity('added_to_merge_queue', 'alice') })).toBeNull();
-    const cards = attentionCards([row({ number: 1, author: 'alice' }), row({ number: 2 }), row({ number: 3, author: 'jack', updatedAt: '2026-08-10T00:00:00Z' })],
-      'all', 4, { circles, viewerLogin: 'jack' }, Date.parse('2026-08-16T00:00:00Z'));
+    const cards = attentionCards([row({ number: 1, author: 'alice' }), row({ number: 2 }), row({ number: 3, author: 'riley', updatedAt: '2026-08-10T00:00:00Z' })],
+      'all', 4, { circles, viewerLogin: 'riley' }, Date.parse('2026-08-16T00:00:00Z'));
     expect(cards.map(card => card.number)).toEqual([3, 1]);
   });
 
   it('ranks only the last week of activity, then older items newest first', () => {
-    const staleMine = row({ number: 1, author: 'jack', state: 'merged', updatedAt: '2026-08-01T00:00:00Z' });
+    const staleMine = row({ number: 1, author: 'riley', state: 'merged', updatedAt: '2026-08-01T00:00:00Z' });
     const staleAsk = row({ number: 2, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-05T00:00:00Z' });
     const circle = row({ number: 3, author: 'alice', updatedAt: '2026-08-19T00:00:00Z' });
     const ask = row({ number: 4, origin: 'REVIEW_REQUESTED', updatedAt: '2026-08-14T00:00:00Z' });
-    const cards = attentionCards([staleMine, staleAsk, circle, ask], 'all', 4, { circles, viewerLogin: 'jack' }, Date.parse('2026-08-20T00:00:00Z'));
+    const cards = attentionCards([staleMine, staleAsk, circle, ask], 'all', 4, { circles, viewerLogin: 'riley' }, Date.parse('2026-08-20T00:00:00Z'));
     expect(cards.map(card => card.number)).toEqual([4, 3, 2, 1]);
   });
 
   it('ranks tasks, issues and assigned Jira tickets by the same ties', () => {
-    const [assigned] = issueAttentionItems(snapshot(), 'workspace-id', 'jack');
+    const [assigned] = issueAttentionItems(snapshot(), 'workspace-id', 'riley');
     const [unassigned] = issueAttentionItems(snapshot(), 'workspace-id', 'someone-else');
-    expect(attentionRank(assigned, circles, 'jack')).toBe(2);
-    expect(attentionRank({ ...assigned, author: 'alice' }, circles, 'jack')).toBe(1);
-    expect(attentionRank({ ...unassigned, author: 'JACK' }, circles, 'jack')).toBe(0);
-    expect(attentionRank({ ...unassigned, author: 'alice' }, circles, 'jack')).toBe(4);
-    expect(attentionRank(unassigned, circles, 'jack')).toBeNull();
-    expect(attentionRank(jiraAttentionItems([jiraIssue])[0], circles, 'jack')).toBe(2);
+    expect(attentionRank(assigned, circles, 'riley')).toBe(2);
+    expect(attentionRank({ ...assigned, author: 'alice' }, circles, 'riley')).toBe(1);
+    expect(attentionRank({ ...unassigned, author: 'RILEY' }, circles, 'riley')).toBe(0);
+    expect(attentionRank({ ...unassigned, author: 'alice' }, circles, 'riley')).toBe(4);
+    expect(attentionRank(unassigned, circles, 'riley')).toBeNull();
+    expect(attentionRank(jiraAttentionItems([jiraIssue])[0], circles, 'riley')).toBe(2);
     const task = taskAttentionItem(previewTask('workspace', '1'), null, { id: 'workspace', name: '', repository: 'bytequay/app' });
-    expect(attentionRank(task, circles, 'jack')).toBe(0);
+    expect(attentionRank(task, circles, 'riley')).toBe(0);
   });
 });
 
@@ -465,7 +465,7 @@ function snapshot(): RepositoryIssueSnapshotDto {
       authorAvatarUrl: 'https://example.invalid/mona-s.png',
       htmlUrl: '',
       labels: ['bug'],
-      assignees: ['jack'],
+      assignees: ['riley'],
       commentCount: 8,
       createdAt: '2026-08-14T00:00:00Z',
       updatedAt: '2026-08-15T00:00:00Z',
@@ -483,7 +483,7 @@ describe('attentionSummary', () => {
     const item = { ...base, kind, pr: pr({ author: 'alice', latestActivity: {
       event: 'commented', actor: 'bob', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null, ...overrides,
     } }) };
-    return attentionSummary(item, 'jack');
+    return attentionSummary(item, 'riley');
   }
 
   it('names the actual actor and action instead of inferring them from the PR author', () => {
@@ -495,7 +495,7 @@ describe('attentionSummary', () => {
       verb: 'added a label', detail: { kind: 'labels', labels: [{ name: 'stale-ignore', color: null }] },
     });
     // A review request says whose review it asked for.
-    expect(summary({ event: 'review_requested', requestedReviewer: 'jack' }, 'review')).toMatchObject({
+    expect(summary({ event: 'review_requested', requestedReviewer: 'riley' }, 'review')).toMatchObject({
       tag: { label: 'Review requested', tone: 'blue' }, verb: 'requested your review',
     });
     expect(summary({ event: 'review_requested', requestedReviewer: 'kim' }, 'review').verb).toBe('requested review from kim');
@@ -524,8 +524,8 @@ describe('attentionSummary', () => {
       { sha: 'b73e0d1bbbbbbb', message: 'Add a conflict test', actor: 'ravi', committedAt: '2026-08-27T00:00:00Z' },
     ];
     const reviewed = attentionSummary({ ...base, kind: 'review', pr: pr({ commitsSinceReview, latestActivity: {
-      event: 'review_requested', actor: 'chenjian2664', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: 'jack',
-    } }) }, 'jack');
+      event: 'review_requested', actor: 'contributor', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: 'riley',
+    } }) }, 'riley');
     expect(reviewed).toMatchObject({ verb: 'requested your review', detail: {
       kind: 'commits', lead: '2 commits since your last review', commits: [{ sha: '4f1a2c9', message: 'Map CommitFailedException' }, { sha: 'b73e0d1', message: 'Add a conflict test' }],
     } });
@@ -534,16 +534,16 @@ describe('attentionSummary', () => {
     expect(attentionSummary({ ...base, kind: 'review', pr: pr({ commitsSinceReview, latestActivity: {
       event: 'review_thread', actor: 'ravi-moreau', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null,
       excerpt: 'Can we keep the identity check?', path: 'DeltaLakeWriter.java', line: 214,
-    } }) }, 'jack')).toMatchObject({
+    } }) }, 'riley')).toMatchObject({
       verb: 'left a review comment', detail: { kind: 'quote', text: 'Can we keep the identity check?', file: 'DeltaLakeWriter.java:214' },
     });
 
     // A pushed commit that failed CI names the push, the commit and the check that failed.
-    expect(attentionSummary({ ...base, kind: 'ci', pr: pr({ commitsSinceReview: commitsSinceReview.slice(0, 1), failingChecks: ['ci / test (plugin/trino-iceberg)'], latestActivity: {
+    expect(attentionSummary({ ...base, kind: 'ci', pr: pr({ commitsSinceReview: commitsSinceReview.slice(0, 1), failingChecks: ['ci / test (plugin/catalog)'], latestActivity: {
       event: 'committed', actor: 'wren-d', timestamp: base.updatedAt, state: null, label: null, requestedReviewer: null,
     } }) })).toMatchObject({
       tag: { label: 'Checks failing', tone: 'red' }, verb: 'pushed 1 commit, then CI failed',
-      detail: { kind: 'ci', commits: [{ sha: '4f1a2c9' }], checks: ['ci / test (plugin/trino-iceberg)'] },
+      detail: { kind: 'ci', commits: [{ sha: '4f1a2c9' }], checks: ['ci / test (plugin/catalog)'] },
     });
 
     expect(summary({ event: 'review_thread', excerpt: 'Keep the identity check in DeletionVectorEntry?', path: 'DeltaLakeWriter.java', line: 214 }).detail)
@@ -659,24 +659,24 @@ describe('marks kept in the backend', () => {
     const { changed } = backend([], null);
     await reloadHandled();
     const kept = entry('acknowledged');
-    saveHandled({ 'trinodb/trino#1': kept, 'task:t1': entry('Viewed') });
-    saveHandled({ 'trinodb/trino#1': kept, 'jira:c1:10': entry('Posted 1 comment') });
+    saveHandled({ 'owner/repository#1': kept, 'task:t1': entry('Viewed') });
+    saveHandled({ 'owner/repository#1': kept, 'jira:c1:10': entry('Posted 1 comment') });
 
     expect(changed).toEqual([
-      { saved: [mark('trinodb/trino#1', 'acknowledged'), mark('task:t1', 'Viewed')], removed: [] },
+      { saved: [mark('owner/repository#1', 'acknowledged'), mark('task:t1', 'Viewed')], removed: [] },
       { saved: [mark('jira:c1:10', 'Posted 1 comment')], removed: ['task:t1'] },
     ]);
   });
 
   it('reads the backend and brings a build’s older marks along once, keeping the backend’s own', async () => {
-    const snoozed: AttentionMarkDto = { key: 'trinodb/trino#1', kind: 'SNOOZE', until: '2026-10-20T01:00:00.000Z', seenUpdatedAt: '2026-10-19T03:00:00Z',
-      seenActivityVersion: null, label: 'tomorrow', snoozedItem: '{"key":"trinodb/trino#1"}' };
-    const { changed, storage } = backend([snoozed], { 'trinodb/trino#1': entry('older'), 'task:t1': entry('Viewed'), 'task:t2': { kind: 'ack', until: 5, label: 'x' } });
+    const snoozed: AttentionMarkDto = { key: 'owner/repository#1', kind: 'SNOOZE', until: '2026-10-20T01:00:00.000Z', seenUpdatedAt: '2026-10-19T03:00:00Z',
+      seenActivityVersion: null, label: 'tomorrow', snoozedItem: '{"key":"owner/repository#1"}' };
+    const { changed, storage } = backend([snoozed], { 'owner/repository#1': entry('older'), 'task:t1': entry('Viewed'), 'task:t2': { kind: 'ack', until: 5, label: 'x' } });
     await reloadHandled();
 
     const expected: Handled = {
-      'trinodb/trino#1': { kind: 'snooze', until: Date.parse('2026-10-20T01:00:00.000Z'), seenUpdatedAt: '2026-10-19T03:00:00Z', label: 'tomorrow',
-        snoozedItem: { key: 'trinodb/trino#1' } as AttentionItem },
+      'owner/repository#1': { kind: 'snooze', until: Date.parse('2026-10-20T01:00:00.000Z'), seenUpdatedAt: '2026-10-19T03:00:00Z', label: 'tomorrow',
+        snoozedItem: { key: 'owner/repository#1' } as AttentionItem },
       'task:t1': entry('Viewed'),
     };
     expect(loadHandled()).toEqual(expected);

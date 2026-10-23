@@ -111,7 +111,7 @@ describe('task window', () => {
 
 describe('agent home and overview', () => {
   const homeProps = {
-    repository: 'jackchen/trino',
+    repository: 'riley/repository',
     laneId: 'codex',
     providers: PROVIDERS,
     models: MODELS,
@@ -137,10 +137,10 @@ describe('agent home and overview', () => {
         onHideTask={() => {}}
       />);
 
-    expect(markup).toContain('aria-label="jackchen/trino"');
-    expect(markup).toContain('<h1>jackchen/trino</h1>');
+    expect(markup).toContain('aria-label="riley/repository"');
+    expect(markup).toContain('<h1>riley/repository</h1>');
     // The chip over the composer names where new tasks start.
-    expect(markup).toContain('title="jackchen/trino · tasks start in this repo"');
+    expect(markup).toContain('title="riley/repository · tasks start in this repo"');
     expect(markup).not.toContain('What should the agent do');
     expect(markup).not.toContain('❋');
     expect(markup.match(/class="agt-start"/g)).toHaveLength(3);

@@ -89,8 +89,9 @@ class TestAssistantRows
     private static final AgentTask SETTLED = task("Retry Iceberg commit on conflict", "claude", NOW.minusSeconds(60));
     private static final AgentTask ENDED = task("Drop the old cache key", "claude", NOW.minusSeconds(7200))
             .fail("Stopped by the user", NOW.minusSeconds(30), NOW.plusSeconds(86400));
-    private static final Workspace TRINO = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
-            Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
+    private static final Workspace WORKSPACE = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
+            RepoRef.of("owner", "repository"),
+            Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
             Optional.empty(), 0, NOW, NOW);
 
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
@@ -114,12 +115,12 @@ class TestAssistantRows
     @BeforeEach
     void storesHoldOneOfEach()
     {
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(TRINO));
-        when(workspaces.findById("ws1")).thenReturn(Optional.of(TRINO));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(WORKSPACE));
+        when(workspaces.findById("ws1")).thenReturn(Optional.of(WORKSPACE));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(), ImmutableList.of(provider("claude", "Claude Code"), provider("codex", "Codex")),
                 ImmutableList.of(), ImmutableList.of(), Optional.empty()));
 
-        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31402)).thenReturn(Optional.of(7L));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31402)).thenReturn(Optional.of(7L));
         when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("clean")));
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(raw.headSha()).thenReturn(HEAD);
@@ -130,12 +131,13 @@ class TestAssistantRows
                 Optional.of("CHANGES_REQUESTED"), Optional.empty(), Optional.empty(), Optional.of("Please split the retry into its own commit"), Optional.empty(),
                 OptionalInt.empty())));
 
-        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/trinodb/trino/issues/77",
+        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77",
                 ImmutableList.of(), ImmutableList.of(), 0, NOW.minusSeconds(86400), NOW.minusSeconds(900))));
 
         JiraIssue ticket = new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7", "Expire snapshots by branch", "As described",
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
-                NOW.minusSeconds(1800), Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("ws1", "Trino")));
+                NOW.minusSeconds(1800), Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(),
+                Optional.of(new JiraDtos.WorkspaceLink("ws1", "Repository")));
         when(jira.cachedIssue("cloud", "10042")).thenReturn(Optional.of(ticket));
         when(jiraActivity.latest(ticket)).thenReturn(Optional.of(new JiraActivity(JiraActivity.Kind.STATUS_CHANGED, NOW.minusSeconds(1800),
                 Optional.of(new JiraDtos.Person("a1", "Marlo T", Optional.empty())), Optional.of(new JiraDtos.Status("1", "To do", "new")),
@@ -146,13 +148,13 @@ class TestAssistantRows
         when(tasks.find(SETTLED.id())).thenReturn(Optional.of(SETTLED));
         when(tasks.find(ENDED.id())).thenReturn(Optional.of(ENDED));
         // The sidebar still lists a turn that completed a minute ago; the task is open and waits for the user.
-        when(running.current()).thenReturn(ImmutableList.of(new RunningTask(WAITING.id().toString(), "ws1", WAITING.title(), "trinodb/trino", RunningTask.Kind.TASK,
+        when(running.current()).thenReturn(ImmutableList.of(new RunningTask(WAITING.id().toString(), "ws1", WAITING.title(), "owner/repository", RunningTask.Kind.TASK,
                 WAITING.id().toString(), RunningTask.Status.WAITING, NOW.minusSeconds(240), Optional.empty(), OptionalInt.empty(), Optional.empty()),
-                new RunningTask(SETTLED.id().toString(), "ws1", SETTLED.title(), "trinodb/trino", RunningTask.Kind.TASK, SETTLED.id().toString(),
+                new RunningTask(SETTLED.id().toString(), "ws1", SETTLED.title(), "owner/repository", RunningTask.Kind.TASK, SETTLED.id().toString(),
                         RunningTask.Status.COMPLETED, NOW.minusSeconds(900), Optional.empty(), OptionalInt.empty(), Optional.empty())));
         when(activities.read(ImmutableList.of(WAITING))).thenReturn(ImmutableMap.of(WAITING.id(), new TaskActivity(Optional.of(new TaskMessage(TaskMessage.Author.AGENT,
                 "Which table should hold the snapshot id?", NOW.minusSeconds(240), Optional.empty())), Optional.empty(), Optional.empty())));
-        when(reviews.findReview("r7")).thenReturn(Optional.of(new AgentReview("r7", "ws1", "trinodb/trino", OptionalInt.of(31377), OptionalLong.of(8), IDLE.id().toString(),
+        when(reviews.findReview("r7")).thenReturn(Optional.of(new AgentReview("r7", "ws1", "owner/repository", OptionalInt.of(31377), OptionalLong.of(8), IDLE.id().toString(),
                 Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty(), Optional.empty())));
 
         when(workItems.find("w22")).thenReturn(Optional.of(work("w22", Optional.of("LOCAL:w1"), WorkItem.State.WORKING, NOW.minusSeconds(500))));
@@ -163,25 +165,27 @@ class TestAssistantRows
         when(epics.find("LOCAL:w1")).thenReturn(Optional.of(new Epic("LOCAL:w1", "ws1", ImmutableList.of(), Optional.empty(), false, ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), "", ImmutableList.of())));
         when(agenda.epicSource(any(), anyString())).thenReturn(Optional.empty());
-        when(agenda.epicSource(TRINO, "LOCAL:w1")).thenReturn(Optional.of(new AgendaReader.EpicSource("Iceberg write path", AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))));
+        when(agenda.epicSource(WORKSPACE, "LOCAL:w1"))
+                .thenReturn(Optional.of(new AgendaReader.EpicSource("Iceberg write path", AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))));
     }
 
     @Test
     void drawsEachRefFromTheStoresWithItsKindsFacts()
     {
         String waiting = "task:" + WAITING.id();
-        Map<String, AssistantRow> read = rows.rows(ImmutableList.of("pr:trinodb/trino#31402", "issue:trinodb/trino#77", "jira:cloud:10042", waiting, "review:r7", "work:w22",
-                "epic:LOCAL:w1", "pr:trinodb/trino#1", "task:not-a-task", "ws:ws1", "pr:trinodb/trino#31402"));
+        Map<String, AssistantRow> read = rows.rows(ImmutableList.of("pr:owner/repository#31402", "issue:owner/repository#77", "jira:cloud:10042", waiting, "review:r7", "work:w22",
+                "epic:LOCAL:w1", "pr:owner/repository#1", "task:not-a-task", "ws:ws1", "pr:owner/repository#31402"));
 
         // A ref that no longer resolves has no row, so the panel draws it as gone; a repeated ref is read once.
-        assertThat(read).containsOnlyKeys("pr:trinodb/trino#31402", "issue:trinodb/trino#77", "jira:cloud:10042", waiting, "review:r7", "work:w22", "epic:LOCAL:w1");
-        assertThat(read.get("pr:trinodb/trino#31402")).isEqualTo(new AssistantRow("pr:trinodb/trino#31402", Kind.PULL, "Retry Iceberg commit on conflict",
+        assertThat(read).containsOnlyKeys("pr:owner/repository#31402", "issue:owner/repository#77", "jira:cloud:10042", waiting, "review:r7", "work:w22", "epic:LOCAL:w1");
+        assertThat(read.get("pr:owner/repository#31402")).isEqualTo(new AssistantRow("pr:owner/repository#31402", Kind.PULL, "Retry Iceberg commit on conflict",
                 Optional.of("#31402"), Optional.of("open"), Optional.of("failing"), Optional.of("changes_requested"), Optional.of(1), true, false, false, Optional.of(HEAD),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(60)), Optional.of(new Latest(Optional.of("bo-t"),
-                        "requested changes: Please split the retry into its own commit", NOW.minusSeconds(300))), AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"))));
-        assertThat(read.get("issue:trinodb/trino#77")).isEqualTo(new AssistantRow("issue:trinodb/trino#77", Kind.ISSUE, "Snapshot ids in $snapshots", Optional.of("#77"),
+                        "requested changes: Please split the retry into its own commit", NOW.minusSeconds(300))),
+                        AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"))));
+        assertThat(read.get("issue:owner/repository#77")).isEqualTo(new AssistantRow("issue:owner/repository#77", Kind.ISSUE, "Snapshot ids in $snapshots", Optional.of("#77"),
                 Optional.of("open"), Optional.empty(), Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("trinodb/trino", 77, "ws1")));
+                Optional.empty(), Optional.empty(), Optional.of(NOW.minusSeconds(900)), Optional.empty(), AgendaTarget.issue("owner/repository", 77, "ws1")));
         AssistantRow ticket = read.get("jira:cloud:10042");
         assertThat(ticket.key()).contains("ICE-7");
         assertThat(ticket.state()).contains("In progress");
@@ -224,14 +228,14 @@ class TestAssistantRows
         when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("blocked")));
         when(credentials.cachedLogin()).thenReturn(Optional.of("Alba-T"));
 
-        AssistantRow approver = rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402");
+        AssistantRow approver = rows.rows(ImmutableList.of("pr:owner/repository#31402")).get("pr:owner/repository#31402");
         // The signed-in login decides whose pull request it is, over how it was found, as the pull request list does.
         assertThat(approver.mine()).isFalse();
         assertThat(approver.youApproved()).isTrue();
         assertThat(approver.mergeBlocked()).isTrue();
 
         when(credentials.cachedLogin()).thenReturn(Optional.of("bo-t"));
-        AssistantRow reviewer = rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402");
+        AssistantRow reviewer = rows.rows(ImmutableList.of("pr:owner/repository#31402")).get("pr:owner/repository#31402");
         assertThat(reviewer.youApproved()).isFalse();
         assertThat(reviewer.latest().map(Latest::by)).contains(Optional.of("You"));
     }
@@ -268,14 +272,14 @@ class TestAssistantRows
         Workspace iceberg = new Workspace("ws2", "Iceberg", 2, RepoRef.of("Apache", "Iceberg"), Optional.empty(), Optional.empty(), 2, RepoRef.of("Apache", "Iceberg"),
                 Workspace.Topology.DIRECT, "main", "https://github.com/Apache/Iceberg.git", Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(),
                 Optional.empty(), 0, NOW, NOW);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(TRINO, iceberg));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(WORKSPACE, iceberg));
 
-        assertThat(rows.attentionKey("pr:trinodb/trino#31402")).contains("trinodb/trino#31402");
+        assertThat(rows.attentionKey("pr:owner/repository#31402")).contains("owner/repository#31402");
         // A ref is lowercase; the list keys an issue by its repository as the workspace spells it.
         assertThat(rows.attentionKey("issue:apache/iceberg#12")).contains("Apache/Iceberg#12");
         assertThat(rows.attentionKey("jira:cloud:10042")).contains("jira:cloud:10042");
         assertThat(rows.attentionKey("task:7d0e")).contains("task:7d0e");
-        assertThat(rows.attentionKey("pr:trinodb/trino#1")).isEmpty();
+        assertThat(rows.attentionKey("pr:owner/repository#1")).isEmpty();
         assertThat(rows.attentionKey("issue:apache/spark#3")).isEmpty();
         assertThat(rows.attentionKey("work:w22")).isEmpty();
     }
@@ -285,13 +289,13 @@ class TestAssistantRows
     {
         when(issues.find(1, 77)).thenThrow(new IllegalStateException("database is locked"));
 
-        assertThat(rows.rows(ImmutableList.of("issue:trinodb/trino#77", "work:w22"))).containsOnlyKeys("work:w22");
+        assertThat(rows.rows(ImmutableList.of("issue:owner/repository#77", "work:w22"))).containsOnlyKeys("work:w22");
     }
 
     private String latestText(PrActivitySummary activity)
     {
         when(details.findLatestActivities(ImmutableSet.of(7L))).thenReturn(ImmutableMap.of(7L, activity));
-        return rows.rows(ImmutableList.of("pr:trinodb/trino#31402")).get("pr:trinodb/trino#31402").latest().orElseThrow().text();
+        return rows.rows(ImmutableList.of("pr:owner/repository#31402")).get("pr:owner/repository#31402").latest().orElseThrow().text();
     }
 
     private static PrActivitySummary activity(String event, Optional<String> state, Optional<String> requested)
@@ -301,7 +305,7 @@ class TestAssistantRows
 
     private static PullRequest pullRequest(String mergeableState)
     {
-        return new PullRequest(7, "trinodb/trino", 31402, "Retry Iceberg commit on conflict", "elric-t", "https://github.com/trinodb/trino/pull/31402", NOW, NOW,
+        return new PullRequest(7, "owner/repository", 31402, "Retry Iceberg commit on conflict", "elric-t", "https://github.com/owner/repository/pull/31402", NOW, NOW,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING,
                 10, 2, 3, "open", null, null, true, mergeableState, NOW, "retry", null, NOW.minusSeconds(60), null, "CHANGES_REQUESTED");
     }
@@ -319,7 +323,7 @@ class TestAssistantRows
 
     private static AgentTask task(String title, String lane, Instant at)
     {
-        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("trinodb", "trino"),
+        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), at);
     }
 

@@ -27,8 +27,8 @@ class TestTaskBranches
     @Test
     void generatesReadableNamesFromTheAuthenticatedLoginAndInitialPrompt()
     {
-        assertThat(TaskBranches.generate(TASK_ID, "Chenjian2664", "Find and refactor a minor issue"))
-                .isEqualTo("chenjian2664/bytequay/find-and-refactor-c587a121");
+        assertThat(TaskBranches.generate(TASK_ID, "Contributor", "Find and refactor a minor issue"))
+                .isEqualTo("contributor/bytequay/find-and-refactor-c587a121");
         assertThat(TaskBranches.generate(TASK_ID, "user", "## Réparer [CSV](https://example.test) / types!\nMore details"))
                 .isEqualTo("user/bytequay/reparer-csv-types-c587a121");
         assertThat(TaskBranches.generate(TASK_ID, "user", "修复问题"))
@@ -46,9 +46,9 @@ class TestTaskBranches
                 "Let's ", "Let’s ", "Let us ", "Please ", "Can you ", "Will you ", "I want to ", "We need to ",
                 "I'd like to ", "We’d like to ", "Could you please help me to ", "Would you please help us ",
                 "I would like to please "}) {
-            assertThat(TaskBranches.generate(TASK_ID, "chenjian2664", prefix + "refactor nits in Delta Lake"))
+            assertThat(TaskBranches.generate(TASK_ID, "contributor", prefix + "refactor nits in Delta Lake"))
                     .as(prefix)
-                    .isEqualTo("chenjian2664/bytequay/refactor-nits-in-delta-c587a121");
+                    .isEqualTo("contributor/bytequay/refactor-nits-in-delta-c587a121");
         }
         assertThat(TaskBranches.generate(TASK_ID, "user", "Could you please help me to refactor nit in Delta Lake"))
                 .isEqualTo("user/bytequay/refactor-nit-in-delta-c587a121");
@@ -88,7 +88,7 @@ class TestTaskBranches
     @Test
     void rejectsUnsafeOrWrongTaskBranchesAndRetainsRecordedBranches()
     {
-        TaskWorktree.checkGeneratedBranch(TASK_ID, "chenjian2664/bytequay/fix-dup-table-sample-issue-31178");
+        TaskWorktree.checkGeneratedBranch(TASK_ID, "contributor/bytequay/fix-dup-table-sample-issue-31178");
         String branch = TaskBranches.generate(TASK_ID, "user", "Fix bug");
         TaskWorktree.checkGeneratedBranch(TASK_ID, branch);
         TaskWorktree.checkGeneratedBranch(TASK_ID, "bytequay/task/" + TASK_ID);

@@ -831,11 +831,11 @@ describe('agent task side panel', () => {
     const markup = renderBody(branched, {
       panelOpen: true,
       pullRequests: [],
-      repository: 'trinodb/trino',
+      repository: 'owner/repository',
     });
     expect(markup).toContain('No pull request yet');
     expect(markup).toContain('<code>reuse-resolved-field-index</code>');
-    expect(markup).toContain('<strong>trinodb/trino</strong>');
+    expect(markup).toContain('<strong>owner/repository</strong>');
     expect(markup).toContain('A pull request opened from the agent or on GitHub appears at the next check.');
   });
 
@@ -883,7 +883,7 @@ describe('agent task side panel', () => {
     expect(samePullRequest('https://github.com/bytequay/bytequay/pull/482/?utm=1', pr)).toBe(true);
     // Another pull request, another repository, or the diff of a file is somebody else's link.
     expect(samePullRequest('https://github.com/bytequay/bytequay/pull/4820', pr)).toBe(false);
-    expect(samePullRequest('https://github.com/trinodb/trino/pull/482', pr)).toBe(false);
+    expect(samePullRequest('https://github.com/owner/repository/pull/482', pr)).toBe(false);
     expect(samePullRequest('https://github.com/bytequay/bytequay/issues/482', pr)).toBe(false);
     expect(samePullRequest(null, pr)).toBe(false);
   });
@@ -1880,7 +1880,7 @@ describe('agent task detail', () => {
     expect(markup).toContain('Approved once');
     expect(markup).toContain('git push origin fix/preview-limit');
     // The scope is what the decision is actually about.
-    expect(markup).toContain('cwd: workspaces/jackchen-trino');
+    expect(markup).toContain('cwd: workspaces/riley-repository');
   });
 
   it('surfaces a held gap and a terminal error instead of a silent hole', () => {
@@ -1903,7 +1903,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
   const rows: AgentTaskDto[] = [
     { ...task('t-today', 'OPEN', 'hello'), updatedAt: at(0, 10), mutationClaim: { kind: 'TURN', ownerId: 'turn-1', acquiredAt: at(0, 10) } },
     { ...task('t-today-2', 'OPEN', 'Ask about the model'), updatedAt: at(0, 8) },
-    { ...task('t-yesterday', 'COMPLETED', 'trino issue reading'), updatedAt: at(1), terminalAt: at(1) },
+    { ...task('t-yesterday', 'COMPLETED', 'repository issue reading'), updatedAt: at(1), terminalAt: at(1) },
     { ...task('t-wed', 'FAILED', 'Image journey'), updatedAt: at(3), terminalAt: at(3), terminalReason: 'gave up' },
     { ...task('t-shelved', 'COMPLETED', 'Explain the query planner'), updatedAt: at(9), terminalAt: at(9), archivedAt: at(2) },
   ];
@@ -1930,7 +1930,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     expect(today.match(/class="card agt-item-card"/g)).toHaveLength(2);
     expect(today.indexOf('>hello<')).toBeLessThan(today.indexOf('>Ask about the model<'));
     expect(section(markup, 'Yesterday')).toContain('class="agt-day__date">Sat, Sep 5<');
-    expect(section(markup, 'Yesterday')).toContain('class="agt-item-row__title">trino issue reading<');
+    expect(section(markup, 'Yesterday')).toContain('class="agt-item-row__title">repository issue reading<');
     expect(section(markup, 'Earlier this week')).toContain('class="agt-day__date">Sep 3<');
     expect(section(markup, 'Earlier this week')).toContain('class="agt-item-row__title">Image journey<');
     // The shelved task waits on the other tab.
@@ -1945,7 +1945,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     expect(markup).toContain('aria-pressed="false" aria-label="Select hello"');
     expect(markup).toContain('aria-label="Archive task: hello"');
     expect(markup).toMatch(/<button[^>]*class="card-iconbtn is-danger"[^>]*title="Stop the task before deleting"[^>]*aria-label="Delete task: hello"[^>]*disabled/);
-    expect(markup).toMatch(/<button[^>]*class="card-iconbtn is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: trino issue reading"(?![^>]*disabled)/);
+    expect(markup).toMatch(/<button[^>]*class="card-iconbtn is-danger"[^>]*title="Delete permanently"[^>]*aria-label="Delete task: repository issue reading"(?![^>]*disabled)/);
     expect(markup).toContain('lucide-chevron-right');
     // A development task starts in the composer anchored under the list.
     expect(typeTab(markup, 'All')).toEqual({ selected: true, count: 4, needsYou: false });
@@ -1957,7 +1957,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     const markup = renderList(rows, { now: noon, initialTab: 'archived' });
 
     expect(section(markup, 'Older')).toContain('Explain the query planner');
-    expect(markup).not.toContain('trino issue reading');
+    expect(markup).not.toContain('repository issue reading');
     expect(markup).toContain('aria-label="Restore task: Explain the query planner"');
     expect(markup).not.toContain('aria-label="Describe a task"');
     expect(markup).not.toContain('+ New task');
@@ -1976,7 +1976,7 @@ describe('task list tabs, today cards, older rows and row actions', () => {
     const changes = { 't-yesterday': { uncommitted: true, commits: 2 } };
     const markup = renderList(tasks, { now: noon, changes });
 
-    expect(markup).toMatch(/class="agt-item-row__title">trino issue reading<\/span>.*?<span class="card-link" title="Refactor a minor issue"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31101<\/span><\/span>/);
+    expect(markup).toMatch(/class="agt-item-row__title">repository issue reading<\/span>.*?<span class="card-link" title="Refactor a minor issue"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31101<\/span><\/span>/);
     expect(markup).toContain('<span class="card-link" title="Fix preview output limit"><span class="card-src is-pr">');
     expect(markup).not.toContain('2 commits · uncommitted changes');
   });
@@ -1993,13 +1993,13 @@ describe('task list tabs, today cards, older rows and row actions', () => {
 
     expect(change('hello')).toBe('No changes');
     expect(change('Ask about the model')).toBe('Uncommitted changes');
-    expect(change('trino issue reading')).toBe('1 commit');
+    expect(change('repository issue reading')).toBe('1 commit');
     expect(change('Image journey')).toBe('3 commits · uncommitted changes');
   });
 
   it('lists reviews, cherry-picks and CI fixes beside agent tasks, one type tab at a time', () => {
     const execution: CherryPickExecution = {
-      executionId: 'exec-1', workspaceId: 'workspace-1', repository: 'trinodb/trino', workBranch: 'cp-1',
+      executionId: 'exec-1', workspaceId: 'workspace-1', repository: 'owner/repository', workBranch: 'cp-1',
       localTargetBranch: '478-lts', targetBranch: '478-lts', status: 'PAUSED', pauseReason: 'CONFLICT',
       initialTargetSha: 'a'.repeat(40), currentTargetSha: 'a'.repeat(40),
       pullRequestDraft: { title: 'Backport conflict classification to 478-lts', body: '' },

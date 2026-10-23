@@ -28,9 +28,9 @@ const remote = (id: string, source: 'GITHUB' | 'JIRA', key: string, label: strin
   reference: { kind: source === 'GITHUB' ? 'ISSUE' : 'JIRA', key, label, title, addedAt: '2026-10-01T08:00:00Z' }, work: null,
 });
 const CATALOG = [
-  remote('ISSUE:github.com:500', 'GITHUB', 'trinodb/trino#12', '#12', 'Iceberg metadata cache'),
-  remote('ISSUE:github.com:501', 'GITHUB', 'trinodb/trino#13', '#13', 'Closed issue', true),
-  remote('ISSUE:github.com:502', 'GITHUB', 'trinodb/trino#14', '#14', 'Already an Epic'),
+  remote('ISSUE:github.com:500', 'GITHUB', 'owner/repository#12', '#12', 'Iceberg metadata cache'),
+  remote('ISSUE:github.com:501', 'GITHUB', 'owner/repository#13', '#13', 'Closed issue', true),
+  remote('ISSUE:github.com:502', 'GITHUB', 'owner/repository#14', '#14', 'Already an Epic'),
   remote('JIRA:5:cloud:77', 'JIRA', 'conn:cloud:77', 'ENG-7', 'Parquet reader'),
 ];
 

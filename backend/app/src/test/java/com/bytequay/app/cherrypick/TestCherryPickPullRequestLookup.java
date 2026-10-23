@@ -39,7 +39,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestCherryPickPullRequestLookup
 {
-    private static final RepoRef REPOSITORY = RepoRef.of("trinodb", "trino");
+    private static final RepoRef REPOSITORY = RepoRef.of("owner", "repository");
     private static final String SHA = "a".repeat(40);
 
     @Test
@@ -53,7 +53,7 @@ class TestCherryPickPullRequestLookup
                         .contentType(MediaType.APPLICATION_JSON)
                         .body("""
                                 [{"number":23401,"title":"Fix Hive coercion",
-                                  "html_url":"https://github.com/trinodb/trino/pull/23401",
+                                  "html_url":"https://github.com/owner/repository/pull/23401",
                                   "merged_at":"2026-08-03T10:00:00Z","base":{"ref":"master"}}]
                                 """));
 
@@ -275,6 +275,6 @@ class TestCherryPickPullRequestLookup
 
     private static String url(String sha)
     {
-        return "https://api.github.com/repos/trinodb/trino/commits/" + sha + "/pulls?per_page=100";
+        return "https://api.github.com/repos/owner/repository/commits/" + sha + "/pulls?per_page=100";
     }
 }

@@ -36,8 +36,8 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * A module of the repository a spec check can start from: a directory holding a build file, with the page its own code cites in the most
- * sections. That is how a specification the module implements usually shows: Trino's Delta Lake connector cites twenty sections of the
- * Delta protocol.
+ * sections. That is how a specification the module implements usually shows: a table-format connector can cite twenty sections of its
+ * format's protocol.
  *
  * @param page the page the module's own code cites in the most sections; tests, docs and bundled third-party code are not its own
  * @param sections how many sections of that page the code cites

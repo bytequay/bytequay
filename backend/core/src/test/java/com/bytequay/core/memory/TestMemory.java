@@ -27,20 +27,20 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestMemory
 {
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
-    private static final MemorySource SOURCE = MemorySource.pullRequest("https://github.com/trinodb/trino/pull/31201", "Docs, please.", NOW,
+    private static final MemorySource SOURCE = MemorySource.pullRequest("https://github.com/owner/repository/pull/31201", "Docs, please.", NOW,
             new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW, "7", "alice", true, true, false, false));
 
     @Test
     void matchesPrefixesFilesGlobsAndTheDirectoriesAboveThem()
     {
-        Memory memory = memory("Rule", ImmutableList.of("plugin/trino-delta-lake/", "core/trino-spi/pom.xml", "**/Test*.java"));
-        assertThat(memory.match("plugin/trino-delta-lake/src/DeltaLakeWriter.java")).isEqualTo(OptionalInt.of(24));
-        assertThat(memory.match("plugin/trino-delta-lake")).isEqualTo(OptionalInt.of(24));
-        assertThat(memory.match("plugin/")).isEqualTo(OptionalInt.of(24));
-        assertThat(memory.match("core/trino-spi/pom.xml")).isEqualTo(OptionalInt.of(22));
-        assertThat(memory.match("plugin/trino-hive/src/test/java/TestHive.java")).isEqualTo(OptionalInt.of(13));
-        assertThat(memory.match("plugin/trino-hive/src/main/java/Hive.java")).isEmpty();
-        assertThat(memory.match("plugin/trino-delta-lake-extra/x")).isEmpty();
+        Memory memory = memory("Rule", ImmutableList.of("plugin/storage/", "core/spi/pom.xml", "**/Test*.java"));
+        assertThat(memory.match("plugin/storage/src/DeltaLakeWriter.java")).isEqualTo(OptionalInt.of(15));
+        assertThat(memory.match("plugin/storage")).isEqualTo(OptionalInt.of(15));
+        assertThat(memory.match("plugin/")).isEqualTo(OptionalInt.of(15));
+        assertThat(memory.match("core/spi/pom.xml")).isEqualTo(OptionalInt.of(16));
+        assertThat(memory.match("plugin/files/src/test/java/TestFiles.java")).isEqualTo(OptionalInt.of(13));
+        assertThat(memory.match("plugin/files/src/main/java/Files.java")).isEmpty();
+        assertThat(memory.match("plugin/storage-extra/x")).isEmpty();
         assertThat(memory("Rule", ImmutableList.of()).match("anything")).isEmpty();
     }
 
@@ -94,7 +94,7 @@ class TestMemory
         assertThat(Memory.titleFrom("  Close\ton failure\n overwrites a checkpoint ")).isEqualTo("Close on failure overwrites a checkpoint");
         assertThat(Memory.titleFrom("When changing streaming Delta Lake checkpoint writes, publish only after the read/write phase succeeds"))
                 .isEqualTo("When changing streaming Delta Lake checkpoint writes, publish only after the…");
-        assertThat(Memory.titleFrom("Specification at trino.io/" + "x".repeat(100))).hasSize(Memory.MAX_TITLE).endsWith("x…");
+        assertThat(Memory.titleFrom("Specification at example.com/" + "x".repeat(100))).hasSize(Memory.MAX_TITLE).endsWith("x…");
     }
 
     @Test

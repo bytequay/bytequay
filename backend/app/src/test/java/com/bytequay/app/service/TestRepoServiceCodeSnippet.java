@@ -52,19 +52,19 @@ class TestRepoServiceCodeSnippet
     void returnsOnlyTheRequestedNumberedSourceLines()
     {
         when(credentials.resolveGitHubToken()).thenReturn("pat");
-        when(pullRequests.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 2, 3))
+        when(pullRequests.fetchRepositoryFileLines("pat", RepoRef.of("owner", "repository"), "src/Main.java", COMMIT, 2, 3))
                 .thenReturn(Optional.of(java.util.List.of("second", "third")));
 
-        assertThat(service.getCodeSnippet("trinodb", "trino", COMMIT, "src/Main.java", 2, 3))
+        assertThat(service.getCodeSnippet("owner", "repository", COMMIT, "src/Main.java", 2, 3))
                 .containsExactly("second", "third");
 
-        verify(pullRequests).fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 2, 3);
+        verify(pullRequests).fetchRepositoryFileLines("pat", RepoRef.of("owner", "repository"), "src/Main.java", COMMIT, 2, 3);
     }
 
     @Test
     void rejectsUnsafeRangesBeforeContactingGitHub()
     {
-        assertThatThrownBy(() -> service.getCodeSnippet("trinodb", "trino", COMMIT, "src/Main.java", 1, 21))
+        assertThatThrownBy(() -> service.getCodeSnippet("owner", "repository", COMMIT, "src/Main.java", 1, 21))
                 .isInstanceOfSatisfying(ResponseStatusException.class, exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
 
         verifyNoInteractions(credentials, pullRequests);
@@ -73,7 +73,7 @@ class TestRepoServiceCodeSnippet
     @Test
     void rejectsOverflowingRangesBeforeContactingGitHub()
     {
-        assertThatThrownBy(() -> service.getCodeSnippet("trinodb", "trino", COMMIT, "src/Main.java", 1, Integer.MAX_VALUE))
+        assertThatThrownBy(() -> service.getCodeSnippet("owner", "repository", COMMIT, "src/Main.java", 1, Integer.MAX_VALUE))
                 .isInstanceOfSatisfying(ResponseStatusException.class, exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
 
         verifyNoInteractions(credentials, pullRequests);
@@ -83,10 +83,10 @@ class TestRepoServiceCodeSnippet
     void reportsMissingSourceLinesAsNotFound()
     {
         when(credentials.resolveGitHubToken()).thenReturn("pat");
-        when(pullRequests.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 2, 2))
+        when(pullRequests.fetchRepositoryFileLines("pat", RepoRef.of("owner", "repository"), "src/Main.java", COMMIT, 2, 2))
                 .thenReturn(Optional.of(java.util.List.of()));
 
-        assertThatThrownBy(() -> service.getCodeSnippet("trinodb", "trino", COMMIT, "src/Main.java", 2, 2))
+        assertThatThrownBy(() -> service.getCodeSnippet("owner", "repository", COMMIT, "src/Main.java", 2, 2))
                 .isInstanceOfSatisfying(ResponseStatusException.class, exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
     }
 }

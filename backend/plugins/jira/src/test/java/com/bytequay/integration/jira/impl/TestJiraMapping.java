@@ -118,12 +118,12 @@ class TestJiraMapping
         assertThat(JiraMapping.markdown("https://example.atlassian.net", mapper.readTree("""
                 {"type":"paragraph","content":[
                   {"type":"text","text":"updated the PR: ","marks":[{"type":"em"}]},
-                  {"type":"inlineCard","attrs":{"url":"https://github.com/trinodb/trino/pull/30205"}},
+                  {"type":"inlineCard","attrs":{"url":"https://github.com/owner/repository/pull/30205"}},
                   {"type":"text","text":" ","marks":[{"type":"em"}]},
                   {"type":"text","text":"\\u00a0really ","marks":[{"type":"strong"},{"type":"em"}]},
                   {"type":"text","text":"done"}
                 ]}
-                """)).strip()).isEqualTo("_updated the PR:_ [https://github\\.com/trinodb/trino/pull/30205](https://github.com/trinodb/trino/pull/30205) \u00a0_**really**_ done");
+                """)).strip()).isEqualTo("_updated the PR:_ [https://github\\.com/owner/repository/pull/30205](https://github.com/owner/repository/pull/30205) \u00a0_**really**_ done");
     }
 
     @Test
@@ -174,7 +174,7 @@ class TestJiraMapping
         var body = mapper.readTree("""
                 {"type":"doc","content":[
                   {"type":"heading","attrs":{"level":2},"content":[
-                    {"type":"mention","attrs":{"id":"712020:jack/chen ?#%","text":"Jack Chen"}}]},
+                    {"type":"mention","attrs":{"id":"712020:sam/lee ?#%","text":"Sam Lee"}}]},
                   {"type":"blockquote","content":[{"type":"bulletList","content":[{"type":"listItem","content":[
                     {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"chen xiao","text":"@陈 晓"}}]}]}]}]},
                   {"type":"table","content":[
@@ -190,7 +190,7 @@ class TestJiraMapping
                 ]}
                 """);
         String expected = """
-                ## [@Jack Chen](https://example.atlassian.net/jira/people/712020%3Ajack%2Fchen%20%3F%23%25)
+                ## [@Sam Lee](https://example.atlassian.net/jira/people/712020%3Asam%2Flee%20%3F%23%25)
 
                 > - [@陈 晓](https://example.atlassian.net/jira/people/chen%20xiao)
 

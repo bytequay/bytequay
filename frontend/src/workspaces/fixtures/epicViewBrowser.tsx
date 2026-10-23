@@ -25,15 +25,15 @@ import '../../css/base.css';
 const NOW = '2026-10-01T08:00:00Z';
 const EPIC_ID = 'ISSUE:github.com:24918';
 const epic = issueAttentionItem({ id: 24918, number: 24918, title: 'Iceberg REST catalog: cache metadata', isEpic: true, developmentTask: null, body: '',
-  author: 'wren-d', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: [], commentCount: 0, createdAt: NOW, updatedAt: NOW }, 'trinodb/trino', 'workspace');
+  author: 'wren-d', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: [], commentCount: 0, createdAt: NOW, updatedAt: NOW }, 'owner/repository', 'workspace');
 const link = (kind: GoalItemDto['kind'], key: string, label: string, state: GoalItemDto['state'], status: string): GoalItemDto => ({
   kind, key, label, title: label, state, status, blocked: false, url: null, activity: null, addedAt: NOW });
 const work = (id: string, title: string, state: WorkItemDto['state'], epicRank: number, extra: Partial<WorkItemDto> = {}): WorkItemDto => ({
   id, workspaceId: 'workspace', isEpic: false, contextLinks: [], title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [],
   history: [], createdAt: NOW, updatedAt: NOW, priority: 'NORMAL', blockedBy: [], epicId: EPIC_ID, epicRank, ...extra });
-const CANDIDATE = link('ISSUE', 'trinodb/trino#24977', '#24977', 'IDLE', 'Open');
+const CANDIDATE = link('ISSUE', 'owner/repository#24977', '#24977', 'IDLE', 'Open');
 const child = (number: number, title: string, status: string): EpicChildDto => ({
-  identity: `ISSUE:github.com:${number}`, kind: 'ISSUE', key: `trinodb/trino#${number}`, label: `#${number}`, title, status, closed: status === 'Closed', url: null });
+  identity: `ISSUE:github.com:${number}`, kind: 'ISSUE', key: `owner/repository#${number}`, label: `#${number}`, title, status, closed: status === 'Closed', url: null });
 
 
 const button = (label: string) => findButton(label, document, `Missing button ${label}`);
@@ -64,14 +64,14 @@ export async function run(): Promise<boolean> {
   const calls: string[] = [];
   const details: string[] = [];
   let items = [
-    work('a', 'Cache table metadata', 'DONE', 0, { links: [link('PULL_REQUEST', 'trinodb/trino#24950', '#24950', 'MERGED', 'Merged')] }),
-    work('b', 'Invalidate on DDL', 'WORKING', 1, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open'), link('TASK', 'task-1', 'Task', 'WORKING', 'Running')] }),
-    work('c', 'Coordinator broadcast', 'WORKING', 2, { links: [link('PULL_REQUEST', 'trinodb/trino#24990', '#24990', 'MERGED', 'Merged')] }),
+    work('a', 'Cache table metadata', 'DONE', 0, { links: [link('PULL_REQUEST', 'owner/repository#24950', '#24950', 'MERGED', 'Merged')] }),
+    work('b', 'Invalidate on DDL', 'WORKING', 1, { links: [link('ISSUE', 'owner/repository#24931', '#24931', 'WORKING', 'Open'), link('TASK', 'task-1', 'Task', 'WORKING', 'Running')] }),
+    work('c', 'Coordinator broadcast', 'WORKING', 2, { links: [link('PULL_REQUEST', 'owner/repository#24990', '#24990', 'MERGED', 'Merged')] }),
     work('d', 'Benchmark warm cache', 'PLANNED', 3, { blockedBy: ['b'] }),
     work('e', 'Old spike', 'DROPPED', 4),
     work('elsewhere', 'Another Epic', 'PLANNED', 0, { epicId: 'JIRA:4:site:10' }),
   ];
-  const render = (): void => flushSync(() => root.render(<EpicView epic={epic} workspaceId="workspace" repository="trinodb/trino" work={items} needsYou={new Set()}
+  const render = (): void => flushSync(() => root.render(<EpicView epic={epic} workspaceId="workspace" repository="owner/repository" work={items} needsYou={new Set()}
     goals={{
       createWork: async (request: CreateWorkItem) => {
         calls.push(`create ${request.title} ${request.epicId} ${request.kind} [${request.acceptanceCriteria}] ${request.completionRule}`);
@@ -197,7 +197,7 @@ export async function run(): Promise<boolean> {
     const result = element('.goal-result');
     assert(result.textContent?.includes('#24977') === true, 'Add existing finds sources');
     element<HTMLButtonElement>('button', result).click(); await wait(20);
-    assert(calls.at(-1) === 'join ISSUE:github.com:24918 ISSUE trinodb/trino#24977', `Add existing joins the Epic: ${calls.at(-1)}`);
+    assert(calls.at(-1) === 'join ISSUE:github.com:24918 ISSUE owner/repository#24977', `Add existing joins the Epic: ${calls.at(-1)}`);
     assert(element('.epic-view__notice').textContent === 'Moved here from Parquet lazy decode', 'Work taken from another Epic says so');
 
 
@@ -208,8 +208,8 @@ export async function run(): Promise<boolean> {
       offered: true, concludedAt: null, outcome: '', proposals: [], breakingDown: false, breakdownError: null,
     };
     items = [
-      work('p', 'Invalidate on DDL', 'WORKING', 0, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open')] }),
-      work('q', 'Old parent link', 'PLANNED', 1, { links: [link('ISSUE', 'trinodb/trino#24970', '#24970', 'IDLE', 'Open'), link('TASK', 'task-9', 'Task', 'ENDED', 'Ended')] }),
+      work('p', 'Invalidate on DDL', 'WORKING', 0, { links: [link('ISSUE', 'owner/repository#24931', '#24931', 'WORKING', 'Open')] }),
+      work('q', 'Old parent link', 'PLANNED', 1, { links: [link('ISSUE', 'owner/repository#24970', '#24970', 'IDLE', 'Open'), link('TASK', 'task-9', 'Task', 'ENDED', 'Ended')] }),
       work('o', 'Docs site update', 'PLANNED', 2, { links: [link('ISSUE', 'other/docs#3', 'other/docs#3', 'IDLE', 'Open')] }),
     ];
     window.bridge = {
@@ -220,8 +220,8 @@ export async function run(): Promise<boolean> {
       },
       syncEpicChildren: async () => {
         calls.push('sync');
-        items = [...items, work('r', 'Document the cache', 'PLANNED', 2, { links: [link('ISSUE', 'trinodb/trino#24960', '#24960', 'IDLE', 'Closed')] }),
-          work('s', 'Expose metrics', 'PLANNED', 3, { links: [link('ISSUE', 'trinodb/trino#24961', '#24961', 'IDLE', 'Open')] })];
+        items = [...items, work('r', 'Document the cache', 'PLANNED', 2, { links: [link('ISSUE', 'owner/repository#24960', '#24960', 'IDLE', 'Closed')] }),
+          work('s', 'Expose metrics', 'PLANNED', 3, { links: [link('ISSUE', 'owner/repository#24961', '#24961', 'IDLE', 'Open')] })];
         record = { ...record, synced: [...record.synced, 'ISSUE:github.com:24960', 'ISSUE:github.com:24961'], offered: false };
         render();
         return record;

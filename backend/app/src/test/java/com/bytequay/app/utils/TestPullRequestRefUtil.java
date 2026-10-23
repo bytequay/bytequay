@@ -26,10 +26,10 @@ class TestPullRequestRefUtil
     @Test
     void testParseRefSplitsOwnerAndRepo()
     {
-        PullRequestRef ref = PullRequestRefUtil.parseRef("trinodb/trino", 42);
+        PullRequestRef ref = PullRequestRefUtil.parseRef("owner/repository", 42);
 
-        assertThat(ref.owner()).isEqualTo("trinodb");
-        assertThat(ref.repo()).isEqualTo("trino");
+        assertThat(ref.owner()).isEqualTo("owner");
+        assertThat(ref.repo()).isEqualTo("repository");
         assertThat(ref.number()).isEqualTo(42);
     }
 

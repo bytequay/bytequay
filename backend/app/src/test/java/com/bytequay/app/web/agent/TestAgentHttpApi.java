@@ -263,7 +263,7 @@ class TestAgentHttpApi
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Chen", "", "", 0, 0, 0, "", "", "", "")));
         doReturn(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())).when(developmentGit).inspectPublication(any(), any());
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
@@ -553,8 +553,8 @@ class TestAgentHttpApi
     void discoversUpstreamPullRequestsForATaskInADifferentlyNamedFork()
             throws Exception
     {
-        RepoRef fork = RepoRef.of("chenjian2664", "trino_new");
-        RepoRef upstream = RepoRef.of("trinodb", "trino");
+        RepoRef fork = RepoRef.of("contributor", "repository-copy");
+        RepoRef upstream = RepoRef.of("owner", "repository");
         String origin = "https://github.com/" + fork.fullName() + ".git";
         String upstreamUrl = "https://github.com/" + upstream.fullName() + ".git";
         Workspace previous = workspaces.findById(workspaceId).orElseThrow();
@@ -580,21 +580,21 @@ class TestAgentHttpApi
 
         JsonNode cached = get(path + "?workspaceId=" + workspaceId).getBody();
         assertThat(cached).hasSize(1);
-        assertThat(cached.get(0).get("repo").asText()).isEqualTo("trinodb/trino");
+        assertThat(cached.get(0).get("repo").asText()).isEqualTo("owner/repository");
         assertThat(cached.get(0).get("number").asInt()).isEqualTo(31022);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Chen", "", "", 0, 0, 0, "", "", "", "")));
         // The user's own fork branch: its pull request is theirs, which a renamed-branch match requires.
-        when(gitHub.fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + branch))
-                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch, "chenjian2664")));
+        when(gitHub.fetchPullRequestsByHead("pat", upstream, "contributor:" + branch))
+                .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch, "contributor")));
 
         JsonNode refreshed = post(path + "/sync?workspaceId=" + workspaceId, ImmutableMap.of(), null).getBody();
 
         assertThat(refreshed).hasSize(2);
-        assertThat(refreshed.get(0).get("repo").asText()).isEqualTo("trinodb/trino");
+        assertThat(refreshed.get(0).get("repo").asText()).isEqualTo("owner/repository");
         assertThat(refreshed.get(0).get("number").asInt()).isEqualTo(31023);
-        verify(gitHub).fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + branch);
-        verify(gitHub).fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + worktree.generatedBranch());
-        verify(gitHub, never()).fetchPullRequestsByHead("pat", fork, "chenjian2664:" + branch);
+        verify(gitHub).fetchPullRequestsByHead("pat", upstream, "contributor:" + branch);
+        verify(gitHub).fetchPullRequestsByHead("pat", upstream, "contributor:" + worktree.generatedBranch());
+        verify(gitHub, never()).fetchPullRequestsByHead("pat", fork, "contributor:" + branch);
     }
 
     private static FetchedPullRequest fetchedPullRequest(int number, String headRef)

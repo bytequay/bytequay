@@ -29,7 +29,7 @@ describe('mail presentation', () => {
   });
 
   it('moves the repository and pull request out of a GitHub subject', () => {
-    expect(mailSubject('Re: [trinodb/trino] Fix flaky test (PR #31416)')).toEqual({ title: 'Fix flaky test', repository: 'trinodb/trino', number: '31416', kind: 'PR' });
+    expect(mailSubject('Re: [owner/repository] Fix flaky test (PR #31416)')).toEqual({ title: 'Fix flaky test', repository: 'owner/repository', number: '31416', kind: 'PR' });
     expect(mailSubject('[a/b] Crash on start (Issue #7)')).toMatchObject({ title: 'Crash on start', kind: 'Issue', number: '7' });
     expect(mailSubject('Lunch (PR #1)')).toEqual({ title: 'Lunch (PR #1)', repository: '', number: '', kind: null });
     expect(mailSubject('')).toMatchObject({ title: '(No subject)' });
@@ -56,12 +56,12 @@ describe('mail presentation', () => {
 
   it('reads a GitHub review comment as actor, quoted diff, comment and thread link', () => {
     const notification = githubNotification(mail({
-      subject: 'Re: [trinodb/trino] Fix flaky test (PR #31416)', from: 'Co1a <notifications@github.com>',
+      subject: 'Re: [owner/repository] Fix flaky test (PR #31416)', from: 'Co1a <notifications@github.com>',
       body: '@Max-Cheng commented on this pull request.\n\n\n\nIn testing/Kerberos.java:\n\n> +    return """\n-        echo "INIT"\n         #!/bin/bash\n\nSame issue as #30979.\n\n-- \n'
-        + 'Reply to this email directly or view it on GitHub:\nhttps://github.com/trinodb/trino/pull/31416#discussion_r1\nYou are receiving this because you are subscribed to this thread.\n\nMessage ID: <trinodb/trino/pull/31416/review/1@github.com>',
+        + 'Reply to this email directly or view it on GitHub:\nhttps://github.com/owner/repository/pull/31416#discussion_r1\nYou are receiving this because you are subscribed to this thread.\n\nMessage ID: <owner/repository/pull/31416/review/1@github.com>',
     }));
     expect(notification).toMatchObject({ actor: '@Max-Cheng', action: 'commented on this pull request',
-      link: 'https://github.com/trinodb/trino/pull/31416#discussion_r1', messageId: '<trinodb/trino/pull/31416/review/1@github.com>',
+      link: 'https://github.com/owner/repository/pull/31416#discussion_r1', messageId: '<owner/repository/pull/31416/review/1@github.com>',
       reason: 'You are receiving this because you are subscribed to this thread.' });
     expect(notification.blocks).toEqual([
       { file: 'testing/Kerberos.java', lines: [{ sign: '+', text: '    return """', tone: 'add' }, { sign: '-', text: '        echo "INIT"', tone: 'del' }, { sign: '', text: '         #!/bin/bash', tone: 'ctx' }] },

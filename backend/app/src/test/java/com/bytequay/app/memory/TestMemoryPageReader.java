@@ -67,19 +67,19 @@ class TestMemoryPageReader
             throws IOException
     {
         git.run(repository, "init", "-q");
-        write("plugin/trino-delta-lake/src/DeltaLakeWriter.java", "class DeltaLakeWriter {}\n");
+        write("plugin/storage/src/DeltaLakeWriter.java", "class DeltaLakeWriter {}\n");
         write("CONTRIBUTING.md", "x".repeat(20 * 1024));
         write(".github/DEVELOPMENT.md", "Run one module with -pl.\n");
         git.run(repository, "add", "-A");
         assertThat(git.run(repository, ImmutableList.of("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "Initial")).successful()).isTrue();
         String head = git.run(repository, "rev-parse", "HEAD").output().strip();
         when(builds.baseline("workspace")).thenReturn(Optional.of(new ContextBuildService.Baseline("master", head)));
-        when(workspaces.requireReadyRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("trinodb", "trino"),
-                OptionalLong.empty(), RepoRef.of("trinodb", "trino"), "origin", "origin", "master", ImmutableList.of()));
-        store.save(rule("m1", "workspace", "Delta rule", ImmutableList.of("plugin/trino-delta-lake/", "plugin/trino-gone/", "**/Test*.java")));
+        when(workspaces.requireReadyRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("owner", "repository"),
+                OptionalLong.empty(), RepoRef.of("owner", "repository"), "origin", "origin", "master", ImmutableList.of()));
+        store.save(rule("m1", "workspace", "Delta rule", ImmutableList.of("plugin/storage/", "plugin/gone/", "**/Test*.java")));
         store.save(rule("m2", "workspace", "Docs rule", ImmutableList.of("CONTRIBUTING.md", "docs/connector")));
         store.save(rule("m3", "workspace", "Repository rule", ImmutableList.of()));
-        store.save(rule("m4", "workspace", "Delta directory rule", ImmutableList.of("plugin/trino-delta-lake", "plugin/trino-gone")));
+        store.save(rule("m4", "workspace", "Delta directory rule", ImmutableList.of("plugin/storage", "plugin/gone")));
 
         MemoryPageReader.MemoryPage page = reader.page("workspace");
 
@@ -87,10 +87,10 @@ class TestMemoryPageReader
         assertThat(page.switches()).isEqualTo(MemorySwitches.ON);
         assertThat(page.memories()).extracting(entry -> entry.memory().id()).containsExactly("m4", "m3", "m2", "m1");
         assertThat(page.memories()).extracting(MemoryPageReader.Entry::missingScope)
-                .containsExactly(ImmutableList.of("plugin/trino-gone"), ImmutableList.of(), ImmutableList.of("docs/connector"), ImmutableList.of("plugin/trino-gone/"));
+                .containsExactly(ImmutableList.of("plugin/gone"), ImmutableList.of(), ImmutableList.of("docs/connector"), ImmutableList.of("plugin/gone/"));
         assertThat(page.guidelines()).containsExactly(
-                new MemoryPageReader.GuidelineView("CONTRIBUTING.md", 20 * 1024, true, "https://github.com/trinodb/trino/blob/" + head + "/CONTRIBUTING.md"),
-                new MemoryPageReader.GuidelineView(".github/DEVELOPMENT.md", 25, false, "https://github.com/trinodb/trino/blob/" + head + "/.github/DEVELOPMENT.md"));
+                new MemoryPageReader.GuidelineView("CONTRIBUTING.md", 20 * 1024, true, "https://github.com/owner/repository/blob/" + head + "/CONTRIBUTING.md"),
+                new MemoryPageReader.GuidelineView(".github/DEVELOPMENT.md", 25, false, "https://github.com/owner/repository/blob/" + head + "/.github/DEVELOPMENT.md"));
     }
 
     @Test

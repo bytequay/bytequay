@@ -71,13 +71,13 @@ describe('rowsForTab', () => {
     const closed = pr({ id: 3, origin: 'AUTHORED', state: 'closed' });
     const someoneElse = pr({ id: 4, author: 'someone-else', origin: 'OTHER', state: 'open' });
 
-    expect(rowsForTab([open, merged, closed, someoneElse], 'active', 'jack').map(row => row.id)).toEqual([1]);
-    expect(rowsForTab([merged, closed], 'done', 'jack').map(row => row.id)).toEqual([2, 3]);
-    expect(tabForInitialPullRequest(merged, 'active', 'jack')).toBe('done');
+    expect(rowsForTab([open, merged, closed, someoneElse], 'active', 'riley').map(row => row.id)).toEqual([1]);
+    expect(rowsForTab([merged, closed], 'done', 'riley').map(row => row.id)).toEqual([2, 3]);
+    expect(tabForInitialPullRequest(merged, 'active', 'riley')).toBe('done');
   });
 
   it('uses the viewer login instead of a stale authored origin', () => {
-    const mine = pr({ id: 1, author: 'Jack', origin: 'OTHER' });
+    const mine = pr({ id: 1, author: 'Riley', origin: 'OTHER' });
     const stale = pr({ id: 2, author: 'someone-else', origin: 'AUTHORED' });
     const reviewed = pr({
       id: 3,
@@ -87,9 +87,9 @@ describe('rowsForTab', () => {
       reviewedAt: '2026-08-22T09:00:00Z',
     });
 
-    expect(rowsForTab([mine, stale, reviewed], 'active', 'jack').map(row => row.id)).toEqual([1]);
-    expect(rowsForTab([reviewed], 'reviewed', 'jack').map(row => row.id)).toEqual([3]);
-    expect(tabForInitialPullRequest(stale, 'active', 'jack')).toBe('all');
+    expect(rowsForTab([mine, stale, reviewed], 'active', 'riley').map(row => row.id)).toEqual([1]);
+    expect(rowsForTab([reviewed], 'reviewed', 'riley').map(row => row.id)).toEqual([3]);
+    expect(tabForInitialPullRequest(stale, 'active', 'riley')).toBe('all');
     expect(rowsForTab([stale], 'active', null).map(row => row.id)).toEqual([2]);
   });
 
@@ -209,7 +209,7 @@ describe('pull search', () => {
     const prefix = pr({ id: 2, number: 420, origin: 'REVIEW_REQUESTED' });
     expect(rowsForPullSearch([closed, prefix], 'req', '#42').map(row => row.id)).toEqual([1]);
     expect(rowsForPullSearch([closed, prefix], 'req', '42').map(row => row.id)).toEqual([2]);
-    expect(rowsForPullSearch([closed, prefix], 'req', '@jack #42').map(row => row.id)).toEqual([2]);
+    expect(rowsForPullSearch([closed, prefix], 'req', '@riley #42').map(row => row.id)).toEqual([2]);
   });
 
   it('reads an at-marked term as an author and keeps the rest as text', () => {

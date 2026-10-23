@@ -62,13 +62,14 @@ class TestTeamService
     @Test
     void persistsNormalizedPrivateCirclesAndMemberIdentity()
     {
-        TeamCircle circle = service.create(" OSS friends ", "", Avatar.DEFAULT, ImmutableList.of(" Apache/Trino ", "apache/trino"), ImmutableList.of()).circles().getFirst();
+        TeamCircle circle = service.create(" OSS friends ", "", Avatar.DEFAULT, ImmutableList.of(" Apache/Repository ", "apache/repository"), ImmutableList.of())
+                .circles().getFirst();
         when(github.fetchUserIdentity("token-a", Optional.of("old-name"))).thenReturn(identity(42, "old-name"));
         assertThat(service.addMember(circle.id(), new TeamMemberInput(42, "OLD-NAME")).circles().getFirst().members()).extracting(TeamMember::githubId).containsExactly(42L);
         when(github.fetchUserIdentity("token-a", Optional.of("new-name"))).thenReturn(identity(42, "new-name"));
         TeamDirectory saved = service.addMember(circle.id(), new TeamMemberInput(42, "new-name"));
         assertThat(saved.circles().getFirst().name()).isEqualTo("OSS friends");
-        assertThat(saved.circles().getFirst().repositories()).containsExactly("apache/trino");
+        assertThat(saved.circles().getFirst().repositories()).containsExactly("apache/repository");
         assertThat(saved.circles().getFirst().members()).extracting(TeamMember::login).containsExactly("new-name");
         assertThat(new TeamService(store, mapper, credentials, github, metadata).directory()).isEqualTo(saved);
         assertThat(service.update(circle.id(), "Maintainers", "", Avatar.DEFAULT, ImmutableList.of()).circles().getFirst().members()).hasSize(1);

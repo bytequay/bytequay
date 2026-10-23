@@ -48,7 +48,7 @@ class TestContextSpecSource
                 // Licensed under http://www.apache.org/licenses/LICENSE-2.0
                 // %1$s#action-reconciliation
                 // %1$s#add-file-and-remove-file.
-                // See https://github.com/trinodb/trino/issues/12011 and https://github.com/delta-io/delta
+                // See https://github.com/owner/repository/issues/12011 and https://github.com/delta-io/delta
                 // Port of https://github.com/delta-io/delta/blob/f5ebfbb/spark/src/main/scala/Checkpoints.scala#L40
                 // Deletion vector ids are Z85 encoded: https://rfc.zeromq.org/spec/32/
                 // Discussed in https://delta-users.slack.com/archives/GKTUWT03T/p1585760533005400 and https://issues.apache.org/jira/browse/PARQUET-1246
@@ -82,7 +82,7 @@ class TestContextSpecSource
 
     private WorkspaceRepositoryContext workspace()
     {
-        return new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "trino"), OptionalLong.of(7), RepoRef.of("trinodb", "trino"),
+        return new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "repository"), OptionalLong.of(7), RepoRef.of("owner", "repository"),
                 "upstream", "origin", "main", ImmutableList.of());
     }
 

@@ -25,10 +25,10 @@ function item(kind: GoalItemDto['kind'], key: string, label: string, state: Goal
 }
 
 const ITEMS: GoalItemDto[] = [
-  item('PULL_REQUEST', 'trinodb/trino#30925', '#30925', 'WORKING', 'Open', { activity: { text: '#30925 updated', at: '2026-09-27T08:00:00Z' } }),
-  item('PULL_REQUEST', 'trinodb/trino#30702', '#30702', 'MERGED', 'Merged', { activity: { text: '#30702 merged', at: '2026-09-27T09:00:00Z' } }),
-  item('ISSUE', 'trinodb/trino#31302', '#31302', 'IDLE', 'Open'),
-  item('JIRA', 'connection:cloud:10412', 'TRINO-412', 'WORKING', 'Blocked', { blocked: true, activity: { text: 'TRINO-412 is Blocked', at: '2026-09-26T09:00:00Z' } }),
+  item('PULL_REQUEST', 'owner/repository#30925', '#30925', 'WORKING', 'Open', { activity: { text: '#30925 updated', at: '2026-09-27T08:00:00Z' } }),
+  item('PULL_REQUEST', 'owner/repository#30702', '#30702', 'MERGED', 'Merged', { activity: { text: '#30702 merged', at: '2026-09-27T09:00:00Z' } }),
+  item('ISSUE', 'owner/repository#31302', '#31302', 'IDLE', 'Open'),
+  item('JIRA', 'connection:cloud:10412', 'ENG-412', 'WORKING', 'Blocked', { blocked: true, activity: { text: 'ENG-412 is Blocked', at: '2026-09-26T09:00:00Z' } }),
   item('TASK', 'task-1', 'Task', 'ENDED', 'Completed'),
 ];
 const WORK: WorkItemDto[] = ITEMS.map((link, index): WorkItemDto => ({
@@ -41,15 +41,15 @@ const WORK: WorkItemDto[] = ITEMS.map((link, index): WorkItemDto => ({
 
 function attention(extra: Partial<AttentionItem>): AttentionItem {
   return {
-    key: 'k', type: 'pr', kind: 'review', repo: 'TrinoDB/Trino', number: 30925, title: 't', author: null, authorAvatarUrl: null, createdAt: null,
+    key: 'k', type: 'pr', kind: 'review', repo: 'Owner/Repository', number: 30925, title: 't', author: null, authorAvatarUrl: null, createdAt: null,
     updatedAt: '2026-09-27T08:00:00Z', labels: [], pr: null, body: '', commentCount: 0, workspaceId: null, ...extra,
   };
 }
 
 describe('work item model', () => {
   it('names an attention card as the item it stands for', () => {
-    expect(goalRef(attention({}))).toEqual({ kind: 'PULL_REQUEST', key: 'trinodb/trino#30925' });
-    expect(goalRef(attention({ type: 'issue', number: 31302 }))).toEqual({ kind: 'ISSUE', key: 'trinodb/trino#31302' });
+    expect(goalRef(attention({}))).toEqual({ kind: 'PULL_REQUEST', key: 'owner/repository#30925' });
+    expect(goalRef(attention({ type: 'issue', number: 31302 }))).toEqual({ kind: 'ISSUE', key: 'owner/repository#31302' });
     const jira = { id: '10412', connectionId: 'connection', cloudId: 'cloud', workspace: { id: 'workspace-2', name: 'Lake' } } as unknown as JiraIssue;
     expect(goalRef(attention({ type: 'issue', jira, repo: '' }))).toEqual({ kind: 'JIRA', key: 'connection:cloud:10412' });
     const task = { id: 'task-1', workspaceId: 'workspace-3' } as AgentTaskDto;
@@ -80,8 +80,8 @@ describe('work item model', () => {
   it('counts progress, pull requests, what needs you and what is blocked', () => {
     const needsYou = needsYouKeys([attention({}), attention({ type: 'issue', number: 31302 }), attention({ number: 1 })]);
     expect(summarize({ items: WORK }, needsYou)).toEqual({ total: 5, finished: 1, working: 3, idle: 1, prsMerged: 1, prsOpen: 1, needs: 2, blocked: 1, dropped: 0 });
-    expect(waitingOn(WORK[3], WORK)).toEqual(['TRINO-412 is Blocked']);
-    expect(addable([ITEMS[0], item('ISSUE', 'trinodb/trino#1', '#1', 'IDLE', 'Open')], { items: WORK }).map(refKey)).toEqual(['ISSUE trinodb/trino#1']);
+    expect(waitingOn(WORK[3], WORK)).toEqual(['ENG-412 is Blocked']);
+    expect(addable([ITEMS[0], item('ISSUE', 'owner/repository#1', '#1', 'IDLE', 'Open')], { items: WORK }).map(refKey)).toEqual(['ISSUE owner/repository#1']);
   });
 
   it('reads context separately from source links and defaults older work to no context links', () => {

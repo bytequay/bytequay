@@ -62,7 +62,7 @@ export default function FlowView({
 }: {
   preview: CherryPickPreview;
   workspaceId: string;
-  /** e.g. "trinodb/trino" */
+  /** e.g. "owner/repository" */
   upstreamLabel: string;
   onStarted: (execution: CherryPickExecution) => void;
   /** Leaves the confirm page without starting anything. */

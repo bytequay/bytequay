@@ -101,7 +101,7 @@ class TestMemoryService
         assertThat(memories.search("workspace", Optional.of("write succeeds"), Optional.empty(), 1, memory -> true).memories()).extracting(Memory::id).containsExactly("m1");
 
         Memory reason = memories.rememberReason("workspace", "Close on failure can overwrite another writer's checkpoint after a concurrent publish of the same version",
-                "We abort the stream instead of closing it.", "plugin/trino-delta-lake/src/main/java/Writer.java",
+                "We abort the stream instead of closing it.", "plugin/storage/src/main/java/Writer.java",
                 new MemorySource.UserPart(MemorySource.Where.RESOLVE, "review", "finding"));
         assertThat(reason.title()).isEqualTo("Close on failure can overwrite another writer's checkpoint after a concurrent…");
         assertThat(reason.text()).isEqualTo("We abort the stream instead of closing it.");
@@ -150,22 +150,22 @@ class TestMemoryService
     void specsBecomeMemoriesThatWidenToNewDirectoriesButNeverChangeTheUsers()
     {
         String spec = "https://github.com/delta-io/delta/blob/master/PROTOCOL.md";
-        memories.rememberSpecs("workspace", "plugin/trino-delta-lake/", ImmutableList.of(spec, spec), "task-1");
+        memories.rememberSpecs("workspace", "plugin/storage/", ImmutableList.of(spec, spec), "task-1");
         Memory saved = memories.list("workspace").getFirst();
         assertThat(saved.kind()).isEqualTo(Memory.Kind.SPEC);
         assertThat(saved.title()).isEqualTo("Specification at github.com/delta-io/delta/blob/master/PROTOCOL.md");
-        assertThat(saved.scope()).containsExactly("plugin/trino-delta-lake/");
-        assertThat(saved.origin().description()).isEqualTo("Spec check of plugin/trino-delta-lake/");
+        assertThat(saved.scope()).containsExactly("plugin/storage/");
+        assertThat(saved.origin().description()).isEqualTo("Spec check of plugin/storage/");
 
-        memories.rememberSpecs("workspace", "plugin/trino-delta-lake/", ImmutableList.of(spec), "task-2");
-        memories.rememberSpecs("workspace", "lib/trino-delta-common/", ImmutableList.of(spec), "task-3");
+        memories.rememberSpecs("workspace", "plugin/storage/", ImmutableList.of(spec), "task-2");
+        memories.rememberSpecs("workspace", "lib/storage-common/", ImmutableList.of(spec), "task-3");
         Memory widened = memories.list("workspace").getFirst();
-        assertThat(widened.scope()).containsExactly("plugin/trino-delta-lake/", "lib/trino-delta-common/");
-        assertThat(widened.previous().orElseThrow().scope()).containsExactly("plugin/trino-delta-lake/");
+        assertThat(widened.scope()).containsExactly("plugin/storage/", "lib/storage-common/");
+        assertThat(widened.previous().orElseThrow().scope()).containsExactly("plugin/storage/");
 
         memories.edit("workspace", widened.id(), widened.version(), "Delta protocol", "The Delta protocol governs these modules.");
-        memories.rememberSpecs("workspace", "plugin/trino-hive/", ImmutableList.of(spec), "task-4");
-        assertThat(memories.list("workspace")).singleElement().satisfies(memory -> assertThat(memory.scope()).doesNotContain("plugin/trino-hive/"));
+        memories.rememberSpecs("workspace", "plugin/files/", ImmutableList.of(spec), "task-4");
+        assertThat(memories.list("workspace")).singleElement().satisfies(memory -> assertThat(memory.scope()).doesNotContain("plugin/files/"));
     }
 
     @Test

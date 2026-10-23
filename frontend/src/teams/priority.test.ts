@@ -23,27 +23,27 @@ import { jiraAttentionItems } from '../jira/attention';
 import { jiraIssue } from '../jira/fixtures/jira';
 
 const circles: TeamCircle[] = [{ id: 'one', name: 'Maintainers', description: '', avatar: { color: 'gray', shape: 'square' }, repositories: ['BYTEQUAY/APP'], members: [{ githubId: 1, login: 'Alice', name: 'Alice', avatarUrl: '' }] }];
-const preference = { circles, viewerLogin: 'jack' };
+const preference = { circles, viewerLogin: 'riley' };
 const NOW = Date.parse('2026-09-29T00:00:00Z');
 const item = (number: number, author = 'alice', updatedAt = '2026-09-28T12:00:00Z') => {
-  const pull = pr({ id: number, number, author, origin: 'REVIEW_REQUESTED', requestedReviewers: ['jack'], updatedAt });
+  const pull = pr({ id: number, number, author, origin: 'REVIEW_REQUESTED', requestedReviewers: ['riley'], updatedAt });
   return { ...pullRequestItem(pull, 'review'), pr: pull };
 };
 
 describe('private team priority', () => {
   it('matches authors and direct request actors within repository scope, never arbitrary commenters', () => {
-    expect(teamAttentionMatch(item(1), circles, 'jack')).toEqual({ circle: circles[0], member: circles[0].members[0], reason: 'author' });
-    expect(teamAttentionMatch({ ...item(1), repo: 'other/app' }, circles, 'jack')).toBeNull();
+    expect(teamAttentionMatch(item(1), circles, 'riley')).toEqual({ circle: circles[0], member: circles[0].members[0], reason: 'author' });
+    expect(teamAttentionMatch({ ...item(1), repo: 'other/app' }, circles, 'riley')).toBeNull();
     const direct = item(2, 'bob');
     const activity: NonNullable<PullRequestDto['latestActivity']> = {
-      event: 'review_requested', actor: 'ALICE', requestedReviewer: 'JACK', timestamp: direct.updatedAt, label: null, state: null,
+      event: 'review_requested', actor: 'ALICE', requestedReviewer: 'RILEY', timestamp: direct.updatedAt, label: null, state: null,
     };
     direct.pr = { ...direct.pr, latestActivity: activity };
-    expect(teamAttentionMatch(direct, circles, 'jack')).toEqual({ circle: circles[0], member: circles[0].members[0], reason: 'review-requester' });
+    expect(teamAttentionMatch(direct, circles, 'riley')).toEqual({ circle: circles[0], member: circles[0].members[0], reason: 'review-requester' });
     expect(teamAttentionMatch(direct, circles, 'another-viewer')).toBeNull();
-    expect(teamAttentionMatch({ ...direct, pr: { ...direct.pr, latestActivity: { ...activity, event: 'commented' } } }, circles, 'jack')).toBeNull();
-    expect(teamAttentionMatch({ ...item(1), repo: 'other/app' }, [{ ...circles[0], repositories: [] }], 'jack')?.circle.id).toBe('one');
-    expect(teamAttentionMatch(item(1), [{ ...circles[0], members: [] }], 'jack')).toBeNull();
+    expect(teamAttentionMatch({ ...direct, pr: { ...direct.pr, latestActivity: { ...activity, event: 'commented' } } }, circles, 'riley')).toBeNull();
+    expect(teamAttentionMatch({ ...item(1), repo: 'other/app' }, [{ ...circles[0], repositories: [] }], 'riley')?.circle.id).toBe('one');
+    expect(teamAttentionMatch(item(1), [{ ...circles[0], members: [] }], 'riley')).toBeNull();
   });
 
   it('puts review requests from circle members before newer requests from outside every circle', () => {
@@ -95,9 +95,9 @@ describe('circle Needs you', () => {
     const recommit = { ...item(3), kind: 'commits' as const };
     const stranger = item(4, 'bob');
     const issue: AttentionItem = { ...pullRequestItem(pr({ id: 5, number: 5, author: 'alice' })), type: 'issue', kind: 'assigned', pr: null, repo: 'bytequay/app' };
-    const needs = circleNeeds([review, updated, recommit, stranger, issue], circles, 'jack');
+    const needs = circleNeeds([review, updated, recommit, stranger, issue], circles, 'riley');
     expect(needs.map(need => [need.item.number, need.action])).toEqual([[1, 'review'], [3, 'review'], [5, 'assigned']]);
     expect(needs[0].match.member.login).toBe('Alice');
-    expect(circleNeeds([review], [{ ...circles[0], repositories: ['other/app'] }], 'jack')).toEqual([]);
+    expect(circleNeeds([review], [{ ...circles[0], repositories: ['other/app'] }], 'riley')).toEqual([]);
   });
 });

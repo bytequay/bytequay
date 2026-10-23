@@ -588,10 +588,10 @@ class TestTurns(Logs):
         day = START.timestamp() + 86400
         blank = {**dict.fromkeys(activity.FACTS), "setup": None}
         return {("aaaa-1111", "t1"): {**blank, "start": START.timestamp(), "seconds": 601, "outcome": "completed", "provider": "codex", "model": "gpt-6-astra", "effort": "max",
-                                      "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000, "outputTokens": 4000, "toolCalls": 30, "compactions": 0,
+                                      "repository": "owner/repository", "inputTokens": 900000, "cachedInputTokens": 850000, "outputTokens": 4000, "toolCalls": 30, "compactions": 0,
                                       "setup": "aaaaaaaa-bbbbbbbb"},
                 ("aaaa-1111", "t2"): {**blank, "start": day, "seconds": 299, "outcome": "cancelled", "provider": "codex", "model": "gpt-6-astra", "effort": "medium",
-                                      "repository": "trinodb/trino", "inputTokens": 200000, "cachedInputTokens": 150000, "outputTokens": 1000, "toolCalls": 8, "compactions": 0},
+                                      "repository": "owner/repository", "inputTokens": 200000, "cachedInputTokens": 150000, "outputTokens": 1000, "toolCalls": 8, "compactions": 0},
                 ("cccc-3333", "t9"): {**blank, "start": day + 7200, "seconds": 240, "outcome": "completed", "provider": "claude", "model": "opus", "effort": "high",
                                       "repository": "bytequay/bytequay", "inputTokens": 50000, "cachedInputTokens": 40000, "outputTokens": 2000, "cost": 1.5, "toolCalls": 12,
                                       "compactions": 1}}
@@ -628,7 +628,7 @@ class TestTurns(Logs):
         made = activity.turn_table(self.two_days(), WHEN, recorded=self.recorded())
         first, second, only_logged, only_recorded = made["turns"]
         self.assertEqual({name: first[name] for name in activity.FACTS},
-                         {"provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000,
+                         {"provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "owner/repository", "inputTokens": 900000, "cachedInputTokens": 850000,
                           "outputTokens": 4000, "cost": None, "toolCalls": 30, "compactions": 0})
         self.assertEqual((first["seconds"], second["effort"], second["outcome"]), (600, "medium", "cancelled"))  # time is the log's, the ending is the database's
         self.assertEqual([row["setup"] for row in made["turns"]], ["aaaaaaaa-bbbbbbbb", None, None, None])  # the setup a turn ran with, where the database names it
@@ -757,7 +757,7 @@ class TestCommandLine(Logs):
 
     def test_save_adds_what_the_database_beside_the_runtime_folder_knows_and_never_changes_it(self):
         self.log("aaaa-1111", TEN_MINUTES)
-        beside = database(self.runtime.parent / "bytequay-1.0.db", tasks=[("aaaa-1111", "codex", "trinodb", "trino"), ("zzzz-9999", "claude", "o", "n")], turns=[
+        beside = database(self.runtime.parent / "bytequay-1.0.db", tasks=[("aaaa-1111", "codex", "owner", "repository"), ("zzzz-9999", "claude", "o", "n")], turns=[
             ("aaaa-1111", "t1", at(0), 600_000, None, "gpt-6-astra", "Max", "COMPLETED", 900, 800, 40, None, 7, 0),
             ("zzzz-9999", "t1", at(50), 30_000, None, "opus", "high", "FAILED", 100, 0, 10, 0.25, 1, 0)])
         before = beside.read_bytes()

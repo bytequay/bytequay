@@ -23,7 +23,7 @@ function thread(id = 'original', overrides: Partial<TaskDiscussionDto> = {}): Ta
   return {
     id, taskId: 'review-task', turnId: 'review-comment', quote: KEY, occurrence: 1, resolved: false, pending: false,
     providerLane: 'claude', version: 4, createdAt: AT, updatedAt: AT,
-    comment: { repo: 'trinodb/trino', number: 31621, key: KEY }, replyDraft: null, replyDraftError: null,
+    comment: { repo: 'owner/repository', number: 31621, key: KEY }, replyDraft: null, replyDraftError: null,
     messages: [
       { id: 'q1', author: 'USER', body: 'Should this use BaseConnectorTest?', createdAt: AT, error: null },
       { id: 'a1', author: 'AGENT', body: 'Yes, with the Hive-specific cases retained.', createdAt: AT, error: null },

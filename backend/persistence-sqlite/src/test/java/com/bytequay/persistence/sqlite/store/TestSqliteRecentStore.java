@@ -48,9 +48,9 @@ class TestSqliteRecentStore
     @Test
     void keepsOneRowPerItemPerDayCarryingTheStrongestReason()
     {
-        store.recordTouch(touch("pr:trinodb/trino#1", TODAY, MORNING, RecentReason.READ, 12));
-        store.recordTouch(touch("pr:trinodb/trino#1", TODAY, AFTERNOON, RecentReason.APPROVED, 0));
-        store.recordTouch(touch("pr:trinodb/trino#1", TODAY, AFTERNOON.plusSeconds(60), RecentReason.READ, 3));
+        store.recordTouch(touch("pr:owner/repository#1", TODAY, MORNING, RecentReason.READ, 12));
+        store.recordTouch(touch("pr:owner/repository#1", TODAY, AFTERNOON, RecentReason.APPROVED, 0));
+        store.recordTouch(touch("pr:owner/repository#1", TODAY, AFTERNOON.plusSeconds(60), RecentReason.READ, 3));
 
         List<RecentTouch> rows = store.findTouches(TODAY.minusDays(13), TODAY);
         assertThat(rows).hasSize(1);
@@ -61,8 +61,8 @@ class TestSqliteRecentStore
     @Test
     void separatesTheSameItemOnDifferentDays()
     {
-        store.recordTouch(touch("pr:trinodb/trino#2", TODAY.minusDays(1), MORNING.minusSeconds(86_400), RecentReason.READ, 4));
-        store.recordTouch(touch("pr:trinodb/trino#2", TODAY, MORNING, RecentReason.MERGED, 0));
+        store.recordTouch(touch("pr:owner/repository#2", TODAY.minusDays(1), MORNING.minusSeconds(86_400), RecentReason.READ, 4));
+        store.recordTouch(touch("pr:owner/repository#2", TODAY, MORNING, RecentReason.MERGED, 0));
 
         assertThat(store.findTouches(TODAY.minusDays(13), TODAY)).hasSize(2);
         assertThat(store.findTouches(TODAY, TODAY)).hasSize(1);
@@ -71,21 +71,21 @@ class TestSqliteRecentStore
     @Test
     void findsTheUsersOwnWordsCaseInsensitively()
     {
-        store.saveText(text("pr:trinodb/trino#3:comment:1", "The metadata cache invalidation still Races with a concurrent snapshot commit."));
-        store.saveText(text("pr:trinodb/trino#4:comment:2", "Looks good, shipping it."));
+        store.saveText(text("pr:owner/repository#3:comment:1", "The metadata cache invalidation still Races with a concurrent snapshot commit."));
+        store.saveText(text("pr:owner/repository#4:comment:2", "Looks good, shipping it."));
 
         assertThat(store.findTextContaining("race", 10)).extracting(RecentText::id)
-                .containsExactly("pr:trinodb/trino#3:comment:1");
+                .containsExactly("pr:owner/repository#3:comment:1");
         assertThat(store.findTextContaining("shipping", 10)).extracting(RecentText::id)
-                .containsExactly("pr:trinodb/trino#4:comment:2");
+                .containsExactly("pr:owner/repository#4:comment:2");
         assertThat(store.findTextContaining("nothingmatches", 10)).isEmpty();
     }
 
     @Test
     void replacesABodyRewrittenUnderTheSameIdRatherThanAccumulating()
     {
-        store.saveText(text("pr:trinodb/trino#5:draft", "first attempt at the reply"));
-        store.saveText(text("pr:trinodb/trino#5:draft", "second attempt at the rejoinder"));
+        store.saveText(text("pr:owner/repository#5:draft", "first attempt at the reply"));
+        store.saveText(text("pr:owner/repository#5:draft", "second attempt at the rejoinder"));
 
         assertThat(store.findTextContaining("attempt", 10)).hasSize(1);
         assertThat(store.findTextContaining("rejoinder", 10)).hasSize(1);
@@ -95,7 +95,7 @@ class TestSqliteRecentStore
     @Test
     void treatsPunctuationAndBlanksAsOrdinaryText()
     {
-        store.saveText(text("pr:trinodb/trino#6:comment:9", "the NOT NULL constraint (again)"));
+        store.saveText(text("pr:owner/repository#6:comment:9", "the NOT NULL constraint (again)"));
 
         assertThat(store.findTextContaining("not null", 10)).hasSize(1);
         assertThat(store.findTextContaining("(again)", 10)).hasSize(1);
@@ -116,17 +116,17 @@ class TestSqliteRecentStore
     @Test
     void sweepsRowsAndTheirWordsOutsideTheWindow()
     {
-        store.recordTouch(touch("pr:trinodb/trino#7", TODAY.minusDays(20), MORNING.minusSeconds(20 * 86_400), RecentReason.READ, 2));
-        store.recordTouch(touch("pr:trinodb/trino#8", TODAY, MORNING, RecentReason.READ, 2));
+        store.recordTouch(touch("pr:owner/repository#7", TODAY.minusDays(20), MORNING.minusSeconds(20 * 86_400), RecentReason.READ, 2));
+        store.recordTouch(touch("pr:owner/repository#8", TODAY, MORNING, RecentReason.READ, 2));
         store.saveText(new RecentText(
-                "pr:trinodb/trino#7:comment:1",
+                "pr:owner/repository#7:comment:1",
                 RecentItemType.PULL_REQUEST,
-                "pr:trinodb/trino#7",
+                "pr:owner/repository#7",
                 RecentTextKind.COMMENT,
                 "an ancient remark",
                 MORNING.minusSeconds(30 * 86_400),
                 7,
-                "trinodb/trino",
+                "owner/repository",
                 "Old",
                 null));
 
@@ -138,8 +138,8 @@ class TestSqliteRecentStore
     @Test
     void clearsTheStreamAndTheIndexTogether()
     {
-        store.recordTouch(touch("pr:trinodb/trino#9", TODAY, MORNING, RecentReason.COMMENTED, 0));
-        store.saveText(text("pr:trinodb/trino#9:comment:1", "a distinctive incantation"));
+        store.recordTouch(touch("pr:owner/repository#9", TODAY, MORNING, RecentReason.COMMENTED, 0));
+        store.saveText(text("pr:owner/repository#9:comment:1", "a distinctive incantation"));
 
         store.deleteAll();
 
@@ -159,9 +159,9 @@ class TestSqliteRecentStore
                 count,
                 1,
                 "Support sorted by nested fields in Iceberg",
-                "trinodb/trino",
+                "owner/repository",
                 null,
-                "https://github.com/trinodb/trino/pull/1",
+                "https://github.com/owner/repository/pull/1",
                 false,
                 11L,
                 "ezra-b");
@@ -169,7 +169,7 @@ class TestSqliteRecentStore
 
     private static RecentText dated(String id, String body, Instant writtenAt)
     {
-        return new RecentText(id, RecentItemType.PULL_REQUEST, "pr:trinodb/trino#9", RecentTextKind.COMMENT, body, writtenAt, 9, "trinodb/trino", "Some pull request", null);
+        return new RecentText(id, RecentItemType.PULL_REQUEST, "pr:owner/repository#9", RecentTextKind.COMMENT, body, writtenAt, 9, "owner/repository", "Some pull request", null);
     }
 
     private static RecentText text(String id, String body)
@@ -182,7 +182,7 @@ class TestSqliteRecentStore
                 body,
                 MORNING,
                 3,
-                "trinodb/trino",
+                "owner/repository",
                 "Some pull request",
                 null);
     }

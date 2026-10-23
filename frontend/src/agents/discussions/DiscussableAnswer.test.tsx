@@ -47,7 +47,7 @@ describe('placing a footer', () => {
     // The reader sees no backticks, so the selection carries none; the block is still markdown.
     const blocks = [
       'The checkpoint builder keys both maps by the bare `path`.',
-      'Trino **reads** it that way, but the Delta protocol says identity is `(path, deletionVector.uniqueId)` — see [PROTOCOL.md](https://x/y).',
+      'Repository **reads** it that way, but the Delta protocol says identity is `(path, deletionVector.uniqueId)` — see [PROTOCOL.md](https://x/y).',
     ];
     expect(blockOf(blocks, ', but the Delta protocol says identity is (path, deletionVector.uniqueId)', 1)).toBe(1);
     expect(blockOf(blocks, 'see PROTOCOL.md', 1)).toBe(1);
@@ -167,9 +167,9 @@ describe('a footer row', () => {
   });
 
   it('keeps the head and the tail of one long symbol rather than cutting from the left', () => {
-    const label = discussionLabel(discussion({ quote: 'io.trino.plugin.iceberg.IcebergMetadata#getSortFields' }), []);
+    const label = discussionLabel(discussion({ quote: 'com.example.iceberg.IcebergMetadata#getSortFields' }), []);
     expect(label.mono).toBe(true);
-    expect(label.text.startsWith('io.trino')).toBe(true);
+    expect(label.text.startsWith('com.example')).toBe(true);
     expect(label.text.endsWith('getSortFields')).toBe(true);
     expect(label.text).toContain('…');
   });

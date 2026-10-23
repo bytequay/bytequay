@@ -152,8 +152,8 @@ class TestArtifactService
         run(repository, "add", "Deletes.java");
         run(repository, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--quiet", "-m", "Add deletes");
         commit = git.run(repository, "rev-parse", "HEAD").output().strip();
-        when(repositories.requireReadyRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, RepoRef.of("fork", "trino"),
-                OptionalLong.of(7), RepoRef.of("trinodb", "trino"), "upstream", "origin", "main", ImmutableList.of()));
+        when(repositories.requireReadyRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, RepoRef.of("fork", "repository"),
+                OptionalLong.of(7), RepoRef.of("owner", "repository"), "upstream", "origin", "main", ImmutableList.of()));
         when(builds.baseline(WORKSPACE)).thenReturn(Optional.of(new ContextBuildService.Baseline("main", commit)));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(WORKSPACE)))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude", "sonnet", "Sonnet", Optional.empty()));
@@ -199,7 +199,7 @@ class TestArtifactService
     void talksThenOffersThenMakesThePageBesideTheChat()
     {
         agent.add(turn -> {
-            turn.step("Grep", "74:import io.trino.plugin.iceberg.delete.DeleteManager;", Optional.of("Find where deletes are read"));
+            turn.step("Grep", "74:import com.example.iceberg.delete.DeleteManager;", Optional.of("Find where deletes are read"));
             // Codex's commentary is whole once its item completes, though not final: it is what Codex writes before it asks.
             turn.events().emit(new ProviderAgentEvent.Message(Optional.of("note-1:completed"), ProviderAgentEvent.MessagePhase.PARTIAL, "Deletes are read here.",
                     ProviderAgentEventSource.root()));

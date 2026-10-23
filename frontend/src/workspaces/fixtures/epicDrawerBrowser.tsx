@@ -33,9 +33,9 @@ declare global {
 
 const issue = (number: number, title: string, isEpic: boolean, updatedAt: string): AttentionItem => ({ ...issueAttentionItem({
   id: number, number, title, developmentTask: null, body: '', author: 'wren-d', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: [],
-  commentCount: 0, createdAt: updatedAt, updatedAt }, 'trinodb/trino', 'workspace'), isEpic });
+  commentCount: 0, createdAt: updatedAt, updatedAt }, 'owner/repository', 'workspace'), isEpic });
 const ticket = (id: string, title: string, isEpic: boolean, hasChildren = false): AttentionItem => ({ ...jiraAttentionItem({
-  ...jiraIssue, id, key: `TRINO-${id}`, title, hasChildren, status: { id: 'progress', name: 'In Progress', category: 'indeterminate' } }), isEpic });
+  ...jiraIssue, id, key: `ENG-${id}`, title, hasChildren, status: { id: 'progress', name: 'In Progress', category: 'indeterminate' } }), isEpic });
 const LONG = 'Hive ACID v2 writes for partitioned and bucketed tables, preserving transactional properties through compaction and concurrent inserts';
 const EPICS = [
   issue(24918, 'Iceberg REST catalog: cache metadata and invalidate across coordinators', true, '2026-10-02T08:00:00Z'),
@@ -84,7 +84,7 @@ export async function run(): Promise<boolean> {
   let created = 0;
   // Read through a call, so an assertion on one count never narrows the next one.
   const createdCount = (): number => created;
-  const children = Array.from({ length: 6 }, (_, index): JiraRelatedIssue => ({ id: `c${index}`, key: `TRINO-${2000 + index}`, title: 'Child', type: 'Story',
+  const children = Array.from({ length: 6 }, (_, index): JiraRelatedIssue => ({ id: `c${index}`, key: `ENG-${2000 + index}`, title: 'Child', type: 'Story',
     status: { id: 'todo', name: 'To Do', category: 'new' }, priority: null, assignee: null }));
   window.bridge = {
     getJiraIssue: async ({ issueId }: { issueId: string }) => ({ ...jiraDetail(), children: issueId === '1184' ? children : [] }),
@@ -96,7 +96,7 @@ export async function run(): Promise<boolean> {
       <main className="app-content">
         <div style={{ position: 'relative', height: '100%' }}>
           <EpicDrawer items={items} concluded={concluded} work={workItems} onOpen={item => openedEpics.push(epicIdentity(item))} onCreate={() => { created++; }} />
-          <div style={{ padding: '24px 32px' }}><h1>trinodb/trino</h1><button type="button" id="page-control">Composer</button></div>
+          <div style={{ padding: '24px 32px' }}><h1>owner/repository</h1><button type="button" id="page-control">Composer</button></div>
         </div>
       </main>
     </div>
@@ -184,7 +184,7 @@ export async function run(): Promise<boolean> {
     assert(!/\bRun\b/.test(text), 'Epics never offer Run');
     const cards = [...panel().querySelectorAll<HTMLElement>('.epic-card')];
     assert(cards.length === 6 && cards[0].textContent?.includes('#24918') === true && cards[0].textContent.includes('Open'), 'An issue Epic shows its number and state');
-    assert(cards[1].textContent?.includes('TRINO-1184') === true && cards[1].textContent.includes('In Progress'), 'A Jira Epic shows its key and status');
+    assert(cards[1].textContent?.includes('ENG-1184') === true && cards[1].textContent.includes('In Progress'), 'A Jira Epic shows its key and status');
     assert(cards[1].querySelector('.epic-card__children')?.getAttribute('title') === '6 child items', 'A Jira Epic counts its children from the saved detail');
     assert(cards[0].querySelector('.epic-card__children') === null && cards[3].querySelector('.epic-card__children') === null, 'No child count without child data');
     const title = cards[3].querySelector<HTMLElement>('.epic-card__title');

@@ -21,11 +21,11 @@ it('reads the existing local cache separately while a shared owner refresh is pe
   const fresh = Promise.withResolvers<Response>();
   const fetch = vi.fn((_url: string) => _url.includes('refresh=true') ? fresh.promise : Promise.resolve(new Response('old', { headers: { 'content-type': 'image/png' } })));
   vi.stubGlobal('fetch', fetch);
-  const first = repositoryAvatar('TrinoDB', true);
-  const second = repositoryAvatar('trinodb', true);
+  const first = repositoryAvatar('Owner', true);
+  const second = repositoryAvatar('owner', true);
   expect(fetch).toHaveBeenCalledTimes(1);
-  expect(await repositoryAvatar('trinodb')).toBe('data:image/png;base64,b2xk');
-  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:12345/api/avatars/repositories/trinodb?refresh=false',
+  expect(await repositoryAvatar('owner')).toBe('data:image/png;base64,b2xk');
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:12345/api/avatars/repositories/owner?refresh=false',
     expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'desktop-only-token' } }));
   fresh.resolve(new Response('new', { headers: { 'content-type': 'image/png' } }));
   expect(await Promise.all([first, second])).toEqual(['data:image/png;base64,bmV3', 'data:image/png;base64,bmV3']);

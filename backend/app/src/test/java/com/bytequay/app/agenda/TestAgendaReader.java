@@ -114,9 +114,9 @@ class TestAgendaReader
             everything.append(tool.call().apply("{\"kind\":\"" + kind + "\"}"));
         }
 
-        assertThat(everything.toString()).doesNotContain("SECRET-DESCRIPTION", "SECRET-BOT-REPORT", "SECRET-COMMIT-MESSAGE", "SECRET-TAIL", "pr:trinodb/trino#31111");
+        assertThat(everything.toString()).doesNotContain("SECRET-DESCRIPTION", "SECRET-BOT-REPORT", "SECRET-COMMIT-MESSAGE", "SECRET-TAIL", "pr:owner/repository#31111");
         JsonNode change = mapper.readTree(tool.call().apply("{\"kind\":\"changes\"}")).path("entries").path(0);
-        assertThat(change.path("ref").asText()).isEqualTo("pr:trinodb/trino#31402");
+        assertThat(change.path("ref").asText()).isEqualTo("pr:owner/repository#31402");
         assertThat(ImmutableSet.copyOf(change.path("facts").elements()).stream().map(JsonNode::asText)).containsExactly("1 new reply", "1 new commit");
         assertThat(change.path("last").path("by").asText()).isEqualTo("elric-t");
         assertThat(change.path("last").path("text").asText()).startsWith("Please split the retry policy").hasSize(160).endsWith("…");
@@ -139,7 +139,7 @@ class TestAgendaReader
 
         AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
 
-        assertThat(snapshot.mine()).extracting(AgendaSnapshot.Mine::ref).containsExactly("pr:trinodb/trino#31402");
+        assertThat(snapshot.mine()).extracting(AgendaSnapshot.Mine::ref).containsExactly("pr:owner/repository#31402");
         // Approved is not ready to merge while GitHub blocks the merge.
         assertThat(snapshot.mine().getFirst().mergeBlocked()).isTrue();
     }
@@ -151,12 +151,12 @@ class TestAgendaReader
         PullRequest snoozed = pullRequest(31378, "marlo-t", PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of("me"), null, 10, 1);
         when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
         when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(asked, snoozed));
-        when(marks.snoozedKeys()).thenReturn(ImmutableSet.of("trinodb/trino#31378"));
+        when(marks.snoozedKeys()).thenReturn(ImmutableSet.of("owner/repository#31378"));
 
         AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
 
-        assertThat(snapshot.asks()).extracting(AgendaSnapshot.Ask::ref).containsExactly("pr:trinodb/trino#31377");
-        assertThat(snapshot.refs()).doesNotContainKey("pr:trinodb/trino#31378");
+        assertThat(snapshot.asks()).extracting(AgendaSnapshot.Ask::ref).containsExactly("pr:owner/repository#31377");
+        assertThat(snapshot.refs()).doesNotContainKey("pr:owner/repository#31378");
     }
 
     @Test
@@ -219,7 +219,7 @@ class TestAgendaReader
     private static PullRequest pullRequest(int number, String author, PullRequest.Origin origin, List<String> requested, String decision, int additions, int deletions,
             String mergeableState)
     {
-        return new PullRequest(number, "trinodb/trino", number, "PR " + number, author, "https://github.com/trinodb/trino/pull/" + number, NOW.minusSeconds(864000),
+        return new PullRequest(number, "owner/repository", number, "PR " + number, author, "https://github.com/owner/repository/pull/" + number, NOW.minusSeconds(864000),
                 NOW.minusSeconds(3400), origin, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, requested, PullRequestDetail.CiStatus.PASSING,
                 additions, deletions, 3, "open", null, null, true, mergeableState, NOW.minusSeconds(3400), "branch", null, NOW.minusSeconds(3400),
                 requested.isEmpty() ? null : NOW.minusSeconds(259200), decision);
@@ -227,7 +227,7 @@ class TestAgendaReader
 
     private static StoredPrDetail detail(List<PrTimelineEvent> timeline)
     {
-        PrRawDetail raw = new PrRawDetail("PR 31402", "https://github.com/trinodb/trino/pull/31402", "open", "me", "", NOW.minusSeconds(864000), NOW, null,
+        PrRawDetail raw = new PrRawDetail("PR 31402", "https://github.com/owner/repository/pull/31402", "open", "me", "", NOW.minusSeconds(864000), NOW, null,
                 "SECRET-DESCRIPTION of the whole change", ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,
                 ImmutableList.of(), "abc123", "head", "main");
         return new StoredPrDetail(raw, ImmutableList.of(), timeline, ImmutableList.of(), ImmutableList.of(), false);

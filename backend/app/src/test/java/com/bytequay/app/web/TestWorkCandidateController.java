@@ -40,14 +40,14 @@ class TestWorkCandidateController
     {
         GoalReferenceReader references = mock(GoalReferenceReader.class);
         Instant now = Instant.parse("2026-09-28T10:00:00Z");
-        when(references.candidates("workspace", "retry")).thenReturn(ImmutableList.of(new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#30702", "#30702",
-                "Retry Iceberg commits", GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/trinodb/trino/pull/30702"),
+        when(references.candidates("workspace", "retry")).thenReturn(ImmutableList.of(new GoalItemView(GoalItemKind.PULL_REQUEST, "owner/repository#30702", "#30702",
+                "Retry Iceberg commits", GoalItemState.MERGED, "Merged", false, Optional.of("https://github.com/owner/repository/pull/30702"),
                 Optional.of(new GoalActivity("#30702 merged", now)), Optional.empty(), Optional.empty())));
 
         standaloneSetup(new WorkCandidateController(references)).build()
                 .perform(get("/api/workspaces/workspace/goals/candidates").param("q", "retry"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].key").value("trinodb/trino#30702"))
+                .andExpect(jsonPath("$[0].key").value("owner/repository#30702"))
                 .andExpect(jsonPath("$[0].addedAt").value(nullValue()));
     }
 }

@@ -232,7 +232,7 @@ class TestAssistantConversation
     {
         // Half past midnight and half past eleven are one local day, which a UTC date splits in any other zone.
         now.set(local("2026-10-17T00:30"));
-        String first = assistant.send("what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:trinodb/trino#31402"), "key-1");
+        String first = assistant.send("what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:owner/repository#31402"), "key-1");
         waitForReply();
         now.set(local("2026-10-17T23:30"));
         results.add(CompletableFuture.completedFuture(completed("Answer task:t1. task:t12 and ws:ws1 can wait.")));
@@ -256,7 +256,7 @@ class TestAssistantConversation
         assertThat(morning.sessionReference()).isEmpty();
         assertThat(opened.get(1).sessionReference()).contains(new AgentSessionRef(LANE, 1, "session-1"));
         assertThat(prompts.getFirst())
-                .contains("On screen: pr:trinodb/trino#31402", "- approval:a1: Retry Iceberg commit · Allow Claude Bash", "The user's message:\nwhat's waiting on me?")
+                .contains("On screen: pr:owner/repository#31402", "- approval:a1: Retry Iceberg commit · Allow Claude Bash", "The user's message:\nwhat's waiting on me?")
                 .doesNotContain("Earlier today");
         assertThat(prompts.get(1)).contains("Cards on screen: none").doesNotContain("Earlier today");
         assertThat(store.days.get(DAY).served()).containsOnlyKeys("task:t1", "ws:ws1");
@@ -439,36 +439,36 @@ class TestAssistantConversation
         assertThat(assistant.today().rows()).isEmpty();
         verify(rows, never()).rows(any());
 
-        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
-        AssistantRow row = new AssistantRow("pr:trinodb/trino#31402", AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict", Optional.of("#31402"), Optional.of("open"),
+        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AssistantRow row = new AssistantRow("pr:owner/repository#31402", AssistantRow.Kind.PULL, "Retry Iceberg commit on conflict", Optional.of("#31402"), Optional.of("open"),
                 Optional.of("failing"), Optional.empty(), Optional.of(0), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), pull);
-        AssistantList shown = new AssistantList(AssistantList.Style.CARDS, ImmutableList.of("pr:trinodb/trino#31402", "task:gone"));
+        AssistantList shown = new AssistantList(AssistantList.Style.CARDS, ImmutableList.of("pr:owner/repository#31402", "task:gone"));
         store.add(AssistantItem.user(DAY, now.get(), "what is red?", ImmutableList.of(), Optional.empty(), "key-1"));
         store.add(AssistantItem.list(DAY, now.get(), "Red pull requests", shown));
-        when(rows.rows(shown.refs())).thenReturn(ImmutableMap.of("pr:trinodb/trino#31402", row));
+        when(rows.rows(shown.refs())).thenReturn(ImmutableMap.of("pr:owner/repository#31402", row));
 
         AssistantView view = assistant.today();
         assertThat(view.items().getLast().list()).contains(shown);
         // The day keeps refs only; each read draws them from the stores as they are now, and a ref that is gone has no row.
-        assertThat(view.rows()).containsExactly(Map.entry("pr:trinodb/trino#31402", row));
+        assertThat(view.rows()).containsExactly(Map.entry("pr:owner/repository#31402", row));
 
         // A session that starts over reads what the day's lists named.
         assistant.send("and now?", ImmutableList.of(), Optional.empty(), "key-2");
         waitForReply();
-        assertThat(prompts.getFirst()).contains("[you listed 12:00] Red pull requests: pr:trinodb/trino#31402, task:gone");
+        assertThat(prompts.getFirst()).contains("[you listed 12:00] Red pull requests: pr:owner/repository#31402, task:gone");
     }
 
     @Test
     void keepsOneReceiptForADraftTheUserCreated()
             throws Exception
     {
-        AssistantDraft draft = new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9");
+        AssistantDraft draft = new AssistantDraft("ws1", "owner/repository", "Track the snapshot work.", "w9");
         AssistantItem drafted = AssistantItem.draft(DAY, now.get(), "Iceberg snapshot metadata", draft);
         store.add(AssistantItem.user(DAY, now.get(), "a new issue for the snapshot work, as an epic", ImmutableList.of(), Optional.empty(), "key-1"));
         store.add(drafted);
         when(work.drafted(eq(draft), eq(DAY), any())).thenReturn(AssistantItem.receipt(DAY, now.get(), "Created “Iceberg snapshot ids” as an Epic",
-                new AssistantReceipt(AssistantReceipt.Operation.CREATE_EPIC, AssistantReceipt.Outcome.DONE, Optional.of("trinodb/trino#123"),
+                new AssistantReceipt(AssistantReceipt.Operation.CREATE_EPIC, AssistantReceipt.Outcome.DONE, Optional.of("owner/repository#123"),
                         Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w9")), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())));
 
         MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();

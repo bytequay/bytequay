@@ -43,9 +43,9 @@ class TestAttentionMarkService
     @Test
     void acknowledgesUntilTheItemNextChanges()
     {
-        AttentionMark mark = marks.acknowledge("trinodb/trino#31402");
+        AttentionMark mark = marks.acknowledge("owner/repository#31402");
 
-        assertThat(mark).isEqualTo(new AttentionMark("trinodb/trino#31402", AttentionMark.Kind.ACK, Optional.empty(), NOW.toString(), Optional.empty(),
+        assertThat(mark).isEqualTo(new AttentionMark("owner/repository#31402", AttentionMark.Kind.ACK, Optional.empty(), NOW.toString(), Optional.empty(),
                 "acknowledged", Optional.empty()));
         verify(store).change(ImmutableList.of(mark), ImmutableList.of());
     }
@@ -72,10 +72,10 @@ class TestAttentionMarkService
     void namesOnlySnoozesThatHaveNotEnded()
     {
         when(store.all()).thenReturn(ImmutableList.of(
-                new AttentionMark("TrinoDB/trino#1", AttentionMark.Kind.SNOOZE, Optional.of(NOW.plusSeconds(60)), NOW.toString(), Optional.empty(), "1 hour", Optional.empty()),
-                new AttentionMark("trinodb/trino#2", AttentionMark.Kind.SNOOZE, Optional.of(NOW), NOW.toString(), Optional.empty(), "1 hour", Optional.empty()),
-                new AttentionMark("trinodb/trino#3", AttentionMark.Kind.ACK, Optional.empty(), NOW.toString(), Optional.empty(), "acknowledged", Optional.empty())));
+                new AttentionMark("Owner/repository#1", AttentionMark.Kind.SNOOZE, Optional.of(NOW.plusSeconds(60)), NOW.toString(), Optional.empty(), "1 hour", Optional.empty()),
+                new AttentionMark("owner/repository#2", AttentionMark.Kind.SNOOZE, Optional.of(NOW), NOW.toString(), Optional.empty(), "1 hour", Optional.empty()),
+                new AttentionMark("owner/repository#3", AttentionMark.Kind.ACK, Optional.empty(), NOW.toString(), Optional.empty(), "acknowledged", Optional.empty())));
 
-        assertThat(marks.snoozedKeys()).containsExactly("trinodb/trino#1");
+        assertThat(marks.snoozedKeys()).containsExactly("owner/repository#1");
     }
 }

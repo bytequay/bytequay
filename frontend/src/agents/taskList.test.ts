@@ -31,7 +31,7 @@ function item(key: string, at: string, label: TaskListItem['state']['label'] = '
 
 function execution(overrides: Partial<CherryPickExecution>): CherryPickExecution {
   return {
-    executionId: 'exec-1', workspaceId: 'workspace-1', repository: 'trinodb/trino', workBranch: 'cp-1',
+    executionId: 'exec-1', workspaceId: 'workspace-1', repository: 'owner/repository', workBranch: 'cp-1',
     localTargetBranch: '478-lts', targetBranch: '478-lts', status: 'RUNNING',
     initialTargetSha: 'a'.repeat(40), currentTargetSha: 'a'.repeat(40),
     items: [
@@ -116,7 +116,7 @@ describe('task list items', () => {
     expect(finished.state.label).toBe('Finished');
     expect(finished.change).toMatch(/finding|open/);
     expect(finished.links[0]).toMatchObject({ source: 'pr', key: '#30304' });
-    expect(reviewItem(reviewFixture({ number: null })).title).toBe('trinodb/trino · Local changes');
+    expect(reviewItem(reviewFixture({ number: null })).title).toBe('owner/repository · Local changes');
     // The last word may be a development agent's reply on a finding, which is not the reviewer speaking.
     const [last] = reviewFixture().messages.slice(-1);
     expect(finished.message?.who).toBe(reviewFixture().task.laneLabel);
@@ -155,8 +155,8 @@ describe('task list items', () => {
   });
 
   it('gives the viewer initials from their name, else their login', () => {
-    expect(viewerInitials({ login: 'chenjian2664', name: 'Jack Chen' })).toBe('JC');
-    expect(viewerInitials({ login: 'chenjian2664', name: null })).toBe('CH');
+    expect(viewerInitials({ login: 'contributor', name: 'Riley Park' })).toBe('RP');
+    expect(viewerInitials({ login: 'contributor', name: null })).toBe('CO');
     expect(viewerInitials(undefined)).toBe('Y');
   });
 });

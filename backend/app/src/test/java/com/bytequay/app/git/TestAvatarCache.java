@@ -131,18 +131,18 @@ class TestAvatarCache
     {
         HttpClient client = mock(HttpClient.class);
         AvatarCache cache = new AvatarCache(root, client);
-        assertThat(cache.repository("TrinoDB", false)).isEmpty();
+        assertThat(cache.repository("Owner", false)).isEmpty();
         verify(client, never()).sendAsync(any(), any());
 
         response(client, 200, "image/png", new byte[] {1, 2, 3});
-        Path file = cache.repository("TrinoDB", true).orElseThrow().path();
-        assertThat(cache.repository("trinodb", true).orElseThrow().path()).isEqualTo(file);
+        Path file = cache.repository("Owner", true).orElseThrow().path();
+        assertThat(cache.repository("owner", true).orElseThrow().path()).isEqualTo(file);
         verify(client, times(1)).sendAsync(any(), any());
 
         HttpClient offline = mock(HttpClient.class);
         AvatarCache reloaded = new AvatarCache(root, offline);
-        assertThat(reloaded.repository("TRINODB", false).orElseThrow().path()).isEqualTo(file);
-        assertThat(reloaded.repository("trinodb", true).orElseThrow().path()).isEqualTo(file);
+        assertThat(reloaded.repository("OWNER", false).orElseThrow().path()).isEqualTo(file);
+        assertThat(reloaded.repository("owner", true).orElseThrow().path()).isEqualTo(file);
         verify(offline, never()).sendAsync(any(), any());
     }
 
@@ -153,7 +153,7 @@ class TestAvatarCache
         HttpClient client = mock(HttpClient.class);
         response(client, 200, "image/png", new byte[] {1, 2, 3});
         AvatarCache cache = new AvatarCache(root, client);
-        Path file = cache.repository("trinodb", true).orElseThrow().path();
+        Path file = cache.repository("owner", true).orElseThrow().path();
         Files.setLastModifiedTime(file, FileTime.from(Instant.EPOCH));
 
         HttpClient refreshing = mock(HttpClient.class);
@@ -166,17 +166,17 @@ class TestAvatarCache
             return refreshing.sendAsync(invocation.getArgument(0), invocation.getArgument(1));
         }).when(client).sendAsync(any(), any());
 
-        CompletableFuture<?> refresh = CompletableFuture.supplyAsync(() -> cache.repository("trinodb", true));
+        CompletableFuture<?> refresh = CompletableFuture.supplyAsync(() -> cache.repository("owner", true));
         try {
             assertThat(started.await(10, TimeUnit.SECONDS)).isTrue();
-            assertThat(Files.readAllBytes(cache.repository("trinodb", false).orElseThrow().path())).containsExactly(1, 2, 3);
+            assertThat(Files.readAllBytes(cache.repository("owner", false).orElseThrow().path())).containsExactly(1, 2, 3);
             assertThat(refresh).isNotDone();
         }
         finally {
             finish.countDown();
         }
         refresh.get(10, TimeUnit.SECONDS);
-        assertThat(Files.readAllBytes(cache.repository("trinodb", false).orElseThrow().path())).containsExactly(4, 5, 6);
+        assertThat(Files.readAllBytes(cache.repository("owner", false).orElseThrow().path())).containsExactly(4, 5, 6);
     }
 
     @Test
@@ -186,13 +186,13 @@ class TestAvatarCache
         HttpClient client = mock(HttpClient.class);
         response(client, 200, "image/png", new byte[] {1, 2, 3});
         AvatarCache cache = new AvatarCache(root, client);
-        Path file = cache.repository("trinodb", true).orElseThrow().path();
+        Path file = cache.repository("owner", true).orElseThrow().path();
         Files.setLastModifiedTime(file, FileTime.from(Instant.EPOCH));
 
         response(client, 500, "text/html", new byte[] {9});
-        assertThat(Files.readAllBytes(cache.repository("trinodb", true).orElseThrow().path())).containsExactly(1, 2, 3);
+        assertThat(Files.readAllBytes(cache.repository("owner", true).orElseThrow().path())).containsExactly(1, 2, 3);
         response(client, 200, "image/jpeg", new byte[] {4, 5, 6});
-        AvatarCache.CachedAvatar refreshed = cache.repository("trinodb", true).orElseThrow();
+        AvatarCache.CachedAvatar refreshed = cache.repository("owner", true).orElseThrow();
         assertThat(refreshed.mediaType().toString()).isEqualTo("image/jpeg");
         assertThat(Files.readAllBytes(refreshed.path())).containsExactly(4, 5, 6);
         assertThat(file).doesNotExist();

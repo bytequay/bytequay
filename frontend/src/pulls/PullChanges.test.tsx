@@ -160,10 +160,10 @@ describe('DiffViewer', () => {
   });
 
   it('keeps the changed-files column closed by default', () => {
-    const firstPath = 'core/trino-main/src/main/java/io/trino/QueryManagerConfig.java';
+    const firstPath = 'core/main/src/main/java/com/example/QueryManagerConfig.java';
     const html = renderToStaticMarkup(<DiffViewer files={[
       changedFile(firstPath),
-      changedFile('core/trino-main/src/main/java/io/trino/QueryContext.java', 'added'),
+      changedFile('core/main/src/main/java/com/example/QueryContext.java', 'added'),
     ]} />);
     const treeId = html.match(/pull-changes__files-toggle[^>]*aria-controls="([^"]+)"/)?.[1];
 
@@ -173,7 +173,7 @@ describe('DiffViewer', () => {
     expect(html).not.toContain('class="pull-file-tree"');
     expect(html).not.toContain('aria-label="Resize changed files"');
     expect(html).toContain(`<span class="pull-diff-file__path" aria-label="${firstPath}">`);
-    expect(html).toContain('<bdi dir="ltr">core/trino-main/src/main/java/io/trino/</bdi>');
+    expect(html).toContain('<bdi dir="ltr">core/main/src/main/java/com/example/</bdi>');
     expect(html).toContain('<span class="pull-diff-file__name">QueryManagerConfig.java</span>');
   });
 
@@ -563,12 +563,12 @@ describe('the same finding in Changes', () => {
     '+                return match.get();',
     '+            }',
     '+        }',
-    '+        throw new TrinoException(INVALID_TABLE_PROPERTY, "Unknown sort field");',
+    '+        throw new QueryException(INVALID_TABLE_PROPERTY, "Unknown sort field");',
     '+    }',
   ].join('\n');
 
   const FILE: DiffFileDto = {
-    filename: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java',
+    filename: 'plugin/catalog/src/main/java/com/example/iceberg/IcebergSortField.java',
     status: 'modified',
     additions: 41,
     deletions: 6,
@@ -596,7 +596,7 @@ describe('the same finding in Changes', () => {
     expect(html).toContain('data-finding-id="finding-1"');
     // One card, at one line: the range ends at R131.
     expect(html.match(/data-finding-id="finding-1"/g) ?? []).toHaveLength(1);
-    expect(html).toContain('data-diff-row="plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java:RIGHT:131"');
+    expect(html).toContain('data-diff-row="plugin/catalog/src/main/java/com/example/iceberg/IcebergSortField.java:RIGHT:131"');
   });
 
   it('colors the diff rows by their file language, as the cards beside them do', () => {

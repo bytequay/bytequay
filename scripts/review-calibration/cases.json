@@ -1,6 +1,6 @@
 [
   {
-    "repo": "trinodb/trino",
+    "repo": "owner/repository",
     "number": 31536,
     "reviewer": "findepi",
     "base": "b07c4dff5d19056333cd694ec63f976f014dac11",
@@ -9,7 +9,7 @@
     "split": "tuning"
   },
   {
-    "repo": "trinodb/trino",
+    "repo": "owner/repository",
     "number": 31413,
     "reviewer": "findinpath",
     "base": "56dc5467a8032d30a693a11e599aafc11d08ab8c",
@@ -18,7 +18,7 @@
     "split": "tuning"
   },
   {
-    "repo": "trinodb/trino",
+    "repo": "owner/repository",
     "number": 31567,
     "reviewer": "raunaqmorarka",
     "base": "cbc625400803cac2560c23ab67944cad058a18b3",

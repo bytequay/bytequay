@@ -158,8 +158,9 @@ class TestAssistantActions
     private final AtomicReference<AssistantPermissions> allowed = new AtomicReference<>(new AssistantPermissions(true, true, true, true));
     private final List<AssistantItem> receipts = new ArrayList<>();
     private final AgentTask task = task("Retry Iceberg commit on conflict");
-    private final Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
-            Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
+    private final Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
+            RepoRef.of("owner", "repository"),
+            Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
             Optional.empty(), 0, NOW, NOW);
     private AssistantActions actions;
     private AssistantWork work;
@@ -173,8 +174,8 @@ class TestAssistantActions
             ResolveApprovalCommand command = call.getArgument(0);
             return new ApprovalDecision(command.approvalId(), command.decision(), Optional.empty(), false, command.answers(), NOW, false);
         });
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(trino));
-        when(workspaces.findById("ws1")).thenReturn(Optional.of(trino));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
+        when(workspaces.findById("ws1")).thenReturn(Optional.of(repository));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws1")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "opus", "Opus 5.5", Optional.of("high")));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(),
@@ -186,7 +187,7 @@ class TestAssistantActions
         when(starter.start(any())).thenAnswer(call -> {
             InteractiveTaskStart start = call.getArgument(0);
             return AgentTask.created(start.taskId(), Optional.of(start.workspaceId()), true, "Expose snapshot id in metadata", start.laneId(),
-                    new RepositoryIdentity("trinodb", "trino"), Path.of("/tmp/assistant-task"), start.defaults(), NOW);
+                    new RepositoryIdentity("owner", "repository"), Path.of("/tmp/assistant-task"), start.defaults(), NOW);
         });
         when(turns.findTurnByIdempotencyKey(any(), any())).thenAnswer(call -> Optional.of(turn(call.getArgument(0))));
         when(turns.start(any())).thenAnswer(call -> turn(call.<StartAgentTurnCommand>getArgument(0).taskId()));
@@ -226,7 +227,7 @@ class TestAssistantActions
     void refusesWhileItsSwitchIsOff()
     {
         allowed.set(new AssistantPermissions(false, true, true, true));
-        AssistantItem message = message("start one in trino: add a metadata table", ImmutableList.of());
+        AssistantItem message = message("start one in repository: add a metadata table", ImmutableList.of());
         act(message, ImmutableMap.of("ws:ws1", SERVED), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}");
         assertRefused("Starting tasks is off", Optional.of(SETTINGS));
 
@@ -258,7 +259,7 @@ class TestAssistantActions
         act(message("tell it to use the hidden column", ImmutableList.of()),
                 "{\"op\":\"reply_to_task\",\"task\":\"task:" + task.id() + "\",\"words\":\"use the hidden column\"}");
         assertRefused("That isn't on screen", Optional.empty());
-        act(message("start one in trino: add a metadata table", ImmutableList.of()), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}");
+        act(message("start one in repository: add a metadata table", ImmutableList.of()), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}");
         assertRefused("That isn't on screen", Optional.empty());
         verify(approvalService, never()).resolve(any());
         verify(starter, never()).start(any());
@@ -407,7 +408,7 @@ class TestAssistantActions
     @Test
     void startsATaskFromTheUsersWordsWithTheSavedAutomation()
     {
-        AssistantItem message = message("start one in trino: add a metadata table for snapshot ids", ImmutableList.of());
+        AssistantItem message = message("start one in repository: add a metadata table for snapshot ids", ImmutableList.of());
         act(message, ImmutableMap.of("ws:ws1", SERVED), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table for snapshot ids\"}");
 
         InteractiveTaskStart start = started();
@@ -420,7 +421,7 @@ class TestAssistantActions
         assertThat(start.workItemId()).isEmpty();
         AssistantReceipt receipt = receipts.getLast().receipt().orElseThrow();
         assertThat(receipts.getLast().text()).isEqualTo("Started “Expose snapshot id in metadata”");
-        assertThat(receipt.detail()).contains("trinodb/trino · Claude Code Opus 5.5 · Auto-Draft PR");
+        assertThat(receipt.detail()).contains("owner/repository · Claude Code Opus 5.5 · Auto-Draft PR");
         assertThat(receipt.turnId()).isPresent();
         assertThat(receipt.target()).contains(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", start.taskId().toString()));
         assertThat(store.actions(message.id()).getLast().result()).contains(start.taskId().toString());
@@ -442,9 +443,10 @@ class TestAssistantActions
         assertThat(work.defaults().model()).contains("gpt-6.1-sol");
         assertThat(work.defaults().effort()).isEmpty();
 
-        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/trinodb/trino/issues/77",
+        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77",
                 ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW.minusSeconds(60))));
-        act(message("start #77", ImmutableList.of(), Optional.of("issue:trinodb/trino#77")), "{\"op\":\"start_task\",\"from\":\"issue:trinodb/trino#77\",\"words\":\"start #77\"}");
+        act(message("start #77", ImmutableList.of(), Optional.of("issue:owner/repository#77")),
+                "{\"op\":\"start_task\",\"from\":\"issue:owner/repository#77\",\"words\":\"start #77\"}");
         InteractiveTaskStart issue = started();
         assertThat(issue.message()).isEqualTo("Implement Snapshot ids in $snapshots\n\nNote from the user, in their words to the assistant: “start #77”");
         assertThat(issue.issueSource().orElseThrow().issueId()).isEqualTo(901);
@@ -452,7 +454,7 @@ class TestAssistantActions
 
         JiraIssue ticket = new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7", "Expire snapshots by branch", "As described",
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
-                NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("ws1", "Trino")));
+                NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("ws1", "Repository")));
         when(jira.cachedIssue("cloud", "10042")).thenReturn(Optional.of(ticket));
         act(message("go ahead with the ticket", ImmutableList.of()), ImmutableMap.of("jira:cloud:10042", SERVED),
                 "{\"op\":\"start_task\",\"from\":\"jira:cloud:10042\",\"words\":\"go ahead with the ticket\"}");
@@ -464,12 +466,12 @@ class TestAssistantActions
     @Test
     void retriesAStartThatFailedAsTheSameTaskAndRefusesARepeatOrASixthAction()
     {
-        AssistantItem message = message("start one in trino: add a metadata table", ImmutableList.of());
+        AssistantItem message = message("start one in repository: add a metadata table", ImmutableList.of());
         Map<String, ServedRef> served = ImmutableMap.of("ws:ws1", SERVED);
         String start = "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}";
         doThrow(new IllegalStateException("The worktree is not ready")).doAnswer(call -> {
             InteractiveTaskStart value = call.getArgument(0);
-            return AgentTask.created(value.taskId(), Optional.of("ws1"), true, "Add a metadata table", value.laneId(), new RepositoryIdentity("trinodb", "trino"),
+            return AgentTask.created(value.taskId(), Optional.of("ws1"), true, "Add a metadata table", value.laneId(), new RepositoryIdentity("owner", "repository"),
                     Path.of("/tmp/assistant-task"), value.defaults(), NOW);
         }).when(starter).start(any());
         act(message, served, start);
@@ -495,7 +497,7 @@ class TestAssistantActions
     @Test
     void refusesAnAgentThatIsNotReadyAndRejectsAMalformedCall()
     {
-        act(message("start one in trino with gemini: add a metadata table", ImmutableList.of()), ImmutableMap.of("ws:ws1", SERVED),
+        act(message("start one in repository with gemini: add a metadata table", ImmutableList.of()), ImmutableMap.of("ws:ws1", SERVED),
                 "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"agent\":\"gemini\",\"words\":\"add a metadata table\"}");
         assertRefused("That agent isn't ready", Optional.empty());
         int written = receipts.size();
@@ -513,8 +515,8 @@ class TestAssistantActions
     void refusesWorkChangesWhileTheirSwitchIsOff()
     {
         allowed.set(new AssistantPermissions(true, true, false, true));
-        act(message("make #77 an epic", ImmutableList.of()), ImmutableMap.of("issue:trinodb/trino#77", SERVED),
-                "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"make #77 an epic\"}");
+        act(message("make #77 an epic", ImmutableList.of()), ImmutableMap.of("issue:owner/repository#77", SERVED),
+                "{\"op\":\"mark_epic\",\"item\":\"issue:owner/repository#77\",\"words\":\"make #77 an epic\"}");
         assertRefused("Changing Epics and work items is off", Optional.of(SETTINGS));
         verify(issueDevelopment, never()).setEpic(anyString(), anyInt(), anyBoolean());
     }
@@ -522,10 +524,10 @@ class TestAssistantActions
     @Test
     void marksAnIssueATicketOrAWorkItemAsAnEpic()
     {
-        Map<String, ServedRef> served = ImmutableMap.of("issue:trinodb/trino#77", SERVED, "jira:cloud:10042", SERVED, "work:w22", SERVED);
-        AgendaTarget issue = AgendaTarget.issue("trinodb/trino", 77, "ws1");
-        named("issue:trinodb/trino#77", "Snapshot ids in $snapshots", issue);
-        act(message("make #77 an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"make #77 an epic\"}");
+        Map<String, ServedRef> served = ImmutableMap.of("issue:owner/repository#77", SERVED, "jira:cloud:10042", SERVED, "work:w22", SERVED);
+        AgendaTarget issue = AgendaTarget.issue("owner/repository", 77, "ws1");
+        named("issue:owner/repository#77", "Snapshot ids in $snapshots", issue);
+        act(message("make #77 an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"issue:owner/repository#77\",\"words\":\"make #77 an epic\"}");
         verify(issueDevelopment).setEpic("ws1", 77, true);
         assertThat(receipts.getLast().text()).isEqualTo("Marked “Snapshot ids in $snapshots” as an Epic");
         assertThat(receipts.getLast().receipt().orElseThrow()).isEqualTo(AssistantReceipt.done(AssistantReceipt.Operation.MARK_EPIC, Optional.of(issue))
@@ -541,9 +543,9 @@ class TestAssistantActions
         assertThat(receipts).extracting(receipt -> receipt.receipt().orElseThrow().outcome()).containsOnly(DONE);
 
         // Only what the user could see, of a kind that can be an Epic; the item's own rules are its service's.
-        act(message("make #78 an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"issue:trinodb/trino#78\",\"words\":\"make #78 an epic\"}");
+        act(message("make #78 an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"issue:owner/repository#78\",\"words\":\"make #78 an epic\"}");
         assertRefused("That isn't on screen", Optional.empty());
-        assertThat(act(message("make it an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"make it an epic\"}"))
+        assertThat(act(message("make it an epic", ImmutableList.of()), served, "{\"op\":\"mark_epic\",\"item\":\"pr:owner/repository#31402\",\"words\":\"make it an epic\"}"))
                 .contains("mark_epic takes an issue:, jira: or work: ref");
         doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "This ticket already has a development task.")).when(jira).epic("connection", "cloud", "10042", true);
         act(message("mark the ticket as an epic, please", ImmutableList.of()), served,
@@ -555,23 +557,23 @@ class TestAssistantActions
     @Test
     void addsWorkToAnEpicThatTheUserCouldSee()
     {
-        Map<String, ServedRef> served = ImmutableMap.of("epic:LOCAL:w1", SERVED, "work:w22", SERVED, "issue:trinodb/trino#77", SERVED);
-        when(rows.epicWorkspace("LOCAL:w1")).thenReturn(Optional.of(trino));
+        Map<String, ServedRef> served = ImmutableMap.of("epic:LOCAL:w1", SERVED, "work:w22", SERVED, "issue:owner/repository#77", SERVED);
+        when(rows.epicWorkspace("LOCAL:w1")).thenReturn(Optional.of(repository));
         named("epic:LOCAL:w1", "Iceberg write path", AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"));
         when(workItemService.joinLocalEpic("ws1", "LOCAL:w1", "w22")).thenReturn(new WorkItemService.EpicJoin(view("w22", "Add a snapshot id column"), Optional.empty()));
-        when(workItemService.joinEpic("ws1", "LOCAL:w1", GoalItemKind.ISSUE, "trinodb/trino#77"))
+        when(workItemService.joinEpic("ws1", "LOCAL:w1", GoalItemKind.ISSUE, "owner/repository#77"))
                 .thenReturn(new WorkItemService.EpicJoin(view("w30", "Snapshot ids in $snapshots"), Optional.of("JIRA:cloud:10040")));
 
         act(message("put the column one in the write path epic", ImmutableList.of()), served,
                 "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"work:w22\",\"words\":\"put the column one in the write path epic\"}");
         assertThat(receipts.getLast().text()).isEqualTo("Added “Add a snapshot id column” to Iceberg write path");
         assertThat(receipts.getLast().receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"));
-        act(message("and #77 too", ImmutableList.of()), served, "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"issue:trinodb/trino#77\",\"words\":\"#77 too\"}");
+        act(message("and #77 too", ImmutableList.of()), served, "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"issue:owner/repository#77\",\"words\":\"#77 too\"}");
         assertThat(receipts.getLast().text()).isEqualTo("Added “Snapshot ids in $snapshots” to Iceberg write path");
         assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("Moved from another Epic");
 
-        act(message("add #9 to it", ImmutableList.of()), ImmutableMap.of("issue:trinodb/trino#9", SERVED),
-                "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"issue:trinodb/trino#9\",\"words\":\"add #9 to it\"}");
+        act(message("add #9 to it", ImmutableList.of()), ImmutableMap.of("issue:owner/repository#9", SERVED),
+                "{\"op\":\"add_to_epic\",\"epic\":\"epic:LOCAL:w1\",\"item\":\"issue:owner/repository#9\",\"words\":\"add #9 to it\"}");
         assertRefused("That isn't on screen", Optional.empty());
         assertThat(act(message("add it", ImmutableList.of()), served, "{\"op\":\"add_to_epic\",\"epic\":\"work:w1\",\"item\":\"work:w22\",\"words\":\"add it\"}"))
                 .contains("add_to_epic needs an epic: ref");
@@ -583,7 +585,7 @@ class TestAssistantActions
     void createsAWorkItemTitledWithTheUsersWordsOnce()
     {
         Map<String, ServedRef> served = ImmutableMap.of("epic:LOCAL:w1", SERVED, "ws:ws1", SERVED);
-        when(rows.epicWorkspace("LOCAL:w1")).thenReturn(Optional.of(trino));
+        when(rows.epicWorkspace("LOCAL:w1")).thenReturn(Optional.of(repository));
         named("epic:LOCAL:w1", "Iceberg write path", AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"));
         AssistantItem message = message("add work to the write path epic: retry the commit on conflict", ImmutableList.of());
         String create = "{\"op\":\"create_work_item\",\"epic\":\"epic:LOCAL:w1\",\"words\":\"retry the commit on conflict\"}";
@@ -600,16 +602,16 @@ class TestAssistantActions
                 eq(WorkItem.CompletionRule.MERGED_DELIVERY));
         assertThat(ids.getAllValues()).containsOnly(ids.getValue());
         assertThat(receipts.getLast().text()).isEqualTo("Created “retry the commit on conflict”");
-        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino · Iceberg write path");
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("owner/repository · Iceberg write path");
         assertThat(receipts.getLast().receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", ids.getValue()));
 
         when(workItemService.create(eq("ws1"), anyString(), eq("flaky snapshot test"), eq(WorkItem.Kind.DEVELOP), eq(""),
                 eq(WorkItem.CompletionRule.MERGED_DELIVERY))).thenAnswer(call -> view(call.getArgument(1), "flaky snapshot test"));
-        act(message("new work item in trino: flaky snapshot test", ImmutableList.of()), served,
+        act(message("new work item in repository: flaky snapshot test", ImmutableList.of()), served,
                 "{\"op\":\"create_work_item\",\"workspace\":\"ws:ws1\",\"words\":\"flaky snapshot test\"}");
         assertThat(receipts.getLast().text()).isEqualTo("Created “flaky snapshot test”");
-        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("trinodb/trino");
-        assertThat(act(message("new work: x y", ImmutableList.of()), served, "{\"op\":\"create_work_item\",\"workspace\":\"trino\",\"words\":\"x y\"}"))
+        assertThat(receipts.getLast().receipt().orElseThrow().detail()).contains("owner/repository");
+        assertThat(act(message("new work: x y", ImmutableList.of()), served, "{\"op\":\"create_work_item\",\"workspace\":\"repository\",\"words\":\"x y\"}"))
                 .contains("create_work_item needs a ws: or epic: ref");
     }
 
@@ -617,14 +619,14 @@ class TestAssistantActions
     void acknowledgesAndSnoozesWhatNeedsAttention()
     {
         String taskRef = "task:" + task.id();
-        Map<String, ServedRef> served = ImmutableMap.of("pr:trinodb/trino#31402", SERVED, taskRef, SERVED);
-        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
-        named("pr:trinodb/trino#31402", "Add Iceberg metadata cache", pull);
-        when(rows.attentionKey("pr:trinodb/trino#31402")).thenReturn(Optional.of("TrinoDB/trino#31402"));
+        Map<String, ServedRef> served = ImmutableMap.of("pr:owner/repository#31402", SERVED, taskRef, SERVED);
+        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        named("pr:owner/repository#31402", "Add Iceberg metadata cache", pull);
+        when(rows.attentionKey("pr:owner/repository#31402")).thenReturn(Optional.of("Owner/repository#31402"));
         act(message("clear the metadata cache PR", ImmutableList.of()), served,
-                "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"clear the metadata cache PR\"}");
+                "{\"op\":\"acknowledge\",\"item\":\"pr:owner/repository#31402\",\"words\":\"clear the metadata cache PR\"}");
         // The list's own key, in the repository's own spelling, so the row that goes is the one the user meant.
-        verify(attentionMarks).acknowledge("TrinoDB/trino#31402");
+        verify(attentionMarks).acknowledge("Owner/repository#31402");
         AssistantReceipt acknowledged = receipts.getLast().receipt().orElseThrow();
         assertThat(receipts.getLast().text()).isEqualTo("Acknowledged “Add Iceberg metadata cache”");
         assertThat(acknowledged.operation()).isEqualTo(AssistantReceipt.Operation.ACKNOWLEDGE);
@@ -640,16 +642,16 @@ class TestAssistantActions
         assertThat(receipts).extracting(receipt -> receipt.receipt().orElseThrow().outcome()).containsOnly(DONE);
 
         // Only what the user could see, of a kind the list shows, for one of its snooze choices.
-        act(message("clear #31403", ImmutableList.of()), served, "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31403\",\"words\":\"clear #31403\"}");
+        act(message("clear #31403", ImmutableList.of()), served, "{\"op\":\"acknowledge\",\"item\":\"pr:owner/repository#31403\",\"words\":\"clear #31403\"}");
         assertRefused("That isn't on screen", Optional.empty());
         assertThat(act(message("clear it", ImmutableList.of()), served, "{\"op\":\"acknowledge\",\"item\":\"work:w22\",\"words\":\"clear it\"}"))
                 .contains("acknowledge takes a pr:, issue:, jira: or task: ref");
         assertThat(act(message("snooze it till friday", ImmutableList.of()), served,
-                "{\"op\":\"snooze\",\"item\":\"pr:trinodb/trino#31402\",\"until\":\"friday\",\"words\":\"snooze it\"}"))
+                "{\"op\":\"snooze\",\"item\":\"pr:owner/repository#31402\",\"until\":\"friday\",\"words\":\"snooze it\"}"))
                 .contains("until must be hour, tomorrow or monday");
-        when(rows.attentionKey("pr:trinodb/trino#31402")).thenReturn(Optional.empty());
+        when(rows.attentionKey("pr:owner/repository#31402")).thenReturn(Optional.empty());
         act(message("clear the metadata cache PR again", ImmutableList.of()), served,
-                "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"clear the metadata cache PR again\"}");
+                "{\"op\":\"acknowledge\",\"item\":\"pr:owner/repository#31402\",\"words\":\"clear the metadata cache PR again\"}");
         assertThat(receipts.getLast().receipt().orElseThrow().outcome()).isEqualTo(FAILED);
         assertThat(receipts.getLast().text()).isEqualTo("That isn't in Needs attention");
     }
@@ -658,8 +660,8 @@ class TestAssistantActions
     void refusesToAcknowledgeWhileItsSwitchIsOff()
     {
         allowed.set(new AssistantPermissions(true, true, true, false));
-        act(message("clear the metadata cache PR", ImmutableList.of()), ImmutableMap.of("pr:trinodb/trino#31402", SERVED),
-                "{\"op\":\"acknowledge\",\"item\":\"pr:trinodb/trino#31402\",\"words\":\"clear the metadata cache PR\"}");
+        act(message("clear the metadata cache PR", ImmutableList.of()), ImmutableMap.of("pr:owner/repository#31402", SERVED),
+                "{\"op\":\"acknowledge\",\"item\":\"pr:owner/repository#31402\",\"words\":\"clear the metadata cache PR\"}");
         assertRefused("Acknowledging and snoozing is off", Optional.of(SETTINGS));
         verifyNoInteractions(attentionMarks);
     }
@@ -667,12 +669,12 @@ class TestAssistantActions
     @Test
     void namesTheEpicADraftBecameAndTheIssueItWasPublishedAs()
     {
-        AssistantDraft draft = new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9");
+        AssistantDraft draft = new AssistantDraft("ws1", "owner/repository", "Track the snapshot work.", "w9");
         assertThatThrownBy(() -> work.drafted(draft, DAY, NOW)).isInstanceOf(IllegalArgumentException.class).hasMessage("That draft was not created yet");
 
         WorkItem published = new WorkItem("w9", "ws1", "Iceberg snapshot ids", WorkItem.Kind.DEVELOP, "Track the snapshot work.",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(new WorkItemLink("ISSUE:github.com:901",
-                        new GoalItem(GoalItemKind.ISSUE, "trinodb/trino#123", "#123", "Iceberg snapshot ids", NOW), Optional.empty(), Optional.empty())),
+                        new GoalItem(GoalItemKind.ISSUE, "owner/repository#123", "#123", "Iceberg snapshot ids", NOW), Optional.empty(), Optional.empty())),
                 ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(workItems.find("w9")).thenReturn(Optional.of(published));
         AssistantItem receipt = work.drafted(draft, DAY, NOW);
@@ -680,7 +682,7 @@ class TestAssistantActions
         // The user may have edited the title before the click: the receipt names the work as created.
         assertThat(receipt.text()).isEqualTo("Created “Iceberg snapshot ids” as an Epic");
         assertThat(receipt.receipt().orElseThrow().operation()).isEqualTo(AssistantReceipt.Operation.CREATE_EPIC);
-        assertThat(receipt.receipt().orElseThrow().detail()).contains("trinodb/trino#123");
+        assertThat(receipt.receipt().orElseThrow().detail()).contains("owner/repository#123");
         assertThat(receipt.receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w9"));
     }
 
@@ -752,7 +754,7 @@ class TestAssistantActions
 
     private static AgentTask task(String title)
     {
-        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId("claude"), new RepositoryIdentity("trinodb", "trino"),
+        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId("claude"), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
     }
 
@@ -768,7 +770,7 @@ class TestAssistantActions
     {
         return new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7", "Expire snapshots by branch", "As described",
                 "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
-                NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("ws1", "Trino")));
+                NOW, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("ws1", "Repository")));
     }
 
     private static WorkItem workItem(String id)

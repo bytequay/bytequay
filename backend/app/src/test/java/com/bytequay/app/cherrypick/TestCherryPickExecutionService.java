@@ -105,7 +105,7 @@ class TestCherryPickExecutionService
     private static final GitCommandRunner GIT = new GitCommandRunner();
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-08-20T00:00:00Z"), ZoneOffset.UTC);
     private static final String WORKSPACE_ID = "workspace-id";
-    private static final RepositoryIdentity PHYSICAL_REPOSITORY = RepositoryIdentity.valueOf("trinodb/trino");
+    private static final RepositoryIdentity PHYSICAL_REPOSITORY = RepositoryIdentity.valueOf("owner/repository");
 
     private final WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
 
@@ -137,22 +137,22 @@ class TestCherryPickExecutionService
         clone = init(WORKSPACE_ID + "/repository");
         // GitHub-shaped remote URLs mapped to the local fixtures, so repository
         // identity parses the way it will in production.
-        git(clone, "remote", "add", "origin", "https://github.com/trinodb/trino.git");
-        git(clone, "remote", "add", "cork", "https://github.com/cork/trino.git");
-        git(clone, "config", "url." + upstream.toUri() + ".insteadOf", "https://github.com/trinodb/trino.git");
-        git(clone, "config", "url." + fork.toUri() + ".insteadOf", "https://github.com/cork/trino.git");
+        git(clone, "remote", "add", "origin", "https://github.com/owner/repository.git");
+        git(clone, "remote", "add", "cork", "https://github.com/cork/repository.git");
+        git(clone, "config", "url." + upstream.toUri() + ".insteadOf", "https://github.com/owner/repository.git");
+        git(clone, "config", "url." + fork.toUri() + ".insteadOf", "https://github.com/cork/repository.git");
         worktreeParent = Files.createDirectories(temporaryDirectory.resolve(WORKSPACE_ID).resolve("worktrees"));
 
         store = new InMemoryCherryPickExecutionStore();
         credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential(
-                "token", new UserProfile("chenjian2664", "Jack", "", "", 0, 0, 0, "", "", "", "")));
+                "token", new UserProfile("contributor", "Sam", "", "", 0, 0, 0, "", "", "", "")));
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection()))
                 .thenReturn(ImmutableMap.of());
         WorkspaceRemoteSourceService remoteSources = mock(WorkspaceRemoteSourceService.class);
         when(remoteSources.list(WORKSPACE_ID)).thenReturn(ImmutableList.of(
-                new WorkspaceRemote("origin", "https://github.com/trinodb/trino.git", Role.ORIGIN),
-                new WorkspaceRemote("cork", "https://github.com/cork/trino.git", Role.CUSTOM)));
+                new WorkspaceRemote("origin", "https://github.com/owner/repository.git", Role.ORIGIN),
+                new WorkspaceRemote("cork", "https://github.com/cork/repository.git", Role.CUSTOM)));
         previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class), credentials, remoteSources, CLOCK, relationships);
         agent = new ScriptedCherryPickAgent(new TestWorktreeService(clone, worktreeParent));
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK), ImmutableSet.of());
@@ -220,7 +220,7 @@ class TestCherryPickExecutionService
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(finished.finishReason()).contains(FinishReason.COMPLETED);
         assertThat(finished.items()).allMatch(item -> item.result() == Result.APPLIED);
-        assertThat(finished.workspace().workBranch()).isEqualTo("chenjian2664/bytequay/cherry-pick-main-" + finished.agentTaskId().orElseThrow().substring(0, 8));
+        assertThat(finished.workspace().workBranch()).isEqualTo("contributor/bytequay/cherry-pick-main-" + finished.agentTaskId().orElseThrow().substring(0, 8));
 
         assertThat(finished.workspace().worktree()).doesNotExist();
         assertThat(git(clone, "rev-list", "--count", finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
@@ -389,7 +389,7 @@ class TestCherryPickExecutionService
         CherryPickExecution persisted = startUntilTaskCreationCrashes();
         TaskId taskId = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
         when(workspaceRepositories.requireReadyRepository(WORKSPACE_ID))
-                .thenReturn(workspaceContext(RepoRef.of("trinodb", "other")));
+                .thenReturn(workspaceContext(RepoRef.of("owner", "other")));
 
         assertThatThrownBy(() -> service.cancel(persisted.id(), WORKSPACE_ID))
                 .isInstanceOf(CherryPickConflictException.class)
@@ -399,7 +399,7 @@ class TestCherryPickExecutionService
         assertThat(persisted.workspace().worktree()).exists();
 
         when(workspaceRepositories.requireReadyRepository(WORKSPACE_ID))
-                .thenReturn(workspaceContext(RepoRef.of("trinodb", "trino")));
+                .thenReturn(workspaceContext(RepoRef.of("owner", "repository")));
         agent.terminalizeOnComplete();
         assertThat(service.cancel(persisted.id(), WORKSPACE_ID).status()).isEqualTo(Status.FINISHED);
     }
@@ -410,7 +410,7 @@ class TestCherryPickExecutionService
         CherryPickExecution persisted = startUntilTaskCreationCrashes();
         TaskId taskId = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
         when(workspaceRepositories.requireReadyRepository(WORKSPACE_ID))
-                .thenReturn(workspaceContext(RepoRef.of("trinodb", "other")));
+                .thenReturn(workspaceContext(RepoRef.of("owner", "other")));
 
         assertThatThrownBy(() -> service.advance(persisted.id()))
                 .isInstanceOf(CherryPickConflictException.class)

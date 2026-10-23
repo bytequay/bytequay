@@ -107,7 +107,7 @@ class TestSqliteBranchRebaseStore
                 BranchRebaseId.random(),
                 key,
                 "task-" + key,
-                RepoRef.of("trinodb", "trino"),
+                RepoRef.of("owner", "repository"),
                 Path.of("/tmp/bytequay-rebase/" + key),
                 "feature-" + key,
                 "master",

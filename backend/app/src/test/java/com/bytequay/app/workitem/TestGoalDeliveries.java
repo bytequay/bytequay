@@ -78,15 +78,15 @@ class TestGoalDeliveries
     void aMergeIsRecordedOnceOnTheEpicWorkItDelivers()
     {
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED))));
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31261, Optional.empty()));
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31261, Optional.empty()));
         verify(work, never()).receipt(anyString(), anyString(), anyString(), anyString());
 
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
-        verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31260, Optional.empty()));
+        verify(work).receipt("workspace", "work-1", "merged:owner/repository#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
         verify(next).merged(any(WorkItemView.class), eq("#31260"));
         verify(work).deliver("workspace", "work-1");
 
-        WorkItemEvent recorded = new WorkItemEvent("merged:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 merged", NOW);
+        WorkItemEvent recorded = new WorkItemEvent("merged:owner/repository#31260", "", "RECEIPT", "Pull request #31260 merged", NOW);
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(recorded),
                 pull(31260, GoalItemState.MERGED))));
         deliveries.restore();
@@ -98,22 +98,22 @@ class TestGoalDeliveries
     void anOpenPullRequestWaitsForReviewAndEachReviewersVerdictIsRecordedOnce()
     {
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
-        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31260)).thenReturn(Optional.of(7L));
         StoredPrDetail detail = mock(StoredPrDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(detail.reviewsComplete()).thenReturn(true);
         when(detail.reviews()).thenReturn(ImmutableList.of(review(1, "alice", "CHANGES_REQUESTED", 120, "Rename the field"), review(2, "alice", "APPROVED", 60, ""),
                 review(3, "bob", "CHANGES_REQUESTED", 30, "Add a test for deletion vectors"), review(4, "carol", "COMMENTED", 10, "Nice")));
         when(details.find(7L)).thenReturn(Optional.of(detail));
 
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
-        verify(work).receipt("workspace", "work-1", "opened:trinodb/trino#31260", "Pull request #31260 opened: Key actions by path and deletion vector");
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31260, Optional.empty()));
+        verify(work).receipt("workspace", "work-1", "opened:owner/repository#31260", "Pull request #31260 opened: Key actions by path and deletion vector");
         verify(work).receipt("workspace", "work-1", "changes:3", "@bob requested changes on #31260: Add a test for deletion vectors");
         verify(work, never()).receipt(anyString(), anyString(), eq("changes:1"), anyString());
         verify(work).receipt("workspace", "work-1", "approved:2", "@alice approved #31260");
 
         ImmutableList<WorkItemEvent> recorded = ImmutableList.of(new WorkItemEvent("changes:3", "", "RECEIPT", "@bob requested changes on #31260", NOW),
                 new WorkItemEvent("approved:2", "", "RECEIPT", "@alice approved #31260", NOW),
-                new WorkItemEvent("opened:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 opened", NOW));
+                new WorkItemEvent("opened:owner/repository#31260", "", "RECEIPT", "Pull request #31260 opened", NOW));
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, recorded, pull(31260, GoalItemState.WORKING))));
         deliveries.restore();
         verify(work, times(3)).receipt(anyString(), anyString(), anyString(), anyString());
@@ -123,8 +123,8 @@ class TestGoalDeliveries
     void checksFailingOnAHeadCommitAreRecordedOnceForThatCommit()
     {
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING,
-                ImmutableList.of(new WorkItemEvent("opened:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 opened", NOW)), pull(31260, GoalItemState.WORKING))));
-        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
+                ImmutableList.of(new WorkItemEvent("opened:owner/repository#31260", "", "RECEIPT", "Pull request #31260 opened", NOW)), pull(31260, GoalItemState.WORKING))));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31260)).thenReturn(Optional.of(7L));
         StoredPrDetail detail = mock(StoredPrDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(raw.headSha()).thenReturn("abc123");
@@ -133,8 +133,8 @@ class TestGoalDeliveries
         when(detail.checkRuns()).thenReturn(ImmutableList.of(check("build", "FAILURE"), check("lint", "SUCCESS"), check("e2e", "CANCELLED"), check("build", "failure")));
         when(details.find(7L)).thenReturn(Optional.of(detail));
 
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
-        verify(work).receipt("workspace", "work-1", "checks:trinodb/trino#31260@abc123", "Checks failed on #31260: build");
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31260, Optional.empty()));
+        verify(work).receipt("workspace", "work-1", "checks:owner/repository#31260@abc123", "Checks failed on #31260: build");
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
     }
 
@@ -151,8 +151,8 @@ class TestGoalDeliveries
         when(work.linkRelated("workspace", "work-1")).thenReturn(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(),
                 pull(31260, GoalItemState.WORKING), pull(31100, GoalItemState.ENDED)));
         deliveries.listsRefreshed(new PullRequestsRefreshed());
-        verify(refresh).refreshDetail("trinodb/trino", 31260);
-        verify(refresh, never()).refreshDetail("trinodb/trino", 31100);
+        verify(refresh).refreshDetail("owner/repository", 31260);
+        verify(refresh, never()).refreshDetail("owner/repository", 31100);
     }
 
     @Test
@@ -173,7 +173,7 @@ class TestGoalDeliveries
         when(work.list("workspace")).thenReturn(ImmutableList.of(loose));
         when(work.linkRelated("workspace", "work-1")).thenReturn(loose);
         deliveries.listsRefreshed(new PullRequestsRefreshed());
-        verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
+        verify(work).receipt("workspace", "work-1", "merged:owner/repository#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
         verify(work).deliver("workspace", "work-1");
         verify(next, never()).merged(any(WorkItemView.class), anyString());
     }
@@ -186,7 +186,7 @@ class TestGoalDeliveries
         when(work.linkRelated("workspace", "work-1")).thenReturn(epicWork);
         deliveries.listsRefreshed(new PullRequestsRefreshed());
         verify(work).linkRelated("workspace", "work-1");
-        verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
+        verify(work).receipt("workspace", "work-1", "merged:owner/repository#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
     }
 
     private static WorkItemView item(Optional<String> epicId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
@@ -202,7 +202,7 @@ class TestGoalDeliveries
 
     private static GoalItemView pull(int number, GoalItemState state)
     {
-        return new GoalItemView(GoalItemKind.PULL_REQUEST, "trinodb/trino#" + number, "#" + number, "Key actions by path and deletion vector", state,
+        return new GoalItemView(GoalItemKind.PULL_REQUEST, "owner/repository#" + number, "#" + number, "Key actions by path and deletion vector", state,
                 state == GoalItemState.MERGED ? "Merged" : state == GoalItemState.ENDED ? "Closed" : "Open", false, Optional.empty(), Optional.empty(),
                 Optional.of(NOW), Optional.empty());
     }

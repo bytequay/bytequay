@@ -23,7 +23,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * A goal item, or a candidate for one, as read from local stores.
  *
- * @param label what the item is called beside its icon: {@code #123}, {@code TRINO-412} or {@code Task}
+ * @param label what the item is called beside its icon: {@code #123}, {@code ENG-412} or {@code Task}
  * @param status the item's own state in words, such as {@code Merged}, {@code In Progress} or {@code Running}
  * @param blocked whether the item waits on others: a Jira ticket in a Blocked status
  * @param addedAt when the item joined the goal; empty for a candidate

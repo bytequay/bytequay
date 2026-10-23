@@ -135,7 +135,7 @@ class TestBackportChainService
     void setUp()
     {
         var id = TaskId.random();
-        source = AgentTask.created(id, true, "Fix Trino", TitleSource.USER, AgentLaneId.CODEX_CLI,
+        source = AgentTask.created(id, true, "Fix the build", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 new TaskWorktree(id, "p4", new RepositoryIdentity("test", "p4"), Path.of("/tmp", id.toString()), "bytequay/task/" + id, BASE),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO), NOW);
         turn = AgentTurn.accepted(TurnId.random(), id, "human", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,

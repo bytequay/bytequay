@@ -41,7 +41,7 @@ let assignmentFails = false;
 let taskRequest: CreateAgentTaskRequest | null = null;
 const connection: JiraConnection = { id: 'connection', authType: 'oauth', tokenEmail: null, account: { accountId: 'alex', displayName: 'Alex Chen', email: 'alex@example.com' }, duplicateOf: null, state: 'connected', sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }], authorizationUrl: null, pairingCode: null, error: null };
 const workspaces = [
-  { id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino' },
+  { id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository' },
   { id: 'other-workspace', name: 'Connectors', monitoredOwner: 'example', monitoredRepo: 'connectors' },
 ] as WorkspaceDto[];
 const record = (name: string, ...args: unknown[]) => { calls.push({ name, args }); };
@@ -93,7 +93,7 @@ async function clickAt(x: number, y: number) {
 
 function currentIssues(): JiraIssue[] {
   return [issue,
-    { ...issue, id: '1008', key: 'ENG-1008', title: 'Improve schema discovery for catalog listings', priority: { id: '2', name: 'Expedite' }, type: 'Task', status: { id: 'progress', name: 'In progress', category: 'indeterminate' }, task: { id: 'task-1008', workspaceId: 'workspace' }, workspace: { id: 'workspace', name: 'Trino' } },
+    { ...issue, id: '1008', key: 'ENG-1008', title: 'Improve schema discovery for catalog listings', priority: { id: '2', name: 'Expedite' }, type: 'Task', status: { id: 'progress', name: 'In progress', category: 'indeterminate' }, task: { id: 'task-1008', workspaceId: 'workspace' }, workspace: { id: 'workspace', name: 'Repository' } },
     { ...issue, id: '1009', key: 'ENG-1009', title: 'Preserve timestamps when reading Iceberg metadata', type: 'Bug', priority: { id: '9', name: 'Low' }, assignee: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, status: { id: 'review', name: 'Awaiting review', category: 'indeterminate' } },
     { ...issue, id: '1010', key: 'ENG-1010', title: 'Handle empty partitions during schema inference', type: 'Task', status: { id: 'done', name: 'Resolved', category: 'done' }, completedAt: new Date().toISOString() }];
 }
@@ -205,14 +205,14 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await mountPreview();
       const source = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="#dbe8fb"/></svg>')}`;
       detail = { ...detail, comments: [
-        { id: 'c0', parentId: null, author: { accountId: 'jack', displayName: 'Jack Chen', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z', mine: true, editableText: 'The connector now preserves the declared scale.' },
-        { id: 'c1', parentId: null, author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Jack Chen](https://example.atlassian.net/jira/people/jack) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z', mine: false, editableText: null },
+        { id: 'c0', parentId: null, author: { accountId: 'riley', displayName: 'Riley Park', avatarUrl: source }, body: 'The connector now preserves the declared scale.', created: '2026-09-12T08:43:00Z', updated: '2026-09-12T08:43:00Z', mine: true, editableText: 'The connector now preserves the declared scale.' },
+        { id: 'c1', parentId: null, author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: '[@Riley Park](https://example.atlassian.net/jira/people/riley) Thanks for fixing this.\n\nPlease preserve the existing null handling.', created: '2026-09-13T09:15:00Z', updated: '2026-09-13T09:15:00Z', mine: false, editableText: null },
         { id: 'c2', parentId: 'c0', author: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null }, body: 'Confirmed on the custom build.', created: '2026-09-14T10:00:00Z', updated: '2026-09-14T10:00:00Z', mine: false, editableText: null },
       ] };
       button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 3);
       await Promise.all(document.getAnimations().map(animation => animation.finished));
       const comments = [...document.querySelectorAll<HTMLElement>('.jira-comment')];
-      assert(comments.map(comment => comment.getAttribute('aria-label')).join('|') === 'Comment by Sam Rivera|Comment by Jack Chen|Reply by Sam Rivera', 'Newest thread first; a reply follows its root');
+      assert(comments.map(comment => comment.getAttribute('aria-label')).join('|') === 'Comment by Sam Rivera|Comment by Riley Park|Reply by Sam Rivera', 'Newest thread first; a reply follows its root');
       const rootText = comments[1].querySelector('.jira-comment__content');
       assert(comments[2].parentElement?.classList.contains('jira-comment-replies') === true && comments[2].getBoundingClientRect().left === rootText?.getBoundingClientRect().left, 'A reply is nested under its root text');
       assert(getComputedStyle(comments[2]).borderLeftStyle === 'solid' && getComputedStyle(comments[1]).borderLeftWidth === '0px', 'A rail marks the replies, not the root');
@@ -222,11 +222,11 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(avatar.getBoundingClientRect().width === 28 && avatar.getBoundingClientRect().height === 28 && comments[2].querySelector('.jira-avatar')?.getBoundingClientRect().width === 22, 'Comment avatars use 28 pixels and replies 22');
       const image = comments[1].querySelector<HTMLImageElement>('.jira-avatar img'); await until(() => image?.naturalWidth === 32);
       assert(image?.width === 28 && image.height === 28 && image.referrerPolicy === 'no-referrer', 'Comment author images fit the avatar without sending a referrer');
-      image.dispatchEvent(new Event('error')); await until(() => comments[1].querySelector('.jira-avatar')?.textContent === 'JC');
+      image.dispatchEvent(new Event('error')); await until(() => comments[1].querySelector('.jira-avatar')?.textContent === 'RP');
       const body = comments[0].querySelector<HTMLElement>('.markdown-body'); const name = comments[0].querySelector('.jira-comment__author'); assert(body !== null && name !== null, 'Comment body and author exist');
       assert(getComputedStyle(body).padding === '0px' && body.getBoundingClientRect().left === name.getBoundingClientRect().left, 'Comment text aligns with the author without nested Markdown padding');
       assert(getComputedStyle(comments[0]).borderWidth === '0px', 'Comments use conversation rows without card borders');
-      const mention = body.querySelector('.md-mention'); assert(mention?.textContent === '@Jack Chen', 'The entire mentioned name is one pill');
+      const mention = body.querySelector('.md-mention'); assert(mention?.textContent === '@Riley Park', 'The entire mentioned name is one pill');
       const composer = document.querySelector('.jira-composer'); assert(composer !== null && Boolean(composer.compareDocumentPosition(comments[0]) & Node.DOCUMENT_POSITION_FOLLOWING), 'Comment composer stays before the conversation');
     },
     async 'replies inside a thread and edits only your own comments'() {
@@ -235,7 +235,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       detail = { ...detail, comments: [
         { id: 'c0', parentId: null, author: person('sam', 'Sam Rivera'), body: 'Can you check the scale?', created: '2026-09-12T08:00:00Z', updated: '2026-09-12T08:00:00Z', mine: false, editableText: null },
         { id: 'c1', parentId: 'c0', author: person('me', 'Alex Chen'), body: 'On it.', created: '2026-09-12T09:00:00Z', updated: '2026-09-12T09:00:00Z', mine: true, editableText: 'On it.' },
-        { id: 'c2', parentId: null, author: person('me', 'Alex Chen'), body: 'See [the PR](https://github.com/trinodb/trino/pull/1).', created: '2026-09-13T09:00:00Z', updated: '2026-09-13T09:00:00Z', mine: true, editableText: null },
+        { id: 'c2', parentId: null, author: person('me', 'Alex Chen'), body: 'See [the PR](https://github.com/owner/repository/pull/1).', created: '2026-09-13T09:00:00Z', updated: '2026-09-13T09:00:00Z', mine: true, editableText: null },
       ] };
       button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-comment').length === 3);
       const own = document.querySelector('[aria-label="Reply by Alex Chen"]'); const other = document.querySelector('[aria-label="Comment by Sam Rivera"]');
@@ -340,9 +340,9 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       choose(select('Workspace'), 'workspace'); await settle(); assignmentFails = true; assignButton().click();
       await until(() => assignment()?.textContent?.includes('Workspace assignment failed') ?? false);
       assert(select('Workspace').value === 'workspace' && issue.workspace === null && !assignButton().disabled, 'Failed save retains the selected workspace for retry');
-      assignButton().click(); await until(() => assignment() === null && button('Change ByteQuay workspace: Trino', pane).textContent?.includes('Trino') === true);
-      assert(document.querySelector('.jira-card[aria-label^="ENG-1007:"] .jira-workspace')?.textContent?.includes('Trino') ?? false, 'Assignment also updates the ticket card');
-      button('Change ByteQuay workspace: Trino', pane).click(); await until(() => assignment() !== null && !select('Workspace').disabled);
+      assignButton().click(); await until(() => assignment() === null && button('Change ByteQuay workspace: Repository', pane).textContent?.includes('Repository') === true);
+      assert(document.querySelector('.jira-card[aria-label^="ENG-1007:"] .jira-workspace')?.textContent?.includes('Repository') ?? false, 'Assignment also updates the ticket card');
+      button('Change ByteQuay workspace: Repository', pane).click(); await until(() => assignment() !== null && !select('Workspace').disabled);
       assert(select('Workspace').value === 'workspace' && assignButton().disabled, 'Existing assignment is selected and unchanged submission is disabled');
       choose(select('Workspace'), 'other-workspace'); await settle(); assignButton().click();
       await until(() => assignment() === null && button('Change ByteQuay workspace: Connectors', pane).textContent?.includes('Connectors') === true);
@@ -357,10 +357,10 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await until(() => document.querySelector('.jira-assignment')?.textContent?.includes('Watch a repository from Home') ?? false);
       assert(assignButton().disabled && select('Workspace').value === '', 'No workspace cannot produce an assignment');
       button('Close workspace assignment').click(); await until(() => document.querySelector('.jira-assignment') === null);
-      issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' }, task: { id: 'task', workspaceId: 'workspace' } };
+      issue = { ...issue, workspace: { id: 'workspace', name: 'Repository' }, task: { id: 'task', workspaceId: 'workspace' } };
       button('Refresh ticket').click(); await until(() => document.querySelector('.jira-side__bytequay')?.textContent?.includes('Set by the linked development task.') ?? false);
       const fields = element('.jira-side__bytequay', document, 'ByteQuay fields exist');
-      assert(fields.textContent?.includes('Workspace') && fields.textContent.includes('Trino'), 'Linked workspace remains visible in Details');
+      assert(fields.textContent?.includes('Workspace') && fields.textContent.includes('Repository'), 'Linked workspace remains visible in Details');
       assert(fields.querySelector('.jira-field-button') === null && !calls.some(call => call.name === 'assign'), 'A linked development task owns its read-only workspace');
       await until(() => fields.querySelector('.jira-task-line')?.textContent === 'PR #42· open', 'Details name the linked task and its pull request');
     },
@@ -379,7 +379,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assignmentFails = true; assignButton().click(); await until(() => assignment()?.textContent?.includes('Workspace assignment failed') ?? false);
       assert(select('Workspace').value === 'workspace' && issue.workspace === null && !issue.isEpic && !calls.some(call => call.name === 'epic'), 'Failed assignment retains the choice without marking Epic');
       assignButton().click(); await until(() => card.querySelector('.jira-epic-active') !== null && assignment() === null);
-      const workspace = card.querySelector('.jira-workspace'); assert(workspace?.textContent?.includes('Trino') ?? false, 'Assigned workspace appears on the card');
+      const workspace = card.querySelector('.jira-workspace'); assert(workspace?.textContent?.includes('Repository') ?? false, 'Assigned workspace appears on the card');
       const workspaceBounds = workspace?.getBoundingClientRect(); assert(workspaceBounds !== undefined, 'Workspace badge is visible');
       assert(workspace?.contains(document.elementFromPoint(workspaceBounds.left + workspaceBounds.width / 2, workspaceBounds.top + workspaceBounds.height / 2)) ?? false, 'Workspace hover tooltip remains reachable');
       assert(card.querySelector('[aria-label="Use agent to develop ENG-1007"]') === null && document.querySelector('.jira-detail') === null, 'Epic cannot start, and choosing a workspace never opened the ticket');
@@ -394,7 +394,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       choose(select('Workspace'), 'workspace'); await settle(); assignButton().click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
       assert(calls.find(call => call.name === 'assign')?.args[1] === 'workspace', 'Explicit workspace assignment is persisted before composer opens');
       button('Close development').click(); await until(() => document.querySelector('.agt-compose') === null);
-      assert(pane.querySelector('[aria-label="Change ByteQuay workspace: Trino"]') !== null && document.querySelector('.jira-card .jira-workspace')?.textContent?.includes('Trino'), 'Composer cancellation retains workspace on detail and card');
+      assert(pane.querySelector('[aria-label="Change ByteQuay workspace: Repository"]') !== null && document.querySelector('.jira-card .jira-workspace')?.textContent?.includes('Repository'), 'Composer cancellation retains workspace on detail and card');
       button('Start development', pane).click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
       assert(document.querySelector('dialog[aria-label^="Assign workspace"]') === null && calls.filter(call => call.name === 'assign').length === 1, 'Later development reuses the assigned workspace');
       assert(document.querySelector('.agt-issue-attachment strong')?.textContent === 'ENG-1007', 'Source stays above composer');
@@ -410,7 +410,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'starts another attempt over an ended ticket task and otherwise opens that task'() {
       await mountPreview(false, false);
-      issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' }, task: { id: 'ended-task', workspaceId: 'workspace' } };
+      issue = { ...issue, workspace: { id: 'workspace', name: 'Repository' }, task: { id: 'ended-task', workspaceId: 'workspace' } };
       const location = { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };
       const zoomHost = document.createElement('div'); document.body.append(zoomHost);
       const zoomRoot = createRoot(zoomHost);
@@ -429,7 +429,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'keeps an Epic ticket and its work in one dialog, opening on Work only from the drawer'() {
       await mountPreview(false, false);
-      issue = { ...issue, isEpic: true, workspace: { id: 'workspace', name: 'Trino' } };
+      issue = { ...issue, isEpic: true, workspace: { id: 'workspace', name: 'Repository' } };
       const work = (id: string, state: WorkItemDto['state']): WorkItemDto => ({
         id, workspaceId: 'workspace', isEpic: false, contextLinks: [], title: `Work ${id}`, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0,
         links: [], history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', blockedBy: [], epicId: ticketEpicId(issue),
@@ -486,7 +486,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await browserOpen(false);
       assert(launch.matches(':modal') && document.querySelector('dialog[aria-label="Develop ENG-1007"]') === launch && instructions.value === 'Keep the partition column predicates intact.', 'Returning restores the same development dialog and draft');
       assert(launch.contains(document.activeElement), 'Restored development dialog stays above the underlying ticket');
-      assert(reply.value === 'Keep this reply while I check Jira.' && launch.querySelector('.jira-workspace')?.textContent?.includes('Trino'), 'Ticket reply and workspace survive the full browser round trip');
+      assert(reply.value === 'Keep this reply while I check Jira.' && launch.querySelector('.jira-workspace')?.textContent?.includes('Repository'), 'Ticket reply and workspace survive the full browser round trip');
     },
     async 'shows Jira card metadata, filters and completed board history'() {
       await mountPreview(false, false);
@@ -557,7 +557,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     },
     async 'filters workspace tickets and retains workspace navigation'() {
       await mountPreview(false, false);
-      const workspace = { id: 'workspace / one', name: 'Trino' };
+      const workspace = { id: 'workspace / one', name: 'Repository' };
       issue = { ...issue, workspace };
       const listIssues = window.bridge.listJiraIssues;
       window.bridge.listJiraIssues = async (...args) => {
@@ -568,7 +568,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       const mounted = root; assert(mounted !== null, 'Screen is mounted');
       flushSync(() => mounted.render(<JiraScreen workspace={workspace} />));
       button('Refresh tickets').click(); await until(() => cards().length === 1);
-      assert(document.querySelector('.jira-count-label')?.textContent === '1 ticket assigned to Trino', 'Workspace scope is visible');
+      assert(document.querySelector('.jira-count-label')?.textContent === '1 ticket assigned to Repository', 'Workspace scope is visible');
       assert(document.querySelector('.jira-card .card-key')?.textContent === 'ENG-1007', 'Current sprint excludes other-workspace and unassigned tickets');
       await filterStatus('In progress'); assert(cards().length === 0, 'Status filters within the workspace tickets');
       await filterStatus('All');
@@ -712,7 +712,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     async 'lists subtasks and linked work items, creates a subtask and links a ticket'() {
       await mountPreview();
       const related = (id: string, key: string, title: string): JiraIssueDetail['children'][number] => ({ id, key, title, type: 'Subtask', status: { id: 'progress', name: 'In Progress', category: 'indeterminate' }, priority: { id: '2', name: 'P2' }, assignee: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null } });
-      issue = { ...issue, hasChildren: true, workspace: { id: 'workspace', name: 'Trino' } };
+      issue = { ...issue, hasChildren: true, workspace: { id: 'workspace', name: 'Repository' } };
       detail = { ...detail, children: [related('1011', 'ENG-1011', 'Test the rollout against the query history table of the online cluster before enabling remote split generation for every customer')],
         links: [{ id: 'l1', relation: 'relates to', issue: { ...related('1000', 'ENG-1000', 'Connector reliability'), type: 'Epic' } }, { id: 'l2', relation: 'is blocked by', issue: related('1012', 'ENG-1012', 'Upgrade the metastore client') }] };
       button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-work-item').length === 3);
@@ -763,8 +763,8 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(button('Better words', composer).disabled && composer.querySelector('.is-discard') === null, 'A sent draft resets the rewrite action');
       assert(calls.find(call => call.name === 'comment')?.args[0] === improved, 'Send publishes the rewritten draft');
 
-      issue = { ...issue, workspace: { id: 'workspace', name: 'Trino' } };
-      button('Refresh ticket').click(); await until(() => document.querySelector('[aria-label="Change ByteQuay workspace: Trino"]') !== null);
+      issue = { ...issue, workspace: { id: 'workspace', name: 'Repository' } };
+      button('Refresh ticket').click(); await until(() => document.querySelector('[aria-label="Change ByteQuay workspace: Repository"]') !== null);
       button('Reply to Sam Rivera').click(); await settle();
       const replyForm = document.querySelector<HTMLFormElement>('.jira-reply-form'); const reply = replyForm?.querySelector('textarea');
       assert(replyForm != null && reply != null, 'Reply editor exists');

@@ -68,22 +68,22 @@ class TestWorkspaceRelationships
     @Test
     void dependencyBlocksBothDirectionsAndKnownPushForksWhileOtherManualRoutesStayAllowed()
     {
-        Workspace trino = add("trino", 1);
+        Workspace repository = add("repository", 1);
         Workspace iceberg = add("iceberg", 2);
         Workspace push = add("iceberg-push", 3);
         workspaces.save(push.withRepositoryRouting(push.selectedRepository(), Optional.of(2L), Optional.of(iceberg.monitoredRepository()),
                 2, iceberg.monitoredRepository(), "main", push.originCloneUrl(), Optional.of("main"), Optional.of(iceberg.originCloneUrl()), Instant.EPOCH));
-        relationships.save("trino", new WorkspaceRelationships.Relationship("iceberg-push", DEPENDENCY, "Library", false));
-        assertThatThrownBy(() -> relationships.requireTransferAllowed(trino.monitoredRepository(), iceberg.monitoredRepository()))
+        relationships.save("repository", new WorkspaceRelationships.Relationship("iceberg-push", DEPENDENCY, "Library", false));
+        assertThatThrownBy(() -> relationships.requireTransferAllowed(repository.monitoredRepository(), iceberg.monitoredRepository()))
                 .hasMessageContaining("cannot cherry-pick");
-        assertThatThrownBy(() -> relationships.requireTransferAllowed(push.selectedRepository(), trino.monitoredRepository()))
+        assertThatThrownBy(() -> relationships.requireTransferAllowed(push.selectedRepository(), repository.monitoredRepository()))
                 .hasMessageContaining("cannot cherry-pick");
-        assertThatThrownBy(() -> relationships.requireTransferAllowed(Optional.empty(), trino.monitoredRepository()))
+        assertThatThrownBy(() -> relationships.requireTransferAllowed(Optional.empty(), repository.monitoredRepository()))
                 .hasMessageContaining("no saved source repository");
         relationships.requireTransferAllowed(Optional.empty(), RepoRef.of("other", "project"));
-        relationships.requireTransferAllowed(RepoRef.of("other", "project"), trino.monitoredRepository());
-        relationships.save("trino", new WorkspaceRelationships.Relationship("iceberg-push", FORK, "Fork", false));
-        relationships.requireTransferAllowed(push.selectedRepository(), trino.monitoredRepository());
+        relationships.requireTransferAllowed(RepoRef.of("other", "project"), repository.monitoredRepository());
+        relationships.save("repository", new WorkspaceRelationships.Relationship("iceberg-push", FORK, "Fork", false));
+        relationships.requireTransferAllowed(push.selectedRepository(), repository.monitoredRepository());
     }
 
     @Test

@@ -19,7 +19,7 @@ const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: Co
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
   title: `Gap ${id}`, rule: 'MUST x', specUrl: 'https://example.com/spec#x', code: ['a/B.java:1-2'], reasoning: 'why', severity: 2, duplicate: null, status, test: null,
   reason: null, draft: null, dismissed: null, ...patch });
-const check = (candidates: ContextSpecCandidateDto[]): ContextSpecCheckDto => ({ id: 'check-1', directory: 'plugin/trino-delta-lake/', baselineSha: 'a'.repeat(40),
+const check = (candidates: ContextSpecCandidateDto[]): ContextSpecCheckDto => ({ id: 'check-1', directory: 'plugin/storage/', baselineSha: 'a'.repeat(40),
   requestKey: 'key', specs: ['https://example.com/spec'],
   checkedAgainst: ['https://example.com/spec'], labels: [],
   state: 'DONE', candidates, covered: [], next: [], reproductions: 2, maxReproductions: 3, detail: null, startedAt: '2026-10-01T00:00:00Z',
@@ -43,9 +43,9 @@ describe('spec check report', () => {
 
 describe('spec check modules', () => {
   const modules = [
-    { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
-    { directory: 'lib/trino-hive-formats/', page: 'https://avro.apache.org/docs/1.11.1/specification/', sections: 3, links: 3 },
-    { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 },
+    { directory: 'plugin/storage/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
+    { directory: 'lib/files-formats/', page: 'https://avro.apache.org/docs/1.11.1/specification/', sections: 3, links: 3 },
+    { directory: 'plugin/catalog/', page: null, sections: 0, links: 0 },
   ];
 
   it('names a page by its repository and file on GitHub, else by its host and last part', () => {
@@ -70,16 +70,16 @@ describe('spec check modules', () => {
 
   it('filters modules by every word of their path or page, keeping their rank', () => {
     expect(moduleRows(modules, '')).toEqual(modules);
-    expect(moduleRows(modules, 'trino- lake').map(module => module.directory)).toEqual(['plugin/trino-delta-lake/']);
-    expect(moduleRows(modules, 'AVRO').map(module => module.directory)).toEqual(['lib/trino-hive-formats/']);
-    expect(moduleRows(modules, 'plugin/').map(module => module.directory)).toEqual(['plugin/trino-delta-lake/', 'plugin/trino-iceberg/']);
+    expect(moduleRows(modules, 'plugin/ stor').map(module => module.directory)).toEqual(['plugin/storage/']);
+    expect(moduleRows(modules, 'AVRO').map(module => module.directory)).toEqual(['lib/files-formats/']);
+    expect(moduleRows(modules, 'plugin/').map(module => module.directory)).toEqual(['plugin/storage/', 'plugin/catalog/']);
   });
 });
 
 describe('spec check directory', () => {
   it('takes a repository directory with or without its slashes and refuses one that escapes it', () => {
-    expect(['plugin/trino-iceberg', '/plugin/trino-iceberg/', ' plugin/trino-iceberg// '].map(specCheckDirectory))
-      .toEqual(['plugin/trino-iceberg/', 'plugin/trino-iceberg/', 'plugin/trino-iceberg/']);
+    expect(['plugin/catalog', '/plugin/catalog/', ' plugin/catalog// '].map(specCheckDirectory))
+      .toEqual(['plugin/catalog/', 'plugin/catalog/', 'plugin/catalog/']);
     expect(['', '/', 'plugin/../core', './plugin', 'plugin//iceberg', 'C:\\plugin', '-plugin'].map(specCheckDirectory)).toEqual([null, null, null, null, null, null, null]);
   });
 });

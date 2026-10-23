@@ -25,7 +25,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param key {@code owner/repo#number} for a pull request or issue, {@code connection:cloud:issue}
  * for a Jira ticket, and the task id for a task
- * @param label what the item is called beside its icon: {@code #123}, {@code TRINO-412} or {@code Task}
+ * @param label what the item is called beside its icon: {@code #123}, {@code ENG-412} or {@code Task}
  */
 public record GoalItem(GoalItemKind kind, String key, String label, String title, Instant addedAt)
 {

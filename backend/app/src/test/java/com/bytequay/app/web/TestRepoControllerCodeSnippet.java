@@ -35,10 +35,10 @@ class TestRepoControllerCodeSnippet
         RepoService repos = mock(RepoService.class);
         RepoController controller = new RepoController(repos, mock(WorkspaceRepositoryService.class));
         String commit = "4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa";
-        when(repos.getCodeSnippet("trinodb", "trino", commit, "src/Main.java", 796, 797))
+        when(repos.getCodeSnippet("owner", "repository", commit, "src/Main.java", 796, 797))
                 .thenReturn(ImmutableList.of("try (writer) {", "}"));
 
-        standaloneSetup(controller).build().perform(get("/api/repos/trinodb/trino/code-snippet")
+        standaloneSetup(controller).build().perform(get("/api/repos/owner/repository/code-snippet")
                         .queryParam("commit", commit)
                         .queryParam("path", "src/Main.java")
                         .queryParam("startLine", "796")
@@ -49,6 +49,6 @@ class TestRepoControllerCodeSnippet
                 .andExpect(jsonPath("$.lines[1].number").value(797))
                 .andExpect(jsonPath("$.lines[1].content").value("}"));
 
-        verify(repos).getCodeSnippet("trinodb", "trino", commit, "src/Main.java", 796, 797);
+        verify(repos).getCodeSnippet("owner", "repository", commit, "src/Main.java", 796, 797);
     }
 }

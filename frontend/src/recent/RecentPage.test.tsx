@@ -17,21 +17,21 @@ import type { RecentRowDto } from '../types';
 import { Row } from './RecentPage';
 
 const row: RecentRowDto = {
-  id: 'pr:trinodb/trino#30835@2026-08-28',
+  id: 'pr:owner/repository#30835@2026-08-28',
   type: 'PULL_REQUEST',
-  itemKey: 'pr:trinodb/trino#30835',
+  itemKey: 'pr:owner/repository#30835',
   number: 30835,
   title: 'Fix memory blob cache caching partial content with stale length',
-  repo: 'trinodb/trino',
+  repo: 'owner/repository',
   workspaceId: null,
   mine: true,
   touchedAt: new Date(2026, 7, 28, 14, 14).toISOString(),
   reason: 'PUSHED',
   reasonLabel: 'Pushed 2',
-  htmlUrl: 'https://github.com/trinodb/trino/pull/30835',
+  htmlUrl: 'https://github.com/owner/repository/pull/30835',
   subtitle: 'ezra-b',
   snippet: 'Nested field ordering is resolved per split here.',
-  textId: 'pr:trinodb/trino#30835:comment:1',
+  textId: 'pr:owner/repository#30835:comment:1',
   pullRequest: { state: 'open', draft: false, queued: false },
 };
 
@@ -78,14 +78,14 @@ describe('a stream row', () => {
 
   it('shows the repository owner and the author beside the metadata', () => {
     const markup = render();
-    expect(markup).toContain('aria-label="trinodb/trino"');
+    expect(markup).toContain('aria-label="owner/repository"');
     expect(markup).toContain('alt="ezra-b"');
   });
 
   it('shows no author face on a row whose subtitle is not a person', () => {
     // A commit's subtitle is its sha and a task's is its lane.
     const markup = render({ row: { ...row, type: 'COMMIT', number: null, subtitle: 'a1b2c3d' } });
-    expect(markup).toContain('aria-label="trinodb/trino"');
+    expect(markup).toContain('aria-label="owner/repository"');
     expect(markup).not.toContain('alt="a1b2c3d"');
   });
 

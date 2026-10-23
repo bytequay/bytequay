@@ -840,7 +840,7 @@ describe('PullOverview', () => {
   ])('names the deleted head branch from detail %s and summary %s', (headRef, summaryHeadRef, expected) => {
     const value = detail();
     value.headRef = headRef;
-    value.recentActivity = [timelineActivity({ actor: 'chenjian2664', eventType: 'head_ref_deleted', timestamp: '2026-08-20T10:00:00Z', githubId: 23 })];
+    value.recentActivity = [timelineActivity({ actor: 'contributor', eventType: 'head_ref_deleted', timestamp: '2026-08-20T10:00:00Z', githubId: 23 })];
 
     const html = renderToStaticMarkup(<PullOverview pr={{ ...pullRequest(), headRef: summaryHeadRef }} detail={value} onRefresh={async () => {}} />);
 
@@ -1280,8 +1280,8 @@ describe('PullOverview', () => {
   ])('keeps a $state review body and its inline threads together ($body)', ({ state, body }) => {
     const value = detail();
     value.recentActivity = [
-      timelineActivity({ actor: 'chenjian2664', timestamp: '2026-08-13T08:36:16Z', githubId: 3773729721 }, {
-          path: 'plugin/trino-oracle/src/main/java/io/trino/plugin/oracle/RewriteCast.java',
+      timelineActivity({ actor: 'contributor', timestamp: '2026-08-13T08:36:16Z', githubId: 3773729721 }, {
+          path: 'plugin/oracle/src/main/java/com/example/oracle/RewriteCast.java',
           line: 67,
           side: 'RIGHT',
           resolved: true,
@@ -1289,8 +1289,8 @@ describe('PullOverview', () => {
           comments: [
             timelineComment({
               githubId: 3773729721,
-              actor: 'chenjian2664',
-              actorAvatarUrl: 'https://example.com/chenjian2664.png',
+              actor: 'contributor',
+              actorAvatarUrl: 'https://example.com/contributor.png',
               timestamp: '2026-08-13T08:36:16Z',
               body: 'The legacy behavior needs another condition.',
               reviewId: 4925022844,
@@ -1306,7 +1306,7 @@ describe('PullOverview', () => {
             }),
           ],
         }),
-      timelineActivity({ actor: 'chenjian2664', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body, githubId: 4925022844 }, { actorAvatarUrl: 'https://example.com/chenjian2664.png', state }),
+      timelineActivity({ actor: 'contributor', eventType: 'reviewed', timestamp: '2026-08-13T08:49:10Z', body, githubId: 4925022844 }, { actorAvatarUrl: 'https://example.com/contributor.png', state }),
     ];
 
     const groups = groupTimelineActivities(value.recentActivity);
@@ -1315,8 +1315,8 @@ describe('PullOverview', () => {
     expect(groups).toHaveLength(1);
     expect(groups[0].map(activity => activity.eventType)).toEqual(['reviewed', 'review_thread']);
     expect(html).toContain('class="pr-review-group"');
-    expect(html).toContain('chenjian2664</strong></button><span>reviewed</span>');
-    expect(html).toContain('src="https://example.com/chenjian2664.png"');
+    expect(html).toContain('contributor</strong></button><span>reviewed</span>');
+    expect(html).toContain('src="https://example.com/contributor.png"');
     expect(html).toContain('RewriteCast.java:R67');
     expect(html).toContain('Can you add a test?');
     if (body.trim()) {
@@ -1694,7 +1694,7 @@ function headerMarkup(props: Partial<ComponentProps<typeof PullDetailHeader>> = 
 }
 
 describe('the pane tab row', () => {
-  const pr: PullRequestDto = { ...pullRequest(), repo: 'trinodb/trino', number: 30304, origin: 'REVIEW_REQUESTED' };
+  const pr: PullRequestDto = { ...pullRequest(), repo: 'owner/repository', number: 30304, origin: 'REVIEW_REQUESTED' };
   const headerDetail = { ...detail(), repo: pr.repo, number: pr.number, viewerCanWrite: true };
   function header(
     tab: 'overview' | 'files' | 'changes' | 'review' | 'code' | null,

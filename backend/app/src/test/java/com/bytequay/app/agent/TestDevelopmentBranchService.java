@@ -79,7 +79,7 @@ class TestDevelopmentBranchService
     private final TaskId id = TaskId.random();
     private final TurnId turnId = TurnId.random();
     private final TaskWorktree worktree = new TaskWorktree(id, "workspace", new RepositoryIdentity("owner", "repo"),
-            Path.of("/tmp", id.toString()), "chenjian2664/bytequay/find-and-fix-issue", "a".repeat(40));
+            Path.of("/tmp", id.toString()), "contributor/bytequay/find-and-fix-issue", "a".repeat(40));
     private final AgentTask task = AgentTask.created(id, true, "Find an issue", TitleSource.AGENT, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(DevelopmentAutomation.DEFAULT), NOW)
             .claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, NOW), NOW);
@@ -135,7 +135,7 @@ class TestDevelopmentBranchService
     @Test
     void defersTheRenameUntilProviderShutdownWithoutLosingTaskOrCheckoutState()
     {
-        String branch = "chenjian2664/bytequay/" + SUFFIX;
+        String branch = "contributor/bytequay/" + SUFFIX;
         AgentTask updated = task.releaseWorktreeMutation(task.worktreeMutationClaim().orElseThrow(), NOW).withBranch(branch, NOW);
         when(git.renameBranch(any(), eq(branch), any(), any())).thenAnswer(call -> {
             Consumer<DevelopmentBranchRename> intent = call.getArgument(2);
@@ -172,7 +172,7 @@ class TestDevelopmentBranchService
         service.propose(id, "helper-finishes-after-the-agent-name");
         service.prepare(currentTask.get());
 
-        verify(git).renameBranch(any(), eq("chenjian2664/bytequay/" + SUFFIX), any(), any());
+        verify(git).renameBranch(any(), eq("contributor/bytequay/" + SUFFIX), any(), any());
     }
 
     @Test
@@ -196,7 +196,7 @@ class TestDevelopmentBranchService
     {
         service.propose(id, SUFFIX);
         finishTurn(TurnState.COMPLETED);
-        DevelopmentBranchRename intent = new DevelopmentBranchRename(worktree.generatedBranch(), "chenjian2664/bytequay/" + SUFFIX, worktree.startCommit());
+        DevelopmentBranchRename intent = new DevelopmentBranchRename(worktree.generatedBranch(), "contributor/bytequay/" + SUFFIX, worktree.startCommit());
         IllegalStateException failure = new IllegalStateException("Persistence result unknown");
         when(git.renameBranch(any(), any(), any(), any())).thenAnswer(call -> {
             Consumer<DevelopmentBranchRename> recordIntent = call.getArgument(2);
@@ -269,7 +269,7 @@ class TestDevelopmentBranchService
     void recoveryReturnsTheFreshTaskBeforeTheNextWriterCanUseIt()
     {
         finishTurn(TurnState.COMPLETED);
-        String branch = "chenjian2664/bytequay/" + SUFFIX;
+        String branch = "contributor/bytequay/" + SUFFIX;
         DevelopmentBranchRename intent = new DevelopmentBranchRename(worktree.generatedBranch(), branch, worktree.startCommit());
         TaskWorktree renamed = currentTask.get().withBranch(branch, NOW).taskWorktree().orElseThrow();
         when(journal.read(id)).thenReturn(Optional.of(intent));

@@ -114,14 +114,14 @@ class TestAgendaDone
     @Test
     void anIssueReadsStartedOnceItHasATask()
     {
-        Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
-                Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
+        Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1, RepoRef.of("owner", "repository"),
+                Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
                 Optional.empty(), 0, MADE, MADE);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(trino));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
         when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "",
-                "https://github.com/trinodb/trino/issues/77", ImmutableList.of(), ImmutableList.of(), 0, MADE, MADE)));
-        AgendaItem start = new AgendaItem("issue:trinodb/trino#77", AgendaItem.Action.START, "Start “Snapshot ids in $snapshots”", "Snapshot ids", "", Optional.empty(),
-                Optional.of("ws1"), AgendaTarget.issue("trinodb/trino", 77, "ws1"), Optional.empty());
+                "https://github.com/owner/repository/issues/77", ImmutableList.of(), ImmutableList.of(), 0, MADE, MADE)));
+        AgendaItem start = new AgendaItem("issue:owner/repository#77", AgendaItem.Action.START, "Start “Snapshot ids in $snapshots”", "Snapshot ids", "", Optional.empty(),
+                Optional.of("ws1"), AgendaTarget.issue("owner/repository", 77, "ws1"), Optional.empty());
 
         when(issueDevelopment.metadata(901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.empty()));
         assertThat(status(day(start, ImmutableMap.of()), start).state()).isEqualTo(AgendaDone.Status.State.OPEN);
@@ -151,7 +151,7 @@ class TestAgendaDone
     {
         PullRequest build()
         {
-            return new PullRequest(number, "trinodb/trino", number, "PR " + number, "marlo-t", "https://github.com/trinodb/trino/pull/" + number, MADE.minusSeconds(86400),
+            return new PullRequest(number, "owner/repository", number, "PR " + number, "marlo-t", "https://github.com/owner/repository/pull/" + number, MADE.minusSeconds(86400),
                     MADE.minusSeconds(60), PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of(), ImmutableMap.of(), false, null, reviewedAt, null, ImmutableList.of(),
                     ci, 10, 2, 0, mergedAt == null ? "open" : "merged", mergedAt, mergedAt, null, null, headPushedAt, "branch", null, null, null, null);
         }
@@ -159,8 +159,8 @@ class TestAgendaDone
 
     private static AgendaItem pull(int number, AgendaItem.Action action)
     {
-        return new AgendaItem("pr:trinodb/trino#" + number, action, "PR " + number, "PR " + number, "", Optional.empty(), Optional.of("ws1"),
-                AgendaTarget.pull("trinodb/trino", number, Optional.of("ws1")), Optional.empty());
+        return new AgendaItem("pr:owner/repository#" + number, action, "PR " + number, "PR " + number, "", Optional.empty(), Optional.of("ws1"),
+                AgendaTarget.pull("owner/repository", number, Optional.of("ws1")), Optional.empty());
     }
 
     private static AgendaDay day(AgendaItem item, Map<String, AgendaDay.Mark> marks)

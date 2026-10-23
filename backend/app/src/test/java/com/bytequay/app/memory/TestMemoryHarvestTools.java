@@ -73,7 +73,7 @@ class TestMemoryHarvestTools
     @BeforeEach
     void setUp()
     {
-        AgentTask task = AgentTask.created(TASK, Optional.of(WORKSPACE), false, "Learn", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
+        AgentTask task = AgentTask.created(TASK, Optional.of(WORKSPACE), false, "Learn", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/learn"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH)
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(TURN, Instant.EPOCH), Instant.EPOCH);
         when(tasks.find(TASK)).thenReturn(Optional.of(task));
@@ -127,14 +127,14 @@ class TestMemoryHarvestTools
         assertThat(memory.text()).isEqualTo("When a connector adds a session property, give it a catalog property too.");
         assertThat(memory.origin()).isEqualTo(new Memory.Origin(false, "Learn from my PRs", Optional.of(TASK.toString())));
         MemorySource source = memory.sources().getFirst();
-        assertThat(source.url()).contains("https://github.com/trinodb/trino/pull/31201#discussion_r1");
+        assertThat(source.url()).contains("https://github.com/owner/repository/pull/31201#discussion_r1");
         assertThat(source.quote()).isEqualTo("Please document property 1.");
         assertThat(source.pullRequest()).contains(new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "node-1", "alice", true, true, true, false));
 
         call(bridge, "repository_context_harvest_save", "{\"action\":\"ADD_SOURCE\",\"id\":\"m11\",\"sources\":[\"c2\"]}");
         assertThat(memories.get(WORKSPACE, "m11").sources()).hasSize(2);
         call(bridge, "repository_context_harvest_save", "{\"action\":\"REPLACE\",\"id\":\"m11\",\"title\":\"Table property docs\","
-                + "\"text\":\"Document table properties on the connector page.\",\"scope\":[\"plugin/trino-delta-lake/\"],\"sources\":[\"c3\"]}");
+                + "\"text\":\"Document table properties on the connector page.\",\"scope\":[\"plugin/storage/\"],\"sources\":[\"c3\"]}");
         Memory replaced = memories.get(WORKSPACE, "m11");
         assertThat(replaced).extracting(Memory::title, Memory::text).containsExactly("Table property docs", "Document table properties on the connector page.");
         assertThat(replaced.previous().orElseThrow().text()).isEqualTo("Document every new table property.");
@@ -189,10 +189,10 @@ class TestMemoryHarvestTools
     private static ContextBuild build(int threads)
     {
         ContextBuild.Harvest harvest = new ContextBuild.Harvest("harvest-1", "Learn from my PRs", true,
-                ImmutableList.of(new ContextBuild.HarvestPull(31201, "Add a property", "https://github.com/trinodb/trino/pull/31201", true, Instant.EPOCH)),
+                ImmutableList.of(new ContextBuild.HarvestPull(31201, "Add a property", "https://github.com/owner/repository/pull/31201", true, Instant.EPOCH)),
                 IntStream.rangeClosed(1, threads).mapToObj(number -> new ContextBuild.HarvestThread("thread-" + number, 31201, MemorySource.Part.REVIEW_COMMENT,
                         Optional.of("plugin/x/A.java"), number == 1, false, ImmutableList.of(new ContextBuild.HarvestNote("c" + number, "node-" + number, "alice", true,
-                        "Please document property " + number + ".", "https://github.com/trinodb/trino/pull/31201#discussion_r" + number, Instant.EPOCH))))
+                        "Please document property " + number + ".", "https://github.com/owner/repository/pull/31201#discussion_r" + number, Instant.EPOCH))))
                         .collect(toImmutableList()));
         return new ContextBuild(
                 1,
@@ -201,10 +201,10 @@ class TestMemoryHarvestTools
                 WORKSPACE,
                 TASK.toString(),
                 new RepositoryIdentity(
-                        "trinodb",
-                        "trino"),
+                        "owner",
+                        "repository"),
                 1,
-                RepoRef.of("trinodb", "trino"),
+                RepoRef.of("owner", "repository"),
                 "a".repeat(40),
                 "bytequay/learn",
                 "codex",

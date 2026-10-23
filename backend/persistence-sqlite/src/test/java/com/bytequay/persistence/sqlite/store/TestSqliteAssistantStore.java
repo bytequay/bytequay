@@ -58,7 +58,7 @@ class TestSqliteAssistantStore
     void keepsADayWithItsSessionAndServedRefs()
     {
         AssistantDay day = new AssistantDay(DAY, "claude", "Sonnet", Optional.empty(), ImmutableMap.of(
-                "pr:trinodb/trino#31402", new ServedRef("mine", Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))),
+                "pr:owner/repository#31402", new ServedRef("mine", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))),
                 "ws:ws1", new ServedRef("start_options", Optional.empty())), AT);
         store.save(day);
         AssistantDay resumable = new AssistantDay(DAY, "claude", "Sonnet", Optional.of(new DiscussionSession(1, "session-1")), day.served(), AT);
@@ -73,11 +73,11 @@ class TestSqliteAssistantStore
     @Test
     void listsItemsInTheOrderTheyWereAddedEvenWithinOneMillisecond()
     {
-        AssistantItem message = AssistantItem.user(DAY, AT, "what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:trinodb/trino#31402"), "key-1");
+        AssistantItem message = AssistantItem.user(DAY, AT, "what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:owner/repository#31402"), "key-1");
         AssistantItem failure = AssistantItem.failure(DAY, AT, "Claude is signed out", true);
         AssistantItem reply = AssistantItem.reply(DAY, AT, "One card waits on task:t1.", ImmutableMap.of("task:t1", AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1")));
         AssistantItem receipt = AssistantItem.receipt(DAY, AT, "Started “Expose snapshot id”", new AssistantReceipt(AssistantReceipt.Operation.START_TASK,
-                AssistantReceipt.Outcome.DONE, Optional.of("trinodb/trino · Claude Opus 5.5"), Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t2")),
+                AssistantReceipt.Outcome.DONE, Optional.of("owner/repository · Claude Opus 5.5"), Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t2")),
                 Optional.empty(), Optional.of("turn-1"), Optional.empty(), Optional.of("start the snapshot id one")));
         AssistantItem opened = AssistantItem.receipt(DAY, AT, "Opened Settings · Models", new AssistantReceipt(AssistantReceipt.Operation.OPEN, AssistantReceipt.Outcome.DONE,
                 Optional.empty(), Optional.empty(), Optional.of("settings/models"), Optional.empty(), Optional.empty(), Optional.of("take me to model settings")));
@@ -95,14 +95,14 @@ class TestSqliteAssistantStore
     void keepsAListsStyleTitleAndRefsButNoRowText()
     {
         AssistantItem list = AssistantItem.list(DAY, AT, "Waiting on you", new AssistantList(AssistantList.Style.TIMELINE,
-                ImmutableList.of("pr:trinodb/trino#31402", "task:t1", "epic:LOCAL:w1")));
+                ImmutableList.of("pr:owner/repository#31402", "task:t1", "epic:LOCAL:w1")));
         store.add(AssistantItem.user(DAY, AT, "what is waiting on me?", ImmutableList.of(), Optional.empty(), "key-1"));
         store.add(list);
         entities.flush();
         entities.clear();
 
         assertThat(store.items(DAY).getLast()).isEqualTo(list);
-        AssistantItem draft = AssistantItem.draft(DAY, AT, "Iceberg snapshot metadata", new AssistantDraft("ws1", "trinodb/trino", "Track the snapshot work.", "w9"));
+        AssistantItem draft = AssistantItem.draft(DAY, AT, "Iceberg snapshot metadata", new AssistantDraft("ws1", "owner/repository", "Track the snapshot work.", "w9"));
         store.add(draft);
         entities.flush();
         entities.clear();
@@ -110,7 +110,7 @@ class TestSqliteAssistantStore
         Object stored = entities.createNativeQuery("select value from assistant_item where id = ?").setParameter(1, list.id()).getSingleResult();
         // The refs alone: each row's text is read from the stores when the day is drawn.
         assertThat(stored.toString()).contains("\"text\":\"Waiting on you\"")
-                .contains("\"list\":{\"style\":\"TIMELINE\",\"refs\":[\"pr:trinodb/trino#31402\",\"task:t1\",\"epic:LOCAL:w1\"]}");
+                .contains("\"list\":{\"style\":\"TIMELINE\",\"refs\":[\"pr:owner/repository#31402\",\"task:t1\",\"epic:LOCAL:w1\"]}");
     }
 
     @Test

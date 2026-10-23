@@ -28,14 +28,14 @@ import '../../css/commits.css';
 const route = (workspaceId: string, owner: string, repo: string): BackportChainRouteDto => ({
   workspaceId, repository: { owner, repo }, remote: 'origin', branch: 'main',
 });
-const p4 = route('p4', 'trinodb', 'trino');
-const p3 = route('p3', 'acme', 'trino-internal');
-const p2 = route('p2', 'acme', 'trino-private');
+const p4 = route('p4', 'owner', 'repository');
+const p3 = route('p3', 'acme', 'internal');
+const p2 = route('p2', 'acme', 'private');
 const base: BackportChainViewDto = {
-  title: 'Fix dynamic filter behavior', requestingRepository: 'acme/trino-private', archived: false,
+  title: 'Fix dynamic filter behavior', requestingRepository: 'acme/private', archived: false,
   chain: {
     id: 'blocked', workspaceId: 'p2', requestingTaskId: 'request', sourceTaskId: 'upstream-fix', source: p4,
-    sourceMerged: true, sourcePullRequest: { owner: 'trinodb', repo: 'trino', number: 24060 },
+    sourceMerged: true, sourcePullRequest: { owner: 'owner', repo: 'repository', number: 24060 },
     acceptances: [{ operationKey: 'route', turnId: 'user-turn', destinations: ['p3', 'p2'] }],
     hops: [
       { sourceHop: -1, route: p3, executionId: null, pullRequest: null, landedSource: null, selection: null, completed: false, noOp: false },
@@ -50,13 +50,13 @@ export function mount() {
   const calls: unknown[][] = [];
   const running: BackportChainViewDto = { ...base, chain: { ...base.chain, id: 'running', state: 'ACTIVE', reason: null,
     hops: [{ ...base.chain.hops[0], executionId: 'execution-1', landedSource: { commits: ['a'.repeat(40)], mergeSha: 'a'.repeat(40) },
-      pullRequest: { owner: 'acme', repo: 'trino-internal', number: 812 } }, base.chain.hops[1]] } };
+      pullRequest: { owner: 'acme', repo: 'internal', number: 812 } }, base.chain.hops[1]] } };
   const stopped: BackportChainViewDto = { ...running, chain: { ...running.chain, id: 'stopped', state: 'STOPPED' } };
   const completed: BackportChainViewDto = { ...running, chain: { ...running.chain, id: 'complete', state: 'COMPLETED',
     hops: running.chain.hops.map(hop => ({ ...hop, completed: true })) } };
   const empty: BackportChainViewDto = { ...base, chain: { ...base.chain, id: 'empty', state: 'COMPLETED', reason: null, requestingTaskId: null,
     acceptances: [{ operationKey: 'commits', turnId: null, destinations: ['p2'] }],
-    hops: [{ ...base.chain.hops[1], sourceHop: -1, completed: true, noOp: true }] }, title: 'Backport trinodb/trino#24060' };
+    hops: [{ ...base.chain.hops[1], sourceHop: -1, completed: true, noOp: true }] }, title: 'Backport owner/repository#24060' };
   const chains = [base, running, stopped, completed, empty];
   const change = async (workspace: string, id: string, state: 'STOPPING' | 'ACTIVE'): Promise<BackportChainViewDto> => {
     calls.push([workspace, id, state]);
@@ -96,7 +96,7 @@ export async function run() {
     await settle();
     assert(view.host.querySelector('.backport-intro')?.textContent?.includes('choose Backport') === true, 'The list says where backports start');
     assert(view.host.querySelectorAll('.backport-chain').length === 5, 'Every saved chain is shown');
-    assert(view.host.textContent?.includes('Started from Commits in acme/trino-private') === true, 'A chain started in Commits names no conversation');
+    assert(view.host.textContent?.includes('Started from Commits in acme/private') === true, 'A chain started in Commits names no conversation');
     assert([...view.host.querySelectorAll('.linked-work-list h3')].map(node => node.textContent?.trim()).join(',') ===
       'Needs you 1,Active 1,Stopped 1,Completed 2', 'Approved groups and counts');
     assert(![...view.host.querySelectorAll('button')].some(button => button.textContent?.includes('New task')), 'No Create task button');
@@ -124,9 +124,9 @@ export async function run() {
     assert(view.calls.some(call => JSON.stringify(call) === JSON.stringify(['p2', 'blocked', 'STOPPING'])), 'Stop uses owning chain');
     view.inline(); await settle();
     assert(!view.host.textContent?.includes('Requested in'), 'Compact conversation card');
-    assert(view.host.querySelector('.backport-route')?.textContent?.includes('trinodb/trino → acme/trino-internal → acme/trino-private'), 'Route order preserved');
+    assert(view.host.querySelector('.backport-route')?.textContent?.includes('owner/repository → acme/internal → acme/private'), 'Route order preserved');
     view.parallel(); await settle();
-    assert(view.host.querySelector('.backport-route')?.textContent?.includes('trinodb/trino → acme/trino-private'), 'Sibling uses original source');
+    assert(view.host.querySelector('.backport-route')?.textContent?.includes('owner/repository → acme/private'), 'Sibling uses original source');
     assert(!view.host.textContent?.includes('Conversation ›'), 'Existing PR source has no invented source conversation');
     return [{ name: 'backport chain groups, navigation, selection, Stop and Resume' }];
   } finally { view.close(); }
@@ -138,7 +138,7 @@ export function mountComposer(surface: 'Home' | 'Tasks' | 'Other' = 'Home') {
     const [draft, setDraft] = useState('');
     const props: Omit<ComponentProps<typeof AgentTaskList>, 'inGoal'> & { repository: string } = { draft, onDraftChange: setDraft, onCreate: () => sends.push(draft), tasks: [], loading: false, error: null,
       laneId: 'codex', providers: [], models: [], selection: { model: 'test', effort: null }, blocker: null,
-      repository: 'acme/trino-private', onSelectProvider: () => {}, onSelectModel: () => {}, onOpenTask: () => {} };
+      repository: 'acme/private', onSelectProvider: () => {}, onSelectModel: () => {}, onOpenTask: () => {} };
     if (surface === 'Home') return <AgentHomeView {...props} onOpenReview={() => {}} onShowAll={() => {}} />;
     if (surface === 'Tasks') return <AgentTaskList {...props} />;
     return <TaskComposer {...props} />;
@@ -240,7 +240,7 @@ export async function runProviderChoice() {
       const root = createRoot(host);
       const Composer = () => {
         const creation = useAgentTaskCreation({ workspaceId: 'workspace-1', bridge: live, onOpenTask: () => {}, initialLaunch });
-        const props = { ...creation.composer, repository: 'acme/trino-private', tasks: creation.tasks,
+        const props = { ...creation.composer, repository: 'acme/private', tasks: creation.tasks,
           error: creation.error, onOpenTask: () => {} };
         return surface === 'Home' ? <AgentHomeView {...props} onOpenReview={() => {}} onShowAll={() => {}} />
           : <AgentTaskList {...props} loading={creation.loading} />;

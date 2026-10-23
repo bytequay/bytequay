@@ -22,11 +22,11 @@ import type { WorkspaceTab } from './workspaces/model';
 
 const WORKSPACE = {
   id: 'ws-1',
-  name: 'trinodb/trino',
-  selectedOwner: 'trinodb',
-  selectedRepo: 'trino',
-  monitoredOwner: 'trinodb',
-  monitoredRepo: 'trino',
+  name: 'owner/repository',
+  selectedOwner: 'owner',
+  selectedRepo: 'repository',
+  monitoredOwner: 'owner',
+  monitoredRepo: 'repository',
   localRepositoryPath: '/managed/ws-1/repository',
   topology: 'DIRECT',
 } as unknown as WorkspaceDto;
@@ -191,7 +191,7 @@ describe('lab item', () => {
 describe('global pinned items', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
-  const pull: PinnedItem = { key: 'trinodb/trino#42', title: 'Fix the connector', reference: '#42', target: { kind: 'pull', repo: 'trinodb/trino', number: 42 } };
+  const pull: PinnedItem = { key: 'owner/repository#42', title: 'Fix the connector', reference: '#42', target: { kind: 'pull', repo: 'owner/repository', number: 42 } };
   const task: PinnedItem = { key: 'task:task-1', title: 'Implement the connector', target: { kind: 'task', workspaceId: 'ws-2', taskId: 'task-1' } };
 
   function storage() {
@@ -227,7 +227,7 @@ describe('global pinned items', () => {
 
   it('opens stored references, including tasks, over the current page', () => {
     const { dispatchEvent } = storage();
-    const issue: PinnedItem = { key: 'trinodb/trino#5', title: 'Connector issue', target: { kind: 'issue', repo: 'trinodb/trino', number: 5, workspaceId: 'ws-2' } };
+    const issue: PinnedItem = { key: 'owner/repository#5', title: 'Connector issue', target: { kind: 'issue', repo: 'owner/repository', number: 5, workspaceId: 'ws-2' } };
     const jira: PinnedItem = { key: 'jira:cloud:6', title: 'Connector ticket', target: { kind: 'jira', connectionId: 'connection', cloudId: 'cloud', issueId: '6' } };
     for (const item of [pull, issue, jira, task]) {
       setPinned(item, true);

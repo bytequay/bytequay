@@ -99,7 +99,7 @@ const FINDINGS: ReviewFindingDto[] = [
       + '`shipping.address.zip`), `sorted_by = ARRAY[\'address.zip\']` resolves to the shipping field ID. The table is '
       + 'then created with a sort order on the wrong column and no error is raised.',
     severity: 'Critical',
-    path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java',
+    path: 'plugin/catalog/src/main/java/com/example/iceberg/IcebergSortField.java',
     startLine: 118,
     endLine: 131,
     range: 'R118–R131',
@@ -122,9 +122,9 @@ const FINDINGS: ReviewFindingDto[] = [
       },
       {
         ref: 'E2',
-        source: 'command output: ./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergSortField',
+        source: 'command output: ./mvnw -pl plugin/catalog test -Dtest=TestIcebergSortField',
         provenance: 'command run by the agent in the review worktree',
-        excerpt: '$ ./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergSortField#testDuplicateLeafNameAcrossStructs\n'
+        excerpt: '$ ./mvnw -pl plugin/catalog test -Dtest=TestIcebergSortField#testDuplicateLeafNameAcrossStructs\n'
           + 'expected: 7 (address.zip)  but was: 12 (shipping.address.zip)  FAILED',
         explanation: 'The test was added by the agent and asserts against the original snapshot; the code under test is unchanged.',
       },
@@ -140,7 +140,7 @@ const FINDINGS: ReviewFindingDto[] = [
     body: 'The new check rejects map paths but only inspects the first segment for lists. A path like `items.price` '
       + '(`items` is a `list<struct>`) passes validation and later fails deep inside Iceberg with an unrelated message.',
     severity: 'Medium',
-    path: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java',
+    path: 'plugin/catalog/src/main/java/com/example/iceberg/IcebergMetadata.java',
     startLine: 2412,
     endLine: 2418,
     range: 'R2412–R2418',
@@ -163,7 +163,7 @@ const FINDINGS: ReviewFindingDto[] = [
     body: 'The new test creates a struct one level deep. The resolution loop is recursive, so a three-level path '
       + '(`a.b.c`) exercises a branch that currently has no coverage.',
     severity: 'Low',
-    path: 'plugin/trino-iceberg/src/test/java/io/trino/plugin/iceberg/TestIcebergNestedSortOrder.java',
+    path: 'plugin/catalog/src/test/java/com/example/iceberg/TestIcebergNestedSortOrder.java',
     startLine: 84,
     endLine: 84,
     range: 'R84',
@@ -188,7 +188,7 @@ export function candidateFixture(hypothesis: string, number = 1): ReviewCandidat
 
 export function reviewDraftFixture(overrides: Partial<ReviewDraftDto> = {}): ReviewDraftDto {
   return {
-    repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [],
+    repo: 'owner/repository', number: 30304, body: '', event: 'COMMENT', items: [],
     reviewPublication: null, postedSummaryFindingIds: [], version: 1, updatedAt: '2026-09-06T16:30:00Z',
     ...overrides,
   };
@@ -198,7 +198,7 @@ export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentRev
   return {
     id: 'review-1',
     workspaceId: 'workspace-1',
-    repo: 'trinodb/trino',
+    repo: 'owner/repository',
     number: 30304,
     state: 'OPEN',
     followUpPaused: false,

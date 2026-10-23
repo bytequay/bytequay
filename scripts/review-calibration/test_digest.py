@@ -28,7 +28,7 @@ def turn(day, seconds, logged=True, task="aaaa-1111", model="gpt-6-astra", effor
     """One saved turn of January 2026. `tokens` is (in, cached, out); `after` and `programs` map a name to (seconds, times)."""
     read, cached, written = tokens or (None, None, None)
     return {"task": task, "start": f"2026-01-{day:02}T12:00:00Z", "seconds": seconds, "logged": logged, "outcome": "completed", "provider": provider if model else None, "model": model,
-            "effort": effort if model else None, "repository": "trinodb/trino" if model else None, "inputTokens": read, "cachedInputTokens": cached, "outputTokens": written, "cost": cost,
+            "effort": effort if model else None, "repository": "owner/repository" if model else None, "inputTokens": read, "cachedInputTokens": cached, "outputTokens": written, "cost": cost,
             "toolCalls": None, "compactions": None, "groups": groups or {}, "programs": {name: {"seconds": length, "runs": runs} for name, (length, runs) in (programs or {}).items()},
             "after": {name: {"seconds": length, "times": times} for name, (length, times) in (after or {}).items()}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
             "longRuns": [{"program": program, "seconds": length} for program, length in long_runs],
@@ -50,7 +50,7 @@ TABLE = {"version": 1, "savedAt": "2026-01-15T03:00:00Z", "since": None, "task":
 
 
 def run(day, repaired, model="gpt-6-astra"):
-    return {"review": f"review-{day}", "repository": "trinodb/trino", "start": f"2026-01-{day:02}T13:00:00Z", "seconds": 600.0, "state": "accepted", "repaired": repaired, "turns": 1,
+    return {"review": f"review-{day}", "repository": "owner/repository", "start": f"2026-01-{day:02}T13:00:00Z", "seconds": 600.0, "state": "accepted", "repaired": repaired, "turns": 1,
             "provider": "codex", "model": model, "effort": "max", "inputTokens": 10, "cachedInputTokens": 5, "outputTokens": 1, "cost": None}
 
 
@@ -157,7 +157,7 @@ class TestReport(unittest.TestCase):
 
     def test_report_names_no_task_and_no_repository(self):
         text = report(noted=NOTED)
-        for private in ("aaaa-1111", "bbbb-2222", "cccc-3333", "trinodb", "review-9"):
+        for private in ("aaaa-1111", "bbbb-2222", "cccc-3333", "owner", "review-9"):
             self.assertNotIn(private, text)
 
     def test_why_names_the_models_and_efforts_that_moved_each_total(self):

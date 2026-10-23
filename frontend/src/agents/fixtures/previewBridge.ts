@@ -109,7 +109,7 @@ export function previewTask(workspaceId: string, taskId: string): AgentTaskDto {
     ...(contracts.task as AgentTaskDto),
     id: taskId,
     workspaceId,
-    generatedBranch: `chenjian2664/bytequay/review-the-authentication-change-${taskId.slice(0, 8)}`,
+    generatedBranch: `contributor/bytequay/review-the-authentication-change-${taskId.slice(0, 8)}`,
     title: eventFixture.createTaskRequest.message,
     state: 'OPEN',
   };

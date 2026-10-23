@@ -62,7 +62,7 @@ import static org.mockito.Mockito.withSettings;
 class TestGoalReferenceReader
 {
     private static final Instant NOW = Instant.parse("2026-09-28T10:00:00Z");
-    private static final RepoRef REPO = RepoRef.of("trinodb", "trino");
+    private static final RepoRef REPO = RepoRef.of("owner", "repository");
     private static final String WORKSPACE = "workspace-1";
     private static final TaskId TASK = TaskId.random();
 
@@ -89,21 +89,21 @@ class TestGoalReferenceReader
 
         PullRequest merged = pullRequest(30702, "Retry Iceberg commits", "merged", false);
         PullRequest draft = pullRequest(31264, "Keep deletion vectors in checkpoints", "open", true);
-        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 30702)).thenReturn(Optional.of(1L));
-        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31264)).thenReturn(Optional.of(2L));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 30702)).thenReturn(Optional.of(1L));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31264)).thenReturn(Optional.of(2L));
         when(pullRequests.findById(1L)).thenReturn(Optional.of(merged));
         when(pullRequests.findById(2L)).thenReturn(Optional.of(draft));
-        when(pullRequests.findRepositoryPage(eq("trinodb/trino"), anyInt(), anyInt(), anyString()))
+        when(pullRequests.findRepositoryPage(eq("owner/repository"), anyInt(), anyInt(), anyString()))
                 .thenReturn(new PullRequestPage(ImmutableList.of(draft), 0, 8, 1, 1, false));
 
         RepositoryIssue issue = new RepositoryIssue(90, 31190, "Delta Lake checkpoint drops deletion vectors", "", "alice", "",
-                "https://github.com/trinodb/trino/issues/31190", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW);
+                "https://github.com/owner/repository/issues/31190", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW);
         when(issues.find(7L, 31190)).thenReturn(Optional.of(issue));
         when(issues.findPage(eq(7L), eq(REPO), anyInt(), anyInt()))
                 .thenReturn(new RepositoryIssuePage(7L, REPO, ImmutableList.of(issue), 0, 500, 1, false, Optional.of(NOW)));
         when(development.findTask("github.com", 90)).thenReturn(Optional.of(mock(IssueTask.class, withSettings().mockMaker(MockMakers.INLINE))));
 
-        JiraIssue ticket = ticket("TRINO-412", "Validate the fix on staging", new JiraDtos.Status("3", "Blocked", "indeterminate"));
+        JiraIssue ticket = ticket("ENG-412", "Validate the fix on staging", new JiraDtos.Status("3", "Blocked", "indeterminate"));
         when(jira.issue("connection", "cloud", "10412")).thenReturn(ticket);
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket));
 
@@ -125,7 +125,7 @@ class TestGoalReferenceReader
     @Test
     void absentOpenIssueCacheIsUnknownEvenAfterASuccessfulSync()
     {
-        GoalItem saved = new GoalItem(GoalItemKind.ISSUE, "trinodb/trino#31190", "#31190", "Saved issue", NOW);
+        GoalItem saved = new GoalItem(GoalItemKind.ISSUE, "owner/repository#31190", "#31190", "Saved issue", NOW);
         when(issues.find(7L, 31190)).thenReturn(Optional.empty());
         assertThat(reader.view(WORKSPACE, saved).state()).isEqualTo(GoalItemState.UNKNOWN);
         assertThat(reader.view(WORKSPACE, saved).title()).isEqualTo("Saved issue");
@@ -143,7 +143,7 @@ class TestGoalReferenceReader
         assertThat(reader.view(WORKSPACE, saved).state()).isEqualTo(GoalItemState.ENDED);
         PullRequest closed = pullRequest(30702, "Abandoned", "closed", false);
         when(pullRequests.findById(1L)).thenReturn(Optional.of(closed));
-        GoalItem pull = new GoalItem(GoalItemKind.PULL_REQUEST, "trinodb/trino#30702", "#30702", "Saved PR", NOW);
+        GoalItem pull = new GoalItem(GoalItemKind.PULL_REQUEST, "owner/repository#30702", "#30702", "Saved PR", NOW);
         assertThat(reader.view(WORKSPACE, pull).state()).isEqualTo(GoalItemState.ENDED);
         PullRequest merged = pullRequest(30702, "Merged", "merged", false);
         when(pullRequests.findById(1L)).thenReturn(Optional.of(merged));
@@ -153,7 +153,7 @@ class TestGoalReferenceReader
     @Test
     void aTicketKeepsJirasOwnPriorityUnmappedBesideItsBlockedStatus()
     {
-        GoalItemView view = reader.view(WORKSPACE, new GoalItem(GoalItemKind.JIRA, "connection:cloud:10412", "TRINO-412", "Saved ticket", NOW));
+        GoalItemView view = reader.view(WORKSPACE, new GoalItem(GoalItemKind.JIRA, "connection:cloud:10412", "ENG-412", "Saved ticket", NOW));
         assertThat(view.priority()).contains("Highest");
         assertThat(view.blocked()).isTrue();
     }
@@ -161,12 +161,12 @@ class TestGoalReferenceReader
     private static PullRequest pullRequest(int number, String title, String state, boolean draft)
     {
         PullRequest pull = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(pull.repo()).thenReturn("trinodb/trino");
+        when(pull.repo()).thenReturn("owner/repository");
         when(pull.number()).thenReturn(number);
         when(pull.title()).thenReturn(title);
         when(pull.state()).thenReturn(state);
         when(pull.draft()).thenReturn(draft);
-        when(pull.htmlUrl()).thenReturn("https://github.com/trinodb/trino/pull/" + number);
+        when(pull.htmlUrl()).thenReturn("https://github.com/owner/repository/pull/" + number);
         when(pull.updatedAt()).thenReturn(NOW);
         when(pull.mergedAt()).thenReturn("merged".equals(state) ? NOW : null);
         return pull;

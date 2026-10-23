@@ -278,8 +278,8 @@ class Page(unittest.TestCase):
     def test_choosing_a_repository_narrows_every_tab(self):
         self.save()
         page = self.page()
-        self.assertEqual(page.sidebar.multiselect[1].options, ["bytequay/bytequay", "trinodb/trino"])
-        page.sidebar.multiselect[1].set_value(["trinodb/trino"]).run()
+        self.assertEqual(page.sidebar.multiselect[1].options, ["bytequay/bytequay", "owner/repository"])
+        page.sidebar.multiselect[1].set_value(["owner/repository"]).run()
         self.assertEqual(list(page.exception), [])
         self.assertEqual([(tile.label, tile.value) for tile in page.metric][:3], [("Turn time", "0.2 h"), ("Tasks", "1"), ("Turns", "2")])
         self.assertEqual((table(page, "runs")["program"].tolist(), table(page, "typical minutes")["model and effort"].tolist()),

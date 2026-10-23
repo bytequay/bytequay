@@ -143,7 +143,7 @@ describe('agent home on a return visit', () => {
     const markup = home(workspaceId);
     expect(markup).toContain('Open tasks · 7');
     expect([...markup.matchAll(/aria-label="Open (?:task|review): ([^"]+)"/g)].map(match => match[1])).toEqual([
-      'Older running task', 'Delivery running', '#30304 Running PR review', 'trinodb/trino · Local changes',
+      'Older running task', 'Delivery running', '#30304 Running PR review', 'owner/repository · Local changes',
       'Newer idle task', '#4 Approval review', '#5 Recovery review',
     ]);
     expect(markup.match(/>Running<\/span>/g)).toHaveLength(4);

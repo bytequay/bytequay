@@ -61,31 +61,31 @@ class TestWorkspaceRemoteSourceService
     @Test
     void listingIncludesRoutingRemotesWithRoles()
     {
-        store.save(new RemoteSource("ws-1", "oss", "https://github.com/trino-oss/trino.git"));
+        store.save(new RemoteSource("ws-1", "oss", "https://github.com/mirror/repository.git"));
 
         List<WorkspaceRemote> remotes = service.list("ws-1");
 
         assertThat(remotes).containsExactly(
-                new WorkspaceRemote("origin", "https://github.com/contributor/trino.git", Role.ORIGIN),
-                new WorkspaceRemote("upstream", "https://github.com/trinodb/trino.git", Role.UPSTREAM),
-                new WorkspaceRemote("oss", "https://github.com/trino-oss/trino.git", Role.CUSTOM));
+                new WorkspaceRemote("origin", "https://github.com/contributor/repository.git", Role.ORIGIN),
+                new WorkspaceRemote("upstream", "https://github.com/owner/repository.git", Role.UPSTREAM),
+                new WorkspaceRemote("oss", "https://github.com/mirror/repository.git", Role.CUSTOM));
     }
 
     @Test
     void addProbesPersistsAndQueuesSync()
     {
-        service.add("ws-1", "oss", "https://github.com/trino-oss/trino.git");
+        service.add("ws-1", "oss", "https://github.com/mirror/repository.git");
 
         verify(git).probeRemoteSource(any(), anyString());
         assertThat(store.findByWorkspace("ws-1"))
-                .containsExactly(new RemoteSource("ws-1", "oss", "https://github.com/trino-oss/trino.git"));
+                .containsExactly(new RemoteSource("ws-1", "oss", "https://github.com/mirror/repository.git"));
         verify(repositoryService).requestSyncAfterConfigurationChange("ws-1");
     }
 
     @Test
     void addSkipsTheProbeWhileTheCheckoutIsNotReady()
     {
-        service.add("ws-pending", "oss", "https://github.com/trino-oss/trino.git");
+        service.add("ws-pending", "oss", "https://github.com/mirror/repository.git");
         verify(git, never()).probeRemoteSource(any(), anyString());
         assertThat(store.findByWorkspace("ws-pending")).hasSize(1);
     }
@@ -117,8 +117,8 @@ class TestWorkspaceRemoteSourceService
     @Test
     void duplicateNamesAreRejected()
     {
-        service.add("ws-1", "oss", "https://github.com/trino-oss/trino.git");
-        assertThatThrownBy(() -> service.add("ws-1", "oss", "https://github.com/other/trino.git"))
+        service.add("ws-1", "oss", "https://github.com/mirror/repository.git");
+        assertThatThrownBy(() -> service.add("ws-1", "oss", "https://github.com/other/repository.git"))
                 .isInstanceOf(WorkspaceException.class);
     }
 
@@ -126,18 +126,18 @@ class TestWorkspaceRemoteSourceService
     {
         return new Workspace(
                 ready ? "ws-1" : "ws-pending",
-                "contributor/trino",
+                "contributor/repository",
                 101,
-                RepoRef.of("contributor", "trino"),
+                RepoRef.of("contributor", "repository"),
                 Optional.of(202L),
-                Optional.of(RepoRef.of("trinodb", "trino")),
+                Optional.of(RepoRef.of("owner", "repository")),
                 202,
-                RepoRef.of("trinodb", "trino"),
+                RepoRef.of("owner", "repository"),
                 Topology.FORK,
                 "master",
-                "https://github.com/contributor/trino.git",
+                "https://github.com/contributor/repository.git",
                 Optional.of("master"),
-                Optional.of("https://github.com/trinodb/trino.git"),
+                Optional.of("https://github.com/owner/repository.git"),
                 "/managed/repository",
                 ready ? Optional.of(NOW) : Optional.empty(),
                 Optional.of(NOW),

@@ -38,7 +38,7 @@ const COMMITS = [
 function render() {
   return renderToStaticMarkup(<SelectRangeDialog
     commits={COMMITS}
-    scope="trinodb/trino · master"
+    scope="owner/repository · master"
     onOpenPullRequest={() => {}}
     onCancel={() => {}}
     onApply={() => {}}
@@ -53,7 +53,7 @@ describe('select range dialog', () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('Select a commit range');
-    expect(html).toContain('trinodb/trino · master');
+    expect(html).toContain('owner/repository · master');
   });
 
   it('starts on the oldest end with both endpoints empty', () => {

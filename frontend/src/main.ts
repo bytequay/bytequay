@@ -616,8 +616,8 @@ function registerIpc(): void {
     const { workspaceId, ...body } = request;
     return backendJson(workspaceUrl(workspaceId, `/cherry-pick/preview`), {
       ...jsonInit('POST', body),
-      // A preview fetches the source remote in full; on a repository the size
-      // of Trino that outlasts the default request timeout.
+      // A preview fetches the source remote in full; for a large repository
+      // that outlasts the default request timeout.
       signal: AbortSignal.timeout(15 * 60_000),
     });
   });

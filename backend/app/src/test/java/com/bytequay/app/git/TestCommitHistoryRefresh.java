@@ -330,8 +330,8 @@ class TestCommitHistoryRefresh
     @Test
     void identifiedCustomRemoteRefreshesAndReusesProviderEnrichment()
     {
-        RepoRef repository = RepoRef.of("trinodb", "trino");
-        readyWorkspace(new RemoteSource(WORKSPACE_ID, "oss", "https://github.com/trinodb/trino.git", Optional.of(202L), Optional.of(repository)));
+        RepoRef repository = RepoRef.of("owner", "repository");
+        readyWorkspace(new RemoteSource(WORKSPACE_ID, "oss", "https://github.com/owner/repository.git", Optional.of(202L), Optional.of(repository)));
         Commit commit = commit("remote123", NOW.minusSeconds(60));
         Instant previousCheck = NOW.minusSeconds(86_400);
         store.upsertEnrichment(ImmutableList.of(new CommitEnrichment(202, commit.sha(), Optional.of("old-author"), Optional.of(AVATAR_KEY),

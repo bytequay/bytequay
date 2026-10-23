@@ -23,9 +23,9 @@ import '../../css/home.css';
 import '../../css/settings-window.css';
 
 const base: LinkedWorkspaceWorkDto = {
-  sourceWorkspaceId: 'trino', sourceRepository: 'trinodb/trino', sourceTaskId: 'source', sourceTitle: 'Investigate Iceberg upgrade', sourceTurnId: 'source-turn',
+  sourceWorkspaceId: 'repository', sourceRepository: 'owner/repository', sourceTaskId: 'source', sourceTitle: 'Investigate Iceberg upgrade', sourceTurnId: 'source-turn',
   targetTaskId: 'destination', targetWorkspaceId: 'iceberg', targetTitle: 'Check API behavior', repository: 'apache/iceberg',
-  kind: 'DEPENDENCY', purpose: 'INVESTIGATE', question: 'Check whether v1.6.0 changes manifest caching for the Trino connector.',
+  kind: 'DEPENDENCY', purpose: 'INVESTIGATE', question: 'Check whether v1.6.0 changes manifest caching for the Repository connector.',
   revision: 'v1.6.0', commit: 'a'.repeat(40), state: 'FINISHED', turnId: 'first-turn',
   result: '**Finding:** The cache now expires after the configured interval.\n\n### Commands and limitations\n\nCommands: `./gradlew :iceberg-core:test`\n\nOutcome: fixture passed.\n\nLimitations: no live catalog tested.',
   limitation: null, createdAt: '2026-01-01T00:00:00Z', archived: false,
@@ -48,7 +48,7 @@ export function mount() {
   host.style.cssText = 'max-width:1080px;margin:20px auto';
   document.body.append(host);
   const root = createRoot(host);
-  flushSync(() => root.render(<AgentTaskList workspaceId="trino" repository="trinodb/trino" tasks={[]} loading={false} error={null}
+  flushSync(() => root.render(<AgentTaskList workspaceId="repository" repository="owner/repository" tasks={[]} loading={false} error={null}
     laneId="codex" providers={[]} models={[]} selection={null} draft="" blocker={null} initialType="linked"
     onDraftChange={() => {}} onSelectProvider={() => {}} onSelectModel={() => {}} onCreate={() => {}} onOpenTask={() => {}} />));
   return { host, stops, showRequest: () => flushSync(() => root.render(<TurnView
@@ -66,7 +66,7 @@ export async function run() {
     assert(![...view.host.querySelectorAll('button')].some(button => button.textContent?.includes('New task')), 'No task creation button for linked work');
     assert(view.host.querySelectorAll('.linked-work-card').length === 5, 'Every saved link shown');
     assert([...view.host.querySelectorAll('.linked-work-list h3')].map(heading => heading.textContent?.trim()).join(',') === 'Needs you 2,Running 1,Finished 1,Stopped 1', 'Prototype groups and counts');
-    assert(view.host.querySelector('a[href="#/workspaces/trino/tasks/agent/source"]') !== null, 'Source conversation link');
+    assert(view.host.querySelector('a[href="#/workspaces/repository/tasks/agent/source"]') !== null, 'Source conversation link');
     assert(view.host.querySelector('a[href="#/workspaces/iceberg/tasks/agent/destination"]') !== null, 'Destination conversation link');
     assert(view.host.querySelector('code[title="' + base.commit + '"]') !== null, 'Exact SHA available on hover');
     assert(view.host.querySelector('.linked-work-result strong')?.textContent === 'Finding:', 'Actual rendered Markdown result');
@@ -77,9 +77,9 @@ export async function run() {
     stop.click(); await settle();
     assert(JSON.stringify(view.stops) === JSON.stringify([['destination', 'iceberg'], ['destination', 'iceberg', 'expected-generation']]), 'Reuse version-guarded destination Stop');
     view.showRequest(); await settle();
-    assert(view.host.textContent?.includes('ByteQuay · Request from trinodb/trino'), 'Destination attribution');
+    assert(view.host.textContent?.includes('ByteQuay · Request from owner/repository'), 'Destination attribution');
     assert(!view.host.textContent?.includes('Raw generated instructions'), 'Shows focused request bubble');
-    assert(view.host.querySelector('a[href="#/workspaces/trino/tasks/agent/source"]') !== null, 'Return to original conversation');
+    assert(view.host.querySelector('a[href="#/workspaces/repository/tasks/agent/source"]') !== null, 'Return to original conversation');
     return [{ name: 'linked-work groups, links, results and Stop' }];
   } finally { view.close(); }
 }

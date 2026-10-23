@@ -28,7 +28,7 @@ export async function run(): Promise<string[]> {
   const pending = new Map<string, ReturnType<typeof Promise.withResolvers<string | null>>>();
   const results: string[] = [];
   Object.assign(window, { bridge: { getRepositoryAvatar: async (owner: string, refresh = false) => {
-    if (!refresh) return owner === 'trinodb' ? old : owner === 'apache' ? other : null;
+    if (!refresh) return owner === 'owner' ? old : owner === 'apache' ? other : null;
     const request = Promise.withResolvers<string | null>(); pending.set(owner, request); return request.promise;
   } } });
   const host = document.createElement('div'); document.body.append(host);
@@ -40,17 +40,17 @@ export async function run(): Promise<string[]> {
     assert(check(), 'Avatar did not reach the expected state');
   }
   try {
-    root.render(<RepoAvatar owner="TrinoDB" repo="trino" size={18} />);
-    await waitFor(() => visible(old) && pending.has('trinodb'));
+    root.render(<RepoAvatar owner="Owner" repo="repository" size={18} />);
+    await waitFor(() => visible(old) && pending.has('owner'));
     results.push('cached before refresh');
-    pending.get('trinodb')?.resolve(fresh);
+    pending.get('owner')?.resolve(fresh);
     await waitFor(() => visible(fresh));
     results.push('background update');
 
     window.dispatchEvent(new Event('online'));
     root.render(<RepoAvatar owner="apache" repo="iceberg" size={18} />);
     await waitFor(() => visible(other) && pending.has('apache'));
-    pending.get('trinodb')?.resolve(old);
+    pending.get('owner')?.resolve(old);
     pending.get('apache')?.reject(new Error('offline'));
     await settle();
     assert(visible(other), 'Previous owner or failed refresh replaced the cached image');

@@ -30,7 +30,7 @@ describe('IDE action boundary', () => {
   });
 
   it('allows owner avatar reads but rejects arbitrary download locations', () => {
-    expect(() => validateIdeAction('getRepositoryAvatar', ['trinodb', true], context, false)).not.toThrow();
+    expect(() => validateIdeAction('getRepositoryAvatar', ['owner', true], context, false)).not.toThrow();
     for (const args of [['../tokens'], ['https://example.com'], ['alice', 'yes'], ['alice', false, 'extra']]) {
       expect(() => validateIdeAction('getRepositoryAvatar', args, context, false)).toThrow();
     }

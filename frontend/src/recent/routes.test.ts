@@ -37,24 +37,24 @@ describe('Recent navigation', () => {
   });
 
   it('zooms pull requests and issues over the page instead of leaving Recent', () => {
-    expect(recentItemTarget({ type: 'PULL_REQUEST', itemKey: 'pr:trinodb/trino#42', workspaceId: null }))
-      .toEqual({ kind: 'pull', repo: 'trinodb/trino', number: 42, workspaceId: undefined });
-    expect(recentItemTarget({ type: 'PULL_REQUEST', itemKey: 'pr:trinodb/trino#42', workspaceId: 'workspace-1' }))
-      .toEqual({ kind: 'pull', repo: 'trinodb/trino', number: 42, workspaceId: 'workspace-1' });
-    expect(recentItemTarget({ type: 'ISSUE', itemKey: 'issue:trinodb/trino#42', workspaceId: 'workspace-1' }))
-      .toEqual({ kind: 'issue', repo: 'trinodb/trino', number: 42, workspaceId: 'workspace-1' });
+    expect(recentItemTarget({ type: 'PULL_REQUEST', itemKey: 'pr:owner/repository#42', workspaceId: null }))
+      .toEqual({ kind: 'pull', repo: 'owner/repository', number: 42, workspaceId: undefined });
+    expect(recentItemTarget({ type: 'PULL_REQUEST', itemKey: 'pr:owner/repository#42', workspaceId: 'workspace-1' }))
+      .toEqual({ kind: 'pull', repo: 'owner/repository', number: 42, workspaceId: 'workspace-1' });
+    expect(recentItemTarget({ type: 'ISSUE', itemKey: 'issue:owner/repository#42', workspaceId: 'workspace-1' }))
+      .toEqual({ kind: 'issue', repo: 'owner/repository', number: 42, workspaceId: 'workspace-1' });
     // Only a watched repository's issue has a view to zoom.
-    expect(recentItemTarget({ type: 'ISSUE', itemKey: 'issue:trinodb/trino#42', workspaceId: null })).toBeNull();
+    expect(recentItemTarget({ type: 'ISSUE', itemKey: 'issue:owner/repository#42', workspaceId: null })).toBeNull();
   });
 
   it('keeps commits on their workspace page', () => {
-    expect(recentItemTarget({ type: 'COMMIT', itemKey: 'commit:trinodb/trino@abc123', workspaceId: 'workspace-1' }))
+    expect(recentItemTarget({ type: 'COMMIT', itemKey: 'commit:owner/repository@abc123', workspaceId: 'workspace-1' }))
       .toBe('#/workspaces/workspace-1/commits');
   });
 
   it('does not send unavailable or malformed tasks to an unrelated task list', () => {
     expect(recentItemTarget({ type: 'TASK', itemKey: 'task:deleted', workspaceId: null })).toBeNull();
     expect(recentItemTarget({ type: 'TASK', itemKey: 'task:', workspaceId: 'workspace-1' })).toBeNull();
-    expect(recentItemTarget({ type: 'TASK', itemKey: 'pr:trinodb/trino#42', workspaceId: 'workspace-1' })).toBeNull();
+    expect(recentItemTarget({ type: 'TASK', itemKey: 'pr:owner/repository#42', workspaceId: 'workspace-1' })).toBeNull();
   });
 });

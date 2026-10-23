@@ -28,7 +28,7 @@ export function TaskTypeIcon({ type, size = 14 }: { type: TaskType | 'all'; size
   return <Icon size={size} strokeWidth={1.9} aria-hidden="true" />;
 }
 
-/** "JC" for Jack Chen, or the start of a login when the profile has no name. */
+/** "RP" for Riley Park, or the start of a login when the profile has no name. */
 export function viewerInitials(profile: { login: string; name: string | null } | undefined): string {
   const words = profile?.name?.trim().split(/\s+/).filter((word) => word !== '') ?? [];
   if (words.length > 0) return words.slice(0, 2).map((word) => word[0].toUpperCase()).join('');

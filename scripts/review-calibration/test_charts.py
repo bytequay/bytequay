@@ -261,7 +261,7 @@ class TestSlowSpots(unittest.TestCase):
         frames = made()
         figure = charts.repositories_figure(frames["turns"], frames["parts"])
         # The task the database does not know has no repository and is named as such, never dropped.
-        self.assertEqual((list(figure.data[0].y), [bar.name for bar in figure.data]), (["trinodb/trino", "not recorded"], charts.STATES))
+        self.assertEqual((list(figure.data[0].y), [bar.name for bar in figure.data]), (["owner/repository", "not recorded"], charts.STATES))
         self.assertEqual([[round(hours * 3600) for hours in bar.x] for bar in figure.data], [[540, 60], [300, 60], [60, 0]])
 
 
@@ -455,8 +455,8 @@ class TestReviews(unittest.TestCase):
     def test_runs_and_findings_follow_the_saved_reviews_and_a_finding_keeps_the_number_of_its_run(self):
         made = reviewed()
         self.assertEqual(made["runs"][["review", "repository", "day", "seconds", "state", "repaired", "turns", "setting"]].values.tolist()[:2],
-                         [["review-1", "trinodb/trino", date(2026, 1, 1), 1830, "accepted", False, 2, "gpt-6-astra · max"],
-                          ["review-1", "trinodb/trino", date(2026, 1, 1), 600, "failed", True, 1, "gpt-6-sol · high"]])
+                         [["review-1", "owner/repository", date(2026, 1, 1), 1830, "accepted", False, 2, "gpt-6-astra · max"],
+                          ["review-1", "owner/repository", date(2026, 1, 1), 600, "failed", True, 1, "gpt-6-sol · high"]])
         self.assertTrue(pandas.isna(made["runs"]["seconds"][2]))  # still running: its length is not known, and not zero
         self.assertEqual(made["findings"].fillna("not given").values.tolist(), [[0, "resolved", "medium"], [0, "withdrawn", "not given"], [0, "open", "high"], [2, "open", "not given"]])
         self.assertEqual(charts.review_frames(REVIEWS, timezone(timedelta(hours=-5)))["runs"]["day"].tolist(), [date(2025, 12, 31)] * 3)
@@ -475,9 +475,9 @@ class TestReviews(unittest.TestCase):
         pick = lambda **choice: (lambda chosen: (chosen["runs"].index.tolist(), chosen["findings"]["run"].tolist()))(charts.reviews_chosen(made, day, day, **choice))
         self.assertEqual(pick(), ([0, 1, 2], [0, 0, 0, 2]))
         self.assertEqual(pick(settings=["opus · extra"]), ([2], [2]))
-        self.assertEqual(pick(repositories=["trinodb/trino"]), ([0, 1], [0, 0, 0]))
-        self.assertEqual(pick(settings=["gpt-6-sol · high"], repositories=["trinodb/trino"]), ([1], []))
-        self.assertEqual(pick(settings=["opus · extra"], repositories=["trinodb/trino"]), ([], []))
+        self.assertEqual(pick(repositories=["owner/repository"]), ([0, 1], [0, 0, 0]))
+        self.assertEqual(pick(settings=["gpt-6-sol · high"], repositories=["owner/repository"]), ([1], []))
+        self.assertEqual(pick(settings=["opus · extra"], repositories=["owner/repository"]), ([], []))
         self.assertTrue(charts.reviews_chosen(made, date(2026, 1, 2), date(2026, 1, 3))["runs"].empty)
 
     def test_held_up_is_the_resolved_share_of_the_decided_findings_and_nothing_while_none_is_decided(self):

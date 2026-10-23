@@ -729,10 +729,10 @@ class TestDefaultJiraClient
         when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001/comment?"), eq("GET"), any()))
                 .thenReturn(json("""
                         {"comments":[{"id":"comment","author":{"accountId":"alice"},"body":{"type":"doc","content":[
-                          {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"712020:jack","text":"@Jack Chen"}}]}
+                          {"type":"paragraph","content":[{"type":"mention","attrs":{"id":"712020:sam","text":"@Sam Lee"}}]}
                         ]},"created":"2026-09-26T01:00:00Z","updated":"2026-09-26T01:00:00Z"}],"total":1}
                         """));
-        String expected = "[@Jack Chen](https://team.atlassian.net/jira/people/712020%3Ajack)";
+        String expected = "[@Sam Lee](https://team.atlassian.net/jira/people/712020%3Asam)";
 
         assertThat(jira.detail("connection", "cloud", "1001", true).comments().getFirst().body()).isEqualTo(expected);
         assertThat(jira.detail("connection", "cloud", "1001", false).comments().getFirst().body()).isEqualTo(expected);

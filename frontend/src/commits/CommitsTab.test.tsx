@@ -57,8 +57,8 @@ describe('workspace commits tab', () => {
   it('browses an upstream repository of the line while keeping a separate destination', () => {
     const html = renderCommits({ repos: line(), initialSourceSelection: { source: 'backport-1' } });
 
-    expect(html).toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="Pick commits from trino\/oss">/);
-    expect(html).toContain('title="Read history from trino/oss · master"');
+    expect(html).toMatch(/class="cmt-line-repo is-active" aria-pressed="true" title="Pick commits from upstream\/oss">/);
+    expect(html).toContain('title="Read history from upstream/oss · master"');
     expect(html).toContain('cmt-pill__label cmt-mono">master</span>');
     expect(html).toContain('<span class="cmt-pill__caption">into</span><span class="cmt-pill__label cmt-mono">project · main</span>');
     expect(html).toContain('title="Product takes changes from example/project · open its Commits"');
@@ -70,11 +70,11 @@ describe('workspace commits tab', () => {
   });
 
   it('reads a typed pull request number or a link to the browsed repository', () => {
-    expect(typedPullRequestNumber('#28411', 'trino/oss')).toBe(28411);
-    expect(typedPullRequestNumber(' 12 ', 'trino/oss')).toBe(12);
-    expect(typedPullRequestNumber('https://github.com/Trino/OSS/pull/7/files', 'trino/oss')).toBe(7);
-    expect(typedPullRequestNumber('https://github.com/other/repo/pull/7', 'trino/oss')).toBeNull();
-    expect(typedPullRequestNumber('fix #12', 'trino/oss')).toBeNull();
+    expect(typedPullRequestNumber('#28411', 'upstream/oss')).toBe(28411);
+    expect(typedPullRequestNumber(' 12 ', 'upstream/oss')).toBe(12);
+    expect(typedPullRequestNumber('https://github.com/Upstream/OSS/pull/7/files', 'upstream/oss')).toBe(7);
+    expect(typedPullRequestNumber('https://github.com/other/repo/pull/7', 'upstream/oss')).toBeNull();
+    expect(typedPullRequestNumber('fix #12', 'upstream/oss')).toBeNull();
   });
 
   it('opens the repository just upstream when asked to pick commits', () => {
@@ -233,7 +233,7 @@ const directSettings: Pick<WorkspaceSettingsDto, 'commitsTarget'> = {
 
 const noRelations: WorkspaceRelationshipsDto = { links: [], related: [], line: [] };
 
-/** trino/oss → acme/internal → this workspace → Product. */
+/** upstream/oss → acme/internal → this workspace → Product. */
 function line() {
   const repo = (id: string, owner: string, name: string) => workspaceFixture({
     id, name, monitoredOwner: owner, monitoredRepo: id, defaultBranch: id === 'oss' ? 'master' : 'main',
@@ -251,7 +251,7 @@ function line() {
       { workspaceId: 'workspace-id', parentWorkspaceId: 'internal' },
       { workspaceId: 'product', parentWorkspaceId: 'workspace-id' },
     ],
-  }, [repo('oss', 'trino', 'oss'), repo('internal', 'acme', 'internal'), repo('product', 'acme', 'Product')]);
+  }, [repo('oss', 'upstream', 'oss'), repo('internal', 'acme', 'internal'), repo('product', 'acme', 'Product')]);
 }
 
 function status(state: CommitRefreshStatusDto['state']): CommitRefreshStatusDto {

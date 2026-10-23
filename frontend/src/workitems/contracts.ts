@@ -81,7 +81,7 @@ export type GoalItemDto = {
   kind: GoalItemKind;
   /** owner/repo#number, connection:cloud:issue for a Jira ticket, or the task id. */
   key: string;
-  /** #123, TRINO-412 or Task. */
+  /** #123, ENG-412 or Task. */
   label: string;
   title: string;
   state: GoalItemState;

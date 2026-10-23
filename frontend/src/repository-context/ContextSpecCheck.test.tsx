@@ -17,12 +17,12 @@ import type { ContextBuildViewDto, ContextSpecCheckDto } from './contracts';
 import { SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from './ContextSpecCheck';
 
 const actions: SpecCheckActions = { start: () => {}, stop: () => {}, dismissFinding: () => {}, openIssue: () => {}, say: () => {} };
-const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'key',
+const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/catalog/', baselineSha: 'a'.repeat(40), requestKey: 'key',
   specs: ['https://iceberg.apache.org/spec/'], checkedAgainst: [], labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0, maxReproductions: 3,
   detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
 const running: ContextBuildViewDto = { buildRequestSequence: 1, canStart: false, build: { kind: 'CHECK', requestKey: 'key', taskId: 'task', checkId: 'check-1', task: null,
   activeTurn: { cancellationRequestedAt: null }, pendingApprovals: 0, outcome: 'RUNNING', detail: null, activity: [] } };
-const data = (checks: ContextSpecCheckDto[], build: ContextBuildViewDto): SpecCheckData => ({ workspaceId: 'workspace', repository: 'trinodb/trino', checks, build,
+const data = (checks: ContextSpecCheckDto[], build: ContextBuildViewDto): SpecCheckData => ({ workspaceId: 'workspace', repository: 'owner/repository', checks, build,
   model: { label: 'Codex · Sol', blocker: null }, now: Date.parse('2026-10-02T01:00:00Z') });
 
 describe('spec check drawer', () => {
@@ -36,7 +36,7 @@ describe('spec check drawer', () => {
 
   it('lets the user pick how many candidates a new check reproduces, three by default', () => {
     const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([], { buildRequestSequence: 0, canStart: true, build: null })} actions={actions} busy={false}
-      directory="plugin/trino-delta-lake/" onClose={() => {}} />);
+      directory="plugin/storage/" onClose={() => {}} />);
     expect(markup).toContain('aria-label="Reproductions"');
     expect(markup).toContain('<option value="3" selected="">3</option><option value="8">8</option>');
     expect(markup).toContain('then up to 3 reproduction turns that write and run tests in its worktree');
@@ -46,14 +46,14 @@ describe('spec check drawer', () => {
     const done: ContextSpecCheckDto = { ...check, state: 'DONE', endedAt: '2026-10-02T00:30:00Z', specs: [],
       checkedAgainst: ['https://iceberg.apache.org/spec/'] };
     const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([done], { buildRequestSequence: 1, canStart: true, build: null })} actions={actions}
-      busy={false} directory="plugin/trino-iceberg/" onClose={() => {}} />);
+      busy={false} directory="plugin/catalog/" onClose={() => {}} />);
     expect(markup).toContain('Checked against https://iceberg.apache.org/spec/ (proposed by the check).');
   });
 
   it('shows a running check’s report with Stop and offers no second check while it runs', () => {
-    const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([check], running)} actions={actions} busy={false} directory="plugin/trino-iceberg/"
+    const markup = renderToStaticMarkup(<SpecCheckDrawer data={data([check], running)} actions={actions} busy={false} directory="plugin/catalog/"
       onClose={() => {}} />);
-    expect(markup).toContain('Spec check · plugin/trino-iceberg/');
+    expect(markup).toContain('Spec check · plugin/catalog/');
     expect(markup).toContain('Checking');
     expect(markup).toContain('Stop check');
     expect(markup).not.toContain('WHAT THE CHECK READS');

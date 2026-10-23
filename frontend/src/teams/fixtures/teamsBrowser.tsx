@@ -37,15 +37,15 @@ const ago = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOStr
 
 function seededDirectory(): TeamDirectory {
   return { accountLogin: 'viewer', circles: [
-    { id: 'trusted-oss', name: 'Trusted OSS', description: 'Trusted open-source collaborators', avatar: { color: 'teal', shape: 'circle' }, repositories: ['trinodb/trino'], members: [alice, bob] },
+    { id: 'trusted-oss', name: 'Trusted OSS', description: 'Trusted open-source collaborators', avatar: { color: 'teal', shape: 'circle' }, repositories: ['owner/repository'], members: [alice, bob] },
     { id: 'platform', name: 'Platform team', description: 'Our internal platform group', avatar: { color: 'gray', shape: 'square' }, repositories: ['acme/query-engine'], members: [alice, cara] },
   ] };
 }
 
 function event(id: string, kind: TeamActivityEvent['kind'], actor: { githubId: number; login: string }, number: number, title: string, hours: number,
   extra: Partial<TeamActivityEvent> = {}): TeamActivityEvent {
-  return { id, kind, actorId: actor.githubId, actorLogin: actor.login, repository: 'trinodb/trino', number, title,
-    url: `https://github.com/trinodb/trino/${kind.startsWith('ISSUE_') ? 'issues' : 'pull'}/${number}#${id}`,
+  return { id, kind, actorId: actor.githubId, actorLogin: actor.login, repository: 'owner/repository', number, title,
+    url: `https://github.com/owner/repository/${kind.startsWith('ISSUE_') ? 'issues' : 'pull'}/${number}#${id}`,
     occurredAt: ago(hours), subjectAuthorId: alice.githubId, subjectAuthorLogin: alice.login,
     source: 'REPOSITORY', viewerInteractionMemberIds: [], ...extra };
 }
@@ -72,7 +72,7 @@ function statistics(person: TeamMember): TeamStatistics {
     issuesOpened: 3, issuesClosed: 2, comments: 24, directInteractions: person === alice ? 50 : 7, sharedPullRequests: 8, sharedIssues: 3 };
 }
 
-const alicePr = (patch: Partial<PullRequestDto> = {}) => pr({ id: 9001, repo: 'trinodb/trino', number: 24830, title: 'Add dynamic filtering for Iceberg MERGE',
+const alicePr = (patch: Partial<PullRequestDto> = {}) => pr({ id: 9001, repo: 'owner/repository', number: 24830, title: 'Add dynamic filtering for Iceberg MERGE',
   author: 'alice', origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'], reviewRequestedAt: ago(50), updatedAt: ago(3),
   latestActivity: { event: 'commented', actor: 'mallory', timestamp: ago(3), label: null, state: null, requestedReviewer: null,
     excerpt: `**Walkthrough** ${Array.from({ length: 130 }, (_, index) => `word${index}`).join(' ')}` }, ...patch });
@@ -268,11 +268,11 @@ async function firstUse() {
   await input('Filter cached contributors', '@ali');
   await press('Filter cached contributors', 'Enter');
   assert(document.querySelector('.cir-token')?.textContent?.includes('alice') === true, 'Return must select the highlighted contributor');
-  await input('Add repository to scope', 'TrinoDB/Trino');
+  await input('Add repository to scope', 'Owner/Repository');
   await press('Add repository to scope', 'Enter');
   await click('Create circle');
   const saved = f.directory.circles[0];
-  assert(saved?.name === 'Review friends' && saved.repositories[0] === 'trinodb/trino' && saved.members[0]?.login === 'alice' && f.added.length === 0,
+  assert(saved?.name === 'Review friends' && saved.repositories[0] === 'owner/repository' && saved.members[0]?.login === 'alice' && f.added.length === 0,
     'Create must save the name, normalized scope and selected people in one creation');
   assert(pageTitle() === 'Review friends' && selectedTab() === 'Needs you', 'A circle created with people must open on Needs you');
   assert(text().includes('Created “Review friends” with 1 person'), 'Creation must confirm what was saved');
@@ -371,7 +371,7 @@ async function personPanel() {
 }
 
 async function needsYou() {
-  const f = await mount(seededDirectory(), { prs: [alicePr(), pr({ id: 9002, repo: 'trinodb/trino', number: 24831, title: 'Someone else’s change', author: 'stranger',
+  const f = await mount(seededDirectory(), { prs: [alicePr(), pr({ id: 9002, repo: 'owner/repository', number: 24831, title: 'Someone else’s change', author: 'stranger',
     origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'] })] });
   await settled();
   const rows = document.querySelectorAll('.cir-needs .item-row');
@@ -388,7 +388,7 @@ async function needsYou() {
   await press('', 'Escape');
   await click('Acknowledge #24830', rows[0]);
   assert(document.querySelector('.cir-needs') === null && text().includes('Nothing needs you right now'), 'Acknowledging must clear the row');
-  assert(Object.keys(loadHandled()).includes('trinodb/trino#24830'), 'Handling must reach Home too');
+  assert(Object.keys(loadHandled()).includes('owner/repository#24830'), 'Handling must reach Home too');
   await click('Undo');
   assert(document.querySelectorAll('.cir-needs .item-row').length === 1, 'Undo must bring the row back');
   const reads = f.workspaceReads;

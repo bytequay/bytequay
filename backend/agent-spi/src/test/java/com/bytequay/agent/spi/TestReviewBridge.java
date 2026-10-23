@@ -46,7 +46,7 @@ class TestReviewBridge
                 "git diff HEAD~1",
                 "gh pr view 30304",
                 "gh api repos/o/r/pulls/1",
-                "./mvnw -pl plugin/trino-iceberg test -Dtest=TestIcebergSortField",
+                "./mvnw -pl plugin/catalog test -Dtest=TestIcebergSortField",
                 "cat README.md",
                 "rg pushback src/",
                 "")) {

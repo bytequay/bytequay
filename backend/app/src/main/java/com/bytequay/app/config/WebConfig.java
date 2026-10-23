@@ -50,7 +50,7 @@ public class WebConfig
                 .requestFactory(newTimeoutRequestFactory(
                         CONNECT_TIMEOUT,
                         READ_TIMEOUT,
-                        // A renamed repository (prestosql/presto -> trinodb/trino)
+                        // A renamed repository (old-owner/old-name -> owner/repository)
                         // answers with 301; not following it parsed GitHub's
                         // redirect envelope as an empty issue or pull request.
                         // The redirect stays on api.github.com, so the PAT

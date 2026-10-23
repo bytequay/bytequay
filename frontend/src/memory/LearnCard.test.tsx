@@ -21,7 +21,7 @@ import { LearnCard } from './MemoryPage';
 const memory: MemoryDto = {
   id: 'm31', kind: 'RULE', title: 'Connector session properties', text: 'When a connector adds a session property, give it a catalog property too.',
   scope: ['plugin/'],
-  sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31188', quote: 'Please add a catalog property too.', at: '2026-10-01T00:00:00Z',
+  sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/owner/repository/pull/31188', quote: 'Please add a catalog property too.', at: '2026-10-01T00:00:00Z',
     section: null, pullRequest: { number: 31188, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false },
     user: null, command: null }],
   origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 0, cited: 0, reports: [], missingScope: [],
@@ -30,7 +30,7 @@ const memory: MemoryDto = {
 const idle: ContextBuildViewDto = { buildRequestSequence: 3, canStart: true, build: null };
 const page = (last: HarvestLastRunDto | null, cursor: number | null = null): MemoryPageDto => ({ memories: [memory], switches: { reviews: true, development: true },
   guidelines: [], head: null, harvest: { cursor: cursor === null ? null : { number: cursor, closedAt: '2026-10-01T00:00:00Z' }, last } });
-const data = (build: ContextBuildViewDto): SpecCheckData => ({ workspaceId: 'w', repository: 'trinodb/trino', checks: [], build, now: 0,
+const data = (build: ContextBuildViewDto): SpecCheckData => ({ workspaceId: 'w', repository: 'owner/repository', checks: [], build, now: 0,
   model: { label: 'Codex · Sol', blocker: null } });
 const last = (outcome: HarvestLastRunDto['outcome']): HarvestLastRunDto => ({ harvestId: 'h', label: 'Learn from my PRs', startedAt: '2026-10-02T00:00:00Z',
   endedAt: null, pulls: 12, threads: 31, saved: ['m31'], seenAgain: 2, replaced: 1, outcome });

@@ -6,7 +6,7 @@
   "runs": [
     {
       "review": "review-1",
-      "repository": "trinodb/trino",
+      "repository": "owner/repository",
       "start": "2026-01-01T01:00:00Z",
       "seconds": 1830.0,
       "state": "accepted",
@@ -22,7 +22,7 @@
     },
     {
       "review": "review-1",
-      "repository": "trinodb/trino",
+      "repository": "owner/repository",
       "start": "2026-01-01T03:00:00Z",
       "seconds": 600.0,
       "state": "failed",

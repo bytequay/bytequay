@@ -17,8 +17,8 @@ import type { MemoryDto } from './contracts';
 import { MemoryDrawer } from './MemoryDrawer';
 
 const memory: MemoryDto = {
-  id: 'm4', kind: 'RULE', title: 'Data file paths', text: 'Keep partition values out of data file paths.', scope: ['plugin/trino-delta-lake/'],
-  sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/28770#discussion_r1', quote: 'We use random prefixes for data files.',
+  id: 'm4', kind: 'RULE', title: 'Data file paths', text: 'Keep partition values out of data file paths.', scope: ['plugin/storage/'],
+  sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/owner/repository/pull/28770#discussion_r1', quote: 'We use random prefixes for data files.',
     at: '2026-09-01T00:00:00Z', section: null, pullRequest: { number: 28770, part: 'REVIEW_COMMENT', author: 'bo', maintainer: true, merged: true, resolved: true,
       outdated: false }, user: null, command: null }],
   origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 2,
@@ -59,11 +59,11 @@ describe('MemoryDrawer', () => {
 
   it('renders Markdown in source quotes', () => {
     const markup = render({ ...memory, sources: [{ ...memory.sources[0],
-      quote: 'Only the **connector call** is external.\n`checkState` throws a `TrinoException`.\n\n- Keep `PERMISSION_DENIED`.\n- Preserve internal errors.',
+      quote: 'Only the **connector call** is external.\n`checkState` throws a `QueryException`.\n\n- Keep `PERMISSION_DENIED`.\n- Preserve internal errors.',
     }] });
     expect(markup).toContain('class="markdown-body mem-source__quote"');
     expect(markup).toContain('<strong>connector call</strong>');
-    expect(markup).toContain('<br/><code>checkState</code> throws a <code>TrinoException</code>.');
+    expect(markup).toContain('<br/><code>checkState</code> throws a <code>QueryException</code>.');
     expect(markup).toContain('<ul><li>Keep <code>PERMISSION_DENIED</code>.</li><li>Preserve internal errors.</li></ul>');
     expect(markup).not.toContain('`');
   });

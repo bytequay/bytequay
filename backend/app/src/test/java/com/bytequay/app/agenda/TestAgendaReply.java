@@ -32,13 +32,13 @@ class TestAgendaReply
     private static final Map<String, String> SERVED = ImmutableMap.<String, String>builder()
             .put("work:w22", "epics")
             .put("task:t1", "tasks")
-            .put("pr:trinodb/trino#31402", "tasks")
-            .put("pr:trinodb/trino#31377", "asks")
-            .put("pr:trinodb/trino-gateway#612", "mine")
+            .put("pr:owner/repository#31402", "tasks")
+            .put("pr:owner/repository#31377", "asks")
+            .put("pr:owner/gateway#612", "mine")
             .put("epic:E1", "epics")
-            .put("pr:trinodb/trino#31390", "history")
+            .put("pr:owner/repository#31390", "history")
             .buildOrThrow();
-    private static final Set<String> MINE = ImmutableSet.of("pr:trinodb/trino-gateway#612");
+    private static final Set<String> MINE = ImmutableSet.of("pr:owner/gateway#612");
 
     private final ObjectMapper mapper = AgendaFixtures.mapper();
     private final AgendaSnapshot snapshot = AgendaFixtures.friday(0);
@@ -52,13 +52,13 @@ class TestAgendaReply
                 {"summary": "Your conflict-retry fix merged last night.",
                  "items": [
                    {"ref": "work:w22", "action": "start", "title": "Start “Expose snapshot id in metadata”", "label": "Expose snapshot id", "why": "It is next and unblocks 2 items."},
-                   {"ref": "pr:trinodb/trino#31377", "action": "review", "title": "Review #31377 Add Iceberg metadata cache", "why": "Asked 3 days ago."}
+                   {"ref": "pr:owner/repository#31377", "action": "review", "title": "Review #31377 Add Iceberg metadata cache", "why": "Asked 3 days ago."}
                  ]}
                 ```
                 """);
 
         assertThat(reply.summary()).isEqualTo("Your conflict-retry fix merged last night.");
-        assertThat(reply.items()).extracting(AgendaItem::ref).containsExactly("work:w22", "pr:trinodb/trino#31377");
+        assertThat(reply.items()).extracting(AgendaItem::ref).containsExactly("work:w22", "pr:owner/repository#31377");
         AgendaItem start = reply.items().getFirst();
         assertThat(start.action()).isEqualTo(AgendaItem.Action.START);
         assertThat(start.label()).isEqualTo("Expose snapshot id");
@@ -79,15 +79,15 @@ class TestAgendaReply
                 {"summary": "Busy day.", "items": [
                   {"ref": "pr:invented/repo#9", "action": "review", "title": "Review a made-up PR", "why": "x"},
                   {"ref": "pr:unserved/repo#1", "action": "review", "title": "Review a PR no page named", "why": "x"},
-                  {"ref": "pr:trinodb/trino-gateway#612", "action": "review", "title": "Review your own PR", "why": "x"},
+                  {"ref": "pr:owner/gateway#612", "action": "review", "title": "Review your own PR", "why": "x"},
                   {"ref": "epic:E1", "action": "merge", "title": "Merge an Epic", "why": "x"},
                   {"ref": "task:t1", "action": "sing", "title": "Sing", "why": "x"},
                   {"ref": "task:t1", "action": "answer", "title": "", "why": "x"},
                   {"ref": "task:t1", "action": "answer", "title": "Answer the retry question", "why": "x"},
                   {"ref": "task:t1", "action": "answer", "title": "Answer it again", "why": "x"},
-                  {"ref": "pr:trinodb/trino#31402", "action": "reply", "title": "Reply on #31402", "why": "x"},
-                  {"ref": "pr:trinodb/trino#31377", "action": "review", "title": "Review #31377", "why": "x"},
-                  {"ref": "pr:trinodb/trino-gateway#612", "action": "merge", "title": "Merge #612", "why": "x"},
+                  {"ref": "pr:owner/repository#31402", "action": "reply", "title": "Reply on #31402", "why": "x"},
+                  {"ref": "pr:owner/repository#31377", "action": "review", "title": "Review #31377", "why": "x"},
+                  {"ref": "pr:owner/gateway#612", "action": "merge", "title": "Merge #612", "why": "x"},
                   {"ref": "epic:E1", "action": "decide", "title": "Decide on two proposals", "why": "x"},
                   {"ref": "work:w22", "action": "start", "title": "Start the next item", "why": "x"}
                 ]}
@@ -98,7 +98,7 @@ class TestAgendaReply
         assertThat(reply.dropped()).extracting(drop -> drop.ref() + " " + drop.reason()).containsExactly(
                 "pr:invented/repo#9 unknown ref",
                 "pr:unserved/repo#1 unknown ref",
-                "pr:trinodb/trino-gateway#612 action does not fit",
+                "pr:owner/gateway#612 action does not fit",
                 "epic:E1 action does not fit",
                 "task:t1 unknown action",
                 "task:t1 no title",
@@ -110,15 +110,15 @@ class TestAgendaReply
     void keepsTheRecapOnlyOnTheRecapDayWithServedRefs()
     {
         AgendaReply reply = parse("""
-                {"summary": "Quiet.", "items": [], "recap": {"text": "Merged 3 PRs.", "merged": ["pr:trinodb/trino#31390", "pr:unserved/repo#1"],
-                 "slipped": ["pr:trinodb/trino#31377"]}}
+                {"summary": "Quiet.", "items": [], "recap": {"text": "Merged 3 PRs.", "merged": ["pr:owner/repository#31390", "pr:unserved/repo#1"],
+                 "slipped": ["pr:owner/repository#31377"]}}
                 """);
 
         assertThat(reply.items()).isEmpty();
         assertThat(reply.recap()).hasValueSatisfying(recap -> {
             assertThat(recap.text()).isEqualTo("Merged 3 PRs.");
-            assertThat(recap.merged()).extracting(link -> link.ref()).containsExactly("pr:trinodb/trino#31390");
-            assertThat(recap.slipped()).extracting(link -> link.ref()).containsExactly("pr:trinodb/trino#31377");
+            assertThat(recap.merged()).extracting(link -> link.ref()).containsExactly("pr:owner/repository#31390");
+            assertThat(recap.slipped()).extracting(link -> link.ref()).containsExactly("pr:owner/repository#31377");
         });
 
         AgendaSnapshot thursday = new AgendaSnapshot(new AgendaSnapshot.Overview("2026-10-15", "THURSDAY", false, AgendaFixtures.SINCE, snapshot.overview().counts(),

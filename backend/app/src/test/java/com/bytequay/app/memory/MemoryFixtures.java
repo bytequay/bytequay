@@ -46,7 +46,7 @@ public final class MemoryFixtures
 
     public static MemorySource pullRequestSource(int number, String author)
     {
-        return MemorySource.pullRequest("https://github.com/trinodb/trino/pull/" + number + "#discussion_r" + number, "Please document the new property.", NOW,
+        return MemorySource.pullRequest("https://github.com/owner/repository/pull/" + number + "#discussion_r" + number, "Please document the new property.", NOW,
                 new MemorySource.PullRequestPart(number, MemorySource.Part.REVIEW_COMMENT, String.valueOf(number), author, true, true, true, false));
     }
 }

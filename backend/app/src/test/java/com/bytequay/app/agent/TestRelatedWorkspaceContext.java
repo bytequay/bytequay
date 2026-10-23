@@ -73,14 +73,14 @@ class TestRelatedWorkspaceContext
         Workspace workspace = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
-        when(relationships.related("trino")).thenReturn(ImmutableList.of(
+        when(relationships.related("repository")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Version in pom.xml")));
-        when(relationships.requireRelated("trino", "iceberg")).thenReturn(workspace);
+        when(relationships.requireRelated("repository", "iceberg")).thenReturn(workspace);
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         var context = new RelatedWorkspaceContext(relationships, repositories, mock(AgentReviewStore.class), git, new ObjectMapper());
-        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("trino"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
-                new RepositoryIdentity("trinodb", "trino"), repository,
+        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("repository"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
+                new RepositoryIdentity("owner", "repository"), repository,
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "user", new AgentTurnSettings(Optional.empty(), Optional.empty(),
                 AgentPermissionPolicy.AUTO, Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()), Instant.EPOCH);
@@ -100,7 +100,7 @@ class TestRelatedWorkspaceContext
         assertThat(command(git, "rev-parse", "HEAD")).isEqualTo(next);
         command(git, "update-ref", "-d", "refs/remotes/origin/main");
         assertThat(context.append(task, turn, "Investigate")).contains("unavailable", "synchronize").doesNotContain("\"commit\":");
-        when(relationships.related("trino")).thenReturn(ImmutableList.of());
+        when(relationships.related("repository")).thenReturn(ImmutableList.of());
         assertThat(context.append(task, turn, "No related workspaces")).isEqualTo("No related workspaces");
         assertThat(context.instructions(task)).isEmpty();
     }

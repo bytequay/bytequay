@@ -58,12 +58,12 @@ class TestSqliteAgendaStore
     @Test
     void keepsADayWithItsItemsRecapAndMarks()
     {
-        AgendaTarget pull = AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1"));
-        AgendaItem item = new AgendaItem("pr:trinodb/trino#31402", AgendaItem.Action.REPLY, "Answer elric-t's review on #31402", "elric-t on #31402",
-                "Changes requested yesterday.", Optional.of(MADE.minusSeconds(3600)), Optional.of("ws1"), pull, Optional.of("trinodb/trino #31402"));
+        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        AgendaItem item = new AgendaItem("pr:owner/repository#31402", AgendaItem.Action.REPLY, "Answer elric-t's review on #31402", "elric-t on #31402",
+                "Changes requested yesterday.", Optional.of(MADE.minusSeconds(3600)), Optional.of("ws1"), pull, Optional.of("owner/repository #31402"));
         AgendaDay day = new AgendaDay(LocalDate.parse("2026-10-16"), AgendaDay.State.READY, MADE, MADE.minusSeconds(86400), "claude", "Sonnet", "Two people wait on you.",
-                ImmutableList.of(item), Optional.of(new AgendaRecap("Merged 3 PRs.", ImmutableList.of(new AgendaRecap.Link("pr:trinodb/trino#31390",
-                AgendaTarget.pull("trinodb/trino", 31390, Optional.empty()))), ImmutableList.of())), ImmutableMap.of(),
+                ImmutableList.of(item), Optional.of(new AgendaRecap("Merged 3 PRs.", ImmutableList.of(new AgendaRecap.Link("pr:owner/repository#31390",
+                AgendaTarget.pull("owner/repository", 31390, Optional.empty()))), ImmutableList.of())), ImmutableMap.of(),
                 Optional.of(new AgendaCalendar("used", 5.5, false, ImmutableList.of(new AgendaCalendar.Block("11:00", "12:30")),
                         ImmutableList.of(new AgendaCalendar.Block("12:30", "15:00")))), Optional.empty());
         store.save(day);

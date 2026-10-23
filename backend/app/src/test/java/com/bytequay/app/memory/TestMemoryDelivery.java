@@ -95,9 +95,9 @@ class TestMemoryDelivery
     {
         store.save(rule("m1", "workspace", "Keep refactors in their own commits.", ImmutableList.of()));
         store.save(rule("m2", "workspace", "Recurring rule seen in three PRs.", ImmutableList.of(), 1, 2, 3));
-        store.save(rule("m3", "workspace", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/trino-delta-lake/")));
+        store.save(rule("m3", "workspace", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/storage/")));
         store.save(rule("m4", "workspace", "Connector docs list every property.", ImmutableList.of("plugin/")));
-        store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
+        store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/catalog/")));
         String start = initialCommit();
         AgentTask task = task(start);
 
@@ -108,7 +108,7 @@ class TestMemoryDelivery
         assertThat(first.guidelines()).isEmpty();
         assertThat(first.text()).doesNotContain("Showing ");
 
-        write("plugin/trino-delta-lake/src/DeltaLakeWriter.java", "class DeltaLakeWriter { void finish() {} }\n");
+        write("plugin/storage/src/DeltaLakeWriter.java", "class DeltaLakeWriter { void finish() {} }\n");
         Reference later = delivery.reference(task, turn(true));
         assertThat(later.memories()).extracting(TurnMemory::id).containsExactly("m3", "m4", "m2", "m1");
 
@@ -121,13 +121,13 @@ class TestMemoryDelivery
     void aReviewGetsTheMemoryScopedToItsChangedPathsAndFlaggedMemoryWithItsFlag()
     {
         store.save(rule("m1", "workspace", "Repository rule.", ImmutableList.of()));
-        store.save(rule("m3", "workspace", "Delta Lake writer cleanup", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/trino-delta-lake/"))
+        store.save(rule("m3", "workspace", "Delta Lake writer cleanup", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/storage/"))
                 .reported(new MemoryReport("The writer cleans up in finish() now", "", "task", NOW), NOW));
-        store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
-        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
+        store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/catalog/")));
+        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
-        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "trinodb/trino", 1, taskId.toString(), NOW)));
-        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("plugin/trino-delta-lake/src/DeltaLakeWriter.java")));
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "owner/repository", 1, taskId.toString(), NOW)));
+        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("plugin/storage/src/DeltaLakeWriter.java")));
 
         Reference reference = delivery.reference(review, turn(true));
         assertThat(reference.memories()).extracting(TurnMemory::id).containsExactly("m3", "m1");
@@ -144,7 +144,7 @@ class TestMemoryDelivery
     {
         store.save(rule("m1", "workspace", "Rule from an earlier pull request.", ImmutableList.of(), 30000));
         store.save(rule("m2", "workspace", "Rule from the replayed pull request.", ImmutableList.of(), 31188));
-        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Replay", new AgentLaneId("codex"), new RepositoryIdentity("trinodb", "trino"),
+        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Replay", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("core/A.java")));
 
@@ -213,33 +213,33 @@ class TestMemoryDelivery
     void aSecondReaderGetsTheTextOfMatchingRulesButNoRecipes()
     {
         store.save(rule("m1", "workspace", "Keep refactors in their own commits.", ImmutableList.of()));
-        store.save(rule("m2", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
-        store.save(rule("m3", "workspace", "Delta rule", ImmutableList.of("plugin/trino-delta-lake/")));
-        Memory recipe = rule("m4", "workspace", "Run the module's tests with ./mvnw test -pl plugin/trino-iceberg.", ImmutableList.of("plugin/trino-iceberg/"));
+        store.save(rule("m2", "workspace", "Iceberg rule", ImmutableList.of("plugin/catalog/")));
+        store.save(rule("m3", "workspace", "Delta rule", ImmutableList.of("plugin/storage/")));
+        Memory recipe = rule("m4", "workspace", "Run the module's tests with ./mvnw test -pl plugin/catalog.", ImmutableList.of("plugin/catalog/"));
         store.save(new Memory(recipe.id(), recipe.workspaceId(), Memory.Kind.RECIPE, recipe.title(), recipe.text(), recipe.scope(), recipe.sources(), recipe.origin(),
                 recipe.version(), recipe.previous(), recipe.delivered(), recipe.cited(), recipe.reports(), recipe.createdAt(), recipe.updatedAt()));
-        AgentReview review = pullRequestReview("review", "workspace", "trinodb/trino", 31244, taskId.toString(), NOW);
+        AgentReview review = pullRequestReview("review", "workspace", "owner/repository", 31244, taskId.toString(), NOW);
 
-        List<Memory> rules = delivery.rules(review, run("plugin/trino-iceberg/src/main/java/IcebergMetadata.java"));
+        List<Memory> rules = delivery.rules(review, run("plugin/catalog/src/main/java/IcebergMetadata.java"));
 
         assertThat(rules).extracting(Memory::id).containsExactly("m2", "m1");
         assertThat(rules.getFirst().text()).isEqualTo("Iceberg rule");
         assertThat(store.find("m2").orElseThrow().delivered()).isZero();
 
         memories.saveSwitches("workspace", new MemorySwitches(false, true));
-        assertThat(delivery.rules(review, run("plugin/trino-iceberg/src/main/java/IcebergMetadata.java"))).isEmpty();
+        assertThat(delivery.rules(review, run("plugin/catalog/src/main/java/IcebergMetadata.java"))).isEmpty();
     }
 
     private void replay(boolean memory, Instant cutoff)
     {
-        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.empty(),
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(new AgentReview("review", "workspace", "owner/repository", OptionalInt.empty(),
                 OptionalLong.empty(), taskId.toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
                 NOW, NOW, Optional.empty(), Optional.of(new AgentReview.Replay("replay", 31188, memory, cutoff)))));
     }
 
     private AgentTask task(String startCommit)
     {
-        TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("trinodb", "trino"), repository, "bytequay/task/" + taskId, startCommit);
+        TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repository"), repository, "bytequay/task/" + taskId, startCommit);
         return AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 

@@ -148,11 +148,11 @@ describe('watched repository workspace UI', () => {
     const value = {
       ...workspace('DIRECT'),
       id: 'original-upstream-workspace',
-      name: 'My saved Trino tasks',
-      selectedOwner: 'trinodb',
-      selectedRepo: 'trino',
-      monitoredOwner: 'trinodb',
-      monitoredRepo: 'trino',
+      name: 'My saved Repository tasks',
+      selectedOwner: 'owner',
+      selectedRepo: 'repository',
+      monitoredOwner: 'owner',
+      monitoredRepo: 'repository',
     };
     const onOpen = vi.fn();
     const onWatch = vi.fn();
@@ -162,8 +162,8 @@ describe('watched repository workspace UI', () => {
     const actions = card.props.children[3] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
     const html = renderToStaticMarkup(cards);
 
-    expect(html).toContain('My saved Trino tasks');
-    expect(html).toContain('trinodb/trino · main');
+    expect(html).toContain('My saved Repository tasks');
+    expect(html).toContain('owner/repository · main');
     expect(html).toContain('Local data kept. Open to access saved tasks and files.');
     expect(html).not.toMatch(/queued|syncing|cloning|Retry|ws-chip|ws-spark/);
     expect(onOpen).not.toHaveBeenCalled();

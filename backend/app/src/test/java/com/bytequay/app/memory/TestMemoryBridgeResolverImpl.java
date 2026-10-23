@@ -78,7 +78,8 @@ class TestMemoryBridgeResolverImpl
         assertThat(resolver.resolve(specCheck.id().toString())).isEmpty();
 
         AgentTask review = task(false, "workspace");
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "trinodb/trino", 1, review.id().toString(), NOW)));
+        when(reviews.findReviewByTask(review.id().toString()))
+                .thenReturn(Optional.of(pullRequestReview("review", "workspace", "owner/repository", 1, review.id().toString(), NOW)));
         assertThat(resolver.resolve(review.id().toString())).isPresent();
 
         AgentTask elsewhere = task(true, "other");
@@ -96,7 +97,8 @@ class TestMemoryBridgeResolverImpl
         store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
         AgentTask development = task(true, "workspace");
         AgentTask review = task(false, "workspace");
-        when(reviews.findReviewByTask(review.id().toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "trinodb/trino", 1, review.id().toString(), NOW)));
+        when(reviews.findReviewByTask(review.id().toString()))
+                .thenReturn(Optional.of(pullRequestReview("review", "workspace", "owner/repository", 1, review.id().toString(), NOW)));
 
         memories.saveSwitches("workspace", new MemorySwitches(true, false));
         assertThat(resolver.resolve(development.id().toString())).isEmpty();
@@ -114,20 +116,20 @@ class TestMemoryBridgeResolverImpl
         store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
         store.save(rule("m2", "workspace", "Adding connector table properties", "Document every new table property on the connector's page.",
                 ImmutableList.of("plugin/"), 31201, 30877));
-        store.save(rule("m3", "workspace", "Leave cleanup of unfinished output to abort().", ImmutableList.of("plugin/trino-delta-lake/")));
-        store.save(rule("m4", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
+        store.save(rule("m3", "workspace", "Leave cleanup of unfinished output to abort().", ImmutableList.of("plugin/storage/")));
+        store.save(rule("m4", "workspace", "Iceberg rule", ImmutableList.of("plugin/catalog/")));
         store.save(rule("m5", "other", "Another workspace", ImmutableList.of()));
         AgentTask task = task(true, "workspace");
         MemoryBridge bridge = resolver.resolve(task.id().toString()).orElseThrow();
 
-        JsonNode byPath = call(bridge, "{\"action\":\"SEARCH\",\"path\":\"plugin/trino-delta-lake/src/main/java/DeltaLakeWriter.java\"}");
+        JsonNode byPath = call(bridge, "{\"action\":\"SEARCH\",\"path\":\"plugin/storage/src/main/java/DeltaLakeWriter.java\"}");
         assertThat(byPath.path("memories").findValuesAsText("id")).containsExactly("m3", "m2", "m1");
         assertThat(byPath.path("memories").get(1).path("source").asText()).isEqualTo("PR #31201 @alice · 2 PRs");
         assertThat(byPath.path("memories").get(1).path("title").asText()).isEqualTo("Adding connector table properties");
         assertThat(byPath.path("memories").findValues("text")).isEmpty();
         assertThat(byPath.path("memories").findValues("sources")).isEmpty();
         assertThat(byPath.path("memories").get(2).path("scope").asText()).isEqualTo("repository");
-        assertThat(byPath.path("activityLine").asText()).isEqualTo("Searched memory in plugin/trino-delta-lake/src/main/java/DeltaLakeWriter.java · 3 memories");
+        assertThat(byPath.path("activityLine").asText()).isEqualTo("Searched memory in plugin/storage/src/main/java/DeltaLakeWriter.java · 3 memories");
 
         JsonNode byDirectory = call(bridge, "{\"action\":\"SEARCH\",\"path\":\"plugin\",\"query\":\"RULE\"}");
         assertThat(byDirectory.path("memories").findValuesAsText("id")).containsExactly("m4");
@@ -292,7 +294,7 @@ class TestMemoryBridgeResolverImpl
 
     private static AgentReview replay(AgentTask task, boolean memory)
     {
-        return new AgentReview("replay-review", "workspace", "trinodb/trino", OptionalInt.empty(), OptionalLong.empty(), task.id().toString(), Optional.empty(),
+        return new AgentReview("replay-review", "workspace", "owner/repository", OptionalInt.empty(), OptionalLong.empty(), task.id().toString(), Optional.empty(),
                 AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty(),
                 Optional.of(new AgentReview.Replay("replay", 31188, memory, NOW.plusSeconds(3600))));
     }
@@ -306,7 +308,7 @@ class TestMemoryBridgeResolverImpl
     private AgentTask task(boolean interactive, String workspaceId)
     {
         AgentTask task = AgentTask.created(TaskId.random(), Optional.of(workspaceId), interactive, "Task", new AgentLaneId("codex"),
-                new RepositoryIdentity("trinodb", "trino"), Path.of("/tmp/memory-worktree"),
+                new RepositoryIdentity("owner", "repository"), Path.of("/tmp/memory-worktree"),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), NOW);
         when(tasks.find(task.id())).thenReturn(Optional.of(task));
         return task;

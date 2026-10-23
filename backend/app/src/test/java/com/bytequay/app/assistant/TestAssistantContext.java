@@ -149,9 +149,9 @@ class TestAssistantContext
     {
         when(agenda.read(any(), any(), eq(false), anyList(), any())).thenAnswer(ignored -> AgendaFixtures.friday(1));
         when(running.current()).thenReturn(ImmutableList.of(
-                new RunningTask(TASK.id().toString(), "ws1", TASK.title(), "trinodb/trino", RunningTask.Kind.TASK, TASK.id().toString(), RunningTask.Status.WAITING,
+                new RunningTask(TASK.id().toString(), "ws1", TASK.title(), "owner/repository", RunningTask.Kind.TASK, TASK.id().toString(), RunningTask.Status.WAITING,
                         NOW.minusSeconds(600), Optional.empty(), OptionalInt.empty(), Optional.empty()),
-                new RunningTask(FINISHED.id().toString(), "ws1", "Get CI green on #31402", "trinodb/trino", RunningTask.Kind.CI_FIX, "31402", RunningTask.Status.RUNNING,
+                new RunningTask(FINISHED.id().toString(), "ws1", "Get CI green on #31402", "owner/repository", RunningTask.Kind.CI_FIX, "31402", RunningTask.Status.RUNNING,
                         NOW.minusSeconds(60), Optional.empty(), OptionalInt.of(31402), Optional.of("ci-fix"))));
         for (AgentTask task : ImmutableList.of(TASK, ASKING, FINISHED)) {
             when(tasks.find(task.id())).thenReturn(Optional.of(task));
@@ -166,9 +166,9 @@ class TestAssistantContext
                         "{\"command\":\"./mvnw test " + "-x ".repeat(300) + "\"}", ImmutableList.of("Bash"), allowOrDeny, true, ProviderAgentEventSource.root(), NOW)),
                 pending(QUESTION, ASKING, new ProviderApprovalRequest(ProviderApprovalRequest.Kind.TOOL, "Allow Claude AskUserQuestion", QUESTION_INPUT,
                         ImmutableList.of("AskUserQuestion"), allowOrDeny, false, ProviderAgentEventSource.root(), NOW))));
-        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31402)).thenReturn(Optional.of(7L));
-        when(pullRequests.findById(7L)).thenReturn(Optional.of(new PullRequest(7, "trinodb/trino", 31402, "Retry Iceberg commit on conflict", "elric-t",
-                "https://github.com/trinodb/trino/pull/31402", NOW, NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31402)).thenReturn(Optional.of(7L));
+        when(pullRequests.findById(7L)).thenReturn(Optional.of(new PullRequest(7, "owner/repository", 31402, "Retry Iceberg commit on conflict", "elric-t",
+                "https://github.com/owner/repository/pull/31402", NOW, NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
                 ImmutableList.of("marlo-t"), PullRequestDetail.CiStatus.FAILING, 10, 2, 3, "open", null, null, true, "clean", NOW, "retry", null, NOW, null, "CHANGES_REQUESTED")));
         when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH,
@@ -179,10 +179,10 @@ class TestAssistantContext
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty()).finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("The provider stopped answering"), NOW);
         when(activities.read(ImmutableList.of(FINISHED))).thenReturn(ImmutableMap.of(FINISHED.id(), new TaskActivity(Optional.of(new TaskMessage(TaskMessage.Author.AGENT,
                 "Kept the old cache key and " + "checked every reader of it. ".repeat(30), NOW.minusSeconds(60), Optional.empty())), Optional.empty(), Optional.of(failed))));
-        Workspace trino = new Workspace("ws1", "Trino", 1, RepoRef.of("trinodb", "trino"), Optional.empty(), Optional.empty(), 1, RepoRef.of("trinodb", "trino"),
-                Workspace.Topology.DIRECT, "master", "https://github.com/trinodb/trino.git", Optional.empty(), Optional.empty(), "/managed/trino", Optional.empty(),
+        Workspace repository = new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1, RepoRef.of("owner", "repository"),
+                Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
                 Optional.empty(), 0, NOW, NOW);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(trino));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws1")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "opus", "Opus 5.5", Optional.empty()));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(),
@@ -196,7 +196,7 @@ class TestAssistantContext
     void eachKindHoldsOnlyItsFields()
             throws Exception
     {
-        ReviewTool tool = context(Optional.of("pr:trinodb/trino#31402"), ImmutableMap.of()).tool();
+        ReviewTool tool = context(Optional.of("pr:owner/repository#31402"), ImmutableMap.of()).tool();
         assertThat(tool.name()).isEqualTo("assistant_context");
 
         JsonNode overview = read(tool, "overview");
@@ -281,7 +281,7 @@ class TestAssistantContext
         read(first.tool(), "tasks");
         read(first.tool(), "waiting");
         assertThat(first.served()).containsEntry("task:t1", new ServedRef("tasks", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1"))))
-                .containsEntry("pr:trinodb/trino#31402", new ServedRef("tasks", Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))))
+                .containsEntry("pr:owner/repository#31402", new ServedRef("tasks", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))))
                 .containsEntry("task:" + TASK.id(), new ServedRef("waiting", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", TASK.id().toString()))));
         // An approval is answered only from the cards on screen when the message was sent, never from a ref served earlier.
         assertThat(first.served().keySet()).noneMatch(ref -> ref.startsWith("approval:"));
@@ -302,21 +302,21 @@ class TestAssistantContext
         AssistantContext context = context(Optional.empty(), ImmutableMap.of());
         ReviewTool tool = context.tool();
 
-        JsonNode pull = named(tool, "lookup", "pr:trinodb/trino#31402").path("entries").path(0);
+        JsonNode pull = named(tool, "lookup", "pr:owner/repository#31402").path("entries").path(0);
         assertThat(keys(pull)).isEqualTo(ImmutableSet.of("ref", "title", "author", "mine", "state", "ci", "review", "mergeBlocked", "pendingReviewers", "lastActivity"));
         assertThat(pull.path("pendingReviewers").toString()).isEqualTo("[\"marlo-t\"]");
         // Until the login is known, how the pull request was found says whose it is; once known, the login decides, as the pull request list does.
         assertThat(pull.path("mine").asBoolean()).isTrue();
         assertThat(pull.path("mergeBlocked").asBoolean()).isFalse();
         when(credentials.cachedLogin()).thenReturn(Optional.of("marlo-t"));
-        assertThat(named(tool, "lookup", "pr:trinodb/trino#31402").path("entries").path(0).path("mine").asBoolean()).isFalse();
+        assertThat(named(tool, "lookup", "pr:owner/repository#31402").path("entries").path(0).path("mine").asBoolean()).isFalse();
         JsonNode work = named(tool, "lookup", "work:w22").path("entries").path(0);
         assertThat(keys(work)).isEqualTo(ImmutableSet.of("ref", "title", "state", "priority", "blocked"));
         assertThat(work.path("state").asText()).isEqualTo("planned");
         assertThat(work.path("blocked").asBoolean()).isTrue();
         assertThat(keys(named(tool, "lookup", "task:" + TASK.id()).path("entries").path(0))).isEqualTo(ImmutableSet.of("ref", "title", "state", "waitingFor"));
         // Something ByteQuay holds nothing about reads as an empty page, not as an error to repair.
-        assertThat(named(tool, "lookup", "pr:trinodb/trino#1").path("entries")).isEmpty();
+        assertThat(named(tool, "lookup", "pr:owner/repository#1").path("entries")).isEmpty();
 
         JsonNode result = named(tool, "result", "task:" + FINISHED.id()).path("entries").path(0);
         assertThat(keys(result)).isEqualTo(ImmutableSet.of("ref", "title", "state", "turn", "reason", "said"));
@@ -327,7 +327,7 @@ class TestAssistantContext
         assertThat(result.path("said").path("text").asText()).hasSizeLessThanOrEqualTo(400).endsWith("…");
 
         // Each item the agent named joins the day's refs, so a later message may act on it.
-        assertThat(context.served()).containsEntry("pr:trinodb/trino#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))))
+        assertThat(context.served()).containsEntry("pr:owner/repository#31402", new ServedRef("lookup", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))))
                 .containsEntry("work:w22", new ServedRef("lookup", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
                 .containsEntry("task:" + FINISHED.id(), new ServedRef("result", Optional.of(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", FINISHED.id().toString()))));
     }
@@ -338,13 +338,13 @@ class TestAssistantContext
     {
         when(pullRequests.findAttentionCandidates()).thenReturn(ImmutableList.of(pull(7, 31402, "Retry Iceberg commit on conflict", NOW.minusSeconds(60)),
                 pull(8, 31377, "Add Iceberg snapshot cache", NOW.minusSeconds(7200))));
-        when(issues.findPage(1, RepoRef.of("trinodb", "trino"), 0, 200)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"),
-                ImmutableList.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/trinodb/trino/issues/77", ImmutableList.of(),
+        when(issues.findPage(1, RepoRef.of("owner", "repository"), 0, 200)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("owner", "repository"),
+                ImmutableList.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77", ImmutableList.of(),
                         ImmutableList.of(), 0, NOW.minusSeconds(86400), NOW.minusSeconds(600))), 0, 200, 1, false, Optional.empty()));
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7",
                 "Expire snapshots by branch", "As described", "Story", new JiraDtos.Status("3", "In progress", "indeterminate"), Optional.empty(), ImmutableList.of(),
                 Optional.empty(), Optional.empty(), false, false, NOW.minusSeconds(300), Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(),
-                Optional.of(new JiraDtos.WorkspaceLink("ws1", "Trino")))));
+                Optional.of(new JiraDtos.WorkspaceLink("ws1", "Repository")))));
         when(tasks.listRecent(500)).thenReturn(ImmutableList.of(TASK, ASKING, FINISHED));
         when(workItems.list("ws1")).thenReturn(ImmutableList.of(work("w22", "Expose snapshot id in metadata", Optional.of("LOCAL:w1"), NOW),
                 work("w1", "Iceberg write path", Optional.empty(), NOW.minusSeconds(9000))));
@@ -356,20 +356,20 @@ class TestAssistantContext
         // Every word of the query in a title, the newest first, whichever store holds it.
         JsonNode snapshots = search(tool, "{\"kind\":\"search\",\"query\":\"Snapshot\"}");
         assertThat(keys(snapshots)).isEqualTo(ImmutableSet.of("kind", "query", "page", "entries", "nextPage"));
-        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:trinodb/trino#77", "task:" + ASKING.id(), "pr:trinodb/trino#31377");
+        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:owner/repository#77", "task:" + ASKING.id(), "pr:owner/repository#31377");
         assertThat(keys(snapshots.path("entries").path(2))).isEqualTo(ImmutableSet.of("ref", "title", "state", "at"));
         assertThat(snapshots.path("entries").path(2).path("title").asText()).isEqualTo("ICE-7 Expire snapshots by branch");
         assertThat(snapshots.path("entries").path(2).path("state").asText()).isEqualTo("In progress");
         assertThat(snapshots.path("nextPage").isNull()).isTrue();
-        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"iceberg  cache\"}"))).containsExactly("pr:trinodb/trino#31377");
+        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"iceberg  cache\"}"))).containsExactly("pr:owner/repository#31377");
         // A number or key the user names comes first.
-        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"#31402\"}"))).containsExactly("pr:trinodb/trino#31402");
+        assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"#31402\"}"))).containsExactly("pr:owner/repository#31402");
         assertThat(refs(search(tool, "{\"kind\":\"search\",\"query\":\"ice-7\"}")).getFirst()).isEqualTo("jira:cloud:10042");
 
         // What a search found joins the day's refs, so a later message may act on it.
         assertThat(context.served()).containsEntry("work:w22", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))))
                 .containsEntry("epic:LOCAL:w1", new ServedRef("search", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w1"))))
-                .containsEntry("pr:trinodb/trino#31402", new ServedRef("search", Optional.of(AgendaTarget.pull("trinodb/trino", 31402, Optional.of("ws1")))));
+                .containsEntry("pr:owner/repository#31402", new ServedRef("search", Optional.of(AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1")))));
         // Tickets come from Jira's cache; a search never asks Jira.
         verify(jira, times(4)).cachedIssues();
         verifyNoMoreInteractions(jira);
@@ -379,7 +379,7 @@ class TestAssistantContext
     void searchPagesTwentyAtATime()
             throws Exception
     {
-        when(issues.findPage(eq(1L), any(), anyInt(), eq(200))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"), ImmutableList.of(), 0, 200, 0, false,
+        when(issues.findPage(eq(1L), any(), anyInt(), eq(200))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("owner", "repository"), ImmutableList.of(), 0, 200, 0, false,
                 Optional.empty()));
         when(workItems.list("ws1")).thenReturn(IntStream.range(0, 25).mapToObj(index -> work("w" + index, "Snapshot step " + index, Optional.empty(), NOW.minusSeconds(index)))
                 .collect(toImmutableList()));
@@ -408,10 +408,10 @@ class TestAssistantContext
         ReviewTool tool = context.tool();
 
         assertThat(error(tool, "{\"kind\":\"pull_request\"}")).startsWith("kind must be one of overview, changes");
-        assertThat(error(tool, "{\"kind\":\"screen\",\"ref\":\"pr:trinodb/trino#1\"}")).isEqualTo("Unknown field: ref");
+        assertThat(error(tool, "{\"kind\":\"screen\",\"ref\":\"pr:owner/repository#1\"}")).isEqualTo("Unknown field: ref");
         assertThat(error(tool, "{\"kind\":\"lookup\"}")).isEqualTo("lookup needs a ref");
         assertThat(error(tool, "{\"kind\":\"lookup\",\"ref\":\"jira:cloud:10042\"}")).isEqualTo("lookup reads pr, task, review and work refs");
-        assertThat(error(tool, "{\"kind\":\"result\",\"ref\":\"pr:trinodb/trino#31402\"}")).isEqualTo("result reads task and review refs");
+        assertThat(error(tool, "{\"kind\":\"result\",\"ref\":\"pr:owner/repository#31402\"}")).isEqualTo("result reads task and review refs");
         assertThat(error(tool, "{\"kind\":\"tasks\",\"page\":-1}")).contains("non-negative");
         assertThat(error(tool, "not json")).isEqualTo("arguments are not JSON");
         when(running.current()).thenThrow(new IllegalStateException("database is locked"));
@@ -461,13 +461,13 @@ class TestAssistantContext
 
     private static AgentTask task(String title, String lane)
     {
-        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("trinodb", "trino"),
+        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
     }
 
     private static PullRequest pull(long id, int number, String title, Instant at)
     {
-        return new PullRequest(id, "trinodb/trino", number, title, "elric-t", "https://github.com/trinodb/trino/pull/" + number, NOW, NOW, PullRequest.Origin.AUTHORED,
+        return new PullRequest(id, "owner/repository", number, title, "elric-t", "https://github.com/owner/repository/pull/" + number, NOW, NOW, PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.PASSING, 10, 2, 3, "open", null, null, true,
                 "clean", NOW, "retry", null, at, null, null);
     }
@@ -481,7 +481,7 @@ class TestAssistantContext
     private static AppNotice notice(String id, AppNotice.Kind kind, AgentTask task, String message)
     {
         return new AppNotice(id, kind, task.id().toString(), "ws1", Optional.of("turn-9"), Optional.empty(), task.title(), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), message, "trinodb/trino", task.laneId().value(), Optional.empty(), NOW);
+                Optional.empty(), message, "owner/repository", task.laneId().value(), Optional.empty(), NOW);
     }
 
     private static AgentApproval pending(ApprovalId id, AgentTask task, ProviderApprovalRequest request)

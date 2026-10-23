@@ -171,8 +171,8 @@ it('reads repository avatars directly while the parent review surface is unmount
   const id = await invoke('ide:open', parent(), host);
   invoke('ide:update', parent(), id, { host, review: null, task: null, detail: null });
   fetchMock.mockResolvedValueOnce(new Response('image', { headers: { 'content-type': 'image/png' } }));
-  expect(await invoke('ide:request', child(), 'getRepositoryAvatar', ['TrinoDB', false], false)).toBe('data:image/png;base64,aW1hZ2U=');
-  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/avatars/repositories/trinodb?refresh=false',
+  expect(await invoke('ide:request', child(), 'getRepositoryAvatar', ['Owner', false], false)).toBe('data:image/png;base64,aW1hZ2U=');
+  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/avatars/repositories/owner?refresh=false',
     expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'desktop-only-token' } }));
   expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
 });

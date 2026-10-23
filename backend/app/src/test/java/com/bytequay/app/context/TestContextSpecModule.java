@@ -83,7 +83,7 @@ class TestContextSpecModule
 
     private WorkspaceRepositoryContext workspace()
     {
-        return new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "trino"), OptionalLong.of(7), RepoRef.of("trinodb", "trino"),
+        return new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("fork", "repository"), OptionalLong.of(7), RepoRef.of("owner", "repository"),
                 "upstream", "origin", "main", ImmutableList.of());
     }
 

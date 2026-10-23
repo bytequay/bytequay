@@ -383,8 +383,8 @@ it('routes CI detail reads and replies to the authenticated CI API', async () =>
 });
 
 it.each([
-  { channel: 'review:start', args: ['workspace-1', 'trinodb/trino', 31102] },
-  { channel: 'review:worktree:prepare', args: ['workspace-1', 'trinodb/trino', 31102] },
+  { channel: 'review:start', args: ['workspace-1', 'owner/repository', 31102] },
+  { channel: 'review:worktree:prepare', args: ['workspace-1', 'owner/repository', 31102] },
   { channel: 'review:resume', args: ['review-1'] },
   { channel: 'review:update', args: ['review-1'] },
   { channel: 'review:explanation:refresh', args: ['review-1', 'run-1', 2] },
@@ -553,24 +553,24 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
   const fetch = vi.fn(async () => new Response(JSON.stringify({ sources: [{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }] })));
   vi.stubGlobal('fetch', fetch);
   const base = 'http://127.0.0.1:9527/api/workspaces/workspace%2Fone/repository-context/spec-checks';
-  await expect(desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/trino-iceberg/'))
+  await expect(desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/catalog/'))
     .resolves.toEqual([{ url: 'https://iceberg.apache.org/spec/', kind: 'PAGE', links: 3, sections: ['manifests'] }]);
-  expect(fetch).toHaveBeenLastCalledWith(base + '/sources?directory=plugin%2Ftrino-iceberg%2F', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+  expect(fetch).toHaveBeenLastCalledWith(base + '/sources?directory=plugin%2Fcatalog%2F', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   fetch.mockImplementationOnce(async () => new Response(JSON.stringify({ modules: [
-    { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
-    { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 }] })));
+    { directory: 'plugin/storage/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
+    { directory: 'plugin/catalog/', page: null, sections: 0, links: 0 }] })));
   await expect(desktop.handlers.get('repository-context:spec-checks:modules')?.({}, 'workspace/one')).resolves.toEqual([
-    { directory: 'plugin/trino-delta-lake/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
-    { directory: 'plugin/trino-iceberg/', page: null, sections: 0, links: 0 }]);
+    { directory: 'plugin/storage/', page: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md', sections: 20, links: 25 },
+    { directory: 'plugin/catalog/', page: null, sections: 0, links: 0 }]);
   expect(fetch).toHaveBeenLastCalledWith(base + '/modules', expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   fetch.mockClear();
   expect(() => desktop.handlers.get('repository-context:spec-checks:sources')?.({}, 'workspace/one', 'plugin/../core/')).toThrow('Malformed spec check: directory');
-  const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/trino-iceberg/', specs: ['https://iceberg.apache.org/spec/'], maxReproductions: 3 };
+  const request = { requestKey: 'check-key', expectedBuildSequence: 2, directory: 'plugin/catalog/', specs: ['https://iceberg.apache.org/spec/'], maxReproductions: 3 };
   expect(() => desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, planId: 'plan' })).toThrow('unsupported request field');
   expect(() => desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', { ...request, maxReproductions: 9 }))
     .toThrow('Malformed spec check: maxReproductions');
   expect(fetch).not.toHaveBeenCalled();
-  const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/trino-iceberg/', baselineSha: 'a'.repeat(40), requestKey: 'check-key', specs: request.specs, checkedAgainst: [],
+  const check: ContextSpecCheckDto = { id: 'check-1', directory: 'plugin/catalog/', baselineSha: 'a'.repeat(40), requestKey: 'check-key', specs: request.specs, checkedAgainst: [],
     labels: [], state: 'CHECKING', candidates: [], covered: [], next: [], reproductions: 0, maxReproductions: 3, detail: null, startedAt: '2026-10-02T00:00:00Z', endedAt: null };
   fetch.mockImplementation(async () => new Response(JSON.stringify({ check, build: { buildRequestSequence: 3, canStart: false, build: null } })));
   await expect(desktop.handlers.get('repository-context:spec-checks:start')?.({}, 'workspace/one', request))
@@ -588,7 +588,7 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
   await startMain();
   const memory: Record<string, unknown> = { id: 'm12', workspaceId: 'workspace/one', kind: 'RULE', title: 'Table property docs', text: 'Document every new table property.',
     scope: ['plugin/'],
-    sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31201', quote: 'Docs, please.', at: '2026-10-02T00:00:00Z', section: null,
+    sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/owner/repository/pull/31201', quote: 'Docs, please.', at: '2026-10-02T00:00:00Z', section: null,
       pullRequest: { number: 31201, part: 'REVIEW', commentId: '7', author: 'alice', maintainer: true, merged: true, resolved: false, outdated: false } }],
     origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 3, cited: 1, reports: [],
     createdAt: '2026-10-02T00:00:00Z', updatedAt: '2026-10-02T00:00:00Z' };
@@ -616,7 +616,7 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
     expect(fetch).toHaveBeenLastCalledWith(base + item.path, expect.objectContaining({ method: item.method }));
   }
   fetch.mockImplementation(async () => new Response(JSON.stringify({ started: true, pulls: 1, threads: 3, view: { buildRequestSequence: 5, canStart: false, build: null } })));
-  const harvest = { requestKey: 'learn', expectedBuildSequence: 4, pull: 31240, repo: 'trinodb/trino' };
+  const harvest = { requestKey: 'learn', expectedBuildSequence: 4, pull: 31240, repo: 'owner/repository' };
   await expect(desktop.handlers.get('memory:harvest')?.({}, 'workspace/one', harvest))
     .resolves.toEqual({ started: true, pulls: 1, threads: 3, view: { buildRequestSequence: 5, canStart: false, build: null } });
   expect(fetch).toHaveBeenLastCalledWith(base + '/harvest', expect.objectContaining({ method: 'POST', body: JSON.stringify(harvest) }));
@@ -636,7 +636,7 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
 
 it('routes review replays through the agent review routes with the desktop session, refusing forged input before sending it', async () => {
   await startMain();
-  const replay: Record<string, unknown> = { id: '6f1c2c1e-0000-4000-8000-000000000001', number: 31201, title: 'Add a property', url: 'https://github.com/trinodb/trino/pull/31201',
+  const replay: Record<string, unknown> = { id: '6f1c2c1e-0000-4000-8000-000000000001', number: 31201, title: 'Add a property', url: 'https://github.com/owner/repository/pull/31201',
     head: 'a'.repeat(40), fallback: null, cutoff: '2026-09-19T10:00:00Z', reviewer: 'bo', excludedMemories: 0, createdAt: '2026-10-02T09:00:00Z', sides: [], comments: [] };
   const fetch = vi.fn(async () => new Response(JSON.stringify({ replays: [replay] })));
   vi.stubGlobal('fetch', fetch);
@@ -645,9 +645,9 @@ it('routes review replays through the agent review routes with the desktop sessi
   await expect(desktop.handlers.get('replay:list')?.({}, 'workspace/one')).resolves.toHaveLength(1);
   expect(fetch).toHaveBeenLastCalledWith(base + '?workspaceId=workspace%2Fone', expect.objectContaining({ headers: session }));
   fetch.mockImplementation(async () => new Response(JSON.stringify(replay)));
-  await desktop.handlers.get('replay:start')?.({}, 'workspace/one', { repo: 'trinodb/trino', number: 31201 });
+  await desktop.handlers.get('replay:start')?.({}, 'workspace/one', { repo: 'owner/repository', number: 31201 });
   expect(fetch).toHaveBeenLastCalledWith(base, expect.objectContaining({ method: 'POST', headers: session,
-    body: JSON.stringify({ workspaceId: 'workspace/one', repo: 'trinodb/trino', number: 31201 }) }));
+    body: JSON.stringify({ workspaceId: 'workspace/one', repo: 'owner/repository', number: 31201 }) }));
   await desktop.handlers.get('replay:mark')?.({}, 'workspace/one', replay.id, { commentId: 'c1', memory: false, raised: true });
   expect(fetch).toHaveBeenLastCalledWith(`${base}/${replay.id}/marks`, expect.objectContaining({ method: 'PUT', headers: session,
     body: JSON.stringify({ workspaceId: 'workspace/one', commentId: 'c1', memory: false, raised: true }) }));
@@ -655,7 +655,7 @@ it('routes review replays through the agent review routes with the desktop sessi
   await desktop.handlers.get('replay:delete')?.({}, 'workspace/one', replay.id);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/${replay.id}?workspaceId=workspace%2Fone`, expect.objectContaining({ method: 'DELETE', headers: session }));
   fetch.mockClear();
-  expect(() => desktop.handlers.get('replay:start')?.({}, 'workspace/one', { repo: 'trinodb/trino', number: 0 })).toThrow('Malformed replay request');
+  expect(() => desktop.handlers.get('replay:start')?.({}, 'workspace/one', { repo: 'owner/repository', number: 0 })).toThrow('Malformed replay request');
   expect(() => desktop.handlers.get('replay:delete')?.({}, 'workspace/one', '../replay')).toThrow('Malformed replay id');
   expect(fetch).not.toHaveBeenCalled();
 });

@@ -60,8 +60,8 @@ class TestArtifactTools
         assertThat(call(save, ImmutableMap.of("title", "Delete files", "html", "<p>no theme</p>"))).contains("theme.css");
         assertThat(call(save, ImmutableMap.of("title", "Delete files", "html", THEMED.formatted("<script src=\"https://cdn.example/d3.js\"></script>"))))
                 .contains("points outside itself at https://cdn.example/d3.js");
-        assertThat(call(save, ImmutableMap.of("title", "Delete files", "html", THEMED.formatted("<a href='https://github.com/trinodb/trino'>source</a>"))))
-                .contains("https://github.com/trinodb/trino");
+        assertThat(call(save, ImmutableMap.of("title", "Delete files", "html", THEMED.formatted("<a href='https://github.com/owner/repository'>source</a>"))))
+                .contains("https://github.com/owner/repository");
         assertThat(call(save, ImmutableMap.of("title", "Delete files", "html", THEMED.formatted("<div style=\"background: url(//example.com/a.png)\"></div>"))))
                 .contains("//example.com/a.png");
         assertThat(call(save, ImmutableMap.of("title", "", "html", THEMED.formatted("")))).contains("title");

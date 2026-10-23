@@ -51,10 +51,10 @@ def reviewed(path):
     """Two reviews. The first ran twice on Codex and raised three findings; the second ran once on Claude, is still running and raised one."""
     turn = lambda task, name, hour, model, effort, tokens_in, cost: (task, name, f"2026-01-01T{hour:02}:00:00Z", 60_000, None, model, effort, "COMPLETED", tokens_in,
                                                                     tokens_in // 2, 10, cost, 1, 0)
-    return database(path, tasks=[("aaaa-0001", "codex", "trinodb", "trino"), ("bbbb-0002", "claude", "o", "n")],
+    return database(path, tasks=[("aaaa-0001", "codex", "owner", "repository"), ("bbbb-0002", "claude", "o", "n")],
                     turns=[turn("aaaa-0001", "t1", 1, "gpt-6-astra", "max", 1000, None), turn("aaaa-0001", "t2", 2, "gpt-6-astra", "max", 3000, None),
                            turn("aaaa-0001", "t3", 3, "gpt-6-sol", "high", 3500, None), turn("bbbb-0002", "u1", 4, "opus", "Extra", 800, 2.5)],
-                    reviews=[("review-1", "trinodb/trino"), ("review-2", "o/n")],
+                    reviews=[("review-1", "owner/repository"), ("review-2", "o/n")],
                     runs=[("run-b", "review-1", "FAILED", "2026-01-01T03:00:00Z", "2026-01-01T03:10:00Z", 1, '["t3", "a turn the database lost"]'),
                           ("run-a", "review-1", "ACCEPTED", "2026-01-01T01:00:00Z", "2026-01-01T01:30:30Z", 0, '["t1", "t2"]'),
                           ("run-c", "review-2", "RUNNING", "2026-01-01T04:00:00Z", None, 0, '["u1"]'), ("run-d", "review-2", "QUEUED", None, None, 0, None)],
@@ -69,7 +69,7 @@ class TestRecords(unittest.TestCase):
         self.path = Path(directory.name) / "bytequay with a space.db"
 
     def test_one_record_for_every_started_turn_under_its_task_and_turn_id(self):
-        database(self.path, tasks=[("aaaa", "codex", "trinodb", "trino"), ("bbbb", "claude-account-68c1ba6e-4573", "bytequay", "bytequay")], turns=[
+        database(self.path, tasks=[("aaaa", "codex", "owner", "repository"), ("bbbb", "claude-account-68c1ba6e-4573", "bytequay", "bytequay")], turns=[
             ("aaaa", "t1", "2026-01-01T00:00:00.500004Z", 600_000, None, "gpt-6-astra", "max", "COMPLETED", 1000, 900, 50, None, 12, 1),
             ("bbbb", "t1", "2026-01-02T08:00:00+08:00", 90_500, "opus-actual", "opus", "Extra", "INTERRUPTED", 2000, 0, 80, 1.25, None, None),
             ("gone", "t7", "2026-01-03T00:00:00Z", None, "", None, None, None, 500, 400, 30, None, None, None),
@@ -77,7 +77,7 @@ class TestRecords(unittest.TestCase):
         made = records.read(self.path)
         self.assertEqual(sorted(made), [("aaaa", "t1"), ("bbbb", "t1"), ("gone", "t7")])  # a turn that never started has no time to place it at
         self.assertEqual(made[("aaaa", "t1")], {
-            "start": 1767225600.500004, "seconds": 600, "provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "trinodb/trino", "outcome": "completed",
+            "start": 1767225600.500004, "seconds": 600, "provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "owner/repository", "outcome": "completed",
             "inputTokens": 1000, "cachedInputTokens": 900, "outputTokens": 50, "cost": None, "toolCalls": 12, "compactions": 1, "setup": None})
         second = made[("bbbb", "t1")]
         # The model that ran wins over the one asked for; a lane keeps its provider and drops the account; effort is one spelling.
@@ -191,7 +191,7 @@ class TestRecords(unittest.TestCase):
         first, second, third = made["runs"]
         # A run adds up the tokens of its own turns: 1,000 and 3,000 for the first run.
         self.assertEqual((first["repository"], first["provider"], first["model"], first["effort"], first["inputTokens"], first["cachedInputTokens"], first["outputTokens"], first["cost"]),
-                         ("trinodb/trino", "codex", "gpt-6-astra", "max", 4000, 2000, 20, None))
+                         ("owner/repository", "codex", "gpt-6-astra", "max", 4000, 2000, 20, None))
         self.assertEqual((second["model"], second["effort"], second["inputTokens"]), ("gpt-6-sol", "high", 3500))
         self.assertEqual((third["repository"], third["model"], third["effort"], third["inputTokens"], third["cost"]), ("o/n", "opus", "extra", 800, 2.5))
         self.assertEqual(made["findings"], [{"run": 0, "state": "resolved", "severity": "medium"}, {"run": 0, "state": "withdrawn", "severity": None},

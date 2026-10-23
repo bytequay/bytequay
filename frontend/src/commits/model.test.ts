@@ -62,7 +62,7 @@ function base(status: string, finishReason?: string): CherryPickExecution {
   return {
     executionId: `exec-${status}-${finishReason ?? ''}`,
     workspaceId: 'workspace-1',
-    repository: 'bytequay/trino-fork',
+    repository: 'bytequay/fork',
     workBranch: 'bytequay/cp-1',
     localTargetBranch: 'master',
     targetBranch: 'master',

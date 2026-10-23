@@ -33,15 +33,15 @@ class TestCommitHistoryRouting
             "workspace-a",
             Path.of("/managed/workspace-a/repository"),
             101,
-            RepoRef.of("contributor", "trino"),
+            RepoRef.of("contributor", "repository"),
             OptionalLong.of(202),
-            RepoRef.of("trinodb", "trino"),
+            RepoRef.of("owner", "repository"),
             "upstream",
             "origin",
             "master",
             ImmutableList.of(
-                    new RemoteSource("workspace-a", "oss", "https://github.com/trinodb/trino.git", Optional.of(202L), Optional.of(RepoRef.of("trinodb", "trino"))),
-                    new RemoteSource("workspace-a", "myoss", "https://example.invalid/trino.git")));
+                    new RemoteSource("workspace-a", "oss", "https://github.com/owner/repository.git", Optional.of(202L), Optional.of(RepoRef.of("owner", "repository"))),
+                    new RemoteSource("workspace-a", "myoss", "https://example.invalid/repository.git")));
 
     @Test
     void workspaceReadsTheFetchedOriginBranchWithProviderIdentity()
@@ -57,7 +57,7 @@ class TestCommitHistoryRouting
         var resolved = CommitHistoryRouting.resolve(CONTEXT, new CommitHistoryRef(Source.UPSTREAM, "master"));
         assertThat(resolved.gitRef()).isEqualTo("upstream/master");
         assertThat(resolved.repositoryId()).hasValue(202);
-        assertThat(resolved.repository()).contains(RepoRef.of("trinodb", "trino"));
+        assertThat(resolved.repository()).contains(RepoRef.of("owner", "repository"));
     }
 
     @Test
@@ -66,7 +66,7 @@ class TestCommitHistoryRouting
         var resolved = CommitHistoryRouting.resolve(CONTEXT, new CommitHistoryRef(Source.REMOTE, "master", Optional.of("oss")));
         assertThat(resolved.gitRef()).isEqualTo("oss/master");
         assertThat(resolved.repositoryId()).hasValue(202);
-        assertThat(resolved.repository()).contains(RepoRef.of("trinodb", "trino"));
+        assertThat(resolved.repository()).contains(RepoRef.of("owner", "repository"));
     }
 
     @Test

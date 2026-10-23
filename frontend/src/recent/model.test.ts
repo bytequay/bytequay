@@ -129,9 +129,9 @@ describe('copy forms', () => {
     const row = {
       title: 'Support sorted by nested fields',
       number: 30304,
-      htmlUrl: 'https://github.com/trinodb/trino/pull/30304',
+      htmlUrl: 'https://github.com/owner/repository/pull/30304',
     } as RecentRowDto;
-    expect(rowMarkdown(row)).toBe('[Support sorted by nested fields #30304](https://github.com/trinodb/trino/pull/30304)');
+    expect(rowMarkdown(row)).toBe('[Support sorted by nested fields #30304](https://github.com/owner/repository/pull/30304)');
   });
 });
 
@@ -188,13 +188,13 @@ describe('stream error text', () => {
 
 describe('repository split', () => {
   it('splits an owner/name pair', () => {
-    expect(splitRepo('trinodb/trino')).toEqual({ owner: 'trinodb', name: 'trino' });
+    expect(splitRepo('owner/repository')).toEqual({ owner: 'owner', name: 'repository' });
   });
 
   it('returns null for anything that is not a pair', () => {
     expect(splitRepo(null)).toBeNull();
     expect(splitRepo(undefined)).toBeNull();
-    expect(splitRepo('trino')).toBeNull();
-    expect(splitRepo('/trino')).toBeNull();
+    expect(splitRepo('repository')).toBeNull();
+    expect(splitRepo('/repository')).toBeNull();
   });
 });

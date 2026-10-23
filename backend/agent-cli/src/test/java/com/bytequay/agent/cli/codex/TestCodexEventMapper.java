@@ -475,10 +475,10 @@ class TestCodexEventMapper
 
         ProviderAgentEvent.Tool search = only("""
                 {"method":"item/completed","params":{"item":{"type":"webSearch","id":"search-1",
-                "query":"trino release notes","action":null},"threadId":"thread-1","turnId":"turn-1"}}
+                "query":"repository release notes","action":null},"threadId":"thread-1","turnId":"turn-1"}}
                 """, ProviderAgentEvent.Tool.class);
         assertThat(search.name()).isEqualTo("Web search");
-        assertThat(search.summary()).isEqualTo("trino release notes");
+        assertThat(search.summary()).isEqualTo("repository release notes");
         assertThat(search.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
         // A web step names the page it opened or searched, not only its query.
         assertThat(only("""

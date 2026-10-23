@@ -17,7 +17,7 @@ import type { MemoryDto, MemorySourceDto } from './contracts';
 import { age, flagged, kilobytes, matches, memoryFlags, pageLabel, sourceChip, sourceHead, titleRepeated } from './model';
 
 const review = (number: number, overrides: Partial<NonNullable<MemorySourceDto['pullRequest']>> = {}): MemorySourceDto => ({
-  kind: 'PULL_REQUEST', url: `https://github.com/trinodb/trino/pull/${number}`, quote: 'Docs, please.', at: '2026-10-01T00:00:00Z', section: null,
+  kind: 'PULL_REQUEST', url: `https://github.com/owner/repository/pull/${number}`, quote: 'Docs, please.', at: '2026-10-01T00:00:00Z', section: null,
   pullRequest: { number, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false, ...overrides }, user: null,
   command: null,
 });
@@ -101,7 +101,7 @@ describe('memory contracts', () => {
       origin: { user: false, description: 'Learn', taskId: null }, version: 1, previous: { title: 'Old title', text: 'Old', scope: ['plugin/'] }, delivered: 0, cited: 0,
       reports: [], createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' };
     const page = parseMemoryPage({ memories: [{ memory: stored, missingScope: ['plugin/'] }], switches: { reviews: true, development: false },
-      guidelines: [{ path: 'CONTRIBUTING.md', bytes: 5120, cut: false, url: 'https://github.com/trinodb/trino/blob/a/CONTRIBUTING.md' }], head: null,
+      guidelines: [{ path: 'CONTRIBUTING.md', bytes: 5120, cut: false, url: 'https://github.com/owner/repository/blob/a/CONTRIBUTING.md' }], head: null,
       harvest: { cursor: { number: 31201, closedAt: '2026-10-01T00:00:00Z' }, last: { harvestId: 'h', label: 'Learn from my PRs', startedAt: '2026-10-02T00:00:00Z',
         endedAt: null, pulls: 3, threads: 7, saved: ['m12'], seenAgain: 1, replaced: 0, outcome: 'RUNNING' } } });
     expect(page.memories[0]).toMatchObject({ id: 'm12', title: 'Title', missingScope: ['plugin/'], previous: { title: 'Old title', text: 'Old', scope: ['plugin/'] } });
@@ -126,7 +126,7 @@ describe('memory contracts', () => {
   it('checks a harvest request before it leaves the renderer and reads what started', () => {
     expect(parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: null, repo: null }))
       .toEqual({ requestKey: 'k', expectedBuildSequence: 2, pull: null, repo: null });
-    expect(parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 31240, repo: 'trinodb/trino' }).pull).toBe(31240);
+    expect(parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 31240, repo: 'owner/repository' }).pull).toBe(31240);
     expect(() => parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 31240, repo: null })).toThrow('Malformed harvest request');
     expect(() => parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: null, repo: null, token: 'x' })).toThrow('Malformed harvest request');
     expect(() => parseStartMemoryHarvestRequest({ requestKey: 'k', expectedBuildSequence: 2, pull: 1, repo: '../x' })).toThrow('Malformed harvest request');

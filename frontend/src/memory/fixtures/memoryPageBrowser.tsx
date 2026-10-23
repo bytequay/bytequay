@@ -21,13 +21,13 @@ import MemoryPage from '../MemoryPage';
 import '../../css/base.css';
 
 const workspace = workspaceFixture({
-  id: 'trino', name: 'Trino', selectedOwner: 'trinodb', selectedRepo: 'trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino',
-  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/trino',
+  id: 'repository', name: 'Repository', selectedOwner: 'owner', selectedRepo: 'repository', monitoredOwner: 'owner', monitoredRepo: 'repository',
+  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/repository',
 });
 const page: MemoryPageDto = {
   memories: Array.from({ length: 18 }, (_, index): MemoryDto => ({
     id: `m${index}`, kind: index === 0 ? 'RECIPE' : 'RULE', title: index === 0 ? 'Run connector tests' : `Connector convention ${index}`,
-    text: 'When changing a connector, add a regression test that covers the reported behavior.', scope: ['plugin/trino-iceberg/'],
+    text: 'When changing a connector, add a regression test that covers the reported behavior.', scope: ['plugin/catalog/'],
     sources: [{ kind: 'PAGE', url: 'https://example.com/spec', quote: 'Cover changed behavior.', at: '2026-01-01T00:00:00Z',
       section: null, pullRequest: null, user: null, command: null }],
     origin: { user: true, description: 'From you', taskId: null }, version: 1, previous: null, delivered: 0, cited: 0,
@@ -40,14 +40,14 @@ const finding: ContextSpecCandidateDto = {
   id: 'gap-1', type: 'BUG', predicted: 'DIVERGES', title: 'Deletion-vector decoding discards the high 32 bits of row indexes',
   rule: 'If a snapshot contains logical files with records that are invalidated by a deletion vector, those records must not be returned in the output.',
   specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md#reader-requirements-for-deletion-vectors',
-  code: ['plugin/trino-delta-lake/src/main/java/io/trino/plugin/deltalake/delete/DeletionVectors.java:194-214'],
+  code: ['plugin/storage/src/main/java/com/example/deltalake/delete/DeletionVectors.java:194-214'],
   reasoning: 'The decoded index loses the upper bits.', severity: 1, duplicate: null, status: 'CONFIRMED', reason: null, dismissed: null,
-  test: { path: 'plugin/trino-delta-lake/TestDeletionVectors.java', command: './mvnw test', exitCode: 1, output: 'Expected the full row index',
+  test: { path: 'plugin/storage/TestDeletionVectors.java', command: './mvnw test', exitCode: 1, output: 'Expected the full row index',
     source: 'assertEquals(decoded, expected);' },
   draft: { title: 'Deletion-vector decoding discards the high 32 bits of row indexes', body: 'Preserve the full row index.', labels: ['bug'] },
 };
 const completedCheck: ContextSpecCheckDto = {
-  id: 'check-1', directory: 'plugin/trino-delta-lake/', baselineSha: 'a'.repeat(40), requestKey: 'check-key',
+  id: 'check-1', directory: 'plugin/storage/', baselineSha: 'a'.repeat(40), requestKey: 'check-key',
   specs: [finding.specUrl], checkedAgainst: [finding.specUrl], labels: [], state: 'DONE',
   candidates: [finding, { ...finding, id: 'gap-2', type: 'IMPROVEMENT', title: 'Use the specified commit timestamp in Delta Lake table changes',
     draft: { title: 'Use the specified commit timestamp in Delta Lake table changes', body: 'Use the specified commit timestamp.', labels: ['delta-lake'] } },
@@ -123,7 +123,7 @@ export async function runLearnOne() {
       'A number finds that pull request with its title');
     assert(view.calls.filter(call => call === 'harvest').length === 0, 'Finding a pull request starts nothing');
     [...row.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Learn')?.click(); await settle(); await settle();
-    assert(view.harvests.length === 1 && view.harvests[0].pull === 31354 && view.harvests[0].repo === 'trinodb/trino',
+    assert(view.harvests.length === 1 && view.harvests[0].pull === 31354 && view.harvests[0].repo === 'owner/repository',
       'Learn starts one run for that pull request in the monitored repository');
     assert(document.body.textContent?.includes('Learning from #31354 · 3 maintainer threads to read') === true, 'The toast says what started');
     return [{ name: 'Find one closed pull request by number or title words and learn from it' }];

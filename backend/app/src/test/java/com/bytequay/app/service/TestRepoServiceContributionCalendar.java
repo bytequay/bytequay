@@ -34,12 +34,12 @@ class TestRepoServiceContributionCalendar
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         CredentialService credentialService = mock(CredentialService.class);
         when(credentialService.resolveGitHubToken()).thenReturn("pat");
-        when(gitHub.fetchContributionCalendar("pat", "chenjian2664"))
+        when(gitHub.fetchContributionCalendar("pat", "contributor"))
                 .thenThrow(new IllegalStateException("RESOURCE_LIMITS_EXCEEDED"));
 
         RepoService service = service(gitHub, credentialService);
 
-        assertThatThrownBy(() -> service.getContributionCalendar("chenjian2664"))
+        assertThatThrownBy(() -> service.getContributionCalendar("contributor"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, e -> {
                     assertThat(e.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
                     assertThat(e.getReason()).isEqualTo("Contribution graph temporarily unavailable");

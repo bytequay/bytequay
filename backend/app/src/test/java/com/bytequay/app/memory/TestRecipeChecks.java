@@ -63,7 +63,7 @@ class TestRecipeChecks
     private final RecipeChecks checks = new RecipeChecks(memories, events);
     private final List<AgentEventEnvelope> log = new ArrayList<>();
     private final AgentTask task = AgentTask.created(taskId, Optional.of("workspace"), true, "Development", new AgentLaneId("codex"),
-            new RepositoryIdentity("trinodb", "trino"), Path.of("/tmp/recipe-checks"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+            new RepositoryIdentity("owner", "repository"), Path.of("/tmp/recipe-checks"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     private final AgentTurn turn = AgentTurn.accepted(turnId, taskId, "turn", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
             Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
 

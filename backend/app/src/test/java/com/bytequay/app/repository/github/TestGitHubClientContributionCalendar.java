@@ -46,7 +46,7 @@ class TestGitHubClientContributionCalendar
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        assertThatThrownBy(() -> client.fetchContributionCalendar("pat", "chenjian2664"))
+        assertThatThrownBy(() -> client.fetchContributionCalendar("pat", "contributor"))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("GitHub contribution calendar returned errors")
                 .hasMessageContaining("RESOURCE_LIMITS_EXCEEDED");

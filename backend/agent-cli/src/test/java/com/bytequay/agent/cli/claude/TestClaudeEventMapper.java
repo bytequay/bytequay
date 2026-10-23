@@ -280,14 +280,14 @@ class TestClaudeEventMapper
     void describesFileStepsWithPathsAsTheWorktreeNamesThem()
     {
         map("""
-                {"type":"system","subtype":"init","session_id":"session-1","uuid":"init-1","cwd":"/work/trino/"}
+                {"type":"system","subtype":"init","session_id":"session-1","uuid":"init-1","cwd":"/work/repository/"}
                 """);
         ProviderAgentEvent.Tool read = only("""
                 {"type":"assistant","message":{"role":"assistant","content":[
-                {"type":"tool_use","id":"read-1","name":"Read","input":{"file_path":"/work/trino/core/trino-main/DomainTranslator.java","offset":240,"limit":141}}]},
+                {"type":"tool_use","id":"read-1","name":"Read","input":{"file_path":"/work/repository/core/main/DomainTranslator.java","offset":240,"limit":141}}]},
                 "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-read"}
                 """, ProviderAgentEvent.Tool.class);
-        assertThat(read.description()).contains("Read core/trino-main/DomainTranslator.java · lines 240–380");
+        assertThat(read.description()).contains("Read core/main/DomainTranslator.java · lines 240–380");
         ProviderAgentEvent.Tool readResult = only("""
                 {"type":"user","message":{"role":"user","content":[
                 {"type":"tool_result","tool_use_id":"read-1","content":"final class DomainTranslator {}","is_error":false}]},
@@ -297,12 +297,12 @@ class TestClaudeEventMapper
 
         assertThat(only("""
                 {"type":"assistant","message":{"role":"assistant","content":[
-                {"type":"tool_use","id":"grep-1","name":"Grep","input":{"pattern":"extractDecimal","path":"/work/trino/plugin/trino-hive"}}]},
+                {"type":"tool_use","id":"grep-1","name":"Grep","input":{"pattern":"extractDecimal","path":"/work/repository/plugin/files"}}]},
                 "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-grep"}
-                """, ProviderAgentEvent.Tool.class).description()).contains("Searched extractDecimal in plugin/trino-hive");
+                """, ProviderAgentEvent.Tool.class).description()).contains("Searched extractDecimal in plugin/files");
         assertThat(only("""
                 {"type":"assistant","message":{"role":"assistant","content":[
-                {"type":"tool_use","id":"glob-1","name":"Glob","input":{"pattern":"**/*.java","path":"/work/trino"}}]},
+                {"type":"tool_use","id":"glob-1","name":"Glob","input":{"pattern":"**/*.java","path":"/work/repository"}}]},
                 "parent_tool_use_id":null,"session_id":"session-1","uuid":"assistant-glob"}
                 """, ProviderAgentEvent.Tool.class).description()).contains("Listed **/*.java");
         assertThat(only("""

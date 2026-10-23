@@ -30,13 +30,13 @@ const connection: JiraConnection = {
   sites: [{ id: 'site', name: 'Engineering', url: 'https://example.atlassian.net' }],
   authorizationUrl: null, pairingCode: null, error: null, duplicateOf: null,
 };
-const ticket = { ...jiraIssue, body: 'Same failure as https://github.com/trinodb/trino/issues/25702 after the upgrade.' };
+const ticket = { ...jiraIssue, body: 'Same failure as https://github.com/owner/repository/issues/25702 after the upgrade.' };
 const issue: RepositoryIssueSnapshotDto['issues'][number] = {
   id: 925702, number: 25702, title: 'Not an Avro data file', body: `Tracked in ${jiraIssue.url}`, author: 'alice', authorAvatarUrl: '',
-  htmlUrl: 'https://github.com/trinodb/trino/issues/25702', labels: [], assignees: [], commentCount: 0,
+  htmlUrl: 'https://github.com/owner/repository/issues/25702', labels: [], assignees: [], commentCount: 0,
   createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
 };
-const repository = { owner: 'trinodb', repo: 'trino' };
+const repository = { owner: 'owner', repo: 'repository' };
 
 /** The element a pointer would hit at the middle of `element`, top layer included. */
 function onTop(element: Element | null): boolean {
@@ -102,7 +102,7 @@ function installBridge() {
       posted.push(body);
       return detail();
     },
-    listWorkspaces: async () => [{ id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino' } as WorkspaceDto],
+    listWorkspaces: async () => [{ id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto],
     fetchWorkspaceIssue: async () => issue,
     fetchWorkspaceIssues: async () => ({ repositoryId: 40, repository, issues: [issue], page: 0, pageSize: 50, totalIssues: 1, hasMore: false, syncedAt: null }),
     getWorkspaceMetadata: async () => ({ repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),
@@ -204,8 +204,8 @@ async function homeRowsOverHome(): Promise<void> {
 async function localWorkAndTasksOverEpic(): Promise<void> {
   await withApp('#/home', async () => {
     await until(() => document.querySelector('.item-row') !== null, 'Home is ready');
-    const workspace: WorkspaceDto = { id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino', selectedOwner: 'trinodb', selectedRepo: 'trino',
-      topology: 'DIRECT', localRepositoryPath: '/managed/trino', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,
+    const workspace: WorkspaceDto = { id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository', selectedOwner: 'owner', selectedRepo: 'repository',
+      topology: 'DIRECT', localRepositoryPath: '/managed/repository', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,
       selectedRepositoryId: 40, monitoredRepositoryId: 40, upstreamRepositoryId: null, lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0 };
     const work: WorkItemDto = { id: 'local-work', workspaceId: workspace.id, isEpic: false, contextLinks: [], epicId: `ISSUE:github.com:${issue.id}`, title: 'Retain Arrow memory context',
       acceptanceCriteria: 'Keep memory accounting in the retained context.', kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 0,
@@ -223,7 +223,7 @@ async function localWorkAndTasksOverEpic(): Promise<void> {
     const loadedTasks: string[] = [];
     const getTask = window.bridge.getAgentTask;
     window.bridge.getAgentTask = async (id, workspaceId) => { loadedTasks.push(id); return getTask(id, workspaceId); };
-    zoomReference({ kind: 'issue', repo: 'trinodb/trino', number: issue.number, workspaceId: workspace.id });
+    zoomReference({ kind: 'issue', repo: 'owner/repository', number: issue.number, workspaceId: workspace.id });
     const epicLayer = () => document.querySelector<HTMLElement>('.issues-detail.zoom-card');
     await until(() => epicLayer()?.querySelector('.epic-tabs') != null, 'Epic opens');
     const epicCard = epicLayer(); assert(epicCard !== null, 'Epic card exists');

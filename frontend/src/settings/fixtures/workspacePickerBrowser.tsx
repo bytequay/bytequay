@@ -36,7 +36,7 @@ function workspace(id: string, owner: string, repo: string) {
   };
 }
 
-const WORKSPACES = [workspace('ws-1', 'chenjian2664', 'trino_new'), workspace('ws-2', 'trinodb', 'charts')];
+const WORKSPACES = [workspace('ws-1', 'contributor', 'repository-copy'), workspace('ws-2', 'owner', 'charts')];
 
 /** Counts what the window asked for, so a reload can be told apart from a stuck page. */
 function stubBridge(reads: string[]) {
@@ -175,7 +175,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(reads.length === 1, `Expected one read, got ${reads.length}`);
 
     await view.click('Workspace being edited');
-    await view.pick('chenjian2664/trino_new');
+    await view.pick('contributor/repository-copy');
     await settle();
 
     // The bug: choosing the open workspace blanked the page with nothing left to refill it.
@@ -184,7 +184,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
   await check('switching workspace loads the one that was chosen', async (view, reads) => {
     await view.click('Workspace being edited');
-    await view.pick('trinodb/charts');
+    await view.pick('owner/charts');
     await settle();
     await settle();
 
@@ -195,7 +195,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   await check('switching workspace clears repository drafts before saving another target', async view => {
     await view.type('Default target branch', 'release-for-first');
     await view.click('Workspace being edited');
-    await view.pick('trinodb/charts');
+    await view.pick('owner/charts');
     await settle();
 
     assert(target(view) === 'main', 'The target must come from the chosen workspace');
@@ -209,7 +209,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await view.click('Use a workspace token…');
     await view.type('Workspace GitHub token', 'fake-first-workspace-token');
     await view.click('Workspace being edited');
-    await view.pick('trinodb/charts');
+    await view.pick('owner/charts');
     await settle();
 
     assert(view.host.querySelector('[aria-label="Workspace GitHub token"]') === null, 'The previous workspace token editor must close');

@@ -48,9 +48,9 @@ describe('Running sidebar', () => {
   });
 
   it('marks a review with its icon instead of the word', () => {
-    const html = renderToStaticMarkup(<RunningTaskList tasks={[{ ...task, kind: 'REVIEW', title: 'Review trinodb/trino#31710' }]} />);
+    const html = renderToStaticMarkup(<RunningTaskList tasks={[{ ...task, kind: 'REVIEW', title: 'Review owner/repository#31710' }]} />);
     expect(html).toContain('lucide-eye');
-    expect(html).toContain('>trinodb/trino#31710</span>');
+    expect(html).toContain('>owner/repository#31710</span>');
   });
 
   it('opens each kind in its owning workspace', () => {

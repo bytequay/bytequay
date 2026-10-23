@@ -129,7 +129,7 @@ class TestCodexReviewProfile
     void gateCommandRunsThroughShellWhenProfilePathContainsSpacesAndApostrophe()
             throws Exception
     {
-        Path home = Files.createDirectory(codexHome.resolve("profile with Jack's name"));
+        Path home = Files.createDirectory(codexHome.resolve("profile with Sam's name"));
         Path gate = CodexReviewGate.install(home);
         Process process = new ProcessBuilder("/bin/sh", "-c", CodexReviewGate.command(gate)).start();
         process.getOutputStream().write("{\"tool_name\":\"mcp__bytequay__review_save_finding\"}".getBytes(StandardCharsets.UTF_8));

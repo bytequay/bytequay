@@ -1652,7 +1652,7 @@ class TestCodexCliDriver
         server.emit("""
                 {"id":99,"method":"item/commandExecution/requestApproval","params":{
                 "availableDecisions":["accept","decline"],
-                "command":"/bin/zsh -lc \\"gh issue list --repo trinodb/trino --state open --limit 100\\"","itemId":"exec-4",
+                "command":"/bin/zsh -lc \\"gh issue list --repo owner/repository --state open --limit 100\\"","itemId":"exec-4",
                 "startedAtMs":1786884871465,"threadId":"thread-1","turnId":"%s"}}
                 """.formatted(server.activeTurn));
         awaitCondition(() -> server.result(99) != null);

@@ -615,7 +615,7 @@ describe('text helpers', () => {
   });
 
   it('shortens a path from the left so the file name survives, on a separator', () => {
-    const path = 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java';
+    const path = 'plugin/catalog/src/main/java/com/example/iceberg/IcebergSortField.java';
     const short = shortPath(path);
     expect(short.startsWith('…')).toBe(true);
     expect(short.endsWith('IcebergSortField.java')).toBe(true);
@@ -782,19 +782,19 @@ describe('a review on the Summary timeline', () => {
   it('groups evidence by the pull request, file or issue it was read from', () => {
     const evidence = (ref: string, source: string, excerpt = '') => ({ ref, source, provenance: '', excerpt, explanation: '' });
     const groups = evidenceGroups([
-      evidence('E1', 'trinodb/trino#31198 metadata', 'Fix deduplication\nAuthor: someone'),
+      evidence('E1', 'owner/repository#31198 metadata', 'Fix deduplication\nAuthor: someone'),
       evidence('E2', 'core/planner/ScopeAware.java L1–L198 (frozen head 6466c90)'),
-      evidence('E3', 'trinodb/trino#31198 activity', 'octocat commented at 2026-10-08T17:07:30Z\nLooks right'),
-      evidence('E10', 'trinodb/trino#31178: TABLESAMPLE projections get deduplicated'),
-      evidence('E11', 'trinodb/trino#31178 activity'),
-      evidence('E12', 'History trinodb/trino#31000'),
+      evidence('E3', 'owner/repository#31198 activity', 'octocat commented at 2026-10-08T17:07:30Z\nLooks right'),
+      evidence('E10', 'owner/repository#31178: TABLESAMPLE projections get deduplicated'),
+      evidence('E11', 'owner/repository#31178 activity'),
+      evidence('E12', 'History owner/repository#31000'),
       evidence('E13', 'command output: ./mvnw test -Dtest=TestScope#testEquals', '$ ./mvnw test'),
-    ], 'trinodb/trino#31198');
+    ], 'owner/repository#31198');
     expect(groups.map(group => [group.title, group.subject, group.items.map(item => item.evidence.ref).join(' ')])).toEqual([
-      ['This pull request', 'trinodb/trino#31198', 'E1 E3'],
+      ['This pull request', 'owner/repository#31198', 'E1 E3'],
       ['Source', 'core/planner/ScopeAware.java', 'E2'],
-      ['Linked issue', 'trinodb/trino#31178', 'E10 E11'],
-      ['Linked discussion', 'trinodb/trino#31000', 'E12'],
+      ['Linked issue', 'owner/repository#31178', 'E10 E11'],
+      ['Linked discussion', 'owner/repository#31000', 'E12'],
       ['Other context', '', 'E13'],
     ]);
     expect(groups[0].items.map(item => [item.label, item.detail])).toEqual([['Metadata', 'Fix deduplication'], ['Activity', 'octocat commented at 2026-10-08T17:07:30Z']]);
@@ -805,8 +805,8 @@ describe('a review on the Summary timeline', () => {
   });
 
   it('reads the recorded facts out of a provenance line and keeps its prose', () => {
-    expect(provenanceFacts('Selected pull request trinodb/trino#31198 read by ByteQuay; sourceUpdatedAt=2026-10-08T17:07:30Z; stale=false; cache freshness is not remote currentness')).toEqual({
-      notes: 'Selected pull request trinodb/trino#31198 read by ByteQuay; cache freshness is not remote currentness',
+    expect(provenanceFacts('Selected pull request owner/repository#31198 read by ByteQuay; sourceUpdatedAt=2026-10-08T17:07:30Z; stale=false; cache freshness is not remote currentness')).toEqual({
+      notes: 'Selected pull request owner/repository#31198 read by ByteQuay; cache freshness is not remote currentness',
       facts: [['Source updated at', '2026-10-08T17:07:30Z'], ['Stale', 'false']],
     });
   });

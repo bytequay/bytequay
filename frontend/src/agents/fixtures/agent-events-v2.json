@@ -261,7 +261,7 @@
         "detail": "git push origin fix/preview-limit",
         "scope": [
           "run: git push origin fix/preview-limit",
-          "cwd: workspaces/jackchen-trino"
+          "cwd: workspaces/riley-repository"
         ],
         "actionable": true,
         "availableDecisions": [

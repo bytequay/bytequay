@@ -114,7 +114,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
   function typedRepository(value: string): string | null {
     const repository = value.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '').toLowerCase();
     if (/^[\w.-]+\/[\w.-]+$/.test(repository)) return repository;
-    setRepositoryError('Use owner/repository, for example trinodb/trino.');
+    setRepositoryError('Use owner/repository, for example octo-org/octo-repo.');
     return null;
   }
   function addRepository(value = draft) {

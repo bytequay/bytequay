@@ -147,7 +147,7 @@ class TestRelatedWorkspaceWork
             saved.put(call.getArgument(0), call.getArgument(1));
             return null;
         }).when(settings).put(anyString(), anyString());
-        source = task(TaskId.random(), "trino", new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO));
+        source = task(TaskId.random(), "repository", new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO));
         sourceTurn = accepted(source.id(), "human-request");
         taskData.put(source.id(), source);
         when(tasks.find(any())).thenAnswer(call -> Optional.ofNullable(taskData.get(call.getArgument(0))));
@@ -156,8 +156,8 @@ class TestRelatedWorkspaceWork
         Workspace destination = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), repository.toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
-        when(relationships.requireRelated("trino", "iceberg")).thenReturn(destination);
-        when(relationships.related("trino")).thenReturn(ImmutableList.of(
+        when(relationships.requireRelated("repository", "iceberg")).thenReturn(destination);
+        when(relationships.related("repository")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Read core")));
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
@@ -207,7 +207,7 @@ class TestRelatedWorkspaceWork
     {
         AgentLaneId sourceAccount = new AgentLaneId("claude-account-source");
         AgentLaneId destinationAccount = new AgentLaneId("claude-account-destination");
-        source = AgentTask.created(source.id(), Optional.of("trino"), true, source.title(), sourceAccount, source.repository(), repository, source.defaults(), Instant.EPOCH)
+        source = AgentTask.created(source.id(), Optional.of("repository"), true, source.title(), sourceAccount, source.repository(), repository, source.defaults(), Instant.EPOCH)
                 .withSessionReference(new AgentSessionRef(sourceAccount, 1, "source-session"), Instant.EPOCH);
         taskData.put(source.id(), source);
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
@@ -250,7 +250,7 @@ class TestRelatedWorkspaceWork
             assertThat(value.laneId()).isEqualTo(AgentLaneId.CLAUDE_CLI);
             assertThat(value.defaults().model()).contains("destination-model");
             assertThat(value.defaults().developmentAutomation()).contains(new DevelopmentAutomation(true, AutomationLevel.COMMIT, Optional.empty()));
-            assertThat(value.message()).contains("Check API behavior", "commands and limitations").doesNotContain("Secret source title", "trino");
+            assertThat(value.message()).contains("Check API behavior", "commands and limitations").doesNotContain("Secret source title", "repository");
         });
         ArgumentCaptor<StartAgentTurnCommand> initial = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turnService, times(2)).start(initial.capture());
@@ -273,7 +273,7 @@ class TestRelatedWorkspaceWork
         verify(turnService).start(any());
         assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request("same", newCommit)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
-        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not related"));
+        when(relationships.requireRelated("repository", "iceberg")).thenThrow(new IllegalArgumentException("Not related"));
         assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request)).hasMessageContaining("Not related");
         assertThatThrownBy(() -> service.read(source.id().toString(), sourceTurn.id(), "same")).hasMessageContaining("Not related");
     }
@@ -309,7 +309,7 @@ class TestRelatedWorkspaceWork
                 .isInstanceOf(AgentConflictException.class);
         assertThatThrownBy(() -> service.read(TaskId.random().toString(), sourceTurn.id(), "missing"))
                 .isInstanceOf(AgentConflictException.class);
-        when(relationships.requireRelated("trino", "iceberg")).thenThrow(new IllegalArgumentException("Not related"));
+        when(relationships.requireRelated("repository", "iceberg")).thenThrow(new IllegalArgumentException("Not related"));
         assertThatThrownBy(() -> service.start(source.id().toString(), sourceTurn.id(), request("new", oldCommit)))
                 .hasMessageContaining("Not related");
     }
@@ -360,9 +360,9 @@ class TestRelatedWorkspaceWork
                 """.formatted(oldCommit))).contains("RUNNING", oldCommit);
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\",\"workspaceId\":\"other\"}"))
                 .isInstanceOf(IllegalArgumentException.class);
-        bridge.call().apply("{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"backport\",\"destinations\":[\"test/internal-trino\"]}");
+        bridge.call().apply("{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"backport\",\"destinations\":[\"test/internal-repository\"]}");
         verify(chainService).save(source.id().toString(), sourceTurn.id(), new BackportChainService.Request(
-                "backport", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.of("test/internal-trino"), Optional.empty(), Optional.empty()));
+                "backport", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.of("test/internal-repository"), Optional.empty(), Optional.empty()));
         bridge.call().apply("""
                 {"action":"DISCOVER_BACKPORT","operationKey":"route-settings"}
                 """);
@@ -403,7 +403,7 @@ class TestRelatedWorkspaceWork
         taskData.remove(TaskId.valueOf(view.targetTaskId()));
         dispatched.clear();
         when(turns.findActive(source.id())).thenReturn(Optional.empty());
-        assertThat(service.list("trino")).singleElement().satisfies(work -> {
+        assertThat(service.list("repository")).singleElement().satisfies(work -> {
             assertThat(work.state()).isEqualTo("UNAVAILABLE");
             assertThat(work.targetTaskId()).isNull();
             assertThat(work.limitation()).get().asString().contains("unavailable");

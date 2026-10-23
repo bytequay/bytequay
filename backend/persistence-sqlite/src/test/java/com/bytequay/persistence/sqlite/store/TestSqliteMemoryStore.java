@@ -52,14 +52,14 @@ class TestSqliteMemoryStore
     @Test
     void savesSourcesReportsAndPreviousVersionsAndCountsWithoutRewriting()
     {
-        MemorySource review = MemorySource.pullRequest("https://github.com/trinodb/trino/pull/31201#discussion_r1", "Please document the property.", NOW,
+        MemorySource review = MemorySource.pullRequest("https://github.com/owner/repository/pull/31201#discussion_r1", "Please document the property.", NOW,
                 new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "1", "alice", true, true, true, false));
         MemorySource page = MemorySource.page("https://github.com/delta-io/delta/blob/master/PROTOCOL.md", "", NOW, Optional.of("Checkpoints"));
         Memory rule = new Memory("m1", "workspace-1", Memory.Kind.RULE, "Adding table properties", "When adding a table property, document it on the connector's page.",
-                ImmutableList.of("plugin/trino-delta-lake/"), ImmutableList.of(review), new Memory.Origin(false, "Learn from my PRs", Optional.of("task-1")), 1,
+                ImmutableList.of("plugin/storage/"), ImmutableList.of(review), new Memory.Origin(false, "Learn from my PRs", Optional.of("task-1")), 1,
                 Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW);
         Memory spec = new Memory("m2", "workspace-1", Memory.Kind.SPEC, "Delta Lake transaction protocol", "The Delta Lake transaction protocol governs the connector.",
-                ImmutableList.of(), ImmutableList.of(page), new Memory.Origin(false, "Spec check of plugin/trino-delta-lake/", Optional.of("task-2")), 1, Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(page), new Memory.Origin(false, "Spec check of plugin/storage/", Optional.of("task-2")), 1, Optional.empty(),
                 0, 0, ImmutableList.of(), NOW.plusSeconds(1), NOW.plusSeconds(1));
         Memory elsewhere = new Memory("m3", "workspace-2", Memory.Kind.RULE, "Elsewhere", "Elsewhere", ImmutableList.of(), ImmutableList.of(review),
                 Memory.Origin.USER_EDIT, 1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW);

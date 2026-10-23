@@ -27,7 +27,7 @@ const pull = (repo: string, number: number): AgendaTargetDto =>
 function item(ref: string, status: AgendaItemDto['status'], extra: Partial<AgendaItemDto> = {}): AgendaItemDto {
   return {
     ref, action: 'review', title: `Review ${ref}`, label: ref, why: 'Asked 3 days ago.', at: '2026-10-13T08:00:00Z', workspaceId: 'ws1',
-    target: pull('trinodb/trino', 31377), where: null, status, byYou: false, doneText: null, doneAt: null, ...extra,
+    target: pull('owner/repository', 31377), where: null, status, byYou: false, doneText: null, doneAt: null, ...extra,
   };
 }
 
@@ -56,28 +56,28 @@ describe('the Today model', () => {
   });
 
   it('names where an item lives, dropping the repository on its own workspace Home', () => {
-    expect(whereText(pull('trinodb/trino', 31402), 'global')).toBe('trinodb/trino #31402');
-    expect(whereText(pull('trinodb/trino', 31402), 'workspace')).toBe('#31402');
+    expect(whereText(pull('owner/repository', 31402), 'global')).toBe('owner/repository #31402');
+    expect(whereText(pull('owner/repository', 31402), 'workspace')).toBe('#31402');
     expect(whereText({ ...pull('x/y', 1), kind: 'WORK', id: 'w1' }, 'global')).toBe('Work item');
     expect(whereText({ ...pull('x/y', 1), kind: 'WORK', id: 'w1' }, 'global', 'Iceberg write path · 3/6')).toBe('Iceberg write path · 3/6');
-    expect(whereText({ ...pull('x/y', 1), kind: 'TASK', id: 't1' }, 'global', 'trinodb/trino #31402')).toBe('trinodb/trino #31402');
-    expect(whereText({ ...pull('x/y', 1), kind: 'TASK', id: 't1' }, 'workspace', 'trinodb/trino #31402')).toBe('#31402');
+    expect(whereText({ ...pull('x/y', 1), kind: 'TASK', id: 't1' }, 'global', 'owner/repository #31402')).toBe('owner/repository #31402');
+    expect(whereText({ ...pull('x/y', 1), kind: 'TASK', id: 't1' }, 'workspace', 'owner/repository #31402')).toBe('#31402');
   });
 
   it('matches today items to Needs attention rows by their keys', () => {
-    expect(attentionKey(pull('TrinoDB/Trino', 7))).toBe('trinodb/trino#7');
+    expect(attentionKey(pull('Owner/Repository', 7))).toBe('owner/repository#7');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'TASK', id: 't1' })).toBe('task:t1');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'JIRA', id: '10042', cloudId: 'cloud' })).toBe('jira:cloud:10042');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'WORK', id: 'w1' })).toBeNull();
-    expect([...todayKeys(agenda({ items }))]).toEqual(['trinodb/trino#31377']);
+    expect([...todayKeys(agenda({ items }))]).toEqual(['owner/repository#31377']);
   });
 
   it('leaves a snoozed item off Today until its snooze ends', () => {
-    const value = agenda({ items: [item('a', 'open'), item('b', 'open', { target: pull('trinodb/trino', 31402) })] });
-    const snoozed: Handled = { 'TrinoDB/trino#31402': { kind: 'snooze', until: 2_000, seenUpdatedAt: '', label: '1 hour' } };
+    const value = agenda({ items: [item('a', 'open'), item('b', 'open', { target: pull('owner/repository', 31402) })] });
+    const snoozed: Handled = { 'Owner/repository#31402': { kind: 'snooze', until: 2_000, seenUpdatedAt: '', label: '1 hour' } };
     expect(withoutSnoozed(value, snoozed, 1_000).items.map(row => row.ref)).toEqual(['a']);
     expect(withoutSnoozed(value, snoozed, 2_000).items.map(row => row.ref)).toEqual(['a', 'b']);
-    const acknowledged: Handled = { 'trinodb/trino#31402': { kind: 'ack', until: null, seenUpdatedAt: '', label: 'acknowledged' } };
+    const acknowledged: Handled = { 'owner/repository#31402': { kind: 'ack', until: null, seenUpdatedAt: '', label: 'acknowledged' } };
     expect(withoutSnoozed(value, acknowledged, 1_000)).toBe(value);
   });
 
@@ -88,11 +88,11 @@ describe('the Today model', () => {
   });
 
   it('names recap chips by number alone when they share a repository', () => {
-    const own = [{ ref: 'pr:a', target: pull('trinodb/trino', 1) }, { ref: 'pr:b', target: pull('trinodb/trino', 2) }];
+    const own = [{ ref: 'pr:a', target: pull('owner/repository', 1) }, { ref: 'pr:b', target: pull('owner/repository', 2) }];
     expect(recapLabel(own[0], own)).toBe('#1');
-    const mixed = [...own, { ref: 'pr:c', target: pull('trinodb/trino-gateway', 605) }];
+    const mixed = [...own, { ref: 'pr:c', target: pull('owner/gateway', 605) }];
     expect(recapLabel(mixed[0], mixed)).toBe('#1');
-    expect(recapLabel(mixed[2], mixed)).toBe('trino-gateway #605');
+    expect(recapLabel(mixed[2], mixed)).toBe('gateway #605');
   });
 
   it('draws nothing while the agenda is off, and a workspace Home only with items of its own', () => {
@@ -137,13 +137,13 @@ describe('the Today section', () => {
 
   it('shows the summary and rows on global Home, but neither summary nor recap on a workspace Home', () => {
     const value = agenda({
-      items: [item('pr:trinodb/trino#31377', 'open'), item('pr:trinodb/trino#31390', 'done', { doneText: 'Checks passed' })],
-      recap: { text: 'Merged 3 PRs.', merged: [{ ref: 'pr:x', target: pull('trinodb/trino', 31390) }], slipped: [] },
+      items: [item('pr:owner/repository#31377', 'open'), item('pr:owner/repository#31390', 'done', { doneText: 'Checks passed' })],
+      recap: { text: 'Merged 3 PRs.', merged: [{ ref: 'pr:x', target: pull('owner/repository', 31390) }], slipped: [] },
     });
     const global = render(value);
     expect(global).toContain('Your conflict-retry fix merged last night.');
     expect(global).toContain('1/2');
-    expect(global).toContain('trinodb/trino #31377');
+    expect(global).toContain('owner/repository #31377');
     expect(global).toContain('Asked 3 days ago.');
     expect(global).toContain('Checks passed');
     expect(global).toContain('This week');
@@ -167,11 +167,11 @@ describe('the workspace composer', () => {
   it('offers today\'s open items for this repository first among its starting points', () => {
     const value = agenda({ items: [
       item('work:w22', 'open', { action: 'start', label: 'Expose snapshot id', why: 'It is next.' }),
-      item('pr:trinodb/trino#31390', 'done', { label: 'maven-checks' }),
+      item('pr:owner/repository#31390', 'done', { label: 'maven-checks' }),
     ] });
     const today: TodayAgenda = { agenda: value, error: null, makeAgain: () => {}, mark: () => {}, start: async () => {}, showHidden: () => {} };
     const html = renderToStaticMarkup(
-      <AgentHomeView repository="trinodb/trino" workspaceId="ws1" laneId="codex" providers={[]} tasks={[]} models={[]} selection={null} draft=""
+      <AgentHomeView repository="owner/repository" workspaceId="ws1" laneId="codex" providers={[]} tasks={[]} models={[]} selection={null} draft=""
         blocker={null} onDraftChange={() => {}} onSelectProvider={() => {}} onSelectModel={() => {}} onCreate={() => {}} onOpenTask={() => {}}
         onOpenReview={() => {}} onShowAll={() => {}} today={today} />,
     );

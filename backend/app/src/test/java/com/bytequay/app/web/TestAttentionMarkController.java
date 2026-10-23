@@ -38,8 +38,8 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestAttentionMarkController
 {
-    private static final AttentionMark SNOOZED = new AttentionMark("trinodb/trino#31402", AttentionMark.Kind.SNOOZE, Optional.of(Instant.parse("2026-10-20T01:00:00Z")),
-            "2026-10-19T03:00:00Z", Optional.of("[\"open\"]"), "tomorrow", Optional.of("{\"key\":\"trinodb/trino#31402\"}"));
+    private static final AttentionMark SNOOZED = new AttentionMark("owner/repository#31402", AttentionMark.Kind.SNOOZE, Optional.of(Instant.parse("2026-10-20T01:00:00Z")),
+            "2026-10-19T03:00:00Z", Optional.of("[\"open\"]"), "tomorrow", Optional.of("{\"key\":\"owner/repository#31402\"}"));
 
     private final AttentionMarkService marks = mock(AttentionMarkService.class);
     // Boot's own serialization settings, so the test asserts the wire format the renderer parses.
@@ -56,10 +56,10 @@ class TestAttentionMarkController
 
         http.perform(get("/api/attention/marks"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].key").value("trinodb/trino#31402"))
+                .andExpect(jsonPath("$[0].key").value("owner/repository#31402"))
                 .andExpect(jsonPath("$[0].kind").value("SNOOZE"))
                 .andExpect(jsonPath("$[0].until").value("2026-10-20T01:00:00Z"))
-                .andExpect(jsonPath("$[0].snoozedItem").value("{\"key\":\"trinodb/trino#31402\"}"));
+                .andExpect(jsonPath("$[0].snoozedItem").value("{\"key\":\"owner/repository#31402\"}"));
     }
 
     @Test
@@ -67,8 +67,8 @@ class TestAttentionMarkController
             throws Exception
     {
         http.perform(post("/api/attention/marks").contentType(MediaType.APPLICATION_JSON).content("""
-                {"saved": [{"key": "trinodb/trino#31402", "kind": "SNOOZE", "until": "2026-10-20T01:00:00Z", "seenUpdatedAt": "2026-10-19T03:00:00Z",
-                  "seenActivityVersion": "[\\"open\\"]", "label": "tomorrow", "snoozedItem": "{\\"key\\":\\"trinodb/trino#31402\\"}"}],
+                {"saved": [{"key": "owner/repository#31402", "kind": "SNOOZE", "until": "2026-10-20T01:00:00Z", "seenUpdatedAt": "2026-10-19T03:00:00Z",
+                  "seenActivityVersion": "[\\"open\\"]", "label": "tomorrow", "snoozedItem": "{\\"key\\":\\"owner/repository#31402\\"}"}],
                  "removed": ["task:7d0e"]}
                 """)).andExpect(status().isNoContent());
 

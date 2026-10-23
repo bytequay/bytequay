@@ -250,11 +250,11 @@ class TestCherryPickPreviewHttpApi
                 Path.of("/managed/direct-id/repository"),
                 Topology.DIRECT,
                 "origin",
-                new RemoteSource("direct-id", "backport-303", "https://github.com/trinodb/trino.git")
-                        .withRepositoryIdentity(303, RepoRef.of("trinodb", "trino"))));
+                new RemoteSource("direct-id", "backport-303", "https://github.com/owner/repository.git")
+                        .withRepositoryIdentity(303, RepoRef.of("owner", "repository"))));
         String base = "a".repeat(40);
         String merge = "b".repeat(40);
-        PullRequestRef pullRequest = PullRequestRef.of("trinodb", "trino", 28411);
+        PullRequestRef pullRequest = PullRequestRef.of("owner", "repository", 28411);
         var range = new MergedPullRequestRange(pullRequest, 303, "master", Instant.EPOCH, merge, ImmutableList.of(merge), base, ImmutableList.of(merge));
         when(mergedPullRequests.resolve("direct-id", "backport-303", pullRequest)).thenReturn(range);
         doThrow(new IllegalArgumentException("stop after capture"))
@@ -264,7 +264,7 @@ class TestCherryPickPreviewHttpApi
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sourceRemote":"backport-303","owner":"trinodb","repo":"trino","number":28411,"targetBranch":"release/1"}
+                                {"sourceRemote":"backport-303","owner":"owner","repo":"repository","number":28411,"targetBranch":"release/1"}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("stop after capture"));
@@ -283,14 +283,14 @@ class TestCherryPickPreviewHttpApi
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sourceRemote":"origin","owner":"trinodb","repo":"trino","number":28411,"targetBranch":"release/1"}
+                                {"sourceRemote":"origin","owner":"owner","repo":"repository","number":28411,"targetBranch":"release/1"}
                                 """))
                 .andExpect(status().isUnprocessableEntity());
         mvc.perform(post("/api/workspaces/direct-id/cherry-pick/preview-pull-request")
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
-                                {"sourceRemote":"backport-303","owner":"trinodb","repo":"trino","number":0,"targetBranch":"release/1"}
+                                {"sourceRemote":"backport-303","owner":"owner","repo":"repository","number":0,"targetBranch":"release/1"}
                                 """))
                 .andExpect(status().isBadRequest());
     }
@@ -304,8 +304,8 @@ class TestCherryPickPreviewHttpApi
                 Path.of("/managed/direct-id/repository"),
                 Topology.DIRECT,
                 "origin",
-                new RemoteSource("direct-id", "oss", "https://github.com/trinodb/trino.git")
-                        .withRepositoryIdentity(303, RepoRef.of("trinodb", "trino"))));
+                new RemoteSource("direct-id", "oss", "https://github.com/owner/repository.git")
+                        .withRepositoryIdentity(303, RepoRef.of("owner", "repository"))));
         doThrow(new IllegalArgumentException("stop after capture"))
                 .when(previewService).preview(any());
 

@@ -28,7 +28,7 @@ it('opens a task from the dashboard in the workspace that watches its repository
   const location = { hash: '#/recent' };
   vi.stubGlobal('window', { location, bridge: {
     onLabTask: (callback: (task: LabTask) => void) => { deliver = callback; return stop; },
-    listWorkspaces: async () => [workspaceFixture({ id: 'trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }),
+    listWorkspaces: async () => [workspaceFixture({ id: 'repository', monitoredOwner: 'owner', monitoredRepo: 'repository' }),
       workspaceFixture({ id: 'bytequay', monitoredOwner: 'ByteQuay', monitoredRepo: 'ByteQuay' })],
   } });
   const unsubscribe = listenForLabTasks();

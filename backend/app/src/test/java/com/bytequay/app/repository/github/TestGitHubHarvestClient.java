@@ -36,7 +36,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 class TestGitHubHarvestClient
         extends AbstractGitHubClientTest
 {
-    private static final RepoRef REPOSITORY = RepoRef.of("trinodb", "trino");
+    private static final RepoRef REPOSITORY = RepoRef.of("owner", "repository");
 
     private final GitHubHarvestClient client = new GitHubHarvestClient(restClient, graphQlClient);
 
@@ -66,14 +66,14 @@ class TestGitHubHarvestClient
     @Test
     void findsAClosedPullRequestByNumberOrByEveryWordInItsTitle()
     {
-        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31354")).andRespond(withSuccess("""
+        server.expect(requestTo("https://api.github.test/repos/owner/repository/issues/31354")).andRespond(withSuccess("""
                 {"id":1,"number":31354,"title":"Fix checkpoint write","closed_at":"2026-09-20T00:00:00Z","pull_request":{"merged_at":"2026-09-20T00:00:00Z"}}
                 """, MediaType.APPLICATION_JSON));
-        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31355")).andRespond(withSuccess("""
+        server.expect(requestTo("https://api.github.test/repos/owner/repository/issues/31355")).andRespond(withSuccess("""
                 {"id":2,"number":31355,"title":"Still open","closed_at":null,"pull_request":{"merged_at":null}}
                 """, MediaType.APPLICATION_JSON));
-        server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/9")).andRespond(withStatus(HttpStatus.NOT_FOUND));
-        server.expect(requestTo(allOf(containsString("/search/issues"), containsString("trinodb"),
+        server.expect(requestTo("https://api.github.test/repos/owner/repository/issues/9")).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        server.expect(requestTo(allOf(containsString("/search/issues"), containsString("owner"),
                         containsString("%20is%3Apr%20is%3Aclosed%20in%3Atitle%20%22checkpoint%22%20%22is%22%20%22open%22%20%22null%22"), containsString("per_page=10"))))
                 .andRespond(withSuccess("""
                         {"total_count":2,"incomplete_results":false,"items":[
@@ -95,26 +95,26 @@ class TestGitHubHarvestClient
     void findsAPullRequestByItsLinkOnlyInTheMonitoredRepository()
     {
         for (int read = 0; read < 2; read++) {
-            server.expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/28755")).andRespond(withSuccess("""
+            server.expect(requestTo("https://api.github.test/repos/owner/repository/issues/28755")).andRespond(withSuccess("""
                     {"id":1,"number":28755,"title":"Add table credentials","closed_at":"2026-08-20T00:00:00Z","pull_request":{"merged_at":"2026-08-20T00:00:00Z"}}
                     """, MediaType.APPLICATION_JSON));
         }
         GitHubHarvestClient.ClosedPull expected = new GitHubHarvestClient.ClosedPull(28755, "Add table credentials", Instant.parse("2026-08-20T00:00:00Z"), true);
 
-        assertThat(client.findClosedPulls("pat", REPOSITORY, "https://github.com/trinodb/trino/pull/28755")).containsExactly(expected);
-        assertThat(client.findClosedPulls("pat", REPOSITORY, " github.com/TrinoDB/Trino/pull/28755/files#diff-1 ")).containsExactly(expected);
+        assertThat(client.findClosedPulls("pat", REPOSITORY, "https://github.com/owner/repository/pull/28755")).containsExactly(expected);
+        assertThat(client.findClosedPulls("pat", REPOSITORY, " github.com/Owner/Repository/pull/28755/files#diff-1 ")).containsExactly(expected);
         assertThatThrownBy(() -> client.findClosedPulls("pat", REPOSITORY, "https://github.com/apache/iceberg/pull/28755"))
-                .hasMessage("Only a pull request of trinodb/trino, the repository this workspace learns from, can be learned from");
+                .hasMessage("Only a pull request of owner/repository, the repository this workspace learns from, can be learned from");
     }
 
     @Test
     void readsAClosedPullRequestsThreadsReviewsAndCommentsWithTheirAuthorsRoles()
     {
         graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
-                {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/trinodb/trino/pull/31201","merged":true,
+                {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/owner/repository/pull/31201","merged":true,
                   "closedAt":"2026-09-20T10:00:00Z",
                   "reviewThreads":{"nodes":[{"id":"thread-1","isResolved":true,"isOutdated":false,"path":"plugin/x/A.java","comments":{"nodes":[
-                    {"id":"note-1","body":"Please document it.","url":"https://github.com/trinodb/trino/pull/31201#discussion_r1","authorAssociation":"MEMBER",
+                    {"id":"note-1","body":"Please document it.","url":"https://github.com/owner/repository/pull/31201#discussion_r1","authorAssociation":"MEMBER",
                      "author":{"__typename":"User","login":"bo"},"createdAt":"2026-09-19T10:00:00Z","pullRequestReview":{"authorCanPushToRepository":true}},
                     {"id":"note-2","body":"Coverage ok","url":"u","authorAssociation":"NONE","author":{"__typename":"Bot","login":"codecov"},
                      "createdAt":"2026-09-19T11:00:00Z","pullRequestReview":{"authorCanPushToRepository":false}}]}}]},
@@ -150,7 +150,7 @@ class TestGitHubHarvestClient
     void readsAMergedPullRequestsReviewHeadsAndThreadLinesForAReplay()
     {
         graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess("""
-                {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/trinodb/trino/pull/31201","merged":true,
+                {"data":{"repository":{"pullRequest":{"number":31201,"title":"Add a property","url":"https://github.com/owner/repository/pull/31201","merged":true,
                   "baseRefName":"master","author":{"__typename":"User","login":"alice"},"mergeCommit":{"oid":"%s"},
                   "reviews":{"nodes":[
                     {"author":{"__typename":"User","login":"bo"},"authorCanPushToRepository":true,"state":"COMMENTED","submittedAt":"2026-09-19T10:00:00Z",

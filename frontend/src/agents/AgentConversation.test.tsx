@@ -209,7 +209,7 @@ describe('the step a running task card shows', () => {
     payload: { state, argv, output: null, exitCode: null, truncated: false, cwd: '.', durationMs: null, actions, description },
   } as AgentEventEnvelope);
   const step = latestStep;
-  const read: CommandAction = { kind: 'READ', name: 'DomainTranslator.java', path: 'core/trino-main/DomainTranslator.java', query: null };
+  const read: CommandAction = { kind: 'READ', name: 'DomainTranslator.java', path: 'core/main/DomainTranslator.java', query: null };
 
   it('names the newest command by what it parsed, the command inside its login shell, or the provider\'s label', () => {
     expect(step([])).toBeNull();
@@ -237,9 +237,9 @@ describe('the step a running task card shows', () => {
       source: { ...source, providerItemId: name, providerEventId: null }, type: 'tool',
       payload: { name, state: 'STARTED', summary: name, durationMs: null, description },
     } as AgentEventEnvelope);
-    expect(step([tool('Read', 'Read core/trino-main/DomainTranslator.java · lines 240–380')]))
-      .toMatchObject({ kind: 'READ', text: 'core/trino-main/DomainTranslator.java · lines 240–380' });
-    expect(step([tool('Grep', 'Searched extractDecimal in plugin/trino-hive')])).toMatchObject({ kind: 'SEARCH', text: 'extractDecimal in plugin/trino-hive' });
+    expect(step([tool('Read', 'Read core/main/DomainTranslator.java · lines 240–380')]))
+      .toMatchObject({ kind: 'READ', text: 'core/main/DomainTranslator.java · lines 240–380' });
+    expect(step([tool('Grep', 'Searched extractDecimal in plugin/files')])).toMatchObject({ kind: 'SEARCH', text: 'extractDecimal in plugin/files' });
     expect(step([tool('Glob', 'Listed **/*.java')])).toMatchObject({ kind: 'LIST', text: '**/*.java' });
     expect(step([tool('mcp__bytequay__work_items', null)])).toMatchObject({ kind: 'TOOL', text: 'work_items' });
   });
@@ -340,7 +340,7 @@ describe('generated development request presentation', () => {
 
   it('shows the create-PR action and branches without the sent prompt', () => {
     const ordinary: AgentTurnDto = { ...baseTurn, taskId: 'c587a121' };
-    const branch = 'chenjian2664/bytequay/find-and-refactor-minor-issue-c587a121';
+    const branch = 'contributor/bytequay/find-and-refactor-minor-issue-c587a121';
     const route = { action: 'Open draft pull request', head: branch, base: 'master' };
     const generated: AgentTurnDto = { ...ordinary, developmentOrigin: { kind: 'CREATE_DRAFT_PR', parentUserTurnId: 'source-turn' } };
     const said = (text: string, attachments: unknown[] = []) => ({ text, attachments });
@@ -348,13 +348,13 @@ describe('generated development request presentation', () => {
     const publication = (base = "'master'", pullRequest = 'No pull request tracked this branch at verification.') => [
       'ByteQuay · Create draft PR',
       `Worktree: '/w/worktrees/t'. Branch: '${branch}'. Exact clean HEAD to publish: e5083dc3.`,
-      `Base repository/branch: trinodb/trino / ${base}. Push repository: alice/trino.`,
+      `Base repository/branch: owner/repository / ${base}. Push repository: alice/repository.`,
       `and never read or ask for credentials. ${pullRequest}`,
     ].join('\n');
     expect(draftPullRequestRequest(generated, said(publication()), branch)).toEqual(route);
     expect(draftPullRequestRequest(generated, said(publication()), null)).toEqual({ ...route, head: null });
     // Publishing a later revision into a pull request that is already open opens nothing, draft or not.
-    const reuse = 'Pull request https://github.com/trinodb/trino/pull/12 already tracks this branch; publishing updates it and creates no second one.';
+    const reuse = 'Pull request https://github.com/owner/repository/pull/12 already tracks this branch; publishing updates it and creates no second one.';
     expect(draftPullRequestRequest(generated, said(publication(undefined, reuse)), branch)).toEqual({ ...route, action: 'Update pull request #12' });
     // The base arrives shell-quoted, so a quote inside the branch name must survive.
     expect(draftPullRequestRequest(generated, said(publication(`'o'"'"'brien/fix'`)), branch)?.base).toBe("o'brien/fix");

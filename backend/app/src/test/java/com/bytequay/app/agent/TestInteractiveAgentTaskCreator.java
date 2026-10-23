@@ -131,7 +131,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(any(Path.class), eq("for-each-ref"), eq("--format=%(refname)"), any(String.class), any(String.class), any(String.class)))
                 .thenReturn(new GitCommandRunner.Result(0, "", false));
         CredentialService credentials = mock(CredentialService.class);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("test-token", new UserProfile("Chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("test-token", new UserProfile("Contributor", "", "", "", 0, 0, 0, "", "", "", "")));
         creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, pullRequests, credentials);
     }
 
@@ -229,7 +229,7 @@ class TestInteractiveAgentTaskCreator
         assertThat(command.getValue().physicalRepository())
                 .isEqualTo(new RepositoryIdentity("selected", "fork"));
         assertThat(command.getValue().startCommit()).isEqualTo(START_COMMIT);
-        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/review-11111111");
+        assertThat(command.getValue().generatedBranch()).isEqualTo("contributor/bytequay/review-11111111");
         assertThat(command.getValue().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         InOrder order = inOrder(provisioning, workspaces, git, tasks);
         order.verify(provisioning).synchronizeCode("workspace-1");
@@ -451,7 +451,7 @@ class TestInteractiveAgentTaskCreator
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
         assertThat(command.getValue().names()).isEmpty();
-        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/develop-the-following-github-11111111");
+        assertThat(command.getValue().generatedBranch()).isEqualTo("contributor/bytequay/develop-the-following-github-11111111");
         assertThat(command.getValue().useTrustedCreationReadiness()).isTrue();
         verify(driver, times(1)).probe();
     }
@@ -464,25 +464,25 @@ class TestInteractiveAgentTaskCreator
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
         when(git.run(repository, "for-each-ref", "--format=%(refname)",
-                "refs/heads/chenjian2664/bytequay/review-11111111", "refs/remotes/origin/chenjian2664/bytequay/review-11111111",
-                "refs/remotes/upstream/chenjian2664/bytequay/review-11111111"))
-                .thenReturn(new GitCommandRunner.Result(0, "refs/remotes/origin/chenjian2664/bytequay/review-11111111\n", false));
+                "refs/heads/contributor/bytequay/review-11111111", "refs/remotes/origin/contributor/bytequay/review-11111111",
+                "refs/remotes/upstream/contributor/bytequay/review-11111111"))
+                .thenReturn(new GitCommandRunner.Result(0, "refs/remotes/origin/contributor/bytequay/review-11111111\n", false));
         create(defaults());
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
-        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/review-11111111-11111111");
+        assertThat(command.getValue().generatedBranch()).isEqualTo("contributor/bytequay/review-11111111-11111111");
 
         when(git.run(repository, "for-each-ref", "--format=%(refname)",
-                "refs/heads/chenjian2664/bytequay/review-11111111", "refs/remotes/origin/chenjian2664/bytequay/review-11111111",
-                "refs/remotes/upstream/chenjian2664/bytequay/review-11111111"))
+                "refs/heads/contributor/bytequay/review-11111111", "refs/remotes/origin/contributor/bytequay/review-11111111",
+                "refs/remotes/upstream/contributor/bytequay/review-11111111"))
                 .thenReturn(new GitCommandRunner.Result(0, "", false));
         PullRequest previous = new PullRequest(1, "selected/fork", 1, "Fix samples", "user", "https://github.com/selected/fork/pull/1",
                 Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null,
-                ImmutableList.of(), null, 0, 0, 0, "closed", Instant.EPOCH, null, null, null, null, "chenjian2664/bytequay/review-11111111", null, null, null, null);
-        when(pullRequests.findByHeadRef("selected/fork", "chenjian2664/bytequay/review-11111111")).thenReturn(ImmutableList.of(previous));
+                ImmutableList.of(), null, 0, 0, 0, "closed", Instant.EPOCH, null, null, null, null, "contributor/bytequay/review-11111111", null, null, null, null);
+        when(pullRequests.findByHeadRef("selected/fork", "contributor/bytequay/review-11111111")).thenReturn(ImmutableList.of(previous));
         create(defaults());
         verify(tasks, times(2)).createInteractive(command.capture());
-        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/review-11111111-11111111");
+        assertThat(command.getValue().generatedBranch()).isEqualTo("contributor/bytequay/review-11111111-11111111");
     }
 
     private static GitHubIssueSource issue()

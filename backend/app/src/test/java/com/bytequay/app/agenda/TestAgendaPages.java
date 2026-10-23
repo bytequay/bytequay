@@ -76,9 +76,9 @@ class TestAgendaPages
 
         assertThat(pages.served()).containsEntry("task:t1", "tasks")
                 // A task names its pull request and work item; the reply may pick those too.
-                .containsEntry("pr:trinodb/trino#31402", "tasks")
+                .containsEntry("pr:owner/repository#31402", "tasks")
                 .containsEntry("work:w19", "tasks")
-                .containsEntry("pr:trinodb/trino#31377", "history")
+                .containsEntry("pr:owner/repository#31377", "history")
                 .doesNotContainKey("pr:unserved/repo#1")
                 .doesNotContainKey("epic:E1");
         assertThat(pages.calls()).extracting(call -> call.kind() + "/" + call.page()).containsExactly("tasks/0", "history/0");

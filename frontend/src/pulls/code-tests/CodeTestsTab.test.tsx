@@ -21,7 +21,7 @@ import type { PullRequestDetailDto } from '../../types';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import CodeTestsTab, { type CodeTestsBridge } from './CodeTestsTab';
 
-const detail = { repo: 'trinodb/trino', number: 30304 } as PullRequestDetailDto;
+const detail = { repo: 'owner/repository', number: 30304 } as PullRequestDetailDto;
 
 function bridge(): CodeTestsBridge {
   return {

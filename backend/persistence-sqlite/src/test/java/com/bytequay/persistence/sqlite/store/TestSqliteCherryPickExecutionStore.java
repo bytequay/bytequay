@@ -106,7 +106,7 @@ class TestSqliteCherryPickExecutionStore
                 .withJournal(new ActionJournal(ActionType.COMMIT_CONFLICT_SNAPSHOT, Optional.of(sha(1)), TARGET, 2, "action-key", NOW), NOW.plusSeconds(1))
                 .recordConflict(
                         sha(1),
-                        ImmutableList.of(new ConflictPath("core/trino-main/src/Main.java", ConflictType.MODIFY_DELETE, Optional.of("core/trino-main"), ImmutableList.of())),
+                        ImmutableList.of(new ConflictPath("core/main/src/Main.java", ConflictType.MODIFY_DELETE, Optional.of("core/main"), ImmutableList.of())),
                         NOW.plusSeconds(2))
                 .withStep(Step.RESOLVING, NOW.plusSeconds(3)));
 
@@ -117,7 +117,7 @@ class TestSqliteCherryPickExecutionStore
         assertThat(loaded.currentStep()).contains(Step.RESOLVING);
         assertThat(item.conflictPaths()).hasSize(1);
         assertThat(item.conflictPaths().getFirst().type()).isEqualTo(ConflictType.MODIFY_DELETE);
-        assertThat(item.conflictPaths().getFirst().module()).contains("core/trino-main");
+        assertThat(item.conflictPaths().getFirst().module()).contains("core/main");
         assertThat(item.pullRequest().orElseThrow().number()).isEqualTo(1001);
     }
 
@@ -243,7 +243,7 @@ class TestSqliteCherryPickExecutionStore
         CherryPickExecution created = store.createOrGet(execution("delivery", ImmutableList.of(planned(1, Disposition.USER_SKIPPED))));
         CherryPickExecution finished = store.save(created.finish(FinishReason.COMPLETED, "nothing to apply", NOW.plusSeconds(1)));
         CherryPickExecution pushed = store.save(finished.recordPush("origin", "bump-delivery", TARGET, NOW.plusSeconds(2)));
-        store.save(pushed.recordPullRequest(900, 12, "https://github.com/trinodb/trino/pull/12", NOW.plusSeconds(3)));
+        store.save(pushed.recordPullRequest(900, 12, "https://github.com/owner/repository/pull/12", NOW.plusSeconds(3)));
 
         CherryPickExecution loaded = store.find(created.id()).orElseThrow();
         assertThat(loaded.delivery()).hasValueSatisfying(delivery -> {
@@ -252,7 +252,7 @@ class TestSqliteCherryPickExecutionStore
             assertThat(delivery.sha()).isEqualTo(TARGET);
             assertThat(delivery.pullRequestId()).contains(900L);
             assertThat(delivery.pullRequestNumber()).contains(12);
-            assertThat(delivery.pullRequestUrl()).contains("https://github.com/trinodb/trino/pull/12");
+            assertThat(delivery.pullRequestUrl()).contains("https://github.com/owner/repository/pull/12");
         });
     }
 
@@ -263,8 +263,8 @@ class TestSqliteCherryPickExecutionStore
                 key,
                 new Workspace(
                         "workspace-id",
-                        RepoRef.of("trinodb", "trino"),
-                        RepoRef.of("fork", "trino"),
+                        RepoRef.of("owner", "repository"),
+                        RepoRef.of("fork", "repository"),
                         "origin",
                         "fork",
                         "master",
@@ -294,7 +294,7 @@ class TestSqliteCherryPickExecutionStore
                 sha(position),
                 parent(position),
                 "Commit " + position,
-                Optional.of(new PullRequestRefView(1000 + position, "Pull request " + position, "https://github.com/trinodb/trino/pull/" + (1000 + position))),
+                Optional.of(new PullRequestRefView(1000 + position, "Pull request " + position, "https://github.com/owner/repository/pull/" + (1000 + position))),
                 disposition);
     }
 

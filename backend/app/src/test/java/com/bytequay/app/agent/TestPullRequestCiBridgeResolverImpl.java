@@ -93,9 +93,9 @@ class TestPullRequestCiBridgeResolverImpl
     private static final String NEXT = "c".repeat(40);
     private static final String BASE = "a".repeat(40);
     private static final String BRANCH = "alice/delta-metadata";
-    private static final RepoRef FORK = new RepoRef("alice", "trino");
-    private static final RepoRef UPSTREAM = new RepoRef("trinodb", "trino");
-    private static final PullRequestRef PR = new PullRequestRef("trinodb", "trino", 31105);
+    private static final RepoRef FORK = new RepoRef("alice", "repository");
+    private static final RepoRef UPSTREAM = new RepoRef("owner", "repository");
+    private static final PullRequestRef PR = new PullRequestRef("owner", "repository", 31105);
     private static final String COMMIT_FAILURE = """
             Complete job name: check-commit-messages
             Commit subjects must not start with a lowercase letter or end with a period.
@@ -134,9 +134,9 @@ class TestPullRequestCiBridgeResolverImpl
     {
         when(tasks.find(taskId)).thenReturn(Optional.of(task));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(new Workspace(
-                "workspace", "Trino", 1, FORK, Optional.of(2L), Optional.of(UPSTREAM), 2, UPSTREAM, Workspace.Topology.FORK,
-                "master", "https://github.com/alice/trino.git", Optional.of("master"), Optional.of("https://github.com/trinodb/trino.git"),
-                "/tmp/trino", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW)));
+                "workspace", "Repository", 1, FORK, Optional.of(2L), Optional.of(UPSTREAM), 2, UPSTREAM, Workspace.Topology.FORK,
+                "master", "https://github.com/alice/repository.git", Optional.of("master"), Optional.of("https://github.com/owner/repository.git"),
+                "/tmp/repository", Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW)));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of(BRANCH));
         when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
@@ -156,7 +156,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(bridge.requestRerun()).isEmpty();
         storeLog(COMMIT_FAILURE);
         assertThat(read(bridge, Optional.of(201L)).toString()).contains("check-commit-messages");
-        when(actions.inspect(PR)).thenReturn(snapshot(new PullRequestRef("trinodb", "trino", 9), HEAD, 1, "job", "failure"));
+        when(actions.inspect(PR)).thenReturn(snapshot(new PullRequestRef("owner", "repository", 9), HEAD, 1, "job", "failure"));
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("stale");
     }
 
@@ -202,7 +202,7 @@ class TestPullRequestCiBridgeResolverImpl
     void repositoryCapitalizationDoesNotHideTheTasksForkPullRequest()
             throws Exception
     {
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", new RepoRef("ALIce", "TriNo"), BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns()));
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", new RepoRef("ALIce", "RePoSitory"), BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns()));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
@@ -314,7 +314,7 @@ class TestPullRequestCiBridgeResolverImpl
             throws Exception
     {
         CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "completed", Optional.of("failure"), HEAD,
-                "https://github.com/trinodb/trino/actions/runs/100", failing.jobs());
+                "https://github.com/owner/repository/actions/runs/100", failing.jobs());
         when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
@@ -369,7 +369,7 @@ class TestPullRequestCiBridgeResolverImpl
     void doesNotExposeAuthenticatedProviderErrorsToTheAgent()
             throws Exception
     {
-        when(actions.inspect(PR)).thenThrow(new IllegalStateException("Request failed: https://token-secret@github.com/trinodb/trino"));
+        when(actions.inspect(PR)).thenThrow(new IllegalStateException("Request failed: https://token-secret@github.com/owner/repository"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
@@ -424,9 +424,9 @@ class TestPullRequestCiBridgeResolverImpl
     {
         List<CiWorkflowRun> workflows = IntStream.range(1, 501).mapToObj(id -> {
             CiJob job = new CiJob(1000 + id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"),
-                    "https://github.com/trinodb/trino/actions/runs/" + id, ImmutableList.of());
+                    "https://github.com/owner/repository/actions/runs/" + id, ImmutableList.of());
             return new CiWorkflowRun(id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"), HEAD,
-                    "https://github.com/trinodb/trino/actions/runs/" + id, ImmutableList.of(job));
+                    "https://github.com/owner/repository/actions/runs/" + id, ImmutableList.of(job));
         }).collect(ImmutableList.toImmutableList());
         when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), workflows));
 
@@ -443,10 +443,10 @@ class TestPullRequestCiBridgeResolverImpl
             throws Exception
     {
         List<CiJob> jobs = IntStream.range(1, 501).mapToObj(id -> new CiJob(10_000 + id, 99, "\u0001".repeat(400), 1,
-                "completed", Optional.of("success"), "https://github.com/trinodb/trino/actions/runs/99/job/" + id, ImmutableList.of()))
+                "completed", Optional.of("success"), "https://github.com/owner/repository/actions/runs/99/job/" + id, ImmutableList.of()))
                 .collect(ImmutableList.toImmutableList());
         CiWorkflowRun passing = new CiWorkflowRun(99, 9, "Passing workflow", 1, "completed", Optional.of("success"), HEAD,
-                "https://github.com/trinodb/trino/actions/runs/99", jobs);
+                "https://github.com/owner/repository/actions/runs/99", jobs);
         when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR),
                 ImmutableList.of(passing, failing.workflowRuns().getFirst())));
 
@@ -575,10 +575,10 @@ class TestPullRequestCiBridgeResolverImpl
     {
         long workflowId = 100;
         CiJob job = new CiJob(200 + attempt, workflowId, name, attempt, "completed", Optional.of(conclusion),
-                "https://github.com/trinodb/trino/actions/runs/100/job/" + (200 + attempt),
+                "https://github.com/owner/repository/actions/runs/100/job/" + (200 + attempt),
                 ImmutableList.of(new CiStep(1, "Check commit messages", "completed", Optional.of(conclusion))));
         CiWorkflowRun workflow = new CiWorkflowRun(workflowId, 10, "Build", attempt, "completed", Optional.of(conclusion), head,
-                "https://github.com/trinodb/trino/actions/runs/100", ImmutableList.of(job));
+                "https://github.com/owner/repository/actions/runs/100", ImmutableList.of(job));
         return new CiHeadSnapshot(ref, true, "alice", FORK, BRANCH, head, "master", BASE, url(ref), ImmutableList.of(workflow));
     }
 

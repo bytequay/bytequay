@@ -82,7 +82,7 @@ describe('suggested changes', () => {
 });
 
 const pullRequestDetail = prDetail({
-  repo: 'trinodb/trino', number: 30611, title: 'Handle IPv6 zone ids in Web UI task URIs', htmlUrl: null,
+  repo: 'owner/repository', number: 30611, title: 'Handle IPv6 zone ids in Web UI task URIs', htmlUrl: null,
   mergeable: null, mergeableState: null, author: 'wren-d', baseRef: 'master', headRef: 'ipv6',
   createdAt: '2026-08-27T10:00:00Z', updatedAt: '2026-09-05T12:00:00Z',
   body: 'Fixes the zone id.', additions: 2, deletions: 1,
@@ -91,7 +91,7 @@ const pullRequestDetail = prDetail({
 describe('MarkdownBody', () => {
   it.each(['open', 'closed'])('maps an %s issue reference onto the shared card', state => {
     const item = referenceCardItem(
-      { kind: 'issue', owner: 'trinodb', repo: 'trino', number: 30611, href: 'https://github.com/trinodb/trino/issues/30611' },
+      { kind: 'issue', owner: 'owner', repo: 'repository', number: 30611, href: 'https://github.com/owner/repository/issues/30611' },
       {
         kind: 'issue',
         workspaceId: null,
@@ -108,7 +108,7 @@ describe('MarkdownBody', () => {
 
     expect(item).toMatchObject({
       type: 'issue',
-      repo: 'trinodb/trino',
+      repo: 'owner/repository',
       number: 30611,
       title: 'Kerberos Hive container startup times out',
       author: 'octocat',
@@ -118,7 +118,7 @@ describe('MarkdownBody', () => {
   });
 
   it('reads a pull request reference from the detail, merged state included', () => {
-    const reference = { kind: 'pull' as const, owner: 'trinodb', repo: 'trino', number: 30611, href: 'https://github.com/trinodb/trino/pull/30611' };
+    const reference = { kind: 'pull' as const, owner: 'owner', repo: 'repository', number: 30611, href: 'https://github.com/owner/repository/pull/30611' };
     const detail = { ...pullRequestDetail, state: 'closed', mergedAt: '2026-09-06T09:00:00Z', labels: [{ name: 'iceberg', color: null as string | null }] };
 
     expect(referenceCardItem(reference, { kind: 'pull', detail })).toMatchObject({
@@ -129,7 +129,7 @@ describe('MarkdownBody', () => {
     });
     expect(referenceCardItem(reference, { kind: 'pull', detail }).chip?.label).toBe('Merged');
     expect(referenceCardItem(reference, { kind: 'pull', detail: { ...pullRequestDetail, draft: true } }).chip?.label).toBe('Draft');
-    expect(referenceCardItem(reference, undefined).title).toBe('trinodb/trino #30611');
+    expect(referenceCardItem(reference, undefined).title).toBe('owner/repository #30611');
   });
 
   it('renders checkbox and unordered-list markers', () => {
@@ -434,17 +434,17 @@ describe('MarkdownBody', () => {
   });
 
   it('renders full Jira mention names as one profile link without parsing the label as Markdown', () => {
-    const body = 'Hello [@Jack Chen](https://example.atlassian.net/jira/people/account%3A123), cc '
+    const body = 'Hello [@Riley Park](https://example.atlassian.net/jira/people/account%3A123), cc '
       + '[@Anu Sudarsan](https://example.atlassian.net/jira/people/anu) and '
       + '[@张 三 \\(QA\\) \\[team\\]](https://example.atlassian.net/jira/people/qa).';
     const html = renderToStaticMarkup(<MarkdownBody body={body} />);
 
-    expect(html).toContain('<a class="md-mention" href="https://example.atlassian.net/jira/people/account%3A123">@Jack Chen</a>');
+    expect(html).toContain('<a class="md-mention" href="https://example.atlassian.net/jira/people/account%3A123">@Riley Park</a>');
     expect(html).toContain('<a class="md-mention" href="https://example.atlassian.net/jira/people/anu">@Anu Sudarsan</a>');
     expect(html).toContain('>@张 三 (QA) [team]</a>');
     expect(html).not.toContain('class="md-link"');
     expect(html.match(/<a /g)).toHaveLength(3);
-    expect(renderToStaticMarkup(<MarkdownBody body={'[@Jack Chen](https://example.com/jira/people/jack) and `@Jack Chen`'} />)).not.toContain('md-mention');
+    expect(renderToStaticMarkup(<MarkdownBody body={'[@Riley Park](https://example.com/jira/people/riley) and `@Riley Park`'} />)).not.toContain('md-mention');
   });
 
   it('keeps escaped pipes inside table text and code cells', () => {
@@ -516,13 +516,13 @@ describe('MarkdownBody', () => {
   });
 
   it('renders the reported inline same-repository code permalink as a code card', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/plugin/trino-bigquery/src/main/java/io/trino/plugin/bigquery/BigQueryMetadata.java#L796';
+    const url = 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/plugin/bigquery/src/main/java/com/example/bigquery/BigQueryMetadata.java#L796';
     const body = `the place ${url} has similar logic, we could include in this pr`;
 
-    const html = renderToStaticMarkup(<MarkdownBody body={body} repository="trinodb/trino" />);
+    const html = renderToStaticMarkup(<MarkdownBody body={body} repository="owner/repository" />);
 
     expect(html).toContain('<p>the place</p><div class="md-code-reference">');
-    expect(html).toContain('trino/plugin/trino-bigquery/src/main/java/io/trino/plugin/bigquery/BigQueryMetadata.java');
+    expect(html).toContain('repository/plugin/bigquery/src/main/java/com/example/bigquery/BigQueryMetadata.java');
     expect(html).toContain('Line 796');
     expect(html).toContain('4bfd15e');
     expect(html).toContain('Loading code…');
@@ -530,8 +530,8 @@ describe('MarkdownBody', () => {
   });
 
   it('renders resolved source lines and restores the ordinary link on failure', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10-L12';
-    const reference = parseGitHubCodePermalink(url, 'trinodb/trino');
+    const url = 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10-L12';
+    const reference = parseGitHubCodePermalink(url, 'owner/repository');
     expect(reference).not.toBeNull();
     if (!reference) throw new Error('expected a code permalink');
 
@@ -553,14 +553,14 @@ describe('MarkdownBody', () => {
   });
 
   it('parses a bounded code line range', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10-L12';
+    const url = 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10-L12';
 
-    expect(markdownBlocks(url, 'TRINODB/TRINO')).toEqual([{
+    expect(markdownBlocks(url, 'OWNER/REPOSITORY')).toEqual([{
       kind: 'code-reference',
       reference: {
         href: url,
-        owner: 'trinodb',
-        repo: 'trino',
+        owner: 'owner',
+        repo: 'repository',
         commit: '4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa',
         path: 'src/Main.java',
         startLine: 10,
@@ -570,18 +570,18 @@ describe('MarkdownBody', () => {
   });
 
   it.each([
-    ['foreign repository', 'https://github.com/other/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10'],
-    ['branch reference', 'https://github.com/trinodb/trino/blob/master/src/Main.java#L10'],
-    ['missing line anchor', 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java'],
+    ['foreign repository', 'https://github.com/other/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10'],
+    ['branch reference', 'https://github.com/owner/repository/blob/master/src/Main.java#L10'],
+    ['missing line anchor', 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java'],
   ])('keeps a %s as an ordinary link', (_label, url) => {
-    const html = renderToStaticMarkup(<MarkdownBody body={url} repository="trinodb/trino" />);
+    const html = renderToStaticMarkup(<MarkdownBody body={url} repository="owner/repository" />);
 
     expect(html).toContain(`<a href="${url}">${url}</a>`);
     expect(html).not.toContain('md-code-reference');
   });
 
   it('does not promote labeled, backticked, fenced, or punctuation-adjacent code permalinks', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10';
+    const url = 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10';
     const bodies = [
       `[source](${url})`,
       `\`${url}\``,
@@ -591,24 +591,24 @@ describe('MarkdownBody', () => {
     ];
 
     for (const body of bodies) {
-      const html = renderToStaticMarkup(<MarkdownBody body={body} repository="trinodb/trino" />);
+      const html = renderToStaticMarkup(<MarkdownBody body={body} repository="owner/repository" />);
       expect(html).not.toContain('md-code-reference');
     }
   });
 
   it('does not emit empty paragraphs when an inline code permalink starts or ends the prose', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10';
+    const url = 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10';
 
-    expect(markdownBlocks(`${url} after`, 'trinodb/trino').map(block => block.kind))
+    expect(markdownBlocks(`${url} after`, 'owner/repository').map(block => block.kind))
       .toEqual(['code-reference', 'paragraph']);
-    expect(markdownBlocks(`before ${url}`, 'trinodb/trino').map(block => block.kind))
+    expect(markdownBlocks(`before ${url}`, 'owner/repository').map(block => block.kind))
       .toEqual(['paragraph', 'code-reference']);
   });
 
   it('preserves repository context inside quoted Markdown', () => {
-    const url = 'https://github.com/trinodb/trino/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10';
+    const url = 'https://github.com/owner/repository/blob/4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa/src/Main.java#L10';
 
-    const html = renderToStaticMarkup(<MarkdownBody body={`> ${url}`} repository="trinodb/trino" />);
+    const html = renderToStaticMarkup(<MarkdownBody body={`> ${url}`} repository="owner/repository" />);
 
     expect(html).toContain('<blockquote><div class="md-code-reference">');
     expect(html).toContain('Line 10');
@@ -622,7 +622,7 @@ describe('MarkdownBody', () => {
       + '> CopyOnWriteFileRewriter writes the surviving rows.\n'
       + '> \n'
       + '> I suspect the rewriting is happening on the coordinator.\n\n'
-      + '@chenjian2664 I moved the work to workers.';
+      + '@contributor I moved the work to workers.';
 
     const html = renderToStaticMarkup(<MarkdownBody body={body} />);
 
@@ -641,22 +641,22 @@ describe('short issue references', () => {
   });
 
   it('links #number to the body repository and leaves look-alikes as text', () => {
-    const html = renderToStaticMarkup(<MarkdownBody body={'Fixes #1234 and **#7**, not a#5, &#39;, `#8` or #9x'} repository="trinodb/trino" />);
+    const html = renderToStaticMarkup(<MarkdownBody body={'Fixes #1234 and **#7**, not a#5, &#39;, `#8` or #9x'} repository="owner/repository" />);
 
     // The icon leads from the start; the title replaces the number's text once the preview loads.
-    expect(html).toMatch(/<a class="md-reference is-issue" href="https:\/\/github.com\/trinodb\/trino\/issues\/1234"><svg[^>]*>.*?<\/svg>#1234<\/a>/);
+    expect(html).toMatch(/<a class="md-reference is-issue" href="https:\/\/github.com\/owner\/repository\/issues\/1234"><svg[^>]*>.*?<\/svg>#1234<\/a>/);
     expect(html).toMatch(/issues\/7"><svg[^>]*>.*?<\/svg>#7<\/a>/);
     expect(html.match(/md-reference/g)).toHaveLength(2);
   });
 
   it('keeps a compact #number, for a title, to the bare number', () => {
-    expect(renderToStaticMarkup(<h1>{linkIssueNumbers('Fix it (#7)', 'trinodb/trino', true)}</h1>))
-      .toBe('<h1>Fix it (<a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/7">#7</a>)</h1>');
+    expect(renderToStaticMarkup(<h1>{linkIssueNumbers('Fix it (#7)', 'owner/repository', true)}</h1>))
+      .toBe('<h1>Fix it (<a class="md-reference is-issue" href="https://github.com/owner/repository/issues/7">#7</a>)</h1>');
   });
 
   it('keeps #number plain without a repository or inside another link', () => {
     expect(renderToStaticMarkup(<MarkdownBody body="Fixes #1234" />)).toBe('<div class="markdown-body"><p>Fixes #1234</p></div>');
-    const html = renderToStaticMarkup(<MarkdownBody body="See [#5 notes](https://example.com)" repository="trinodb/trino" />);
+    const html = renderToStaticMarkup(<MarkdownBody body="See [#5 notes](https://example.com)" repository="owner/repository" />);
     expect(html).not.toContain('md-reference');
     expect(html).toContain('>#5 notes</a>');
   });

@@ -23,8 +23,8 @@ class TestPullRequestRef
     void testParseRoundTripsFullName()
     {
         for (PullRequestRef ref : new PullRequestRef[] {
-                PullRequestRef.of("apache", "trino", 1),
-                PullRequestRef.of("trinodb", "trino", 24601),
+                PullRequestRef.of("apache", "repository", 1),
+                PullRequestRef.of("owner", "repository", 24601),
                 PullRequestRef.of("acme", "widgets", 7)}) {
             assertThat(PullRequestRef.parse(ref.fullName())).contains(ref);
         }

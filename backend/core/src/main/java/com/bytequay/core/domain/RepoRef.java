@@ -20,10 +20,10 @@ import static java.util.Objects.requireNonNull;
  * Carried as a single parameter to repository methods instead of passing
  * {@code owner} and {@code repo} separately.
  *
- * <p>Example: {@code RepoRef.of("apache", "trino")}
+ * <p>Example: {@code RepoRef.of("owner", "repository")}
  *
- * @param owner repository owner login (user or organisation), e.g. {@code "apache"}
- * @param repo  repository name, e.g. {@code "trino"}
+ * @param owner repository owner login (user or organisation), e.g. {@code "owner"}
+ * @param repo  repository name, e.g. {@code "repository"}
  */
 public record RepoRef(String owner, String repo)
 {

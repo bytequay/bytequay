@@ -245,7 +245,7 @@ class TestCherryPickExecution
     void rejectsAWorkBranchThatIsTheLocalTargetBranch()
     {
         assertThatThrownBy(() -> new Workspace(
-                "workspace-id", RepoRef.of("trinodb", "trino"), RepoRef.of("trinodb", "trino"), "origin", "fork", "master",
+                "workspace-id", RepoRef.of("owner", "repository"), RepoRef.of("owner", "repository"), "origin", "fork", "master",
                 "fork-master", "fork-master", Path.of("/tmp/wt"), "claude", Optional.empty(), Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("work branch equals the local target branch");
@@ -268,8 +268,8 @@ class TestCherryPickExecution
     {
         return new Workspace(
                 "workspace-id",
-                RepoRef.of("trinodb", "trino"),
-                RepoRef.of("trinodb", "trino"),
+                RepoRef.of("owner", "repository"),
+                RepoRef.of("owner", "repository"),
                 "origin",
                 "fork",
                 "master",
@@ -291,7 +291,7 @@ class TestCherryPickExecution
                 sha(position),
                 parent(position),
                 "Commit " + position,
-                Optional.of(new CherryPickItem.PullRequestRefView(1000 + position, "Pull request " + position, "https://github.com/trinodb/trino/pull/" + (1000 + position))),
+                Optional.of(new CherryPickItem.PullRequestRefView(1000 + position, "Pull request " + position, "https://github.com/owner/repository/pull/" + (1000 + position))),
                 disposition);
     }
 

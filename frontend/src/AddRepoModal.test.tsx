@@ -18,8 +18,8 @@ import AddRepoModal, { WatchRepositoryConfirmation } from './AddRepoModal';
 import type { WatchRepositoryPreviewDto } from './types';
 import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
-const upstream = { owner: 'trinodb', repo: 'trino' };
-const fork = { owner: 'octocat', repo: 'trino' };
+const upstream = { owner: 'owner', repo: 'repository' };
+const fork = { owner: 'octocat', repo: 'repository' };
 const preview: WatchRepositoryPreviewDto = {
   selectedRepositoryId: 1,
   selectedRepository: upstream,
@@ -76,12 +76,12 @@ describe('watch repository fork consent', () => {
   it('discloses the exact fork and upstream without creating anything on preview or Back', () => {
     const { html, onWatch, onBack, back, confirm } = confirmation();
 
-    expect(html).toContain('Allow ByteQuay to create octocat/trino as your personal fork of trinodb/trino?');
+    expect(html).toContain('Allow ByteQuay to create octocat/repository as your personal fork of owner/repository?');
     expect(html).toContain('>Create fork and watch</button>');
-    expect(html).toContain('<span>Followed for updates</span><b>trinodb/trino</b>');
-    expect(html).toContain('<span>Work branches push to</span><b>octocat/trino</b>');
+    expect(html).toContain('<span>Followed for updates</span><b>owner/repository</b>');
+    expect(html).toContain('<span>Work branches push to</span><b>octocat/repository</b>');
     expect(html).toContain('<span>New branches start from</span><b>upstream/master</b>');
-    expect(html).toContain('<span>Pull requests open against</span><b>trinodb/trino · master</b>');
+    expect(html).toContain('<span>Pull requests open against</span><b>owner/repository · master</b>');
     expect(html).not.toContain('You can’t push');
     expect(onWatch).not.toHaveBeenCalled();
 
@@ -105,11 +105,11 @@ describe('watch repository fork consent', () => {
   ])('reuses the personal fork when watching $selectedRepository.owner/$selectedRepository.repo', selected => {
     const { html, onWatch, confirm } = confirmation({ ...selected, pushWritable: true, forkRequired: false });
 
-    expect(html).toContain('reuse your existing personal fork octocat/trino');
-    expect(html).toContain('class="modal-preview__name">trinodb/trino</span>');
-    expect(html).toContain('aria-label="trinodb/trino"');
+    expect(html).toContain('reuse your existing personal fork octocat/repository');
+    expect(html).toContain('class="modal-preview__name">owner/repository</span>');
+    expect(html).toContain('aria-label="owner/repository"');
     expect(html).not.toContain('octocat.png');
-    expect(html).toContain('follow trinodb/trino for commits, issues and pull requests');
+    expect(html).toContain('follow owner/repository for commits, issues and pull requests');
     expect(html).toContain('>Watch repository</button>');
     expect(html).not.toContain('Create fork and watch');
     expect(onWatch).not.toHaveBeenCalled();
@@ -139,7 +139,7 @@ describe('watch repository fork consent', () => {
       pullRequestBase: fork,
     });
 
-    expect(html).toContain('ByteQuay will clone octocat/trino directly, follow its commits, issues and pull requests, and publish work branches to this repository.');
+    expect(html).toContain('ByteQuay will clone octocat/repository directly, follow its commits, issues and pull requests, and publish work branches to this repository.');
     expect(html).not.toContain('Personal fork');
     expect(html).toContain('Direct clone requires write permission');
     confirm.props.onClick?.({} as MouseEvent<HTMLButtonElement>);

@@ -59,15 +59,15 @@ describe('run presentation', () => {
   });
 
   it('names an agent command by its test selectors, or its module and goals', () => {
-    expect(commandLabel('./mvnw -B --no-transfer-progress -pl plugin/trino-snowflake -am -Dtest=TestSnowflakeConfig,TestSnowflakePlugin '
+    expect(commandLabel('./mvnw -B --no-transfer-progress -pl plugin/snowflake -am -Dtest=TestSnowflakeConfig,TestSnowflakePlugin '
       + '-Dsurefire.failIfNoSpecifiedTests=false test > /tmp/bytequay-26519-unit.log 2>&1; result=$?; tail -n 70 /tmp/bytequay-26519-unit.log; exit "$result"'))
       .toBe('TestSnowflakeConfig, TestSnowflakePlugin');
-    expect(commandLabel("./mvnw -o -pl plugin/trino-iceberg '-Dtest=io.trino.plugin.iceberg.TestTrinoRestCatalog#testReview*' -DsurefireEnablePreview= compiler:testCompile surefire:test"))
-      .toBe('TestTrinoRestCatalog#testReview* · compiler:testCompile surefire:test');
-    expect(commandLabel('./mvnw -o -pl plugin/trino-iceberg compiler:testCompile')).toBe('trino-iceberg · compiler:testCompile');
+    expect(commandLabel("./mvnw -o -pl plugin/catalog '-Dtest=com.example.iceberg.TestRepositoryRestCatalog#testReview*' -DsurefireEnablePreview= compiler:testCompile surefire:test"))
+      .toBe('TestRepositoryRestCatalog#testReview* · compiler:testCompile surefire:test');
+    expect(commandLabel('./mvnw -o -pl plugin/catalog compiler:testCompile')).toBe('catalog · compiler:testCompile');
     expect(commandLabel('export JAVA_HOME=/jdk; cd core && ../mvnw -q -T 4 verify | tail -40')).toBe('verify');
     expect(commandLabel('./mvnw')).toBe('mvnw');
-    expect(runLabel(run({ scope: 'COMMAND', testClass: null, testMethod: null, ordinal: 5, command: './mvnw -pl lib/trino-cache test' }))).toBe('trino-cache #5');
+    expect(runLabel(run({ scope: 'COMMAND', testClass: null, testMethod: null, ordinal: 5, command: './mvnw -pl lib/cache test' }))).toBe('cache #5');
   });
 
   it('marks a run stale only when both fingerprints are known and differ', () => {

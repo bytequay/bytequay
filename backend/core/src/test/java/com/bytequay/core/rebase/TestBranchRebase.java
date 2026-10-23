@@ -195,7 +195,7 @@ class TestBranchRebase
                 BranchRebaseId.random(),
                 "request-1",
                 "task-1",
-                RepoRef.of("trinodb", "trino"),
+                RepoRef.of("owner", "repository"),
                 Path.of("/tmp/bytequay-rebase/worktree"),
                 "feature",
                 "master",

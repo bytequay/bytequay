@@ -176,8 +176,8 @@ class TestReviewFacts
     @Test
     void aChangeTouchesTestsAndCodeWhenItsPathsNameBoth()
     {
-        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("plugin/trino-iceberg/src/main/java/io/trino/Split.java",
-                "plugin/trino-iceberg/src/test/java/io/trino/TestSplit.java"))).isTrue();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("plugin/catalog/src/main/java/com/example/Split.java",
+                "plugin/catalog/src/test/java/com/example/TestSplit.java"))).isTrue();
         assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("frontend/src/pulls/model.ts", "frontend/src/pulls/model.test.ts"))).isTrue();
         assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("pkg/server.go", "pkg/server_test.go"))).isTrue();
         assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("app/models.py", "tests/test_models.py"))).isTrue();

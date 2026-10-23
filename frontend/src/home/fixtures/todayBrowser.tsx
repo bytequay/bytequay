@@ -38,21 +38,21 @@ const ITEMS: AgendaItemDto[] = [
   {
     ref: 'task:t1', action: 'reply', title: 'Answer elric-t’s review on #31402', label: 'elric-t on #31402', at: '2026-10-15T18:40:00Z', workspaceId: 'ws1',
     why: 'Changes requested yesterday 18:40: “Please split the retry policy into its own PR.” 2 findings unanswered.', target: target('TASK', { id: 't1' }),
-    where: 'trinodb/trino #31402', status: 'open', byYou: false, doneText: null, doneAt: null,
+    where: 'owner/repository #31402', status: 'open', byYou: false, doneText: null, doneAt: null,
   },
   {
-    ref: 'pr:trinodb/trino#31377', action: 'review', title: 'Review #31377 Add Iceberg metadata cache', label: 'Review #31377', at: '2026-10-13T08:00:00Z',
-    workspaceId: 'ws1', why: 'Asked 3 days ago. 134 lines, CI green; fits your 12:30 gap.', target: target('PULL', { repo: 'trinodb/trino', number: 31377 }),
+    ref: 'pr:owner/repository#31377', action: 'review', title: 'Review #31377 Add Iceberg metadata cache', label: 'Review #31377', at: '2026-10-13T08:00:00Z',
+    workspaceId: 'ws1', why: 'Asked 3 days ago. 134 lines, CI green; fits your 12:30 gap.', target: target('PULL', { repo: 'owner/repository', number: 31377 }),
     where: null, status: 'open', byYou: false, doneText: null, doneAt: null,
   },
   {
-    ref: 'pr:trinodb/trino-gateway#612', action: 'merge', title: 'Merge #612 Route by client tags', label: 'Merge #612', at: '2026-10-14T10:00:00Z', workspaceId: null,
-    why: 'Approved by finn-ep, green and mergeable since Wednesday.', target: target('PULL', { repo: 'trinodb/trino-gateway', number: 612, workspaceId: null }),
+    ref: 'pr:owner/gateway#612', action: 'merge', title: 'Merge #612 Route by client tags', label: 'Merge #612', at: '2026-10-14T10:00:00Z', workspaceId: null,
+    why: 'Approved by finn-ep, green and mergeable since Wednesday.', target: target('PULL', { repo: 'owner/gateway', number: 612, workspaceId: null }),
     where: null, status: 'open', byYou: false, doneText: null, doneAt: null,
   },
   {
-    ref: 'pr:trinodb/trino#31390', action: 'fix', title: 'Fix maven-checks on #31390', label: 'maven-checks', at: '2026-10-15T09:00:00Z', workspaceId: 'ws1',
-    why: 'maven-checks failed on your last push.', target: target('PULL', { repo: 'trinodb/trino', number: 31390 }),
+    ref: 'pr:owner/repository#31390', action: 'fix', title: 'Fix maven-checks on #31390', label: 'maven-checks', at: '2026-10-15T09:00:00Z', workspaceId: 'ws1',
+    why: 'maven-checks failed on your last push.', target: target('PULL', { repo: 'owner/repository', number: 31390 }),
     where: null, status: 'done', byYou: false, doneText: 'Checks passed', doneAt: null,
   },
 ];
@@ -63,9 +63,9 @@ const AGENDA: AgendaDto = {
   items: ITEMS,
   recap: {
     text: 'Merged 3 PRs. Iceberg write path is half done. #31377 has waited all week.',
-    merged: [{ ref: 'pr:trinodb/trino#31390', target: target('PULL', { repo: 'trinodb/trino', number: 31390 }) },
-      { ref: 'pr:trinodb/trino-gateway#605', target: target('PULL', { repo: 'trinodb/trino-gateway', number: 605 }) }],
-    slipped: [{ ref: 'pr:trinodb/trino#31377', target: target('PULL', { repo: 'trinodb/trino', number: 31377 }) }],
+    merged: [{ ref: 'pr:owner/repository#31390', target: target('PULL', { repo: 'owner/repository', number: 31390 }) },
+      { ref: 'pr:owner/gateway#605', target: target('PULL', { repo: 'owner/gateway', number: 605 }) }],
+    slipped: [{ ref: 'pr:owner/repository#31377', target: target('PULL', { repo: 'owner/repository', number: 31377 }) }],
   },
   calendar: { state: 'used', busyHours: 5.5, allDay: false, busy: [{ from: '10:00', to: '12:30' }, { from: '15:00', to: '18:00' }],
     free: [{ from: '09:00', to: '10:00' }, { from: '12:30', to: '15:00' }] },
@@ -73,7 +73,7 @@ const AGENDA: AgendaDto = {
 };
 
 const ATTENTION: AttentionItem[] = [31377, 31411].map((number): AttentionItem => ({
-  key: `trinodb/trino#${number}`, sourceKey: `github.com:issue:${number}`, type: 'issue', kind: 'assigned', repo: 'trinodb/trino', number,
+  key: `owner/repository#${number}`, sourceKey: `github.com:issue:${number}`, type: 'issue', kind: 'assigned', repo: 'owner/repository', number,
   title: number === 31377 ? 'Add Iceberg metadata cache' : 'Snapshot expiry ignores branch retention', author: 'marlo-t', authorAvatarUrl: null,
   createdAt: '2026-10-10T00:00:00Z', updatedAt: '2026-10-15T00:00:00Z', labels: [], pr: null, body: '', commentCount: 0, workspaceId: 'ws1',
 }));
@@ -122,7 +122,7 @@ async function opensWork(): Promise<void> {
     assert(rows.length === 5, `Five rows must show, found ${rows.length}`);
     assert(rows[4].classList.contains('is-done'), 'The done row must sink to the bottom');
     const opened = zoomed(() => rows[2].click());
-    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'trinodb/trino', number: 31377, workspaceId: 'ws1' }]), `A row must open its pull request: ${JSON.stringify(opened)}`);
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `A row must open its pull request: ${JSON.stringify(opened)}`);
     const keyed = zoomed(() => rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     assert(JSON.stringify(keyed) === JSON.stringify([{ kind: 'work', workspaceId: 'ws1', itemId: 'w22' }]), 'Enter must open the work item');
     assert(view.marks.length === 0, 'Opening must not mark anything');
@@ -139,7 +139,7 @@ async function marksWithoutOpening(): Promise<void> {
       button(view.host, 'Reopen “Fix maven-checks on #31390”').click();
     });
     assert(opened.length === 0, 'Marking must not open the row');
-    assert(JSON.stringify(view.marks) === JSON.stringify([['pr:trinodb/trino#31377', 'DONE'], ['pr:trinodb/trino-gateway#612', 'DISMISSED'], ['pr:trinodb/trino#31390', null]]),
+    assert(JSON.stringify(view.marks) === JSON.stringify([['pr:owner/repository#31377', 'DONE'], ['pr:owner/gateway#612', 'DISMISSED'], ['pr:owner/repository#31390', null]]),
       `Marks must reach the agenda: ${JSON.stringify(view.marks)}`);
   }
   finally { view.dispose(); }
@@ -177,7 +177,7 @@ async function recapAndSun(): Promise<void> {
     assert(!view.host.textContent?.includes('Slipped'), 'The recap starts folded');
     const recap = element<HTMLElement>('.today-recap', view.host, 'This week must show on the recap day');
     flushSync(() => recap.click());
-    assert(view.host.textContent?.includes('Slipped') === true && view.host.textContent.includes('trino-gateway #605'), 'This week must unfold its chips');
+    assert(view.host.textContent?.includes('Slipped') === true && view.host.textContent.includes('gateway #605'), 'This week must unfold its chips');
     const marked = [...view.host.querySelectorAll<HTMLElement>('.atn-section .item-row')].map(row => row.querySelector('.today-mark') !== null);
     assert(JSON.stringify(marked) === JSON.stringify([true, false]), `Only the row also on Today wears the sun: ${JSON.stringify(marked)}`);
   }

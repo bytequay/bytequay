@@ -53,7 +53,7 @@ class TestEpicSources
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("TrinoDB", "Trino"));
+        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("Owner", "Repository"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(tickets.getObject()).thenReturn(jira);
     }
@@ -61,8 +61,8 @@ class TestEpicSources
     @Test
     void anIssueIsAnEpicOfTheWorkspaceThatMonitorsItsRepositoryWhileItIsMarked()
     {
-        when(markers.findEpic("github.com", 41)).thenReturn(Optional.of(new IssueEpic("github.com", 41, "trinodb/trino", 7, true, Instant.EPOCH)));
-        when(markers.findEpic("github.com", 42)).thenReturn(Optional.of(new IssueEpic("github.com", 42, "trinodb/trino", 8, false, Instant.EPOCH)));
+        when(markers.findEpic("github.com", 41)).thenReturn(Optional.of(new IssueEpic("github.com", 41, "owner/repository", 7, true, Instant.EPOCH)));
+        when(markers.findEpic("github.com", 42)).thenReturn(Optional.of(new IssueEpic("github.com", 42, "owner/repository", 8, false, Instant.EPOCH)));
         when(markers.findEpic("github.com", 43)).thenReturn(Optional.of(new IssueEpic("github.com", 43, "other/repo", 9, true, Instant.EPOCH)));
         assertThat(epics.marked("workspace", WorkItemLink.issueIdentity("github.com", 41))).isTrue();
         assertThat(epics.marked("workspace", WorkItemLink.issueIdentity("github.com", 42))).as("unmarked").isFalse();

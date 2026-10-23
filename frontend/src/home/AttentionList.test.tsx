@@ -25,8 +25,8 @@ import * as teamHooks from '../teams/useTeams';
 
 function pullRequest(number: number, latestActivity: PullRequestDto['latestActivity'] = null): PullRequestDto {
   return pr({
-    id: number, repo: 'trinodb/trino', number, title: `Change ${number}`, author: 'alice',
-    htmlUrl: `https://github.com/trinodb/trino/pull/${number}`, updatedAt: '2026-08-28T00:00:00Z',
+    id: number, repo: 'owner/repository', number, title: `Change ${number}`, author: 'alice',
+    htmlUrl: `https://github.com/owner/repository/pull/${number}`, updatedAt: '2026-08-28T00:00:00Z',
     origin: 'REVIEW_REQUESTED', requestedReviewers: ['viewer'], ciStatus: null, additions: 0, commentCount: 1,
     mergeable: null, mergeableState: null, headRef: 'branch', latestActivity,
   });
@@ -35,7 +35,7 @@ function pullRequest(number: number, latestActivity: PullRequestDto['latestActiv
 function prItem(number: number, kind: AttentionItem['kind'] = 'review', latestActivity: PullRequestDto['latestActivity'] = null): AttentionItem {
   const pr = pullRequest(number, latestActivity);
   return {
-    key: `trinodb/trino#${number}`, type: 'pr', kind, repo: 'trinodb/trino', number, title: pr.title, author: 'alice',
+    key: `owner/repository#${number}`, type: 'pr', kind, repo: 'owner/repository', number, title: pr.title, author: 'alice',
     authorAvatarUrl: null, createdAt: null, updatedAt: pr.updatedAt, labels: [], pr, body: '', commentCount: 1, workspaceId: null,
   };
 }
@@ -46,7 +46,7 @@ function by(item: AttentionItem, author: string): AttentionItem {
 
 function issueItem(number: number): AttentionItem {
   return {
-    key: `trinodb/trino#${number}`, type: 'issue', kind: 'assigned', repo: 'trinodb/trino', number, title: `Issue ${number}`,
+    key: `owner/repository#${number}`, type: 'issue', kind: 'assigned', repo: 'owner/repository', number, title: `Issue ${number}`,
     author: 'finn-ep', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-08-28T00:00:00Z', labels: ['bug', 'iceberg'],
     pr: null, body: '', commentCount: 0, workspaceId: 'workspace-1',
   };
@@ -80,7 +80,7 @@ describe('AttentionList', () => {
   });
 
   it('shows a private-circle reason and keeps the Circles filter independent from the source tabs', () => {
-    mockCircle(['trinodb/trino']);
+    mockCircle(['owner/repository']);
     const items = [issueItem(7), prItem(1)];
     const html = list(items);
     expect(html).toContain('aria-pressed="false">Circles</button>');
@@ -91,7 +91,7 @@ describe('AttentionList', () => {
 
   it('never brings pinned or snoozed team items back through preference', () => {
     mockCircle();
-    vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'trinodb/trino#1', title: 'Pinned', target: { kind: 'pull', repo: 'trinodb/trino', number: 1 } }]) } });
+    vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'owner/repository#1', title: 'Pinned', target: { kind: 'pull', repo: 'owner/repository', number: 1 } }]) } });
     const items = [1, 2, 3].map(number => prItem(number));
     const html = list(items, { [items[1].key]: handledEntry(items[1], 'snooze', Date.now() + 3_600_000, 'soon') });
     expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([3]);
@@ -165,7 +165,7 @@ describe('AttentionList', () => {
     expect(html).not.toContain('>Pull request<');
     expect(html).toContain('<span title="Change 30920">Change 30920</span><span class="card-key">#30920</span><span class="pill is-outline">Review requested</span>');
     // Global Home names the repository beside the author; the age is the actual event's.
-    expect(html).toMatch(/<span>alice<\/span><\/span><span>authored<\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">trinodb\/trino<\/span>/);
+    expect(html).toMatch(/<span>alice<\/span><\/span><span>authored<\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">owner\/repository<\/span>/);
     expect(html).toContain('dateTime="2026-08-28T00:00:00Z"');
     expect(html).toContain('>2d</time>');
     expect(html).toContain('<span>Latest: bob requested your review · 2d</span>');
@@ -198,7 +198,7 @@ describe('AttentionList', () => {
   it('unfolds a review comment as the Markdown it was written in, under the name of the file it was left on', () => {
     const html = list([prItem(30985, 'review', {
       event: 'review_thread', actor: 'ravi-moreau', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
-      excerpt: '`TransactionLogAccess.java:562` declares the same record.', path: 'plugin/trino-delta-lake/src/main/java/CheckpointWriter.java', line: 101,
+      excerpt: '`TransactionLogAccess.java:562` declares the same record.', path: 'plugin/storage/src/main/java/CheckpointWriter.java', line: 101,
     })]);
 
     // What happened waits under the latest line, which unfolds it while hovered.
@@ -206,7 +206,7 @@ describe('AttentionList', () => {
     expect(html).toContain('<span>Latest: ravi-moreau left a review comment · ');
     expect(html).toContain('<div class="item-row__detail atn-detail">');
     expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
-    expect(html).toContain('<div class="atn-detail__file" title="plugin/trino-delta-lake/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
+    expect(html).toContain('<div class="atn-detail__file" title="plugin/storage/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
   });
 
   it('draws a ticket\'s status move as the old status struck through, then the new one, then the note', () => {
@@ -242,7 +242,7 @@ describe('AttentionList', () => {
 
   it('ranks cards across sources, newest first within a rank, within a filter before applying the cap', () => {
     const approval = { ...taskAttentionItem({ ...previewTask('workspace-1', 'task-1'), updatedAt: '2026-09-27T00:00:00Z' }, null,
-      { id: 'workspace-1', name: 'Workspace', repository: 'trinodb/trino' }), kind: 'approval' as const };
+      { id: 'workspace-1', name: 'Workspace', repository: 'owner/repository' }), kind: 'approval' as const };
     const mention = prItem(3, 'updated');
     const newest = { ...mention, updatedAt: '2026-09-28T13:00:00Z', pr: { ...mention.pr, mentioned: true } };
     const issue = { ...issueItem(7), updatedAt: '2026-09-28T11:00:00Z' };
@@ -348,12 +348,12 @@ describe('AttentionList', () => {
     const item: AttentionItem = {
       ...prItem(31264),
       links: [
-        { source: 'jira', key: 'TRINO-412', title: 'Validate the fix', status: 'Blocked', tone: 'red' },
+        { source: 'jira', key: 'ENG-412', title: 'Validate the fix', status: 'Blocked', tone: 'red' },
         { source: 'issue', key: '#31190', title: 'Checkpoint drops deletion vectors', status: 'Open', tone: 'green' },
       ],
     };
     const html = list([item]);
-    expect(html).toContain('>TRINO-412</span>');
+    expect(html).toContain('>ENG-412</span>');
     expect(html).toContain('>#31190</span>');
     expect(html).not.toContain('LINKED');
     expect(html).toContain('<span class="card-link" title="Validate the fix · Blocked">');

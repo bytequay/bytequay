@@ -23,10 +23,10 @@ import static java.util.Objects.requireNonNull;
  * Bundles owner, repo name, and PR number so PR-scoped repository methods
  * only need one parameter instead of three.
  *
- * <p>Example: {@code PullRequestRef.of("apache", "trino", 24601)}
+ * <p>Example: {@code PullRequestRef.of("owner", "repository", 123)}
  *
- * @param owner  repository owner login, e.g. {@code "apache"}
- * @param repo   repository name, e.g. {@code "trino"}
+ * @param owner  repository owner login, e.g. {@code "owner"}
+ * @param repo   repository name, e.g. {@code "repository"}
  * @param number pull request number (1-based)
  */
 public record PullRequestRef(String owner, String repo, int number)

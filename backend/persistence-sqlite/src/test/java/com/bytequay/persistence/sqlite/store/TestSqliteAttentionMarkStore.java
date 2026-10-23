@@ -44,7 +44,7 @@ class TestSqliteAttentionMarkStore
     @Test
     void savesReplacesAndRemovesMarksByKey()
     {
-        AttentionMark acknowledged = new AttentionMark("trinodb/trino#31402", AttentionMark.Kind.ACK, Optional.empty(), "2026-10-17T01:02:00Z",
+        AttentionMark acknowledged = new AttentionMark("owner/repository#31402", AttentionMark.Kind.ACK, Optional.empty(), "2026-10-17T01:02:00Z",
                 Optional.of("[\"2026-10-17T01:02:00Z\",\"open\"]"), "acknowledged", Optional.empty());
         AttentionMark snoozed = new AttentionMark("task:7d0e", AttentionMark.Kind.SNOOZE, Optional.of(Instant.parse("2026-10-18T01:00:00Z")), "2026-10-17T01:02:00Z",
                 Optional.empty(), "tomorrow", Optional.of("{\"key\":\"task:7d0e\",\"title\":\"Expose snapshot ids\"}"));
@@ -54,7 +54,7 @@ class TestSqliteAttentionMarkStore
         assertThat(store.all()).containsExactlyInAnyOrder(acknowledged, snoozed);
 
         // A second mark on the same item replaces the first, and removing an unknown key is not an error.
-        AttentionMark again = new AttentionMark("trinodb/trino#31402", AttentionMark.Kind.SNOOZE, Optional.empty(), "2026-10-17T03:00:00Z", Optional.empty(),
+        AttentionMark again = new AttentionMark("owner/repository#31402", AttentionMark.Kind.SNOOZE, Optional.empty(), "2026-10-17T03:00:00Z", Optional.empty(),
                 "until activity", Optional.empty());
         store.change(ImmutableList.of(again), ImmutableList.of("task:7d0e", "jira:gone:1"));
         entities.flush();

@@ -52,19 +52,19 @@ class TestSqliteSettingsStores
     @Test
     void remoteSourcesRoundTripPerWorkspace()
     {
-        remoteSources.save(new RemoteSource("ws-1", "oss", "https://github.com/trino-oss/trino.git"));
-        remoteSources.save(new RemoteSource("ws-1", "myoss", "https://github.com/jack/trino-oss.git"));
-        remoteSources.save(new RemoteSource("ws-2", "oss", "https://github.com/other/trino.git"));
+        remoteSources.save(new RemoteSource("ws-1", "oss", "https://github.com/mirror/repository.git"));
+        remoteSources.save(new RemoteSource("ws-1", "myoss", "https://github.com/sam/mirror.git"));
+        remoteSources.save(new RemoteSource("ws-2", "oss", "https://github.com/other/repository.git"));
 
         assertThat(remoteSources.findByWorkspace("ws-1"))
                 .extracting(RemoteSource::name)
                 .containsExactly("myoss", "oss");
 
-        remoteSources.save(new RemoteSource("ws-1", "oss", "https://github.com/renamed/trino.git"));
+        remoteSources.save(new RemoteSource("ws-1", "oss", "https://github.com/renamed/repository.git"));
         assertThat(remoteSources.findByWorkspace("ws-1"))
                 .filteredOn(source -> source.name().equals("oss"))
                 .extracting(RemoteSource::url)
-                .containsExactly("https://github.com/renamed/trino.git");
+                .containsExactly("https://github.com/renamed/repository.git");
 
         remoteSources.delete("ws-1", "oss");
         assertThat(remoteSources.findByWorkspace("ws-1")).extracting(RemoteSource::name).containsExactly("myoss");
@@ -76,9 +76,9 @@ class TestSqliteSettingsStores
         RemoteSource identified = new RemoteSource(
                 "ws-identity",
                 "oss",
-                "https://github.com/trinodb/trino.git",
+                "https://github.com/owner/repository.git",
                 java.util.Optional.of(166_515_022L),
-                java.util.Optional.of(RepoRef.of("trinodb", "trino")));
+                java.util.Optional.of(RepoRef.of("owner", "repository")));
 
         remoteSources.save(identified);
         assertThat(remoteSources.findByWorkspace("ws-identity")).containsExactly(identified);

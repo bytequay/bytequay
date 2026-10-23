@@ -49,11 +49,11 @@ class TestRepoControllerIssuePreview
             throws Exception
     {
         when(credentials.resolveGitHubToken()).thenReturn("pat");
-        when(gitHub.fetchIssuePreview("pat", RepoRef.of("trinodb", "trino"), 30611))
+        when(gitHub.fetchIssuePreview("pat", RepoRef.of("owner", "repository"), 30611))
                 .thenReturn(new GitHubIssuePreview(
                         "Kerberos container times out", "Details", "alice", ImmutableList.of("bug"), Instant.parse("2026-08-21T00:00:00Z"), "closed", false));
 
-        standaloneSetup(controller).build().perform(get("/api/repos/trinodb/trino/issues/30611/preview"))
+        standaloneSetup(controller).build().perform(get("/api/repos/owner/repository/issues/30611/preview"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.title").value("Kerberos container times out"))
                 .andExpect(jsonPath("$.body").value("Details"))
@@ -62,7 +62,7 @@ class TestRepoControllerIssuePreview
                 .andExpect(jsonPath("$.state").value("closed"))
                 .andExpect(jsonPath("$.pullRequest").value(false));
 
-        verify(gitHub).fetchIssuePreview("pat", RepoRef.of("trinodb", "trino"), 30611);
+        verify(gitHub).fetchIssuePreview("pat", RepoRef.of("owner", "repository"), 30611);
         verifyNoInteractions(workspaces);
     }
 
@@ -70,7 +70,7 @@ class TestRepoControllerIssuePreview
     void rejectsInvalidIssueNumbersBeforeResolvingCredentials()
             throws Exception
     {
-        standaloneSetup(controller).build().perform(get("/api/repos/trinodb/trino/issues/0/preview"))
+        standaloneSetup(controller).build().perform(get("/api/repos/owner/repository/issues/0/preview"))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(credentials, gitHub, workspaces);

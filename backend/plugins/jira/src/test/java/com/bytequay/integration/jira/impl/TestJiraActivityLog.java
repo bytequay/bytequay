@@ -131,7 +131,7 @@ class TestJiraActivityLog
 
     private static JiraIssue ticket(JiraDtos.Status status, Instant updatedAt, Optional<String> dueDate, List<JiraDtos.Comment> comments)
     {
-        return new JiraIssue("connection", "cloud", "10412", "TRINO-412", "https://example.atlassian.net/browse/TRINO-412", "Validate the fix", "", "Task", status,
+        return new JiraIssue("connection", "cloud", "10412", "ENG-412", "https://example.atlassian.net/browse/ENG-412", "Validate the fix", "", "Task", status,
                 Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false, updatedAt, dueDate, Optional.empty(), comments, false,
                 Optional.empty(), Optional.empty());
     }

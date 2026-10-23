@@ -25,7 +25,7 @@ import { parseAgentReview } from './contracts';
 import type { PullRequestDetailDto, UserProfileDto } from '../../types';
 
 const detail = {
-  id: 1, repo: 'trinodb/trino', number: 30304, title: 'Support sorted by nested fields in Iceberg',
+  id: 1, repo: 'owner/repository', number: 30304, title: 'Support sorted by nested fields in Iceberg',
   htmlUrl: null, state: 'open', draft: false, mergeable: true, mergeableState: 'clean',
   author: 'ezra-b', authorAvatarUrl: null, createdAt: null, updatedAt: null, mergedAt: null,
   baseRef: 'master', headRef: 'iceberg-nested-sort-fields', body: null, labels: [], assignees: [],
@@ -33,7 +33,7 @@ const detail = {
   ciStatus: 'FAILING', recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
 } as unknown as PullRequestDetailDto;
 
-const viewer = { login: 'jackchen', name: 'Jack', avatarUrl: null } as unknown as UserProfileDto;
+const viewer = { login: 'riley', name: 'Riley', avatarUrl: null } as unknown as UserProfileDto;
 
 const NO_WORKSPACE = Symbol('no workspace');
 
@@ -55,7 +55,7 @@ function card(review: AgentReviewDto, finding: ReviewFindingDto, projection: 're
     <ReviewFindingCard
       review={review}
       finding={finding}
-      viewerLogin="jackchen"
+      viewerLogin="riley"
       viewerAvatarUrl={null}
       projection={projection}
       defaultOpen
@@ -69,7 +69,7 @@ function card(review: AgentReviewDto, finding: ReviewFindingDto, projection: 're
 function summary(review: AgentReviewDto): string {
   return renderToStaticMarkup(
     <ReviewSummaryCard review={review} run={explanationRun(review) ?? latestRun(review)} findings={review.findings}
-      viewerLogin="jackchen" viewerAvatarUrl={null} busy={false}
+      viewerLogin="riley" viewerAvatarUrl={null} busy={false}
       onAsk={async () => {}} onSelectFinding={() => {}} />);
 }
 
@@ -691,7 +691,7 @@ describe('the finding card', () => {
         path: finding.path, side: 'RIGHT', line: 131, startLine: 118, body: 'sent', included: true, published: true,
         publication: {
           state: 'PUBLISHED', remoteReviewId: 2201456, remoteCommentId: 9911,
-          url: 'https://github.com/trinodb/trino/pull/30304#discussion_r2201456', at: '2026-09-06T16:32:00Z',
+          url: 'https://github.com/owner/repository/pull/30304#discussion_r2201456', at: '2026-09-06T16:32:00Z',
         },
       }]),
     });

@@ -76,18 +76,18 @@ class TestAvatarController
     {
         Path file = root.resolve("repository.png");
         Files.write(file, new byte[] {1, 2, 3});
-        when(cache.repository("trinodb", false)).thenReturn(Optional.of(new AvatarCache.CachedAvatar(file, IMAGE_PNG)));
-        when(cache.repository("trinodb", true)).thenReturn(Optional.of(new AvatarCache.CachedAvatar(file, IMAGE_PNG)));
+        when(cache.repository("owner", false)).thenReturn(Optional.of(new AvatarCache.CachedAvatar(file, IMAGE_PNG)));
+        when(cache.repository("owner", true)).thenReturn(Optional.of(new AvatarCache.CachedAvatar(file, IMAGE_PNG)));
 
-        mvc.perform(get("/api/avatars/repositories/trinodb"))
+        mvc.perform(get("/api/avatars/repositories/owner"))
                 .andExpect(status().isOk())
                 .andExpect(content().bytes(new byte[] {1, 2, 3}))
                 .andExpect(header().string("Cache-Control", "no-store"))
                 .andExpect(header().doesNotExist("ETag"));
-        verify(cache, never()).repository("trinodb", true);
-        mvc.perform(get("/api/avatars/repositories/trinodb?refresh=true"))
+        verify(cache, never()).repository("owner", true);
+        mvc.perform(get("/api/avatars/repositories/owner?refresh=true"))
                 .andExpect(status().isOk());
-        verify(cache).repository("trinodb", true);
+        verify(cache).repository("owner", true);
 
         mvc.perform(get("/api/avatars/repositories/missing"))
                 .andExpect(status().isNotFound())

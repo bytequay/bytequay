@@ -70,19 +70,19 @@ class TestWorkspaceRepositoryIdentity
     @Test
     void reusesWatchedSelectedAndUpstreamIdentitiesAndPersistsThem()
     {
-        Workspace selected = directWorkspace("selected", 101, RepoRef.of("trinodb", "trino"));
+        Workspace selected = directWorkspace("selected", 101, RepoRef.of("owner", "repository"));
         Workspace linked = linkedWorkspace("linked", 202, RepoRef.of("contributor", "iceberg"), 303, RepoRef.of("apache", "iceberg"));
-        RemoteSource selectedRemote = new RemoteSource("target", "oss", "https://github.com/TRINODB/trino.git");
+        RemoteSource selectedRemote = new RemoteSource("target", "oss", "https://github.com/OWNER/repository.git");
         RemoteSource upstreamRemote = new RemoteSource("target", "iceberg", "https://github.com/apache/iceberg");
         when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(selected, linked));
         when(remoteSources.findByWorkspace("target"))
                 .thenReturn(ImmutableList.of(selectedRemote, upstreamRemote));
 
         assertThat(service.requireLocalRepository("target").extraRemotes()).containsExactly(
-                selectedRemote.withRepositoryIdentity(101, RepoRef.of("trinodb", "trino")),
+                selectedRemote.withRepositoryIdentity(101, RepoRef.of("owner", "repository")),
                 upstreamRemote.withRepositoryIdentity(303, RepoRef.of("apache", "iceberg")));
 
-        verify(remoteSources).save(selectedRemote.withRepositoryIdentity(101, RepoRef.of("trinodb", "trino")));
+        verify(remoteSources).save(selectedRemote.withRepositoryIdentity(101, RepoRef.of("owner", "repository")));
         verify(remoteSources).save(upstreamRemote.withRepositoryIdentity(303, RepoRef.of("apache", "iceberg")));
     }
 
@@ -91,7 +91,7 @@ class TestWorkspaceRepositoryIdentity
     {
         RemoteSource unmatched = new RemoteSource("target", "unknown", "https://github.com/unknown/project.git");
         RemoteSource nonGitHub = new RemoteSource("target", "internal", "https://git.example.com/team/project.git");
-        when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(directWorkspace("selected", 101, RepoRef.of("trinodb", "trino"))));
+        when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(directWorkspace("selected", 101, RepoRef.of("owner", "repository"))));
         when(remoteSources.findByWorkspace("target"))
                 .thenReturn(ImmutableList.of(unmatched, nonGitHub));
 

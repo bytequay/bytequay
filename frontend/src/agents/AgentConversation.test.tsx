@@ -30,6 +30,7 @@ import { CI_PROJECTION, CI_RUN } from './fixtures/ciAutofix';
 import contracts from './fixtures/agent-contracts-v1.json';
 import fixture from './fixtures/agent-events-v2.json';
 import type { CommandAction, TranscriptTurn } from './transcript';
+import type { LocalReviewMessageDto, LocalReviewThreadDto } from '../pulls/local-review/types';
 
 describe('the queue behind a running turn', () => {
   // The fixture's open approval would put the header on 'waiting on you'; the count needs a plain running turn.
@@ -442,6 +443,52 @@ describe('generated development request presentation', () => {
     expect(html(generated, true)).not.toContain('Refining summary');
     // Without a load in flight, a missing record leaves the message as sent.
     expect(html(undefined, false)).toContain('Refining summary');
+    // A CI repair is recognized only by its durable settings, so its prompt waits the same way.
+    const ci = 'Verified current CI context:\n- Pull request: acme/demo#17\n- Remote head: abc1234 (fix)';
+    const ciHtml = (loading: boolean) => renderToStaticMarkup(<TurnView
+      turn={{ turnId: baseTurn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+        users: [{ id: 'request', text: ci, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
+      first={false} open={false} now={0} models={[]} durableTurns={{}} durableTurnsLoading={loading}
+      activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
+    expect(ciHtml(true)).not.toContain('Verified current CI context');
+    expect(ciHtml(false)).toContain('Verified current CI context');
+  });
+
+  it('shows a review-thread reply as its card before a thread read links it to the turn', () => {
+    const threadId = '7c0d6a8e-5d1b-4c2b-9f3e-0a1b2c3d4e5f';
+    const reply = 'What does this pull request resolve?';
+    // The lines LocalReviewService.prompt writes, the instructions shortened.
+    const prompt = (body: string) => `Private local review comment ${threadId}.\nRead list_local_review_comments with commentId="${threadId}" for the saved context. `
+      + 'Answer within this private review.\nUse reply_local_review_comment to answer this thread privately.\n\nUser comment:\n' + body;
+    const message = (id: string, body: string): LocalReviewMessageDto => ({ id, author: 'USER', body, createdAt: '2026-01-01T12:00:00Z',
+      turnId: null, queuedInputId: null, messageEventId: null, deliveryState: 'PENDING', deliveryError: null });
+    // Cast: the thread DTO gains fields over time that this rendering does not read.
+    const thread = (...messages: LocalReviewMessageDto[]) => ({ id: threadId, taskId: baseTurn.taskId, taskVersion: 1, workspaceId: 'workspace',
+      repo: 'acme/demo', number: 17, path: 'src/Example.java', side: 'RIGHT', startLine: 12, line: 13, baseSha: null, headSha: null, code: 'int value;',
+      resolved: false, version: 1, createdAt: '2026-01-01T12:00:00Z', updatedAt: '2026-01-01T12:00:00Z', messages }) as LocalReviewThreadDto;
+    const html = (threads: LocalReviewThreadDto[], text = prompt(reply)) => renderToStaticMarkup(<TurnView
+      turn={{ turnId: baseTurn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+        users: [{ id: 'reply-event', text, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
+      first={false} open={false} now={0} models={[]} durableTurns={{}} activityChoice={{}} previews={{}} agentLabels={{}}
+      localReview={{ threads, onReply: async () => {}, onResolve: async () => {}, onRetry: async () => {} }}
+      onToggle={() => {}} onToggleActivity={() => {}} />);
+    const card = (markup: string) => {
+      expect(markup).not.toContain('agt-user__bubble');
+      expect(markup).not.toContain('list_local_review_comments');
+      expect(markup).toContain(reply);
+    };
+    // The read already has the reply, not yet its turn.
+    const unlinked = html([thread(message('ask', 'Why is this needed?'), message('reply', reply))]);
+    card(unlinked);
+    expect(unlinked).toContain('Reply to review');
+    // The reply went through another read of the same thread, so this one has only the thread.
+    const missing = html([thread(message('ask', 'Why is this needed?'))]);
+    card(missing);
+    expect(missing).toContain('Reply to review');
+    expect(html([thread(message('ask', reply))])).toContain('Ask about review');
+    // Without its thread the message stays as sent.
+    expect(html([])).toContain('agt-user__bubble');
+    expect(html([thread(message('ask', reply))], reply)).toContain('agt-user__bubble');
   });
 
   it('uses Idle for settled runtime and preserves live automation and recovery precedence in task cards', () => {

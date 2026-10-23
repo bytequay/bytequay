@@ -24,7 +24,7 @@ import { Critter,randomCritter,type CritterKind } from './Critter';
 import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
-import type { LocalReviewThreads } from '../pulls/local-review/types';
+import type { LocalReviewMessageDto, LocalReviewThreads } from '../pulls/local-review/types';
 import { findingFixRequest } from '../pulls/local-review/conversation';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { remoteErrorMessage } from '../remoteError';
@@ -730,6 +730,9 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
+/** LocalReviewService.prompt: the thread on the first line, the person's message after the fixed instructions. */
+const localReviewPrompt = /^Private (?:local review comment|learning discussion) (\S+)\.\n[\s\S]*?\n\nUser comment:\n([\s\S]*)$/;
+
 export function TurnView({ turn, repository, workspaceId, first, open, now, models, durableTurns, durableTurnsLoading = false, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
@@ -772,9 +775,9 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const opening = turn.users[0];
-  // Development follow-up prompts open with this header. It only delays the message; the durable
-  // origin alone decides between card and bubble, so a typed lookalike still shows as sent.
-  const openingPending = durableTurnsLoading && durable === undefined && turn.turnId !== null && opening?.text.startsWith('ByteQuay · ') === true;
+  // Development follow-up and CI repair prompts open with these lines. They only delay the message; the
+  // durable turn alone decides between card and bubble, so a typed lookalike still shows as sent.
+  const openingPending = durableTurnsLoading && durable === undefined && turn.turnId !== null && /^(?:ByteQuay · |Verified current CI context:\n)/.test(opening?.text ?? '');
   const refineRequest = opening?.delivery === 'TURN' ? refineSummaryRequest(durable) : null;
   const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) ?? workflowRequest(durable, opening.text) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
@@ -787,10 +790,16 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   return (
     <section className={`agt-turn${latest ? ' is-latest' : ''}`} data-history-anchor={turn.turnId ?? `turn-${turn.ordinal}`} aria-label={turn.ordinal > 0 ? `Turn ${turn.ordinal}` : 'Turn'}>
       {turn.users.map((user, index) => {
-        const localThread = localReview?.threads.find(thread => thread.messages.some(message =>
-          message.author === 'USER' && (message.messageEventId === user.id || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId))));
-        const localMessage = localThread?.messages.find(message => message.author === 'USER'
-          && (message.messageEventId === user.id || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId)));
+        const linked = (message: LocalReviewMessageDto) => message.author === 'USER'
+          && (message.messageEventId === user.id || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId));
+        // A thread read links a sent reply to its turn only on its next poll. Until then the prompt names its
+        // thread, an id nobody types, and ends with the reply, so the card shows from the first frame.
+        const sent = localReviewPrompt.exec(user.text);
+        const localThread = localReview?.threads.find(thread => thread.messages.some(linked))
+          ?? (sent === null ? undefined : localReview?.threads.find(thread => thread.id === sent[1]));
+        const localMessage = localThread?.messages.find(linked)
+          ?? localThread?.messages.findLast(message => message.author === 'USER' && message.body === sent?.[2]);
+        const localBody = localMessage?.body ?? sent?.[2];
         const reviewRequest = reviewRequests?.find(message => message.messageEventId === user.id
           || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId));
         const reviewTarget = reviewRequest?.target;
@@ -799,12 +808,12 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
         return (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
-          {index === 0 && user.delivery === 'TURN' && openingPending ? null : localThread !== undefined && localMessage !== undefined && localReview !== undefined ? (
+          {index === 0 && user.delivery === 'TURN' && openingPending ? null : localThread !== undefined && localBody !== undefined && localReview !== undefined ? (
             <div className="agt-user agt-local-review" data-history-anchor={user.id}>
-              <ReviewRequestCard action={`${localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`}
+              <ReviewRequestCard action={`${localMessage !== undefined && localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`}
                 topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
                 detail={localThread.learningAnchor ? 'Private summary discussion' : 'Private code discussion'}
-                body={localMessage.body}
+                body={localBody}
                 onOpen={onOpenReview === undefined ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>

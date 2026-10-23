@@ -66,42 +66,19 @@ final class CodexIsolationGuard
     private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
     private boolean accountVerified;
 
-    CodexIsolationGuard(
-            CodexAppServerClient client,
-            Path codexHome,
-            CodexLaunchProfile.ChildProfile childProfile,
-            Optional<URI> codeQueriesEndpoint,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review,
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek)
-    {
-        this(client, codexHome, childProfile, codeQueriesEndpoint, textOnly, ciWritableRoots, allowGitHubCommands, review, false, deepSeek);
-    }
-
-    CodexIsolationGuard(
-            CodexAppServerClient client,
-            Path codexHome,
-            CodexLaunchProfile.ChildProfile childProfile,
-            Optional<URI> codeQueriesEndpoint,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review,
-            boolean asksUser,
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek)
+    /** Checks the launch {@code options} described, the same value its process flags and thread config were built from. */
+    CodexIsolationGuard(CodexAppServerClient client, Path codexHome, CodexLaunchProfile.Options options, Optional<URI> codeQueriesEndpoint)
     {
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
-        this.childProfile = requireNonNull(childProfile, "childProfile is null");
         this.codeQueriesEndpoint = requireNonNull(codeQueriesEndpoint, "codeQueriesEndpoint is null");
-        this.textOnly = textOnly;
-        this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
-        this.allowGitHubCommands = allowGitHubCommands;
-        this.review = review;
-        this.asksUser = asksUser;
-        this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
+        this.childProfile = options.childProfile();
+        this.textOnly = options.textOnly();
+        this.ciWritableRoots = options.ciWritableRoots();
+        this.allowGitHubCommands = options.githubCommands();
+        this.review = options.review();
+        this.asksUser = options.asksUser();
+        this.deepSeek = options.deepSeek();
     }
 
     /**

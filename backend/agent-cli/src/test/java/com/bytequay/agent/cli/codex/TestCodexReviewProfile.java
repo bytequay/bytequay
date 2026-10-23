@@ -46,18 +46,26 @@ class TestCodexReviewProfile
                 URI.create("http://127.0.0.1:9000/mcp"), "Review", ImmutableList.of("review_get_context", "review_save_finding"),
                 true, Optional.of(gate));
         for (CodexLaunchProfile.ChildProfile profile : ImmutableList.of(CodexLaunchProfile.ChildProfile.V1, CodexLaunchProfile.ChildProfile.V2)) {
-            assertThat(CodexLaunchProfile.arguments("codex", profile, Optional.of(tools), false, ImmutableList.of(), false, true, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.arguments(
+                    "codex",
+                    new CodexLaunchProfile.Options(profile, false, ImmutableList.of(), false, true, false, Optional.empty()),
+                    Optional.of(tools)))
                     .contains("--enable", "hooks")
                     .anyMatch(argument -> argument.startsWith("hooks.PreToolUse=") && argument.contains(gate.toString()));
             assertThat(CodexLaunchProfile.expectedFeatures(profile, false, true, false)).containsEntry("hooks", true);
-            assertThat(CodexLaunchProfile.threadConfig(profile, true, false, ImmutableList.of(), false, true, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(profile, false, ImmutableList.of(), false, true, false, Optional.empty()), true))
                     .containsEntry("bypass_hook_trust", true);
         }
-        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(tools), false, ImmutableList.of(), false, true, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.arguments(
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, true, false, Optional.empty()),
+                Optional.of(tools)))
                 .containsSequence("--disable", "multi_agent")
                 .containsSequence("--disable", "multi_agent_v2")
                 .doesNotContainSequence("--enable", "hooks");
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, true, false, ImmutableList.of(), false, true, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, true, false, Optional.empty()),
+                true))
                 .doesNotContainKey("bypass_hook_trust");
     }
 

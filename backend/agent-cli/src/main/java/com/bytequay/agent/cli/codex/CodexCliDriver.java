@@ -380,14 +380,15 @@ public final class CodexCliDriver
                     guardedReviewTools.map(PermissionBroker.CodexRootTools::mcpNames).orElse(value.toolNames()),
                     deepSeekSecret.isEmpty(), reviewGate));
             Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = loopback.map(value -> new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
+            // Only sessions without a checkout strip the shell and code tools: a read-only session must
+            // keep them to read the checkout at all, and is contained by its sandbox.
+            CodexLaunchProfile.Options options = new CodexLaunchProfile.Options(
+                    childProfile, shellOff(access), ciWritableRoots, allowGitHubCommands, review, asksUser, deepSeek);
             return new ClientLaunch(new CodexAppServerClient(
                     supervisor,
                     new ProcessSpec(
                             owner,
-                            // Only sessions without a checkout strip the shell and code tools: a read-only session must
-                            // keep them to read the checkout at all, and is contained by its sandbox.
-                            CodexLaunchProfile.arguments(executable, childProfile, tools, shellOff(access),
-                                    ciWritableRoots, allowGitHubCommands, review, deepSeek, asksUser),
+                            CodexLaunchProfile.arguments(executable, options, tools),
                             workingDirectory,
                             launchEnvironment,
                             OptionalInt.empty(),
@@ -396,7 +397,7 @@ public final class CodexCliDriver
                             PROCESS_CANCELLATION_GRACE),
                     objectMapper,
                     launchRedactor,
-                    loopback), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.ManagedToolsLaunch::endpoint));
+                    loopback), launchRedactor, options, tools.map(CodexLaunchProfile.ManagedToolsLaunch::endpoint));
         }
         catch (RuntimeException failure) {
             loopback.ifPresent(DeepSeekLoopback::close);
@@ -681,8 +682,8 @@ public final class CodexCliDriver
             throw failure;
         }
         try {
-            return new CodexSession(launch.client(), launch.redactor(), context, events, modelProfile, childProfile,
-                    codeQueries, guardedReviewTools, ciWritableRoots, scope, launch.deepSeek(), launch.mcpEndpoint());
+            return new CodexSession(launch.client(), launch.redactor(), context, events, modelProfile, launch.options(),
+                    codeQueries, guardedReviewTools, scope, launch.mcpEndpoint());
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
@@ -831,7 +832,7 @@ public final class CodexCliDriver
     private record ClientLaunch(
             CodexAppServerClient client,
             SecretRedactor redactor,
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek,
+            CodexLaunchProfile.Options options,
             Optional<URI> mcpEndpoint) {}
 
     private record ModelCatalog(List<CodexProtocol.ModelEntry> entries)
@@ -888,6 +889,7 @@ public final class CodexCliDriver
         private final Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
+        private final CodexLaunchProfile.Options launchOptions;
         private final CodexLaunchProfile.ChildProfile childProfile;
         private final List<String> ciWritableRoots;
         private final AgentPermissionScope permissionScope;
@@ -947,12 +949,10 @@ public final class CodexCliDriver
                 AgentSessionContext context,
                 AgentEventSink events,
                 ModelProfile modelProfile,
-                CodexLaunchProfile.ChildProfile childProfile,
+                CodexLaunchProfile.Options launchOptions,
                 Optional<McpRegistration> codeQueries,
                 Optional<PermissionBroker.CodexRootTools> guardedReviewTools,
-                List<String> ciWritableRoots,
                 AgentPermissionScope permissionScope,
-                Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek,
                 Optional<URI> mcpEndpoint)
         {
             this.client = requireNonNull(client, "client is null");
@@ -960,30 +960,21 @@ public final class CodexCliDriver
             this.context = requireNonNull(context, "context is null");
             this.events = requireNonNull(events, "events is null");
             this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
-            this.childProfile = requireNonNull(childProfile, "childProfile is null");
+            this.launchOptions = requireNonNull(launchOptions, "launchOptions is null");
+            this.childProfile = launchOptions.childProfile();
             this.codeQueries = requireNonNull(codeQueries, "codeQueries is null");
             this.turnTools = codeQueries;
             this.guardedReviewTools = requireNonNull(guardedReviewTools, "guardedReviewTools is null");
-            this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
+            this.ciWritableRoots = launchOptions.ciWritableRoots();
             this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
-            this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
+            this.deepSeek = launchOptions.deepSeek();
             this.configurationIdentity = configurationIdentity();
             String[] toolInstructions = {codeQueries.flatMap(McpRegistration::instruction).orElse(""),
                     permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : ""};
             this.developerInstructions = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(), toolInstructions);
             this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, codeQueries.map(McpRegistration::toolsDigest), toolInstructions);
             this.eventMapper = new CodexEventMapper(context.worktree(), sessionRedactor, deepSeekSecret.isEmpty());
-            this.isolation = new CodexIsolationGuard(
-                    client,
-                    codexHome,
-                    childProfile,
-                    mcpEndpoint,
-                    shellOff(context.access()),
-                    ciWritableRoots,
-                    permissionScope.githubCommands(),
-                    permissionScope.review(),
-                    context.mayAskUser(permissionScope.review()),
-                    deepSeek);
+            this.isolation = new CodexIsolationGuard(client, codexHome, launchOptions, mcpEndpoint);
             // Attached before the process is started, so nothing App Server emits can arrive
             // before there is a session to receive it.
             client.listen(this);
@@ -1057,15 +1048,8 @@ public final class CodexCliDriver
             String approvalPolicy = approvalPolicy();
             String sandbox = context.restricted() ? "read-only" : "workspace-write";
 
-            ImmutableMap.Builder<String, Object> configBuilder = ImmutableMap.<String, Object>builder().putAll(CodexLaunchProfile.threadConfig(
-                    childProfile,
-                    codeQueries.isPresent(),
-                    shellOff(context.access()),
-                    ciWritableRoots,
-                    permissionScope.githubCommands(),
-                    permissionScope.review(),
-                    deepSeek,
-                    context.mayAskUser(permissionScope.review())));
+            ImmutableMap.Builder<String, Object> configBuilder = ImmutableMap.<String, Object>builder()
+                    .putAll(CodexLaunchProfile.threadConfig(launchOptions, codeQueries.isPresent()));
             // Codex prewarms before turn/start; a different effort prevents reuse of that prepared request's context.
             context.effort().ifPresent(effort -> configBuilder.put("model_reasoning_effort", effort));
             Map<String, Object> config = configBuilder.buildOrThrow();

@@ -705,7 +705,8 @@ class TestCodexCliDriver
 
         ScriptedProcessSupervisor poisoned = new ScriptedProcessSupervisor(objectMapper);
         ObjectNode config = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(
-                CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false, Optional.empty(), false));
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, true, ImmutableList.of(), false, false, false, Optional.empty()),
+                false));
         ((ObjectNode) config.path("features")).put("shell_tool", true);
         poisoned.configBody = config.toString();
         assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))
@@ -714,7 +715,8 @@ class TestCodexCliDriver
 
         ScriptedProcessSupervisor proxyEnabled = new ScriptedProcessSupervisor(objectMapper);
         ObjectNode proxyConfig = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(
-                CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false, Optional.empty(), false));
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, true, ImmutableList.of(), false, false, false, Optional.empty()),
+                false));
         ((ObjectNode) proxyConfig.path("features")).putObject("network_proxy").put("enabled", true);
         proxyEnabled.configBody = proxyConfig.toString();
         assertThatThrownBy(() -> driver(proxyEnabled).open(textOnly, event -> {}))
@@ -4737,8 +4739,10 @@ class TestCodexCliDriver
             boolean review = hasArguments("--enable", "hooks")
                     || (!textOnlyProfile() && hasArguments("--disable", "guardian_approval"));
             ObjectNode config = objectMapper.valueToTree(
-                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review, deepSeekProfile(),
-                            hasArguments("--enable", CodexLaunchProfile.ASK_USER_FEATURE)));
+                    CodexLaunchProfile.threadConfig(
+                            new CodexLaunchProfile.Options(childProfile(), textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review,
+                                    hasArguments("--enable", CodexLaunchProfile.ASK_USER_FEATURE), deepSeekProfile()),
+                            false));
             for (String argument : argv) {
                 for (String key : ImmutableList.of("approval_policy", "approvals_reviewer", "cli_auth_credentials_store")) {
                     String prefix = key + "=";

@@ -76,36 +76,26 @@ final class CodexLaunchProfile
      * Returns the full argument vector for one App Server launch, optionally pointing the process at
      * ByteQuay's task MCP endpoint. A direct broker registration keeps its bearer in
      * {@link ManagedToolsLaunch#TOKEN_VARIABLE}; a proxied registration keeps it outside Codex.
-     *
-     * @param asksUser whether the agent may ask the user a question with choices, which turns on Codex's {@code request_user_input}
      */
-    static List<String> arguments(
-            String executable,
-            ChildProfile childProfile,
-            Optional<ManagedToolsLaunch> codeQueries,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review,
-            Optional<DeepSeekProfile> deepSeek,
-            boolean asksUser)
+    static List<String> arguments(String executable, Options options, Optional<ManagedToolsLaunch> codeQueries)
     {
+        requireNonNull(options, "options is null");
         requireNonNull(codeQueries, "codeQueries is null");
-        requireNonNull(deepSeek, "deepSeek is null");
-        boolean ci = !ciWritableRoots.isEmpty();
-        boolean reviewChildren = review && childProfile != ChildProfile.NONE;
-        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
-        checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
+        ChildProfile childProfile = options.childProfile();
+        boolean textOnly = options.textOnly();
+        boolean ci = options.ci();
+        boolean reviewChildren = options.review() && childProfile != ChildProfile.NONE;
         checkArgument(!reviewChildren || codeQueries.flatMap(ManagedToolsLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(executable);
         arguments.add("app-server", "--listen", "stdio://", "--strict-config", "--enable", "skip_host_skill_discovery");
-        if (deepSeek.isPresent()) {
+        if (options.deepSeek().isPresent()) {
+            DeepSeekProfile deepSeek = options.deepSeek().orElseThrow();
             arguments.add(
                     "-c", "cli_auth_credentials_store=\"ephemeral\"",
                     "-c", "model_provider=\"deepseek\"",
-                    "-c", "model_catalog_json=" + tomlString(deepSeek.orElseThrow().catalog().toString()),
+                    "-c", "model_catalog_json=" + tomlString(deepSeek.catalog().toString()),
                     "-c", "model_providers.deepseek.name=\"DeepSeek\"",
-                    "-c", "model_providers.deepseek.base_url=" + tomlString(deepSeek.orElseThrow().baseUrl().toString()),
+                    "-c", "model_providers.deepseek.base_url=" + tomlString(deepSeek.baseUrl().toString()),
                     "-c", "model_providers.deepseek.wire_api=\"responses\"",
                     "-c", "model_providers.deepseek.requires_openai_auth=false",
                     "-c", "model_providers.deepseek.supports_websockets=false",
@@ -127,7 +117,7 @@ final class CodexLaunchProfile
                 "-c",
                 "shell_environment_policy.experimental_use_profile=false",
                 "-c",
-                "sandbox_workspace_write.network_access=" + (allowGitHubCommands || review || ci),
+                "sandbox_workspace_write.network_access=" + (options.githubCommands() || options.review() || ci),
                 "-c",
                 "approval_policy=" + tomlString(textOnly ? "never" : "on-request"),
                 "-c",
@@ -138,13 +128,13 @@ final class CodexLaunchProfile
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         arguments.add(reviewChildren ? "--enable" : "--disable", "hooks");
         arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
-        if (asksUser) {
+        if (options.asksUser()) {
             // Outside plan mode, request_user_input is off unless this feature is on.
             arguments.add("--enable", ASK_USER_FEATURE);
         }
         if (ci) {
             arguments.add(
-                    "-c", "sandbox_workspace_write.writable_roots=" + quotedList(ciWritableRoots),
+                    "-c", "sandbox_workspace_write.writable_roots=" + quotedList(options.ciWritableRoots()),
                     "-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
                     "-c", "sandbox_workspace_write.exclude_slash_tmp=true");
         }
@@ -185,41 +175,29 @@ final class CodexLaunchProfile
      * managed-tools launch already carries its one task-scoped endpoint as a process flag, so the thread
      * leaves that map alone rather than emptying it.
      */
-    static Map<String, Object> threadConfig(
-            ChildProfile childProfile,
-            boolean codeQueries,
-            boolean textOnly,
-            List<String> ciWritableRoots,
-            boolean allowGitHubCommands,
-            boolean review,
-            Optional<DeepSeekProfile> deepSeek,
-            boolean asksUser)
+    static Map<String, Object> threadConfig(Options options, boolean codeQueries)
     {
-        requireNonNull(childProfile, "childProfile is null");
-        requireNonNull(deepSeek, "deepSeek is null");
-        boolean ci = !ciWritableRoots.isEmpty();
-        checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
-        checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
+        requireNonNull(options, "options is null");
+        ChildProfile childProfile = options.childProfile();
+        boolean ci = options.ci();
         ImmutableMap.Builder<String, Object> config = ImmutableMap.<String, Object>builder()
-                .put("web_search", textOnly || ci ? "disabled" : "live")
-                .put("features", expectedFeatures(childProfile, textOnly, review, asksUser))
+                .put("web_search", options.textOnly() || ci ? "disabled" : "live")
+                .put("features", expectedFeatures(childProfile, options.textOnly(), options.review(), options.asksUser()))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy())
                 .put("project_doc_max_bytes", 0);
-        if (review && childProfile != ChildProfile.NONE) {
+        if (options.review() && childProfile != ChildProfile.NONE) {
             // App Server applies hook trust to each thread, not to its process flags.
             config.put("bypass_hook_trust", true);
         }
-        if (deepSeek.isPresent()) {
-            config.put("model_provider", "deepseek")
-                    .put("model_catalog_json", deepSeek.orElseThrow().catalog().toString())
-                    .put("model_providers", ImmutableMap.of("deepseek", deepSeekProviderConfig(deepSeek.orElseThrow().baseUrl())));
-        }
+        options.deepSeek().ifPresent(deepSeek -> config.put("model_provider", "deepseek")
+                .put("model_catalog_json", deepSeek.catalog().toString())
+                .put("model_providers", ImmutableMap.of("deepseek", deepSeekProviderConfig(deepSeek.baseUrl()))));
         if (ci) {
             config.put("approval_policy", "on-request")
                     .put("approvals_reviewer", "auto_review")
-                    .put("sandbox_workspace_write", ciSandboxConfig(ciWritableRoots));
+                    .put("sandbox_workspace_write", ciSandboxConfig(options.ciWritableRoots()));
         }
-        else if (allowGitHubCommands || review) {
+        else if (options.githubCommands() || options.review()) {
             config.put("sandbox_workspace_write", ImmutableMap.of("network_access", true));
         }
         if (!codeQueries) {
@@ -284,6 +262,37 @@ final class CodexLaunchProfile
             requireNonNull(instruction, "instruction is null");
             toolNames = ImmutableList.copyOf(toolNames);
             requireNonNull(reviewGate, "reviewGate is null");
+        }
+    }
+
+    /**
+     * What one Codex launch may do. The process flags, the per-thread config and the isolation guard all read this one
+     * value, so the guard checks exactly the profile that was launched.
+     *
+     * @param asksUser whether the agent may ask the user a question with choices, which turns on Codex's {@code request_user_input}
+     */
+    record Options(
+            ChildProfile childProfile,
+            boolean textOnly,
+            List<String> ciWritableRoots,
+            boolean githubCommands,
+            boolean review,
+            boolean asksUser,
+            Optional<DeepSeekProfile> deepSeek)
+    {
+        Options
+        {
+            requireNonNull(childProfile, "childProfile is null");
+            ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
+            requireNonNull(deepSeek, "deepSeek is null");
+            boolean ci = !ciWritableRoots.isEmpty();
+            checkArgument(!githubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
+            checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
+        }
+
+        boolean ci()
+        {
+            return !ciWritableRoots.isEmpty();
         }
     }
 

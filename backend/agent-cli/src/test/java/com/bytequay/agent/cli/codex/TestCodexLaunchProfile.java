@@ -50,9 +50,13 @@ class TestCodexLaunchProfile
         URI proxy = URI.create("http://127.0.0.1:12345/fixture/");
         CodexLaunchProfile.DeepSeekProfile deepSeek = new CodexLaunchProfile.DeepSeekProfile(catalog, proxy);
         List<String> arguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false, Optional.of(deepSeek), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), true, false, false, Optional.of(deepSeek)),
+                Optional.empty());
         List<String> codexArguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false, Optional.empty(), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), true, false, false, Optional.empty()),
+                Optional.empty());
         assertThat(arguments).containsSequence("-c", "model_provider=\"deepseek\"");
         assertThat(arguments).containsSequence("-c", "model_providers.deepseek.base_url=\"" + proxy + "\"");
         assertThat(arguments).containsSequence("-c", "model_providers.deepseek.request_max_retries=0");
@@ -62,8 +66,12 @@ class TestCodexLaunchProfile
                 || value.contains("experimental_bearer_token") || value.contains("chatgpt") || value.contains("default_permissions"));
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "CODEX_HOME");
-        var threadConfig = CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false, Optional.of(deepSeek), false);
-        var codexThreadConfig = CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false, Optional.empty(), false);
+        var threadConfig = CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), true, false, false, Optional.of(deepSeek)),
+                false);
+        var codexThreadConfig = CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), true, false, false, Optional.empty()),
+                false);
         assertThat(threadConfig)
                 .containsEntry("model_provider", "deepseek")
                 .containsEntry("model_catalog_json", catalog.toString())
@@ -128,8 +136,10 @@ class TestCodexLaunchProfile
                 temporary.resolve("deepseek-models.json"), URI.create("http://127.0.0.1:12345/responses/"));
         CodexLaunchProfile.ManagedToolsLaunch tools = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:12346/task/mcp"), "Task tools", ImmutableList.of("development_result_report"), false, Optional.empty());
-        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
-                Optional.of(tools), false, ImmutableList.of(), false, false, Optional.of(profile), false);
+        List<String> arguments = CodexLaunchProfile.arguments(
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.of(profile)),
+                Optional.of(tools));
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + tools.endpoint() + "\"");
         assertThat(arguments).contains("mcp_servers.bytequay.tools={\"development_result_report\"={approval_mode=\"approve\"}}");
         assertThat(arguments).noneMatch(argument -> argument.contains("bearer_token_env_var") || argument.contains("BYTEQUAY_TOOL_TOKEN"));
@@ -142,14 +152,22 @@ class TestCodexLaunchProfile
         CodexLaunchProfile.DeepSeekProfile profile = new CodexLaunchProfile.DeepSeekProfile(
                 temporary.resolve("deepseek-models.json"), URI.create("http://127.0.0.1:12345/responses/"));
         List<String> arguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false, false, Optional.of(profile), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, roots, false, false, false, Optional.of(profile)),
+                Optional.empty());
         List<String> codexArguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false, false, Optional.empty(), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, roots, false, false, false, Optional.empty()),
+                Optional.empty());
         assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
         assertThat(arguments.subList(arguments.indexOf("web_search=\"disabled\"") - 1, arguments.size()))
                 .containsExactlyElementsOf(codexArguments.subList(codexArguments.indexOf("web_search=\"disabled\"") - 1, codexArguments.size()));
-        var codexThreadConfig = CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, roots, false, false, Optional.empty(), false);
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, roots, false, false, Optional.of(profile), false))
+        var codexThreadConfig = CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, roots, false, false, false, Optional.empty()),
+                false);
+        assertThat(CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, roots, false, false, false, Optional.of(profile)),
+                false))
                 .containsEntry("approval_policy", "on-request")
                 .containsAllEntriesOf(codexThreadConfig)
                 .hasSize(codexThreadConfig.size() + 3)
@@ -160,7 +178,9 @@ class TestCodexLaunchProfile
     void isolatesCatalogCapabilitiesWithoutSubagents()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false);
+                "/usr/local/bin/codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.empty());
 
         assertCommonIsolation(arguments);
         assertThat(arguments).containsSequence("--disable", "multi_agent");
@@ -172,7 +192,9 @@ class TestCodexLaunchProfile
     void enablesOnlyV1AtRecursiveDepthTwo()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false);
+                "/usr/local/bin/codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.empty());
 
         assertCommonIsolation(arguments);
         assertThat(arguments).containsSequence("--enable", "multi_agent");
@@ -184,7 +206,9 @@ class TestCodexLaunchProfile
     void enablesOnlyV2WithoutAV1DepthSetting()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.V2, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false);
+                "/usr/local/bin/codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V2, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.empty());
 
         assertCommonIsolation(arguments);
         assertThat(arguments).containsSequence("--disable", "multi_agent");
@@ -196,14 +220,18 @@ class TestCodexLaunchProfile
     void disablesAndReportsEveryExecutionFeatureForTextOnlyRequests()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), true, ImmutableList.of(), false, false, Optional.empty(), false);
+                "/usr/local/bin/codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, true, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.empty());
 
         assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
         assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
         assertThat(arguments).containsSequence("--disable", "guardian_approval");
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true, false, false))
                 .containsEntry("guardian_approval", false);
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, true, ImmutableList.of(), false, false, false, Optional.empty()),
+                false))
                 .containsEntry("web_search", "disabled");
         for (String feature : List.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec")) {
             assertThat(arguments).containsSequence("--disable", feature);
@@ -216,16 +244,22 @@ class TestCodexLaunchProfile
     void turnsOnTheQuestionToolOnlyForASessionThatMayAskTheUser()
     {
         List<String> asking = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), true);
+                "/usr/local/bin/codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, true, Optional.empty()),
+                Optional.empty());
         List<String> silent = CodexLaunchProfile.arguments(
-                "/usr/local/bin/codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false);
+                "/usr/local/bin/codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.empty());
 
         assertThat(asking).containsSequence("--enable", CodexLaunchProfile.ASK_USER_FEATURE);
         assertThat(silent).doesNotContain(CodexLaunchProfile.ASK_USER_FEATURE);
         // The isolation guard checks config/read against these, and a resumed thread repeats them.
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, false, true)).containsEntry(CodexLaunchProfile.ASK_USER_FEATURE, true);
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, false, false)).doesNotContainKey(CodexLaunchProfile.ASK_USER_FEATURE);
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, ImmutableList.of(), false, false, Optional.empty(), true))
+        assertThat(CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, true, Optional.empty()),
+                false))
                 .containsEntry("features", CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, false, true));
     }
 
@@ -234,9 +268,12 @@ class TestCodexLaunchProfile
     {
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
             boolean enabled = childProfile != CodexLaunchProfile.ChildProfile.NONE;
-            assertThat(CodexLaunchProfile.arguments("codex", childProfile, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.arguments(
+                    "codex",
+                    new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                    Optional.empty()))
                     .containsSequence("-c", "agents.enabled=" + enabled);
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, false, false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()), false))
                     .containsEntry("agents", childProfile == CodexLaunchProfile.ChildProfile.V1
                             ? ImmutableMap.of("enabled", true, "max_depth", 2)
                             : ImmutableMap.of("enabled", enabled));
@@ -247,9 +284,9 @@ class TestCodexLaunchProfile
     void enablesLiveWebForEveryTaskThreadProfile()
     {
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, false, false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()), false))
                     .containsEntry("web_search", "live");
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()), true))
                     .containsEntry("web_search", "live");
         }
     }
@@ -260,12 +297,15 @@ class TestCodexLaunchProfile
         CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("repository_context_read"), true, Optional.empty());
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
-            assertThat(CodexLaunchProfile.arguments("codex", childProfile, Optional.of(launch), false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.arguments(
+                    "codex",
+                    new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                    Optional.of(launch)))
                     .containsSequence("--disable", "memories");
             assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false, false, false)).containsEntry("memories", false).containsEntry("goals", false);
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, false, false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()), false))
                     .containsEntry("features", CodexLaunchProfile.expectedFeatures(childProfile, false, false, false));
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, ImmutableList.of(), false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(childProfile, false, ImmutableList.of(), false, false, false, Optional.empty()), true))
                     .containsEntry("features", CodexLaunchProfile.expectedFeatures(childProfile, false, false, false));
         }
     }
@@ -276,12 +316,17 @@ class TestCodexLaunchProfile
         List<String> tools = ImmutableList.of("repository_context_read", "repository_context_prepare");
         CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(URI.create("http://127.0.0.1:9000/mcp"), "Learn", tools, true, Optional.empty());
         List<String> arguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch), false, ImmutableList.of(), false, false, Optional.empty(), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.of(launch));
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.tools={"
                 + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_prepare\"={approval_mode=\"approve\"}}");
         assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
         assertThat(arguments).contains("approval_policy=\"on-request\"");
-        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, false, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.arguments(
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.empty()))
                 .noneMatch(argument -> argument.startsWith("mcp_servers."));
     }
 
@@ -291,7 +336,9 @@ class TestCodexLaunchProfile
         CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("review_\".other\\tool"), true, Optional.empty());
         assertThat(CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch), false, ImmutableList.of(), false, false, Optional.empty(), false))
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.empty()),
+                Optional.of(launch)))
                 .contains("mcp_servers.bytequay.tools={\"review_\\\".other\\\\tool\"={approval_mode=\"approve\"}}");
     }
 
@@ -300,7 +347,10 @@ class TestCodexLaunchProfile
     {
         List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
-            List<String> arguments = CodexLaunchProfile.arguments("/usr/local/bin/codex", childProfile, Optional.empty(), false, roots, false, false, Optional.empty(), false);
+            List<String> arguments = CodexLaunchProfile.arguments(
+                    "/usr/local/bin/codex",
+                    new CodexLaunchProfile.Options(childProfile, false, roots, false, false, false, Optional.empty()),
+                    Optional.empty());
             assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
             assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
             assertThat(arguments).containsSequence("-c", "web_search=\"disabled\"");
@@ -309,7 +359,7 @@ class TestCodexLaunchProfile
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_tmpdir_env_var=true");
             assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.exclude_slash_tmp=true");
             assertThat(arguments).noneMatch(argument -> argument.startsWith("auto_review.policy="));
-            assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, roots, false, false, Optional.empty(), false))
+            assertThat(CodexLaunchProfile.threadConfig(new CodexLaunchProfile.Options(childProfile, false, roots, false, false, false, Optional.empty()), true))
                     .containsEntry("approval_policy", "on-request")
                     .containsEntry("approvals_reviewer", "auto_review")
                     .containsEntry("web_search", "disabled")
@@ -324,7 +374,10 @@ class TestCodexLaunchProfile
     void preservesPunctuationInsideWritablePaths()
     {
         List<String> roots = ImmutableList.of("/Work, Projects/task", "/repo/quote\"and\\slash");
-        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false, false, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.arguments(
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, roots, false, false, false, Optional.empty()),
+                Optional.empty()))
                 .contains("sandbox_workspace_write.writable_roots=[\"/Work, Projects/task\",\"/repo/quote\\\"and\\\\slash\"]");
     }
 
@@ -332,13 +385,17 @@ class TestCodexLaunchProfile
     void keepsCredentialsOutOfTheInteractiveShell()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false, Optional.empty(), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), true, false, false, Optional.empty()),
+                Optional.empty());
         assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"", "shell_environment_policy.ignore_default_excludes=false");
         assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=true");
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST", "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK",
                         "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "BYTEQUAY_TOOL_TOKEN", "GH_REPO", "GIT_DIR");
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.V1, false, ImmutableList.of(), true, false, false, Optional.empty()),
+                false))
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy());
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME");
@@ -348,7 +405,9 @@ class TestCodexLaunchProfile
     void privateReviewKeepsCredentialsOutOfTheShell()
     {
         List<String> arguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, true, Optional.empty(), false);
+                "codex",
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, true, false, Optional.empty()),
+                Optional.empty());
         assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
         assertThat(arguments).containsSequence("--enable", "guardian_approval");
         assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"", "shell_environment_policy.ignore_default_excludes=false");
@@ -356,7 +415,9 @@ class TestCodexLaunchProfile
                 .doesNotContain("GH_HOST", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME",
                         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
                         "OPENAI_API_KEY", "CODEX_HOME", "BYTEQUAY_TOOL_TOKEN");
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, ImmutableList.of(), false, true, Optional.empty(), false))
+        assertThat(CodexLaunchProfile.threadConfig(
+                new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, true, false, Optional.empty()),
+                false))
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy())
                 .containsEntry("features", CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true, false));
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true, false))

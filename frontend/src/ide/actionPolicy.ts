@@ -14,9 +14,10 @@
 import { findingInResults } from '../pulls/agent-review/model';
 import type { IdeContext } from './contracts';
 import { codeHostKey, parseCodeHost } from '../pulls/code-tests/contracts';
+import { TEST_IDENTIFIER } from '../pulls/code-tests/runModel';
 
 const READ_METHODS = new Set(['getRepositoryAvatar', 'getGitHubUserProfile', 'fetchGitHubCodeSnippet', 'listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges', 'getAgentReview', 'getAgentTask']);
-const PRIVATE_METHODS = new Set(['run.ask', 'stopCodeRun', 'openInAppBrowser', 'github.post', 'github.reply', 'github.resolve', 'github.edit', 'github.react', 'comments.ask', 'comments.reply', 'comments.resolve', 'comments.retry', 'comments.finding', 'comments.refresh', 'comments.pending', 'comments.detail', 'review.changed', 'askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding', 'betterWords', 'finding.ask', 'finding.resolve', 'finding.reopen', 'finding.add', 'finding.post', 'finding.editDraft', 'finding.remove', 'finding.fix']);
+const PRIVATE_METHODS = new Set(['run.ask', 'run.agent', 'stopCodeRun', 'openInAppBrowser', 'github.post', 'github.reply', 'github.resolve', 'github.edit', 'github.react', 'comments.ask', 'comments.reply', 'comments.resolve', 'comments.retry', 'comments.finding', 'comments.refresh', 'comments.pending', 'comments.detail', 'review.changed', 'askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding', 'betterWords', 'finding.ask', 'finding.resolve', 'finding.reopen', 'finding.add', 'finding.post', 'finding.editDraft', 'finding.remove', 'finding.fix']);
 
 function text(value: unknown, limit = 30_000): asserts value is string {
   if (typeof value !== 'string' || value.length > limit || value.includes('\0')) throw new Error('Invalid IDE action text');
@@ -74,6 +75,13 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
   if (method === 'run.ask') {
     count(args, 2); id(args[0]); text(args[1], 30_000);
     if (!args[1].trim() || (context.review ?? context.task)?.state !== 'OPEN') throw new Error('Open a task to prepare an agent request');
+    return;
+  }
+  if (method === 'run.agent') {
+    count(args, 2); id(args[0]);
+    // The names reach the agent without the user reading them first, so only code identifiers pass.
+    if (!Array.isArray(args[1]) || args[1].length > 20 || !args[1].every(name => typeof name === 'string' && TEST_IDENTIFIER.test(name))) throw new Error('Invalid test names');
+    if (context.host.kind !== 'review' || context.review?.state !== 'OPEN') throw new Error('Open a review to ask its agent');
     return;
   }
   if (method === 'stopCodeRun') {

@@ -44,6 +44,7 @@ import {
   shownResults,
   statusLabel,
   statusTone,
+  TEST_IDENTIFIER,
 } from './runModel';
 import TerminalOutput from './TerminalOutput';
 
@@ -112,6 +113,7 @@ export default function RunPanel({
   onSelectRun,
   embedded = false,
   onAskAgent,
+  onRunWithAgent,
 }: {
   runs: readonly LocalRunDto[];
   files: ReviewCodeFilesDto | null;
@@ -120,6 +122,8 @@ export default function RunPanel({
   hostKind: CodeHostRef['kind'];
   embedded?: boolean;
   onAskAgent?: (run: LocalRunDto, text: string) => void;
+  /** Asks the review agent to run the run's tests with Maven; the agent's run joins this history. */
+  onRunWithAgent?: (run: LocalRunDto, tests: string[]) => void;
   onStop: (run: LocalRunDto) => void;
   readOutput: (runId: string, after: number) => Promise<LocalRunOutputDto>;
   selectedRunId: string | null;
@@ -372,7 +376,11 @@ export default function RunPanel({
                       </div>
                       {failureShown && <div className="ct-run__failure" aria-label="Test failure details">
                         <strong>{failure.name}</strong><pre>{failureText}</pre>
-                        {onAskAgent && <button type="button" className="ct-text-button" onClick={() => onAskAgent(run, failureText.slice(0, 30_000))}>Ask agent about failure</button>}
+                        <div className="ct-run__failure-actions">
+                          {onAskAgent && <button type="button" className="ct-text-button" onClick={() => onAskAgent(run, failureText.slice(0, 30_000))}>Ask agent about failure</button>}
+                          {onRunWithAgent && <button type="button" className="ct-text-button" title="The review agent reruns these tests with Maven, building what they depend on"
+                            onClick={() => onRunWithAgent(run, rows.map(row => row.name).filter(name => TEST_IDENTIFIER.test(name)).slice(0, 20))}>Ask agent to run it</button>}
+                        </div>
                       </div>}
                     </>}
                     {/* Hidden rather than unmounted, so the terminal keeps its scroll position and selection. */}

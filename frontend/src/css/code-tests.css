@@ -192,6 +192,7 @@
 .ct-run__output { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 .ct-run__output[hidden] { display: none; }
 .ct-run__failure pre { white-space: pre-wrap; font: 11px/1.5 ui-monospace, Menlo, monospace; }
+.ct-run__failure-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 
 
 /* Historical source has no editing runtime. Bound long files with the line pager. */

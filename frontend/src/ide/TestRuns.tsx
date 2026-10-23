@@ -79,6 +79,10 @@ export default function TestRuns({ context, files, runtime, mode }: {
         onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
           void window.ideWorkbench.request('run.ask', run.id, text).then(shown => setNotice(shown === true ? null
             : 'Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
+        } : undefined}
+        onRunWithAgent={host.kind === 'review' && context.review?.state === 'OPEN' ? (run, tests) => {
+          void window.ideWorkbench.request('run.agent', run.id, tests)
+            .then(() => setNotice('Asked the review agent to run these tests. Its run shows here when it finishes.'), error => setNotice(String(error)));
         } : undefined} />
     </div>)}
   </div>;

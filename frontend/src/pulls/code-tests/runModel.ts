@@ -94,6 +94,9 @@ export function scopeText(run: LocalRunDto) {
   return run.scope === 'METHOD' ? `method ${run.testClass}#${run.testMethod}` : `class ${run.testClass}`;
 }
 
+/** A class or method name as code spells it; a display name is free text from the code under test, so it never reaches an agent unreviewed. */
+export const TEST_IDENTIFIER = /^[A-Za-z_$][\w$]{0,199}(\(\))?$/;
+
 export function methodRows(run: LocalRunDto): LocalRunMethodDto[] {
   return run.results.flatMap(result => result.methods);
 }

@@ -163,11 +163,13 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
       startedAt: '2026-01-01T00:00:00Z', endedAt: '2026-01-01T00:00:01Z', exitCode: null, tests: 2, failures: 1, errors: 0, skipped: 0,
       outputTruncated: false, omittedBytes: null, treeUnverified: false, results: [{ className: 'TestExample', durationMs: 10, methods: [
         { name: 'fails', status: 'FAILED', durationMs: 5, message: 'NoClassDefFoundError: com/example/TestSupport', trace: 'at TestExample.fails' },
-        { name: 'passes', status: 'PASSED', durationMs: 5, message: null, trace: null }] }] };
+        { name: 'passes', status: 'PASSED', durationMs: 5, message: null, trace: null },
+        { name: 'reads like a sentence', status: 'PASSED', durationMs: 5, message: null, trace: null }] }] };
     const asked: string[] = [];
+    const ran: string[][] = [];
     flushSync(() => root.render(<RunPanel embedded runs={[run]} files={null} hostKind="review" onStop={() => {}}
       readOutput={async () => ({ text: 'runner output line', nextOffset: 18, skippedBytes: 0, complete: true })}
-      selectedRunId={run.id} onSelectRun={() => {}} onAskAgent={(_run, text) => asked.push(text)} />));
+      selectedRunId={run.id} onSelectRun={() => {}} onAskAgent={(_run, text) => asked.push(text)} onRunWithAgent={(_run, tests) => ran.push(tests)} />));
     await settle(); await settle();
     const views = () => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Run log views"] [role="tab"]')];
     const output = () => fixtureElement<HTMLElement>('.ct-run__output', host, 'The run output must stay mounted');
@@ -175,6 +177,8 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert(host.querySelector('[aria-label="Test failure details"]')?.textContent?.includes('TestSupport') === true && output().hidden, 'The failure fills the log pane alone');
     [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Ask agent about failure')?.click();
     assert(asked.length === 1 && asked[0].includes('TestSupport') && asked[0].includes('at TestExample.fails'), 'Ask agent sends the failure message and trace');
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Ask agent to run it')?.click();
+    assert(JSON.stringify(ran) === '[["fails","passes"]]', `Ask agent to run it names the run's tests by code name only: ${JSON.stringify(ran)}`);
     views()[1].click(); await settle();
     assert(host.querySelector('[aria-label="Test failure details"]') === null && !output().hidden && output().textContent?.includes('runner output line') === true,
       'Output shows the whole run log in place of the failure');

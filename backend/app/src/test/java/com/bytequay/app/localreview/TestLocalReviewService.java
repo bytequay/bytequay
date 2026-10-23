@@ -185,7 +185,7 @@ class TestLocalReviewService
             assertThat(stored).containsKey("thread");
             assertThat(command.developmentAutomation()).isEmpty();
             assertThat(command.message()).contains("list_local_review_comments with commentId=", "reply_local_review_comment",
-                    "never quote private feedback in commit messages", "User comment:\nPlease fix this", "locate its current counterpart first")
+                    "never quote private feedback in commit messages", "User comment:\nPlease fix this", "locate its current counterpart first", "about 100 words at most")
                     .doesNotContain("newValue", "Selected code (reference only)");
             accepted.put(command.idempotencyKey(), turn);
             return turn;

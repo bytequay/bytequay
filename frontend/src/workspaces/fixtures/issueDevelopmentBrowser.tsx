@@ -498,10 +498,8 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
     assert(host.querySelectorAll('.agt-work-request').length === 1 && host.querySelector('.agt-work-request')?.textContent?.includes(epic.title),
       'Replayed first turn retains its work card and parent link');
     assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Explain the result'), 'Follow-up messages remain ordinary messages');
-    const request = host.querySelector<HTMLDetailsElement>('.agt-work-request details');
-    request?.querySelector('summary')?.click();
-    assert(request?.open && request.innerText.includes('read_issue_context') && host.querySelector('.agt-work-request')?.textContent?.includes('flow.png'),
-      'The exact submitted prompt can be expanded and image attachments remain available');
+    const request = host.querySelector('.agt-work-request')?.textContent ?? '';
+    assert(!request.includes('read_issue_context') && request.includes('flow.png'), 'The card hides the sent prompt and keeps its image attachments');
     host.querySelector<HTMLAnchorElement>('.agt-work-request__title')?.click();
     const openedWork = opened.at(-1);
     assert(openedWork?.kind === 'work' && openedWork.itemId === item.id, 'The title opens its local work item');

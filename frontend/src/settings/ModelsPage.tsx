@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
+import { ProviderIcon } from '../agents/ProviderIcon';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
 import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
@@ -35,6 +36,7 @@ export function modelOptions(settings: ModelSettingsDto): PillOption[] {
         value: optionValue(provider.id, model.id),
         label: model.name,
         note: provider.label,
+        icon: <ProviderIcon id={provider.id} />,
         group: provider.label,
       });
     }
@@ -45,6 +47,7 @@ export function modelOptions(settings: ModelSettingsDto): PillOption[] {
         value: optionValue(key.id, model),
         label: model,
         note: key.alias,
+        icon: <ProviderIcon id={key.provider} />,
         group: `${key.provider} · ${key.alias}`,
         disabled: true,
         disabledReason: API_KEY_REASON,
@@ -119,6 +122,7 @@ export function AgentModelControls({ agent, settings, inheritLabel, onChoose, on
         ariaLabel={`${typeLabel(agent.type)} model`}
         value={inheriting ? INHERIT_VALUE : optionValue(agent.configId, agent.model)}
         label={inheriting ? (inheritLabel ?? '') : (isClaudeAccount(agent.configId) || isDeepSeekKeyLane(agent.configId)) ? `${agent.modelLabel} · ${agent.label}` : agent.modelLabel}
+        icon={inheriting ? undefined : <ProviderIcon id={agent.configId} />}
         options={pillOptions}
         footer={onAddKey === undefined ? undefined : (
           <button type="button" className="setw-card-foot-link setw-menu-item" onClick={onAddKey}>
@@ -232,7 +236,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
           const status = lane === undefined ? null : providerStatusLabel(lane.readiness, checking, lane.id);
           return <SettingsRow
             key={key.id}
-            title={`${key.provider} · ${key.alias}`}
+            title={<><ProviderIcon id={key.provider} />{`${key.provider} · ${key.alias}`}</>}
             subtitle={
               <span className="setw-status">
                 <StatusDot tone={status === null ? 'ok' : dotTone(status.tone)} />

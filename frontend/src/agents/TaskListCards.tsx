@@ -16,8 +16,9 @@ import React from 'react';
 import { Archive, ArchiveRestore, Check, ChevronRight, Cherry, CodeXml, Eye, LayoutGrid, PanelLeft, Trash2, Wrench } from 'lucide-react';
 import { Card, CardActions, CardAge, Clickable, IconButton, LinkKey, Pill } from '../cards/Card';
 import { relativeTime } from '@bytequay/ui/relativeTime';
+import { ProviderAvatar, ProviderIcon, providerBrand } from './ProviderIcon';
 import { taskArchived, taskBusy } from './taskStatus';
-import { TASK_TYPES, type TaskListItem, type TaskType } from './taskList';
+import { TASK_TYPES, type TaskListItem, type TaskListMessage, type TaskType } from './taskList';
 
 const TYPE_ICONS = { dev: CodeXml, review: Eye, cherry: Cherry, ci: Wrench };
 
@@ -34,13 +35,11 @@ export function viewerInitials(profile: { login: string; name: string | null } |
   return profile === undefined ? 'Y' : profile.login.slice(0, 2).toUpperCase();
 }
 
-/** Who said a task's last message, as a round badge of initials. */
-function speaker(who: string, you: string): { initials: string; tone: string } {
-  if (who === 'You') return { initials: you, tone: 'you' };
-  if (who.startsWith('Claude')) return { initials: 'CC', tone: 'claude' };
-  if (who.startsWith('Codex')) return { initials: 'CX', tone: 'codex' };
-  if (who.startsWith('DeepSeek')) return { initials: 'DS', tone: 'deepseek' };
-  return { initials: who.slice(0, 2).toUpperCase(), tone: 'other' };
+/** Who said a task's last message: the agent's logo, else a round badge of initials. */
+function Speaker({ message, you }: { message: TaskListMessage; you: string }): React.JSX.Element {
+  if (message.laneId !== undefined && providerBrand(message.laneId) !== null) return <ProviderAvatar id={message.laneId} size={18} />;
+  const mine = message.who === 'You';
+  return <span className={`agt-speaker${mine ? ' is-you' : ''}`} aria-hidden="true">{mine ? you : message.who.slice(0, 2).toUpperCase()}</span>;
 }
 
 function StatePill({ item }: { item: TaskListItem }): React.JSX.Element {
@@ -123,7 +122,6 @@ function Actions({ item, onArchive, onDelete, onOpenWorkspace }: Pick<TaskItemHa
  */
 export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen, onToggle, onArchive, onDelete, onOpenWorkspace }: TaskItemHandlers & { item: TaskListItem }): React.JSX.Element {
   const open = selecting && onToggle !== undefined ? onToggle : onOpen;
-  const speaking = item.message === null ? null : speaker(item.message.who, you);
   return (
     <Card className="agt-item-card" selected={checked} label={`${TASK_TYPES[item.type].label}: ${item.title}`} onOpen={open}>
       <div className="agt-item-card__head">
@@ -135,9 +133,9 @@ export function TaskItemCard({ item, now, you = 'Y', selecting, checked, onOpen,
       </div>
       <div className="agt-item-card__title">{item.title}</div>
       {item.state.reason !== null && <div className="agt-item-card__needs"><span aria-hidden="true" />{item.state.reason}</div>}
-      {item.message !== null && speaking !== null && (
+      {item.message !== null && (
         <div className="card-box agt-item-card__message">
-          <span className={`agt-speaker is-${speaking.tone}`} aria-hidden="true">{speaking.initials}</span>
+          <Speaker message={item.message} you={you} />
           <div className="agt-item-card__said">
             <div className="agt-item-card__who"><span>{item.message.who}</span> · {relativeTime(item.message.at, { suffix: false, now })}</div>
             <div className="agt-item-card__text">{item.message.text}</div>
@@ -167,7 +165,8 @@ export function TaskItemRow({ item, now, selecting, checked, onOpen, onToggle, o
       <TypeSlot item={item} checked={checked} onToggle={onToggle} chip={false} />
       <span className="agt-item-row__title">{item.title}</span>
       <span className="agt-item-row__said">
-        {item.message !== null && <><span className="agt-item-row__who">{item.message.who}:</span> {item.message.text}</>}
+        {item.message !== null && <><span className="agt-item-row__who">
+          {item.message.laneId !== undefined && <><ProviderIcon id={item.message.laneId} size={12} /> </>}{item.message.who}:</span> {item.message.text}</>}
       </span>
       <Links item={item} />
       {item.change !== null && <span className="agt-item-change">{item.change}</span>}

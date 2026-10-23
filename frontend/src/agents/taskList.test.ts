@@ -100,7 +100,7 @@ describe('task list items', () => {
     };
     const item = developmentItem(task, activity, { uncommitted: false, commits: 2 }, [{ id: 'claude', label: 'Claude Code' } as never]);
 
-    expect(item.message).toEqual({ who: 'Claude Code', text: 'Ready for review.', at: '2026-09-27T10:00:00Z' });
+    expect(item.message).toEqual({ who: 'Claude Code', laneId: 'claude', text: 'Ready for review.', at: '2026-09-27T10:00:00Z' });
     expect(item.change).toBe('2 commits');
     const mine = developmentItem(task, { ...activity, lastMessage: { ...activity.lastMessage, author: 'USER' } }, null);
     expect(mine.message?.who).toBe('You');

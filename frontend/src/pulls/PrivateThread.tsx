@@ -25,6 +25,7 @@ import MarkdownBody from './MarkdownBody';
 import { remoteErrorMessage } from '../remoteError';
 import LocalCard, { LocalCardMessage } from './local-review/LocalCard';
 import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
+import { ProviderAvatar } from '../agents/ProviderIcon';
 
 /** What the conversation's host supplies; absent where the pull request has none, so nothing here renders there. */
 export type PrivateThreadSource = {
@@ -353,12 +354,12 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
               const agent = message.author === 'AGENT';
               const summary = agent ? parseCommentSummary(message.body) : null;
               return <LocalCardMessage key={message.id} timestamp={message.createdAt} author={agent ? 'Agent' : 'You'}
-                avatar={<Avatar login={agent ? 'Agent' : viewerLogin ?? 'You'} size={22} allowGitHubFallback={!agent && viewerLogin !== undefined} />}>
+                avatar={agent ? <ProviderAvatar id={earlier.providerLane} /> : <Avatar login={viewerLogin ?? 'You'} size={22} allowGitHubFallback={viewerLogin !== undefined} />}>
                 {summary !== null ? <CommentSummary summary={summary} /> : <MarkdownBody body={message.body} repository={repository} />}
               </LocalCardMessage>;
             })}
             {earlier.replyDraft && <LocalCardMessage timestamp={earlier.updatedAt} author="Reply draft"
-              avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+              avatar={<ProviderAvatar id={earlier.providerLane} />}>
               <MarkdownBody body={earlier.replyDraft} repository={repository} />
             </LocalCardMessage>}
           </details>)}
@@ -367,7 +368,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
             const summary = agent ? parseCommentSummary(message.body) : null;
             return <LocalCardMessage key={message.id} timestamp={message.createdAt} author={agent ? 'Agent' : 'You'}
               avatar={agent
-                ? <Avatar login="Agent" size={22} allowGitHubFallback={false} />
+                ? <ProviderAvatar id={thread.providerLane} />
                 : <Avatar login={viewerLogin ?? 'You'} size={22} allowGitHubFallback={viewerLogin !== undefined} className="pr-private-you" />}
               menu={onDraftReply !== undefined && thread !== undefined && (available.development || thread.replyDraft) && (
                 <button type="button" className="pr-private-draft"
@@ -379,7 +380,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
             </LocalCardMessage>;
           })}
           {thread?.replyDraft && <LocalCardMessage timestamp={thread.updatedAt} author="Reply draft"
-            avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+            avatar={<ProviderAvatar id={thread.providerLane} />}>
             <MarkdownBody body={thread.replyDraft} repository={repository} />
             <p className="pr-local-review__note">Private draft · review and edit before posting.</p>
           </LocalCardMessage>}
@@ -395,7 +396,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
             </div>
           )}
           {thread?.pending === true && (
-            <LocalCardMessage timestamp={null} author="Agent" avatar={<Avatar login="Agent" size={22} allowGitHubFallback={false} />}>
+            <LocalCardMessage timestamp={null} author="Agent" avatar={<ProviderAvatar id={thread.providerLane} />}>
               <p className="pr-private-answering"><LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /> Agent is answering…</p>
             </LocalCardMessage>
           )}

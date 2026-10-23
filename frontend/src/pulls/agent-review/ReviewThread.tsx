@@ -14,7 +14,8 @@
 import Avatar from '../../Avatar';
 import MarkdownBody from '../MarkdownBody';
 import { commentIndexTarget } from '../ReviewCommentIndex';
-import { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';
+import { ProviderAvatar } from '../../agents/ProviderIcon';
+import { LocalCardMessage } from '../local-review/LocalCard';
 import type { AgentReviewDto, ReviewMessageDto } from './contracts';
 import { queued } from './model';
 
@@ -46,7 +47,7 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
           <LocalCardMessage key={message.id} timestamp={message.createdAt} author={author}
             attributes={commentIndexTarget(mine ? 'human' : 'agent', author, message.body)}
             avatar={mine ? <Avatar login={viewerLogin || 'You'} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} />
-              : developer ? <Avatar login="Agent" size={22} allowGitHubFallback={false} /> : <ReviewerAvatar />}
+              : developer ? <Avatar login="Agent" size={22} allowGitHubFallback={false} /> : <ProviderAvatar id={review.task.laneId} />}
             menu={queued(review, message) && (review.queuePause === null
               ? <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
               // A paused question waits for Resume in the conversation; it does not run by itself.

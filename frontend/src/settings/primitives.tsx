@@ -53,6 +53,8 @@ export type PillOption = {
   label: string;
   /** Right-aligned muted text, used for the provider a model comes from. */
   note?: string;
+  /** Drawn before the label, such as the provider's logo beside a model. */
+  icon?: ReactNode;
   /** Non-selectable, with the reason surfaced as its title. */
   disabled?: boolean;
   disabledReason?: string;
@@ -64,9 +66,10 @@ export type PillOption = {
  * Button plus popover list with tick marks. Closing on any outside mousedown is
  * how every other menu in this app behaves, so the same listener is used here.
  */
-export function SelectPill({ value, label, options, ariaLabel, quiet, disabled, wide, align, footer, onSelect }: {
+export function SelectPill({ value, label, icon, options, ariaLabel, quiet, disabled, wide, align, footer, onSelect }: {
   value: string;
   label: string;
+  icon?: ReactNode;
   options: PillOption[];
   ariaLabel: string;
   quiet?: boolean;
@@ -91,6 +94,7 @@ export function SelectPill({ value, label, options, ariaLabel, quiet, disabled, 
         disabled={disabled}
         onClick={() => setOpen(current => !current)}
       >
+        {icon}
         <span className="setw-pill-label">{label}</span>
         <ChevronDown size={11} strokeWidth={2.6} color="var(--text-3)" />
       </button>
@@ -113,6 +117,7 @@ export function SelectPill({ value, label, options, ariaLabel, quiet, disabled, 
                   title={option.disabledReason}
                   onClick={() => { onSelect(option.value); setOpen(false); }}
                 >
+                  {option.icon}
                   <span className="setw-menu-label">{option.label}</span>
                   {option.note !== undefined && <span className="setw-menu-note">{option.note}</span>}
                   <span className="setw-menu-tick">{option.value === value ? <Check size={12} /> : null}</span>

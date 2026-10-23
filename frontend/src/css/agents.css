@@ -3370,7 +3370,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
   gap: 8px;
 }
 
-/* Who said a card's last message, in the colour of that agent. */
+/* Who said a card's last message, when it has no logo. */
 .agt-speaker {
   flex: none;
   width: 18px;
@@ -3386,9 +3386,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
   font-weight: 700;
 }
 
-.agt-speaker.is-claude { background: light-dark(#0e7c86, #286c67); }
-.agt-speaker.is-codex { background: light-dark(#24292f, var(--dark-elevated)); }
-.agt-speaker.is-deepseek { background: light-dark(#4f6bed, var(--dark-blue-soft)); }
 .agt-speaker.is-you { background: light-dark(#8c959f, var(--dark-border-strong)); }
 
 .agt-item-card__said {

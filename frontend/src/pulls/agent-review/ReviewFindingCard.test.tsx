@@ -113,10 +113,11 @@ describe('finding suggestions', () => {
     expect(html).toContain('data-review-comment-label="Agent review" data-review-comment-preview="The value can be empty."');
     expect(html).toContain('data-review-comment-label="Developer" data-review-comment-preview="Fixed in abc1234."');
     expect(html).toContain('<strong>Developer</strong>');
-    // Only the reviewer's own messages carry the reviewer's mark: its answer, not the developer's reply.
+    // Only the reviewer's own messages carry the reviewer's logo: its answer, not the developer's reply.
     // The finding itself names its author beside its title instead.
-    expect(html.match(/class="lrc-bot"/g)).toHaveLength(1);
-    expect(html).toContain('<span class="agr-finding__by">Agent · <time>');
+    expect(html.match(/class="provider-avatar"/g)).toHaveLength(1);
+    expect(html).toContain('data-brand="openai"');
+    expect(html).toMatch(/<span class="agr-finding__by"><svg class="provider-icon" data-brand="openai"[^>]*><path [^>]*><\/path><\/svg> Agent · <time>/);
   });
 
   it.each(['review', 'changes'] as const)('renders reviewer file citations in %s without exposing Markdown delimiters', projection => {

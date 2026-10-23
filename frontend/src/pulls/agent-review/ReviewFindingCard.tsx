@@ -15,6 +15,7 @@ import { useReviewDraft } from '../ReviewDrafts';
 import { useState } from 'react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { Chevron } from '../../Chevron';
+import { ProviderIcon } from '../../agents/ProviderIcon';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import MarkdownBody, { type SuggestionBase } from '../MarkdownBody';
 import CodeExcerpt from '../CodeExcerpt';
@@ -350,7 +351,7 @@ export default function ReviewFindingCard({
         </footer>}>
         <div className="lrc-message agr-finding__message" {...indexTarget}>
           {!replaced && <div className="agr-finding__head">{title}{provisionalPill}
-            <span className="agr-finding__by">Agent · <time>{relativeTime(finding.updatedAt)}</time></span></div>}
+            <span className="agr-finding__by"><ProviderIcon id={review.task.laneId} size={12} /> Agent · <time>{relativeTime(finding.updatedAt)}</time></span></div>}
           {!replaced && body}
           {details}
         </div>

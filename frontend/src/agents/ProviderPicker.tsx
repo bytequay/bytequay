@@ -15,6 +15,7 @@
 import { CircleCheck, CircleX } from 'lucide-react';
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { Chevron } from '../Chevron';
+import { ProviderIcon } from './ProviderIcon';
 import { isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from '../settings/model';
 import type { ModelProviderDto } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
@@ -75,7 +76,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
         }}
         onClick={() => setOpen((value) => !value)}
       >
-        {selected?.label ?? laneLabel(selectedId)} <Chevron open size={11} />
+        <ProviderIcon id={selectedId} size={13} />{selected?.label ?? laneLabel(selectedId)} <Chevron open size={11} />
       </button>
       {open && (
         <div
@@ -104,6 +105,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
                     close(true);
                   }}
                 >
+                  <ProviderIcon id={provider.id} size={16} />
                   <span>{provider.label || laneLabel(provider.id)}</span>
                   <StatusIcon className={`agt-provider-picker__status${available ? ' is-ok' : ' is-danger'}`} size={16} role="img" aria-label={status.label}>
                     <title>{status.label}</title>

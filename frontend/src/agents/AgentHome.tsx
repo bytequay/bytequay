@@ -34,6 +34,7 @@ import {
   ComposerDock, StartingAgentTask, TaskComposer, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type TaskComposerProps,
 } from './AgentTasksView';
 import type { TaskAttention } from './attention';
+import { ProviderIcon } from './ProviderIcon';
 import { taskArchived } from './taskStatus';
 import { developmentItem, reviewItem, type TaskListItem } from './taskList';
 import type { AgentBridgePort } from './model';
@@ -374,7 +375,7 @@ function HomeTaskCard({ item, providers, now, onOpen, onRename, onHide }: {
       </div>
       <div className={`agt-open-card__last${state.reason === null ? '' : ' is-needs'}`}>{state.reason ?? item.message?.text ?? ''}</div>
       <div className="agt-open-card__foot">
-        <span className="agt-open-card__meta">{meta}</span>
+        <span className="agt-open-card__meta"><ProviderIcon id={laneId} size={12} /> {meta}</span>
         {change !== null && <span className={`agt-open-card__change${pullRequest === null ? '' : ' is-pr'}`}>{change}</span>}
       </div>
     </Card>

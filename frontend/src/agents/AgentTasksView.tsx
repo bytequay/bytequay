@@ -33,6 +33,7 @@ import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { LinkedWorkList, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { IssueAttachment } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
+import { ProviderIcon } from './ProviderIcon';
 import { AutomationControl } from './AutomationControl';
 import Composer, { ComposerAttachments } from '../Composer';
 import ComposerModelControls from './ComposerModelControls';
@@ -554,7 +555,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
         <span className="agt-title">New task</span>
         <span className="agt-state is-running">Starting</span>
         <span className="agt-mono agt-meta">
-          {provider} · {displayModelName(model?.name ?? selection?.model ?? '')}{selection?.effort ? ` · ${selection.effort}` : ''}
+          <ProviderIcon id={laneId} size={12} /> {provider} · {displayModelName(model?.name ?? selection?.model ?? '')}{selection?.effort ? ` · ${selection.effort}` : ''}
         </span>
         <span className="agt-spacer" />
         {headerAction}

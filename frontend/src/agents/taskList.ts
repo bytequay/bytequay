@@ -31,7 +31,8 @@ export const TASK_TYPES: Record<TaskType, { label: string; newLabel: string }> =
   ci: { label: 'CI fix', newLabel: 'Fix a failing check' },
 };
 
-export type TaskListMessage = { who: string; text: string; at: string };
+/** `laneId` is the agent that said it, so the card can show that agent's logo. */
+export type TaskListMessage = { who: string; laneId?: string; text: string; at: string };
 
 /** One task of any type as a card or row draws it. */
 export type TaskListItem = {
@@ -84,7 +85,8 @@ export function developmentItem(
     title: task.title,
     state: taskCardState(task, activity),
     at: task.updatedAt,
-    message: message === null ? null : { who: message.author === 'USER' ? 'You' : lane, text: message.text, at: message.at },
+    message: message === null ? null
+      : message.author === 'USER' ? { who: 'You', text: message.text, at: message.at } : { who: lane, laneId: task.laneId, text: message.text, at: message.at },
     links: taskLinks(task),
     // A pull request is already among the links; otherwise the card names what the checkout holds.
     change: task.pullRequest == null && changes !== null ? changesLabel(changes) : null,
@@ -119,7 +121,9 @@ export function reviewItem(review: AgentReviewDto): TaskListItem {
     state,
     at,
     message: last === null ? null
-      : { who: last.author === 'USER' ? 'You' : last.developerTaskId != null ? 'Developer' : review.task.laneLabel, text: last.body, at: last.createdAt },
+      : last.author === 'USER' ? { who: 'You', text: last.body, at: last.createdAt }
+        : last.developerTaskId != null ? { who: 'Developer', text: last.body, at: last.createdAt }
+          : { who: review.task.laneLabel, laneId: review.task.laneId, text: last.body, at: last.createdAt },
     links: review.number === null ? []
       : [pullRequestLink(review.number, review.pullRequest?.title ?? review.repo, review.pullRequest?.state ?? null, review.pullRequest?.draft ?? false)],
     change: REVIEW_CHANGES.has(status.status) ? status.chip : null,

@@ -1042,7 +1042,6 @@
 .lrc-message__body { margin-top: 8px; overflow-wrap: anywhere; }
 .lrc-message__body > .markdown-body { padding: 0; }
 .lrc-message > .pr-reactions { padding: 8px 0 0; }
-.lrc-bot { display: inline-grid; width: 22px; height: 22px; flex: none; place-items: center; border-radius: 6px; background: light-dark(#24292f, var(--dark-elevated)); color: var(--on-solid); }
 .lrc__foot { display: flex; min-height: 50px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 8px 12px 8px 16px; }
 .lrc__foot.is-composing { display: block; padding: 12px 16px; }
 .lrc__ask { margin-right: auto; }

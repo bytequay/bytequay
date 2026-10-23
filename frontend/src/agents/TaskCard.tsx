@@ -18,6 +18,7 @@ import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
+import { ProviderIcon } from './ProviderIcon';
 import { taskStatePill } from './taskStatus';
 import type { AgentEventEnvelope } from './events';
 import { agentTaskReducer, initialAgentTaskState, pollAgentTask, type AgentBridgePort, type AgentTaskState } from './model';
@@ -70,7 +71,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
               <span className="agt-card__back">‹ Tasks</span>
               <span className="agt-card__title">{task.title}</span>
               {pillNode}
-              <span className="agt-mono agt-right">{meta}</span>
+              <span className="agt-mono agt-right"><ProviderIcon id={task.laneId} size={11} /> {meta}</span>
             </div>
             <div className="agt-card__body">
               {turns.length === 0 && <div className="agt-stamp">{relativeTime(task.createdAt, { now })}</div>}

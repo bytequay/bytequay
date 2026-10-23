@@ -18,6 +18,7 @@ import Composer from '../../Composer';
 
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { renderMarkdown } from '../markdown';
+import { ProviderAvatar } from '../ProviderIcon';
 import type { TranscriptTurn } from '../transcript';
 import { ANSWERING_ELSEWHERE, type DiscussionMessageDto, type TaskDiscussionDto } from './contracts';
 import { discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
@@ -49,7 +50,7 @@ function Message({ message, lane, repository }: { message: DiscussionMessageDto;
   const reader = message.author === 'USER';
   return (
     <div className={`agt-disc-msg${reader ? ' is-reader' : ''}`}>
-      <span className="agt-disc-msg__avatar">{reader ? 'Y' : 'A'}</span>
+      {reader ? <span className="agt-disc-msg__avatar">Y</span> : <ProviderAvatar id={lane} size={18} />}
       <div className="agt-disc-msg__main">
         <div className="agt-disc-msg__byline">
           <span>{reader ? 'You' : 'Agent'}</span>
@@ -145,7 +146,7 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
             ))}
             {discussion.pending && (
               <div className="agt-disc-msg">
-                <span className="agt-disc-msg__avatar">A</span>
+                <ProviderAvatar id={discussion.providerLane} size={18} />
                 <div className="agt-disc-msg__main">
                   <div className="agt-disc-msg__byline"><span>Agent</span>{` · ${discussion.providerLane} · read-only`}</div>
                   <div className="agt-disc-msg__shimmer">Checking the passage and relevant context…</div>

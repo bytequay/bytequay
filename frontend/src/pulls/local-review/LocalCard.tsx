@@ -13,7 +13,7 @@
  */
 import { shortSha } from '@bytequay/ui/displayText';
 import type { ReactNode } from 'react';
-import { Bot, GitCommitHorizontal, Lock, Target } from 'lucide-react';
+import { GitCommitHorizontal, Lock, Target } from 'lucide-react';
 import { shortPath } from '../agent-review/model';
 import { ReviewThreadCard, ReviewThreadMessage } from '../ReviewThreadCard';
 
@@ -72,9 +72,4 @@ export function SummaryCardTitle({ sha, tooltip }: { sha?: string; tooltip?: str
   return sha === undefined
     ? <span className="lrc__title" title={tooltip}>Change intention</span>
     : <span className="lrc__title" title={tooltip}>Design &amp; implementation <code>{shortSha(sha)}</code></span>;
-}
-
-/** The review agent's mark, so its comments read as a bot's next to a person's. */
-export function ReviewerAvatar() {
-  return <span className="lrc-bot" aria-hidden="true"><Bot size={13} strokeWidth={2} /></span>;
 }

@@ -105,6 +105,27 @@
   text-transform: uppercase;
 }
 
+.provider-icon {
+  flex: none;
+  vertical-align: -2px;
+}
+
+/* An agent's logo in the same round footprint as a person's picture beside it. */
+.provider-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--fg-default);
+  background: var(--surface-canvas);
+  box-shadow: inset 0 0 0 1px light-dark(#d8dee4, var(--dark-border));
+}
+
+.provider-avatar .provider-icon {
+  vertical-align: 0;
+}
+
 .user-avatar-trigger {
   display: inline-flex;
   flex: 0 0 auto;

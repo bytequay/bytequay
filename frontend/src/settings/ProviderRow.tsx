@@ -13,6 +13,7 @@
  */
 import type { ReactNode } from 'react';
 import { LogIn, RefreshCw } from 'lucide-react';
+import { ProviderIcon } from '../agents/ProviderIcon';
 import type { ModelProviderDto } from '../types';
 import { isDeepSeekKeyLane, providerAvailable, providerStatusLabel } from './model';
 import { SettingsRow, StatusDot, dotTone } from './primitives';
@@ -29,7 +30,7 @@ export default function ProviderRow({ provider, checking, account = false, onSig
   const available = providerAvailable(provider.readiness);
   const title = provider.id === 'claude' ? `Claude Code${account ? '' : ' CLI'} · Default account`
     : account || isDeepSeekKeyLane(provider.id) ? provider.label : `${provider.label} CLI`;
-  return <SettingsRow title={title} subtitle={
+  return <SettingsRow title={<><ProviderIcon id={provider.id} />{title}</>} subtitle={
     <span className="setw-status">
       <StatusDot tone={dotTone(status.tone)} />
       <span>{account && provider.readiness === 'AUTHENTICATION_REQUIRED' && provider.diagnostic ? provider.diagnostic : status.label}

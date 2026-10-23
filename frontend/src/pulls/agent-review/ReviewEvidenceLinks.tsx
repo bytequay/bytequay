@@ -14,7 +14,6 @@
 import type { ReactNode } from 'react';
 
 export const evidenceTarget = (runId: string, reference: string) => `review-evidence-${runId}-${reference}`;
-export const validationTarget = (runId: string, step: number, candidate: number) => `review-validation-${runId}-${step}-${candidate}`;
 
 export function ReviewEvidenceLink({ target, children }: { target: string; children: ReactNode }) {
   return <a className="agr-context__link" href={`#${encodeURIComponent(target)}`} onClick={event => {
@@ -22,7 +21,7 @@ export function ReviewEvidenceLink({ target, children }: { target: string; child
     const element = document.getElementById(target);
     if (element === null) return;
     if (element instanceof HTMLDetailsElement) element.open = true;
-    // Finding cards contain their own disclosure; validation targets live inside several folded passes.
+    // Finding cards contain their own disclosure; evidence items live inside folded groups.
     element.querySelectorAll('details').forEach(details => { details.open = true; });
     for (let parent = element.parentElement; parent !== null; parent = parent.parentElement) {
       if (parent instanceof HTMLDetailsElement) parent.open = true;

@@ -63,7 +63,8 @@ describe('the agent review on a development task Summary', () => {
     expect(html).not.toContain('aria-label="What changed"');
     expect(html).toContain('aria-label="Review rounds"');
     expect(html).not.toContain('data-review-card=');
-    expect(html).toContain('Review details');
+    // Every finding was selected, every file reviewed, and no thread of the user's was judged.
+    expect(html).not.toContain('Review details');
   });
 
   it('explains the change with the reviewer’s summary for a task without its own', () => {

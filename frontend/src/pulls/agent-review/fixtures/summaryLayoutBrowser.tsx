@@ -97,8 +97,8 @@ export async function run() {
     const tabs = [...host.querySelectorAll<HTMLButtonElement>('.agr-review__tabs button')];
     assert(tabs.map(item => item.getAttribute('aria-selected')).join() === 'false,true,false',
       'A running review must open on Activity');
-    assert(host.querySelector('[data-review-card="run-9:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
-      'Current review details must remain in Activity beside the original explanation');
+    assert(host.querySelector('[data-review-card="run-9:details"]') !== null && host.textContent?.includes('Follow the sort field from parsing to storage.') === false,
+      'The current review keeps its details slot in Activity without showing its change map');
     tabs[0].click(); await settle();
     const finding = host.querySelector<HTMLElement>('.agr-finding');
     assert(finding !== null && finding.querySelector('.lrc.is-local') !== null, 'Findings must retain the existing local card');

@@ -330,7 +330,7 @@ describe('a finding about the whole pull request', () => {
 });
 
 describe('review details', () => {
-  it('shows assessed scope, recorded candidates, and validation evidence in review details', () => {
+  it('keeps validation evidence in the Evidence tab and the working report out of review details', () => {
     const original = reviewFixture({ findings: [] });
     const run = original.runs[0];
     const review = parseAgentReview({ ...original, runs: [{ ...run, scope: 'INCREMENTAL', changedFiles: 0, steps: [],
@@ -344,30 +344,21 @@ describe('review details', () => {
       { ref: 'E25', source: 'command output: ./mvnw test -Dtest=TestProviderCleanup', provenance: 'Command executed during validation',
         excerpt: 'Frozen head: PASS; release removed: FAIL (reference remains)', explanation: '' }] }] });
     const html = tab(review);
-    expect(html).toContain('<details class="agr-review-details"><summary>Review details');
-    expect(html).toContain('1 changed file assessed');
-    expect(html).not.toContain('of 0 changed files');
-    expect(html).toContain('src/Factory.java');
+    expect(html).not.toContain('agr-review-details');
+    expect(html).not.toContain('changed file assessed');
+    expect(html).not.toContain('Provider ownership spans');
     expect(html).toContain('src/UnchangedCaller.java:14–28');
     expect(html).toContain('finally { provider.release(); }');
     expect(html).toContain('2 references · frozen at head d9a0c41');
     expect(html).toContain('<span class="agr-card__refs">E25</span>');
     expect(html).toContain('command output: ./mvnw test -Dtest=TestProviderCleanup');
     expect(html).toContain('Frozen head: PASS; release removed: FAIL (reference remains)');
-    expect(html).toContain('2 of 2 candidates checked');
-    expect(html).toContain('1 supported · 1 rejected');
-    expect(html).toContain('The caller releases its reference');
-    expect(html).toContain('Draft leak hypothesis');
-    expect(html).toContain('Recorded candidates · 2');
-    expect(html).toContain('Behavior and contracts');
-    expect(html).toContain('Interactions and operating constraints');
-    expect(html).toContain('Design and verification');
+    expect(html).not.toContain('Draft leak hypothesis');
+    expect(html).not.toContain('The caller releases its reference');
+    expect(html).not.toContain('Behavior and contracts');
     expect(html).not.toContain('data-finding-id=');
     const partial = tab({ ...review, runs: [{ ...review.runs[0], investigation: null }] });
     expect(partial).toContain('Frozen head: PASS; release removed: FAIL (reference remains)');
-    const retained = parseAgentReview({ ...review, runs: [{ ...review.runs[0], investigation: { ...review.runs[0].investigation,
-      validations: [{ candidate: 1, conclusion: 'This assessment predates explicit validation.', findingId: 'finding-1' }] } }] });
-    expect(tab(retained)).toContain('1 unresolved');
   });
 
   it('retains supported unselected findings in details without counting them as selected results', () => {
@@ -381,11 +372,11 @@ describe('review details', () => {
     expect(html).toContain('No selected findings');
     expect(html).toContain('No findings were selected for the main result.');
     expect(html).toContain('Add to my review');
-    expect(html).toContain('Useful context, below the reporting threshold.');
+    expect(html).toContain('Review details <span class="agr-learning-cards__scope"> · other recorded findings</span>');
     expect(html).toContain('Round 1 · head d9a0c41 · 0 findings');
   });
 
-  it('renders unsealed discovery provenance and all three perspective statuses', () => {
+  it('parses discovery provenance and perspectives without showing them', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Changed teardown responsibility.', reviewedFiles: ['src/Factory.java'],
       contextEvidenceRefs: [], candidates: [{ ...candidateFixture('The callback may outlive its owner'), attributedSource: 'PR discussion' }],
@@ -398,18 +389,14 @@ describe('review details', () => {
       steps: [{ number: 1, kind: 'INVESTIGATE', repair: false, investigation: null, validation: null }] }] });
     expect(review.runs[0].investigation?.candidates[0]).toMatchObject({ originStep: 1, originTurnId: 'turn-1', attributedSource: 'PR discussion' });
     const html = tab(review);
-    expect(html).toContain('Unsealed checkpoint');
-    expect(html).toContain('Behavior and contracts · Checked');
-    expect(html).toContain('Interactions and operating constraints · Blocked');
-    expect(html).toContain('Design and verification · Not applicable');
-    expect(html).toContain('attributed source: PR discussion');
-    expect(html).toContain('Next check');
     expect(html).toContain('Other recorded findings · 1');
-    expect(html).not.toContain('Sealed investigation');
+    expect(html).not.toContain('Unsealed checkpoint');
+    expect(html).not.toContain('Behavior and contracts');
+    expect(html).not.toContain('The callback may outlive its owner');
     expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], investigation: { ...investigation, candidates: ['unstructured'] } }] })).toThrow('review candidate');
   });
 
-  it('shows evidence requests and their answers without calling unresolved claims rejected', () => {
+  it('lists unreviewed scope in review details without the review passes', () => {
     const original = reviewFixture({ findings: [] });
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace provider ownership.', reviewedFiles: ['src/Factory.java'], contextEvidenceRefs: ['E1'],
       perspectives: [], candidates: [candidateFixture('Provider teardown may retain memory')], validations: [], answers: [] };
@@ -431,17 +418,11 @@ describe('review details', () => {
             conclusion: 'The available source does not settle the cleanup behavior.', request: null }], coverage, newCandidates: [], selectedFindingIds: [], selectionExplanation: '' } },
       ] }] });
     const html = tab(review);
-    expect(html).toContain('Review passes · 4');
-    expect(html).toContain('Evidence collection');
-    expect(html).toContain('1 needs evidence');
-    expect(html).toContain('The cancellation path may also retain the provider.');
-    expect(html).toContain('Who releases the last reference?');
-    expect(html).toContain('Trace factory teardown and run the cleanup test.');
-    expect(html).toContain('A final release is observed or a retained reference is reproduced.');
-    expect(html).toContain('The integration fixture requires an unavailable service.');
-    expect(html).toContain('Checked the evidence from pass 3.');
-    expect(html).toContain('1 unresolved');
-    expect(html).not.toContain('rejected');
+    expect(html).toContain('Review details <span class="agr-learning-cards__scope"> · 1 item not reviewed</span>');
+    expect(html).toContain('<h3>Not reviewed</h3><ul><li>Cleanup could not be verified</li></ul>');
+    expect(html).not.toContain('Review passes');
+    expect(html).not.toContain('Who releases the last reference?');
+    expect(html).not.toContain('The integration fixture requires an unavailable service.');
     expect(html).not.toContain('data-finding-id=');
     const malformed: Partial<ReviewCandidateValidationDto> = { ...claim };
     delete malformed.outcome;
@@ -513,7 +494,7 @@ describe('the summary card', () => {
     expect(html).toContain('Original change explanation · head d9a0c41');
     expect(html).toContain('data-review-card="run-1:purpose"');
     expect(html).toContain('data-review-card="run-2:details"');
-    expect(html).toContain('Fresh map for the updated head.');
+    expect(html).not.toContain('Fresh map for the updated head.');
     expect(html).toContain('Current check could not run.');
     expect(html).not.toContain('No summary was saved');
     expect(html).not.toContain('0 of 5 commit explanations saved');

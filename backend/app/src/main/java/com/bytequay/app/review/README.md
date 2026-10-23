@@ -100,7 +100,7 @@ without another explanation. Completion requires a complete initial explanation
 somewhere at or before that run, plus the current run's own coverage and validated
 report. Incremental scope follows the latest accepted coverage, independently of
 which run owns the explanation. The UI retains the saved explanation while
-showing the latest review's status, findings, warnings and investigation details.
+showing the latest review's status, findings, warnings and review details.
 
 ## Second reader
 
@@ -621,13 +621,14 @@ Saving a supported draft does not consume a presentation slot:
 3. Check that every selected ID belongs to this review/run and is backed by a
    current supported candidate and exact revision. Verify these conditions again
    at acceptance. A newly found stronger result can displace an earlier draft.
-4. Retain supported but unselected candidates and the selection explanation in
-   Review details. They are neither rejected nor automatically published.
+4. Retain supported but unselected findings in Review details, and the selection
+   explanation with the validation. They are neither rejected nor automatically
+   published.
 
 Before acceptance, account for every saved, nonwithdrawn automatic finding in the
 candidate assessments. An unfinished validation may retain provisional support,
 but only final acceptance establishes the immutable selection. Show provisional
-work in details until that selection exists.
+findings in details until that selection exists.
 
 Preserve uncertainty separately from selection. No supported-but-unselected
 outcome is needed: validation answers whether the concern holds, and the selected
@@ -659,9 +660,11 @@ comment are never checked.
 
 ## UI and trust boundaries
 
-Review details show perspective coverage, candidate origin, verdict/evidence,
-omissions, and selected versus unselected supported results. A collecting draft
-is distinguished from a sealed investigation. The main result shows selected
+Review details show only what the reader acts on: verdicts on the user's own
+threads, omitted scope, and findings outside the selection. The change map,
+perspectives, candidates, assessed files and per-pass validation are the agent's
+handoff between passes; they stay in storage and in its context, not on screen,
+and the Evidence tab lists what it read. The main result shows selected
 automatic findings and separately labelled discussion follow-ups; internal
 unselected saves remain accessible through details.
 

@@ -282,7 +282,6 @@
 .agr-review-details__body > details { margin-top: 12px; }
 .agr-review-details__body summary { cursor: pointer; }
 .agr-review-details__body .markdown-body { padding: 0; }
-.agr-review-details__files { max-height: 240px; overflow: auto; padding-left: 22px; }
 .agr-review-details__conclusions { padding-left: 22px; }
 .agr-review-details__conclusions > li + li { margin-top: 12px; }
 

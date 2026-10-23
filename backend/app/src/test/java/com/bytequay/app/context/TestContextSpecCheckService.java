@@ -40,7 +40,6 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
@@ -108,15 +107,15 @@ class TestContextSpecCheckService
     private final List<AgentEventEnvelope> events = new ArrayList<>();
     private final InMemoryMemoryStore memoryStore = new InMemoryMemoryStore();
     private final MemoryService memories = new MemoryService(memoryStore, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
-    private final SpecWorkItems localWork = mock(SpecWorkItems.class);
+    private final ConfirmedFindingWorkItems localWork = mock(ConfirmedFindingWorkItems.class);
     private final ContextSpecCheckService service = new ContextSpecCheckService(workspaces, git, store, builds, buildStore, mock(GitHubRepoClient.class),
             mock(CredentialService.class), tasks, logs, worktrees, memories, Clock.fixed(NOW, ZoneOffset.UTC), specWorkItems());
 
-    private ObjectProvider<SpecWorkItems> specWorkItems()
+    private ObjectProvider<ConfirmedFindingWorkItems> specWorkItems()
     {
         DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
         factory.registerSingleton("specWorkItems", localWork);
-        return factory.getBeanProvider(SpecWorkItems.class);
+        return factory.getBeanProvider(ConfirmedFindingWorkItems.class);
     }
 
     @BeforeEach
@@ -295,7 +294,7 @@ class TestContextSpecCheckService
         Candidate settled = service.saveResult(build, TURN, confirmed(COMMAND, ImmutableList.of("delta-lake")));
 
         assertThat(settled.status()).isEqualTo(Status.CONFIRMED);
-        verify(localWork).save(WORKSPACE, "plugin/storage/", settled);
+        verify(localWork).record(WORKSPACE, "plugin/storage/", settled);
         assertThat(settled.test().orElseThrow().exitCode()).isEqualTo(1);
         assertThat(settled.test().orElseThrow().command()).isEqualTo(COMMAND);
         assertThat(settled.test().orElseThrow().source()).contains("keysByDeletionVector");

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workitem;
 
+import com.bytequay.app.context.ConfirmedFindingWorkItems;
 import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckStore;
 import com.bytequay.core.domain.WorkItem;
@@ -27,6 +28,7 @@ import static java.util.Objects.requireNonNull;
 
 @Service
 public class SpecWorkItems
+        implements ConfirmedFindingWorkItems
 {
     private final WorkItemService work;
     private final WorkItemStore items;
@@ -43,6 +45,12 @@ public class SpecWorkItems
     {
         ContextSpecCheck check = checks.find(workspaceId, checkId).orElseThrow(() -> new IllegalArgumentException("Spec check not found"));
         return save(workspaceId, check.directory(), check.candidate(candidateId));
+    }
+
+    @Override
+    public void record(String workspaceId, String directory, ContextSpecCheck.Candidate candidate)
+    {
+        save(workspaceId, directory, candidate);
     }
 
     public WorkItemView save(String workspaceId, String directory, ContextSpecCheck.Candidate candidate)

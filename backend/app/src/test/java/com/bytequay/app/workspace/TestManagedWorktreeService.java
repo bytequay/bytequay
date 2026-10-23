@@ -23,7 +23,6 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -63,7 +62,7 @@ class TestManagedWorktreeService
     private WorkspacePaths paths;
     private RecordingGitCommandRunner git;
     private ManagedWorktreeService service;
-    private final IdeRuntimeService ide = mock(IdeRuntimeService.class);
+    private final WorktreeProcesses ide = mock(WorktreeProcesses.class);
     private Path repository;
     private String startCommit;
 
@@ -468,7 +467,7 @@ class TestManagedWorktreeService
         WorkspaceStore linkedWorkspaces = mock(WorkspaceStore.class);
         when(linkedWorkspaces.findById(linkedWorkspaceId))
                 .thenReturn(Optional.of(workspace(linkedWorkspaceId, linkedRepository)));
-        ManagedWorktreeService linkedService = new ManagedWorktreeService(linkedPaths, linkedWorkspaces, git, mock(IdeRuntimeService.class));
+        ManagedWorktreeService linkedService = new ManagedWorktreeService(linkedPaths, linkedWorkspaces, git, mock(WorktreeProcesses.class));
 
         TaskId taskId = TaskId.random();
         assertThatThrownBy(() -> linkedService.provision(new ProvisionWorktreeCommand(taskId, linkedWorkspaceId, REPOSITORY, startCommit, command(taskId).generatedBranch())))

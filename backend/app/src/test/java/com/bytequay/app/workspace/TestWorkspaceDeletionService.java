@@ -30,8 +30,6 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.artifact.ArtifactService;
-import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.RepoRef;
@@ -82,8 +80,8 @@ class TestWorkspaceDeletionService
     private final AgentCompletionService completion = mock(AgentCompletionService.class);
     private final WorktreeService worktreeService = mock(WorktreeService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
-    private final ContextSpecCheckService specChecks = mock(ContextSpecCheckService.class);
-    private final ArtifactService artifacts = mock(ArtifactService.class);
+    private final WorkspaceDataOwner specChecks = mock(WorkspaceDataOwner.class);
+    private final WorkspaceDataOwner artifacts = mock(WorkspaceDataOwner.class);
     private final List<AgentTask> ownedTasks = new ArrayList<>();
     private WorkspacePaths paths;
     private Workspace workspace;
@@ -110,7 +108,7 @@ class TestWorkspaceDeletionService
             ownedTasks.removeIf(task -> task.id().equals(invocation.getArgument(0)));
             return null;
         }).when(completion).delete(any());
-        service = new WorkspaceDeletionService(workspaces, tasks, turns, completion, worktreeService, paths, git, models, specChecks, artifacts);
+        service = new WorkspaceDeletionService(workspaces, tasks, turns, completion, worktreeService, paths, git, models, ImmutableList.of(specChecks, artifacts));
     }
 
     @Test

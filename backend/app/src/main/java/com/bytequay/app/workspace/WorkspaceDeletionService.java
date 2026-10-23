@@ -20,8 +20,6 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.app.artifact.ArtifactService;
-import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.Workspace;
@@ -58,8 +56,7 @@ public class WorkspaceDeletionService
     private final WorkspacePaths paths;
     private final GitCommandRunner git;
     private final ModelSettingsService models;
-    private final ContextSpecCheckService specChecks;
-    private final ArtifactService artifacts;
+    private final List<WorkspaceDataOwner> dataOwners;
 
     public WorkspaceDeletionService(
             WorkspaceStore workspaces,
@@ -70,8 +67,7 @@ public class WorkspaceDeletionService
             WorkspacePaths paths,
             GitCommandRunner git,
             ModelSettingsService models,
-            ContextSpecCheckService specChecks,
-            ArtifactService artifacts)
+            List<WorkspaceDataOwner> dataOwners)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -81,8 +77,7 @@ public class WorkspaceDeletionService
         this.paths = requireNonNull(paths, "paths is null");
         this.git = requireNonNull(git, "git is null");
         this.models = requireNonNull(models, "models is null");
-        this.specChecks = requireNonNull(specChecks, "specChecks is null");
-        this.artifacts = requireNonNull(artifacts, "artifacts is null");
+        this.dataOwners = ImmutableList.copyOf(dataOwners);
     }
 
     public void delete(String workspaceId, boolean confirmed, String repositoryName)
@@ -119,8 +114,9 @@ public class WorkspaceDeletionService
                 verifyDirectory(current, ImmutableList.of());
                 deleteDirectory(current);
                 models.clearWorkspaceOverrides(workspaceId);
-                specChecks.deleteWorkspaceData(workspaceId);
-                artifacts.deleteWorkspaceData(workspaceId);
+                for (WorkspaceDataOwner owner : dataOwners) {
+                    owner.deleteWorkspaceData(workspaceId);
+                }
                 workspaces.delete(workspaceId);
             }
             catch (IOException failure) {

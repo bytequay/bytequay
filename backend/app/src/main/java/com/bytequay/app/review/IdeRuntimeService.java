@@ -24,6 +24,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
+import com.bytequay.app.workspace.WorktreeProcesses;
 import com.bytequay.core.review.ReviewConflictException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -74,6 +75,7 @@ import static java.util.Objects.requireNonNull;
 /** Owns one lazily started extension host per task, independently of the agent's mutation claim. */
 @Component
 public class IdeRuntimeService
+        implements WorktreeProcesses
 {
     private static final Logger log = LoggerFactory.getLogger(IdeRuntimeService.class);
     private static final Pattern LISTENING = Pattern.compile("Extension host agent listening on (\\d+)\\r?\\n");
@@ -216,6 +218,7 @@ public class IdeRuntimeService
     }
 
     /** Called before removing a worktree, including when its editor is still visible. */
+    @Override
     public void stopWorktree(TaskWorktree worktree)
     {
         sessions.computeIfPresent(worktree.taskId().toString(), (ignored, live) -> {

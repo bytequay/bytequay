@@ -33,7 +33,7 @@ import com.bytequay.app.repository.github.GitHubSearchResponse;
 import com.bytequay.app.review.MavenCommands;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.utils.ContextText;
-import com.bytequay.app.workitem.SpecWorkItems;
+import com.bytequay.app.workspace.WorkspaceDataOwner;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextLimits;
@@ -74,6 +74,7 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class ContextSpecCheckService
+        implements WorkspaceDataOwner
 {
     private static final Logger log = LoggerFactory.getLogger(ContextSpecCheckService.class);
     private static final Pattern LOCATION = Pattern.compile("([^\\s:]+):([1-9][0-9]{0,6})(?:-([1-9][0-9]{0,6}))?");
@@ -93,11 +94,11 @@ public class ContextSpecCheckService
     private final WorktreeService worktrees;
     private final MemoryService memories;
     private final Clock clock;
-    private final ObjectProvider<SpecWorkItems> workItems;
+    private final ObjectProvider<ConfirmedFindingWorkItems> workItems;
 
     public ContextSpecCheckService(WorkspaceRepositoryService workspaces, GitCommandRunner git, ContextSpecCheckStore checks, ContextBuildService builds,
             ContextBuildStore buildStore, GitHubRepoClient github, CredentialService credentials, AgentTaskStore tasks, TaskLogStore logs,
-            WorktreeService worktrees, MemoryService memories, Clock clock, ObjectProvider<SpecWorkItems> workItems)
+            WorktreeService worktrees, MemoryService memories, Clock clock, ObjectProvider<ConfirmedFindingWorkItems> workItems)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
@@ -260,6 +261,7 @@ public class ContextSpecCheckService
     }
 
     /** Idempotent local deletion after the caller's verified workspace cleanup; shares the mutation lock so no check is recreated. */
+    @Override
     public void deleteWorkspaceData(String workspaceId)
     {
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
@@ -392,7 +394,7 @@ public class ContextSpecCheckService
         }
         Candidate settled = candidate.withResult(result.outcome(), test, Optional.of(result.reason()), draft);
         if (settled.status() == Status.CONFIRMED) {
-            workItems.getObject().save(build.workspaceId(), check.directory(), settled);
+            workItems.getObject().record(build.workspaceId(), check.directory(), settled);
         }
         checks.save(build.workspaceId(), Optional.of(check), check.withCandidate(settled));
         return settled;

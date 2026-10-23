@@ -45,6 +45,7 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceDataOwner;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.Artifact;
@@ -96,6 +97,7 @@ import static java.util.Objects.requireNonNull;
  */
 @Service
 public class ArtifactService
+        implements WorkspaceDataOwner
 {
     private static final Logger log = LoggerFactory.getLogger(ArtifactService.class);
     public static final int MAXIMUM_MESSAGE = 4000;
@@ -262,6 +264,7 @@ public class ArtifactService
     }
 
     /** Stops a conversation that is answering, then removes the workspace's conversations and checkout; called while the workspace is deleted. */
+    @Override
     public void deleteWorkspaceData(String workspaceId)
     {
         Optional.ofNullable(running.remove(workspaceId)).ifPresent(Run::stop);

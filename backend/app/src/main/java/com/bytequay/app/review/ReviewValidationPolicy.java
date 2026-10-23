@@ -13,12 +13,18 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.review.ReviewCandidate;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewRun;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 /** Evaluated against fresh findings both when a report is submitted and when its turn finishes. */
 final class ReviewValidationPolicy
@@ -46,6 +52,44 @@ final class ReviewValidationPolicy
     static boolean selectable(ReviewRun run, ReviewFinding finding)
     {
         return finding.reviewId().equals(run.reviewId()) && finding.runId().equals(run.id()) && finding.origin() == ReviewFinding.Origin.AUTOMATIC;
+    }
+
+    /** A hypothesis added during validation is settled only once its own evidence has been collected. */
+    static boolean settlesNewCandidate(ReviewInvestigation report, int candidate, ReviewCandidateValidation.Outcome outcome)
+    {
+        return candidate > report.candidates().size() && outcome != ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE;
+    }
+
+    /** A hypothesis carried from an earlier finding can only be supported as that same finding. */
+    static boolean changesCarriedFinding(ReviewInvestigation report, int candidate, Optional<String> findingId)
+    {
+        return candidate <= report.candidates().size()
+                && report.candidates().get(candidate - 1).carriedFindingId().filter(carried -> !findingId.equals(Optional.of(carried))).isPresent();
+    }
+
+    /** A selected finding is an automatic finding of this run that the report supports at its current revision. */
+    static boolean supportedSelection(ReviewRun run, ReviewFinding finding, List<ReviewCandidateValidation> validations)
+    {
+        return selectable(run, finding) && validations.stream().anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
+                && candidate.findingId().equals(Optional.of(finding.id())) && candidate.findingRevision().equals(Optional.of(finding.revision())));
+    }
+
+    /** A complete report carries every finding still open from an earlier run into a hypothesis. */
+    static boolean carriesOpenFindings(ReviewRun run, List<ReviewCandidate> candidates, List<ReviewFinding> findings)
+    {
+        Set<String> carried = candidates.stream().flatMap(candidate -> candidate.carriedFindingId().stream()).collect(toImmutableSet());
+        return findings.stream()
+                .filter(finding -> !finding.runId().equals(run.id()) && finding.state() == ReviewFinding.State.OPEN)
+                .allMatch(finding -> carried.contains(finding.id()));
+    }
+
+    /** A complete report supports every open finding and every automatic finding this run has not withdrawn. */
+    static boolean supportsOpenFindings(ReviewRun run, Set<String> supported, List<ReviewFinding> findings)
+    {
+        return findings.stream()
+                .filter(finding -> finding.state() == ReviewFinding.State.OPEN
+                        || (finding.runId().equals(run.id()) && finding.origin() == ReviewFinding.Origin.AUTOMATIC && finding.state() != ReviewFinding.State.WITHDRAWN))
+                .allMatch(finding -> supported.contains(finding.id()));
     }
 
     enum FindingProblem

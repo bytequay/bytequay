@@ -119,6 +119,7 @@ import static com.bytequay.app.utils.Locks.withLock;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -1273,15 +1274,14 @@ public class AgentReviewService
             return false;
         }
         for (ReviewCandidateValidation candidate : validation.candidates()) {
-            if (candidate.candidate() > existingCandidates && candidate.outcome() != ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE) {
+            if (ReviewValidationPolicy.settlesNewCandidate(report, candidate.candidate(), candidate.outcome())) {
                 return false;
             }
             if (!run.evidence().keySet().containsAll(candidate.evidenceRefs())) {
                 return false;
             }
             if (candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED) {
-                Optional<String> carriedFinding = report.candidates().get(candidate.candidate() - 1).carriedFindingId();
-                if (carriedFinding.isPresent() && !carriedFinding.equals(candidate.findingId())) {
+                if (ReviewValidationPolicy.changesCarriedFinding(report, candidate.candidate(), candidate.findingId())) {
                     return false;
                 }
                 Optional<ReviewFinding> finding = candidate.findingId().flatMap(store::findFinding);
@@ -1290,20 +1290,19 @@ public class AgentReviewService
                 }
             }
         }
-        if (validation.selectedFindingIds().stream().anyMatch(id -> store.findFinding(id)
-                .filter(finding -> ReviewValidationPolicy.selectable(run, finding))
-                .filter(finding -> validation.candidates().stream().anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
-                        && candidate.findingId().equals(Optional.of(id)) && candidate.findingRevision().equals(Optional.of(finding.revision()))))
-                .isEmpty())) {
+        if (validation.selectedFindingIds().stream()
+                .anyMatch(id -> store.findFinding(id).filter(finding -> ReviewValidationPolicy.supportedSelection(run, finding, validation.candidates())).isEmpty())) {
             return false;
         }
-        return !validation.coverage().complete() || store.listFindings(run.reviewId()).stream()
-                .filter(finding -> finding.state() == ReviewFinding.State.OPEN
-                        || (finding.runId().equals(run.id()) && finding.origin() == ReviewFinding.Origin.AUTOMATIC && finding.state() != ReviewFinding.State.WITHDRAWN))
-                .allMatch(finding -> (finding.runId().equals(run.id()) || report.candidates().stream()
-                        .anyMatch(candidate -> candidate.carriedFindingId().equals(Optional.of(finding.id())))) && validation.candidates().stream()
-                        .anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
-                                && candidate.findingId().equals(Optional.of(finding.id()))));
+        if (!validation.coverage().complete()) {
+            return true;
+        }
+        List<ReviewFinding> findings = store.listFindings(run.reviewId());
+        Set<String> supported = validation.candidates().stream()
+                .filter(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED)
+                .flatMap(candidate -> candidate.findingId().stream())
+                .collect(toImmutableSet());
+        return ReviewValidationPolicy.carriesOpenFindings(run, report.candidates(), findings) && ReviewValidationPolicy.supportsOpenFindings(run, supported, findings);
     }
 
     private AgentReview incomplete(AgentReview review, ReviewRun run, String reason)

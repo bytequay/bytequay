@@ -746,7 +746,7 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("perspectives: record BEHAVIOR, INTERACTIONS, and DESIGN assessments before sealing");
         }
         List<ReviewCandidate> candidates = draft.candidates();
-        if (!coversCarriedFindings(call, candidates)) {
+        if (!ReviewValidationPolicy.carriesOpenFindings(call.run(), candidates, store.listFindings(call.review().id()))) {
             throw new ReviewInvalidRequestException("candidates: record a carriedFindingId hypothesis for every open finding from an earlier run");
         }
         Set<Integer> requested = new HashSet<>();
@@ -1194,7 +1194,7 @@ public class ReviewTools
                 throw new ReviewInvalidRequestException("validations: include each investigation candidate once, using its one-based number");
             }
             ReviewCandidateValidation.Outcome outcome = choice(item, "outcome", ReviewCandidateValidation.Outcome.class, "SUPPORTED, REJECTED, NEEDS_EVIDENCE, or UNRESOLVED");
-            if (candidate > investigation.candidates().size() && outcome != NEEDS_EVIDENCE) {
+            if (ReviewValidationPolicy.settlesNewCandidate(investigation, candidate, outcome)) {
                 throw new ReviewInvalidRequestException("newCandidates: new hypotheses require NEEDS_EVIDENCE so ByteQuay can assign investigation");
             }
             List<String> refs = evidenceRefs(call, item, "evidenceRefs", MAX_EVIDENCE);
@@ -1206,8 +1206,7 @@ public class ReviewTools
             if ((outcome == SUPPORTED) != findingId.isPresent() || (outcome == SUPPORTED) != findingRevision.isPresent()) {
                 throw new ReviewInvalidRequestException("findingId: only SUPPORTED requires both findingId and findingRevision");
             }
-            if (candidate <= investigation.candidates().size() && outcome == SUPPORTED
-                    && investigation.candidates().get(candidate - 1).carriedFindingId().filter(id -> !findingId.orElseThrow().equals(id)).isPresent()) {
+            if (outcome == SUPPORTED && ReviewValidationPolicy.changesCarriedFinding(investigation, candidate, findingId)) {
                 throw new ReviewInvalidRequestException("findingId: a carried hypothesis must assess its original finding");
             }
             findingId.ifPresent(id -> {
@@ -1248,7 +1247,7 @@ public class ReviewTools
         for (String id : selected) {
             ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
                     .orElseThrow(() -> new ReviewInvalidRequestException("selectedFindingIds: unknown finding"));
-            if (!retained.contains(id) || !ReviewValidationPolicy.selectable(call.run(), finding)) {
+            if (!ReviewValidationPolicy.supportedSelection(call.run(), finding, validations)) {
                 throw new ReviewInvalidRequestException("selectedFindingIds: select only current-run automatic findings supported at their current revision");
             }
             // The title is all that marks a finding as a question.
@@ -1262,7 +1261,8 @@ public class ReviewTools
         String selectionExplanation = text(arguments, "selectionExplanation", 2000, true);
         List<ReviewThreadVerdict> threadVerdicts = threadVerdicts(call, complete.asBoolean());
         if (complete.asBoolean()) {
-            if (!coversCarriedFindings(call, investigation.candidates())) {
+            List<ReviewFinding> findings = store.listFindings(call.review().id());
+            if (!ReviewValidationPolicy.carriesOpenFindings(call.run(), investigation.candidates(), findings)) {
                 throw new ReviewInvalidRequestException("validations: an open carried finding needs a structured hypothesis; request its investigation");
             }
             if (!investigation.completePerspectives()) {
@@ -1274,9 +1274,7 @@ public class ReviewTools
             if (!investigation.reviewedFiles().containsAll(requiredFiles(call))) {
                 throw new ReviewInvalidRequestException("reviewedFiles: account for every required changed file or finish with complete=false and omissions");
             }
-            if (store.listFindings(call.review().id()).stream().anyMatch(finding -> (finding.state() == ReviewFinding.State.OPEN
-                    || (finding.runId().equals(call.run().id()) && finding.origin() == ReviewFinding.Origin.AUTOMATIC
-                    && finding.state() != ReviewFinding.State.WITHDRAWN)) && !retained.contains(finding.id()))) {
+            if (!ReviewValidationPolicy.supportsOpenFindings(call.run(), retained, findings)) {
                 throw new ReviewInvalidRequestException("validations: assess every open finding, including carried findings, as supported or withdraw it with current evidence");
             }
         }
@@ -1370,14 +1368,6 @@ public class ReviewTools
                         + "Give every listed thread a verdict in review_finish threadVerdicts.");
         node.putPOJO("threads", retained);
         return node;
-    }
-
-    private boolean coversCarriedFindings(Call call, List<ReviewCandidate> candidates)
-    {
-        Set<String> carriedIds = candidates.stream().flatMap(candidate -> candidate.carriedFindingId().stream()).collect(toImmutableSet());
-        return store.listFindings(call.review().id()).stream()
-                .filter(finding -> !finding.runId().equals(call.run().id()) && finding.state() == ReviewFinding.State.OPEN)
-                .allMatch(finding -> carriedIds.contains(finding.id()));
     }
 
     private static boolean sameLines(Optional<ReviewAnchor> first, Optional<ReviewAnchor> second)

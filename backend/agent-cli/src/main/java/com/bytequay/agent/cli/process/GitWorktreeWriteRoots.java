@@ -33,6 +33,12 @@ public final class GitWorktreeWriteRoots
 {
     private static final int MAXIMUM_METADATA_BYTES = 4096;
 
+    /**
+     * Files in the worktree's Git directory that ordinary work never writes but every Git command reads to find the repository
+     * and its settings. Planted, they would steer ByteQuay's own unsandboxed Git to another configuration.
+     */
+    public static final List<String> PROTECTED_METADATA = ImmutableList.of("commondir", "gitdir", "config.worktree");
+
     private GitWorktreeWriteRoots() {}
 
     public static List<String> writableRoots(Path worktree)

@@ -146,6 +146,7 @@ public final class PermissionBroker
      * it sandboxed, so the session is told to run Maven bare.
      */
     private static final List<String> UNSANDBOXED_MAVEN = ImmutableList.of("mvn *", "./mvnw *", "mvnd *");
+    private static final Pattern MAVEN_COMMAND = Pattern.compile("\\s*(cd\\s[^&]*&&\\s*)?(mvn|\\./mvnw|mvnd)(\\s|$)");
     private static final String UNSANDBOXED_MAVEN_INSTRUCTION = """
             Maven can download dependencies only outside the sandbox, and it runs there only when the Bash command is the
             Maven call alone: `./mvnw ...`, `mvn ...` or `mvnd ...`, optionally after `cd <dir> &&`. A pipe, redirect, `;`,
@@ -922,9 +923,12 @@ public final class PermissionBroker
             PermissionResult denied = new PermissionResult("deny", Optional.empty(), refused);
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(denied))), false));
         }
-        boolean unsandboxed = arguments.toolName().equalsIgnoreCase("Bash")
-                && Optional.ofNullable(arguments.input().get("dangerouslyDisableSandbox"))
-                        .filter(JsonNode::isBoolean).map(JsonNode::asBoolean).orElse(false);
+        boolean bash = arguments.toolName().equalsIgnoreCase("Bash");
+        boolean unsandboxed = bash && (Optional.ofNullable(arguments.input().get("dangerouslyDisableSandbox"))
+                .filter(JsonNode::isBoolean).map(JsonNode::asBoolean).orElse(false)
+                // Claude runs these outside the sandbox with no flag. Any command that starts like one is shown that way, since
+                // a card that says sandboxed may be approved by the Assistant in words.
+                || unsandboxedMaven(context.scope()) && MAVEN_COMMAND.matcher(arguments.input().path("command").asText("")).lookingAt());
         if (context.scope().policy() == AgentPermissionPolicy.CHERRY_PICK) {
             PermissionResult decision = sandboxedPermission(arguments, context, unsandboxed);
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))), false));
@@ -1489,23 +1493,25 @@ public final class PermissionBroker
         boolean allowUnsandboxedRetry = access == SessionAccess.FULL
                 && (permissionPolicy == AgentPermissionPolicy.AUTO || permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX);
         ImmutableList.Builder<String> allowWrite = ImmutableList.builder();
+        // The runtime directory holds CI logs, the event log, and these settings; the agent must not rewrite its evidence.
+        ImmutableList.Builder<String> denyWrite = ImmutableList.<String>builder().add(runtimeDirectory.toString());
         allowWrite.addAll(BuildCacheRoots.buildCaches(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
+        denyWrite.addAll(BuildCacheRoots.protectedConfiguration(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
         if (access == SessionAccess.FULL && !reviewSession
                 && Files.exists(worktree.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
             List<String> gitRoots = GitWorktreeWriteRoots.writableRoots(worktree);
             allowWrite.addAll(gitRoots.subList(1, gitRoots.size()));
+            Path gitDirectory = Path.of(gitRoots.get(1));
+            GitWorktreeWriteRoots.PROTECTED_METADATA.forEach(name -> denyWrite.add(gitDirectory.resolve(name).toString()));
         }
         allowWrite.addAll(BuildCacheRoots.temporary(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
         // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
-        // The runtime directory holds CI logs, the event log, and these settings; the agent must not rewrite its evidence.
         // A read-only session's Bash is auto-approved, so denying the worktree is its containment boundary.
         // A text-only worktree is already inside the runtime directory, and need not exist on disk.
-        SandboxFilesystem filesystem = new SandboxFilesystem(
-                allowWrite.build(),
-                denyRead.build(),
-                access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY || access == SessionAccess.TOOLS_ONLY
-                        ? ImmutableList.of(runtimeDirectory.toString(), worktree.toRealPath().toString())
-                        : ImmutableList.of(runtimeDirectory.toString()));
+        if (access == SessionAccess.READ_ONLY || access == SessionAccess.REVIEW_READ_ONLY || access == SessionAccess.TOOLS_ONLY) {
+            denyWrite.add(worktree.toRealPath().toString());
+        }
+        SandboxFilesystem filesystem = new SandboxFilesystem(allowWrite.build(), denyRead.build(), denyWrite.build());
         if (scope.unattended() || access.restricted()) {
             deny.add("WebFetch", "WebSearch");
         }

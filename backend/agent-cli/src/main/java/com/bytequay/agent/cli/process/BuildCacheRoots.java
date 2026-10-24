@@ -13,8 +13,10 @@
  */
 package com.bytequay.agent.cli.process;
 
+import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentPermissionScope;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
@@ -27,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
 /**
  * Fixed local build caches that agent turns may populate without broadening the writable home directory.
  *
@@ -36,6 +40,9 @@ import java.util.Optional;
 public final class BuildCacheRoots
 {
     private static final List<String> ROOTS = ImmutableList.of(".m2", ".gradle", ".npm");
+    private static final Map<String, List<String>> BUILD_CONFIGURATION = ImmutableMap.of(
+            ".m2", ImmutableList.of("settings.xml", "settings-security.xml", "toolchains.xml", "extensions.xml"),
+            ".gradle", ImmutableList.of("init.gradle", "init.gradle.kts", "init.d", "gradle.properties"));
 
     private BuildCacheRoots() {}
 
@@ -83,6 +90,23 @@ public final class BuildCacheRoots
     public static List<Path> buildCaches(AgentPermissionScope scope, Map<String, String> environment)
     {
         return scope.access().restricted() ? ImmutableList.of() : writableRoots(environment);
+    }
+
+    /**
+     * Files in the caches that make later builds run code or download from elsewhere. A cherry-pick session builds with the
+     * caches but is otherwise contained, and later development builds run Maven outside the sandbox.
+     *
+     * <p>ponytail: artifacts in the shared repository stay writable, since an offline build must install them; a per-session
+     * repository would close that too.
+     */
+    public static List<Path> protectedConfiguration(AgentPermissionScope scope, Map<String, String> environment)
+    {
+        if (scope.policy() != AgentPermissionPolicy.CHERRY_PICK) {
+            return ImmutableList.of();
+        }
+        return buildCaches(scope, environment).stream()
+                .flatMap(root -> BUILD_CONFIGURATION.getOrDefault(root.getFileName().toString(), ImmutableList.of()).stream().map(root::resolve))
+                .collect(toImmutableList());
     }
 
     public static List<Path> temporary(AgentPermissionScope scope, Map<String, String> environment)

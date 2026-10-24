@@ -1329,6 +1329,15 @@ class TestPermissionBroker
         assertThat(permission(broker, token, "Bash", retry)).isEqualTo("deny");
         assertThat(approval.get().title()).isEqualTo("Allow Claude unsandboxed command");
         assertThat(approval.get().sandboxed()).isFalse();
+        // Bare Maven runs outside the sandbox without asking for it, so its card says so too.
+        for (String maven : ImmutableList.of("mvn -q verify", "cd core && ./mvnw test", "mvnd install")) {
+            assertThat(permission(broker, token, "Bash", "command", maven)).isEqualTo("deny");
+            assertThat(approval.get().title()).isEqualTo("Allow Claude unsandboxed command");
+            assertThat(approval.get().detail()).contains("host file access");
+            assertThat(approval.get().sandboxed()).isFalse();
+        }
+        assertThat(permission(broker, token, "Bash", "command", "mvnx --help")).isEqualTo("deny");
+        assertThat(approval.get().sandboxed()).isTrue();
         registration.close();
     }
 
@@ -1424,6 +1433,16 @@ class TestPermissionBroker
             assertThat(permission(broker, token(registration), "Write", "file_path", linkedHome.resolve(".m2/test.pom").toString()))
                     .isEqualTo("deny");
         }
+        try (McpRegistration registration = broker.register("cherry-pick-build", worktree, runtime, runtime.resolve("cherry-pick-provider"), AgentPermissionPolicy.CHERRY_PICK,
+                SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(environment), Optional.empty(), environment, Optional.empty(), ImmutableList.of())) {
+            JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
+            // It builds with the shared caches, but cannot plant configuration that later builds outside the sandbox would run.
+            assertThat(settings.at("/sandbox/filesystem/allowWrite").toString()).contains(home.resolve(".m2").toString(), home.resolve(".gradle").toString());
+            assertThat(settings.at("/sandbox/filesystem/denyWrite").toString()).contains(
+                    home.resolve(".m2/settings.xml").toString(), home.resolve(".m2/extensions.xml").toString(),
+                    home.resolve(".gradle/init.d").toString(), home.resolve(".gradle/gradle.properties").toString());
+        }
     }
 
     @Test
@@ -1457,6 +1476,9 @@ class TestPermissionBroker
                 JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                         .isEqualTo(objectMapper.valueToTree(expected));
+                // The Git directory is writable, but not the files that tell ByteQuay's own Git where the repository and its settings are.
+                assertThat(settings.at("/sandbox/filesystem/denyWrite")).isEqualTo(objectMapper.valueToTree(ImmutableList.of(runtime.toString(),
+                        privateGit.resolve("commondir").toString(), privateGit.resolve("gitdir").toString(), privateGit.resolve("config.worktree").toString())));
             }
         }
         for (String taskId : ImmutableList.of("review", "read-only")) {

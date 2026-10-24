@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useReducer, useState } from 'react';
+import React, { useEffect, useMemo, useReducer, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '@bytequay/ui/relativeTime';
@@ -45,7 +45,8 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   onClose?: () => void;
 }): React.JSX.Element {
   const pill = taskStatePill(task);
-  const projectedTurns = projectTranscript(events, null, {}, !historyIncomplete);
+  // The shared tick re-renders every card; the transcript changes only with its events.
+  const projectedTurns = useMemo(() => projectTranscript(events, null, {}, !historyIncomplete), [events, historyIncomplete]);
   const turns = projectedTurns.map((turn, index) => (
     task.state !== 'OPEN' && index === projectedTurns.length - 1
       ? settleFinalTurn(turn, task.terminalAt, task.state === 'COMPLETED')
@@ -155,7 +156,7 @@ export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = nu
 }): React.JSX.Element {
   const [tick, setTick] = useState(0);
   useEffect(() => {
-    const timer = setInterval(() => setTick((count) => count + 1), WINDOW_POLL_MS);
+    const timer = setInterval(() => { if (!document.hidden) setTick((count) => count + 1); }, WINDOW_POLL_MS);
     return () => clearInterval(timer);
   }, []);
   // One clock reading per tick, shared by every window.

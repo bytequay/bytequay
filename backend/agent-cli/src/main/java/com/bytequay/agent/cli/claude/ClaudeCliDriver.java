@@ -144,8 +144,8 @@ public final class ClaudeCliDriver
             "--tools",
             "--verbose");
     static final String PLAN_INSTRUCTION = """
-            For work with multiple steps, use the native TodoWrite tool to create and maintain the task's structured plan.
-            Keep todo statuses current as work moves from pending to in_progress to completed. Update the existing plan as the work changes.
+            For work with multiple steps, use the native TaskCreate and TaskUpdate tools to create and maintain the task's structured plan; when they are deferred, load them with ToolSearch first.
+            Create one task per step, then keep its status current as work moves from pending to in_progress to completed. Update or delete tasks as the work changes.
             """;
 
     private static final Set<String> INHERITED_ENVIRONMENT = ImmutableSet.of(
@@ -281,7 +281,7 @@ public final class ClaudeCliDriver
                     ImmutableList.of(executable, "--print", "--safe-mode", "--setting-sources=", "--settings", "{\"disableAllHooks\":true}",
                             "--tools=", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--no-chrome", "--input-format=stream-json",
                             "--output-format=stream-json", "--verbose", "--no-session-persistence"),
-                    claudeHome, Duration.ofMinutes(2), OptionalInt.empty(), MAX_DIAGNOSTIC_LINE_BYTES), objectMapper);
+                    environment, claudeHome, Duration.ofMinutes(2), OptionalInt.empty(), MAX_DIAGNOSTIC_LINE_BYTES), objectMapper);
         }
         catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
@@ -460,7 +460,7 @@ public final class ClaudeCliDriver
         else if (permissionScope.review()) {
             // Keep new provider workflow/delegation tools out of review sessions. Agent starts only the read-only Explore
             // children the broker's gate admits, in an attended review on a release where that gate was verified.
-            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TodoWrite,TaskOutput,TaskStop"
+            argv.add("--disable-slash-commands", "--tools", "Bash,Glob,Grep,Read,Edit,Write,NotebookEdit,WebFetch,WebSearch,TaskCreate,TaskUpdate,TaskList,TaskGet,TaskOutput,TaskStop"
                     + (reviewChildAgents && !permissionScope.unattended() ? ",Agent" : ""));
         }
         if (permissionScope.access() == SessionAccess.TOOLS_ONLY || (registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME) && !reviewChildAgents)) {
@@ -635,19 +635,27 @@ public final class ClaudeCliDriver
         return ProviderCli.run(supervisor, processSpec(
                 new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-cli"),
                 ImmutableList.copyOf(command),
+                environment,
                 Path.of(System.getProperty("user.dir")).toAbsolutePath(),
                 maximumRuntime,
                 OptionalInt.of(MAX_PROBE_OUTPUT_BYTES),
                 MAX_PROBE_OUTPUT_BYTES), "Claude CLI");
     }
 
-    private ProcessSpec processSpec(ProcessOwner owner, List<String> argv, Path workingDirectory, Duration maximumRuntime, OptionalInt stdoutCaptureLimit, int maximumStderrBytes)
+    private ProcessSpec processSpec(
+            ProcessOwner owner,
+            List<String> argv,
+            Map<String, String> processEnvironment,
+            Path workingDirectory,
+            Duration maximumRuntime,
+            OptionalInt stdoutCaptureLimit,
+            int maximumStderrBytes)
     {
         return new ProcessSpec(
                 owner,
                 argv,
                 workingDirectory,
-                GitCliEnvironment.withoutCredentials(environment),
+                GitCliEnvironment.withoutCredentials(processEnvironment),
                 stdoutCaptureLimit,
                 maximumStderrBytes,
                 maximumRuntime,
@@ -901,6 +909,13 @@ public final class ClaudeCliDriver
                             attachments,
                             streamingInput,
                             session.context.mayAskUser(session.permissionScope.review())),
+                    // Claude offers newer models its task tools only on request. Its task list follows the session, which a
+                    // resumed turn shares with earlier ones; a list of this process's own lets the mapper see every task.
+                    ImmutableMap.<String, String>builder()
+                            .putAll(environment)
+                            .put("CLAUDE_CODE_ENABLE_TODO_TOOLS", "true")
+                            .put("CLAUDE_CODE_TASK_LIST_ID", UUID.randomUUID().toString())
+                            .buildKeepingLast(),
                     session.context.worktree(),
                     command.maximumRuntime(),
                     OptionalInt.empty(),

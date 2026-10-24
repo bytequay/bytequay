@@ -34,6 +34,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.MoreCollectors.onlyElement;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.groups.Tuple.tuple;
@@ -132,86 +133,104 @@ class TestClaudeEventMapper
     }
 
     @Test
-    void publishesTodoWritePlanOnlyAfterSuccessAndPreservesProgressAndClearing()
+    void publishesTheWholeTaskListAfterEachAcceptedChange()
     {
-        assertThat(todoWrite("todos-1", "null", """
-                [{"content":"Read known-secret context","status":"completed","activeForm":"Reading context"},
-                 {"content":"Implement fix","status":"in_progress"},{"content":"Run tests","status":"pending"}]
-                """)).singleElement().isInstanceOf(ProviderAgentEvent.Tool.class);
-        ProviderAgentEvent.Plan plan = todoResult("todos-1", "null", false).stream()
-                .filter(ProviderAgentEvent.Plan.class::isInstance).map(ProviderAgentEvent.Plan.class::cast).findFirst().orElseThrow();
-        assertThat(plan.items()).extracting(ProviderAgentEvent.PlanItem::text, ProviderAgentEvent.PlanItem::state).containsExactly(
-                tuple("Read [REDACTED] context", ProviderAgentEvent.PlanItemState.COMPLETED),
-                tuple("Implement fix", ProviderAgentEvent.PlanItemState.IN_PROGRESS),
-                tuple("Run tests", ProviderAgentEvent.PlanItemState.PENDING));
-        assertThat(plan.providerEventId()).contains("todos-1:plan");
+        assertThat(taskCall("create-1", "null", "TaskCreate", "{\"subject\":\"Read known-secret context\",\"description\":\"Context\"}"))
+                .singleElement().isInstanceOf(ProviderAgentEvent.Tool.class);
+        ProviderAgentEvent.Plan plan = plan(taskResult("create-1", "null", false, created("1", "Read known-secret context")));
+        assertThat(plan.items()).extracting(ProviderAgentEvent.PlanItem::text, ProviderAgentEvent.PlanItem::state)
+                .containsExactly(tuple("Read [REDACTED] context", ProviderAgentEvent.PlanItemState.PENDING));
+        assertThat(plan.providerEventId()).contains("create-1:plan");
         assertThat(plan.source().providerThreadId()).contains("session-1");
-        assertThat(plan.source().providerItemId()).contains("todos-1");
+        assertThat(plan.source().providerItemId()).contains("create-1");
         assertThat(plan.source().parentProviderThreadId()).isEmpty();
-        assertThat(todoResult("todos-1", "null", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        assertThat(taskResult("create-1", "null", false, created("1", "Read known-secret context"))).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
 
-        todoWrite("todos-2", "null", """
-                [{"content":"Implement fix","status":"completed"},{"content":"Run tests","status":"in_progress"}]
-                """);
-        assertThat(todoResult("todos-2", "null", false)).filteredOn(ProviderAgentEvent.Plan.class::isInstance)
-                .singleElement().satisfies(event -> assertThat(((ProviderAgentEvent.Plan) event).items())
-                        .extracting(ProviderAgentEvent.PlanItem::state)
-                        .containsExactly(ProviderAgentEvent.PlanItemState.COMPLETED, ProviderAgentEvent.PlanItemState.IN_PROGRESS));
-        todoWrite("todos-clear", "null", "[]");
-        assertThat(todoResult("todos-clear", "null", false)).filteredOn(ProviderAgentEvent.Plan.class::isInstance)
-                .singleElement().satisfies(event -> assertThat(((ProviderAgentEvent.Plan) event).items()).isEmpty());
-    }
+        taskCall("create-2", "null", "TaskCreate", "{\"subject\":\"Implement fix\"}");
+        taskResult("create-2", "null", false, created("2", "Implement fix"));
+        taskCall("create-3", "null", "TaskCreate", "{\"subject\":\"Run tests\"}");
+        taskResult("create-3", "null", false, created("3", "Run tests"));
+        taskCall("update-1", "null", "TaskUpdate", "{\"taskId\":\"1\",\"status\":\"completed\"}");
+        taskCall("update-2", "null", "TaskUpdate", "{\"taskId\":\"2\",\"subject\":\"Implement the fix\",\"status\":\"in_progress\"}");
+        taskResult("update-1", "null", false, updated("1", "pending", "completed"));
+        assertThat(plan(taskResult("update-2", "null", false, updated("2", "pending", "in_progress"))).items())
+                .extracting(ProviderAgentEvent.PlanItem::text, ProviderAgentEvent.PlanItem::state).containsExactly(
+                        tuple("Read [REDACTED] context", ProviderAgentEvent.PlanItemState.COMPLETED),
+                        tuple("Implement the fix", ProviderAgentEvent.PlanItemState.IN_PROGRESS),
+                        tuple("Run tests", ProviderAgentEvent.PlanItemState.PENDING));
 
-    @ParameterizedTest
-    @ValueSource(strings = {
-            "null", "{}", "[null]", "[{}]", "[{\"content\":\" \",\"status\":\"pending\"}]",
-            "[{\"content\":3,\"status\":\"pending\"}]", "[{\"content\":\"Step\",\"status\":3}]",
-            "[{\"content\":\"Step\",\"status\":\"unknown\"}]",
-            "[{\"content\":\"Valid\",\"status\":\"completed\"},{\"content\":\"Missing status\"}]"})
-    void ignoresAnInvalidOrIncompleteTodoListWithoutGuessingAPlan(String todos)
-    {
-        assertThat(todoWrite("todos-invalid", "null", todos)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
-        assertThat(todoResult("todos-invalid", "null", false)).singleElement().isInstanceOf(ProviderAgentEvent.Tool.class);
+        taskCall("owner", "null", "TaskUpdate", "{\"taskId\":\"3\",\"owner\":\"main\"}");
+        assertThat(taskResult("owner", "null", false, "{\"success\":true,\"taskId\":\"3\",\"updatedFields\":[\"owner\"]}"))
+                .noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("delete", "null", "TaskUpdate", "{\"taskId\":\"3\",\"status\":\"deleted\"}");
+        assertThat(plan(taskResult("delete", "null", false, updated("3", "pending", "deleted"))).items())
+                .extracting(ProviderAgentEvent.PlanItem::text).containsExactly("Read [REDACTED] context", "Implement the fix");
     }
 
     @Test
-    void failedUnmatchedAndMisownedTodoCallsCannotReplaceAPlan()
+    void refusedUnknownUnmatchedAndMalformedTaskResultsLeaveThePlanAlone()
     {
-        String todos = "[{\"content\":\"Implement\",\"status\":\"in_progress\"}]";
-        todoWrite("failed", "null", todos);
-        assertThat(todoResult("failed", "null", true)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
-        assertThat(todoResult("unknown", "null", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
-        todoWrite("orphan", "\"unknown-parent\"", todos);
-        assertThat(todoResult("orphan", "\"unknown-parent\"", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("create", "null", "TaskCreate", "{\"subject\":\"Implement\"}");
+        taskResult("create", "null", false, created("1", "Implement"));
+        taskCall("refused", "null", "TaskUpdate", "{\"taskId\":\"1\",\"status\":\"completed\"}");
+        assertThat(taskResult("refused", "null", false, "{\"success\":false,\"taskId\":\"1\",\"updatedFields\":[],\"error\":\"Blocked by a hook\"}"))
+                .noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("unknown-task", "null", "TaskUpdate", "{\"taskId\":\"9\",\"status\":\"completed\"}");
+        assertThat(taskResult("unknown-task", "null", false, updated("9", "pending", "completed"))).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("failed", "null", "TaskCreate", "{\"subject\":\"Other\"}");
+        assertThat(taskResult("failed", "null", true, created("2", "Other"))).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("no-result", "null", "TaskCreate", "{\"subject\":\"Other\"}");
+        assertThat(taskResult("no-result", "null", false, "null")).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("no-id", "null", "TaskCreate", "{\"subject\":\"Other\"}");
+        assertThat(taskResult("no-id", "null", false, "{\"task\":{\"subject\":\"Other\"}}")).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        assertThat(taskResult("unmatched", "null", false, created("3", "Other"))).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+        taskCall("orphan", "\"unknown-parent\"", "TaskCreate", "{\"subject\":\"Other\"}");
+        assertThat(taskResult("orphan", "\"unknown-parent\"", false, created("4", "Other"))).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
         startAgent("Agent", false);
-        todoWrite("misowned", "\"spawn-1\"", todos);
-        assertThat(todoResult("misowned", "null", false)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
-        todoWrite("child", "\"spawn-1\"", todos);
-        assertThat(todoResult("child", "\"spawn-1\"", false)).filteredOn(ProviderAgentEvent.Plan.class::isInstance)
-                .singleElement().satisfies(event -> {
-                    assertThat(event.source().providerThreadId()).contains("claude-agent:spawn-1");
-                    assertThat(event.source().parentProviderThreadId()).contains("session-1");
-                });
+        taskCall("misowned", "\"spawn-1\"", "TaskCreate", "{\"subject\":\"Other\"}");
+        assertThat(taskResult("misowned", "null", false, created("5", "Other"))).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
+
+        taskCall("child", "\"spawn-1\"", "TaskUpdate", "{\"taskId\":\"1\",\"status\":\"in_progress\"}");
+        ProviderAgentEvent.Plan shared = plan(taskResult("child", "\"spawn-1\"", false, updated("1", "pending", "in_progress")));
+        assertThat(shared.source().providerThreadId()).contains("session-1");
+        assertThat(shared.source().parentProviderThreadId()).isEmpty();
+        assertThat(shared.items()).extracting(ProviderAgentEvent.PlanItem::text, ProviderAgentEvent.PlanItem::state)
+                .containsExactly(tuple("Implement", ProviderAgentEvent.PlanItemState.IN_PROGRESS));
         assertThat(map("""
                 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"- [ ] Implement"}]},
                 "session_id":"session-1","uuid":"prose-plan"}
                 """)).noneMatch(ProviderAgentEvent.Plan.class::isInstance);
     }
 
-    private List<ProviderAgentEvent> todoWrite(String toolId, String parent, String todos)
+    private List<ProviderAgentEvent> taskCall(String toolId, String parent, String name, String input)
     {
         return map("""
-                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"%s","name":"TodoWrite","input":{"todos":%s}}]},
+                {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"%s","name":"%s","input":%s}]},
                 "session_id":"session-1","parent_tool_use_id":%s,"uuid":"%s-start"}
-                """.formatted(toolId, todos, parent, toolId));
+                """.formatted(toolId, name, input, parent, toolId));
     }
 
-    private List<ProviderAgentEvent> todoResult(String toolId, String parent, boolean failed)
+    private List<ProviderAgentEvent> taskResult(String toolId, String parent, boolean failed, String toolUseResult)
     {
         return map("""
-                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":"Todo update","is_error":%s}]},
-                "session_id":"session-1","parent_tool_use_id":%s,"uuid":"%s-result"}
-                """.formatted(toolId, failed, parent, toolId));
+                {"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"%s","content":"Task update","is_error":%s}]},
+                "session_id":"session-1","parent_tool_use_id":%s,"tool_use_result":%s,"uuid":"%s-result"}
+                """.formatted(toolId, failed, parent, toolUseResult, toolId));
+    }
+
+    private static String created(String id, String subject)
+    {
+        return "{\"task\":{\"id\":\"%s\",\"subject\":\"%s\"}}".formatted(id, subject);
+    }
+
+    private static String updated(String id, String from, String to)
+    {
+        return "{\"success\":true,\"taskId\":\"%s\",\"updatedFields\":[\"status\"],\"statusChange\":{\"from\":\"%s\",\"to\":\"%s\"}}".formatted(id, from, to);
+    }
+
+    private static ProviderAgentEvent.Plan plan(List<ProviderAgentEvent> events)
+    {
+        return events.stream().filter(ProviderAgentEvent.Plan.class::isInstance).map(ProviderAgentEvent.Plan.class::cast).collect(onlyElement());
     }
 
     @Test

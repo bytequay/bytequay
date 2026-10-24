@@ -397,11 +397,11 @@ final class ClaudeProtocol
             Optional<String> prompt,
             @JsonProperty("subagent_type") Optional<String> subagentType,
             @JsonProperty("run_in_background") Optional<Boolean> runInBackground,
-            Optional<JsonNode> todos,
             Optional<String> url,
             Optional<String> query,
             Optional<String> name,
-            // Read, Grep and Glob arguments, kept raw: every tool's input decodes here, and an MCP tool may use these names for other types.
+            // Read, Grep, Glob and TaskUpdate arguments, kept raw: every tool's input decodes here, and an MCP tool may use these names for other types.
+            Optional<JsonNode> subject,
             Optional<JsonNode> pattern,
             Optional<JsonNode> path,
             Optional<JsonNode> offset,
@@ -415,10 +415,10 @@ final class ClaudeProtocol
             requireNonNull(prompt, "prompt is null");
             requireNonNull(subagentType, "subagentType is null");
             requireNonNull(runInBackground, "runInBackground is null");
-            requireNonNull(todos, "todos is null");
             requireNonNull(url, "url is null");
             requireNonNull(query, "query is null");
             requireNonNull(name, "name is null");
+            requireNonNull(subject, "subject is null");
             requireNonNull(pattern, "pattern is null");
             requireNonNull(path, "path is null");
             requireNonNull(offset, "offset is null");

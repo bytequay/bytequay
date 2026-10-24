@@ -480,6 +480,10 @@ class TestClaudeCliDriver
         ProcessSpec plainSpec = supervisor.turns.get(1).spec;
         assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + DEVELOPMENT_SANDBOX);
         assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("code_query"));
+        assertThat(ImmutableList.of(spec, plainSpec)).allSatisfy(turn -> assertThat(turn.environment())
+                .containsEntry("CLAUDE_CODE_ENABLE_TODO_TOOLS", "true")
+                .containsKey("CLAUDE_CODE_TASK_LIST_ID"));
+        assertThat(plainSpec.environment().get("CLAUDE_CODE_TASK_LIST_ID")).isNotEqualTo(spec.environment().get("CLAUDE_CODE_TASK_LIST_ID"));
         unbridged.close();
     }
 
@@ -687,7 +691,7 @@ class TestClaudeCliDriver
         assertThat(textSpec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-1"));
         assertThat(textSpec.workingDirectory().normalize().startsWith(runtimeDirectory().normalize())).isTrue();
         assertThat(textSpec.argv()).contains("--tools=");
-        assertThat(textSpec.argv()).noneMatch(argument -> argument.contains("TodoWrite"));
+        assertThat(textSpec.argv()).noneMatch(argument -> argument.contains("TaskCreate"));
         assertThat(textSpec.argv()).contains("--disable-slash-commands", "--no-session-persistence");
         assertThat(textSpec.argv()).containsSequence("--model", "sonnet");
         assertThat(textSpec.argv()).containsSequence("--effort", "xhigh");
@@ -1670,7 +1674,7 @@ class TestClaudeCliDriver
                     ClaudeCliDriver.PLAN_INSTRUCTION, "Keep explanations concise", "Review this PR", "bytequay_list_tools", "bytequay_get_tool");
             assertThat(argv.stream().filter("--append-system-prompt"::equals)).hasSize(1);
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);
-            assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
+            assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskOutput", "TaskStop")
                     .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
             assertThat(argv.get(argv.indexOf("--allowedTools") + 1).split(","))
                     .containsExactly("mcp__bytequay__review_finish", "mcp__bytequay__review_extra_evidence",

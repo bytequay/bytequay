@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -58,6 +59,7 @@ final class ClaudeEventMapper
     private final Map<String, TaskActivity> tasks = new HashMap<>();
     private final Set<String> unidentifiedBackgroundTools = new HashSet<>();
     private final Map<TextStreamKey, TextStream> textStreams = new HashMap<>();
+    private final Map<String, ProviderAgentEvent.PlanItem> planTasks = new LinkedHashMap<>();
     private Optional<String> latestRootTextItemId = Optional.empty();
     private Optional<String> sessionId = Optional.empty();
     private Optional<String> cwd = Optional.empty();
@@ -286,15 +288,14 @@ final class ClaudeEventMapper
                 activeTools.remove(result.toolUseId());
                 events.add(completedTool(eventId(message.uuid(), "tool-result", index), result, call, message.toolUseResult()));
                 completeInvocation(message, result, call, events);
-                if (call.name().equals("TodoWrite")) {
+                if (call.name().equals("TaskCreate") || call.name().equals("TaskUpdate")) {
                     tools.remove(result.toolUseId());
-                    // A result may only replace the plan of the agent that made the accepted call.
+                    // Every agent in the process works on the one task list the driver names, so it is the session's plan.
                     if (!result.error() && call.parentToolUseId().equals(message.parentToolUseId())
-                            && call.parentToolUseId().map(agents::containsKey).orElse(true)) {
-                        ToolCall completed = call;
-                        todoPlan(call.input().todos()).ifPresent(items -> events.add(new ProviderAgentEvent.Plan(
-                                Optional.of(result.toolUseId() + ":plan"), items,
-                                source(completed.parentToolUseId(), Optional.of(result.toolUseId())))));
+                            && call.parentToolUseId().map(agents::containsKey).orElse(true)
+                            && changePlan(call, message.toolUseResult())) {
+                        events.add(new ProviderAgentEvent.Plan(Optional.of(result.toolUseId() + ":plan"), ImmutableList.copyOf(planTasks.values()),
+                                source(Optional.empty(), Optional.of(result.toolUseId()))));
                     }
                 }
                 if (call.name().equals("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME)
@@ -315,30 +316,50 @@ final class ClaudeEventMapper
         return events.build();
     }
 
-    private Optional<List<ProviderAgentEvent.PlanItem>> todoPlan(Optional<JsonNode> todos)
+    /**
+     * Applies a task tool's result to the task list and reports whether the list changed. The result, not the input, carries a
+     * new task's ID, and a refused update is marked only by its {@code success} field, never as a tool error.
+     */
+    private boolean changePlan(ToolCall call, Optional<JsonNode> toolUseResult)
     {
-        if (todos.isEmpty() || !todos.orElseThrow().isArray()) {
-            return Optional.empty();
+        if (toolUseResult.isEmpty()) {
+            return false;
         }
-        ImmutableList.Builder<ProviderAgentEvent.PlanItem> items = ImmutableList.builder();
-        for (JsonNode todo : todos.orElseThrow()) {
-            JsonNode content = todo.path("content");
-            JsonNode status = todo.path("status");
-            if (!content.isTextual() || content.textValue().isBlank() || !status.isTextual()) {
-                return Optional.empty();
+        JsonNode change = toolUseResult.orElseThrow();
+        if (call.name().equals("TaskCreate")) {
+            JsonNode id = change.path("task").path("id");
+            JsonNode subject = change.path("task").path("subject");
+            if (!id.isTextual() || !subject.isTextual() || subject.textValue().isBlank()) {
+                return false;
             }
-            Optional<ProviderAgentEvent.PlanItemState> state = switch (status.textValue()) {
-                case "pending" -> Optional.of(ProviderAgentEvent.PlanItemState.PENDING);
-                case "in_progress" -> Optional.of(ProviderAgentEvent.PlanItemState.IN_PROGRESS);
-                case "completed" -> Optional.of(ProviderAgentEvent.PlanItemState.COMPLETED);
-                default -> Optional.empty();
-            };
-            if (state.isEmpty()) {
-                return Optional.empty();
-            }
-            items.add(new ProviderAgentEvent.PlanItem(bounded(content.textValue().strip()), state.orElseThrow()));
+            planTasks.put(id.textValue(), new ProviderAgentEvent.PlanItem(bounded(subject.textValue().strip()), ProviderAgentEvent.PlanItemState.PENDING));
+            return true;
         }
-        return Optional.of(items.build());
+        JsonNode id = change.path("taskId");
+        if (!change.path("success").booleanValue() || !id.isTextual() || !planTasks.containsKey(id.textValue())) {
+            return false;
+        }
+        String status = change.path("statusChange").path("to").asText("");
+        if (status.equals("deleted")) {
+            planTasks.remove(id.textValue());
+            return true;
+        }
+        ProviderAgentEvent.PlanItem item = planTasks.get(id.textValue());
+        ProviderAgentEvent.PlanItem updated = new ProviderAgentEvent.PlanItem(
+                call.input().subject()
+                        .filter(JsonNode::isTextual)
+                        .map(JsonNode::textValue)
+                        .filter(subject -> !subject.isBlank())
+                        .map(subject -> bounded(subject.strip()))
+                        .orElse(item.text()),
+                switch (status) {
+                    case "pending" -> ProviderAgentEvent.PlanItemState.PENDING;
+                    case "in_progress" -> ProviderAgentEvent.PlanItemState.IN_PROGRESS;
+                    case "completed" -> ProviderAgentEvent.PlanItemState.COMPLETED;
+                    default -> item.state();
+                });
+        planTasks.put(id.textValue(), updated);
+        return !updated.equals(item);
     }
 
     private List<ProviderAgentEvent> mapResult(ClaudeProtocol.ResultMessage result)

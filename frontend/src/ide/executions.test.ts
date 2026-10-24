@@ -65,14 +65,14 @@ beforeEach(async () => {
     command: 'Run tests', sourceHeadSha: 'a'.repeat(40), localPaths: [], sourceFingerprint: 'source', status: 'RUNNING',
     startedAt: '2026-01-01T00:00:00Z', endedAt: null, exitCode: null, tests: null, failures: null, errors: null, skipped: null,
     outputTruncated: false, omittedBytes: null, treeUnverified: false, results: [] };
-  save = vi.fn(async () => true);
-  start = vi.fn(async (request) => ({ ...liveRun, scope: request.scope }));
-  output = vi.fn(async () => {});
-  finish = vi.fn(async () => ({ ...liveRun, status: 'COMPLETED' }));
+  save = vi.fn().mockImplementation(async () => true);
+  start = vi.fn().mockImplementation(async (request) => ({ ...liveRun, scope: request.scope }));
+  output = vi.fn().mockImplementation(async () => {});
+  finish = vi.fn().mockImplementation(async () => ({ ...liveRun, status: 'COMPLETED' }));
   vi.stubGlobal('window', { ideWorkbench: { startExecution: start, outputExecution: output, finishExecution: finish, stopExecution: vi.fn() } });
-  originalTests = vi.fn(async () => ({ id: 'test-result', name: 'tests', completedAt: 1, tests: [][Symbol.iterator](), tasks: [] as ITestResult['tasks'] }));
-  originalDebug = vi.fn(async () => { onSession.fire(session); return true; });
-  originalTask = vi.fn(async () => ({ exitCode: 0 }));
+  originalTests = vi.fn().mockImplementation(async () => ({ id: 'test-result', name: 'tests', completedAt: 1, tests: [][Symbol.iterator](), tasks: [] as ITestResult['tasks'] }));
+  originalDebug = vi.fn().mockImplementation(async () => { onSession.fire(session); return true; });
+  originalTask = vi.fn().mockImplementation(async () => ({ exitCode: 0 }));
   services.set('tests', { runResolvedTests: originalTests, startContinuousRun: vi.fn(), onDidCancelTestRun: noEvent, cancelTestRun: vi.fn() });
   services.set('results', { results: testResults, onResultsChanged: noEvent });
   const adapters = { createDebugAdapter: () => ({ onEvent: adapterEvents.event, onError: noEvent }) };

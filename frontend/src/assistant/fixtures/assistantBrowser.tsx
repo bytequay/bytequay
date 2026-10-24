@@ -29,7 +29,7 @@ import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
 import { dayLabel, localDay } from '../model';
 
-function assert(condition: boolean, message: string): void {
+function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
@@ -221,7 +221,7 @@ async function floatsOverThePage(): Promise<void> {
     await settle();
     assert(view.host.querySelector('.assistant-today .today-row') !== null && top(view.host) === null, 'Today swaps the stack for the agenda');
     view.host.querySelector<HTMLButtonElement>('.assistant-backdrop')?.click();
-    assert(view.calls.closed === 1 && view.host.querySelector('.assistant-float') === null, 'A click beside it closes it');
+    assert(Number(view.calls.closed) === 1 && view.host.querySelector('.assistant-float') === null, 'A click beside it closes it');
   }
   finally { view.dispose(); }
 }
@@ -255,7 +255,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     try { talk.querySelector<HTMLAnchorElement>('.assistant-reply a')?.click(); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
     assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `A reply ref opens its pull request: ${JSON.stringify(opened)}`);
-    assert(view.calls.closed === 1, 'Opening something closes the Assistant over it');
+    assert(Number(view.calls.closed) === 1, 'Opening something closes the Assistant over it');
     view.render(true);
     await settle();
     assert(view.host.querySelector('.assistant-talk') === null, 'Opened again, the conversation folds away');
@@ -313,7 +313,7 @@ async function answersWithTheTasksButtons(): Promise<void> {
     [...(card?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'View response')?.click();
     await settle();
     assert(JSON.stringify(view.calls.opened) === '["finished:turn-2"]' && JSON.stringify(view.calls.removed) === '["finished:turn-2"]', 'Cards open and clear their notice');
-    assert(view.calls.closed === 1, 'Opening a notice closes the Assistant');
+    assert(Number(view.calls.closed) === 1, 'Opening a notice closes the Assistant');
   }
   finally { view.dispose(); }
 }
@@ -333,7 +333,7 @@ async function sendsWithWhatIsShown(): Promise<void> {
     assert(JSON.stringify(first.slice(0, 3)) === JSON.stringify(['allow it', ['approval:a1', 'finished:turn-2'], 'pr:owner/repository#31377']),
       `A message carries the cards on screen and what is on screen: ${JSON.stringify(first)}`);
     assert(second[3] === first[3], 'Sending the same words again reuses the key');
-    assert(input.value === '' && view.host.querySelector('.assistant-error') === null, 'A sent message clears the draft');
+    assert(String(input.value) === '' && view.host.querySelector('.assistant-error') === null, 'A sent message clears the draft');
     view.host.querySelector<HTMLButtonElement>('.assistant-chip button')?.click();
     await settle();
     assert(view.host.querySelector('.assistant-chip') === null, 'The chip can be left out');
@@ -344,7 +344,7 @@ async function sendsWithWhatIsShown(): Promise<void> {
     assert(JSON.stringify(view.calls.sent[2][1]) === '[]', 'With the agenda showing, no card is on screen');
     assert(view.host.querySelector('.assistant-chip') !== null, 'The chip comes back for the next message');
     press(input, 'Escape');
-    assert(view.calls.closed === 1, 'Escape closes the Assistant');
+    assert(Number(view.calls.closed) === 1, 'Escape closes the Assistant');
   }
   finally { view.dispose(); }
 }
@@ -365,7 +365,7 @@ async function movesWithTheKeyboard(): Promise<void> {
     await key(input, 'Tab');
     assert(document.activeElement?.textContent === 'All6', 'Tab from the composer lands on the selected pill');
     await key(document.activeElement, 'Tab');
-    assert(document.activeElement?.textContent === 'Decision1' && selected(view.host) === 'Decision1', 'Tab moves to the next pill and selects it');
+    assert(String(document.activeElement?.textContent) === 'Decision1' && selected(view.host) === 'Decision1', 'Tab moves to the next pill and selects it');
     await key(document.activeElement, 'Tab', true);
     await key(document.activeElement, 'Tab', true);
     assert(selected(view.host) === 'Today0/2', `Shift+Tab goes back and wraps: ${selected(view.host)}`);
@@ -407,7 +407,7 @@ async function movesWithTheKeyboard(): Promise<void> {
       && card.querySelector('.assistant-step__text.is-out')?.textContent === 'IcebergMetadata.java',
     `A new step rolls in over the last one: ${card?.querySelector('.assistant-step')?.innerHTML}`);
     [...(top(view.host)?.querySelectorAll<HTMLButtonElement>('.assistant-button') ?? [])].find(button => button.textContent === 'Open task')?.click();
-    assert(window.location.hash === workspaceReviewTaskRoute('ws1', 'r7') && view.calls.closed === 1, `Open task goes to the running task: ${window.location.hash}`);
+    assert(window.location.hash === workspaceReviewTaskRoute('ws1', 'r7') && Number(view.calls.closed) === 1, `Open task goes to the running task: ${window.location.hash}`);
   }
   finally { view.dispose(); }
 }
@@ -526,7 +526,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     switches[2].click();
     await settle();
     const dates = [...list.querySelectorAll('.assistant-items__date')].map(date => date.textContent);
-    const expected = [...new Set(['pr:owner/repository#31377', 'task:t1', 'pr:owner/repository#31402', 'jira:cloud:10042', 'work:w22'].map(ref => dayLabel(localDay(ROWS[ref].at))))];
+    const expected = [...new Set(['pr:owner/repository#31377', 'task:t1', 'pr:owner/repository#31402', 'jira:cloud:10042', 'work:w22'].map(ref => dayLabel(localDay(ROWS[ref].at ?? ''))))];
     assert(JSON.stringify(dates) === JSON.stringify(expected), `Days head the timeline, newest first: ${JSON.stringify(dates)} != ${JSON.stringify(expected)}`);
     const timed = [...list.querySelectorAll<HTMLElement>('.assistant-row')];
     assert(timed[0].textContent?.includes('Add Iceberg metadata cache') === true && timed[1].textContent?.includes('Expose snapshot id') === true, 'The newest comes first');
@@ -540,7 +540,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
     try { timed[0].click(); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
     assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `A row opens its item: ${JSON.stringify(opened)}`);
-    assert(view.calls.closed === 1 && view.host.querySelector('.assistant-float') === null, 'Opening an item closes the Assistant');
+    assert(Number(view.calls.closed) === 1 && view.host.querySelector('.assistant-float') === null, 'Opening an item closes the Assistant');
   }
   finally { view.dispose(); }
 }
@@ -561,19 +561,19 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
     assert(view.calls.closed === 0 && window.location.hash === '#/home', 'An open read when the panel opens is not followed');
     enter(type(view.host, 'take me to model settings'));
     await settle();
-    assert(window.location.hash === settingsRoute('models') && view.calls.closed === 1, `An open that arrives while the panel is open goes there: ${window.location.hash}`);
+    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 1, `An open that arrives while the panel is open goes there: ${window.location.hash}`);
 
     window.location.hash = '#/home';
     view.render(true);
     await settle();
     enter(type(view.host, 'and now?'));
     await settle();
-    assert(window.location.hash === '#/home' && view.calls.closed === 1, 'Read again later, the same open only offers Open');
+    assert(window.location.hash === '#/home' && Number(view.calls.closed) === 1, 'Read again later, the same open only offers Open');
     const actions = [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].map(receipt => receipt.textContent);
     assert(actions.filter(text => text?.startsWith('Opened') === true && text.endsWith('Open')).length === 2, `Each open keeps its Open: ${JSON.stringify(actions)}`);
     [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].find(receipt => receipt.textContent?.startsWith('Opened Settings') === true)
       ?.querySelector<HTMLButtonElement>('.assistant-action')?.click();
-    assert(window.location.hash === settingsRoute('models') && view.calls.closed === 2, 'Open goes to the page and closes the Assistant');
+    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 2, 'Open goes to the page and closes the Assistant');
   }
   finally {
     window.location.hash = '';
@@ -697,7 +697,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
     window.addEventListener('bytequay:zoom-reference', listener);
     try { [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-draft button')].find(each => each.textContent === 'Open work item')?.click(); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
-    assert(JSON.stringify(opened) === '[{"kind":"work","workspaceId":"ws1","itemId":"w-new"}]' && view.calls.closed === 1,
+    assert(JSON.stringify(opened) === '[{"kind":"work","workspaceId":"ws1","itemId":"w-new"}]' && Number(view.calls.closed) === 1,
       `A failed push can be finished from the work item's page: ${JSON.stringify(opened)}`);
 
     // Opened again, the card has forgotten its click, and trying again still finds the work it made.
@@ -823,7 +823,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     window.addEventListener('bytequay:zoom-reference', listener);
     try { press('Comment on #31377'); }
     finally { window.removeEventListener('bytequay:zoom-reference', listener); }
-    assert(JSON.stringify(opened) === '[{"kind":"pull","repo":"owner/repository","number":31377,"workspaceId":"ws1"}]' && view.calls.closed === 1,
+    assert(JSON.stringify(opened) === '[{"kind":"pull","repo":"owner/repository","number":31377,"workspaceId":"ws1"}]' && Number(view.calls.closed) === 1,
       `Comment opens the pull request over the page: ${JSON.stringify(opened)}`);
 
     await reopen();
@@ -831,7 +831,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     written = true;
     press('Approve #31377');
     await settle();
-    assert(steps.length === 0 && view.calls.closed === 2, `A written review draft opens the pull request instead of going out from the card: ${JSON.stringify(steps)}`);
+    assert(steps.length === 0 && Number(view.calls.closed) === 2, `A written review draft opens the pull request instead of going out from the card: ${JSON.stringify(steps)}`);
   }
   finally { view.dispose(); }
 }
@@ -851,7 +851,7 @@ async function asksToSignInWhenTheModelIsNotReady(): Promise<void> {
       `The reply says the model needs a sign-in, and offers Settings and Retry: ${line?.textContent}`);
     assert(line.title === 'Claude Sonnet answers through your Claude account. Sign in from Settings → Models.', `It says where to sign in: ${line.title}`);
     line.querySelector<HTMLButtonElement>('.assistant-action')?.click();
-    assert(window.location.hash === settingsRoute('models') && view.calls.closed === 1, `Open Settings goes to Models: ${window.location.hash}`);
+    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 1, `Open Settings goes to Models: ${window.location.hash}`);
   }
   finally {
     window.location.hash = '';

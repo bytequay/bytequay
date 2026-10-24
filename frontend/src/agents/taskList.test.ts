@@ -102,6 +102,7 @@ describe('task list items', () => {
 
     expect(item.message).toEqual({ who: 'Claude Code', laneId: 'claude', text: 'Ready for review.', at: '2026-09-27T10:00:00Z' });
     expect(item.change).toBe('2 commits');
+    if (activity.lastMessage === null) throw new Error('Fixture requires a last message');
     const mine = developmentItem(task, { ...activity, lastMessage: { ...activity.lastMessage, author: 'USER' } }, null);
     expect(mine.message?.who).toBe('You');
     const delivered = developmentItem({ ...task, pullRequest: { number: 7, title: 'Fix', state: 'open', draft: false } as never }, activity, { uncommitted: false, commits: 2 });

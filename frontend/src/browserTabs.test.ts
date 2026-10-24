@@ -82,7 +82,7 @@ let directory: string;
 let file: string;
 let tabs: BrowserTabs;
 let window: BrowserWindow;
-let sender: { mainFrame: object; send: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn>; getZoomFactor: ReturnType<typeof vi.fn>; isDestroyed: () => boolean };
+let sender: { mainFrame: object; send: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn>; getZoomFactor: ReturnType<typeof vi.fn<[], number>>; isDestroyed: () => boolean };
 let contentView: { addChildView: ReturnType<typeof vi.fn>; removeChildView: ReturnType<typeof vi.fn> };
 beforeEach(() => {
   electron.views.length = 0;
@@ -91,7 +91,7 @@ beforeEach(() => {
   lab.resolve.mockReset().mockImplementation(async (url: string) => url);
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-browser-test-'));
   file = path.join(directory, 'browser-tabs.json');
-  sender = { mainFrame: {}, send: vi.fn(), focus: vi.fn(), getZoomFactor: vi.fn(() => 1), isDestroyed: () => false };
+  sender = { mainFrame: {}, send: vi.fn(), focus: vi.fn(), getZoomFactor: vi.fn().mockReturnValue(1), isDestroyed: () => false };
   contentView = { addChildView: vi.fn(), removeChildView: vi.fn() };
   window = { webContents: sender, contentView, isDestroyed: () => false, getContentBounds: () => ({ x: 0, y: 0, width: 1000, height: 800 }) } as unknown as BrowserWindow;
   tabs = new BrowserTabs(() => window, () => file);

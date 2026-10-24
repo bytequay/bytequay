@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { parseAgentTurn } from '../contracts';
 import contracts from './agent-contracts-v1.json';
 import eventFixture from './agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../events';
@@ -116,7 +117,7 @@ export function previewTask(workspaceId: string, taskId: string): AgentTaskDto {
 }
 
 function previewTurn(taskId: string, state: string): AgentTurnDto {
-  return { ...(contracts.turn as AgentTurnDto), taskId, state };
+  return { ...parseAgentTurn(contracts.turn), taskId, state };
 }
 
 /**

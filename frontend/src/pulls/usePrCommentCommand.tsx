@@ -38,7 +38,7 @@ export function usePrCommentCommand({ repository, number, value, onChange, texta
   number?: number;
   value: string;
   onChange: (value: string) => void;
-  textareaRef: RefObject<HTMLTextAreaElement>;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
   const [active, setActive] = useState<CommandMatch | null>(null);
   const [loading, setLoading] = useState(false);

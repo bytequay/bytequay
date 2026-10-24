@@ -40,13 +40,16 @@ import type { GoalItemDto, UnifiedWorkItem, WorkItemDto } from '../../workitems/
 
 const file = (filename: string): DiffFileDto => ({ filename, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' });
 const commits: DiffCommitDto[] = ['one', 'two'].map((sha, index): DiffCommitDto => ({ sha, parentSha: index === 0 ? 'base' : 'one', message: sha, author: null, authoredAt: null }));
-const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => prDetail({
-  id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, draft: true,
-  mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
-  body: 'Pull request implementation',
-  deletions: 1,
-  viewerCanWrite: false,
-});
+const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => {
+  assert(review.number !== null, 'This fixture requires a published review');
+  return prDetail({
+    id: 42, repo: review.repo, number: review.number, title: 'Review this retained pull request', htmlUrl: null, draft: true,
+    mergeable: null, mergeableState: null, author: 'alice', updatedAt: null,
+    body: 'Pull request implementation',
+    deletions: 1,
+    viewerCanWrite: false,
+  });
+};
 
 export async function runMainScreen(keepMounted = false, explore = false): Promise<string> {
   let detail: PullRequestDetailDto = prDetail({
@@ -223,7 +226,7 @@ export async function runReviewWorkspace(local = false): Promise<string> {
   const review = reviewFixture({ id: 'retained-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z', sourceTaskId: 'development-task',
     ...(local ? { number: null, sourceTaskId: 'development-task' } : {}) });
   review.task = { ...review.task, id: agent.events[0].taskId };
-  const detail = reviewDetail(review);
+  const detail = local ? prDetail({}) : reviewDetail(review);
   const reviewReads: string[] = [];
   const codeSources: CodeHostRef[] = [];
   let historyReads = 0;
@@ -1007,14 +1010,14 @@ export async function runListLoadingRace(trigger: 'sync' | 'attention'): Promise
 
 /** Refreshes must retain loaded rows as well as a selected pull request opened from a page or link. */
 export async function runSelectionStability(): Promise<string> {
-  const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto => prDetail({
+  const detailFor = (number: number, title: string, updatedAt: string): PullRequestDetailDto & { title: string } => ({ ...prDetail({
     id: number, repo: 'owner/repo', number, title, htmlUrl: null,
     mergeable: null, mergeableState: null, author: 'alice', updatedAt,
     body: '',
     // The list opens on Review, so every row has to be one bob is asked to review.
     reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], deletions: 1,
     viewerCanWrite: false,
-  });
+  }), title });
   const newest = detailFor(3, 'Newest after sync', '2026-09-14T06:00:00Z');
   const first = detailFor(1, 'First on page zero', '2026-09-14T01:00:00Z');
   const older = detailFor(2, 'Older from page one', '2026-09-10T00:00:00Z');
@@ -1366,7 +1369,7 @@ export async function runPullRequestEpic(): Promise<string> {
 export async function runTitleEdit(): Promise<string> {
   const original = window.bridge;
   const { host, root, dispose } = createFixtureRoot();
-  let detail = { ...reviewDetail(reviewFixture()), viewerCanWrite: true,
+  let detail: PullRequestDetailDto = { ...reviewDetail(reviewFixture()), viewerCanWrite: true,
     title: 'Fix leaked temp tables on JDBC rollback (ENG-8689: TestPostgreSqlRollbacks.testRollbackMerge)' };
   const writes: { repo: string; number: number; title: string; answer: ReturnType<typeof Promise.withResolvers<void>> }[] = [];
   window.bridge = { ...original,

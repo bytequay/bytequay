@@ -250,6 +250,7 @@ describe('AttentionList', () => {
     const approval = { ...taskAttentionItem({ ...previewTask('workspace-1', 'task-1'), updatedAt: '2026-09-27T00:00:00Z' }, null,
       { id: 'workspace-1', name: 'Workspace', repository: 'owner/repository' }), kind: 'approval' as const };
     const mention = prItem(3, 'updated');
+    if (mention.pr === null) throw new Error('Expected a pull request fixture');
     const newest = { ...mention, updatedAt: '2026-09-28T13:00:00Z', pr: { ...mention.pr, mentioned: true } };
     const issue = { ...issueItem(7), updatedAt: '2026-09-28T11:00:00Z' };
     const [ticket] = jiraAttentionItems([{ ...jiraIssue, updatedAt: '2026-09-28T12:00:00Z' }]);

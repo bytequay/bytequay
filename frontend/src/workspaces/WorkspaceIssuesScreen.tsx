@@ -422,7 +422,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   // An Epic's issue has its Work tab wherever it opens.
   const epic = selected !== null && selected !== previewIssue && selected.isEpic ? issueAttentionItem(selected, repository, workspaceId) : null;
   const work = useWorkItems(epic === null ? null : workspaceId);
-  const workShown = epic !== null && workFor === selected.number;
+  const workShown = epic !== null && workFor === selected?.number;
   const selectedNumber = selected?.number ?? null;
 
   useEffect(() => {

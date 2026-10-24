@@ -226,6 +226,7 @@ async function asynchronousSubmission(): Promise<void> {
     await settle();
     assert(Number(requests.length) === 2 && JSON.stringify(requests[0]) === JSON.stringify(requests[1]),
       'Explicit retry must submit the retained comment with its original code context');
+    assert(pr.createdAt !== null && pr.updatedAt !== null, 'The saved thread requires known timestamps');
     threads.push({ id: 'saved-comment', taskId: 'task', workspaceId: 'workspace', taskVersion: 2, laneId: 'codex', repo: pr.repo, number: pr.number,
       path: file.filename, side: 'LEFT', startLine: 2, line: 3, baseSha: '1111111', headSha: '2222222', code: requests[1].code,
       resolved: false, version: 1, createdAt: pr.createdAt, updatedAt: pr.updatedAt,

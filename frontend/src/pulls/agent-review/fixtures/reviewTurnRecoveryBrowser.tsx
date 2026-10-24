@@ -15,7 +15,7 @@ import { useCallback, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { AgentHistoryPageDto, AgentStreamMessage, AgentTurnDto, Bridge } from '../../../types';
-import { CHECKING_ACCEPTANCE, UNCONFIRMED_REQUEST } from '../../../agents/contracts';
+import { CHECKING_ACCEPTANCE, parseAgentTurn, UNCONFIRMED_REQUEST } from '../../../agents/contracts';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../../agents/events';
 import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import eventFixture from '../../../agents/fixtures/agent-events-v2.json';
@@ -50,7 +50,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const bridge = {
       getModelSettings: async () => ({ providers: [], agents: [], apiKeys: [], keyProviders: [] }),
       getAgentReview: async () => saved(),
-      getAgentTurn: async () => ({ ...contracts.turn, id: 'turn-1', taskId: running.task.id,
+      getAgentTurn: async () => ({ ...parseAgentTurn(contracts.turn), id: 'turn-1', taskId: running.task.id,
         state: saved().activeTurn === null ? 'COMPLETED' : 'RUNNING',
         endedAt: saved().activeTurn === null ? '2026-09-06T16:20:00Z' : null } as AgentTurnDto),
       readAgentReviewHistory: async () => ({ events: saved().activeTurn === null ? [...inputEvents, endEvent] : inputEvents,
@@ -187,7 +187,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
             }
             return completed;
           },
-          getAgentTurn: async id => ({ ...contracts.turn, id, taskId: completed.task.id, state: 'COMPLETED',
+          getAgentTurn: async id => ({ ...parseAgentTurn(contracts.turn), id, taskId: completed.task.id, state: 'COMPLETED',
             endedAt: '2026-09-06T16:20:00Z' } as AgentTurnDto),
           readAgentReviewHistory: async () => {
             if (holdHistory) {
@@ -265,7 +265,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
             if (holdMetadata) { metadataWaiting = true; await metadataGate; }
             return saved;
           },
-          getAgentTurn: async id => ({ ...contracts.turn, id, taskId: completed.task.id, state: id === 'accepted-chat' ? 'RUNNING' : 'COMPLETED',
+          getAgentTurn: async id => ({ ...parseAgentTurn(contracts.turn), id, taskId: completed.task.id, state: id === 'accepted-chat' ? 'RUNNING' : 'COMPLETED',
             endedAt: id === 'accepted-chat' ? null : '2026-09-06T16:20:00Z' } as AgentTurnDto),
           readAgentReviewHistory: async () => ({ events: [...history], beforeCursor: null, afterCursor: null, latestSequence: history.at(-1)?.sequence ?? 0 }),
           subscribeAgentReview: async (id, _after, callback) => {
@@ -342,7 +342,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           },
           getAgentTurn: async id => {
             if (id === 'chat-turn') await gate;
-            return { ...contracts.turn, id, taskId: completed.task.id, state: id === 'chat-turn' ? 'RUNNING' : 'COMPLETED',
+            return { ...parseAgentTurn(contracts.turn), id, taskId: completed.task.id, state: id === 'chat-turn' ? 'RUNNING' : 'COMPLETED',
               endedAt: id === 'chat-turn' ? null : '2026-09-06T16:20:00Z' } as AgentTurnDto;
           },
         });
@@ -434,7 +434,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           },
           getAgentTurn: async id => {
             if (delayed) await turnGate;
-            return { ...contracts.turn, id, taskId: completed.task.id } as AgentTurnDto;
+            return { ...parseAgentTurn(contracts.turn), id, taskId: completed.task.id } as AgentTurnDto;
           },
           readAgentReviewHistory: async () => ({ events: [...history], beforeCursor: null, afterCursor: null,
             latestSequence: history.at(-1)?.sequence ?? 0 }),

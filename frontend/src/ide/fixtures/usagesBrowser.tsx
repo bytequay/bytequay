@@ -46,7 +46,8 @@ export async function verifyUsages() {
   // A definition away from the click, as for a call site.
   const elsewhere: languages.Location = { uri: uri('src/main/java/Api.java'), range: { startLineNumber: 2, endLineNumber: 2, startColumn: 13, endColumn: 20 } };
   let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' | 'declared' | 'overridden' = 'ready';
-  let finish: ((locations: languages.Location[]) => void) | undefined;
+  const deferred: { finish?: (locations: languages.Location[]) => void } = {};
+  const finishSearch = (locations: languages.Location[]) => deferred.finish?.(locations);
   let cancelled = false;
   let searches = 0;
   const registerReferences = () => languages.registerReferenceProvider('java', { provideReferences: (_model, _position, context, token) => {
@@ -59,7 +60,7 @@ export async function verifyUsages() {
     // The Java extension applies its own setting and returns the declaration even when asked not to.
     if (mode === 'declared') return [declaration, links[1]];
     if (mode === 'overridden') return [declaration, links[0], links[1]];
-    if (mode === 'slow') { token.onCancellationRequested(() => { cancelled = true; }); return new Promise<languages.Location[]>(resolve => { finish = resolve; }); }
+    if (mode === 'slow') { token.onCancellationRequested(() => { cancelled = true; }); return new Promise<languages.Location[]>(resolve => { deferred.finish = resolve; }); }
     return [links[2], links[0], links[1], links[0]];
   } });
   let references = registerReferences();
@@ -115,10 +116,10 @@ export async function verifyUsages() {
     click(false); await settle(); assert(!popup() && searches === plain, 'Plain click retains normal editing');
     click(); await until(() => rows().length === 3, 'Usages can reopen');
     key('Escape'); await settle(); assert(!popup() && code.hasTextFocus(), 'Escape closes and restores editor focus');
-    mode = 'slow'; click(); await until(() => finish !== undefined && popup() !== null, 'A lookup that outlasts a quick jump shows a cancellable popup');
+    mode = 'slow'; click(); await until(() => deferred.finish !== undefined && popup() !== null, 'A lookup that outlasts a quick jump shows a cancellable popup');
     assert(rows().length === 0, 'Word matches in the open file are not presented as usages');
     key('Escape'); await settle(); assert(cancelled, 'Closing cancels the language-service request');
-    finish?.(links); await settle(); assert(!popup(), 'Late results cannot reopen the popup');
+    finishSearch(links); await settle(); assert(!popup(), 'Late results cannot reopen the popup');
     mode = 'empty'; click(); await until(() => popup()?.textContent?.includes('No usages found.') === true, 'An empty search is explicit');
     key('Escape'); await settle();
     let outline: languages.DocumentSymbol[] = [];
@@ -144,7 +145,7 @@ export async function verifyUsages() {
     const only = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === links[1].uri.toString());
     assert(only?.getSelection()?.startLineNumber === 2 && only.getSelection()?.startColumn === 13, 'The single usage is selected');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
-    definition = [elsewhere]; finish = undefined; cancelled = false; mode = 'slow'; appeared = false;
+    definition = [elsewhere]; deferred.finish = undefined; cancelled = false; mode = 'slow'; appeared = false;
     watcher.observe(host, { childList: true, subtree: true }); click();
     await until(() => editors.activeEditor?.resource?.toString() === elsewhere.uri.toString(), 'Command-click on a use opens its declaration');
     await settle(); watcher.disconnect();
@@ -152,7 +153,7 @@ export async function verifyUsages() {
     const api = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === elsewhere.uri.toString());
     assert(api?.getSelection()?.startLineNumber === 2 && api.getSelection()?.startColumn === 13, 'The declaration is selected');
     let answer: ((found: languages.Location[]) => void) | undefined;
-    definition = new Promise(resolve => { answer = resolve; }); finish = undefined; mode = 'slow';
+    definition = new Promise(resolve => { answer = resolve; }); deferred.finish = undefined; mode = 'slow';
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle(); click();
     await until(() => popup()?.querySelector('[role="status"]')?.textContent === 'Finding declaration…', 'A busy language service is still finding the declaration');
     assert(!popup()?.textContent?.includes('Usages of') && !popup()?.textContent?.includes('Finding usages'), 'An undecided click is not presented as a usages search');
@@ -172,7 +173,7 @@ export async function verifyUsages() {
     key('Escape'); await settle();
     definition = [declaration];
     const highlights = languages.registerDocumentHighlightProvider('java', { provideDocumentHighlights: () => [{ range: declaration.range }, { range: sameFile.range }] });
-    finish = undefined; mode = 'slow'; click();
+    deferred.finish = undefined; mode = 'slow'; click();
     await until(() => rows().length === 1 && rows()[0].title === 'Service.java:4' && popup()?.querySelector('[role="status"]')?.textContent === 'Finding more…', 'Usages in the open file are listed while the project search runs, without the declaration');
     assert(rows()[0].querySelector('code')?.textContent === 'void again() { request(); }' && rows()[0].querySelector('code strong')?.textContent === 'request', 'An early usage shows its source line');
     // The Java extension's server status, as its status bar item reports project import and builds.
@@ -186,7 +187,7 @@ export async function verifyUsages() {
     assert(background()?.textContent === 'Waiting for "Java: Building" to complete…' && background()?.querySelector('progress')?.value === 30, 'The tools bar says what the search waits for');
     javaStatus('$(coffee) Java: Ready');
     await until(() => background()?.textContent === 'Waiting for the language service…', 'A search still waits when the language service reports no work, as while it indexes');
-    finish?.([links[2], sameFile, links[0]]);
+    finishSearch([links[2], sameFile, links[0]]);
     await until(() => rows().length === 3 && popup()?.querySelector('[role="status"]')?.textContent === '3 usages', 'The project search completes the list');
     assert(rows()[0].title === 'Service.java:4' && rows()[1].title === 'src/main/java/Caller.java:2' && rows()[2].title === 'src/test/java/Caller.java:3', 'Usages in the open file stay first');
     assert(!popup()?.textContent?.includes('Still searching.') && !progress() && !background(), 'A finished search no longer reports waiting');

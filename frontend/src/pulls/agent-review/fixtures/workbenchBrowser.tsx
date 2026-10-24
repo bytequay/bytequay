@@ -96,7 +96,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         startAgentTurn: async request => { fixes.push(request); if (fail) { fail = false; throw new Error('Try again'); }
           return { id: 'fix-turn' } as Awaited<ReturnType<Bridge['startAgentTurn']>>; } });
       function Surface() {
-        const [value, setValue] = useState(discussionReview);
+        const [value, setValue] = useState<AgentReviewDto>(discussionReview);
         const { actions, busy } = useFindingActions({ review: value, onReviewChange: setValue, onNavigate: () => {} });
         return <ReviewFindingCard review={value} finding={value.findings[0]} projection="review" viewerLogin="me" viewerAvatarUrl={null}
           actions={actions} busy={busy} />;
@@ -123,6 +123,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       install({
         addReviewDraftFinding: async () => {
           const finding = current.findings[0];
+          assert(finding.path !== null && finding.side !== null && finding.endLine !== null, 'The outgoing finding needs a code anchor');
           const draft: NonNullable<AgentReviewDto['draft']> = reviewDraftFixture({ repo: current.repo,
             updatedAt: finding.updatedAt, items: [{ id: 'outgoing', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
               commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
@@ -141,7 +142,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         getAgentReview: async () => current,
       });
       function Surface() {
-        const [value, setValue] = useState(current);
+        const [value, setValue] = useState<AgentReviewDto>(current);
         const { actions, busy } = useFindingActions({ review: value, onReviewChange: setValue, onNavigate: () => {} });
         return <ReviewFindingCard review={value} finding={value.findings[0]} projection="review" viewerLogin="me" viewerAvatarUrl={null}
           actions={actions} busy={busy} />;
@@ -163,6 +164,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     });
     await scenario('Published and withdrawn findings keep their private reviewer conversation open', async () => {
       const finding = { ...review.findings[0], state: 'WITHDRAWN' as const, outdated: true, stateReason: 'Fixed by the latest commit' };
+      assert(finding.path !== null && finding.side !== null && finding.endLine !== null, 'The published finding needs a code anchor');
       const published = reviewFixture({ findings: [finding], messages: reviewFixture().messages.map(message => ({ ...message, findingId: finding.id })), draft: reviewDraftFixture({
         repo: review.repo, updatedAt: finding.updatedAt,
         items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
@@ -172,7 +174,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       const questions: Parameters<Bridge['askAgentReview']>[] = [];
       install({ askAgentReview: async (...args) => { questions.push(args); return published; } });
       function Surface() {
-        const [value, setValue] = useState(published);
+        const [value, setValue] = useState<AgentReviewDto>(published);
         const { actions, busy } = useFindingActions({ review: value, onReviewChange: setValue, onNavigate: () => {} });
         return <ReviewFindingCard review={value} finding={value.findings[0]} projection="review" viewerLogin="me" viewerAvatarUrl={null}
           actions={actions} busy={busy} />;

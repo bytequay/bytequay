@@ -71,6 +71,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
         baseSha: null, headSha: null, code: '', resolved: true, version: 1, createdAt: turn.createdAt, updatedAt: turn.createdAt,
         learningAnchor: { turnId: source.summary, cardId: source.card, title: source.title, body: 'The offline build was unavailable.' },
         messages: [message] });
+      assert(message.messageEventId !== null, 'Learning requests require their recorded event');
       history.push({ ...event, eventId: message.messageEventId, turnId: message.turnId, sequence: (history.at(-1)?.sequence ?? 0) + 1,
         payload: { text: INTERNAL_PROMPT, attachments: [], deliveryKind: 'TURN' } });
     }
@@ -363,9 +364,11 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
         'A saved discussion on a removed card from the current summary must remain under Earlier summary discussions');
       assert(host.querySelector('.agt-panel [data-learning-card="evidence"]') === null,
         'Preserving its discussion must not restore the removed evidence report card');
-      removedCard.closest<HTMLDetailsElement>('.agr-learning-history').open = false;
+      const removedHistory = removedCard.closest<HTMLDetailsElement>('.agr-learning-history');
+      assert(removedHistory !== null, 'Removed cards must remain inside their saved history');
+      removedHistory.open = false;
       removedRequest.click(); await settle();
-      assert(removedCard.open && removedCard.closest<HTMLDetailsElement>('.agr-learning-history').open && removedCard.contains(document.activeElement),
+      assert(removedCard.open && removedHistory.open && removedCard.contains(document.activeElement),
         'The green request header must open and focus the exact saved discussion on the removed current-summary card');
       assert(composer.value === 'Keep my unrelated draft' && host.querySelector('[aria-label="Remove image draft.png"]') !== null,
         'Review navigation must preserve the user’s draft and image attachment');

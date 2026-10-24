@@ -383,4 +383,6 @@ function App() {
   return <DraftWorkbench {...ready} context={context} />;
 }
 
-createRoot(document.getElementById('root')).render(<App />);
+const root = document.getElementById('root');
+if (!root) throw new Error('The editor root is missing');
+createRoot(root).render(<App />);

@@ -107,7 +107,7 @@ export function mergeReviewCommentHistory(source: PrivateThreadSource, histories
 export function useReviewCommentHistory(source: PrivateThreadSource | undefined, pr: Pick<PullRequestDto, 'repo' | 'number'> | null,
   workspaceId: string | undefined, active: boolean): PrivateThreadSource | undefined {
   const query = source === undefined || pr === null || workspaceId === undefined ? null : { workspaceId, repo: pr.repo.toLowerCase(), number: pr.number };
-  const { items, error, setError, refresh } = useThreadSnapshot<typeof query, HistorySnapshot>(query, active, async target => {
+  const { items, error, setError, refresh } = useThreadSnapshot<NonNullable<typeof query>, HistorySnapshot>(query, active, async target => {
     const reviews = (await window.bridge.listAgentReviews(target.workspaceId))
       .filter(review => review.workspaceId === target.workspaceId && review.repo.toLowerCase() === target.repo
         && review.number === target.number && review.replay === undefined);

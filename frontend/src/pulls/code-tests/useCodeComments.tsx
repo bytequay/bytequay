@@ -217,10 +217,10 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
       return (
         <PendingReviewCard comment={item} viewer={options.viewer} repository={options.repo}
           suggestion={{ startLine: item.startLine ?? item.line, lines: lines.slice((item.startLine ?? item.line) - 1, item.line) }}
-          editBody={editing(item) ? pendingEdit.body : null}
+          editBody={editing(item) && pendingEdit !== null ? pendingEdit.body : null}
           onEdit={value => setPendingEdit(value === null ? null : { comment: item, body: value })}
           onSave={() => {
-            if (!editing(item) || !pendingEdit.body.trim()) return;
+            if (!editing(item) || pendingEdit === null || !pendingEdit.body.trim()) return;
             options.onPendingChange(updatePendingReviewComment(options.pending, item, pendingEdit.body));
             setPendingEdit(null);
           }}
@@ -288,7 +288,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
   const unplacedThreads = threadsHere.filter(activity => !placedThreads.includes(activity));
   const unplacedLocal = localHere.filter(thread => !placedLocal.includes(thread));
   const unplacedPending = pendingHere.filter(item => !placedPending.includes(item));
-  const unplacedFindings = findingsHere.filter(finding => !placedFindings.includes(finding));
+  const unplacedFindings = findingsHere.filter(finding => !placedFindings.some(placed => placed === finding));
   const unplacedCount = unplacedThreads.length + unplacedLocal.length + unplacedPending.length + unplacedFindings.length;
   const unplaced = unplacedCount === 0 ? null : (
     <details className="ct-unplaced">

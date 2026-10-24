@@ -395,17 +395,16 @@ async function sendsWhileOlderHistoryLoads(): Promise<void> {
     afterCursor: end < events.length ? String(end) : null, latestSequence: events.length,
   });
   let reads = 0;
-  let olderReply: ((result: AgentHistoryPageDto) => void) | null = null;
-  let latestReply: ((result: AgentHistoryPageDto) => void) | null = null;
+  const replies: { older?: (result: AgentHistoryPageDto) => void; latest?: (result: AgentHistoryPageDto) => void } = {};
   bridge.getAgentTask = async () => task;
   bridge.getAgentTurn = async () => durable('turn', 'COMPLETED');
   bridge.readAgentPendingApprovals = async () => [];
   bridge.readAgentHistory = async (_taskId, before) => {
     if (before === undefined) {
       if (++reads === 1) return read(5000);
-      return new Promise(resolve => { latestReply = resolve; });
+      return new Promise(resolve => { replies.latest = resolve; });
     }
-    if (before === '1000') return new Promise(resolve => { olderReply = resolve; });
+    if (before === '1000') return new Promise(resolve => { replies.older = resolve; });
     return read(Number(before));
   };
   bridge.subscribeAgentTask = async (taskId, _after, listener) => {
@@ -428,22 +427,23 @@ async function sendsWhileOlderHistoryLoads(): Promise<void> {
     await until(() => host.textContent?.includes('Message 1971') === true && !host.textContent?.includes('Message 5000'),
       'Paging earlier should leave the latest history window');
     scrollOlder();
-    await until(() => olderReply !== null, 'Another older history request should remain in flight');
+    await until(() => replies.older !== undefined, 'Another older history request should remain in flight');
     const input = element<HTMLTextAreaElement>('[aria-label="Message the agent"]', host, 'The composer must exist while reading history');
     changeInput(input, 'Continue from the latest result');
     await settle();
     const send = host.querySelector<HTMLButtonElement>('[aria-label="Send message"]');
     assert(send !== null && !send.disabled, 'An idle task must allow sending while history loads');
     flushSync(() => send.click());
-    assert(latestReply !== null && reads === 2, 'Sending must start one latest history request without waiting for the older read');
+    assert(replies.latest !== undefined && reads === 2, 'Sending must start one latest history request without waiting for the older read');
     const pending = host.querySelector('[data-history-anchor="pending-message"]');
     assert(pending?.textContent?.includes('Continue from the latest result') === true,
       'The sent message must appear before either history response or turn startup returns');
     assert(host.querySelector('.agt-live')?.textContent === 'Sending…', 'The pending message must show sending progress on an older page');
     const delivered = [request(5001, 'next-turn', 'Continue from the latest result'), message(5002, 'next-turn', 'Reading the latest result.')];
-    (latestReply as (result: AgentHistoryPageDto) => void)(latest(delivered));
+    replies.latest(latest(delivered));
     await until(() => host.textContent?.includes('Reading the latest result.') === true, 'The latest reply should show the new log');
-    (olderReply as (result: AgentHistoryPageDto) => void)(read(1000));
+    assert(replies.older !== undefined, 'The older history request must still be pending');
+    replies.older(read(1000));
     await settle();
     assert(host.textContent?.includes('Reading the latest result.') === true && !host.textContent?.includes('Message 1'),
       'A late older-history response must not replace the message and log just sent');

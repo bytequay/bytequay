@@ -173,7 +173,7 @@ export async function run(): Promise<string> {
   };
   const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'height:820px;width:1050px';
   function Harness() {
-    const [review, setReview] = useState(() => ({ ...runningReviewFixture(), worktreeSync: initial.worktreeSync })); update = setReview;
+    const [review, setReview] = useState<AgentReviewDto>(() => ({ ...runningReviewFixture(), worktreeSync: initial.worktreeSync })); update = setReview;
     const [active, setActive] = useState(true); show = setActive;
     return <CodeTestsTab workspaceId="workspace-1" review={review} onReviewChange={setReview} active={active} ownReviewStream={false}
       bridge={bridge} onUnsavedChange={count => { unsaved = count; }} />;

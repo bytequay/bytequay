@@ -20,6 +20,7 @@ import type { AgentReviewDto, ReviewDraftItemDto, ReviewFindingDto, ReviewMessag
 const body = 'Guard the empty value.\n\n```suggestion\n    return input.orElseThrow();\n```';
 const finding: ReviewFindingDto = { ...reviewFixture().findings[0], startLine: 118, endLine: 119, range: 'R118–R119', body,
   excerpt: ['    Value result = input.get();', '    return result;'] };
+if (finding.path === null || finding.endLine === null) throw new Error('Fixture requires a file and line');
 const draftItem: ReviewDraftItemDto = { id: 'draft-suggestion', source: 'AGENT_FINDING', findingId: finding.id,
   findingRevision: finding.revision, commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: finding.endLine, startLine: finding.startLine,
   body, included: true, published: false, publication: null };

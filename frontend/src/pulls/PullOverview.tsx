@@ -130,7 +130,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
     | { kind: 'local'; thread: LocalReviewThreadDto; key: string; at: string })[] = [
     ...groupTimelineActivities(detail.recentActivity).map((activities, index) => ({
       kind: 'remote' as const, activities, key: `remote-${activities[0].githubId ?? `${activities[0].eventType}-${index}`}`,
-      at: activities[0].timestamp,
+      at: activities[0].timestamp ?? '',
     })),
     ...(localReview?.threads ?? []).filter(thread => thread.repo.toLowerCase() === pr.repo.toLowerCase() && thread.number === pr.number)
       .map(thread => ({ kind: 'local' as const, thread, key: `local-${thread.id}`, at: thread.createdAt })),
@@ -210,7 +210,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
         pullRequestNumber={pr.number}
         quotedReply={quotedReply}
         onDraftChange={body => { void saveDraft(pr.repo, pr.number, body); }}
-        onClose={state.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
+        onClose={state?.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
           ? async () => {
               await window.bridge.closePr(pr.repo, pr.number);
               recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
@@ -789,7 +789,7 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
           } : undefined} />
       )}
       {error && <div className="pr-description__error" role="alert">{error}</div>}
-      <Reactions reactions={reaction.reactions} reaction={reaction} alwaysShowPicker />
+      <Reactions reactions={reaction?.reactions ?? serverReactions} reaction={reaction} alwaysShowPicker />
     </article>
   );
 }
@@ -845,7 +845,7 @@ export function groupTimelineActivities(activities: Activity[]) {
     }
     const previous = groups.at(-1);
     const previousActivity = previous?.at(-1);
-    if (previousActivity && canGroupTimelineEvents(previousActivity, activity)) {
+    if (previous && previousActivity && canGroupTimelineEvents(previousActivity, activity)) {
       previous.push(activity);
     }
     else {

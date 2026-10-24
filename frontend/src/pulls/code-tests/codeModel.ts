@@ -84,8 +84,9 @@ export function languageFor(path: string): CodeLanguage {
  * Whether an Agent review finding can sit on these lines: Changes shows it at its end line only while it is current,
  * and here the text on screen must also be the revision it was validated at, holding its excerpt.
  */
-export function findingOnLines(finding: ReviewFindingDto, clean: boolean, sourceHead: string | null, lines: readonly string[]) {
-  return clean && finding.side === 'RIGHT' && finding.validatedHeadSha === sourceHead
+export function findingOnLines(finding: ReviewFindingDto, clean: boolean, sourceHead: string | null, lines: readonly string[]):
+  finding is ReviewFindingDto & { startLine: number; endLine: number } {
+  return clean && finding.side === 'RIGHT' && finding.startLine !== null && finding.endLine !== null && finding.validatedHeadSha === sourceHead
     && lines.slice(finding.startLine - 1, finding.endLine).join('\n') === finding.excerpt.join('\n');
 }
 

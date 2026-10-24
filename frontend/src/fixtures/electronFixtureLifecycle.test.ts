@@ -74,7 +74,8 @@ it.each(['parent exit', 'deadline'])('exits a real Electron fixture after %s', a
     fixturePid = Number(/READY (\d+)/.exec(stdout)?.[1]);
     if (reason === 'parent exit') parent.kill('SIGKILL');
     expect(await closed).toEqual(reason === 'parent exit' ? [null, 'SIGKILL'] : [1, null]);
-    await vi.waitFor(() => expect(() => process.kill(fixturePid, 0)).toThrowError(), { timeout: 5_000 });
+    const pid = fixturePid;
+    await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrowError(), { timeout: 5_000 });
     if (reason === 'deadline') expect(stderr).toContain('Electron fixture timed out');
   }
   finally {

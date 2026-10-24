@@ -75,7 +75,7 @@ export function prDetail(overrides: Partial<PullRequestDetailDto>): PullRequestD
     deletions: 0,
     changedFiles: 1,
     approvalCount: 0,
-    ciStatus: null,
+    ciStatus: 'NONE',
     recentActivity: [],
     checkRuns: [],
     unavailableSections: [],

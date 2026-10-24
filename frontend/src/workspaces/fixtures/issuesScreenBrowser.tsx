@@ -19,7 +19,7 @@ import type { WorkItemDecision, WorkItemDto } from '../../workitems/contracts';
 import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
 import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
-import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { assert, changeInput, settle, element, button } from '../../fixtures/harness';
 import { handledEntry, issueAttentionItem, loadHandled, saveHandled, visibleAttention } from '../../home/attention';
 import { refreshSnoozedItem } from '../../home/useSnoozedAttention';
 import { LayerCovered } from '../../Zoom';
@@ -201,13 +201,13 @@ async function epicTabs(): Promise<void> {
       'The issue tab shows the issue in the same card');
     tabs()[1].click(); await settle();
     window.location.hash = '';
-    host.querySelector<HTMLButtonElement>('[aria-label="Run Port the Iceberg reader"]').click(); await settle();
+    element<HTMLButtonElement>('[aria-label="Run Port the Iceberg reader"]', host).click(); await settle();
     const start = takeEpicStart('workspace-1');
     assert(start !== null && 'itemId' in start && start.itemId === 'c' && start.draft === 'Port the Iceberg reader' && start.send === true
       && window.location.hash === workspaceRoute('workspace-1'),
       `Run hands work without a source to its workspace to start at once, opening the workspace when another page is on screen: ${JSON.stringify(start)} ${window.location.hash}`);
-    host.querySelector<HTMLButtonElement>('[aria-label="Drop Port the Iceberg reader"]').click(); await settle();
-    [...document.querySelectorAll<HTMLButtonElement>('dialog.bq-confirm-dialog button')].find(button => button.textContent === 'Drop').click();
+    element<HTMLButtonElement>('[aria-label="Drop Port the Iceberg reader"]', host).click(); await settle();
+    button('Drop', element('dialog.bq-confirm-dialog')).click();
     await settle(); await settle();
     assert(decisions.join(',') === '0,1' && host.querySelector('.epic-view__error') === null,
       `A decision a receipt made stale goes again at the current revision: ${decisions.join(',')}`);

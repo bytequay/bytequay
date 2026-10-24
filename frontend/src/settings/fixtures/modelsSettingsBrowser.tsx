@@ -192,10 +192,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       getAppVersion: async () => ({ version: '0.4.0' }),
       getAppPreferences: async () => ({ theme: 'SYSTEM' as const, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60 }),
       getModelSettings: async id => scoped(id),
-      getWorkspaceSettings: async id => workspaceSettings.get(id) ?? { agents: saved.agents, commitsTarget: null },
+      getWorkspaceSettings: async id => workspaceSettings.get(id) ?? { agents: saved.agents, commitsTarget: { remote: 'origin', branch: 'main', overridden: false } },
       setWorkspaceAgentModel: async (id, type, configId, model, effort) => {
         workspaceChoices.push([id, configId]);
-        const value: WorkspaceSettingsDto = { agents: [{ type, explicit: true, configId, model, effort, label: account.label, modelLabel: 'Opus' }], commitsTarget: null };
+        const value: WorkspaceSettingsDto = { agents: [{ type, explicit: true, configId, model, effort, label: account.label, modelLabel: 'Opus' }], commitsTarget: { remote: 'origin', branch: 'main', overridden: false } };
         workspaceSettings.set(id, value);
         return value.agents[0];
       },
@@ -208,14 +208,14 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         catalog = { ...withAccount, providers: withAccount.providers.map(provider => provider.id === account.id ? { ...provider, workspaceId } : provider) };
         if (workspaceId !== undefined) workspaceSettings.set(workspaceId, { agents: ['DEVELOPMENT', 'REVIEW'].map(type => ({
           type: type as 'DEVELOPMENT' | 'REVIEW', explicit: true, configId: account.id, model: 'opus', effort: 'High', label: account.label, modelLabel: 'Opus',
-        })), commitsTarget: null });
+        })), commitsTarget: { remote: 'origin', branch: 'main', overridden: false } });
         return scoped(workspaceId);
       },
       restrictClaudeAccount: async (laneId, workspaceId) => {
         catalog = { ...catalog, providers: catalog.providers.map(provider => provider.id === laneId ? { ...provider, workspaceId } : provider) };
         workspaceSettings.set(workspaceId, { agents: ['DEVELOPMENT', 'REVIEW'].map(type => ({
           type: type as 'DEVELOPMENT' | 'REVIEW', explicit: true, configId: laneId, model: 'opus', effort: 'High', label: account.label, modelLabel: 'Opus',
-        })), commitsTarget: null });
+        })), commitsTarget: { remote: 'origin', branch: 'main', overridden: false } });
         return scoped(workspaceId);
       },
       removeClaudeAccount: async laneId => {

@@ -33,9 +33,10 @@ beforeEach(() => {
   vi.resetModules();
   vi.clearAllMocks();
   vi.useFakeTimers();
-  vi.stubEnv('BYTEQUAY_BACKEND_PORT', undefined);
+  vi.stubEnv('BYTEQUAY_BACKEND_PORT', '');
+  delete process.env.BYTEQUAY_BACKEND_PORT;
   // spawnBackend rewrites PATH; stubbing it restores the original after each test.
-  vi.stubEnv('PATH', process.env.PATH);
+  vi.stubEnv('PATH', process.env.PATH ?? '');
   mocks.app.isPackaged = true;
   mocks.existsSync.mockReturnValue(true);
   child = Object.assign(new EventEmitter(), {

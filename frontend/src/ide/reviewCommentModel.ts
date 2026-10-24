@@ -53,7 +53,7 @@ export function reviewCommentCards({ review, comments }: Pick<IdeContext, 'revie
     if (activity.eventType !== 'review_thread') continue;
     const payload = activity.payload;
     const root = payload.comments.find(comment => comment.inReplyToId === null) ?? payload.comments[0];
-    if (root) threadRoots.add(root.githubId);
+    if (root?.githubId != null) threadRoots.add(root.githubId);
     const current = !payload.outdated && payload.side === 'RIGHT';
     cards.push({ id: `thread:${activity.githubId}`, path: payload.path,
       location: location(payload.path, payload.side, payload.line === null ? payload.originalStartLine : payload.startLine, payload.line ?? payload.originalLine),

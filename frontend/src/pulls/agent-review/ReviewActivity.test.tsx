@@ -66,6 +66,7 @@ describe('the unified review conversation', () => {
     expect(render({ review: { ...review, queuePause: null }, onResumeQueue: () => {} })).not.toContain('Resume queue');
   });
   it('folds saved local discussions and retains the exact generated prompt for inspection', () => {
+    if (props.review.number === null) throw new Error('Fixture requires a published review');
     const first = events[0];
     const html = render({ localReview: {
       threads: [{ id: 'local-review', taskId: props.review.task.id, taskVersion: 1, laneId: 'codex', workspaceId: props.review.workspaceId,

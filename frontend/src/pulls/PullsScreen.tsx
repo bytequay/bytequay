@@ -1838,7 +1838,7 @@ export function ReviewDialog({
     setError(null);
     try {
       const updated = await window.bridge.removeReviewDraftComment(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, itemId);
-      if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
+      if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current?.event) savedDraft.current = updated;
     }
     catch (value) {
       failed(value);
@@ -1860,7 +1860,7 @@ export function ReviewDialog({
       const updated = posted
         ? await window.bridge.confirmReviewDraftCommentPosted(detail.repo, detail.number, version, itemId)
         : await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, version, itemId);
-      if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
+      if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current?.event) savedDraft.current = updated;
       showDraft(updated);
       if (posted && review !== null) reloadReview();
     }
@@ -1909,7 +1909,7 @@ export function ReviewDialog({
       remove: () => { void removePromoted(item.id); },
       save: async (text: string, version: number) => {
         const updated = await window.bridge.editReviewDraftComment(detail.repo, detail.number, version, item.id, text, item.included);
-        if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
+        if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current?.event) savedDraft.current = updated;
         showDraft(updated);
       } })),
   ];

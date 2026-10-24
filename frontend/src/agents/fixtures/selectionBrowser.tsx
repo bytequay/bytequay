@@ -149,7 +149,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await settle();
     (pill() as HTMLElement).click();
     await settle();
-    const pop = element<HTMLElement | null>('.agt-disc-pop', document, 'The composer did not open');
+    const pop = element<HTMLElement>('.agt-disc-pop', document, 'The composer did not open');
     // The percentage width it used to carry resolved against a shrink-to-fit parent and collapsed.
     const width = pop.getBoundingClientRect().width;
     assert(width >= 440 && width <= 470, `The composer is ${Math.round(width)}px wide, not the 460 it asks for`);
@@ -239,7 +239,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     selectFinal(after, after.length, false);
     await settle();
     assert(pill() === null, 'Foreign text was accepted as part of the answer');
-    const warning = element<HTMLElement | null>('.agt-disc-inert', edgeHost, 'Foreign text did not explain why it cannot be discussed');
+    const warning = element<HTMLElement>('.agt-disc-inert', edgeHost, 'Foreign text did not explain why it cannot be discussed');
     inside(warning, 'Selection warning');
     const fix = warning.querySelector('button') as HTMLButtonElement;
     assert(!fix.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })),
@@ -268,7 +268,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       inside(pill() as HTMLElement, 'Edge pill');
       (pill() as HTMLElement).click();
       await settle();
-      const composer = element<HTMLElement | null>('.agt-disc-pop', edgeHost, 'The edge composer did not open');
+      const composer = element<HTMLElement>('.agt-disc-pop', edgeHost, 'The edge composer did not open');
       inside(composer, 'Edge composer');
     }
   }, results);
@@ -288,7 +288,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         createdAt: '2026-09-22T00:00:00Z', updatedAt: '2026-09-22T00:00:00Z', messages: [],
       }]} />));
     await settle();
-    const mark = element<HTMLElement | null>('button.agt-disc-mark', marked, 'The anchored passage is not marked');
+    const mark = element<HTMLElement>('button.agt-disc-mark', marked, 'The anchored passage is not marked');
     assert(mark.textContent === 'descendant whose name matches the leaf', `The mark reads "${mark.textContent ?? ''}"`);
     const style = getComputedStyle(mark);
     assert(style.backgroundColor !== 'rgba(0, 0, 0, 0)', 'The mark has no tint');
@@ -320,7 +320,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     scroller.scrollTop = 0;
     revealPassage({ turnId: 'turn-10', discussionId: 'd2' });
     await settle();
-    const mark = element<HTMLElement | null>('button.agt-disc-mark[data-discussion="d2"]', scroller, 'The jump target is not marked');
+    const mark = element<HTMLElement>('button.agt-disc-mark[data-discussion="d2"]', scroller, 'The jump target is not marked');
     const top = mark.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
     assert(Math.abs(top - 72) <= 8, `The passage landed ${Math.round(top)}px below the top, not the 72 it asks for`);
     scroller.remove();

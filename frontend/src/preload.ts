@@ -35,8 +35,10 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
     const unsubscribe = subscribe<AgentStreamMessage>(`${prefix}:stream:message`, message => receiver.receive(message));
     let subscriptionId: string | null = null;
     try {
-      subscriptionId = await ipcRenderer.invoke(`${prefix}:stream:subscribe`, id, after, statusOnly);
-      receiver.activate(subscriptionId);
+      const subscribed: unknown = await ipcRenderer.invoke(`${prefix}:stream:subscribe`, id, after, statusOnly);
+      if (typeof subscribed !== 'string') throw new Error('Invalid stream subscription');
+      subscriptionId = subscribed;
+      receiver.activate(subscribed);
     }
     catch (failure) {
       unsubscribe();

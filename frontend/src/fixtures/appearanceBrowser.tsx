@@ -97,8 +97,8 @@ export async function mount() {
 
 const canvas = document.createElement('canvas'); canvas.width = canvas.height = 1;
 const paint = canvas.getContext('2d');
-assert(paint !== null, 'Canvas must be available');
 function channels(color: string): number[] {
+  assert(paint !== null, 'Canvas must be available');
   paint.clearRect(0, 0, 1, 1); paint.fillStyle = color; paint.fillRect(0, 0, 1, 1);
   return [...paint.getImageData(0, 0, 1, 1).data];
 }

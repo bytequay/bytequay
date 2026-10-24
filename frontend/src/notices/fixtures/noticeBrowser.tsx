@@ -76,7 +76,7 @@ export async function run() {
       make('other', 'QUEUE_PAUSED', 4), make('done', 'TURN_FINISHED')], popupIds: ['approval:a', 'approval:q', 'question:t', 'other', 'done'] };
     listener(state); await wait();
     assert(host.querySelectorAll('.app-notice').length === 1, 'At most one alert shows');
-    let front = alert(); assert(front?.classList.contains('is-turn_finished'), 'The alert is the newest notice not seen yet, whatever its kind');
+    let front = alert(); assert(front !== null && front.classList.contains('is-turn_finished'), 'The alert is the newest notice not seen yet, whatever its kind');
     assert(!host.querySelector('.app-notices__launcher, .app-notices__header, .app-notices__pages, .app-notices__fold, .app-notices__edge, .is-preview')
       && host.querySelectorAll('button').length === 2, 'No launcher, list, pages, fold tab or stacked preview: only the alert’s action and ×');
     assert(front.querySelector('h2')?.textContent === 'Review the settings screen' && !front.querySelector('.app-notice__changes'),
@@ -124,7 +124,7 @@ export async function run() {
     assert(dismissed.join() === 'done' && !seen.includes('done') && state.notices.some(notice => notice.id === 'done'),
       'An expired completion only stops alerting; it stays for the panel, still unseen');
     front = alert();
-    assert(front?.classList.contains('is-approval') && host.querySelectorAll('.app-notice').length === 1, 'The next newest notice alerts once the last one closes');
+    assert(front !== null && front.classList.contains('is-approval') && host.querySelectorAll('.app-notice').length === 1, 'The next newest notice alerts once the last one closes');
     assert(Number(timers.size) === 0, 'An alert that needs the user does not expire');
     const answer = action(); assert(answer?.textContent === 'Answer', 'An approval alert answers in the Assistant panel');
     rejectOpen = true; answer.click(); await wait();
@@ -133,7 +133,7 @@ export async function run() {
     rejectOpen = false; answer.click(); await wait();
     assert(opened.join() === 'approval:a' && !host.querySelector('[role="alert"]'), 'Answer goes to the host, which opens the panel at the card');
     front = alert();
-    assert(front?.classList.contains('is-question') && action()?.textContent === 'Answer'
+    assert(front !== null && front.classList.contains('is-question') && action()?.textContent === 'Answer'
       && front.querySelector('.app-notice__message')?.textContent === 'Should interrupted tasks resume automatically?'
       && front.querySelector('.app-notice__head')?.textContent?.startsWith('Waiting for you'), 'A question card alerts with what the agent asked and answers in the panel');
     const close = front.querySelector<HTMLButtonElement>('.app-notice__close'); assert(close, 'The alert has a close button');

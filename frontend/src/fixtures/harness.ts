@@ -45,14 +45,14 @@ export function controlTimers(delayMs: number) {
     timers.set(key, () => handler(...args));
     return key;
   }) as typeof window.setTimeout;
-  window.clearTimeout = (key?: number) => { if (key !== undefined && timers.delete(key)) return; originalClear(key); };
+  window.clearTimeout = key => { if (typeof key === 'number' && timers.delete(key)) return; originalClear(key); };
   return {
     tick: () => { const due = [...timers.values()]; timers.clear(); due.forEach(run => run()); return due.length; },
     restore: () => { window.setTimeout = originalSet; window.clearTimeout = originalClear; timers.clear(); },
   };
 }
 
-export function assert(condition: boolean, message: string): asserts condition {
+export function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 

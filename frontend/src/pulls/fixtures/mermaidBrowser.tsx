@@ -104,7 +104,7 @@ export async function run() {
   const highlights = () => highlighted;
   hljs.highlight = ((code: string, options: HighlightOptions) => {
     highlighted++;
-    return highlight.call(hljs, code, options);
+    return highlight(code, options);
   }) as typeof highlight;
   const review = (text: string) => flushSync(() => root.render(<MarkdownBody body={text} suggestion={{ startLine: 1, lines: ['const value = 0;'] }} />));
   review(fence('const value = 1;', 'typescript'));

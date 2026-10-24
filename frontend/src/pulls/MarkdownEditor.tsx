@@ -219,7 +219,7 @@ export default function MarkdownEditor({
   /** Controlled by a host that outlives this editor's DOM. */
   preview?: boolean;
   onPreviewChange?: (preview: boolean) => void;
-  textareaRef?: RefObject<HTMLTextAreaElement>;
+  textareaRef?: RefObject<HTMLTextAreaElement | null>;
   header?: ReactNode;
   /** Every action in the box keeps the text between the user and the agent. */
   isPrivate?: boolean;

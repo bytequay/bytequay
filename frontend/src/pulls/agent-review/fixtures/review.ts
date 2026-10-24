@@ -194,6 +194,8 @@ export function reviewDraftFixture(overrides: Partial<ReviewDraftDto> = {}): Rev
   };
 }
 
+export function reviewFixture(overrides?: Partial<AgentReviewDto> & { number?: number }): AgentReviewDto & { number: number };
+export function reviewFixture(overrides: Partial<AgentReviewDto>): AgentReviewDto;
 export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentReviewDto {
   return {
     id: 'review-1',
@@ -256,7 +258,7 @@ export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentRev
   };
 }
 
-export function runningReviewFixture(): AgentReviewDto {
+export function runningReviewFixture(): AgentReviewDto & { number: number } {
   const review = reviewFixture();
   return {
     ...review,

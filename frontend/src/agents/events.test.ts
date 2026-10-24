@@ -57,7 +57,9 @@ describe('agent event contract', () => {
   });
 
   it('reads the line a tool gave its call, and none from events stored before tools described calls', () => {
-    const tool = { ...fixture.events.find(event => event.type === 'tool'), sequence: 1 };
+    const source = fixture.events.find(event => event.type === 'tool');
+    if (source === undefined) throw new Error('Fixture requires a tool event');
+    const tool = { ...source, sequence: 1 };
     const [older] = parseAgentEventSequence([tool]);
     expect(older.type === 'tool' ? older.payload.description : undefined).toBeNull();
     const [described] = parseAgentEventSequence([{ ...tool, payload: { ...tool.payload, description: 'Read note · Snapshot loading' } }]);
@@ -66,7 +68,9 @@ describe('agent event contract', () => {
   });
 
   it('reads whether an approval stays in the sandbox, and outside for events stored before it said', () => {
-    const request = { ...fixture.events.find(event => event.type === 'approval_requested'), sequence: 1 };
+    const source = fixture.events.find(event => event.type === 'approval_requested');
+    if (source === undefined) throw new Error('Fixture requires an approval request');
+    const request = { ...source, sequence: 1 };
     const [older] = parseAgentEventSequence([request]);
     expect(older.type === 'approval_requested' ? older.payload.sandboxed : undefined).toBe(false);
     const [inside] = parseAgentEventSequence([{ ...request, payload: { ...request.payload, sandboxed: true } }]);

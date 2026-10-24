@@ -208,7 +208,7 @@ it.each([
   ] as const) {
     await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, ...path, base, head);
     const expected = new URL(`http://127.0.0.1:9527${pathname}?repo=owner%2Frepo&number=7${range}`);
-    if (path.length > 0) expected.searchParams.set('path', path[0]);
+    if (path[0] !== undefined) expected.searchParams.set('path', path[0]);
     expect(fetch).toHaveBeenLastCalledWith(expected.toString(), expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
     expect(fetch.mock.calls.at(-1)?.[1]?.method).toBe(method);
   }

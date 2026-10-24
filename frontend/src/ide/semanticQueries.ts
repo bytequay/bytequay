@@ -115,8 +115,7 @@ export async function semanticQuery(workspace: URI, input: CodeQuery, token: Can
     } else if (query.operation === 'DOCUMENT_SYMBOLS') {
       for (const provider of features.documentSymbolProvider.ordered(model)) {
         const pending: DocumentSymbol[] = [...await provider.provideDocumentSymbols(model, token) ?? []].reverse();
-        while (pending.length) {
-          const symbol = pending.pop();
+        for (let symbol = pending.pop(); symbol !== undefined; symbol = pending.pop()) {
           add(model.uri, symbol.selectionRange, { name: symbol.name.slice(0, 2000), kind: symbol.kind });
           if (truncated) break;
           if (symbol.children) pending.push(...[...symbol.children].reverse());

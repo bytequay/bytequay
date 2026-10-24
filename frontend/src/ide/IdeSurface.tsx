@@ -69,15 +69,20 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
       case 'finding.fix': return findings.actions.onRequestFix?.(finding, args[1] as string);
     }
   }
+  if (request.method.startsWith('github.')) {
+    if (!comments) throw new Error('Review actions are no longer available');
+    switch (request.method) {
+      case 'github.post': return window.bridge.postPrReviewComment(comments.repo, comments.number, args[2] as InlineReviewCommentDto, args[3] as string);
+      case 'github.reply': return window.bridge.replyToReviewComment(comments.repo, comments.number, args[2] as number, args[3] as string);
+      case 'github.resolve': return window.bridge.setReviewThreadResolved(comments.repo, comments.number, args[2] as number, args[3] as boolean);
+      case 'github.edit': return window.bridge.editPrComment(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as string);
+      case 'github.react': return window.bridge.setPrReaction(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as PullReactionContent, args[5] as boolean | null);
+    }
+  }
   switch (request.method) {
     case 'getGitHubUserProfile': return window.bridge.getGitHubUserProfile(args[0] as string);
     case 'fetchGitHubCodeSnippet': return window.bridge.fetchGitHubCodeSnippet(args[0] as GitHubCodeSnippetRequest);
     case 'openInAppBrowser': return window.bridge.openInAppBrowser(args[0] as string);
-    case 'github.post': return window.bridge.postPrReviewComment(comments.repo, comments.number, args[2] as InlineReviewCommentDto, args[3] as string);
-    case 'github.reply': return window.bridge.replyToReviewComment(comments.repo, comments.number, args[2] as number, args[3] as string);
-    case 'github.resolve': return window.bridge.setReviewThreadResolved(comments.repo, comments.number, args[2] as number, args[3] as boolean);
-    case 'github.edit': return window.bridge.editPrComment(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as string);
-    case 'github.react': return window.bridge.setPrReaction(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as PullReactionContent, args[5] as boolean | null);
     case 'run.ask': {
       const run = (await window.bridge.listCodeRuns(host)).find(run => run.id === args[0]);
       const taskId = host.kind === 'task' ? host.taskId : review?.task.id;
@@ -99,11 +104,22 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
       return;
     }
     case 'stopCodeRun': return window.bridge.stopCodeRun(host, args[1] as string);
-    case 'getAgentReview': return window.bridge.getAgentReview(review.id);
-    case 'getAgentTask': return window.bridge.getAgentTask(args[0] as string, args[1] as string | undefined);
-    case 'askAgentReview': return window.bridge.askAgentReview(review.id, args[1] as string, args[2] as number, args[3] as string, args[4] as string);
-    case 'resolveAgentReviewFinding': return window.bridge.resolveAgentReviewFinding(review.id, args[1] as string, args[2] as number, args[3] as string, args[4] as boolean | undefined);
-    case 'reopenAgentReviewFinding': return window.bridge.reopenAgentReviewFinding(review.id, args[1] as string, args[2] as number);
+    case 'getAgentTask': {
+      const workspaceId = typeof args[1] === 'string' ? args[1] : host.kind === 'task' ? host.workspaceId : review?.workspaceId;
+      if (!workspaceId) throw new Error('The task workspace is no longer available');
+      return window.bridge.getAgentTask(args[0] as string, workspaceId);
+    }
+    case 'getAgentReview': case 'askAgentReview': case 'resolveAgentReviewFinding': case 'reopenAgentReviewFinding': case 'review.changed': {
+      if (!review) throw new Error('The review is no longer available');
+      switch (request.method) {
+        case 'getAgentReview': return window.bridge.getAgentReview(review.id);
+        case 'askAgentReview': return window.bridge.askAgentReview(review.id, args[1] as string, args[2] as number, args[3] as string, args[4] as string);
+        case 'resolveAgentReviewFinding': return window.bridge.resolveAgentReviewFinding(review.id, args[1] as string, args[2] as number, args[3] as string, args[4] === true);
+        case 'reopenAgentReviewFinding': return window.bridge.reopenAgentReviewFinding(review.id, args[1] as string, args[2] as number);
+        case 'review.changed': return props.onReviewChange(await window.bridge.getAgentReview(review.id));
+      }
+      break;
+    }
     case 'betterWords': return window.bridge.betterWords(args[0] as string, comments?.repo, comments?.workspaceId);
     case 'comments.pending': return comments?.onPendingChange(args[0] as CodeCommentsOptions['pending']);
     case 'comments.detail': case 'comments.refresh': return comments?.threads.onRefresh();
@@ -112,7 +128,6 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
     case 'comments.reply': return comments?.localReview.onReply(args[0] as string, args[1] as string);
     case 'comments.resolve': return comments?.localReview.onResolve(args[0] as string, args[1] as boolean);
     case 'comments.retry': return comments?.localReview.onRetry(args[0] as string, args[1] as string);
-    case 'review.changed': return props.onReviewChange(await window.bridge.getAgentReview(review.id));
     default: throw new Error('This action is unavailable in Tears of time');
   }
 }

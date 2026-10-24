@@ -464,6 +464,7 @@ describe('publication eligibility', () => {
   });
 
   it('recognizes exact accepted validation after a finding is reassessed at a newer commit', () => {
+    if (review.runs[0].coverage === null) throw new Error('Fixture requires completed coverage');
     const reassessed = { ...finding, validatedHeadSha: 'e'.repeat(40) };
     const validated: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', headSha: reassessed.validatedHeadSha,
       steps: [{ number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: { investigationStep: 1,

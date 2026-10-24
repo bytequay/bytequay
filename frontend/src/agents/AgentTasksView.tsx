@@ -728,7 +728,6 @@ export default function AgentTasksView({
   const error = creation.error ?? (work.failed.length === 0 ? null : `Could not read ${work.failed.join(', ')}; trying again.`);
   return (
     <AgentTaskList
-      workspaceId={workspaceId}
       workItemId={workItemId}
       headerAction={headerAction}
       repository={repository}

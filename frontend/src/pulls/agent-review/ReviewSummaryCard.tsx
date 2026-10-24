@@ -191,7 +191,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
   ].filter(card => review.messages.some(message => message.findingId === null && message.cardId === card.id));
   const renderCard = (card: SummaryCard) => <SummaryItem key={card.id} card={card} review={review} run={run}
     onSelectCommit={onSelectCommit} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
-  const shown = commits.some(card => card.id === selected) ? selected : purpose.id;
+  const shown = selected !== null && commits.some(card => card.id === selected) ? selected : purpose.id;
   const last = run.commits.at(-1);
   return <WhatChanged selected={shown} onSelect={setSelected} actions={refreshControl}
     items={[{ id: purpose.id, label: 'Intention' }, ...commits.map((card, index) => ({ id: card.id, label: card.commit?.message.split('\n')[0] ?? card.title, ordinal: index + 1 }))]}

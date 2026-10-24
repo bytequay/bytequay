@@ -73,7 +73,8 @@ export async function verifySearch() {
   let outlineCancelled = false;
   let releaseOutline: (() => void) | undefined;
   let stalledModel: ITextModel | undefined;
-  let release: (() => void) | undefined;
+  const deferred: { release?: () => void } = {};
+  const releaseSearch = () => deferred.release?.();
   const provider: ISearchResultProvider = {
     getAIName: async () => undefined, clearCache: async () => {},
     fileSearch: async query => {
@@ -87,7 +88,7 @@ export async function verifySearch() {
       if (query.contentPattern.pattern === 'failure') throw new Error('Fixture text search failure');
       if (query.contentPattern.pattern === 'slow') {
         token?.onCancellationRequested(() => { cancelled = true; });
-        await new Promise<void>(resolve => { release = resolve; });
+        await new Promise<void>(resolve => { deferred.release = resolve; });
       }
       for (const [path, content] of sources) {
         if (query.includePattern && !match(query.includePattern, path)) continue;
@@ -247,15 +248,15 @@ export async function verifySearch() {
     await until(() => idle() && rows().some(row => row.title === `${mainPath}:2`), 'Project search completes after an unsaved edit');
     assert(!rows().some(row => row.title.endsWith('TestQueryService.java:2')), 'Project search suppresses stale disk matches in dirty files');
     changeInput(input(), 'slow');
-    await until(() => release !== undefined, 'A slow search starts');
+    await until(() => deferred.release !== undefined, 'A slow search starts');
     changeInput(input(), 'unsaved');
     await until(() => idle() && rows().length === 2, 'Replacement text search completes while the previous provider is still pending');
     assert(cancelled, 'Typing a new query cancels the previous native search');
-    release?.(); await settle();
+    releaseSearch(); await settle();
     assert(rows().length === 2 && rows().every(row => row.textContent?.includes('unsaved')), 'Late text results cannot replace the current query');
-    release = undefined; cancelled = false; changeInput(input(), 'slow');
-    await until(() => release !== undefined, 'Another slow search starts'); key('Escape'); await settle();
-    assert(cancelled && !popup(), 'Escape cancels pending native search and restores the editor'); release?.();
+    deferred.release = undefined; cancelled = false; changeInput(input(), 'slow');
+    await until(() => deferred.release !== undefined, 'Another slow search starts'); key('Escape'); await settle();
+    assert(cancelled && !popup(), 'Escape cancels pending native search and restores the editor'); releaseSearch();
     await commands.executeCommand('workbench.action.findInFiles'); await settle(); changeInput(input(), 'failure');
     await until(() => idle() && popup()?.textContent?.includes('Fixture text search failure') === true, 'Search errors are visible');
     changeInput(input(), 'no-such-result'); await until(() => idle() && popup()?.textContent?.includes('No matches found.') === true, 'Query changes recover from a failed search');

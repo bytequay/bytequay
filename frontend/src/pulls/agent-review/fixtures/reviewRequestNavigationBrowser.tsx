@@ -17,6 +17,7 @@ import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { AgentTurnDto, Bridge, PullRequestDetailDto } from '../../../types';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../../agents/events';
 import eventFixture from '../../../agents/fixtures/agent-events-v2.json';
+import { parseAgentTurn } from '../../../agents/contracts';
 import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import { createPreviewBridge } from '../../../agents/fixtures/previewBridge';
 import PullsScreen from '../../PullsScreen';
@@ -94,7 +95,7 @@ export async function run(): Promise<string[]> {
     getUserProfile: async () => ({ login: 'reader', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     getModelSettings: agent.getModelSettings,
-    getAgentTurn: async id => ({ ...contracts.turn, id, taskId: review.task.id,
+    getAgentTurn: async id => ({ ...parseAgentTurn(contracts.turn), id, taskId: review.task.id,
       createdAt: current.createdAt, startedAt: current.createdAt, endedAt: current.endedAt } as AgentTurnDto),
     getAgentReview: async id => { assert(id === review.id, 'Navigation must retain the selected review'); return review; },
     readAgentReviewHistory: async (id, taskId) => {

@@ -143,9 +143,10 @@ export function Critter({ kind, moving }: { kind: CritterKind; moving: boolean }
   const elapsed = useRef(0);
   // A layout effect, so the art's unposed joints never reach the screen.
   useLayoutEffect(() => {
+    if (host.current === null) return;
     const joints = Array.from(host.current.querySelectorAll<SVGGElement>('[data-j]'), (element) => ({
       element,
-      name: element.dataset.j,
+      name: element.getAttribute('data-j') ?? '',
       anchored: element.hasAttribute('data-x'),
       x: Number(element.dataset.x ?? 0),
       y: Number(element.dataset.y ?? 0),
@@ -154,7 +155,7 @@ export function Critter({ kind, moving }: { kind: CritterKind; moving: boolean }
     const draw = (): void => {
       const pose = critterPose(kind, elapsed.current);
       for (const joint of joints) {
-        const value = pose[joint.name];
+        const value = pose[joint.name] ?? {};
         const { r = 0, dx = 0, dy = 0, sx, sy } = typeof value === 'number' ? { r: value } : value;
         const placed = joint.anchored
           ? `translate(${(joint.x + dx).toFixed(2)} ${(joint.y + dy).toFixed(2)}) rotate(${r.toFixed(2)})`

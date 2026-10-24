@@ -53,10 +53,11 @@ export function LinkedWorkCard({ work, source = false }: { work: LinkedWorkspace
   const result = work.result?.split(/^#{1,6} Commands and limitations\s*$/m, 2);
   const target = work.targetTaskId ? workspaceAgentTaskRoute(work.targetWorkspaceId, work.targetTaskId) : null;
   const stop = async () => {
-    if (!work.targetTaskId) return;
+    const taskId = work.targetTaskId;
+    if (!taskId) return;
     return run(async () => {
-      const impact = await window.bridge.getAgentRuntimeStopImpact(work.targetTaskId, work.targetWorkspaceId);
-      await window.bridge.stopAgentRuntime(work.targetTaskId, work.targetWorkspaceId, impact.generation);
+      const impact = await window.bridge.getAgentRuntimeStopImpact(taskId, work.targetWorkspaceId);
+      await window.bridge.stopAgentRuntime(taskId, work.targetWorkspaceId, impact.generation);
     });
   };
   return <div className="linked-work-entry">

@@ -19,7 +19,7 @@ import { textButton, element as fixtureElement, assert, changeInput, settle } fr
 import ReviewFindingCard from '../ReviewFindingCard';
 import { useFindingActions } from '../useFindingActions';
 import { reviewDraftFixture, reviewFixture } from './review';
-import type { ReviewFindingDto } from '../contracts';
+import type { AgentReviewDto, ReviewFindingDto } from '../contracts';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const name = 'Whole-PR review prose stays editable and removable without changing private findings';
@@ -62,7 +62,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   let replaceReview: (value: typeof saved) => void = () => {};
   function Surface() {
-    const [review, setReview] = useState(saved);
+    const [review, setReview] = useState<AgentReviewDto>(saved);
     replaceReview = setReview;
     const { actions, busy } = useFindingActions({ review, onReviewChange: setReview, onNavigate: () => {} });
     return <ReviewFindingCard review={review} finding={review.findings[0]} projection="review"

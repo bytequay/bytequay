@@ -26,7 +26,9 @@ it('loads the editor with separate app and IDE dependency caches in development'
     cacheDir: join(directory, basename(config.cacheDir)), server: { host: '127.0.0.1', port: 0, hmr: false } })));
   try {
     await Promise.all(servers.map(server => server.listen()));
-    const url = `${servers[1].resolvedUrls.local[0]}ide/index.html`;
+    const origin = servers[1].resolvedUrls?.local[0];
+    if (!origin) throw new Error('IDE development server did not publish its address');
+    const url = `${origin}ide/index.html`;
     const result = await runBrowserFixture<{ text: string; errors: string[] }>({
       prefix: 'bytequay-ide-startup-', entry: 'src/fixtures/harness.ts', global: 'Harness', blockNetwork: false, timeoutMs: 45_000,
       preload: `const { contextBridge } = require('electron');

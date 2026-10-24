@@ -183,7 +183,7 @@ export function DiffViewer({
   const [treeOpenByMode, setTreeOpenByMode] = useState<{ compact?: boolean; expanded?: boolean }>({});
   const treeMode = defaultTreeOpen ? 'expanded' : 'compact';
   const treeOpen = treeOpenByMode[treeMode] ?? defaultTreeOpen;
-  const [selected, setSelected] = useState(files[0]?.filename ?? null);
+  const [selected, setSelected] = useState<string | null>(files[0]?.filename ?? null);
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const [allFilesOpen, setAllFilesOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -627,7 +627,7 @@ export type ReviewLineComposerProps = {
   onPreviewChange: (preview: boolean) => void;
   error: string | null;
   onError: (error: string | null) => void;
-  bodyRef: RefObject<HTMLTextAreaElement>;
+  bodyRef: RefObject<HTMLTextAreaElement | null>;
   suggestion?: SuggestionBase;
   submitting: boolean;
   posting: boolean;

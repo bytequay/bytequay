@@ -25,7 +25,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const { host, root, dispose } = createFixtureRoot();
   const results: { name: string; error?: string }[] = [];
   const completed = reviewFixture();
-  let saved = completed;
+  let saved: AgentReviewDto = completed;
   let finish: (value: AgentReviewDto) => void = () => {};
   let fail: (error: Error) => void = () => {};
   let show: (review: AgentReviewDto) => void = () => {};
@@ -52,7 +52,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const mount = (initial = completed) => {
     saved = initial;
     function Surface() {
-      const [review, setReview] = useState(initial);
+      const [review, setReview] = useState<AgentReviewDto>(initial);
       show = setReview;
       return <AgentReviewTab workspaceId={review.workspaceId} viewer={null} review={review} onReviewChange={setReview}
         ownStream={false} focusFindingId={null} onNavigateToChanges={() => {}} />;

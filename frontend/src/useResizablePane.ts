@@ -11,15 +11,24 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useState, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useState, type Dispatch, type SetStateAction, type MouseEvent as ReactMouseEvent } from 'react';
 
+type Pane<T extends number | null> = {
+  width: T;
+  setWidth: Dispatch<SetStateAction<T>>;
+  resizing: boolean;
+  startResize: (event: ReactMouseEvent, renderedWidth?: number) => void;
+};
+
+export function useResizablePane(initialWidth: number, minimumWidth: number, maximumWidth: number | (() => number), resizeEdge?: 'start' | 'end', axis?: 'x' | 'y'): Pane<number>;
+export function useResizablePane(initialWidth: number | null, minimumWidth: number, maximumWidth: number | (() => number), resizeEdge?: 'start' | 'end', axis?: 'x' | 'y'): Pane<number | null>;
 export function useResizablePane(
   initialWidth: number | null,
   minimumWidth: number,
   maximumWidth: number | (() => number),
   resizeEdge: 'start' | 'end' = 'end',
   axis: 'x' | 'y' = 'x',
-) {
+): Pane<number> | Pane<number | null> {
   const [width, setWidth] = useState(initialWidth);
   const [resizing, setResizing] = useState(false);
 

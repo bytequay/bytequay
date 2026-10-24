@@ -133,7 +133,8 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     return;
   }
   if (method.startsWith('finding.')) {
-    const finding = review?.findings.find(item => item.id === args[0] && findingInResults(review, item));
+    if (!review) throw new Error('Unknown finding');
+    const finding = review.findings.find(item => item.id === args[0] && findingInResults(review, item));
     if (!finding) throw new Error('Unknown finding');
     if (['finding.reopen', 'finding.add', 'finding.remove'].includes(method)) count(args, 1);
     else if (method === 'finding.editDraft') { count(args, 3); text(args[1]); integer(args[2]); }
@@ -180,7 +181,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     const target = method === 'github.edit' || method === 'github.react' ? args[3] : args[2];
     const thread = comments.threads.activities.find(activity => activity.eventType === 'review_thread' && activity.payload.comments.some(comment => comment.githubId === target));
     const comment = thread?.payload.comments.find(comment => comment.githubId === target);
-    if (!comment) throw new Error('Unknown review comment');
+    if (!thread || !comment) throw new Error('Unknown review comment');
     if (method === 'github.reply' || method === 'github.resolve') {
       count(args, 4);
       const root = thread.payload.comments.find(comment => comment.inReplyToId === null) ?? thread.payload.comments[0];

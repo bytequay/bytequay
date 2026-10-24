@@ -30,7 +30,7 @@ export async function run() {
   host.style.cssText = 'width:900px;background:white';
   const original = reviewFixture({ messages: [] });
   const attempt = explanationRunFixture({ state: 'RUNNING', endedAt: null, headSha: 'a'.repeat(40) });
-  let server = original;
+  let server: AgentReviewDto = original;
   let publish: (value: AgentReviewDto) => void = () => {};
   let focusCard: (value: ReviewCardFocus) => void = () => {};
   let rejectRequest: (error: Error) => void = () => {};
@@ -51,7 +51,7 @@ export async function run() {
   } satisfies Pick<Bridge, 'getAgentReview' | 'refreshAgentReviewExplanation' | 'askAgentReview'>;
   Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: bridge });
   function Surface() {
-    const [value, setValue] = useState(server);
+    const [value, setValue] = useState<AgentReviewDto>(server);
     const [focus, setFocus] = useState<ReviewCardFocus | null>(null);
     publish = next => { server = next; setValue(next); };
     focusCard = setFocus;

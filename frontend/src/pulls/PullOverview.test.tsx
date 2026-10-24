@@ -1604,30 +1604,32 @@ describe('PullOverview', () => {
 });
 
 function captureReviewControls(props: Parameters<typeof ReviewDialog>[0]): { submit: () => void; close: () => void } {
-  let controls: { submit: () => void; close: () => void };
+  const captured: { controls?: { submit: () => void; close: () => void } } = {};
   function CaptureDialog() {
     const view = ReviewDialog(props);
     const footer = view.props.footer;
-    controls = {
+    captured.controls = {
       submit: footer.props.children.find((child: ReactElement<{ className?: string }>) => child && child.props.className === 'is-primary').props.onClick,
       close: footer.props.children.find((child: ReactElement<{ children?: unknown }>) => child && child.props.children === 'Cancel').props.onClick,
     };
     return view;
   }
   renderToStaticMarkup(<CaptureDialog />);
-  return controls;
+  if (captured.controls === undefined) throw new Error('Review controls were not rendered');
+  return captured.controls;
 }
 
 function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0], action: 'ready' | 'merge' = 'merge'): () => void {
-  let submit: () => void;
+  const captured: { submit?: () => void } = {};
   function CaptureDialog() {
     const view = MergeDialog(props);
     const footer = view.props.footer;
-    submit = footer.props.children[action === 'ready' ? 1 : 2].props.onClick;
+    captured.submit = footer.props.children[action === 'ready' ? 1 : 2].props.onClick;
     return view;
   }
   renderToStaticMarkup(<CaptureDialog />);
-  return submit;
+  if (captured.submit === undefined) throw new Error('Merge controls were not rendered');
+  return captured.submit;
 }
 
 function queuedDetail(): PullRequestDetailDto {

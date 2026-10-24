@@ -57,7 +57,8 @@ async function advancePoll(by?: number) {
   const entry = jobs.entries().next().value; assert(entry !== undefined, 'A pending sign-in should schedule a check');
   const [id, job] = entry; jobs.delete(id); now += by ?? job.delay; job.run(); await settled();
 }
-function dispose() { root?.unmount(); root = null; jobs.clear(); window.setTimeout = originalTimeout; window.clearTimeout = originalClearTimeout; Date.now = originalNow; }
+function unmount() { root?.unmount(); root = null; }
+function dispose() { unmount(); jobs.clear(); window.setTimeout = originalTimeout; window.clearTimeout = originalClearTimeout; Date.now = originalNow; }
 
 export async function mountPreview(values: JiraConnection[] = [connected, { ...connected, id: 'personal', account: { accountId: 'personal', displayName: 'Alex Chen', email: 'alex@personal.com' }, sites: [{ id: 'personal-site', name: 'Personal projects', url: 'https://alex.atlassian.net' }] }, pending], configured = true) {
   dispose(); document.body.innerHTML = ''; accounts = values.map(value => ({ ...value })); reads = 0; opened = []; removed = []; refreshIds = []; changedEvents = 0; tokenRequests = []; now = originalNow();
@@ -67,7 +68,7 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
     if (typeof handler === 'function' && delay >= 2_000 && delay <= 15_000) { const id = nextTimer--; jobs.set(id, { run: () => handler(...args), delay }); return id; }
     return originalTimeout(handler, delay, ...args);
   }) as typeof window.setTimeout;
-  window.clearTimeout = (id?: number) => { if (id !== undefined) jobs.delete(id); originalClearTimeout(id); };
+  window.clearTimeout = id => { if (typeof id === 'number') jobs.delete(id); originalClearTimeout(id); };
   Date.now = () => now;
   nextRefresh = async value => ({ ...connected, id: value.id });
   nextToken = async (request, id) => ({ ...tokenConnected, id: id ?? tokenConnected.id, tokenEmail: request.email });
@@ -91,7 +92,7 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
     disconnectJira: async (id: string) => { removed.push(id); accounts = accounts.filter(value => value.id !== id).map(value => ({ ...value, duplicateOf: null as string | null })); },
     openExternal: async (url: string) => { opened.push(url); },
   } satisfies Partial<Bridge>;
-  window.bridge = fake as Bridge;
+  Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: fake });
   const host = document.createElement('div'); host.className = 'app-shell'; host.style.cssText = 'display:flex;height:100vh;overflow:hidden'; document.body.append(host); root = createRoot(host);
   function SettingsHarness() {
     const [section, setSection] = useState<SettingsSection>('jira');
@@ -150,10 +151,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     },
     async 'cancels timers and ignores an in-flight result after leaving settings'() {
       await mountPreview([pending]); assert(Number(jobs.size) === 1, 'Pending account starts a timer');
-      root?.unmount(); root = null; assert(Number(jobs.size) === 0 && refreshIds.length === 0, 'Leaving clears the scheduled check');
+      unmount(); assert(Number(jobs.size) === 0 && refreshIds.length === 0, 'Leaving clears the scheduled check');
       await mountPreview([pending]); let finish: ((value: JiraConnection) => void) | undefined;
       nextRefresh = () => new Promise(resolve => { finish = resolve; }); await advancePoll();
-      const before = changedEvents; root?.unmount(); root = null; finish?.({ ...connected, id: 'new' }); await settled();
+      const before = changedEvents; unmount(); finish?.({ ...connected, id: 'new' }); await settled();
       assert(Number(jobs.size) === 0 && changedEvents === before, 'An obsolete response cannot restart polling or notify the app');
     },
     async 'bounds a browser cancellation wait and allows a deliberate final check'() {
@@ -169,7 +170,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       nextRefresh = () => new Promise(resolve => { finish = resolve; });
       const check = button('Check status'); check.click(); check.click(); await settled();
       assert(refreshIds.length === 1 && check.disabled, 'Manual check runs once and disables duplicate clicks');
-      const before = changedEvents; root?.unmount(); root = null; finish?.({ ...connected, id: 'new' }); await settled();
+      const before = changedEvents; unmount(); finish?.({ ...connected, id: 'new' }); await settled();
       assert(changedEvents === before, 'Manual result cannot restore a card after navigation');
     },
     async 'connects a personal token without a configured browser sign-in service'() {

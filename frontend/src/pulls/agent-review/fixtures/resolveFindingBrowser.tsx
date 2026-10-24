@@ -71,7 +71,7 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     viewerCanWrite: false,
   });
   function Surface() {
-    const [review, setReview] = useState(saved);
+    const [review, setReview] = useState<AgentReviewDto>(saved);
     const updateReview = useCallback((value: AgentReviewDto) => setReview(current => mergeReviewFindings(current, value)), []);
     return projection === 'review'
       ? <AgentReviewTab detail={detail} workspaceId={review.workspaceId} viewer={null} review={review}

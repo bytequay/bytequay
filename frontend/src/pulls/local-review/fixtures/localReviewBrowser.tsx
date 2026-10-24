@@ -99,7 +99,7 @@ async function replyAndResolve(): Promise<void> {
     assert(host.querySelector('textarea') === null, 'Escape must close an empty reply');
     textButton('Reply', host).click();
     await settle();
-    input = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]');
+    input = fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Reply to local review"]', host);
     assert(input !== null, 'Reply must reopen the inline editor');
     changeInput(input, 'Please keep the validation');
     await settle();
@@ -773,7 +773,7 @@ async function pendingFindingResponse(): Promise<void> {
       addReviewDraftFinding: noWrite, editReviewDraftComment: noWrite, removeReviewDraftComment: noWrite, publishReviewDraftComment: noWrite,
     } });
     const finding = { ...reviewFixture().findings[0], path: 'src/Example.java',
-      startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'] };
+      side: 'RIGHT' as const, startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'] };
     const other = { ...finding, id: 'finding-2', startLine: 4, endLine: 4, range: 'R4', excerpt: ['context'] };
     let review = reviewFixture({ findings: [finding, other], messages: [{ ...reviewFixture().messages[0],
       id: 'finding-question', findingId: finding.id, turnId: 'response-turn', queuedInputId: 'queued-question', body: 'Show me the code',
@@ -878,6 +878,7 @@ async function editFindingInPlace(): Promise<void> {
   for (const projection of ['review', 'changes'] as const) {
     let review = reviewFixture({ messages: [] });
     const finding = review.findings[0];
+    assert(finding.path !== null && finding.side !== null && finding.endLine !== null, 'The editable finding needs a code anchor');
     review = { ...review, draft: reviewDraftFixture({ repo: review.repo, number: review.number,
       updatedAt: finding.updatedAt, items: [{ id: 'outgoing-comment', source: 'AGENT_FINDING', findingId: finding.id,
         findingRevision: finding.revision, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,

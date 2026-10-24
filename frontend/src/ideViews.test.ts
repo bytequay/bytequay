@@ -47,7 +47,7 @@ vi.mock('electron', async () => {
       handle: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn),
       on: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn),
     },
-    net: { fetch: vi.fn(async () => new Response('asset')) },
+    net: { fetch: vi.fn().mockImplementation(async () => new Response('asset')) },
     WebContentsView: class {
       setBackgroundColor = vi.fn();
       private readonly handled = new Set<string>();
@@ -55,11 +55,11 @@ vi.mock('electron', async () => {
       contents = Object.assign(new EventEmitter(), {
         destroyed: false, mainFrame: {},
         isDestroyed: () => this.contents.destroyed,
-        close: vi.fn(() => { this.contents.destroyed = true; }),
-        loadURL: vi.fn(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
-        session: { fetch: vi.fn(async () => new Response('avatar')), protocol: { handle: vi.fn((scheme: string) => this.handled.add(scheme)),
+        close: vi.fn().mockImplementation(() => { this.contents.destroyed = true; }),
+        loadURL: vi.fn().mockImplementation(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
+        session: { fetch: vi.fn().mockImplementation(async () => new Response('avatar')), protocol: { handle: vi.fn().mockImplementation((scheme: string) => this.handled.add(scheme)),
           isProtocolHandled: vi.fn(async (scheme: string) => this.handled.has(scheme)),
-          unhandle: vi.fn((scheme: string) => { if (!this.handled.delete(scheme)) throw new Error(`Failed to unhandle protocol: ${scheme}`); }) }, setPermissionRequestHandler: vi.fn(),
+          unhandle: vi.fn().mockImplementation((scheme: string) => { if (!this.handled.delete(scheme)) throw new Error(`Failed to unhandle protocol: ${scheme}`); }) }, setPermissionRequestHandler: vi.fn(),
           setPermissionCheckHandler: vi.fn(), webRequest: { onBeforeRequest: vi.fn() } },
       });
       setVisible = vi.fn(); setBounds = vi.fn();

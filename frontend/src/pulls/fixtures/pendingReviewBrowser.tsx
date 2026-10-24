@@ -21,7 +21,7 @@ import { reviewDraftFixture, reviewFixture } from '../agent-review/fixtures/revi
 import '../../css/base.css';
 import { textButton, element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
 import { DETAIL_REFRESH_INTERVAL } from '../usePullRequestDetail';
-import type { ReviewDraftDto, ReviewDraftItemDto } from '../agent-review/contracts';
+import type { AgentReviewDto, ReviewDraftDto, ReviewDraftItemDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
 const stored = prDetail({
@@ -247,7 +247,7 @@ export async function runDraftCommentEdit(): Promise<string> {
     updatedAt: '2026-09-07T00:00:00Z', items: [{ id: 'draft-comment', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1,
       path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: 'Original finding', included: true,
       published: false, publication: null }] });
-  let currentReview = reviewFixture({ draft });
+  let currentReview: AgentReviewDto = reviewFixture({ draft });
   const edits: Parameters<Bridge['editReviewDraftComment']>[] = [];
   let saveError: string | null = 'The draft changed. Try again.';
   let finishSave = () => {};
@@ -257,7 +257,7 @@ export async function runDraftCommentEdit(): Promise<string> {
   let published = 0;
   let closed = false;
   const bridge = {
-    getUserProfile: async () => null,
+    getUserProfile: async () => { throw new Error('No viewer available'); },
     betterWords: async (text, repo, workspaceId) => {
       assert(text === 'Original finding' && repo === currentReview.repo && workspaceId === currentReview.workspaceId,
         'Better words must rewrite the outgoing comment with its repository and workspace');
@@ -383,7 +383,7 @@ export async function runConfirmedPublication(): Promise<string> {
         items: summary ? [] : [{ id: 'confirmed-finding', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
           path: files[0].filename, side: 'RIGHT', line: 1, startLine: null, commitId: 'two', body: finding.body, included: true,
           published: false, publication: uncertain }] });
-      let currentReview = reviewFixture({ findings: [finding], draft });
+      let currentReview: AgentReviewDto = reviewFixture({ findings: [finding], draft });
       let savedReview = currentReview;
       let reads = 0;
       const confirm = () => {
@@ -394,7 +394,7 @@ export async function runConfirmedPublication(): Promise<string> {
         return updated;
       };
       const bridge = {
-        getUserProfile: async () => null,
+        getUserProfile: async () => { throw new Error('No viewer available'); },
         fetchPrDiffFiles: async () => files,
         fetchPrDiffCommits: async () => commits,
         getAgentReview: async () => { reads++; return savedReview; },

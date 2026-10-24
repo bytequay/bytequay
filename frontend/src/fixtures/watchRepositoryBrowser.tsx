@@ -142,7 +142,7 @@ export async function run(): Promise<string[]> {
       id: 1, repo: result.fullName, number: 2, title: 'Update project', htmlUrl: null, state: 'open', draft: false,
       mergeable: null, mergeableState: null, author: 'octocat', authorAvatarUrl: null, createdAt: null, updatedAt: null,
       mergedAt: null, baseRef: 'main', headRef: 'feature', headSha: 'head', body: null, labels: [], assignees: [], milestone: null,
-      reviewers: [], additions: 1, deletions: 0, changedFiles: 1, approvalCount: 0, ciStatus: null,
+      reviewers: [], additions: 1, deletions: 0, changedFiles: 1, approvalCount: 0, ciStatus: 'NONE',
       recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
     };
     const Review = () => {

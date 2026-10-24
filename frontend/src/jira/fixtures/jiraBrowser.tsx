@@ -357,7 +357,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(select('Workspace').value === 'workspace' && assignButton().disabled, 'Existing assignment is selected and unchanged submission is disabled');
       choose(select('Workspace'), 'other-workspace'); await settle(); assignButton().click();
       await until(() => assignment() === null && button('Change ByteQuay workspace: Connectors', pane).textContent?.includes('Connectors') === true);
-      assert(issue.workspace?.id === 'other-workspace' && reply.value === 'Keep my unsent reply.', 'Changing workspace preserves the ticket and comment draft');
+      assert((issue as JiraIssue).workspace?.id === 'other-workspace' && reply.value === 'Keep my unsent reply.', 'Changing workspace preserves the ticket and comment draft');
       assert(calls.filter(call => call.name === 'assign').map(call => call.args[1]).join('|') === 'workspace|workspace|other-workspace', 'Only explicit assignment submissions save the chosen workspace');
       assert(!issue.isEpic && taskRequest === null && calls.every(call => call.name === 'assign' || (call.name === 'issues' && call.args[1] !== true)), 'Local assignment creates no Epic, task, Jira write or remote board refresh');
     },

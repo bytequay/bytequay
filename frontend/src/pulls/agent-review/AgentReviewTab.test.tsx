@@ -522,6 +522,7 @@ describe('the summary card', () => {
     const completed: AgentReviewDto['runs'][number] = { ...review.runs[0], coverage: {
       complete: true, omissions: [], warnings: ['Original environment limitation'], recordedAt: '2026-09-06T16:15:00Z',
     } };
+    if (completed.coverage === null) throw new Error('Fixture requires completed coverage');
     const failed: AgentReviewDto['runs'][number] = { ...completed, id: 'run-2', state: 'FAILED', summary: null,
       coverage: { ...completed.coverage, warnings: ['Later environment limitation'] } };
     const html = summary({ ...review, runs: [completed, failed] });
@@ -592,6 +593,8 @@ describe('the summary card', () => {
 describe('the finding card', () => {
   const review = reviewFixture();
   const finding = review.findings[0];
+  if (finding.path === null) throw new Error('Fixture requires a file finding');
+  const findingPath = finding.path;
 
   it('shows the location, severity, identity and evidence', () => {
     const html = card(review, finding);
@@ -662,7 +665,7 @@ describe('the finding card', () => {
     const withDraft = reviewFixture({
       draft: draftWith([{
         id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: finding.validatedHeadSha,
-        path: finding.path, side: 'RIGHT', line: 131, startLine: 118,
+        path: findingPath, side: 'RIGHT', line: 131, startLine: 118,
         body: 'Could this match the full path instead?', included: true, published: false, publication: null,
       }]),
     });
@@ -688,7 +691,7 @@ describe('the finding card', () => {
     const published = reviewFixture({
       draft: draftWith([{
         id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: finding.validatedHeadSha,
-        path: finding.path, side: 'RIGHT', line: 131, startLine: 118, body: 'sent', included: true, published: true,
+        path: findingPath, side: 'RIGHT', line: 131, startLine: 118, body: 'sent', included: true, published: true,
         publication: {
           state: 'PUBLISHED', remoteReviewId: 2201456, remoteCommentId: 9911,
           url: 'https://github.com/owner/repository/pull/30304#discussion_r2201456', at: '2026-09-06T16:32:00Z',

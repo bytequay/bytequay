@@ -13,8 +13,7 @@
  */
 
 import type { AgentHistoryPageDto, AgentPendingApprovalDto } from '../types';
-
-type JsonObject = Record<string, unknown>;
+import { count, flag as booleanValue, list as arrayValue, object as objectValue, oneOf as enumValue, text as stringValue } from '../pulls/wireParse';
 
 const EVENT_TYPES = [
   'user_message',
@@ -373,30 +372,8 @@ function validatePayload(type: typeof EVENT_TYPES[number], value: unknown, index
   }
 }
 
-function objectValue(value: unknown, field: string): JsonObject {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    throw new Error(`${field} must be an object`);
-  }
-  return value as JsonObject;
-}
-
-function arrayValue(value: unknown, field: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`${field} must be an array`);
-  return value;
-}
-
-function stringValue(value: unknown, field: string): string {
-  if (typeof value !== 'string') throw new Error(`${field} must be a string`);
-  return value;
-}
-
 function nullableString(value: unknown, field: string): string | null {
   return value === null ? null : stringValue(value, field);
-}
-
-function booleanValue(value: unknown, field: string): boolean {
-  if (typeof value !== 'boolean') throw new Error(`${field} must be a boolean`);
-  return value;
 }
 
 function integerValue(value: unknown, field: string): number {
@@ -409,18 +386,10 @@ function nullableInteger(value: unknown, field: string): number | null {
 }
 
 function nullableNumber(value: unknown, field: string): number | null {
-  if (value === null) return null;
-  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${field} must be a number or null`);
-  return value;
+  return value === null ? null : count(value, field);
 }
 
 function literalValue<T extends string | number>(value: unknown, expected: T, field: string): T {
   if (value !== expected) throw new Error(`${field} must be ${expected}`);
   return expected;
-}
-
-function enumValue<const T extends readonly string[]>(value: unknown, values: T, field: string): T[number] {
-  const text = stringValue(value, field);
-  if (!(values as readonly string[]).includes(text)) throw new Error(`${field} has unsupported value: ${text}`);
-  return text as T[number];
 }

@@ -13,7 +13,7 @@
  */
 
 import type { JiraTaskSource } from '../jira/contracts';
-import { count, flag, object, optionalCount, optionalText, text } from '../pulls/wireParse';
+import { count, flag, list, object, oneOf as enumText, optionalCount, optionalText, text } from '../pulls/wireParse';
 import type {
   AgentApprovalDto,
   AgentCapabilitiesDto,
@@ -84,18 +84,6 @@ export function alreadySent(failure: unknown): boolean {
 /** The automation scale in order; each level includes every level before it. */
 export const AUTOMATION_LEVELS = ['COMMIT', 'DRAFT_PR', 'CI_FIX', 'REVIEW_FIX', 'MERGE'] as const satisfies readonly AutomationLevel[];
 
-function enumText<const Values extends readonly string[]>(
-  value: unknown,
-  values: Values,
-  path: string,
-): Values[number] {
-  const found = text(value, path);
-  if (!(values as readonly string[]).includes(found)) {
-    throw new Error(`${path} is not supported`);
-  }
-  return found as Values[number];
-}
-
 export function parseAgentProviderUnavailable(
   value: unknown,
   path = 'providerUnavailable',
@@ -138,13 +126,6 @@ export function agentProviderUnavailableFrom(failure: unknown): AgentProviderUna
   catch {
     return null;
   }
-}
-
-function list(value: unknown, path: string): unknown[] {
-  if (!Array.isArray(value)) {
-    throw new Error(`${path} is not an array`);
-  }
-  return value;
 }
 
 function textList(value: unknown, path: string): string[] {

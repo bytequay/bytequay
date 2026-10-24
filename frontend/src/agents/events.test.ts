@@ -119,6 +119,21 @@ describe('agent event contract', () => {
       .toEqual(['ALLOW_ONCE', 'ALLOW_FOR_TASK', 'DENY']);
   });
 
+  it('keeps shared primitive validation and requires explicit nulls in event fields', () => {
+    const event = fixture.events[0];
+    for (const invalid of [
+      { ...event, eventId: 7 },
+      { ...event, type: 'unknown' },
+      { ...event, turnId: undefined },
+      { ...event, source: [] as unknown[] },
+      { ...event, payload: { ...event.payload, attachments: {} } },
+    ]) expect(() => parseAgentEventSequence([invalid])).toThrow();
+    const usage = { ...fixture.events[11], sequence: 1 };
+    for (const cost of [undefined, Infinity, NaN, '1']) {
+      expect(() => parseAgentEventSequence([{ ...usage, payload: { ...usage.payload, cost } }])).toThrow('usage.cost');
+    }
+  });
+
   it('rejects a duplicate sequence', () => {
     const duplicate = structuredClone(fixture.events);
     duplicate[5].sequence = duplicate[4].sequence;

@@ -26,6 +26,11 @@ export function object(value: unknown, what = 'object'): Record<string, unknown>
   return value as Record<string, unknown>;
 }
 
+export function list(value: unknown, what = 'array'): unknown[] {
+  if (!Array.isArray(value)) throw new Error(`Malformed ${what}`);
+  return value;
+}
+
 export function text(value: unknown, what = 'text'): string {
   if (typeof value !== 'string') throw new Error(`Malformed ${what}`);
   return value;

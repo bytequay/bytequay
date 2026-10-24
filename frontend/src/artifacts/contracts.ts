@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { AgentEventEnvelope } from '../agents/events';
-import { count, flag, object, oneOf, optionalText, text } from '../pulls/wireParse';
+import { count, flag, list, object, oneOf, optionalText, text } from '../pulls/wireParse';
 
 /** A conversation; its title becomes its first page's title once there is one. */
 export type ArtifactDto = { id: string; title: string; working: boolean; updatedAt: string };
@@ -54,11 +54,6 @@ function parseArtifact(value: unknown): ArtifactDto {
   const item = object(value, 'artifact');
   return { id: text(item.id, 'artifact id'), title: text(item.title, 'artifact title'), working: flag(item.working, 'artifact working'),
     updatedAt: text(item.updatedAt, 'artifact time') };
-}
-
-function list(value: unknown, what: string): unknown[] {
-  if (!Array.isArray(value)) throw new Error(`Malformed ${what}`);
-  return value;
 }
 
 export function parseArtifactRows(value: unknown): ArtifactRowDto[] {

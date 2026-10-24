@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { flag, object, text } from '../../pulls/wireParse';
+import { flag, object, optionalText, text } from '../../pulls/wireParse';
 import type { LocalReviewMessageDto, LocalReviewThreadDto } from './types';
 
 export type LocalReviewQuery = { taskId: string; workspaceId: string } | { repo: string; number: number; workspaceId?: string };
@@ -47,7 +47,6 @@ export type ResolveLocalReviewRequest = LocalReviewTarget & {
 };
 export type RetryLocalReviewRequest = LocalReviewTarget & { messageId: string; expectedTaskVersion: number };
 
-function optionalText(value: unknown): string | null { return value == null ? null : text(value); }
 function count(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) throw new Error('Invalid local review number');
   return value;
@@ -62,9 +61,9 @@ function message(value: unknown): LocalReviewMessageDto {
   if (author !== 'USER' && author !== 'AGENT') throw new Error('Invalid local review author');
   return {
     id: text(row.id), author, body: text(row.body), createdAt: text(row.createdAt),
-    turnId: optionalText(row.turnId), queuedInputId: optionalText(row.queuedInputId),
-    messageEventId: optionalText(row.messageEventId), deliveryState: optionalText(row.deliveryState),
-    deliveryError: optionalText(row.deliveryError),
+    turnId: optionalText(row.turnId, 'text'), queuedInputId: optionalText(row.queuedInputId, 'text'),
+    messageEventId: optionalText(row.messageEventId, 'text'), deliveryState: optionalText(row.deliveryState, 'text'),
+    deliveryError: optionalText(row.deliveryError, 'text'),
   };
 }
 export function parseLocalReviewThread(value: unknown): LocalReviewThreadDto {
@@ -81,7 +80,7 @@ export function parseLocalReviewThread(value: unknown): LocalReviewThreadDto {
     } }),
     id: text(row.id), taskId: text(row.taskId), taskVersion: count(row.taskVersion), laneId: text(row.laneId), workspaceId: text(row.workspaceId),
     repo: text(row.repo), number: count(row.number), path: text(row.path), side, startLine, line,
-    baseSha: optionalText(row.baseSha), headSha: optionalText(row.headSha), code: text(row.code),
+    baseSha: optionalText(row.baseSha, 'text'), headSha: optionalText(row.headSha, 'text'), code: text(row.code),
     resolved: flag(row.resolved), version: count(row.version),
     createdAt: text(row.createdAt), updatedAt: text(row.updatedAt), messages: list(row.messages, message),
   };

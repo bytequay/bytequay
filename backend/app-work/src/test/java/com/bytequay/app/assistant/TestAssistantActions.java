@@ -252,6 +252,34 @@ class TestAssistantActions
     }
 
     @Test
+    void refusesApprovalsWithoutAnExplicitMatchingDecision()
+    {
+        card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
+        for (String words : ImmutableList.of("don't allow it", "do not approve it", "why allow it?", "deny it", "allow it, but only later", "never allow it, deny it",
+                "\"allow it\"", "if needed, allow it")) {
+            String arguments = mapper.createObjectNode().put("op", "answer_approval").put("approval", CARD).put("decision", "allow_once").put("words", words).toString();
+            act(message(words, ImmutableList.of(CARD)), arguments);
+            assertRefused("Use the card's buttons, or say 'allow once' or 'deny'", Optional.of(BUTTONS));
+        }
+        act(message("allow it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"allow it\"}");
+        assertRefused("Use the card's buttons, or say 'allow once' or 'deny'", Optional.of(BUTTONS));
+        act(message("why allow it?", ImmutableList.of(CARD)),
+                "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"allow_once\",\"words\":\"allow it\"}");
+        assertRefused("Use the card's buttons, or say 'allow once' or 'deny'", Optional.of(BUTTONS));
+        verify(approvalService, never()).resolve(any());
+    }
+
+    @Test
+    void deniesAnExplicitRejection()
+    {
+        card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
+        act(message("Please reject this command.", ImmutableList.of(CARD)),
+                "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"reject this command\"}");
+
+        verify(approvalService).resolve(new ResolveApprovalCommand(APPROVAL, ApprovalDecision.Decision.DENY, Optional.empty(), false, ImmutableMap.of()));
+    }
+
+    @Test
     void refusesWhatWasNotOnScreen()
     {
         card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
@@ -346,7 +374,7 @@ class TestAssistantActions
         card(ProviderApprovalRequest.Kind.COMMAND, ImmutableList.of("Bash"), "{}", true);
         act(message("don’t allow it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"allow_once\",\"words\":\"allow it\"}");
         assertRefused("Your message says not to do that", Optional.empty());
-        act(message("never allow it, deny it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"deny it\"}");
+        act(message("deny it", ImmutableList.of(CARD)), "{\"op\":\"answer_approval\",\"approval\":\"" + CARD + "\",\"decision\":\"deny\",\"words\":\"deny it\"}");
         assertThat(receipts.getLast().text()).isEqualTo("Denied · Retry Iceberg commit on conflict");
 
         card(ProviderApprovalRequest.Kind.TOOL, ImmutableList.of("AskUserQuestion"), QUESTION_INPUT, false);
@@ -370,6 +398,19 @@ class TestAssistantActions
         assertThat(AssistantActions.negated("nothing else, just merge it", "merge it")).isFalse();
         assertThat(AssistantActions.negated("don't push to main", "don't push to main")).isFalse();
         assertThat(AssistantActions.negated("ship it", "push to main")).isFalse();
+    }
+
+    @Test
+    void forwardsTheUsersNegativeTaskInstructionsUnchanged()
+    {
+        AgendaTarget opens = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString());
+        Map<String, ServedRef> served = ImmutableMap.of("task:" + task.id(), new ServedRef("tasks", Optional.of(opens)));
+        act(message("tell it: don't push to main", ImmutableList.of()), served,
+                "{\"op\":\"reply_to_task\",\"task\":\"task:" + task.id() + "\",\"words\":\"don't push to main\"}");
+
+        ArgumentCaptor<StartAgentTurnCommand> sent = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(sent.capture());
+        assertThat(sent.getValue().message()).isEqualTo("don't push to main");
     }
 
     @Test

@@ -130,6 +130,9 @@ class AssistantActions
     // ponytail: a comma or a contrast ends the clause, so "don't push, open a PR" allows the PR, but a list after a comma ("don't push, merge
     // or tag") escapes; asking the user to confirm the words would close that.
     private static final Pattern CLAUSE_END = Pattern.compile("[,.!?;:]|\\b(?:but|then|otherwise)\\b");
+    // Match the whole message: a model-selected excerpt cannot turn a refusal or a question into consent.
+    private static final Pattern APPROVAL_COMMAND = Pattern.compile("(?:please )?(allow|approve|deny|reject)(?: (?:it|this|that|(?:the|this|that) command))?"
+            + "(?: once)?(?:,? please)?[.!]?");
 
     private final AssistantStore store;
     private final AssistantSettings permissions;
@@ -477,6 +480,10 @@ class AssistantActions
                 return Optional.of(Result.refused(operation, "Use the buttons: this one runs outside the sandbox", Fix.BUTTONS));
             }
             boolean deny = request.text("decision").equals("deny");
+            Matcher command = APPROVAL_COMMAND.matcher(normal(message.text()));
+            if (!command.matches() || deny != ImmutableSet.of("deny", "reject").contains(command.group(1))) {
+                return Optional.of(Result.refused(operation, "Use the card's buttons, or say 'allow once' or 'deny'", Fix.BUTTONS));
+            }
             return card.availableDecisions().contains(deny ? ProviderApprovalRequest.Decision.DENY : ProviderApprovalRequest.Decision.ALLOW_ONCE)
                     ? Optional.empty() : Optional.of(Result.refused(operation, "Use the card's buttons", Fix.BUTTONS));
         }

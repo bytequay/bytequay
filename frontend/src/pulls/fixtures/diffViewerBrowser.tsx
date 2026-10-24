@@ -91,6 +91,20 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     render();
     assert(header.childElementCount === 0 && host.querySelector('.pull-changes__toolbar') !== null,
       'Removing the target must clean the old header and restore inline controls');
+
+    const patch = `@@ -0,0 +1,300 @@\n${Array.from({ length: 300 }, (_, index) => `+line ${index}`).join('\n')}`;
+    files = Array.from({ length: 13 }, (_, index) => ({ filename: `File${index}.ts`, status: 'added', additions: 300, deletions: 0, patch }));
+    render(); await settle();
+    assert(host.querySelectorAll('[data-diff-row]').length === 300, 'A large patch workload must initially render only the selected file');
+    await click('.pull-changes__files-toggle');
+    await click('button[aria-label^="File12.ts,"]');
+    assert(host.querySelectorAll('.pull-diff-code').length === 1
+      && host.querySelector('[data-file-card="File12.ts"] .pull-diff-code') !== null,
+    'Picking a collapsed file must mount its patch and release the previous patch');
+    await click('button[aria-label="Expand all file diffs"]');
+    assert(host.querySelectorAll('[data-diff-row]').length === 3900, 'Explicitly expanding all files must still reveal every changed line');
+    await click('button[aria-label="Collapse all file diffs"]');
+    assert(host.querySelector('.pull-diff-code') === null, 'All patches remain collapsible after expansion');
     return [{ name }];
   }
   catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }

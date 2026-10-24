@@ -75,6 +75,24 @@ export type AgentReviewProjection = {
 };
 
 const SINGLE_FILE_MODE_THRESHOLD = 20;
+const MULTI_FILE_LINE_LIMIT = 1000;
+const MULTI_FILE_CHARACTER_LIMIT = 128_000;
+
+function usesSingleFileMode(files: DiffFileDto[]): boolean {
+  if (files.length > SINGLE_FILE_MODE_THRESHOLD) return true;
+  let lines = 0;
+  let characters = 0;
+  for (const file of files) {
+    const patch = file.patch ?? '';
+    characters += patch.length;
+    if (characters > MULTI_FILE_CHARACTER_LIMIT) return true;
+    // Count without parsing closed files or allocating a second copy of every patch line.
+    for (let index = 0; index < patch.length; index++) {
+      if (patch.charCodeAt(index) === 10 && ++lines > MULTI_FILE_LINE_LIMIT) return true;
+    }
+  }
+  return false;
+}
 
 export type ReviewThreads = {
   activities: PullRequestDetailDto['recentActivity'];
@@ -190,7 +208,7 @@ export function DiffViewer({
   const fileTreeId = useId();
   const filePane = useResizablePane(260, 160, 480);
   const treeItems = useMemo(() => buildFileTree(files, file => file.filename), [files]);
-  const singleFileMode = files.length > SINGLE_FILE_MODE_THRESHOLD;
+  const singleFileMode = useMemo(() => usesSingleFileMode(files), [files]);
   const totals = useMemo(() => files.reduce((sum, file) => ({
     additions: sum.additions + file.additions,
     deletions: sum.deletions + file.deletions,

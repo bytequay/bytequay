@@ -194,6 +194,28 @@ describe('DiffViewer', () => {
     expect(smallHtml).toContain('>Collapse all</button>');
   });
 
+  it('bounds the initial diff by patch lines even with fewer than twenty files', () => {
+    const patch = `@@ -0,0 +1,300 @@\n${Array.from({ length: 300 }, (_, index) => `+line ${index}`).join('\n')}`;
+    const files = Array.from({ length: 13 }, (_, index) => ({ ...file, filename: `File${index}.ts`, additions: 300, deletions: 0, patch }));
+    const html = renderToStaticMarkup(<DiffViewer files={files} />);
+
+    expect(html.match(/<article class="pull-diff-file"/g)).toHaveLength(13);
+    expect(html.match(/<table class="pull-diff-code"/g)).toHaveLength(1);
+    expect(html.match(/data-diff-row=/g)).toHaveLength(300);
+    expect(html).toContain('aria-label="Expand all file diffs"');
+  });
+
+  it('bounds patches with long lines without treating binary files as text', () => {
+    const long = { ...file, patch: `@@ -0,0 +1,1 @@\n+${'x'.repeat(128_001)}` };
+    const html = renderToStaticMarkup(<DiffViewer files={[long, { ...file, filename: 'second.ts' }]} />);
+    expect(html.match(/<table class="pull-diff-code"/g)).toHaveLength(1);
+    expect(html).toContain('aria-label="Expand all file diffs"');
+
+    const binary = renderToStaticMarkup(<DiffViewer files={[{ ...file, patch: null }, { ...file, filename: 'second.ts' }]} />);
+    expect(binary).toContain('Binary file or diff unavailable.');
+    expect(binary).toContain('aria-label="Collapse all file diffs"');
+  });
+
   it('renders foldable pending comments below their referenced side and line', () => {
     const html = renderToStaticMarkup(<DiffViewer
       files={[file]}

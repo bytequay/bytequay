@@ -281,6 +281,18 @@ class TestCodexLaunchProfile
     }
 
     @Test
+    void offersThePlanToolAtProcessAndThreadScopeExceptForTextOnlyRequests()
+    {
+        CodexLaunchProfile.Options task = new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, false, ImmutableList.of(), false, false, false, Optional.empty());
+        assertThat(CodexLaunchProfile.arguments("/usr/local/bin/codex", task, Optional.empty())).containsSequence("-c", "tools.update_plan.enabled=true");
+        assertThat(CodexLaunchProfile.threadConfig(task, false)).containsEntry("tools", ImmutableMap.of("update_plan", ImmutableMap.of("enabled", true)));
+
+        CodexLaunchProfile.Options textOnly = new CodexLaunchProfile.Options(CodexLaunchProfile.ChildProfile.NONE, true, ImmutableList.of(), false, false, false, Optional.empty());
+        assertThat(CodexLaunchProfile.arguments("/usr/local/bin/codex", textOnly, Optional.empty())).doesNotContain("tools.update_plan.enabled=true");
+        assertThat(CodexLaunchProfile.threadConfig(textOnly, false)).doesNotContainKey("tools");
+    }
+
+    @Test
     void enablesLiveWebForEveryTaskThreadProfile()
     {
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {

@@ -2362,6 +2362,8 @@ function assertLaunchPolicy(response, launchProfile) {
   assert.equal(sessionFlags.approval_policy, "on-request", "session flags omitted approval policy");
   assert.equal(sessionFlags.approvals_reviewer, "auto_review", "session flags omitted native automatic review");
   assert.equal(sessionFlags.project_doc_max_bytes, 0, "session flags omitted the project-doc override");
+  // Effective config does not report this tool switch; strict config would reject a renamed key.
+  assert.equal(sessionFlags.tools?.update_plan?.enabled, true, "session flags omitted the plan tool");
   assert.equal(sessionFlags.features?.guardian_approval, true, "session flags disabled native automatic review");
   assert.equal(
     sessionFlags.features?.skip_host_skill_discovery,
@@ -2682,6 +2684,8 @@ function appServerArguments(launchProfile) {
     'approvals_reviewer="auto_review"',
     "-c",
     "project_doc_max_bytes=0",
+    "-c",
+    "tools.update_plan.enabled=true",
     "-c",
     'shell_environment_policy.inherit="core"',
     "-c",

@@ -125,6 +125,10 @@ final class CodexLaunchProfile
                 // ByteQuay hands both lanes the same guideline files, read at a commit the task cannot change.
                 "-c",
                 "project_doc_max_bytes=0");
+        if (!textOnly) {
+            // Codex offers its update_plan tool only when asked.
+            arguments.add("-c", "tools.update_plan.enabled=true");
+        }
         DISABLED_FEATURES.forEach(feature -> arguments.add("--disable", feature));
         arguments.add(reviewChildren ? "--enable" : "--disable", "hooks");
         arguments.add(textOnly ? "--disable" : "--enable", "guardian_approval");
@@ -185,6 +189,9 @@ final class CodexLaunchProfile
                 .put("features", expectedFeatures(childProfile, options.textOnly(), options.review(), options.asksUser()))
                 .put("shell_environment_policy", expectedShellEnvironmentPolicy())
                 .put("project_doc_max_bytes", 0);
+        if (!options.textOnly()) {
+            config.put("tools", ImmutableMap.of("update_plan", ImmutableMap.of("enabled", true)));
+        }
         if (options.review() && childProfile != ChildProfile.NONE) {
             // App Server applies hook trust to each thread, not to its process flags.
             config.put("bypass_hook_trust", true);

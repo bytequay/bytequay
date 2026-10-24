@@ -44,6 +44,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -235,7 +236,7 @@ public class PullRequestSnapshotService
             }
         }
         diffs.saveDefault(prId, new StoredPrDiff(files.orElse(stored.files()), commits.orElse(stored.commits()),
-                        sameCoordinates && files.unchanged() ? stored.fileContents() : ImmutableMap.of(), baseSha, headSha, Optional.of(Instant.now())),
+                        sameCoordinates ? stored.fileContents() : ImmutableMap.of(), baseSha, headSha, Optional.of(Instant.now())),
                 new PrDiffEtags(files.etag(), commits.etag()));
     }
 
@@ -246,13 +247,17 @@ public class PullRequestSnapshotService
             refreshDefaultDiff(pat, pullRequest, prId);
             return;
         }
+        Map<String, DiffFileContent> contents = diffs.find(prId, baseSha, headSha)
+                .filter(stored -> stored.baseSha().equals(Optional.of(baseSha)) && stored.headSha().equals(Optional.of(headSha)))
+                .map(StoredPrDiff::fileContents)
+                .orElseGet(ImmutableMap::of);
         diffs.save(
                 prId,
                 baseSha,
                 headSha,
                 new StoredPrDiff(
                         gitHub.fetchPrDiffFiles(pat, pullRequest, baseSha, headSha),
-                        ImmutableList.of(), ImmutableMap.of(), Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now())));
+                        ImmutableList.of(), contents, Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now())));
     }
 
     void refreshFileContent(String pat, PullRequestRef pullRequest, long prId, String path, String baseSha, String headSha)
@@ -264,6 +269,9 @@ public class PullRequestSnapshotService
         String contentHead = headSha == null ? stored.headSha().orElse(null) : headSha;
         if (contentBase == null || contentHead == null) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Refresh the diff before opening file content");
+        }
+        if (stored.baseSha().equals(Optional.of(contentBase)) && stored.headSha().equals(Optional.of(contentHead)) && stored.fileContents().containsKey(path)) {
+            return;
         }
         DiffFileContent content = gitHub.fetchPrDiffFileContent(pat, pullRequest, path, contentBase, contentHead);
         if (baseSha == null) {

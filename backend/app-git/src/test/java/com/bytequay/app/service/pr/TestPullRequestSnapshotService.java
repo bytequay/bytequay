@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -90,15 +91,16 @@ class TestPullRequestSnapshotService
         verify(details, never()).saveStatus(anyLong(), any());
     }
 
-    @Test
-    void unchangedDiffValidatesItsOwnEtagsAndKeepsBoundFileContents()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unchangedDiffValidatesItsOwnEtagsAndKeepsBoundFileContents(boolean unchangedFiles)
     {
         StoredPrDiff stored = diff();
         when(details.find(1L)).thenReturn(Optional.of(stored()));
         when(diffs.find(1L, null, null)).thenReturn(Optional.of(stored));
         when(diffs.findDefaultEtags(1L)).thenReturn(new PrDiffEtags(Optional.of("files"), Optional.of("commits")));
         when(gitHub.fetchPrDiffFiles("pat", REF, stored.files(), Optional.of("files")))
-                .thenReturn(new ConditionalList<>(Optional.empty(), Optional.of("files")));
+                .thenReturn(new ConditionalList<>(unchangedFiles ? Optional.empty() : Optional.of(stored.files()), Optional.of("files")));
         when(gitHub.fetchPrDiffCommits("pat", REF, stored.commits(), Optional.of("commits")))
                 .thenReturn(new ConditionalList<>(Optional.empty(), Optional.of("commits")));
         when(gitHub.getPullRequest("pat", REF, Optional.empty())).thenReturn(coordinates(HEAD));
@@ -135,7 +137,7 @@ class TestPullRequestSnapshotService
     @Test
     void fileBodyUsesCachedCoordinatesAndCannotAttachToAReplacedDefaultDiff()
     {
-        StoredPrDiff stored = diff();
+        StoredPrDiff stored = new StoredPrDiff(diff().files(), ImmutableList.of(), ImmutableMap.of(), Optional.of(BASE), Optional.of(HEAD), Optional.of(UPDATED));
         DiffFileContent content = new DiffFileContent("before", "after");
         when(diffs.find(1L, null, null)).thenReturn(Optional.of(stored));
         when(gitHub.fetchPrDiffFileContent("pat", REF, "a.txt", BASE, HEAD)).thenReturn(content);
@@ -149,6 +151,67 @@ class TestPullRequestSnapshotService
         verify(diffs, never()).saveFileContent(anyLong(), any(), any(), any(), any());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void cachedFileBodyIsReusedForTheSameDiffCoordinates(boolean range)
+    {
+        String base = range ? BASE : null;
+        String head = range ? HEAD : null;
+        when(diffs.find(1L, base, head)).thenReturn(Optional.of(diff()));
+
+        snapshots.refreshFileContent("pat", REF, 1L, "a.txt", base, head);
+
+        assertThat(snapshots.getFileContent(1L, "a.txt", base, head)).isEqualTo(diff().fileContents().get("a.txt"));
+        verifyNoInteractions(gitHub);
+        verify(diffs, never()).saveDefaultFileContent(anyLong(), any(), any(), any(), any());
+        verify(diffs, never()).saveFileContent(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void refreshingTheSameCommitRangeKeepsCachedFileBodies()
+    {
+        StoredPrDiff stored = diff();
+        when(diffs.find(1L, BASE, HEAD)).thenReturn(Optional.of(stored));
+        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenReturn(stored.files());
+
+        snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD);
+
+        ArgumentCaptor<StoredPrDiff> saved = ArgumentCaptor.forClass(StoredPrDiff.class);
+        verify(diffs).save(eq(1L), eq(BASE), eq(HEAD), saved.capture());
+        assertThat(saved.getValue().fileContents()).isEqualTo(stored.fileContents());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void changedDiffCoordinatesDiscardCachedFileBodies(boolean changeBase)
+    {
+        String base = changeBase ? "c".repeat(40) : BASE;
+        String head = changeBase ? HEAD : "c".repeat(40);
+        StoredPrDiff previous = diff();
+        when(details.find(1L)).thenReturn(Optional.of(new StoredPrDetail(raw(base, head), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false)));
+        when(diffs.find(1L, null, null)).thenReturn(Optional.of(previous));
+        when(gitHub.fetchPrDiffFiles("pat", REF, previous.files(), Optional.empty()))
+                .thenReturn(new ConditionalList<>(Optional.of(previous.files()), Optional.empty()));
+        when(gitHub.fetchPrDiffCommits("pat", REF, previous.commits(), Optional.empty()))
+                .thenReturn(new ConditionalList<>(Optional.of(previous.commits()), Optional.empty()));
+        when(gitHub.getPullRequest("pat", REF, Optional.empty())).thenReturn(coordinates(base, head));
+
+        snapshots.refreshDefaultDiff("pat", REF, 1L);
+
+        ArgumentCaptor<StoredPrDiff> saved = ArgumentCaptor.forClass(StoredPrDiff.class);
+        verify(diffs).saveDefault(eq(1L), saved.capture(), any());
+        assertThat(saved.getValue().fileContents()).isEmpty();
+        when(diffs.find(1L, null, null)).thenReturn(Optional.of(saved.getValue()));
+        DiffFileContent content = new DiffFileContent("new before", "new after");
+        when(gitHub.fetchPrDiffFileContent("pat", REF, "a.txt", base, head)).thenReturn(content);
+        when(diffs.saveDefaultFileContent(1L, base, head, "a.txt", content)).thenReturn(true);
+
+        snapshots.refreshFileContent("pat", REF, 1L, "a.txt", null, null);
+
+        verify(gitHub).fetchPrDiffFileContent("pat", REF, "a.txt", base, head);
+        verify(diffs).saveDefaultFileContent(1L, base, head, "a.txt", content);
+    }
+
     @Test
     void aSameHeadWithADifferentBaseDoesNotReuseTheDiff()
     {
@@ -160,9 +223,14 @@ class TestPullRequestSnapshotService
 
     private static PullRequestFetch coordinates(String head)
     {
+        return coordinates(BASE, head);
+    }
+
+    private static PullRequestFetch coordinates(String base, String head)
+    {
         GitHubPullRequestDetailResponse response = new GitHubPullRequestDetailResponse(1L, 7, null, null, null, null, null, null, null, null,
                 null, ImmutableList.of(), ImmutableList.of(), null, false, 0, 0, 0, ImmutableList.of(), ImmutableList.of(),
-                new GitHubPullRequestDetailResponse.Head(head, "feature"), new GitHubPullRequestDetailResponse.Base(BASE, "main"), null, null);
+                new GitHubPullRequestDetailResponse.Head(head, "feature"), new GitHubPullRequestDetailResponse.Base(base, "main"), null, null);
         return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(response));
     }
 
@@ -184,7 +252,12 @@ class TestPullRequestSnapshotService
 
     private static PrRawDetail raw(String head)
     {
+        return raw(BASE, head);
+    }
+
+    private static PrRawDetail raw(String base, String head)
+    {
         return new PrRawDetail("Title", "https://github.com/owner/repo/pull/7", "open", "alice", null, UPDATED, UPDATED, null, "body", ImmutableList.of(),
-                ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean", 1, 0, 1, 0, ImmutableList.of(), head, "feature", "main", BASE);
+                ImmutableMap.of(), ImmutableList.of(), null, false, true, "clean", 1, 0, 1, 0, ImmutableList.of(), head, "feature", "main", base);
     }
 }

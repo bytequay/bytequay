@@ -62,12 +62,13 @@ class TestPullRequestEndWatcher
     private final AgentCompletionService completions = mock(AgentCompletionService.class);
     private final AgentServingGate gate = mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AgentReviewService reviews = mock(AgentReviewService.class);
+    private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
     private final PullRequestTaskWatcher watcher = new PullRequestTaskWatcher(
             tasks,
             ownership,
             completions,
             gate,
-            mock(ReviewFixService.class),
+            reviewFixes,
             reviews);
 
     @BeforeEach
@@ -85,7 +86,7 @@ class TestPullRequestEndWatcher
         when(ownership.pullRequests(merged)).thenReturn(ImmutableList.of(pullRequest(14, "MERGED"), pullRequest(9, "closed")));
         when(ownership.pullRequests(closed)).thenReturn(ImmutableList.of(pullRequest(21, "closed")));
 
-        watcher.pass();
+        watcher.pass(true);
 
         verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #14 was merged on GitHub")));
         verify(completions).complete(new CompleteAgentTaskCommand(closed.id(), Optional.of("Completed: pull request #21 was closed on GitHub")));
@@ -102,7 +103,7 @@ class TestPullRequestEndWatcher
         when(ownership.pullRequests(open)).thenReturn(ImmutableList.of(pullRequest(16, "OPEN")));
         when(ownership.pullRequests(none)).thenReturn(ImmutableList.of());
 
-        watcher.pass();
+        watcher.pass(true);
 
         verify(completions, never()).complete(any());
         verifyNoInteractions(reviews);
@@ -115,7 +116,7 @@ class TestPullRequestEndWatcher
         AgentTask archived = task(true).withArchived(true, CREATED);
         when(tasks.listLive()).thenReturn(ImmutableList.of(workflow, archived));
 
-        watcher.pass();
+        watcher.pass(true);
 
         verifyNoInteractions(ownership, completions);
     }
@@ -130,7 +131,7 @@ class TestPullRequestEndWatcher
         doThrow(new AgentConflictException("Task worktree has tracked, staged, or untracked changes"))
                 .when(completions).complete(new CompleteAgentTaskCommand(busy.id(), Optional.of("Completed: pull request #30 was merged on GitHub")));
 
-        watcher.pass();
+        watcher.pass(true);
 
         verify(completions).complete(new CompleteAgentTaskCommand(done.id(), Optional.of("Completed: pull request #30 was merged on GitHub")));
     }
@@ -145,7 +146,7 @@ class TestPullRequestEndWatcher
         doThrow(new ReviewConflictException("Stop the running turn before ending the review"))
                 .when(reviews).endForTask(busy.id(), "Agent review ended: pull request #31 was merged on GitHub");
 
-        watcher.pass();
+        watcher.pass(true);
 
         InOrder order = inOrder(reviews, completions);
         order.verify(reviews).endForTask(reviewed.id(), "Agent review ended: pull request #31 was merged on GitHub");
@@ -154,11 +155,30 @@ class TestPullRequestEndWatcher
     }
 
     @Test
+    void theStartupPassCompletesTasksButOffersNoFixBeforeCommentsAreRefreshed()
+    {
+        AgentTask merged = task(true);
+        AgentTask open = task(true);
+        when(tasks.listLive()).thenReturn(ImmutableList.of(merged, open));
+        when(ownership.pullRequests(merged)).thenReturn(ImmutableList.of(pullRequest(40, "merged")));
+        when(ownership.pullRequests(open)).thenReturn(ImmutableList.of(pullRequest(41, "open")));
+
+        watcher.pass(false);
+
+        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #40 was merged on GitHub")));
+        verifyNoInteractions(reviewFixes);
+
+        watcher.pass(true);
+
+        verify(reviewFixes).request(open);
+    }
+
+    @Test
     void doesNothingBeforeTheAppServes()
     {
         when(gate.isReady()).thenReturn(false);
 
-        watcher.pass();
+        watcher.pass(true);
 
         verifyNoInteractions(tasks, ownership, completions);
     }

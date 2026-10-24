@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableSet;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -78,14 +79,24 @@ public class PullRequestTaskWatcher
         this.reviews = requireNonNull(reviews, "reviews is null");
     }
 
+    /**
+     * Stored states survive a restart, while the first list refresh waits behind a cold card sync for many minutes. Comments
+     * are not refreshed yet, so this pass only completes tasks.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void onReady()
+    {
+        executor.execute(() -> pass(false));
+    }
+
     /** The event arrives on the scheduler or an HTTP thread, so the pass runs on the watcher's own thread. */
     @EventListener
     public void onPullRequestsRefreshed(PullRequestsRefreshed event)
     {
-        executor.execute(this::pass);
+        executor.execute(() -> pass(true));
     }
 
-    void pass()
+    void pass(boolean commentsRefreshed)
     {
         if (!gate.isReady()) {
             return;
@@ -101,7 +112,7 @@ public class PullRequestTaskWatcher
                     reviews.endForTask(task.id(), "Agent review ended: " + outcome);
                     completions.complete(new CompleteAgentTaskCommand(task.id(), Optional.of("Completed: " + outcome)));
                 }
-                else {
+                else if (commentsRefreshed) {
                     reviewFixes.request(task);
                 }
             }

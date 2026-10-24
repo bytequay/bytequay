@@ -20,6 +20,7 @@ import { useTaskCardState } from '../agents/attention';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
+import TaskBackButton from '../agents/TaskBackButton';
 import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/pulls.css';
 import '../css/review-tasks.css';
@@ -1140,7 +1141,7 @@ export default function PullsScreen({
 
       {reviewWorkspace !== undefined && <section className="agr-workspace-conversation" aria-label="Review agent conversation">
         <header className="agt-screen-head">
-          <button type="button" className="agt-back" aria-label="Back to tasks" onClick={reviewWorkspace.onBack}>‹ Tasks</button>
+          <TaskBackButton onBack={reviewWorkspace.onBack} />
           <strong>{selectedPr?.title ?? 'WorkBench'}</strong>
           <span className="agt-spacer" />{reviewWorkspace.headerAction}
         </header>

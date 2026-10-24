@@ -2458,6 +2458,10 @@
   stroke-width: 1.75;
 }
 
+.agt-headbtn.agt-task-back {
+  min-width: 28px;
+}
+
 .agt-headbtn:hover:not(:disabled, [aria-pressed="true"]) {
   background: light-dark(#f0f1f3, var(--dark-subtle));
 }
@@ -2764,12 +2768,6 @@
   gap: 10px;
   padding: 12px 20px 11px;
   border-bottom: 1px solid light-dark(#e3e3e6, var(--dark-border));
-}
-
-.agt-card__back {
-  font-size: 12.5px;
-  color: var(--accent);
-  white-space: nowrap;
 }
 
 .agt-card__title {

@@ -59,7 +59,10 @@ describe('task window', () => {
     // One unitless width drives both the thumbnail height and the screen's scale.
     expect(markup).toContain('style="--card-w:294"');
     expect(markup).toContain('aria-label="Open task: Fix flaky preview"');
-    expect(markup).toContain('‹ Tasks');
+    const header = markup.match(/<div class="agt-card__head">([^]*?)<\/div>/)?.[1];
+    expect(header).toContain('<span class="agt-headbtn agt-task-back" aria-hidden="true">');
+    expect(header).toContain('lucide-arrow-left');
+    expect(header).not.toContain('<button');
     // The thumbnail names the lane and model; the footer names the task and its state, nothing more.
     expect(markup).toContain('Codex · 5.6 Sol');
     expect(markup).not.toContain('· 12m');

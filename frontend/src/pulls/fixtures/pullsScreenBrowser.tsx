@@ -281,6 +281,11 @@ export async function runReviewWorkspace(local = false): Promise<string> {
   try {
     flushSync(() => root.render(<ReviewTaskScreen workspaceId={review.workspaceId} reviewId={review.id} browserOpen={false}
       onBack={() => { back++; }} />));
+    const loadingBack = host.querySelector<HTMLButtonElement>('button[aria-label="Back to tasks"]');
+    assert(loadingBack !== null && loadingBack.title === 'Back to tasks' && loadingBack.textContent === '' && loadingBack.querySelector('svg.lucide-arrow-left') !== null,
+      'The loading review task must expose an accessible back arrow');
+    loadingBack.click();
+    assert(back === 1, 'The loading review task back action must return to its task list');
     for (let attempt = 0; attempt < 20 && !host.textContent?.includes('I found one authentication regression.'); attempt++) await settle();
     const conversation = host.querySelector<HTMLElement>('[aria-label="Review agent conversation"]');
     const pane = host.querySelector<HTMLElement>('.pull-detail');
@@ -348,8 +353,11 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     'Ended reviews must keep file filters compact and start the file list at the top of Tears of time');
     assert(pane.querySelector('[aria-label="Review of development changes"]') === null,
       'A reviewer workspace must not mount the development Summary or replace its conversation stream');
-    conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();
-    assert(back === 1, 'The review workspace back action must return to its task list');
+    const loadedBack = conversation.querySelector<HTMLButtonElement>('button[aria-label="Back to tasks"]');
+    assert(loadedBack !== null && loadedBack.title === 'Back to tasks' && loadedBack.textContent === '' && loadedBack.querySelector('svg.lucide-arrow-left') !== null,
+      'Local and linked review task headers must retain the accessible back arrow');
+    loadedBack.click();
+    assert(Number(back) === 2, 'The review workspace back action must return to its task list');
     return local ? 'Local review workspace keeps its reviewer conversation without fetching PR details'
       : 'Retained review workspace replays its conversation beside learning cards and returns to tasks';
   }

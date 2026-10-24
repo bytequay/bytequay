@@ -15,7 +15,6 @@
 import {
   Archive,
   ArchiveRestore,
-  ArrowLeft,
   CircleCheck,
   ListChecks,
   PanelRight,
@@ -93,6 +92,7 @@ import ProviderSignInDialog from './ProviderSignInDialog';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
 import SubagentsPanel from './SubagentsPanel';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
+import TaskBackButton from './TaskBackButton';
 import {
   NO_PULL_REQUEST_CHANGES,
   NO_PULL_REQUEST_DETAIL,
@@ -1218,7 +1218,7 @@ export function AgentTaskBody({
       <div className="agt-body" onClickCapture={selectPullRequestTab}>
       <section className="agt-task-column" aria-label="Agent conversation">
       <div className="agt-screen-head">
-        <button type="button" className="agt-headbtn" onClick={onBack} aria-label="Back to tasks" title="Back to tasks"><ArrowLeft aria-hidden="true" /></button>
+        <TaskBackButton onBack={onBack} />
         <TaskTitle
           title={state.task?.title ?? 'Agent task'}
           provisional={state.task?.titleSource === 'PROVISIONAL'}

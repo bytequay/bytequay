@@ -18,6 +18,7 @@ import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
+import TaskBackButton from './TaskBackButton';
 import { ProviderIcon } from './ProviderIcon';
 import { taskStatePill } from './taskStatus';
 import type { AgentEventEnvelope } from './events';
@@ -69,7 +70,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
         <div className="agt-card__thumb">
           <div className="agt-card__inner" aria-hidden="true">
             <div className="agt-card__head">
-              <span className="agt-card__back">‹ Tasks</span>
+              <TaskBackButton />
               <span className="agt-card__title">{task.title}</span>
               {pillNode}
               <span className="agt-mono agt-right"><ProviderIcon id={task.laneId} size={11} /> {meta}</span>

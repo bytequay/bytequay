@@ -99,9 +99,20 @@ async function scenario(name: string, body: (host: HTMLElement, calls: Calls) =>
   const original = Object.getOwnPropertyDescriptor(window, 'bridge');
   const calls = await install(value, run);
   const { host, root, dispose } = createFixtureRoot();
-  flushSync(() => root.render(<div style={{ height: '760px', display: 'flex' }}><CherryPickTaskScreen executionId={value.executionId} onBack={() => {}} /></div>));
+  let backs = 0;
+  flushSync(() => root.render(<div style={{ height: '760px', display: 'flex' }}><CherryPickTaskScreen executionId={value.executionId} onBack={() => { backs++; }} /></div>));
+  const backButton = (): HTMLButtonElement => {
+    const back = host.querySelector<HTMLButtonElement>('button[aria-label="Back to tasks"]');
+    assert(back !== null && back.title === 'Back to tasks' && back.textContent === '' && back.querySelector('svg.lucide-arrow-left') !== null,
+      'Cherry-pick task headers must expose an accessible back arrow');
+    return back;
+  };
   try {
-    await settle();
+    backButton().click();
+    assert(backs === 1, 'The loading header must return to tasks');
+    await until(() => host.querySelector('.cpt-title') !== null, 'The cherry-pick task must finish loading');
+    backButton().click();
+    assert(Number(backs) === 2, 'The loaded header must retain the back action');
     await body(host, calls);
     return { name };
   }

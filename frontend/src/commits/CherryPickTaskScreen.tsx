@@ -19,6 +19,7 @@ import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { AgentConversation, ConversationComposer, Spinner, useConversationHistory, type ConversationHistory } from '../agents/AgentConversation';
 import { TaskStats } from '../agents/AgentTaskScreen';
 import TaskPaneDivider from '../agents/TaskPaneDivider';
+import TaskBackButton from '../agents/TaskBackButton';
 import { executionTitle } from '../agents/taskList';
 import { agentTaskReducer, historyBefore, initialAgentTaskState, startAgentConversationSession, unloadedTurnIds, type AgentTaskAction, type AgentTaskState } from '../agents/model';
 import { projectTranscript, withApprovalAuthority, type TranscriptTurn } from '../agents/transcript';
@@ -78,7 +79,7 @@ export default function CherryPickTaskScreen({ executionId, onBack, headerAction
   if (execution === null) {
     return <section className="agt-screen" aria-label="Cherry-pick task">
       <div className="agt-screen-head">
-        <button type="button" className="agt-back" onClick={onBack} aria-label="Back to tasks">‹ Tasks</button>
+        <TaskBackButton onBack={onBack} />
         <span className="agt-spacer" />{headerAction}
       </div>
       <div className="cpt-loading" role={error === null ? 'status' : 'alert'}>{error ?? 'Loading cherry-pick…'}</div>
@@ -173,7 +174,7 @@ function CherryPickTask({ execution, onChange, error, onBack, headerAction, onOp
       <div className="agt-body">
         <section className="agt-task-column" aria-label="Cherry-pick conversation">
           <div className="agt-screen-head">
-            <button type="button" className="agt-back" onClick={onBack} aria-label="Back to tasks">‹ Tasks</button>
+            <TaskBackButton onBack={onBack} />
             <span className="cpt-title" title={executionTitle(execution)}>{shortTitle(execution)}</span>
             <Pill tone={status.tone} spinning={status.tone === 'blue' || status.tone === 'purple'}>{status.label}</Pill>
             <span className="agt-spacer" />

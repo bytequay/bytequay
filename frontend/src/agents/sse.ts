@@ -126,6 +126,10 @@ interface AgentStreamOptions {
 export async function readAgentStream(options: AgentStreamOptions): Promise<void> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const retryDelayMs = options.retryDelayMs ?? 1000;
+  // While the backend is down, doubling the wait up to 15 s replaces a request every second per open screen; the first
+  // event received resets it.
+  let retries = 0;
+  const retry = () => sleep(Math.min(retryDelayMs * 2 ** retries++, 15_000));
   let cursor = options.after ?? 0;
   let reconnecting = false;
   // The backend completes a terminal task's stream once its closing event is out; after that a
@@ -145,7 +149,7 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
         return;
       }
       reconnecting = true;
-      await sleep(retryDelayMs);
+      await retry();
       continue;
     }
 
@@ -159,7 +163,7 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
         return;
       }
       reconnecting = true;
-      await sleep(retryDelayMs);
+      await retry();
       continue;
     }
     if (!response.body) {
@@ -191,6 +195,7 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
             continue;
           }
           cursor = events[events.length - 1].sequence;
+          retries = 0;
           terminal ||= events.some(isTaskTerminalEvent);
           options.onEvents(events);
         }
@@ -214,7 +219,7 @@ export async function readAgentStream(options: AgentStreamOptions): Promise<void
     }
     if (dropped) {
       reconnecting = true;
-      await sleep(retryDelayMs);
+      await retry();
     }
   }
 }

@@ -20,6 +20,7 @@ import com.bytequay.core.domain.PrMergeQueueRemoval;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -27,6 +28,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
+import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
@@ -36,6 +38,8 @@ import com.google.common.collect.ImmutableSet;
 import org.hibernate.resource.jdbc.spi.StatementInspector;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -61,6 +65,9 @@ class TestSqlitePrDetailStore
 
     @Autowired
     private SqlitePrDetailStore store;
+
+    @Autowired
+    private PrDetailJpaRepository details;
 
     @Autowired
     private PullRequestJpaRepository pullRequests;
@@ -143,6 +150,67 @@ class TestSqlitePrDetailStore
         assertThat(store.findAuthorAvatarUrls(ImmutableSet.of(prId))).isEmpty();
         store.save(prId, avatarDetail(" "));
         assertThat(store.findAuthorAvatarUrls(ImmutableSet.of(prId))).isEmpty();
+    }
+
+    @Test
+    void batchesCurrentPrStatesWithoutHydratingDiscussionOrChecks()
+    {
+        store.save(prId, withTimeline(avatarDetail(null), new PrTimelineEvent(1L, "added_to_merge_queue", "me", NOW, null, Optional.empty())));
+        store.save(prId + 1, withTimeline(avatarDetail(null), new PrTimelineEvent(2L, "removed_from_merge_queue", "me", NOW, null, Optional.empty())));
+        details.flush();
+        RecordingStatementInspector.STATEMENTS.clear();
+
+        assertThat(store.findStates(ImmutableSet.of(prId, prId + 1, prId + 200))).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
+                prId, new PrStateSummary("open", false, true), prId + 1, new PrStateSummary("open", false, false)));
+        assertThat(RecordingStatementInspector.STATEMENTS).hasSize(2).allSatisfy(sql -> assertThat(sql).doesNotContain("body", "pr_review", "pr_check_run", "payload"));
+        assertThat(store.findStates(ImmutableSet.of())).isEmpty();
+        assertThat(RecordingStatementInspector.STATEMENTS).hasSize(2);
+
+        StoredPrDetail first = store.find(prId).orElseThrow();
+        store.save(prId, withTimeline(first, new PrTimelineEvent(3L, "removed_from_merge_queue", "me", NOW, null, Optional.empty())));
+        assertThat(store.findStates(ImmutableSet.of(prId)).get(prId).queued()).isFalse();
+        store.save(prId, withTimeline(store.find(prId).orElseThrow(), new PrTimelineEvent(4L, "added_to_merge_queue", "me", NOW.plusSeconds(1), null, Optional.empty())));
+        assertThat(store.findStates(ImmutableSet.of(prId)).get(prId).queued()).isTrue();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"open,false,false,open", "open,true,false,open", "closed,false,false,closed", "closed,false,true,merged", "merged,false,false,merged"})
+    void readsCurrentPrStateAndDoesNotQueueCompletedPullRequests(String state, boolean draft, boolean merged, String expectedState)
+    {
+        store.save(prId, withTimeline(avatarDetail(null), new PrTimelineEvent(1L, "added_to_merge_queue", "me", NOW, null, Optional.empty())));
+        var header = details.findById(prId).orElseThrow();
+        header.setState(state);
+        header.setDraft(draft);
+        header.setMergedAt(merged ? NOW : null);
+        details.saveAndFlush(header);
+
+        assertThat(store.findStates(ImmutableSet.of(prId))).containsEntry(prId, new PrStateSummary(expectedState, draft, expectedState.equals("open")));
+    }
+
+    @Test
+    void batchesOnlyTheInputsNeededForChangedSinceRead()
+    {
+        StoredPrDetail value = withTimeline(avatarDetail(null), remote(1, NOW));
+        store.save(prId, value);
+        store.save(prId + 1, withTimeline(value, new PrTimelineEvent(2L, "committed", "me", NOW.plusSeconds(1), "Commit body", Optional.empty())));
+        var header = details.findById(prId).orElseThrow();
+        header.setRequestedReviewers(ImmutableList.of("viewer"));
+        details.saveAndFlush(header);
+        RecordingStatementInspector.STATEMENTS.clear();
+
+        var snapshots = store.findChangeSnapshots(ImmutableSet.of(prId, prId + 1, prId + 200));
+        assertThat(snapshots).hasSize(2);
+        assertThat(snapshots.get(prId).requestedReviewers()).containsExactly("viewer");
+        assertThat(snapshots.get(prId).timeline()).singleElement().satisfies(event -> {
+            assertThat(event.event()).isEqualTo("commented");
+            assertThat(event.actor()).isEqualTo("reviewer");
+            assertThat(event.timestamp()).isEqualTo(NOW);
+            assertThat(event.body()).isNull();
+        });
+        assertThat(snapshots.get(prId + 1).timeline()).extracting(PrTimelineEvent::event).containsExactlyInAnyOrder("commented", "committed");
+        assertThat(RecordingStatementInspector.STATEMENTS).hasSize(3).allSatisfy(sql -> assertThat(sql).doesNotContain("pr_review", "payload", "body"));
+        assertThat(store.findChangeSnapshots(ImmutableSet.of())).isEmpty();
+        assertThat(RecordingStatementInspector.STATEMENTS).hasSize(3);
     }
 
     @Test

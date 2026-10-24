@@ -22,8 +22,9 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.core.domain.PrChangeSnapshot;
 import com.bytequay.core.domain.PrCheckRunState;
-import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.RecentItemType;
@@ -32,7 +33,6 @@ import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -47,8 +47,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -57,17 +55,23 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestRecentService
@@ -135,11 +139,9 @@ class TestRecentService
     void readsCurrentQueueMembershipForTheStreamAndPaletteWithoutAnotherTouch()
     {
         store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.READ, 7));
-        List<PrTimelineEvent> timeline = new ArrayList<>();
         for (String event : ImmutableList.of("added_to_merge_queue", "commented", "removed_from_merge_queue", "added_to_merge_queue")) {
-            timeline.add(new PrTimelineEvent((long) timeline.size() + 1, event, "me", NOW.plusSeconds(timeline.size()), null, Optional.empty()));
-            when(details.find(11L)).thenReturn(Optional.of(detailWith(timeline, ImmutableList.of(), ImmutableList.of())));
-            RecentRow.PullRequestState expected = new RecentRow.PullRequestState("open", false, !event.equals("removed_from_merge_queue"));
+            PrStateSummary expected = new PrStateSummary("open", false, !event.equals("removed_from_merge_queue"));
+            when(details.findStates(ImmutableSet.of(11L))).thenReturn(ImmutableMap.of(11L, expected));
             assertThat(service.stream(everything(), null).rows()).singleElement().satisfies(row -> {
                 assertThat(row.pullRequest()).contains(expected);
                 assertThat(row.reasonLabel()).isEqualTo("Read 7m");
@@ -148,16 +150,28 @@ class TestRecentService
         }
     }
 
-    @ParameterizedTest
-    @CsvSource({"open,false,false,open", "open,true,false,open", "closed,false,false,closed", "closed,false,true,merged", "merged,false,false,merged"})
-    void readsCurrentPrStateAndDoesNotQueueCompletedPullRequests(String state, boolean draft, boolean merged, String expectedState)
+    @Test
+    void batchesOnlyTheDisplayedRowsAndKeepsTheirNewestText()
     {
-        store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.READ, 0));
-        when(details.find(11L)).thenReturn(Optional.of(detailWith(state, draft, merged ? Optional.of(NOW) : Optional.empty(),
-                ImmutableList.of(new PrTimelineEvent(1L, "added_to_merge_queue", "me", NOW, null, Optional.empty())), ImmutableList.of(), ImmutableList.of())));
+        for (int index = 0; index < 30; index++) {
+            String key = "pr:o/r#" + index;
+            store.put(touch(key, TODAY, NOW.minusSeconds(index), RecentReason.READ, 1));
+            store.putText(new RecentText(key + ":older", RecentItemType.PULL_REQUEST, key, RecentTextKind.COMMENT,
+                    "Older words", NOW.minusSeconds(120), index, "o/r", "title", null));
+            store.putText(new RecentText(key + ":latest", RecentItemType.PULL_REQUEST, key, RecentTextKind.COMMENT, "Newest words", NOW, index, "o/r", "title", null));
+        }
+        store.put(touch("pr:o/r#yesterday", TODAY.minusDays(1), NOW.minusSeconds(86_400), RecentReason.READ, 1));
 
-        assertThat(service.stream(everything(), null).rows()).singleElement().satisfies(row ->
-                assertThat(row.pullRequest()).contains(new RecentRow.PullRequestState(expectedState, draft, expectedState.equals("open"))));
+        assertThat(service.stream(everything(), null).rows()).hasSize(30).allSatisfy(row -> assertThat(row.snippet()).isEqualTo("Newest words"));
+        assertThat(store.latestTextReads).isEqualTo(1);
+        assertThat(store.lastTextKeys).hasSize(30).doesNotContain("pr:o/r#yesterday");
+        verify(details).findStates(ImmutableSet.of(11L));
+        verify(details, never()).find(anyLong());
+
+        assertThat(service.search("older", 2)).hasSize(2).allSatisfy(row -> assertThat(row.snippet()).isEqualTo("Newest words"));
+        assertThat(store.textReads).isEqualTo(1);
+        assertThat(store.latestTextReads).isEqualTo(2);
+        assertThat(store.lastTextKeys).hasSize(2);
     }
 
     @Test
@@ -321,14 +335,13 @@ class TestRecentService
         store.put(touch("pr:o/r#1", TODAY, read, RecentReason.COMMENTED, 0));
         when(viewStates.findByPrIds(anySet()))
                 .thenReturn(ImmutableMap.of(11L, new PrViewState(11L, read, null, null, null)));
-        when(details.find(11L)).thenReturn(Optional.of(detailWith(
+        when(details.findChangeSnapshots(ImmutableSet.of(11L))).thenReturn(ImmutableMap.of(11L, new PrChangeSnapshot(ImmutableList.of("me"),
                 ImmutableList.of(
                         new PrTimelineEvent(1L, "commented", "ezra-b", NOW.minusSeconds(600), "reply", Optional.empty()),
                         new PrTimelineEvent(2L, "commented", "me", NOW.minusSeconds(500), "mine", Optional.empty()),
                         new PrTimelineEvent(4L, "commented", "github-actions[bot]", NOW.minusSeconds(450), "coverage", Optional.empty()),
                         new PrTimelineEvent(3L, "committed", "ezra-b", NOW.minusSeconds(400), null, Optional.empty())),
-                ImmutableList.of(new PrCheckRunState(9L, "ci", "completed", "failure", null, "check_run", null, NOW.minusSeconds(300))),
-                ImmutableList.of("me"))));
+                ImmutableList.of(new PrCheckRunState(9L, "ci", "completed", "failure", null, "check_run", null, NOW.minusSeconds(300))))));
 
         List<RecentChange> changes = service.changes();
         assertThat(changes).hasSize(1);
@@ -336,6 +349,8 @@ class TestRecentService
         assertThat(changes.getFirst().wantsYou()).isTrue();
         assertThat(changes.getFirst().summary())
                 .isEqualTo("1 new reply and 1 new commit and CI went red since you read it");
+        verify(details).findChangeSnapshots(ImmutableSet.of(11L));
+        verify(details, never()).find(anyLong());
     }
 
     @Test
@@ -344,7 +359,7 @@ class TestRecentService
         store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.COMMENTED, 0));
         when(viewStates.findByPrIds(anySet()))
                 .thenReturn(ImmutableMap.of(11L, new PrViewState(11L, NOW, null, null, null)));
-        when(details.find(11L)).thenReturn(Optional.of(detailWith(ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        when(details.findChangeSnapshots(ImmutableSet.of(11L))).thenReturn(ImmutableMap.of(11L, new PrChangeSnapshot(ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
 
         assertThat(service.changes()).isEmpty();
     }
@@ -461,42 +476,6 @@ class TestRecentService
         return new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, null, false, text);
     }
 
-    private static StoredPrDetail detailWith(List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> requestedReviewers)
-    {
-        return detailWith("open", false, Optional.empty(), timeline, checkRuns, requestedReviewers);
-    }
-
-    private static StoredPrDetail detailWith(String state, boolean draft, Optional<Instant> mergedAt,
-            List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> requestedReviewers)
-    {
-        PrRawDetail raw = new PrRawDetail(
-                "Support sorted by nested fields in Iceberg",
-                "https://github.com/o/r/pull/1",
-                state,
-                "ezra-b",
-                "",
-                NOW.minusSeconds(86_400),
-                NOW,
-                mergedAt.orElse(null),
-                "body",
-                ImmutableList.of(),
-                ImmutableMap.of(),
-                ImmutableList.of(),
-                null,
-                draft,
-                true,
-                "clean",
-                1,
-                1,
-                1,
-                requestedReviewers.size(),
-                requestedReviewers,
-                "abc123",
-                "head",
-                "main");
-        return new StoredPrDetail(raw, ImmutableList.of(), timeline, checkRuns, ImmutableList.of(), false);
-    }
-
     private static RecentTouch touch(String itemKey, LocalDate day, Instant at, RecentReason reason, int count)
     {
         return new RecentTouch(
@@ -601,6 +580,9 @@ class TestRecentService
         private final Map<String, RecentText> texts = new LinkedHashMap<>();
         private LocalDate lastFrom;
         private LocalDate lastTo;
+        private int textReads;
+        private int latestTextReads;
+        private Set<String> lastTextKeys = ImmutableSet.of();
 
         void put(RecentTouch touch)
         {
@@ -643,11 +625,23 @@ class TestRecentService
         }
 
         @Override
-        public List<RecentText> findTextByItemKey(String itemKey)
+        public List<RecentText> findTextByItemKeys(Set<String> itemKeys)
         {
+            textReads++;
             return texts.values().stream()
-                    .filter(text -> text.itemKey().equals(itemKey))
+                    .filter(text -> itemKeys.contains(text.itemKey()))
+                    .sorted(Comparator.comparing(RecentText::writtenAt).thenComparing(RecentText::id).reversed())
                     .collect(toImmutableList());
+        }
+
+        @Override
+        public Map<String, RecentText> findLatestTextByItemKeys(Set<String> itemKeys)
+        {
+            latestTextReads++;
+            lastTextKeys = itemKeys;
+            return texts.values().stream().filter(text -> itemKeys.contains(text.itemKey()))
+                    .collect(toImmutableMap(RecentText::itemKey, text -> text,
+                            (left, right) -> Comparator.comparing(RecentText::writtenAt).thenComparing(RecentText::id).compare(left, right) > 0 ? left : right));
         }
 
         @Override

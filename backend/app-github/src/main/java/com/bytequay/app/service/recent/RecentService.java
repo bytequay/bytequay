@@ -19,6 +19,8 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.core.domain.PrChangeSnapshot;
+import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentText;
@@ -26,13 +28,13 @@ import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RecentWordMatch;
 import com.bytequay.core.domain.RecentWordMatch.MatchRange;
-import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
@@ -53,6 +55,9 @@ import java.util.Set;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.joining;
+import static java.util.stream.Collectors.mapping;
 
 /**
  * Reads the local record of what the user worked on. Every method answers from
@@ -131,10 +136,9 @@ public class RecentService
         }
         LocalDate selected = day.orElseThrow();
         LocalDate next = activeDays.stream().filter(candidate -> candidate.isBefore(selected)).findFirst().orElse(null);
-        List<RecentRow> rows = matching.stream()
+        List<RecentRow> rows = toRows(matching.stream()
                 .filter(touch -> touch.day().equals(selected))
-                .map(this::toRow)
-                .collect(toImmutableList());
+                .collect(toImmutableList()));
         return new RecentDayPage(selected, rows, next, next == null, activeDays, retentionDays());
     }
 
@@ -143,22 +147,24 @@ public class RecentService
     {
         List<RecentTouch> window = store.findTouches(windowStart(), today());
         List<String> tokens = tokens(query);
+        Map<String, String> bodies = tokens.isEmpty() ? ImmutableMap.of()
+                : store.findTextByItemKeys(window.stream().map(RecentTouch::itemKey).collect(toImmutableSet())).stream()
+                        .collect(groupingBy(RecentText::itemKey, mapping(RecentText::body, joining("\n"))));
         Instant now = clock.instant();
         List<RecentTouch> ranked = tokens.isEmpty()
                 ? window
                 : window.stream()
-                        .map(touch -> new Scored(touch, score(touch, tokens, now)))
+                        .map(touch -> new Scored(touch, score(touch, tokens, now, bodies.get(touch.itemKey()))))
                         .filter(scored -> scored.score() > 0)
                         .sorted(Comparator.comparingDouble(Scored::score).reversed()
                                 .thenComparing(scored -> scored.touch().touchedAt(), Comparator.reverseOrder()))
                         .map(Scored::touch)
                         .collect(toImmutableList());
         Set<String> seen = new HashSet<>();
-        return ranked.stream()
+        return toRows(ranked.stream()
                 .filter(touch -> seen.add(touch.itemKey()))
                 .limit(Math.max(limit, 0))
-                .map(this::toRow)
-                .collect(toImmutableList());
+                .collect(toImmutableList()));
     }
 
     /**
@@ -201,9 +207,10 @@ public class RecentService
             return ImmutableList.of();
         }
         Map<Long, PrViewState> states = viewStates.findByPrIds(ImmutableSet.copyOf(newestByPr.keySet()));
+        Map<Long, PrChangeSnapshot> snapshots = details.findChangeSnapshots(ImmutableSet.copyOf(newestByPr.keySet()));
         Optional<String> viewer = credentials.cachedLogin();
         return newestByPr.entrySet().stream()
-                .map(entry -> change(entry.getValue(), states.get(entry.getKey()), viewer))
+                .map(entry -> change(entry.getValue(), states.get(entry.getKey()), Optional.ofNullable(snapshots.get(entry.getKey())), viewer))
                 .filter(change -> change.moved() || change.wantsYou())
                 .collect(toImmutableList());
     }
@@ -312,9 +319,20 @@ public class RecentService
 
     // ── Rows ──────────────────────────────────────────────────────────────────
 
-    private RecentRow toRow(RecentTouch touch)
+    private List<RecentRow> toRows(List<RecentTouch> touches)
     {
-        Optional<RecentText> text = store.findTextByItemKey(touch.itemKey()).stream().findFirst();
+        Map<String, RecentText> texts = store.findLatestTextByItemKeys(touches.stream().map(RecentTouch::itemKey).collect(toImmutableSet()));
+        Map<Long, PrStateSummary> states = details.findStates(touches.stream()
+                .filter(touch -> touch.type() == RecentItemType.PULL_REQUEST && touch.prId() != null)
+                .map(RecentTouch::prId)
+                .collect(toImmutableSet()));
+        return touches.stream().map(touch -> toRow(touch, Optional.ofNullable(texts.get(touch.itemKey())),
+                        touch.type() == RecentItemType.PULL_REQUEST && touch.prId() != null ? Optional.ofNullable(states.get(touch.prId())) : Optional.empty()))
+                .collect(toImmutableList());
+    }
+
+    private RecentRow toRow(RecentTouch touch, Optional<RecentText> text, Optional<PrStateSummary> state)
+    {
         return new RecentRow(
                 touch.id(),
                 touch.type(),
@@ -331,20 +349,7 @@ public class RecentService
                 touch.subtitle(),
                 text.map(RecentText::body).orElse(null),
                 text.map(RecentText::id).orElse(null),
-                touch.type() == RecentItemType.PULL_REQUEST
-                        ? Optional.ofNullable(touch.prId()).flatMap(details::find).map(RecentService::pullRequestState)
-                        : Optional.empty());
-    }
-
-    private static RecentRow.PullRequestState pullRequestState(StoredPrDetail detail)
-    {
-        String state = detail.raw().mergedAt() != null ? "merged" : detail.raw().state();
-        boolean queued = "open".equals(state) && detail.timeline().stream()
-                .filter(event -> "added_to_merge_queue".equals(event.event()) || "removed_from_merge_queue".equals(event.event()))
-                .reduce((previous, latest) -> latest)
-                .map(event -> "added_to_merge_queue".equals(event.event()))
-                .orElse(false);
-        return new RecentRow.PullRequestState(state, detail.raw().draft(), queued);
+                state);
     }
 
     private Optional<String> taskWorkspace(String itemKey)
@@ -384,15 +389,13 @@ public class RecentService
      * how recent the touch is. Fuzzy enough for a fourteen-day window; nothing
      * here needs an index.
      */
-    private double score(RecentTouch touch, List<String> tokens, Instant now)
+    private double score(RecentTouch touch, List<String> tokens, Instant now, String text)
     {
         double score = 0;
         String title = lower(touch.title());
         String repo = lower(touch.repo());
         String subtitle = lower(touch.subtitle());
-        String body = lower(store.findTextByItemKey(touch.itemKey()).stream()
-                .map(RecentText::body)
-                .reduce("", (left, right) -> left + "\n" + right));
+        String body = lower(text);
         String number = touch.number() == null ? "" : String.valueOf(touch.number());
         for (String token : tokens) {
             double tokenScore = 0;
@@ -523,16 +526,15 @@ public class RecentService
 
     // ── Changes ───────────────────────────────────────────────────────────────
 
-    private RecentChange change(RecentTouch touch, PrViewState state, Optional<String> viewer)
+    private static RecentChange change(RecentTouch touch, PrViewState state, Optional<PrChangeSnapshot> stored, Optional<String> viewer)
     {
-        Optional<StoredPrDetail> stored = details.find(touch.prId());
         if (stored.isEmpty()) {
             return new RecentChange(touch.itemKey(), false, false, null);
         }
-        StoredPrDetail detail = stored.orElseThrow();
+        PrChangeSnapshot detail = stored.orElseThrow();
         Instant since = state == null ? null : state.viewedAt();
         boolean wantsYou = viewer
-                .map(login -> detail.raw().requestedReviewers().stream().anyMatch(login::equalsIgnoreCase))
+                .map(login -> detail.requestedReviewers().stream().anyMatch(login::equalsIgnoreCase))
                 .orElse(false);
         if (since == null) {
             return new RecentChange(touch.itemKey(), false, wantsYou, null);

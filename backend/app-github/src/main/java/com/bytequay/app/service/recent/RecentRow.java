@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.recent;
 
+import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
 
@@ -44,7 +45,4 @@ public record RecentRow(
         String subtitle,
         String snippet,
         String textId,
-        Optional<PullRequestState> pullRequest)
-{
-    public record PullRequestState(String state, boolean draft, boolean queued) {}
-}
+        Optional<PrStateSummary> pullRequest) {}

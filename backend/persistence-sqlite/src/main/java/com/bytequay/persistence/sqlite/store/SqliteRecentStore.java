@@ -21,6 +21,7 @@ import com.bytequay.persistence.sqlite.entity.RecentTouchEntity;
 import com.bytequay.persistence.sqlite.repository.RecentTextJpaRepository;
 import com.bytequay.persistence.sqlite.repository.RecentTouchJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,8 +29,11 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -91,12 +95,26 @@ public class SqliteRecentStore
     }
 
     @Override
-    public List<RecentText> findTextByItemKey(String itemKey)
+    public List<RecentText> findTextByItemKeys(Set<String> itemKeys)
     {
-        requireNonNull(itemKey, "itemKey is null");
-        return texts.findByItemKeyOrderByWrittenAtDesc(itemKey).stream()
+        requireNonNull(itemKeys, "itemKeys is null");
+        if (itemKeys.isEmpty()) {
+            return ImmutableList.of();
+        }
+        return texts.findByItemKeyInOrderByWrittenAtDescIdDesc(itemKeys).stream()
                 .map(RecentTextEntity::toDomain)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public Map<String, RecentText> findLatestTextByItemKeys(Set<String> itemKeys)
+    {
+        requireNonNull(itemKeys, "itemKeys is null");
+        if (itemKeys.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return texts.findLatestByItemKeys(itemKeys).stream().map(RecentTextEntity::toDomain)
+                .collect(toImmutableMap(RecentText::itemKey, text -> text));
     }
 
     @Override

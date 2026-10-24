@@ -18,6 +18,7 @@ import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -36,6 +37,23 @@ class TestSqliteRecentStore
 
     @Autowired
     private SqliteRecentStore store;
+
+    @Test
+    void readsOnlyTheNewestTextPerRequestedItemAndUsesAStableTieBreak()
+    {
+        store.saveText(dated("one", "old words", MORNING));
+        store.saveText(dated("two", "new words", AFTERNOON));
+        store.saveText(dated("three", "same-time words", AFTERNOON));
+        RecentText other = text("pr:owner/repository#3:comment:1", "another item");
+        store.saveText(other);
+
+        assertThat(store.findLatestTextByItemKeys(ImmutableSet.of("pr:owner/repository#9", "pr:missing#1")))
+                .hasSize(1).hasEntrySatisfying("pr:owner/repository#9", latest -> assertThat(latest.id()).isEqualTo("two"));
+        assertThat(store.findLatestTextByItemKeys(ImmutableSet.of(other.itemKey()))).containsEntry(other.itemKey(), other);
+        assertThat(store.findLatestTextByItemKeys(ImmutableSet.of())).isEmpty();
+        assertThat(store.findTextByItemKeys(ImmutableSet.of("pr:owner/repository#9"))).extracting(RecentText::id).containsExactly("two", "three", "one");
+        assertThat(store.findTextByItemKeys(ImmutableSet.of())).isEmpty();
+    }
 
     @Test
     void keepsOneRowPerItemPerDayCarryingTheStrongestReason()

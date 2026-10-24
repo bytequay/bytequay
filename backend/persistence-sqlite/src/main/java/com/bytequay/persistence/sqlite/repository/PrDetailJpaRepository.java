@@ -38,6 +38,30 @@ public interface PrDetailJpaRepository
             + "WHERE e.prId IN :ids AND e.authorAvatarUrl IS NOT NULL AND TRIM(e.authorAvatarUrl) <> ''")
     List<AuthorAvatar> findAuthorAvatarUrls(@Param("ids") Set<Long> ids);
 
+    @Query("SELECT e.prId AS prId, e.state AS state, e.draft AS draft, e.mergedAt AS mergedAt FROM PrDetailEntity e WHERE e.prId IN :ids")
+    List<StateSummary> findStates(@Param("ids") Set<Long> ids);
+
+    @Query("SELECT e.prId AS prId, e.requestedReviewers AS requestedReviewers FROM PrDetailEntity e WHERE e.prId IN :ids")
+    List<RequestedReviewers> findRequestedReviewers(@Param("ids") Set<Long> ids);
+
+    interface RequestedReviewers
+    {
+        long getPrId();
+
+        List<String> getRequestedReviewers();
+    }
+
+    interface StateSummary
+    {
+        long getPrId();
+
+        String getState();
+
+        boolean isDraft();
+
+        Instant getMergedAt();
+    }
+
     interface AuthorAvatar
     {
         long getPrId();

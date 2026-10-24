@@ -22,11 +22,19 @@ import org.springframework.data.repository.query.Param;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 
 public interface RecentTextJpaRepository
         extends JpaRepository<RecentTextEntity, String>
 {
-    List<RecentTextEntity> findByItemKeyOrderByWrittenAtDesc(String itemKey);
+    List<RecentTextEntity> findByItemKeyInOrderByWrittenAtDescIdDesc(Set<String> itemKeys);
+
+    @Query("""
+            SELECT e FROM RecentTextEntity e WHERE e.itemKey IN :keys AND NOT EXISTS (
+                SELECT newer.id FROM RecentTextEntity newer WHERE newer.itemKey = e.itemKey
+                    AND (newer.writtenAt > e.writtenAt OR (newer.writtenAt = e.writtenAt AND newer.id > e.id)))
+            """)
+    List<RecentTextEntity> findLatestByItemKeys(@Param("keys") Set<String> itemKeys);
 
     /** Case-insensitive contains, newest first. The fragment arrives already lowercased. */
     @Query("SELECT e FROM RecentTextEntity e WHERE LOWER(e.body) LIKE CONCAT('%', :fragment, '%') "

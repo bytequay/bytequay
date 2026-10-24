@@ -30,6 +30,38 @@ public interface PrTimelineJpaRepository
 {
     List<PrTimelineEntity> findByPrIdOrderByTimestampAscIdAsc(Long prId);
 
+    @Query("""
+            SELECT e.prId AS prId, e.event AS event, e.actor AS actor, e.timestamp AS timestamp
+            FROM PrTimelineEntity e WHERE e.prId IN :ids AND e.event IN ('commented', 'reviewed', 'review_commented', 'committed')
+            """)
+    List<ChangeEvent> findChangeEvents(@Param("ids") Set<Long> ids);
+
+    interface ChangeEvent
+    {
+        long getPrId();
+
+        String getEvent();
+
+        String getActor();
+
+        Instant getTimestamp();
+    }
+
+    @Query(value = """
+            SELECT pr_id AS prId, event FROM (
+                SELECT pr_id, event, ROW_NUMBER() OVER (PARTITION BY pr_id ORDER BY timestamp DESC, id DESC) AS position
+                FROM pr_timeline WHERE pr_id IN :ids AND event IN ('added_to_merge_queue', 'removed_from_merge_queue')
+            ) WHERE position = 1
+            """, nativeQuery = true)
+    List<QueueState> findLatestQueueEvents(@Param("ids") Set<Long> ids);
+
+    interface QueueState
+    {
+        long getPrId();
+
+        String getEvent();
+    }
+
     // Inline replies carry their own timestamps inside the payload, so every thread remains a candidate.
     // LENGTH keeps SQLite off the unique local_event_key index: every GitHub row shares its NULL key, so the
     // planner's one-row guess for IS NULL would scan the whole table for each correlated lookup instead of seeking by PR.

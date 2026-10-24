@@ -18,6 +18,8 @@ import com.bytequay.core.domain.RecentTouch;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * Local-only storage for the Recent stream. Nothing here contacts GitHub, so
@@ -41,9 +43,12 @@ public interface RecentStore
     void saveText(RecentText text);
 
     /**
-     * Everything the user wrote on one item, newest first.
+     * Everything the user wrote on the requested items, newest first, for search ranking.
      */
-    List<RecentText> findTextByItemKey(String itemKey);
+    List<RecentText> findTextByItemKeys(Set<String> itemKeys);
+
+    /** The newest text for each requested row, without loading older bodies. */
+    Map<String, RecentText> findLatestTextByItemKeys(Set<String> itemKeys);
 
     /**
      * Removes one indexed body, for a draft the user emptied or posted.

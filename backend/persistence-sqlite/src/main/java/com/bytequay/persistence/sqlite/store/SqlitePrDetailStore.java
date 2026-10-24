@@ -14,11 +14,13 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrChangeSnapshot;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
@@ -32,14 +34,20 @@ import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PrCheckRunJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.AuthorAvatar;
+import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.RequestedReviewers;
+import com.bytequay.persistence.sqlite.repository.PrDetailJpaRepository.StateSummary;
 import com.bytequay.persistence.sqlite.repository.PrReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.ActivityCandidate;
+import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.ChangeEvent;
 import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.CommitCandidate;
+import com.bytequay.persistence.sqlite.repository.PrTimelineJpaRepository.QueueState;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Multimaps;
 import org.springframework.data.repository.CrudRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -119,6 +127,39 @@ public class SqlitePrDetailStore
                 checkRunRepo.findByPrId(prId).stream().map(PrCheckRunEntity::toDomain).collect(toImmutableList()),
                 detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of(),
                 Boolean.TRUE.equals(detail.getViewerCanWrite())));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, PrStateSummary> findStates(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        Map<Long, String> queueEvents = timelineRepo.findLatestQueueEvents(prIds).stream()
+                .collect(toImmutableMap(QueueState::getPrId, QueueState::getEvent));
+        return detailRepo.findStates(prIds).stream().collect(toImmutableMap(StateSummary::getPrId, row -> {
+            String state = row.getMergedAt() == null ? row.getState() : "merged";
+            return new PrStateSummary(state, row.isDraft(), "open".equals(state) && "added_to_merge_queue".equals(queueEvents.get(row.getPrId())));
+        }));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, PrChangeSnapshot> findChangeSnapshots(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        ImmutableListMultimap<Long, ChangeEvent> events = Multimaps.index(timelineRepo.findChangeEvents(prIds), ChangeEvent::getPrId);
+        Map<Long, List<PrCheckRunState>> checks = findCheckRuns(prIds);
+        return detailRepo.findRequestedReviewers(prIds).stream().collect(toImmutableMap(RequestedReviewers::getPrId, row -> new PrChangeSnapshot(
+                row.getRequestedReviewers(),
+                events.get(row.getPrId()).stream().map(event -> new PrTimelineEvent(null, event.getEvent(), event.getActor(), event.getTimestamp(), null, Optional.empty()))
+                        .collect(toImmutableList()),
+                checks.getOrDefault(row.getPrId(), ImmutableList.of()))));
     }
 
     @Override

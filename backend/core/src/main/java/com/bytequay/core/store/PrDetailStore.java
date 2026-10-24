@@ -14,9 +14,11 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.PrActivitySummary;
+import com.bytequay.core.domain.PrChangeSnapshot;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PrDetailFreshness;
+import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
@@ -32,6 +34,12 @@ public interface PrDetailStore
     Optional<Instant> findSyncedAt(String repo, int number);
 
     Optional<StoredPrDetail> find(long prId);
+
+    /** Reads only cached list badges; missing details have no entry. */
+    Map<Long, PrStateSummary> findStates(Set<Long> prIds);
+
+    /** Batched inputs for changed-since-read indicators, without discussion bodies or review hydration. */
+    Map<Long, PrChangeSnapshot> findChangeSnapshots(Set<Long> prIds);
 
     PrDetailFreshness findFreshness(long prId);
 

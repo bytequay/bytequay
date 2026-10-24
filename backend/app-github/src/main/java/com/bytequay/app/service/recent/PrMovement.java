@@ -13,12 +13,14 @@
  */
 package com.bytequay.app.service.recent;
 
+import com.bytequay.core.domain.PrChangeSnapshot;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.google.common.collect.ImmutableSet;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
@@ -39,20 +41,31 @@ public record PrMovement(long replies, long commits, boolean ciRed)
     public static PrMovement since(StoredPrDetail detail, Instant since, Optional<String> viewer)
     {
         requireNonNull(detail, "detail is null");
+        return since(detail.timeline(), detail.checkRuns(), since, viewer);
+    }
+
+    public static PrMovement since(PrChangeSnapshot snapshot, Instant since, Optional<String> viewer)
+    {
+        requireNonNull(snapshot, "snapshot is null");
+        return since(snapshot.timeline(), snapshot.checkRuns(), since, viewer);
+    }
+
+    private static PrMovement since(List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, Instant since, Optional<String> viewer)
+    {
         requireNonNull(since, "since is null");
         requireNonNull(viewer, "viewer is null");
-        long replies = detail.timeline().stream()
+        long replies = timeline.stream()
                 .filter(event -> REPLY_EVENTS.contains(event.event()))
                 .filter(event -> after(event, since))
                 .filter(event -> !bot(event.actor()))
                 .filter(event -> viewer.map(login -> !login.equalsIgnoreCase(event.actor())).orElse(true))
                 .count();
-        long commits = detail.timeline().stream()
+        long commits = timeline.stream()
                 .filter(event -> "committed".equals(event.event()))
                 .filter(event -> after(event, since))
                 .count();
-        boolean ciRed = detail.checkRuns().stream().anyMatch(PrMovement::failed)
-                && detail.checkRuns().stream().anyMatch(run -> run.completedAt() != null && run.completedAt().isAfter(since));
+        boolean ciRed = checkRuns.stream().anyMatch(PrMovement::failed)
+                && checkRuns.stream().anyMatch(run -> run.completedAt() != null && run.completedAt().isAfter(since));
         return new PrMovement(replies, commits, ciRed);
     }
 

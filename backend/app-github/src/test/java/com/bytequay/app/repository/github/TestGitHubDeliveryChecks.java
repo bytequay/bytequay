@@ -163,6 +163,26 @@ class TestGitHubDeliveryChecks
     }
 
     @Test
+    void baseBranchMovingAfterTheLastPushStillVerifiesTheHead()
+    {
+        Fixture fixture = fixture();
+        ObjectNode moved = response(checkRun("build", "COMPLETED", "SUCCESS", 123, false), 1, false);
+        ((ObjectNode) pr(moved).path("baseRef").path("target")).put("oid", "c".repeat(40));
+        fixture.expect(moved, "[]");
+        GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+        assertThat(result.green()).isTrue();
+        assertThat(result.pullRequest().baseSha()).isEqualTo(BASE);
+        fixture.verify();
+
+        Fixture deleted = fixture();
+        ObjectNode missing = response(checkRun("build", "COMPLETED", "SUCCESS", 123, false), 1, false);
+        pr(missing).putNull("baseRef");
+        deleted.graph().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(missing.toString(), MediaType.APPLICATION_JSON));
+        assertThatThrownBy(() -> deleted.client().fetchDeliveryChecks("token", PR)).hasMessageContaining("base branch is missing");
+        deleted.verify();
+    }
+
+    @Test
     void partialOrMalformedEvidenceNeverBecomesGreen()
     {
         for (Consumer<ObjectNode> change : ImmutableList.<Consumer<ObjectNode>>of(

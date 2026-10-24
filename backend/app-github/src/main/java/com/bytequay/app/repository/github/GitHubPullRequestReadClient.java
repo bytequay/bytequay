@@ -318,7 +318,8 @@ public class GitHubPullRequestReadClient
         String base = deliveryText(row, "baseRefOid");
         checkState(head.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})") && base.matches("(?:[0-9a-f]{40}|[0-9a-f]{64})"), "GitHub returned an invalid PR revision");
         checkState(head.equals(deliveryText(row.path("headRef").path("target"), "oid")), "The pull-request head branch changed or is missing");
-        checkState(base.equals(deliveryText(row.path("baseRef").path("target"), "oid")), "The pull-request base branch changed or is missing");
+        // GitHub records baseRefOid at the last push, so a base branch that moved on since then is normal and leaves head checks valid.
+        checkState(row.path("baseRef").path("target").path("oid").isTextual(), "The pull-request base branch is missing");
         return new GitHubPullRequestIdentity(pullRequest, deliveryText(row, "url"), headRepository, deliveryText(row, "headRefName"), head,
                 baseRepository, deliveryText(row, "baseRefName"), base, GitHubPullRequestIdentity.State.valueOf(deliveryText(row, "state")),
                 row.path("isDraft").booleanValue(), deliveryText(row.path("author"), "login"));

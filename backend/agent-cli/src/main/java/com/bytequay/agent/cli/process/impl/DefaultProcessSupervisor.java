@@ -663,7 +663,8 @@ public final class DefaultProcessSupervisor
         private final long processSession;
         private final ProcessSpec spec;
         private final ProcessOutputSink output;
-        private final Instant startedAt = Instant.now();
+        // Monotonic: a wall-clock step back would make the duration negative, and the exit could never be recorded.
+        private final long startedNanos = System.nanoTime();
         private final Object inputLock = new Object();
         private final Object outputLock = new Object();
         private final Object terminationLock = new Object();
@@ -1053,7 +1054,7 @@ public final class DefaultProcessSupervisor
                         launcher.exitValue(),
                         reason.get(),
                         verifyTreeStopped(),
-                        Duration.between(startedAt, Instant.now()),
+                        Duration.ofNanos(System.nanoTime() - startedNanos),
                         stdoutTruncated.get(),
                         stderrTruncated.get())));
             });

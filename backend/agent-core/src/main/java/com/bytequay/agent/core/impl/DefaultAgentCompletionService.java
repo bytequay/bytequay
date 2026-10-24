@@ -379,6 +379,8 @@ public final class DefaultAgentCompletionService
             AgentTask task = taskStore.require(taskId);
             resourceService.pathsForDeletion(taskId);
             runtimeRegistry.requireNoWorktreeBorrowers(task);
+            // Refused here, not by the row delete below: by then the checkout and transcript would already be gone.
+            taskStore.requireDeletable(taskId);
             AgentTask prepared = prepareIdleWorktree(task);
             prepared.taskWorktree().filter(ignored -> prepared.ownsWorktree()).ifPresent(worktreeService::delete);
             resourceService.delete(taskId);

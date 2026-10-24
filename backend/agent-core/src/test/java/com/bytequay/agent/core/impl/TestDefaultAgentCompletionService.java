@@ -78,6 +78,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 
 class TestDefaultAgentCompletionService
@@ -504,6 +505,26 @@ class TestDefaultAgentCompletionService
 
         assertThat(worktrees.deleted).hasSize(1);
         assertThat(stores.find(taskId)).isEmpty();
+    }
+
+    @Test
+    void keepsCheckoutAndTranscriptWhenTheStoreRefusesTheDelete()
+    {
+        InMemoryAgentStores refusing = spy(stores);
+        doThrow(new AgentConflictException("Task has an active branch rebase: " + taskId)).when(refusing).requireDeletable(taskId);
+        Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        StaticTaskLog log = new StaticTaskLog(taskId);
+        DefaultAgentCompletionService service = new DefaultAgentCompletionService(refusing, stores, stores, stores, stores,
+                new DefaultAgentEventService(log, stores, stores, clock), log, worktrees, resources, runtimeRegistry, metrics,
+                () -> Duration.ofDays(7), clock, task -> idleWorktreePreparation.apply(task));
+
+        assertThatThrownBy(() -> service.delete(taskId))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("active branch rebase");
+
+        assertThat(worktrees.deleted).isEmpty();
+        assertThat(resourceDeletions).isZero();
+        assertThat(stores.find(taskId)).isPresent();
     }
 
     @Test

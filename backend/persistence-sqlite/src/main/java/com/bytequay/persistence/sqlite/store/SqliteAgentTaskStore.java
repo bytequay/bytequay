@@ -196,14 +196,21 @@ public class SqliteAgentTaskStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public void requireDeletable(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        if (rebases.existsByAgentTaskIdAndTerminalAtIsNull(taskId.toString())) {
+            throw new AgentConflictException("Task has an active branch rebase: " + taskId);
+        }
+    }
+
+    @Override
     @Transactional
     public void delete(TaskId taskId)
     {
-        requireNonNull(taskId, "taskId is null");
+        requireDeletable(taskId);
         String id = taskId.toString();
-        if (rebases.existsByAgentTaskIdAndTerminalAtIsNull(id)) {
-            throw new AgentConflictException("Task has an active branch rebase: " + taskId);
-        }
         rebases.deleteByAgentTaskId(id);
         recentTouches.deleteByItemKey("task:" + id);
         recentTexts.deleteByItemKey("task:" + id);

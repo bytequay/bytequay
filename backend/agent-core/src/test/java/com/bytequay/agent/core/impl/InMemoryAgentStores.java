@@ -166,6 +166,12 @@ final class InMemoryAgentStores
     }
 
     @Override
+    public void requireDeletable(TaskId taskId)
+    {
+        // No other feature's rows live here.
+    }
+
+    @Override
     public synchronized void delete(TaskId taskId)
     {
         tasks.remove(taskId);

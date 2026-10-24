@@ -390,6 +390,7 @@ class TestSqliteWorkspaceStore
         entities.flush();
 
         assertThat(store.hasActiveWorkflows(workspace.id())).isTrue();
+        assertThatThrownBy(() -> tasks.requireDeletable(task.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("active branch rebase");
         assertThatThrownBy(() -> tasks.delete(task.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("active branch rebase");
         jdbc.update("UPDATE branch_rebase SET terminal_at = ?, status = 'FINISHED' WHERE id = ?", NOW.toString(), rebase.id().toString());
         entities.clear();

@@ -125,6 +125,14 @@ public interface AgentTaskStore
     List<AgentTask> listArchiveDue(Instant completedBefore, int limit);
 
     /**
+     * Refuses a delete the store would refuse, before the caller removes the task's files.
+     *
+     * @param taskId task about to be removed
+     * @throws com.bytequay.agent.core.AgentConflictException when a row of another feature still needs the task
+     */
+    void requireDeletable(TaskId taskId);
+
+    /**
      * Removes a task and every durable row that hangs off it: turns, approvals, queued inputs,
      * steer deliveries, outbox entries, and process launches. An absent task is ignored.
      *

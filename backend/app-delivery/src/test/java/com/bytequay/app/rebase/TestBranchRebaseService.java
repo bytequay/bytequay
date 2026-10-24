@@ -76,6 +76,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.commit;
 import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.git;
@@ -125,7 +126,7 @@ class TestBranchRebaseService
 
         AgentTaskService tasks = mock(AgentTaskService.class);
         WorktreeService worktrees = mock(WorktreeService.class);
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 false,
                 "Rebase feature",

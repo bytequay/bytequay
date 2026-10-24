@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.agent.spi.AgentPermissionPolicy.AUTO;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.bytequay.app.service.settings.AgentSkillScope.DEVELOPMENT;
@@ -302,7 +303,7 @@ class TestAgentSkillService
 
     private static AgentTask task(String lane, boolean interactive, AgentPermissionPolicy permission)
     {
-        return AgentTask.created(
+        return created(
                 TaskId.random(),
                 Optional.of("workspace"),
                 interactive,

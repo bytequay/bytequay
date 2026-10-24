@@ -46,6 +46,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.agent.runtime.AgentServingGates.readyAgentServingGate;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -87,7 +88,7 @@ class TestCiAutofixMonitoring
         CiAutofixRun finished = run()
                 .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
                 .finish(CiAutofixRun.FinishReason.CANCELLED, "cancelled", Instant.parse("2026-08-18T00:00:02Z"));
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 Optional.empty(),
                 false,
@@ -115,7 +116,7 @@ class TestCiAutofixMonitoring
                 .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
                 .finish(CiAutofixRun.FinishReason.GREEN, "green", Instant.parse("2026-08-18T00:00:02Z"));
         Instant now = Instant.parse("2026-08-18T00:00:00Z");
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                         taskId,
                         Optional.empty(),
                         false,
@@ -126,7 +127,7 @@ class TestCiAutofixMonitoring
                         AgentPermissionPolicy.CI_AUTOFIX,
                         now)
                 .fail("finished", now.plusSeconds(1), now.plus(Duration.ofDays(7)));
-        AgentTask unfinishedTask = AgentTask.created(
+        AgentTask unfinishedTask = created(
                         unfinishedTaskId,
                         Optional.empty(),
                         false,
@@ -199,7 +200,7 @@ class TestCiAutofixMonitoring
 
     private static AgentTask liveTask()
     {
-        return AgentTask.created(TaskId.random(), Optional.empty(), false, "CI Autofix", AgentLaneId.CODEX_CLI,
+        return created(TaskId.random(), Optional.empty(), false, "CI Autofix", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"), Path.of("/tmp/bytequay-ci-monitor"), AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(120));
     }
 

@@ -33,6 +33,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -132,7 +133,7 @@ class TestSqliteJiraIssueTaskStore
 
     private static AgentTask task()
     {
-        return AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Jira development", AgentLaneId.CODEX_CLI,
+        return created(TaskId.random(), Optional.of("workspace"), true, "Jira development", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", "repo"), Path.of("/tmp/bytequay-jira-worktree"), AgentPermissionPolicy.AUTO, NOW);
     }
 }

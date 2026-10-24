@@ -46,6 +46,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.IntFunction;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
@@ -73,7 +74,7 @@ class TestContextSpecCheckTools
     @BeforeEach
     void setUp()
     {
-        AgentTask task = AgentTask.created(TASK, Optional.of(WORKSPACE), false, "Check", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
+        AgentTask task = created(TASK, Optional.of(WORKSPACE), false, "Check", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/check"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH)
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(TURN, Instant.EPOCH), Instant.EPOCH);
         when(tasks.find(TASK)).thenReturn(Optional.of(task));

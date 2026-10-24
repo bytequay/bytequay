@@ -131,6 +131,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.discoveryCandidate;
 import static com.bytequay.app.review.ReviewTestData.perspectives;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
@@ -447,14 +448,14 @@ class TestAgentReviewService
         TaskId id = TaskId.valueOf("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
         TaskWorktree worktree = new TaskWorktree(id, WORKSPACE, new RepositoryIdentity("owner", "repo"), Path.of("/tmp/bytequay/worktrees").resolve(id.toString()),
                 "bytequay/task/" + id, startCommit);
-        return AgentTask.created(id, true, "Handle missing configuration", TitleSource.USER, LANE, worktree, DEFAULTS, NOW);
+        return created(id, true, "Handle missing configuration", TitleSource.USER, LANE, worktree, DEFAULTS, NOW);
     }
 
     private static void localSource(Fixture fixture, AgentTask source, String head)
     {
         when(fixture.tasks.getInteractive(WORKSPACE, source.id())).thenReturn(source);
         when(fixture.tasks.get(source.id())).thenReturn(source);
-        AgentTask reviewer = AgentTask.created(TASK_ID, false, "Review", TitleSource.USER, idleTask().laneId(), source.taskWorktree().orElseThrow(), idleTask().defaults(), NOW);
+        AgentTask reviewer = created(TASK_ID, false, "Review", TitleSource.USER, idleTask().laneId(), source.taskWorktree().orElseThrow(), idleTask().defaults(), NOW);
         when(fixture.tasks.createShared(any(CreateAgentTaskCommand.class), eq(source.id()))).thenReturn(reviewer);
         when(fixture.tasks.get(TASK_ID)).thenReturn(reviewer);
         doAnswer(invocation -> {
@@ -3337,7 +3338,7 @@ class TestAgentReviewService
 
     private static AgentTask idleTask()
     {
-        return AgentTask.created(TASK_ID, true, "Review owner/repo#7", TitleSource.USER, LANE, taskWorktree(), DEFAULTS, NOW);
+        return created(TASK_ID, true, "Review owner/repo#7", TitleSource.USER, LANE, taskWorktree(), DEFAULTS, NOW);
     }
 
     private static AgentTask busyTask()

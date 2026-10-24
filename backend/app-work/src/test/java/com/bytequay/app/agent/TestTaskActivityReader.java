@@ -41,6 +41,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -104,7 +105,7 @@ class TestTaskActivityReader
 
     private static AgentTask task()
     {
-        return AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Fix the checkpoint", new AgentLaneId("codex"),
+        return created(TaskId.random(), Optional.of("workspace"), true, "Fix the checkpoint", new AgentLaneId("codex"),
                 new RepositoryIdentity("owner", "repository"), Path.of("/tmp/activity-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 

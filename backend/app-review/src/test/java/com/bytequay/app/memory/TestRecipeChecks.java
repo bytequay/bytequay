@@ -46,6 +46,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -62,7 +63,7 @@ class TestRecipeChecks
     private final AgentEventService events = mock(AgentEventService.class);
     private final RecipeChecks checks = new RecipeChecks(memories, events);
     private final List<AgentEventEnvelope> log = new ArrayList<>();
-    private final AgentTask task = AgentTask.created(taskId, Optional.of("workspace"), true, "Development", new AgentLaneId("codex"),
+    private final AgentTask task = created(taskId, Optional.of("workspace"), true, "Development", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repository"), Path.of("/tmp/recipe-checks"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     private final AgentTurn turn = AgentTurn.accepted(turnId, taskId, "turn", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
             Duration.ofHours(1), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);

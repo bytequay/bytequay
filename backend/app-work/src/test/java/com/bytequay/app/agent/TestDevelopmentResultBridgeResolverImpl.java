@@ -39,6 +39,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -150,7 +151,7 @@ class TestDevelopmentResultBridgeResolverImpl
 
     private AgentTask task(boolean interactive, Optional<DevelopmentAutomation> automation)
     {
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 TaskId.random(), Optional.of("workspace"), interactive, "Development", new AgentLaneId("codex"),
                 new RepositoryIdentity("bytequay", "sample"), Path.of("/tmp/development-worktree"),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), automation), Instant.now());

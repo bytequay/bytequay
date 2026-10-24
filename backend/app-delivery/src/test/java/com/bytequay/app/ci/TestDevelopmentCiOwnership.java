@@ -57,6 +57,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -269,7 +270,7 @@ class TestDevelopmentCiOwnership
         TaskId id = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(id, "workspace", new RepositoryIdentity(repository.owner(), repository.repo()),
                 Path.of("/tmp/ci-ownership").resolve(id.toString()), "bytequay/task/" + id, HEAD);
-        return AgentTask.created(id, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        return created(id, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static CiAutofixRun run(AgentTask source, RepoRef headRepository, Optional<String> parent)

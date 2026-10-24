@@ -63,6 +63,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.anySet;
@@ -530,7 +531,7 @@ class TestRecentService
 
     private static AgentTask task(TaskId taskId, boolean interactive)
     {
-        return AgentTask.created(
+        return created(
                 taskId, Optional.of("ws-1"), interactive, "task prompt", new AgentLaneId("codex"),
                 new RepositoryIdentity("personal", "repo"), Path.of("/tmp/recent-test-worktree"), AgentPermissionPolicy.AUTO, NOW);
     }

@@ -23,6 +23,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -88,7 +89,7 @@ class TestAgentTaskLifecycle
         assertThat(renamed.updatedAt()).isEqualTo(CREATED_AT.plusSeconds(1));
 
         TaskId taskId = TaskId.random();
-        AgentTask provisional = AgentTask.created(
+        AgentTask provisional = created(
                 taskId,
                 true,
                 "first message",
@@ -115,7 +116,7 @@ class TestAgentTaskLifecycle
     @Test
     void interactiveTaskRequiresWorkspace()
     {
-        assertThatThrownBy(() -> AgentTask.created(
+        assertThatThrownBy(() -> created(
                 TaskId.random(),
                 Optional.empty(),
                 true,
@@ -145,7 +146,7 @@ class TestAgentTaskLifecycle
 
     private static AgentTask newTask()
     {
-        return AgentTask.created(
+        return created(
                 TaskId.valueOf("123e4567-e89b-12d3-a456-426614174000"),
                 Optional.empty(),
                 false,

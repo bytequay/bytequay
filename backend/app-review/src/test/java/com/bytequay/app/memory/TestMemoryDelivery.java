@@ -58,6 +58,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static com.bytequay.app.memory.MemoryFixtures.rule;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
@@ -124,7 +125,7 @@ class TestMemoryDelivery
         store.save(rule("m3", "workspace", "Delta Lake writer cleanup", "Delta writes leave cleanup to abort().", ImmutableList.of("plugin/storage/"))
                 .reported(new MemoryReport("The writer cleans up in finish() now", "", "task", NOW), NOW));
         store.save(rule("m5", "workspace", "Iceberg rule", ImmutableList.of("plugin/catalog/")));
-        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
+        AgentTask review = created(taskId, Optional.of("workspace"), false, "Review", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(pullRequestReview("review", "workspace", "owner/repository", 1, taskId.toString(), NOW)));
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("plugin/storage/src/DeltaLakeWriter.java")));
@@ -144,7 +145,7 @@ class TestMemoryDelivery
     {
         store.save(rule("m1", "workspace", "Rule from an earlier pull request.", ImmutableList.of(), 30000));
         store.save(rule("m2", "workspace", "Rule from the replayed pull request.", ImmutableList.of(), 31188));
-        AgentTask review = AgentTask.created(taskId, Optional.of("workspace"), false, "Replay", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
+        AgentTask review = created(taskId, Optional.of("workspace"), false, "Replay", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 repository, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run("core/A.java")));
 
@@ -240,7 +241,7 @@ class TestMemoryDelivery
     private AgentTask task(String startCommit)
     {
         TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repository"), repository, "bytequay/task/" + taskId, startCommit);
-        return AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        return created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private AgentTurn turn(boolean memoryOn)

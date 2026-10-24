@@ -45,6 +45,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static com.bytequay.app.memory.MemoryFixtures.rule;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
@@ -307,7 +308,7 @@ class TestMemoryBridgeResolverImpl
 
     private AgentTask task(boolean interactive, String workspaceId)
     {
-        AgentTask task = AgentTask.created(TaskId.random(), Optional.of(workspaceId), interactive, "Task", new AgentLaneId("codex"),
+        AgentTask task = created(TaskId.random(), Optional.of(workspaceId), interactive, "Task", new AgentLaneId("codex"),
                 new RepositoryIdentity("owner", "repository"), Path.of("/tmp/memory-worktree"),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), NOW);
         when(tasks.find(task.id())).thenReturn(Optional.of(task));

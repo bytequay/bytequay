@@ -73,6 +73,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -125,7 +126,7 @@ class TestPullRequestCiBridgeResolverImpl
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf(FORK.fullName()),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
-    private final AgentTask task = AgentTask.created(taskId, true, "Fix Delta Lake metadata", TitleSource.USER, AgentLaneId.CODEX_CLI,
+    private final AgentTask task = created(taskId, true, "Fix Delta Lake metadata", TitleSource.USER, AgentLaneId.CODEX_CLI,
             worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     private final CiHeadSnapshot failing = snapshot(PR, HEAD, 1, "check-commit-messages", "failure");
 
@@ -503,7 +504,7 @@ class TestPullRequestCiBridgeResolverImpl
     void autofixToolsUseTheAuthorizedPullRequestAndHeadWithoutBranchDiscovery()
             throws Exception
     {
-        AgentTask autofix = AgentTask.created(taskId, false, "Fix CI", TitleSource.USER, AgentLaneId.CODEX_CLI,
+        AgentTask autofix = created(taskId, false, "Fix CI", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX), NOW);
         CiAutofixRun run = mock(CiAutofixRun.class, withSettings().mockMaker(MockMakers.INLINE));
         when(run.scope()).thenReturn(new CiAutofixRun.Scope(PR, FORK, "workspace", FORK, "alice", BRANCH, "master", "codex-cli", Optional.empty()));

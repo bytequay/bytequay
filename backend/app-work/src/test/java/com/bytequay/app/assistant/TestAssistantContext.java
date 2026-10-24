@@ -95,6 +95,7 @@ import java.util.OptionalInt;
 import java.util.Set;
 import java.util.stream.IntStream;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -461,7 +462,7 @@ class TestAssistantContext
 
     private static AgentTask task(String title, String lane)
     {
-        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("owner", "repository"),
+        return created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId(lane), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
     }
 

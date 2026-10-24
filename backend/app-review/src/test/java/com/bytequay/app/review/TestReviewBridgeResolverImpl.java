@@ -31,6 +31,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -89,7 +90,7 @@ class TestReviewBridgeResolverImpl
 
     private AgentTask task()
     {
-        return AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Development", AgentLaneId.CODEX_CLI,
+        return created(TaskId.random(), Optional.of("workspace"), true, "Development", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", "repo"), Path.of("/tmp/development-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 }

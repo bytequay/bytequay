@@ -138,6 +138,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 import java.util.function.UnaryOperator;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.agent.spi.ProviderAgentEventSource.root;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
@@ -213,7 +214,7 @@ class TestDefaultAgentTurnService
     void sharedCheckoutClaimsExcludeDeveloperAndReviewerInBothDirections()
     {
         TaskId reviewerId = TaskId.random();
-        AgentTask reviewer = AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(),
+        AgentTask reviewer = created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(),
                 task.taskWorktree().orElseThrow(), task.defaults(), NOW);
         stores.insert(reviewer);
         resources.allocate(reviewerId);
@@ -235,7 +236,7 @@ class TestDefaultAgentTurnService
     void aReviewBetweenItsTurnsKeepsTheSharedCheckoutFromTheDeveloper()
     {
         TaskId reviewerId = TaskId.random();
-        stores.insert(AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(), task.defaults(), NOW));
+        stores.insert(created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(), task.defaults(), NOW));
         resources.allocate(reviewerId);
         AtomicBoolean reviewing = new AtomicBoolean(true);
         runtimeRegistry = new AgentRuntimeRegistry(stores, ignored -> {}, other -> other.id().equals(reviewerId) && reviewing.get(), true);
@@ -442,7 +443,7 @@ class TestDefaultAgentTurnService
         List<Runnable> queueStarts = new ArrayList<>();
         service = service(driver, runtimeRegistry, events, approvals, CLOCK, queueStarts::add);
         TaskId reviewerId = TaskId.random();
-        stores.insert(AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(), task.defaults(), NOW));
+        stores.insert(created(reviewerId, false, "Reviewer", TitleSource.USER, task.laneId(), task.taskWorktree().orElseThrow(), task.defaults(), NOW));
         resources.allocate(reviewerId);
         service.start(command("first", "key-1"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(

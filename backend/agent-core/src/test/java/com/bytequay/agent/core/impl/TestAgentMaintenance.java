@@ -57,6 +57,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -559,7 +560,7 @@ class TestAgentMaintenance
                 WORKTREE.resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(taskId, true, "Archive test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        return created(taskId, true, "Archive test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static TaskSummary summary()
@@ -576,6 +577,6 @@ class TestAgentMaintenance
                 WORKTREE.resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(taskId, false, "Recovery test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), NOW);
+        return created(taskId, false, "Recovery test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), NOW);
     }
 }

@@ -69,6 +69,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.AUTO_COMMIT;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.REFINE_SUMMARY;
@@ -119,7 +120,7 @@ class TestDevelopmentFollowupCoordinator
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
     private DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
             "https://github.com/owner/repo.git", "origin", "main", BASE, worktree.generatedBranch(), Optional.empty());
-    private AgentTask task = AgentTask.created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+    private AgentTask task = created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(FULL), NOW);
     private AgentTurn source;
     private DevelopmentTurnCompletion outcome;

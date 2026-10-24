@@ -103,6 +103,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.openReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -857,7 +858,7 @@ class TestTaskDiscussionAnswers
     {
         TaskWorktree worktree = new TaskWorktree(REVIEW_TASK, "w1", new RepositoryIdentity("owner", "repo"),
                 Path.of("/tmp/bytequay-discussions").resolve(REVIEW_TASK.toString()), "bytequay/task/" + REVIEW_TASK, "c".repeat(40));
-        return AgentTask.created(REVIEW_TASK, false, "Review owner/repo#12", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree,
+        return created(REVIEW_TASK, false, "Review owner/repo#12", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree,
                 new AgentTaskDefaults(Optional.of("opus"), Optional.empty(), AgentPermissionPolicy.AUTO), NOW);
     }
 
@@ -920,7 +921,7 @@ class TestTaskDiscussionAnswers
 
     private static AgentTask task()
     {
-        return AgentTask.created(TASK, true, "Discussable task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree(),
+        return created(TASK, true, "Discussable task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree(),
                 new AgentTaskDefaults(Optional.of("opus"), Optional.empty(), AgentPermissionPolicy.AUTO), NOW);
     }
 

@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -66,7 +67,7 @@ class TestPullRequestContextBridgeResolverImpl
     @BeforeEach
     void setUp()
     {
-        AgentTask task = AgentTask.created(id, true, "PR task", TitleSource.USER, AgentLaneId.CODEX_CLI,
+        AgentTask task = created(id, true, "PR task", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 new TaskWorktree(id, "workspace", RepositoryIdentity.valueOf("owner/repo"), Path.of("/tmp", id.toString()), "bytequay/task/" + id, "a".repeat(40)),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.find(id)).thenReturn(Optional.of(task));

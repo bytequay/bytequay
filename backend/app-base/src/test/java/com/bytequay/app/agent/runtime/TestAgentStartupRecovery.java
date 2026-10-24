@@ -67,6 +67,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -763,7 +764,7 @@ class TestAgentStartupRecovery
 
     private static AgentTask openTask(TaskId taskId)
     {
-        return AgentTask.created(
+        return created(
                 taskId,
                 Optional.empty(),
                 false,

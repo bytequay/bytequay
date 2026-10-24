@@ -48,6 +48,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.agent.runtime.AgentServingGates.readyAgentServingGate;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
@@ -81,7 +82,7 @@ class TestCherryPickMonitoring
         CherryPickExecutionService service = mock(CherryPickExecutionService.class);
         TaskId orphanedTaskId = TaskId.random();
         TaskId taskId = TaskId.random();
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                         taskId,
                         Optional.empty(),
                         false,
@@ -92,7 +93,7 @@ class TestCherryPickMonitoring
                         AgentPermissionPolicy.CHERRY_PICK,
                         NOW)
                 .fail("finished", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)));
-        AgentTask orphanedTask = AgentTask.created(
+        AgentTask orphanedTask = created(
                         orphanedTaskId,
                         Optional.empty(),
                         false,
@@ -123,7 +124,7 @@ class TestCherryPickMonitoring
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CherryPickExecutionService service = mock(CherryPickExecutionService.class);
         TaskId taskId = TaskId.random();
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 Optional.empty(),
                 false,

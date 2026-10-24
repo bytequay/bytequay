@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestDefaultAgentMetricsService
@@ -66,7 +67,7 @@ class TestDefaultAgentMetricsService
         stores = new InMemoryAgentStores();
         clock = new MutableClock(NOW);
         service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
-        task = AgentTask.created(
+        task = created(
                 TaskId.random(),
                 Optional.empty(),
                 false,

@@ -65,6 +65,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -85,7 +86,7 @@ class TestAppNoticeService
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final EpicNextWork next = mock(EpicNextWork.class);
     private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, new ObjectMapper());
-    private final AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
+    private final AgentTask task = created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
     @Test
@@ -237,7 +238,7 @@ class TestAppNoticeService
         when(tasks.listRecent(200)).thenReturn(ImmutableList.of());
         approval(turns.list(task.id()).getFirst(), ImmutableList.of("AskUserQuestion"), "");
         assertThat(service.current()).hasSize(1);
-        AgentTask internal = AgentTask.created(TaskId.random(), Optional.of("workspace"), false, "Internal", new AgentLaneId("codex"),
+        AgentTask internal = created(TaskId.random(), Optional.of("workspace"), false, "Internal", new AgentLaneId("codex"),
                 task.repository(), task.worktree(), task.defaults(), NOW);
         when(tasks.listLive()).thenReturn(ImmutableList.of(internal));
         assertThat(service.current()).isEmpty();
@@ -246,7 +247,7 @@ class TestAppNoticeService
     @Test
     void includesReviewTasksAndRoutesTheirCompletionAndRequestsToTheReview()
     {
-        AgentTask reviewer = AgentTask.created(TaskId.random(), task.workspaceId(), false, "Review owner/repo#42", task.laneId(),
+        AgentTask reviewer = created(TaskId.random(), task.workspaceId(), false, "Review owner/repo#42", task.laneId(),
                 new RepositoryIdentity("fork-owner", "repo"), task.worktree(), task.defaults(), NOW);
         AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 42, reviewer.id().toString(), NOW);
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));

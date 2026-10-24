@@ -67,6 +67,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -281,7 +282,7 @@ class TestRunningTaskReader
 
     private static AgentTask task(boolean interactive)
     {
-        return AgentTask.created(TaskId.random(), Optional.of("workspace"), interactive, "Fix the connector", new AgentLaneId("codex"),
+        return created(TaskId.random(), Optional.of("workspace"), interactive, "Fix the connector", new AgentLaneId("codex"),
                 new RepositoryIdentity("owner", "repo"), Path.of("/tmp/running-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
     }
 

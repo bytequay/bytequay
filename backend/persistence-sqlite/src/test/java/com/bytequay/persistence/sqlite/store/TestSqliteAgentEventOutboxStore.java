@@ -51,6 +51,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -128,7 +129,7 @@ class TestSqliteAgentEventOutboxStore
     void rollsBackTaskStateAndItsOutboxEventTogether()
     {
         TaskId taskId = TaskId.random();
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 Optional.empty(),
                 false,
@@ -163,7 +164,7 @@ class TestSqliteAgentEventOutboxStore
     void rollsBackAcceptedTurnAndItsUserMessageTogether()
     {
         TaskId taskId = TaskId.random();
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 Optional.empty(),
                 false,
@@ -257,7 +258,7 @@ class TestSqliteAgentEventOutboxStore
     void rejectsUndrainableBlobAndRollsBackTheTaskMutation()
     {
         TaskId taskId = TaskId.random();
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 Optional.empty(),
                 false,

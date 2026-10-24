@@ -81,6 +81,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -406,7 +407,7 @@ class TestReviewRuntimeRecovery
 
     private static AgentTask task()
     {
-        return AgentTask.created(
+        return created(
                 TASK_ID, Optional.of("workspace-1"), false, "Review owner/repo#7", new AgentLaneId("claude"), new RepositoryIdentity("owner", "repo"),
                 Path.of("/tmp/review-worktree"), new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty()), NOW);
     }

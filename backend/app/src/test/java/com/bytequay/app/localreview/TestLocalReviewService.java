@@ -90,6 +90,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.openReview;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -144,7 +145,7 @@ class TestLocalReviewService
         Files.createDirectories(paths.workspace("workspace"));
         TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
                 paths.canonicalTaskWorktree("workspace", taskId.toString()), "bytequay/task/" + taskId, "a".repeat(40));
-        task = AgentTask.created(taskId, true, "Task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+        task = created(taskId, true, "Task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
         when(tasks.get(taskId)).thenReturn(task);
@@ -435,7 +436,7 @@ class TestLocalReviewService
     @Test
     void reviewOwnedTaskAcceptsPrivateCommentsWithoutDevelopmentDelivery()
     {
-        task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
+        task = created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
         AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 7, taskId.toString(), Instant.EPOCH);
@@ -546,7 +547,7 @@ class TestLocalReviewService
     @Test
     void reviewTaskReadsNoFindingsThroughTheLocalReviewTools()
     {
-        task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
+        task = created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.get(taskId)).thenReturn(task);
         AgentReview review = pullRequestReview("review", "workspace", "owner/repo", 7, taskId.toString(), Instant.EPOCH);

@@ -68,6 +68,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -142,7 +143,7 @@ class TestPullRequestTaskService
                 .thenReturn(new GitCommandRunner.Result(0, BASE, false));
         when(tasks.createInteractive(any())).thenAnswer(invocation -> {
             CreateInteractiveAgentTaskCommand command = invocation.getArgument(0);
-            AgentTask task = AgentTask.created(command.taskId(), true, command.message(), TitleSource.PROVISIONAL, command.laneId(),
+            AgentTask task = created(command.taskId(), true, command.message(), TitleSource.PROVISIONAL, command.laneId(),
                     new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(), Path.of("/tmp").resolve(command.taskId().toString()),
                             command.generatedBranch(), command.startCommit()), command.defaults(), Instant.now());
             created.set(task);
@@ -321,7 +322,7 @@ class TestPullRequestTaskService
     void reusesTheOriginalKeyForAnExistingPullRequestTask()
     {
         TaskId id = TaskId.random();
-        AgentTask task = AgentTask.created(id, true, "DeepSeek task", TitleSource.USER, DEEPSEEK_LANE,
+        AgentTask task = created(id, true, "DeepSeek task", TitleSource.USER, DEEPSEEK_LANE,
                 new TaskWorktree(id, "workspace", new RepositoryIdentity("alice", "repo"), Path.of("/tmp").resolve(id.toString()), "bytequay/task/" + id, HEAD),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.now());
         created.set(task);

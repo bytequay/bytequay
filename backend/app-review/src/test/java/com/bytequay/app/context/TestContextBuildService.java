@@ -80,6 +80,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -157,7 +158,7 @@ class TestContextBuildService
             assertThat(bound.branch()).isEqualTo(command.generatedBranch());
             TaskWorktree tree = new TaskWorktree(command.taskId(), WORKSPACE, command.physicalRepository(),
                     Path.of("/tmp/context-check-tasks").resolve(command.taskId().toString()), command.generatedBranch(), command.startCommit());
-            AgentTask task = AgentTask.created(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), tree, command.defaults(), NOW);
+            AgentTask task = created(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), tree, command.defaults(), NOW);
             savedTasks.put(task.id(), task);
             return task;
         });

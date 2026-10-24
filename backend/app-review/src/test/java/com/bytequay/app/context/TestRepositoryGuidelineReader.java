@@ -50,6 +50,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -254,7 +255,7 @@ final class TestRepositoryGuidelineReader
     private AgentTask task(String startCommit)
     {
         TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("example", "project"), repository, "bytequay/task/" + taskId, startCommit);
-        return AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+        return created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
     }
 

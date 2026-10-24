@@ -45,6 +45,7 @@ import java.util.Deque;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static java.util.Objects.requireNonNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -180,7 +181,7 @@ final class ScriptedCherryPickAgent
         if (task != null) {
             throw new AgentConflictException("Task already exists: " + command.taskId());
         }
-        task = AgentTask.created(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), worktree, command.defaults(), NOW);
+        task = created(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), worktree, command.defaults(), NOW);
         return task;
     }
 

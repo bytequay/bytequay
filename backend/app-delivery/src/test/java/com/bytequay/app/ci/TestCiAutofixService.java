@@ -129,6 +129,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -214,7 +215,7 @@ class TestCiAutofixService
         worktree = Files.createDirectory(temporaryDirectory.resolve(taskId.toString())).toRealPath();
         taskWorktree = new TaskWorktree(taskId, "workspace-1", REPOSITORY, worktree, "bytequay/task/" + taskId, HEAD);
         turnId = TurnId.random();
-        openTask = AgentTask.created(
+        openTask = created(
                 taskId,
                 false,
                 "CI Autofix " + PULL_REQUEST.fullName(),
@@ -2284,7 +2285,7 @@ class TestCiAutofixService
                 snapshot.baseRef(), snapshot.baseSha(), snapshot.url(), snapshot.workflowRuns());
         when(gitHub.inspect(any())).thenReturn(snapshot);
         TaskWorktree source = new TaskWorktree(parent, "workspace-1", REPOSITORY, temporaryDirectory.resolve(parent.toString()), branch, HEAD);
-        return AgentTask.created(parent, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, source,
+        return created(parent, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, source,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW).withDevelopmentContinuation(true, NOW);
     }
 
@@ -2492,7 +2493,7 @@ class TestCiAutofixService
             throw new AssertionError(failure);
         }
         taskWorktree = new TaskWorktree(taskId, command.workspaceId(), command.physicalRepository(), worktree, command.generatedBranch(), command.startCommit());
-        openTask = AgentTask.created(taskId, false, command.title(), TitleSource.USER, command.laneId(), taskWorktree, command.defaults(), NOW);
+        openTask = created(taskId, false, command.title(), TitleSource.USER, command.laneId(), taskWorktree, command.defaults(), NOW);
         runningTurn = runningTurn(turnId, "provider-turn", "ignored");
         return openTask;
     }

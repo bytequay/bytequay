@@ -50,6 +50,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_FOR_TASK;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
@@ -277,7 +278,7 @@ class TestSqliteAgentApprovalStore
 
     private static AgentTask task(TaskId taskId)
     {
-        return AgentTask.created(
+        return created(
                 taskId,
                 Optional.empty(),
                 false,

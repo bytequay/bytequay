@@ -16,7 +16,6 @@ package com.bytequay.app.context;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
-import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -68,6 +67,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Predicate;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -127,7 +127,7 @@ class TestContextSpecCheckService
         });
         TaskWorktree tree = new TaskWorktree(TASK, WORKSPACE, new RepositoryIdentity("owner", "repository"), Path.of("/tmp/bytequay-context", TASK.toString()),
                 "bytequay/task/" + TASK, SHA);
-        when(tasks.find(TASK)).thenReturn(Optional.of(AgentTask.created(TASK, false, "Check owner/repository", TitleSource.USER, AgentLaneId.CODEX_CLI, tree,
+        when(tasks.find(TASK)).thenReturn(Optional.of(created(TASK, false, "Check owner/repository", TitleSource.USER, AgentLaneId.CODEX_CLI, tree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW)));
         when(worktrees.ownedCheckout(tree)).thenReturn(worktree);
     }

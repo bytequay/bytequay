@@ -67,6 +67,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.tuple;
@@ -303,7 +304,7 @@ class TestReviewFixService
         TaskId id = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(id, "w1", new RepositoryIdentity("owner", "repo"), Path.of("/managed/worktrees", id.toString()), "bytequay/task/" + id,
                 "a".repeat(40));
-        AgentTask created = AgentTask.created(id, true, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree,
+        AgentTask created = created(id, true, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), CREATED);
         return created.withDefaults(created.defaults().withDevelopmentAutomation(new DevelopmentAutomation(true, level, Optional.empty())), CREATED);
     }

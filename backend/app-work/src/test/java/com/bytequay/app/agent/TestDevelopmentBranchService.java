@@ -55,6 +55,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -80,7 +81,7 @@ class TestDevelopmentBranchService
     private final TurnId turnId = TurnId.random();
     private final TaskWorktree worktree = new TaskWorktree(id, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", id.toString()), "contributor/bytequay/find-and-fix-issue", "a".repeat(40));
-    private final AgentTask task = AgentTask.created(id, true, "Find an issue", TitleSource.AGENT, AgentLaneId.CODEX_CLI, worktree,
+    private final AgentTask task = created(id, true, "Find an issue", TitleSource.AGENT, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(DevelopmentAutomation.DEFAULT), NOW)
             .claimWorktreeMutation(WorktreeMutationClaim.turn(turnId, NOW), NOW);
     private final AgentTurn turn = AgentTurn.accepted(turnId, id, "request", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
@@ -232,7 +233,7 @@ class TestDevelopmentBranchService
     {
         service.propose(id, SUFFIX);
         finishTurn(TurnState.COMPLETED);
-        AgentTask borrower = AgentTask.created(TaskId.random(), false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+        AgentTask borrower = created(TaskId.random(), false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
                 task.defaults(), NOW);
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(currentTask.get(), borrower));
 

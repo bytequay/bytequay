@@ -51,6 +51,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -210,7 +211,7 @@ class TestInteractiveAgentHttpContract
     {
         Instant now = Instant.parse("2026-09-01T00:00:00Z");
         TaskId taskId = TaskId.random();
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 Optional.of("workspace-1"),
                 true,

@@ -83,6 +83,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -135,7 +136,7 @@ class TestBackportChainService
     void setUp()
     {
         var id = TaskId.random();
-        source = AgentTask.created(id, true, "Fix the build", TitleSource.USER, AgentLaneId.CODEX_CLI,
+        source = created(id, true, "Fix the build", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 new TaskWorktree(id, "p4", new RepositoryIdentity("test", "p4"), Path.of("/tmp", id.toString()), "bytequay/task/" + id, BASE),
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO), NOW);
         turn = AgentTurn.accepted(TurnId.random(), id, "human", new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO,
@@ -404,7 +405,7 @@ class TestBackportChainService
     void p2UsesOnlyItsLinkedP4FixAndNeverItsInvestigationOrOwnPr()
     {
         var id = TaskId.random();
-        var owner = AgentTask.created(id, true, "Private request", TitleSource.USER, AgentLaneId.CODEX_CLI,
+        var owner = created(id, true, "Private request", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 new TaskWorktree(id, "p2", new RepositoryIdentity("test", "p2"), Path.of("/tmp", id.toString()), "bytequay/task/" + id, BASE),
                 source.defaults(), NOW);
         var accepted = AgentTurn.accepted(TurnId.random(), id, "user", turn.settings().orElseThrow(), NOW);

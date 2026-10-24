@@ -92,6 +92,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.CALLS_REAL_METHODS;
 import static org.mockito.Mockito.doThrow;
@@ -243,7 +244,7 @@ class TestAgentHttpErrors
                 Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                 taskId,
                 true,
                 "Delete me",
@@ -284,7 +285,7 @@ class TestAgentHttpErrors
                 .andExpect(status().isBadRequest());
 
         when(turnService.start(any())).thenThrow(new AgentConflictException("active turn"));
-        when(taskService.get(TaskId.valueOf(taskId))).thenReturn(AgentTask.created(
+        when(taskService.get(TaskId.valueOf(taskId))).thenReturn(created(
                 TaskId.valueOf(taskId),
                 java.util.Optional.of("workspace-1"),
                 true,
@@ -400,7 +401,7 @@ class TestAgentHttpErrors
     void contextLifecycleRequiresTheCurrentBuildInItsWorkspace()
             throws Exception
     {
-        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace-1"), false, "Check", AgentLaneId.CODEX_CLI,
+        AgentTask task = created(TaskId.random(), Optional.of("workspace-1"), false, "Check", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"), Path.of("/tmp/context-check"),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(taskService.get(task.id())).thenReturn(task);
@@ -433,7 +434,7 @@ class TestAgentHttpErrors
         TaskId id = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(id, "workspace-1", new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/bytequay-worktrees").resolve(id.toString()), "bytequay/task/" + id, "a".repeat(40));
-        return AgentTask.created(id, true, "Delivery", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+        return created(id, true, "Delivery", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH).withDevelopmentContinuation(true, Instant.EPOCH);
     }
 

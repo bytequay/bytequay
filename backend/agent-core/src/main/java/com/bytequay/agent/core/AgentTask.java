@@ -112,61 +112,6 @@ public record AgentTask(
 
     public static AgentTask created(
             TaskId id,
-            Optional<String> workspaceId,
-            boolean interactive,
-            String title,
-            AgentLaneId laneId,
-            RepositoryIdentity repository,
-            Path worktree,
-            AgentTaskDefaults defaults,
-            Instant now)
-    {
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                Optional.empty(),
-                title,
-                TitleSource.USER,
-                laneId,
-                repository,
-                worktree,
-                Optional.empty(),
-                defaults,
-                TaskState.OPEN,
-                Optional.empty(),
-                0,
-                now,
-                now,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                AgentMetrics.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                CleanupState.RETAINED,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                false,
-                false);
-    }
-
-    public static AgentTask created(
-            TaskId id,
-            boolean interactive,
-            String title,
-            TitleSource titleSource,
-            AgentLaneId laneId,
-            TaskWorktree taskWorktree,
-            AgentTaskDefaults defaults,
-            Instant now)
-    {
-        return created(id, interactive, Optional.empty(), title, titleSource, laneId, taskWorktree, defaults, now);
-    }
-
-    public static AgentTask created(
-            TaskId id,
             boolean interactive,
             Optional<String> creationFingerprint,
             String title,
@@ -206,20 +151,6 @@ public record AgentTask(
                 Optional.empty(),
                 false,
                 false);
-    }
-
-    public static AgentTask created(
-            TaskId id,
-            Optional<String> workspaceId,
-            boolean interactive,
-            String title,
-            AgentLaneId laneId,
-            RepositoryIdentity repository,
-            Path worktree,
-            AgentPermissionPolicy permissionPolicy,
-            Instant now)
-    {
-        return created(id, workspaceId, interactive, title, laneId, repository, worktree, AgentTaskDefaults.forPermission(permissionPolicy), now);
     }
 
     public AgentPermissionPolicy permissionPolicy()

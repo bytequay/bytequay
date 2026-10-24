@@ -34,6 +34,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -120,7 +121,7 @@ class TestContextBuildStore
 
     private static AgentTask task(String workspaceId)
     {
-        return AgentTask.created(TASK, Optional.of(workspaceId), false, "Check repository", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
+        return created(TASK, Optional.of(workspaceId), false, "Check repository", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/context-check-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
     }
 

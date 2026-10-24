@@ -38,6 +38,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -57,7 +58,7 @@ class TestTaskPullRequestOwnership
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"), Path.of("/managed/worktrees", taskId.toString()),
             "bytequay/task/" + taskId, "a".repeat(40));
-    private final AgentTask task = AgentTask.created(taskId, true, "Task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
+    private final AgentTask task = created(taskId, true, "Task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
     @BeforeEach
@@ -155,7 +156,7 @@ class TestTaskPullRequestOwnership
     @Test
     void aTaskWithoutAWorktreeHasNoBranchPullRequests()
     {
-        AgentTask released = AgentTask.created(taskId, Optional.of("workspace"), true, "Task", AgentLaneId.CODEX_CLI, new RepositoryIdentity("owner", "repo"),
+        AgentTask released = created(taskId, Optional.of("workspace"), true, "Task", AgentLaneId.CODEX_CLI, new RepositoryIdentity("owner", "repo"),
                 Path.of("/managed/worktrees", taskId.toString()), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
         assertThat(ownership.pullRequests(released)).isEmpty();

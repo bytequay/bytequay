@@ -105,6 +105,7 @@ import java.util.concurrent.CompletionStage;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingLifecycle;
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -173,7 +174,7 @@ class TestSqliteAgentStores
                         Optional.of("All checked"), Optional.of(now), Optional.of(now.plusSeconds(1))),
                 new ChildSummary("other", Optional.empty(), "Explore", Optional.empty(), ChildSummary.Outcome.UNKNOWN,
                         Optional.empty(), Optional.empty(), Optional.empty())));
-        AgentTask task = AgentTask.created(
+        AgentTask task = created(
                         taskId,
                         true,
                         "Agent task",
@@ -282,7 +283,7 @@ class TestSqliteAgentStores
     {
         Instant now = Instant.parse("2026-08-24T00:00:00Z");
         Instant terminalAt = now.minus(Duration.ofDays(8));
-        AgentTask legacy = AgentTask.created(
+        AgentTask legacy = created(
                         TaskId.random(),
                         Optional.empty(),
                         false,
@@ -428,7 +429,7 @@ class TestSqliteAgentStores
         AgentTask restored = taskStore.find(taskId).orElseThrow();
         assertThat(restored.creationFingerprint()).contains("creation-fingerprint");
         assertThat(restored.taskWorktree()).contains(worktree);
-        AgentTask reviewer = AgentTask.created(TaskId.random(), false, "Shared reviewer", TitleSource.USER, task.laneId(), worktree, task.defaults(), now);
+        AgentTask reviewer = created(TaskId.random(), false, "Shared reviewer", TitleSource.USER, task.laneId(), worktree, task.defaults(), now);
         taskStore.insert(reviewer);
         entityManager.clear();
         AgentTask restoredReviewer = taskStore.require(reviewer.id());
@@ -1114,12 +1115,12 @@ class TestSqliteAgentStores
                 Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(taskId, false, "Agent task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), now);
+        return created(taskId, false, "Agent task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), now);
     }
 
     private static AgentTask newTask(Instant now, Optional<String> workspaceId, boolean interactive)
     {
-        return AgentTask.created(
+        return created(
                 TaskId.random(),
                 workspaceId,
                 interactive,
@@ -1133,7 +1134,7 @@ class TestSqliteAgentStores
 
     private static AgentTask completedTask(TaskId id, String workspaceId, boolean interactive, RepositoryIdentity repository, Instant now)
     {
-        return AgentTask.created(id, Optional.of(workspaceId), interactive, "Task conclusion", AgentLaneId.CODEX_CLI, repository,
+        return created(id, Optional.of(workspaceId), interactive, "Task conclusion", AgentLaneId.CODEX_CLI, repository,
                         Path.of("/tmp/bytequay-worktree"), AgentPermissionPolicy.AUTO, now)
                 .complete(new TaskSummary("Retained agent conclusion", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
                         ImmutableList.of()), now, now.plus(Duration.ofDays(7)));

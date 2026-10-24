@@ -53,6 +53,7 @@ import java.util.OptionalLong;
 import java.util.function.Predicate;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -79,7 +80,7 @@ class TestMemorySources
     private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final MemorySources sources = new MemorySources(turns, events, logs, reviews, assignments, git);
     private final List<AgentEventEnvelope> log = new ArrayList<>();
-    private final AgentTask task = AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI,
+    private final AgentTask task = created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI,
             new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repository"), worktree, "bytequay/task/" + taskId, "a".repeat(40)),
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 

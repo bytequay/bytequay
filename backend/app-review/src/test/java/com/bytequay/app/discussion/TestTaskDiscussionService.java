@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -196,7 +197,7 @@ class TestTaskDiscussionService
 
     private static AgentTask withoutWorktree()
     {
-        return AgentTask.created(
+        return created(
                 TASK,
                 Optional.of("w1"),
                 true,
@@ -210,7 +211,7 @@ class TestTaskDiscussionService
 
     private static AgentTask task()
     {
-        return AgentTask.created(
+        return created(
                 TASK,
                 true,
                 "Discussable task",

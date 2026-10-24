@@ -101,6 +101,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE;
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.bytequay.core.domain.AssistantReceipt.Fix.BUTTONS;
@@ -186,7 +187,7 @@ class TestAssistantActions
         when(settings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()));
         when(starter.start(any())).thenAnswer(call -> {
             InteractiveTaskStart start = call.getArgument(0);
-            return AgentTask.created(start.taskId(), Optional.of(start.workspaceId()), true, "Expose snapshot id in metadata", start.laneId(),
+            return created(start.taskId(), Optional.of(start.workspaceId()), true, "Expose snapshot id in metadata", start.laneId(),
                     new RepositoryIdentity("owner", "repository"), Path.of("/tmp/assistant-task"), start.defaults(), NOW);
         });
         when(turns.findTurnByIdempotencyKey(any(), any())).thenAnswer(call -> Optional.of(turn(call.getArgument(0))));
@@ -471,7 +472,7 @@ class TestAssistantActions
         String start = "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"words\":\"add a metadata table\"}";
         doThrow(new IllegalStateException("The worktree is not ready")).doAnswer(call -> {
             InteractiveTaskStart value = call.getArgument(0);
-            return AgentTask.created(value.taskId(), Optional.of("ws1"), true, "Add a metadata table", value.laneId(), new RepositoryIdentity("owner", "repository"),
+            return created(value.taskId(), Optional.of("ws1"), true, "Add a metadata table", value.laneId(), new RepositoryIdentity("owner", "repository"),
                     Path.of("/tmp/assistant-task"), value.defaults(), NOW);
         }).when(starter).start(any());
         act(message, served, start);
@@ -754,7 +755,7 @@ class TestAssistantActions
 
     private static AgentTask task(String title)
     {
-        return AgentTask.created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId("claude"), new RepositoryIdentity("owner", "repository"),
+        return created(TaskId.random(), Optional.of("ws1"), true, title, new AgentLaneId("claude"), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/assistant-task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW.minusSeconds(3600));
     }
 

@@ -51,6 +51,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -326,7 +327,7 @@ class TestReviewSweep
     private static AgentTask task()
     {
         TaskWorktree worktree = new TaskWorktree(TASK_ID, "workspace", new RepositoryIdentity("owner", "repo"), CHECKOUT, "bytequay/task/" + TASK_ID, HEAD);
-        return AgentTask.created(TASK_ID, true, "Review owner/repo#7", TitleSource.USER, new AgentLaneId("codex"), worktree,
+        return created(TASK_ID, true, "Review owner/repo#7", TitleSource.USER, new AgentLaneId("codex"), worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 

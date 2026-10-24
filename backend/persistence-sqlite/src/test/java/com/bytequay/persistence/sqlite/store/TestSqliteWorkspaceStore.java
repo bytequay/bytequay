@@ -56,6 +56,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -380,7 +381,7 @@ class TestSqliteWorkspaceStore
     void taskDeletionRejectsActiveRebasesAndRemovesFinishedRebaseAssociations()
     {
         Workspace workspace = store.createOrGet(direct("with-task", 100, 0));
-        AgentTask task = AgentTask.created(TaskId.random(), Optional.of(workspace.id()), false, "Retained task", AgentLaneId.CODEX_CLI,
+        AgentTask task = created(TaskId.random(), Optional.of(workspace.id()), false, "Retained task", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", "project"), Path.of("/tmp/task"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         tasks.insert(task);
         BranchRebase rebase = BranchRebase.create(BranchRebaseId.random(), "rebase", task.id().toString(), RepoRef.of("owner", "project"),

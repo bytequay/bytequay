@@ -56,6 +56,7 @@ import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -81,7 +82,7 @@ class TestDefaultAgentEventService
         outboxStore = spy(new InMemoryAgentStores());
         taskStore = new InMemoryAgentStores();
         service = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW, ZoneOffset.UTC));
-        task = AgentTask.created(
+        task = created(
                 TaskId.random(),
                 Optional.empty(),
                 false,

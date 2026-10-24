@@ -47,6 +47,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.memory.MemoryFixtures.NOW;
 import static com.bytequay.app.memory.MemoryFixtures.rule;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -73,7 +74,7 @@ class TestMemoryHarvestTools
     @BeforeEach
     void setUp()
     {
-        AgentTask task = AgentTask.created(TASK, Optional.of(WORKSPACE), false, "Learn", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
+        AgentTask task = created(TASK, Optional.of(WORKSPACE), false, "Learn", new AgentLaneId("codex"), new RepositoryIdentity("owner", "repository"),
                 Path.of("/tmp/learn"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH)
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(TURN, Instant.EPOCH), Instant.EPOCH);
         when(tasks.find(TASK)).thenReturn(Optional.of(task));

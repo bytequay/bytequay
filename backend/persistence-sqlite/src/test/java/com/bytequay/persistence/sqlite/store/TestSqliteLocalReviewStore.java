@@ -14,7 +14,6 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
@@ -34,6 +33,7 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -119,7 +119,7 @@ class TestSqliteLocalReviewStore
     void deletingATaskRemovesOnlyItsPrivateThreads()
     {
         TaskId taskId = TaskId.random();
-        tasks.insert(AgentTask.created(taskId, Optional.of("workspace"), true, "Task", AgentLaneId.CODEX_CLI,
+        tasks.insert(created(taskId, Optional.of("workspace"), true, "Task", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", "repo"), Path.of("/tmp/worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH));
         LocalReviewThread thread = new LocalReviewThread("thread", taskId.toString(), "workspace", "owner/repo", 7, "Example.java", "RIGHT", 1, 1,
                 Optional.empty(), Optional.empty(), "code", false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ImmutableMap.of(), Optional.empty(), false);

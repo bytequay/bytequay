@@ -44,6 +44,7 @@ import java.util.Queue;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -69,7 +70,7 @@ class TestInteractiveTaskNaming
     private final TaskId id = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(id, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", id.toString()), "user/bytequay/provisional-12345678", "a".repeat(40));
-    private final AtomicReference<AgentTask> current = new AtomicReference<>(AgentTask.created(id, true, "Fix messages", TitleSource.PROVISIONAL,
+    private final AtomicReference<AgentTask> current = new AtomicReference<>(created(id, true, "Fix messages", TitleSource.PROVISIONAL,
             AgentLaneId.CODEX_CLI, worktree, DEFAULTS, NOW));
 
     @BeforeEach

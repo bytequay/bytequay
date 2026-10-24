@@ -64,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -132,7 +133,7 @@ class TestDevelopmentGitInspector
         TaskId taskId = TaskId.random();
         worktree = worktreeService.provision(new ProvisionWorktreeCommand(
                 taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), baseSha, TaskBranches.generate(taskId, "user", "Development test")));
-        task = AgentTask.created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
+        task = created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials, pullRequests, assignments, cachedPullRequests);
     }

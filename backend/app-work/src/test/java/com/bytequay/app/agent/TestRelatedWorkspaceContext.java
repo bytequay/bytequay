@@ -42,6 +42,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -79,7 +80,7 @@ class TestRelatedWorkspaceContext
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         var context = new RelatedWorkspaceContext(relationships, repositories, mock(AgentReviewStore.class), git, new ObjectMapper());
-        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("repository"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
+        AgentTask task = created(TaskId.random(), Optional.of("repository"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
                 new RepositoryIdentity("owner", "repository"), repository,
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "user", new AgentTurnSettings(Optional.empty(), Optional.empty(),

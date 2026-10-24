@@ -89,6 +89,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -207,7 +208,7 @@ class TestRelatedWorkspaceWork
     {
         AgentLaneId sourceAccount = new AgentLaneId("claude-account-source");
         AgentLaneId destinationAccount = new AgentLaneId("claude-account-destination");
-        source = AgentTask.created(source.id(), Optional.of("repository"), true, source.title(), sourceAccount, source.repository(), repository, source.defaults(), Instant.EPOCH)
+        source = created(source.id(), Optional.of("repository"), true, source.title(), sourceAccount, source.repository(), repository, source.defaults(), Instant.EPOCH)
                 .withSessionReference(new AgentSessionRef(sourceAccount, 1, "source-session"), Instant.EPOCH);
         taskData.put(source.id(), source);
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
@@ -445,7 +446,7 @@ class TestRelatedWorkspaceWork
 
     private AgentTask task(TaskId id, String workspaceId, AgentTaskDefaults defaults)
     {
-        return AgentTask.created(id, Optional.of(workspaceId), true, "Secret source title", AgentLaneId.CODEX_CLI,
+        return created(id, Optional.of(workspaceId), true, "Secret source title", AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("owner", workspaceId), repository, defaults, Instant.EPOCH);
     }
 

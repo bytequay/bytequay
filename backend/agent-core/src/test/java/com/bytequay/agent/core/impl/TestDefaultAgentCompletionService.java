@@ -68,6 +68,7 @@ import java.util.Optional;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -118,7 +119,7 @@ class TestDefaultAgentCompletionService
     {
         AgentTask owner = stores.update(stores.find(taskId).orElseThrow().claimWorktreeMutation(WorktreeMutationClaim.localRun("developer-build", NOW), NOW));
         TaskId reviewerId = TaskId.random();
-        AgentTask reviewer = AgentTask.created(reviewerId, false, "Reviewer", TitleSource.USER, owner.laneId(),
+        AgentTask reviewer = created(reviewerId, false, "Reviewer", TitleSource.USER, owner.laneId(),
                 owner.taskWorktree().orElseThrow(), owner.defaults(), NOW);
         stores.insert(reviewer);
         worktrees.uncommitted = true;
@@ -135,7 +136,7 @@ class TestDefaultAgentCompletionService
     void developmentCompletesOnlyAfterUncommittedChangesAreHandled()
     {
         AgentTask original = stores.find(taskId).orElseThrow();
-        AgentTask reviewing = AgentTask.created(taskId, true, original.title(), original.titleSource(), original.laneId(),
+        AgentTask reviewing = created(taskId, true, original.title(), original.titleSource(), original.laneId(),
                 original.taskWorktree().orElseThrow(), original.defaults(), NOW);
         stores.update(reviewing);
         worktrees.uncommitted = true;
@@ -802,7 +803,7 @@ class TestDefaultAgentCompletionService
                 WORKTREE.resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(taskId, false, title, TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        return created(taskId, false, title, TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static final class RecordingWorktreeService

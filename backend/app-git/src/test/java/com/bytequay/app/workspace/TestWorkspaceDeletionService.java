@@ -50,6 +50,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -226,7 +227,7 @@ class TestWorkspaceDeletionService
         String head = run(paths.repository(workspace), "rev-parse", "HEAD");
         run(paths.repository(workspace), "worktree", "add", "-q", "-b", branch, worktree.toString());
         TaskWorktree owned = new TaskWorktree(taskId, WORKSPACE_ID, PHYSICAL_REPOSITORY, worktree.toRealPath(), branch, head);
-        AgentTask task = AgentTask.created(taskId, true, "Task", TitleSource.USER, AgentLaneId.CODEX_CLI, owned, DEFAULTS, NOW);
+        AgentTask task = created(taskId, true, "Task", TitleSource.USER, AgentLaneId.CODEX_CLI, owned, DEFAULTS, NOW);
         ownedTasks.add(task);
         doAnswer(invocation -> {
             run(paths.repository(workspace), "worktree", "remove", "--force", worktree.toString());
@@ -294,7 +295,7 @@ class TestWorkspaceDeletionService
 
     private AgentTask task()
     {
-        return AgentTask.created(TaskId.random(), Optional.of(WORKSPACE_ID), true, "Task", AgentLaneId.CODEX_CLI, PHYSICAL_REPOSITORY, paths.repository(workspace), DEFAULTS, NOW);
+        return created(TaskId.random(), Optional.of(WORKSPACE_ID), true, "Task", AgentLaneId.CODEX_CLI, PHYSICAL_REPOSITORY, paths.repository(workspace), DEFAULTS, NOW);
     }
 
     private void delete()

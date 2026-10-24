@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestWorkspaceRootMove
 {
@@ -115,16 +114,31 @@ class TestWorkspaceRootMove
     }
 
     @Test
-    void refusesADestinationInUseBeforeAnythingNamesIt()
+    void joinsWorkspacesAnOlderBuildWroteAfterAnEarlierMove()
+            throws IOException, SQLException
+    {
+        Files.createDirectories(root.resolve("earlier/repository"));
+
+        WorkspaceRootMove.move(legacy, root, url, ideProfiles, git);
+
+        assertThat(legacy).doesNotExist();
+        assertMoved();
+        assertThat(root.resolve("earlier/repository")).isDirectory();
+        assertThat(root.resolve(".move-pending")).doesNotExist();
+    }
+
+    @Test
+    void keepsAWorkspaceTheDestinationAlreadyHolds()
             throws IOException, SQLException
     {
         Files.createDirectories(root.resolve("ws"));
 
-        assertThatThrownBy(() -> WorkspaceRootMove.move(legacy, root, url, ideProfiles, git)).isInstanceOf(IOException.class);
+        WorkspaceRootMove.move(legacy, root, url, ideProfiles, git);
 
         assertThat(git.run(legacy.resolve("ws/worktrees/t1"), "status").successful()).isTrue();
         assertThat(column("watched_repo_workspaces", "local_repository_path")).containsExactly(Map.entry("ws", legacy + "/ws/repository"));
         assertThat(ideProfiles.resolve("t1/commit/java-home")).exists();
+        assertThat(root.resolve(".move-pending")).doesNotExist();
     }
 
     private void assertMoved()

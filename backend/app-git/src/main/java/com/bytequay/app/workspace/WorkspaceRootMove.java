@@ -91,12 +91,22 @@ public final class WorkspaceRootMove
             return;
         }
         if (Files.isDirectory(legacy, LinkOption.NOFOLLOW_LINKS)) {
-            Files.createDirectories(root.getParent());
-            // The marker moves with the folder, so a start that stops after the rename finishes the steps below the next time.
-            Files.write(legacy.resolve(PENDING), new byte[0]);
-            // One rename: it refuses a destination that holds anything, or one on another volume, before anything has changed.
-            Files.move(legacy, root, StandardCopyOption.ATOMIC_MOVE);
-            log.info("Moved the workspaces from {} to {}", legacy, root);
+            Files.createDirectories(root);
+            // One rename per workspace: an older build run after an earlier move writes new workspaces to the old folder again.
+            for (Path entry : entries(legacy)) {
+                Path target = root.resolve(entry.getFileName());
+                if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                    log.warn("Kept {} because {} already exists", entry, target);
+                    continue;
+                }
+                // Written before the rename, so a start that stops part way finishes the steps below the next time.
+                Files.write(root.resolve(PENDING), new byte[0]);
+                Files.move(entry, target, StandardCopyOption.ATOMIC_MOVE);
+                log.info("Moved {} to {}", entry, target);
+            }
+            if (entries(legacy).isEmpty()) {
+                Files.delete(legacy);
+            }
         }
         Path pending = root.resolve(PENDING);
         if (Files.notExists(pending, LinkOption.NOFOLLOW_LINKS)) {
@@ -180,8 +190,14 @@ public final class WorkspaceRootMove
         if (!Files.isDirectory(folder, LinkOption.NOFOLLOW_LINKS)) {
             return ImmutableList.of();
         }
+        return entries(folder).stream().filter(entry -> Files.isDirectory(entry, LinkOption.NOFOLLOW_LINKS)).collect(toImmutableList());
+    }
+
+    private static List<Path> entries(Path folder)
+            throws IOException
+    {
         try (Stream<Path> entries = Files.list(folder)) {
-            return entries.filter(entry -> Files.isDirectory(entry, LinkOption.NOFOLLOW_LINKS)).collect(toImmutableList());
+            return entries.collect(toImmutableList());
         }
     }
 }

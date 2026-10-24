@@ -51,22 +51,28 @@
           <section id="start">
             <h2>Start the Lab</h2>
             <p>
-              Run some development or review tasks in ByteQuay so there is
-              activity to read. Then choose
-              <strong>Settings → Integrations → Lab → Open Lab</strong>.
+              Run a few tasks first so there is activity to read. Then choose
+              <strong>Settings → Integrations → Lab → Open Lab</strong>. No
+              terminal or Python is needed.
             </p>
+            <ul>
+              <li>
+                <strong>App health</strong> shows recent errors, send latency,
+                and resource use, with suggested actions.
+                <strong>Analyze now</strong> refreshes it.
+              </li>
+              <li>
+                <strong>Start resource monitoring</strong> tracks memory and CPU
+                until you stop it on <strong>Processes</strong>.
+              </li>
+              <li>
+                <strong>Agent activity</strong> shows agent performance, review
+                guidance, and context costs.
+              </li>
+            </ul>
             <p>
-              ByteQuay refreshes the local statistics, starts the dashboard,
-              and opens it when ready. No terminal commands or Python
-              installation are needed. If opening fails, the Lab settings
-              show the error and a <strong>Retry</strong> button.
-            </p>
-            <p>
-              Enable <strong>Show the Lab</strong> for a sidebar shortcut.
-              Each open refreshes activity, reviews, tuning, context, and
-              memory. Use <strong>Refresh data</strong> inside the dashboard
-              to update them while it is open. The dashboard stops when
-              ByteQuay quits.
+              <strong>Show the Lab</strong> adds a sidebar shortcut. The
+              dashboard stops when ByteQuay quits.
             </p>
           </section>
           <section id="resources">
@@ -87,7 +93,7 @@
             <p>
               Run <code>uv run monitor.py</code> for a snapshot. For history,
               use <code>uv run monitor.py --start</code>: it installs a local
-              login service, samples every five seconds, and refreshes analysis
+              login service, samples every 15 seconds, and refreshes analysis
               hourly. <code>--stop</code> removes the service.
             </p>
             <p>
@@ -100,8 +106,9 @@
           <section id="activity">
             <h2>Find where time goes</h2>
             <p>
-              Filter by days, repository, and model.
-              <strong>Refresh data</strong> updates all Lab statistics.
+              Open <strong>Agent activity</strong> and filter by days,
+              repository, and model. <strong>Analyze now</strong> updates all
+              Lab statistics.
             </p>
             <ul>
               <li>

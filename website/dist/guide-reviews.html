@@ -45,7 +45,8 @@
             ><a href="#explore-locally">Explore code and tests</a
             ><a href="#private-review">Private agent reviews</a
             ><a href="#ask-from-review">Ask from a review card</a
-            ><a href="#link-previews">PR and issue previews</a>
+            ><a href="#link-previews">PR and issue previews</a
+            ><a href="#web-pages">Browse web pages</a>
           </nav>
         </aside>
         <article class="docs-content">
@@ -63,129 +64,110 @@
             <h2>Review a pull request</h2>
             <ol>
               <li>
-                Open <strong>Pull requests</strong>. Filter by
-                <strong>Review</strong> or <strong>My work</strong>, or search
-                by title, <code>#number</code>, or <code>@author</code>.
+                Open <strong>Pull requests</strong> and filter, or search by
+                title, <code>#number</code>, or <code>@author</code>.
               </li>
               <li>
                 Read checks and activity in <strong>PR</strong>. Inspect files
-                and commits in <strong>WorkBench → Changes</strong>.
+                in <strong>WorkBench → Changes</strong>.
               </li>
               <li>
-                Select diff lines and choose <strong>Add to review</strong>. In
-                <strong>Submit review</strong>, check your comments and choose
-                <strong>Comment</strong>, <strong>Approve</strong>, or
-                <strong>Request Changes</strong>.
+                Select diff lines, choose <strong>Add to review</strong>, then
+                <strong>Submit review</strong>.
               </li>
               <li>
-                Inspect the header’s merge/check-status control when ready to
-                merge. Use <strong>Monitor PR</strong> to follow updates.
+                Merge from the header when checks allow. <strong>Monitor
+                PR</strong> follows updates.
               </li>
             </ol>
             <p>
-              <strong>Post now</strong> and <strong>Reply</strong> publish
-              immediately. <strong>Add to review</strong> keeps comments
-              pending. Monitoring alone does not start CI repair.
+              <strong>Post now</strong> and <strong>Reply</strong> publish at
+              once; <strong>Add to review</strong> keeps comments pending until
+              you submit.
             </p>
           </section>
           <section id="explore-locally">
             <h2>Explore code and tests</h2>
             <p>
-              For a watched PR, open
-              <strong
-                >WorkBench → Tears of time → Create worktree to
-                explore</strong
-              >. A local editor uses memory, CPU, and disk; opening it does not
-              start an agent.
+              For a watched PR, open <strong>WorkBench → Tears of time → Create
+              worktree to explore</strong>. It opens a local editor and starts
+              no agent.
             </p>
             <ul>
               <li>
-                Use <strong>Changes</strong> for diffs and
-                <strong>Comment</strong> for review cards beside the code.
+                <strong>Shift twice</strong> or <strong>⌘⇧F</strong> searches
+                everywhere; <strong>⌘F</strong> searches the file.
               </li>
               <li>
-                Press <strong>Shift twice</strong> or <strong>⌘⇧F</strong> for
-                Search Everywhere; <strong>⌘F</strong> searches the current
-                file.
-              </li>
-              <li>
-                Use a test’s play button to run or debug it.
-                <strong>Run</strong> and <strong>Debug</strong> retain their
-                results.
+                A test’s play button runs or debugs it.
               </li>
             </ul>
             <p>
-              On your own PR, <strong>Development task</strong> opens its
-              conversation without sending a new prompt.
+              On your own PR, <strong>Development task</strong> opens or creates
+              its agent task.
             </p>
           </section>
           <section id="private-review">
             <h2>Ask for a private review</h2>
             <p>
-              First watch the repository and configure a ready Review model in
-              <strong>Settings → Agents → Models</strong>.
+              Watch the repository and pick a ready Review model first.
             </p>
             <ol>
               <li>
-                Choose <strong>WorkBench → Summary → Start review</strong>. For
-                unpublished development work, choose
-                <strong>Review changes</strong> in the task instead.
+                Choose <strong>WorkBench → Summary → Start review</strong>, or
+                <strong>Review changes</strong> in a task.
               </li>
               <li>
-                Read <strong>What changed</strong>, then the findings. Use
-                <strong>View in Changes</strong> for code,
-                <strong>Evidence</strong> for what the reviewer read,
-                <strong>Activity</strong> for its progress and review details,
-                or <strong>Ask reviewer</strong> for a private discussion.
+                Read <strong>What changed</strong> and the findings. <strong>Ask
+                reviewer</strong> opens a private discussion.
               </li>
               <li>
-                Choose <strong>Add to my review</strong> to edit a finding
-                before <strong>Submit review</strong> publishes it.
-                <strong>Request fix → Send to developer</strong> asks the
-                development agent to address it privately.
+                <strong>Add to my review</strong> turns a finding into a comment
+                you publish with <strong>Submit review</strong>. <strong>Request
+                fix → Send to developer</strong> asks the development agent to
+                fix it instead.
               </li>
               <li>
-                Choose <strong>Review latest</strong> when new commits arrive,
-                or <strong>Review again</strong> to review the current changes.
+                <strong>Review latest</strong> checks new commits.
               </li>
             </ol>
             <p>
-              For <strong>Could not finish</strong>, use
-              <strong>Resume review</strong>; typing “continue” starts a
-              discussion. If required, use
-              <strong>Recover runtime</strong> first. Findings remain
-              provisional until the review finishes.
+              If a review could not finish, use <strong>Resume review</strong>.
             </p>
           </section>
           <section id="ask-from-review">
             <h2>Ask from a review card</h2>
             <ol>
               <li>
-                On someone else’s review comment, choose
-                <strong>Ask agent</strong>.
+                On someone else’s review comment, choose <strong>Ask
+                agent</strong> and ask about it.
               </li>
               <li>
-                Ask about the reasoning, a fix, or a tradeoff. The PR’s code
-                context is prepared automatically.
-              </li>
-              <li>
-                Choose <strong>Draft with agent</strong> for an editable reply.
-                It remains private until you choose <strong>Comment</strong>.
+                <strong>Draft with agent</strong> writes a reply that stays
+                private until you choose <strong>Comment</strong>.
               </li>
             </ol>
             <p>
-              <strong>Resolve locally</strong> closes the private discussion
-              without resolving the GitHub thread.
+              <strong>Resolve locally</strong> closes only the private
+              discussion. On a development task’s PR, <strong>Fix with
+              agent</strong> sends the comment to that task’s agent.
             </p>
           </section>
           <section id="link-previews">
             <h2>Preview PR and issue links</h2>
             <p>
-              Hover over a PR or issue link to read its title, status,
-              description, and labels. Move into the card to follow references,
-              or drag its header to keep it open. Choose
-              <strong>Open</strong> for the full item;
-              <strong>Escape</strong> dismisses the preview.
+              Hover a PR or issue link to see its title, status, and
+              description. Drag the card to keep it open;
+              <strong>Escape</strong> closes it.
+            </p>
+          </section>
+          <section id="web-pages">
+            <h2>Browse web pages</h2>
+            <p>
+              Choose <strong>New page</strong> in the Web pages column and enter
+              an address. <strong>Pin</strong> keeps a page after restart, and
+              <strong>⌘F</strong> finds text on it. <strong>Back to app</strong>
+              keeps the page open.
             </p>
           </section>
           <div class="doc-next">

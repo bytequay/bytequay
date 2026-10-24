@@ -56,40 +56,31 @@
             <h2>About ByteQuay</h2>
             <p>
               ByteQuay is a macOS app for GitHub reviews and local coding
-              agents. Let agents build and guide you, choose how much detail to
-              explore, and merge when you feel confident.
-            </p>
-            <p>
-              A <strong>workspace</strong> holds a repository’s work. A
+              agents. A <strong>workspace</strong> holds a repository’s work; a
               <strong>task</strong> is an agent conversation with its own
-              working copy. App data stays on your Mac; GitHub and model
-              requests use the services you connect.
+              working copy. App data stays on your Mac.
             </p>
             <p>
-              ByteQuay is pre-1.0. These guides cover the development version;
-              check your release notes for availability.
+              ByteQuay is pre-1.0. These guides follow the development version;
+              check your release notes.
             </p>
           </section>
           <section id="getting-started">
             <h2>Get started</h2>
             <ol>
               <li>
-                Download ByteQuay from
-                <a href="https://github.com/bytequay/bytequay/releases"
-                  >GitHub Releases</a
-                >. Open the DMG and drag the app to Applications. Follow your
-                release’s requirements; current builds need macOS 14+ and
-                include Java 25, so no separate JDK installation is required.
+                Download ByteQuay from <a
+                href="https://github.com/bytequay/bytequay/releases">GitHub
+                Releases</a> and drag it to Applications. It needs macOS 14+ and
+                includes Java.
               </li>
               <li>
-                Follow the setup guide to choose your appearance, connect
-                GitHub, and decide which agent features to use. You can
-                continue without an agent.
+                Follow the setup guide to connect GitHub and, if you like, an
+                agent.
               </li>
               <li>
-                Choose <strong>Home → Repos you watch → + Watch</strong>. Select
-                a repository, check its branch and publication destinations,
-                then <strong>Watch repository</strong>.
+                Choose <strong>Home → Repos you watch → + Watch</strong> and
+                pick a repository.
               </li>
               <li>
                 Open <strong>Pull requests</strong>, select a PR, and inspect
@@ -99,118 +90,82 @@
             <h3>Choose your setup</h3>
             <ol>
               <li>
-                <strong>Appearance and GitHub:</strong> choose System, Light,
-                or Dark. Connect with <strong>Use my GitHub CLI login</strong>
-                after running <code>gh auth login</code>, or
-                <strong>Connect with token →</strong>. The app recommends a
-                classic token with <code>repo</code> and
-                <code>read:user</code> scopes.
+                <strong>GitHub:</strong> choose <strong>Use my GitHub CLI
+                login</strong> after <code>gh auth login</code>, or
+                <strong>Connect with token →</strong> with a classic token that
+                has <code>repo</code> and <code>read:user</code>.
               </li>
               <li>
-                <strong>Connect an agent and choose your default:</strong>
-                check Codex or Claude Code, sign in, or add a DeepSeek API key.
-                Select the account and model for Development; Review follows
-                it unless you choose another in Settings.
+                <strong>Agent:</strong> sign in to Codex or Claude Code, or add
+                a DeepSeek API key, then pick the Development model. Review
+                follows it unless you change it.
               </li>
               <li>
-                <strong>Automation:</strong> choose how far new tasks go on
-                their own, from a local commit to a merged PR. It starts at
-                <strong>Auto-Commit</strong> on a fresh installation.
-                Existing preferences are preserved.
+                <strong>Automation:</strong> choose how far new tasks go, from a
+                local commit to a merged PR. New installations start at
+                <strong>Auto-Commit</strong>.
               </li>
               <li>
-                <strong>Your features:</strong> watch the previews to explore
-                Today and Assistant, then enable either feature if you want
-                it. Each uses your default Development agent and model
-                allowance. Assistant task actions have separate switches.
+                <strong>Features:</strong> turn on Today or the Assistant if you
+                want them. Both use your Development model allowance.
               </li>
             </ol>
             <p>
-              After GitHub is connected,
-              <strong>Continue without an agent</strong> keeps GitHub and PR
-              work available. If an agent is already available,
-              <strong>Skip remaining setup</strong> keeps the remaining saved
-              choices. New agent actions stay hidden until their selected
-              agent and model are usable; saved tasks, reviews, and notices
-              remain.
-            </p>
-            <p>
-              Unfinished setup resumes where you left it. Once completed, it
-              never opens automatically again, including after a sign-in
-              expires. To revisit it, choose
-              <strong>Settings → General → Setup guide → Open setup</strong>.
-              You can also <a href="guide-agents.html#models">connect a provider</a>
-              or change <strong>Settings → Personal → Appearance</strong>
-              directly.
+              You can skip the agent and still work with GitHub and PRs. To
+              revisit setup, choose <strong>Settings → General → Setup guide →
+              Open setup</strong>.
             </p>
           </section>
           <section id="workspaces">
             <h2>Home and workspaces</h2>
             <p>
-              Home brings together watched repositories and recent activity. A
-              workspace holds tasks, PRs, work items, commits, and memory.
+              Home shows your work, what others ask of you, and activity from
+              people you follow. A workspace holds a repository’s tasks, PRs,
+              work items, commits, and memory.
             </p>
             <ul>
               <li>
-                Choose <strong>Direct clone</strong> to work in the selected
-                repository, or <strong>Personal fork</strong> to publish through
-                your fork. Review the source, push, and PR destinations before
-                confirming.
+                <strong>My work</strong> sorts your issues, tickets, tasks, and
+                PRs into <strong>In progress</strong>, <strong>In
+                review</strong>, <strong>Needs you</strong>, and <strong>Ready
+                to merge</strong>. <strong>All my work</strong> lists
+                everything, including finished work.
               </li>
               <li>
-                <strong>My PRs</strong> shows your open work.
-                <strong>Snooze</strong> hides a card temporarily;
-                <strong>Needs attention</strong> shows up to five updates needing a
-                response.
+                <strong>Needs attention</strong> shows up to five review
+                requests, re-reviews, and mentions. <strong>Snooze</strong>
+                hides one until the time you pick.
               </li>
               <li>
-                <strong>Approved by me</strong> initially shows up to three open
-                PRs you approved on Home and workspace Home, newest activity
-                first, even after reading them. Choose <strong>Show all</strong>
-                to see the rest or <strong>Show less</strong> to return to three.
-                Pushes, comments, and check updates stay there without returning
-                to <strong>Needs attention</strong>. A new review request or
-                dismissed approval brings the PR back for review. Merged and
-                closed PRs leave this section.
+                <strong>Approved by me</strong> lists open PRs you approved. A
+                new review request brings one back for review.
               </li>
               <li>
-                <strong>Unwatch</strong> retires a workspace while keeping local
-                history. <strong>Watch again</strong> restores it.
-                <strong>Delete local data</strong> is a separate, confirmed
-                removal.
+                Add a workspace as a <strong>Direct clone</strong> or
+                <strong>Personal fork</strong>. <strong>Unwatch</strong> keeps
+                local history; <strong>Delete local data</strong> removes it.
               </li>
             </ul>
             <h3>Plan the day with Today</h3>
             <p>
-              Today is off until you enable it during setup or in
-              <strong>Settings → Agents → Features</strong>. It needs a
-              usable global Development model, and each day’s list spends a
-              model session from that account. Once on, Home opens on working
-              days, after the time you set, with <strong>Today</strong>: up to
-              five things worth doing first, each
-              with a reason. An agent picks them from ByteQuay’s records; it
-              never writes to GitHub or starts a task. If ByteQuay was closed at
-              that time, Today is made when you return.
+              Turn on Today in setup or <strong>Settings → Agents →
+              Features</strong>. On working days it lists up to five things
+              worth doing first, each with a reason. Making the list uses a
+              model session; it never writes to GitHub or starts a task on its
+              own.
             </p>
             <ul>
               <li>
-                Click a row to open its PR, task, issue, ticket, or work item.
-                Hover it for <strong>Done</strong> or <strong>Not today</strong>;
-                a row also closes when its work happens.
+                Click a row for its reason and action. <strong>Done</strong> or
+                <strong>Tomorrow</strong> sets it aside.
               </li>
               <li>
-                The circular arrow makes the list again. A workspace Home shows
-                only its repository’s rows; <strong>Needs attention</strong>
-                marks Today rows with a sun.
+                <strong>Start task</strong> starts suggested work with your
+                saved automation.
               </li>
               <li>
-                On the last working day, <strong>This week</strong> looks back at
-                what merged and slipped.
-              </li>
-              <li>
-                <strong>Settings → Agents → Features</strong> sets the time
-                and working days, and can plan around your calendar’s busy times
-                (never event titles).
+                On the last working day, <strong>This week</strong> looks back
+                at what merged and slipped.
               </li>
             </ul>
           </section>

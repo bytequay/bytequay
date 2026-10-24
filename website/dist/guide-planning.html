@@ -57,71 +57,60 @@
           <section id="issues-and-jira">
             <h2>Start from a work item</h2>
             <p>
-              Open <strong>Work items</strong> and choose
-              <strong>Local</strong>, <strong>GitHub issues</strong>, or
-              <strong>Jira</strong>.
+              Open <strong>Work items</strong>. <strong>Local</strong> items
+              stay on your Mac; <strong>GitHub issues</strong> and
+              <strong>Jira</strong> show remote work.
             </p>
             <ol>
               <li>
                 Choose <strong>Local → New</strong> and add context and
-                acceptance criteria. It stays on your Mac.
+                acceptance criteria.
               </li>
               <li>
-                <strong>Start development</strong> on a Local item immediately
-                starts the configured agent. GitHub and Jira items open a
-                prepared composer for you to review and send.
+                <strong>Start development</strong> starts the agent. GitHub and
+                Jira items open a prepared composer first.
               </li>
               <li>
-                Open the item to follow tasks, PRs, and history. In an Epic,
-                select a card to zoom in; <strong>Escape</strong> returns to the
-                Epic.
+                Open the item to follow its tasks and PRs. By default it is done
+                when its PR merges, or choose <strong>Mark finished</strong>.
               </li>
               <li>
-                To publish an item, use <strong>Push to remote…</strong>,
-                inspect the preview, then create the GitHub issue or Jira
-                ticket. Conversations and local history are not included.
+                <strong>Push to remote…</strong> publishes it as a GitHub issue
+                or Jira ticket.
               </li>
             </ol>
             <p>
-              If publication is uncertain, link the existing remote item before
-              retrying.
-            </p>
-            <p>
-              In a Local item's <strong>Context</strong>, choose
-              <strong>Link work item</strong> to reference another Local item,
-              GitHub issue, or Jira ticket in the workspace. Linked titles open
-              their details; <strong>Unlink</strong> removes only the reference.
-              Agents can create and read these links too. Use Epic membership
-              for subtasks and dependencies for blockers.
+              <strong>Link work item</strong> in a Local item’s
+              <strong>Context</strong> references other work.
             </p>
           </section>
           <section id="epics">
             <h2>Organize an Epic</h2>
             <p>
-              An Epic groups work items, their development attempts, and
-              dependencies in ByteQuay. A Local work item, GitHub issue, or Jira
-              ticket can be an Epic. Its designation and work assignments stay
-              on your Mac; a Local Epic does not need a published issue or ticket.
+              An Epic groups related work items and their tasks. Any Local item,
+              GitHub issue, or Jira ticket can be one; the grouping stays on
+              your Mac.
             </p>
             <ol>
               <li>
-                Open a work item and choose <strong>Mark as Epic</strong>, then
-                open its <strong>Work</strong> view. For GitHub or Jira Epics,
-                review offered source children before <strong>Sync</strong>.
+                On workspace Home, choose <strong>Create Epic</strong> from the
+                Epic tab, or <strong>Mark as Epic</strong> on a work item.
+                <strong>Talk it through</strong> lets an agent draft it.
               </li>
               <li>
-                Add a Local item, <strong>Add existing</strong>, or
-                <strong>Suggest work</strong>. Inspect suggestions before
-                <strong>Accept as Local</strong>.
+                Add work with <strong>Add existing</strong> or <strong>Suggest
+                work</strong>.
               </li>
               <li>
-                Use <strong>Planned</strong>, <strong>Working</strong>, and
-                <strong>Done</strong> to track progress. <strong>Run</strong> on
-                eligible work starts its development task immediately.
+                Track <strong>Planned</strong>, <strong>Working</strong>, and
+                <strong>Done</strong>. <strong>Run</strong> starts a task.
               </li>
               <li>
-                Review outcomes, then <strong>Conclude Epic</strong>. Closing
-                the source issue or ticket is separate.
+                When a PR merges, <strong>Next in Epic</strong> suggests what to
+                start next. Nothing starts by itself.
+              </li>
+              <li>
+                Review the outcomes, then <strong>Conclude Epic</strong>.
               </li>
             </ol>
           </section>
@@ -129,72 +118,50 @@
             <h2>Build repository memory</h2>
             <ol>
               <li>
-                Open <strong>Memory → Learn from my PRs</strong>, or choose
+                Open <strong>Memory → Learn from my PRs</strong>, or
                 <strong>Learn from this PR</strong> on a closed or merged PR.
               </li>
               <li>
-                Inspect <strong>Rules</strong>, <strong>Recipes</strong>, and
-                <strong>Specs</strong>, including their scope and sources. Edit,
-                delete, or restore entries as needed.
+                Check <strong>Rules</strong>, <strong>Recipes</strong>, and
+                <strong>Specs</strong>, and edit or delete entries.
               </li>
               <li>
-                Choose whether agents use memory in <strong>Reviews</strong>,
-                <strong>Development tasks</strong>, or both. Review entries
-                under <strong>Needs you</strong>.
+                Choose whether <strong>Reviews</strong>, <strong>Development
+                tasks</strong>, or both use memory.
               </li>
             </ol>
             <p>
-              For a specification check, choose
-              <strong>Memory → Check against spec</strong>, select the code and
-              source pages, and start a ready agent. Inspect reproduced failures
-              under <strong>Spec checks</strong>;
-              <strong>Open local work item</strong> continues a finding.
-              Unreproduced candidates stay separate.
+              <strong>Memory → Check against spec</strong> has an agent compare
+              code with a spec and reproduce failures.
             </p>
           </section>
           <section id="circles">
             <h2>Follow a Circle</h2>
             <p>
-              Choose <strong>Circles → Create a circle</strong>, name it, and
-              select people and optional repositories. Use
-              <strong>Needs you</strong>, <strong>Activity</strong>,
-              <strong>Members</strong>, and <strong>Insights</strong> to follow
-              their work.
-            </p>
-            <p>
-              Creating a Circle sends no invitations.
-              <strong>Refresh activity</strong> updates collected information;
-              insights reflect that coverage, not a complete measure of a
-              person’s work.
+              Choose <strong>Circles → Create a circle</strong>, then pick
+              people and repositories. It sends no invitations, and
+              <strong>Insights</strong> cover only what ByteQuay has collected.
             </p>
           </section>
           <section id="artifacts">
             <h2>Learn with Artifacts</h2>
             <ol>
               <li>
-                Open <strong>Artifacts</strong> in a workspace and ask in
-                <strong>Ask about this repository</strong>.
+                Open <strong>Artifacts</strong> and ask in <strong>Ask about
+                this repository</strong>. Answers cite files and end with a
+                question card.
               </li>
               <li>
-                The agent answers from the code, citing files by path and line,
-                and ends each answer with a question card for what to look at
-                next. Pick an option, or write your own reply.
+                Choose <strong>Make the page</strong> when offered, or ask for
+                one at any time.
               </li>
               <li>
-                When nothing is left open, it offers a page. Choose
-                <strong>Make the page</strong>, or <strong>Not yet</strong> to keep
-                talking. You can also ask for a page at any time.
-              </li>
-              <li>
-                The page opens beside the conversation. Ask for changes in the
-                same conversation; each save adds a version under
-                <strong>Versions</strong>.
+                Ask for changes in the same conversation;
+                <strong>Versions</strong> keeps each save.
               </li>
             </ol>
             <p>
-              The agent reads the repository but never changes it. A page’s
-              buttons and quizzes work inside the page, which reaches nothing
-              outside it.
+              The agent reads the repository but never changes it.
             </p>
           </section>
           <div class="doc-next">

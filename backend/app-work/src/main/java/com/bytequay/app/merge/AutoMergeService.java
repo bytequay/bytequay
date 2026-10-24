@@ -154,7 +154,7 @@ public class AutoMergeService
         }
         AutoMerge current = saved.filter(merge -> merge.headSha().equals(head) && merge.outcome().isEmpty())
                 .orElseGet(() -> AutoMerge.waiting(taskId, head, "Checking whether the pull request can merge"));
-        Optional<String> waitingFor = waitingFor(task, pr, raw);
+        Optional<String> waitingFor = waitingFor(task, pr, detail.orElseThrow());
         if (waitingFor.isPresent()) {
             AutoMerge waiting = AutoMerge.waiting(taskId, head, waitingFor.orElseThrow());
             if (!waiting.equals(current) || saved.isEmpty()) {
@@ -218,8 +218,12 @@ public class AutoMergeService
         return Optional.empty();
     }
 
-    private Optional<String> waitingFor(AgentTask task, PullRequest pr, PrRawDetail raw)
+    private Optional<String> waitingFor(AgentTask task, PullRequest pr, StoredPrDetail detail)
     {
+        if (detail.unavailableSections().contains(StoredPrDetail.REVIEW_THREADS)) {
+            return Optional.of("Waiting for review threads to refresh");
+        }
+        PrRawDetail raw = detail.raw();
         if (raw.draft()) {
             return Optional.of("Waiting for the pull request to leave draft");
         }

@@ -243,6 +243,32 @@ class TestAutoMergeService
     }
 
     @Test
+    void unavailableReviewThreadsBlockMergeAndRestartTheDelay()
+    {
+        service.advance(task);
+        clock.advance(Duration.ofHours(1));
+        StoredPrDetail complete = details.find(12L).orElseThrow();
+        when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(complete.raw(), complete.reviews(), complete.timeline(), complete.checkRuns(),
+                ImmutableList.of(StoredPrDetail.REVIEW_THREADS), complete.viewerCanWrite())));
+
+        service.advance(task);
+
+        assertThat(summary()).isEqualTo(new AutoMergeService.AutoMergeSummary("WAITING", Optional.empty(), Optional.of("Waiting for review threads to refresh")));
+        verify(pullRequests, never()).mergePullRequest(anyString(), anyInt(), anyLong(), anyString(), anyString());
+
+        when(details.find(12L)).thenReturn(Optional.of(complete));
+        service.advance(task);
+        assertThat(summary().mergeAt()).contains(clock.instant().plus(Duration.ofHours(1)));
+        clock.advance(Duration.ofMinutes(59));
+        service.advance(task);
+        verify(pullRequests, never()).mergePullRequest(anyString(), anyInt(), anyLong(), anyString(), anyString());
+
+        clock.advance(Duration.ofMinutes(1));
+        service.advance(task);
+        verify(pullRequests).mergePullRequest(REPO, 12, 12L, "rebase", HEAD);
+    }
+
+    @Test
     void aFailedMergeWaitsForANewHeadAndAnUnfinishedOneIsNeverSentAgain()
     {
         when(settings.preferences()).thenReturn(new AppPreferences(7, 14, AppTheme.SYSTEM, 30, 0));

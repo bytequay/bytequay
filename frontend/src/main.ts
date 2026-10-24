@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { backendJson, backendJsonIfChanged } from './backendJson';
-import { labPage, labTask, openLab, resolveLabPage, stopLab } from '@bytequay/lab/main';
+import { closeLab, labPage, labTask, openLab, resolveLabPage, stopLab } from '@bytequay/lab/main';
 import type { JiraLocation } from './jira/contracts';
 import { registerJiraIpc } from '@bytequay/jira/main';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
@@ -331,6 +331,7 @@ const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.lastUsed
 const artifactView = new ArtifactView(() => mainWindow,
   target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}/pages/${encodeURIComponent(target.pageId)}`))
     .then(parseArtifactPage), () => appNotices.raise());
+let labTabOpen = false;
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'), () => appNotices.raise(), url => {
   const task = labTask(url);
   if (task === null) return false;
@@ -338,6 +339,11 @@ const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPat
   browserTabs.hide();
   mainWindow?.webContents.send('lab:task', task);
   return true;
+}, state => {
+  // Only the last Lab tab closing ends the dashboard; one still opening has no tab yet.
+  const open = state.tabs.some(tab => labPage(tab.url) !== null);
+  if (labTabOpen && !open) closeLab();
+  labTabOpen = open;
 });
 let pendingWindow: Promise<void> | null = null;
 

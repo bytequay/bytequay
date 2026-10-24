@@ -181,6 +181,13 @@ export function labTask(url: string): LabTask | null {
   return { repository, text };
 }
 
+/** Ends the dashboard once no tab shows it; it holds about 200 MB, and the next Lab page starts it again. */
+export function closeLab(): void {
+  if (opening !== null || dashboard === null) return;
+  terminate(dashboard.process);
+  dashboard = null;
+}
+
 export function stopLab(): void {
   stopping = true;
   for (const owned of children) terminate(owned);

@@ -100,6 +100,26 @@ it('reopens a healthy dashboard without rebuilding its statistics', async () => 
   lab.stopLab();
 });
 
+it('ends the dashboard when closed, and starts it again with fresh statistics on the next open', async () => {
+  const lab = await import('./labProcess');
+  const first = lab.openLab(); await flush(); children[0].end(); await first;
+  lab.closeLab();
+  expect(process.kill).toHaveBeenCalledWith(-children[1].pid, 'SIGKILL');
+  const second = lab.openLab(); await flush(); children[2].end(); await second;
+  expect(children).toHaveLength(4);
+  lab.stopLab();
+});
+
+it('keeps a dashboard that is still starting when closed', async () => {
+  const lab = await import('./labProcess');
+  const opening = lab.openLab(); await flush();
+  lab.closeLab();
+  children[0].end();
+  expect(await opening).toBe('http://127.0.0.1:49152/lab-launch-id/');
+  expect(children[1].kill).not.toHaveBeenCalled();
+  lab.stopLab();
+});
+
 it('restarts a dashboard that exited since the last open', async () => {
   const lab = await import('./labProcess');
   const first = lab.openLab(); await flush(); children[0].end(); await first;

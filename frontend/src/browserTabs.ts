@@ -122,7 +122,7 @@ export class BrowserTabs {
 
   /** `claim` takes a link a page opens before any tab does, for links that act in ByteQuay rather than load a page. */
   constructor(private readonly window: () => BrowserWindow | null, private readonly storagePath: () => string, private readonly onPresent: () => void = () => {},
-    private readonly claim: (url: string) => boolean = () => false) {}
+    private readonly claim: (url: string) => boolean = () => false, private readonly changed: (state: InAppBrowserState) => void = () => {}) {}
 
   getState(): InAppBrowserState {
     this.restore();
@@ -329,8 +329,10 @@ export class BrowserTabs {
   }
 
   private emit(): void {
+    const state = this.getState();
+    this.changed(state);
     const window = this.window();
-    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('inapp:state', this.getState());
+    if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('inapp:state', state);
   }
 
   private unmountSurface(): void {

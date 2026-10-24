@@ -28,6 +28,7 @@ let searches: string[];
 let opened: string[];
 let browserOpened: string[];
 let chat: GoogleChatState;
+let chatReads: number;
 const profile = '00000000-0000-0000-0000-000000000001';
 // The calendar opens on today, so its fixture events are dated from today.
 const day = (offset: number) => { const value = new Date(); value.setDate(value.getDate() + offset); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; };
@@ -37,6 +38,7 @@ export async function mountPreview(settings = false) {
   root?.unmount();
   document.body.innerHTML = '<div id="root" style="height:100vh"></div>';
   searches = []; opened = []; browserOpened = [];
+  chatReads = 0;
   chat = { messages: [], busy: false, activity: '', error: null, approval: null };
   status = { profile, accounts: [{ profile, accountId: 'people/one', email: 'alex@example.com', name: 'Alex Chen' }], installed: true, operation: '', error: null, snapshot: {
     accountId: 'people/one', name: 'Alex Chen', email: 'alex@example.com', agentAccess: false,
@@ -57,7 +59,7 @@ export async function mountPreview(settings = false) {
     getGeminiSetupStatus: async () => ({ configured: !settings, installed: true }),
     saveGeminiSetupKey: async () => ({ configured: true, installed: true }),
     removeGeminiSetupKey: async () => ({ configured: false, installed: true }),
-    getGoogleChat: async () => structuredClone(chat),
+    getGoogleChat: async () => { chatReads++; return structuredClone(chat); },
     promptGoogleChat: async (_profile, text) => { chat.messages.push({ role: 'user', text }, { role: 'assistant', text: 'Your booking has been confirmed.' }); return structuredClone(chat); },
     clearGoogleChat: async () => { chat.messages = []; return structuredClone(chat); },
     stopGoogleChat: async () => { chat.busy = false; chat.approval = null; return structuredClone(chat); },
@@ -336,6 +338,107 @@ export async function run() {
       assert(document.querySelector('[aria-label="Conversation messages"]')?.textContent?.includes('Your booking has been confirmed.'), 'Response appears inside Google Apps');
       button('Clear conversation').click(); await settle(); await settle();
       assert(chat.messages.length === 0, 'Clear removes conversation');
+    },
+    async 'polls active Gemini work once per tick and pauses idle or hidden conversations'() {
+      const originalSet = window.setInterval;
+      const originalClear = window.clearInterval;
+      const visibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+      const timers = new Map<number, () => void>();
+      let nextTimer = -1;
+      window.setInterval = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+        if (delay !== 700 || typeof handler !== 'function') return originalSet(handler, delay, ...args);
+        const id = nextTimer--;
+        timers.set(id, () => handler(...args));
+        return id;
+      }) as typeof window.setInterval;
+      window.clearInterval = id => { if (typeof id === 'number' && timers.delete(id)) return; originalClear(id); };
+      const tick = () => [...timers.values()].forEach(run => run());
+      const visible = (value: 'visible' | 'hidden') => {
+        Object.defineProperty(document, 'visibilityState', { configurable: true, value });
+        document.dispatchEvent(new Event('visibilitychange'));
+      };
+      const busy = () => document.querySelector('[aria-label="Gemini is responding"]') !== null;
+      let pendingRead: PromiseWithResolvers<GoogleChatState> | null = null;
+      let failRead = false;
+      try {
+        visible('visible');
+        await mountPreview();
+        assert(chatReads === 1 && timers.size === 1, 'The conversation reads once when mounted');
+        tick(); tick(); await settle();
+        assert(chatReads === 1, 'Idle conversations make no repeated IPC reads');
+        window.bridge.getGoogleChat = async () => {
+          chatReads++;
+          if (failRead) throw new Error('Temporary read failure');
+          return pendingRead?.promise ?? structuredClone(chat);
+        };
+        window.bridge.promptGoogleChat = async (_profile, text) => {
+          chat = { ...chat, busy: true, activity: 'Searching mail', messages: [...chat.messages, { role: 'user', text }] };
+          return structuredClone(chat);
+        };
+        const ask = async (message: string) => {
+          changeInput(element<HTMLTextAreaElement>('[aria-label="Message Gemini"]'), message); await settle();
+          button('Send to Gemini').click(); await settle(); await settle();
+          assert(busy(), 'A submitted prompt starts busy polling');
+        };
+        await ask('Check my booking');
+        pendingRead = Promise.withResolvers<GoogleChatState>();
+        let before = chatReads;
+        tick(); tick(); tick();
+        assert(chatReads === before + 1, 'Repeated 700ms ticks never overlap a slow read');
+        chat.activity = 'Reading the booking reply';
+        pendingRead.resolve(structuredClone(chat)); pendingRead = null;
+        await settle();
+        assert(document.querySelector('.google-chat__activity')?.textContent === chat.activity, 'The active read updates the conversation');
+
+        visible('hidden'); before = chatReads;
+        tick(); tick(); await settle();
+        assert(chatReads === before, 'Hidden conversations skip reads even while busy');
+        chat.activity = 'Checking calendar availability';
+        visible('visible'); await settle();
+        assert(chatReads === before + 1 && document.querySelector('.google-chat__activity')?.textContent === chat.activity,
+          'Returning immediately reads and shows fresh activity');
+
+        failRead = true; tick(); await settle();
+        assert(document.querySelector('.google-chat [role="alert"]')?.textContent?.includes('Unable to read'), 'A failed read remains visible');
+        failRead = false; tick(); await settle();
+        assert(document.querySelector('.google-chat [role="alert"]') === null && busy(), 'The next successful active read clears its transient error');
+
+        chat = { ...chat, busy: false, activity: '', messages: [...chat.messages, { role: 'assistant', text: 'Your booking is confirmed.' }] };
+        tick(); await settle();
+        assert(!busy() && document.querySelector('.google-chat__messages')?.textContent?.includes('Your booking is confirmed.'), 'Completion reaches the conversation');
+        before = chatReads;
+        tick(); tick(); await settle();
+        assert(chatReads === before, 'Polling stops after completion');
+
+        await ask('Check another booking');
+        window.bridge.stopGoogleChat = async () => { throw new Error('Unable to stop this turn'); };
+        button('Stop').click(); await settle(); await settle();
+        tick(); await settle();
+        assert(document.querySelector('.google-chat [role="alert"]')?.textContent === 'Unable to stop this turn' && busy(),
+          'A successful status read must not erase a failed user action');
+        window.bridge.stopGoogleChat = async () => { chat = { ...chat, busy: false, approval: null }; return structuredClone(chat); };
+        pendingRead = Promise.withResolvers<GoogleChatState>();
+        tick();
+        const late = structuredClone(chat);
+        button('Stop').click(); await settle(); await settle();
+        assert(!busy(), 'Stop publishes its idle state');
+        pendingRead.resolve(late); pendingRead = null;
+        await settle();
+        assert(!busy(), 'A late busy poll cannot undo Stop');
+        before = chatReads;
+        tick(); await settle();
+        assert(chatReads === before, 'A stopped conversation stays idle');
+        root?.unmount(); root = null;
+        tick(); visible('visible'); await settle();
+        assert(chatReads === before && Number(timers.size) === 0, 'Unmounting releases polling and visibility listeners');
+      }
+      finally {
+        root?.unmount(); root = null;
+        window.setInterval = originalSet;
+        window.clearInterval = originalClear;
+        if (visibility === undefined) Reflect.deleteProperty(document, 'visibilityState');
+        else Object.defineProperty(document, 'visibilityState', visibility);
+      }
     },
     async 'guides missing Gemini setup to settings while keeping Google Apps usable'() {
       await mountPreview();

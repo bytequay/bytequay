@@ -25,6 +25,7 @@ const SUGGESTIONS = [
   { icon: CalendarDays, text: 'What does my week look like?' },
   { icon: Reply, text: 'Draft a reply to my latest unread email' },
 ];
+const READ_ERROR = 'Unable to read the Gemini conversation.';
 
 export default function GoogleChat({ profile, email, context, onContext }: { profile: string; email: string; context: ChatContext | null; onContext: (context: ChatContext | null) => void }) {
   const { bridge, settingsUrl, Markdown } = useGoogleHost();
@@ -35,6 +36,9 @@ export default function GoogleChat({ profile, email, context, onContext }: { pro
   const [setup, setSetup] = useState<GeminiSetupStatus | null>(null);
   const [setupError, setSetupError] = useState<string | null>(null);
   const alive = useRef(true);
+  const revision = useRef(0);
+  const polling = useRef(true);
+  polling.current = state === null || state.busy || pending;
   const bottom = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -50,23 +54,29 @@ export default function GoogleChat({ profile, email, context, onContext }: { pro
   }, [bridge]);
   useEffect(() => {
     alive.current = true;
+    let active = true;
     let inFlight = false;
     const refresh = async () => {
-      if (inFlight) return;
+      if (inFlight || document.visibilityState !== 'visible') return;
       inFlight = true;
-      try { const next = await bridge.getGoogleChat(profile); if (alive.current) setState(next); }
-      catch { if (alive.current) setError('Unable to read the Gemini conversation.'); }
+      const asked = revision.current;
+      try { const next = await bridge.getGoogleChat(profile); if (active && asked === revision.current) { setState(next); setError(error => error === READ_ERROR ? null : error); } }
+      catch { if (active && asked === revision.current) setError(READ_ERROR); }
       finally { inFlight = false; }
     };
-    void refresh(); const timer = window.setInterval(() => { void refresh(); }, 700);
-    return () => { alive.current = false; window.clearInterval(timer); };
+    void refresh();
+    const timer = window.setInterval(() => { if (polling.current) void refresh(); }, 700);
+    const returned = () => { void refresh(); };
+    document.addEventListener('visibilitychange', returned);
+    return () => { active = false; alive.current = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', returned); };
   }, [profile, bridge]);
   const lastText = state?.messages.at(-1)?.text;
   useEffect(() => { bottom.current?.scrollIntoView({ block: 'nearest' }); }, [lastText, state?.approval, state?.busy]);
   useEffect(() => { if (context) input.current?.focus(); }, [context]);
   const act = async (action: () => Promise<GoogleChatState>) => {
+    const asked = ++revision.current;
     setError(null); setPending(true);
-    try { const next = await action(); if (alive.current) setState(next); return true; }
+    try { const next = await action(); if (alive.current && asked === revision.current) { revision.current++; setState(next); } return true; }
     catch (cause) { if (alive.current) setError(cause instanceof Error ? cause.message : 'Gemini request failed.'); return false; }
     finally { if (alive.current) setPending(false); }
   };

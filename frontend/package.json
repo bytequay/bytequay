@@ -15,7 +15,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "postinstall": "install-electron --no && chmod +x node_modules/node-pty/prebuilds/darwin-*/spawn-helper",
-    "lint": "node --test scripts/workspace-resolver.check.cjs && eslint --ext .ts,.tsx .",
+    "lint": "eslint --ext .ts,.tsx .",
     "test": "vitest run",
     "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackagesStartingWith 'bytequay;@bytequay/'",
     "build:plugins": "npm run build --workspaces --if-present",

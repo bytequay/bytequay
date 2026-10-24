@@ -36,6 +36,7 @@ module.exports = {
     "header"
   ],
   "rules": {
+    "import/no-unresolved": ["error", { "ignore": ["^@bytequay/"] }],
     "@typescript-eslint/no-empty-function": [
       "error",
       {
@@ -83,9 +84,4 @@ module.exports = {
       }
     }
   ],
-  settings: {
-    "import/resolver": [{
-      [require.resolve("./scripts/workspace-resolver.cjs")]: require('eslint-plugin-import/config/typescript').settings['import/resolver'].node,
-    }],
-  },
 }

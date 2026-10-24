@@ -70,11 +70,13 @@ export default function ChangesView({ workspaceId, onCommitted }: {
         <div className="cmt-commit-box">
           {error && <div className="cmt-error" role="alert">{error}</div>}
           <input
+            disabled={busy}
             value={summary}
             placeholder="Summary (required)"
             onChange={event => setSummary(event.target.value)}
           />
           <textarea
+            disabled={busy}
             rows={3}
             value={description}
             placeholder="Description"

@@ -1798,6 +1798,14 @@ export function ReviewDialog({
       return;
     }
     const saved = savedDraft.current;
+    if (saved === null && edited.current) {
+      setError(draft === null
+        ? 'The saved review draft is unavailable. Keep this text open until it loads, or close without saving.'
+        : 'A different saved review draft arrived while you were typing. Copy your text, then close without saving and reopen the review to edit the saved draft.');
+      setUnsavedClose(true);
+      if (draft === null) reloadReview();
+      return;
+    }
     // Locked text cannot have changed, though it may differ from the stored copy by trimmed whitespace.
     if (saved === null || reviewSend !== null || (body === saved.body && event === saved.event)) {
       onClose();
@@ -1821,7 +1829,7 @@ export function ReviewDialog({
       inFlight.current = false;
       setSaving(false);
     }
-  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed, commentEdit, reviewSend]);
+  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed, commentEdit, reviewSend, draft]);
 
   const removePromoted = async (itemId: string) => {
     if (draft === null || inFlight.current) return;

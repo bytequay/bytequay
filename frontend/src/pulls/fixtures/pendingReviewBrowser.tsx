@@ -468,3 +468,52 @@ export async function runApprovalCommitBinding(): Promise<string> {
     Object.assign(window, { bridge: previous });
   }
 }
+
+export async function runDelayedDraftClose(): Promise<string> {
+  const previous = window.bridge;
+  const { host, root, dispose } = createFixtureRoot('main');
+  const pending = Promise.withResolvers<ReviewDraftDto>();
+  const writes: string[] = [];
+  let closes = 0;
+  const bridge = {
+    getReviewDraft: () => pending.promise,
+    saveReviewDraft: async (_repo, _number, version, body, event) => {
+      writes.push(body);
+      return reviewDraftFixture({ repo: stored.repo, number: stored.number, version: version + 1, body, event });
+    },
+  } satisfies Pick<Bridge, 'getReviewDraft' | 'saveReviewDraft'>;
+  Object.assign(window, { bridge });
+  const render = (key: string) => flushSync(() => root.render(<ReviewDialog key={key}
+    pr={remotePullRequest(stored, 'bob')} detail={stored} onReviewSubmitted={() => {}} onClose={() => { closes++; }} />));
+  const close = async () => { textButton('Cancel', host).click(); await settle(); };
+  try {
+    render('loading'); await settle();
+    const editor = fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Review comment"]', host);
+    changeInput(editor, 'Keep this review'); await settle();
+    await close();
+    assert(closes === 0 && writes.length === 0 && editor.value === 'Keep this review', 'An unknown saved draft must not silently discard typed text');
+    assert(host.textContent?.includes('close without saving') === true, 'The user must be told how to keep or explicitly discard their text');
+    pending.resolve(reviewDraftFixture({ repo: stored.repo, number: stored.number, body: '' }));
+    await settle();
+    await close();
+    assert(Number(closes) === 1 && writes.join() === 'Keep this review', 'Once loaded, closing must save the original text');
+
+    const existing = Promise.withResolvers<ReviewDraftDto>();
+    bridge.getReviewDraft = () => existing.promise;
+    render('existing'); await settle();
+    changeInput(fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Review comment"]', host), 'New local prose'); await settle();
+    existing.resolve(reviewDraftFixture({ repo: stored.repo, number: stored.number, body: 'Previously saved prose' })); await settle();
+    await close();
+    assert(Number(closes) === 1 && Number(writes.length) === 1, 'A late conflicting saved draft must preserve both versions until explicit discard');
+    assert(host.querySelector('[role="alert"]')?.textContent?.includes('Copy your text') === true
+      && fixtureElement<HTMLTextAreaElement>('textarea[aria-label="Review comment"]', host).value === 'New local prose',
+    'A loaded draft conflict must explain how to retain edits instead of waiting for another load');
+    textButton('Close without saving', host).click(); await settle();
+    assert(Number(closes) === 2, 'Discarding edits must remain an explicit available action');
+    return 'Unloaded review drafts never silently discard edits';
+  }
+  finally {
+    dispose();
+    Object.assign(window, { bridge: previous });
+  }
+}

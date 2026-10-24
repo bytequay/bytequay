@@ -1743,6 +1743,7 @@ export function DiscussionComposer({
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draftRevision, setDraftRevision] = useState(0);
+  const hadDraft = useRef(false);
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1770,7 +1771,9 @@ export function DiscussionComposer({
     });
   }, [quotedReply]);
   useEffect(() => {
-    if (!onDraftChange) return;
+    if (!onDraftChange || (!body && !hadDraft.current)) return;
+    // An untouched composer must not clear the saved text from an earlier visit.
+    hadDraft.current = true;
     const timer = window.setTimeout(() => onDraftChange(body), 1200);
     return () => window.clearTimeout(timer);
   }, [body, onDraftChange]);

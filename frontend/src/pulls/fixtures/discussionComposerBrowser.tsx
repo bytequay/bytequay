@@ -13,7 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
-import { element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
+import { element as fixtureElement, assert, changeInput, controlTimers, settle } from '../../fixtures/harness';
 import { DiscussionComposer } from '../PullOverview';
 
 export async function run(): Promise<string> {
@@ -64,6 +64,26 @@ export async function run(): Promise<string> {
     assert(Number(closes) === 2 && Number(posted.length) === 2 && alert() === undefined, 'Retrying close must not post the comment again');
     await settle();
     assert(unhandled.length === 0, 'Handled action failures must not leak rejected promises');
+    const timers = controlTimers(1200);
+    const drafts: string[] = [];
+    const renderDraft = (key: string) => flushSync(() => root.render(<DiscussionComposer key={key}
+      repository="owner/repo" pullRequestNumber={42} candidates={[]} onSubmit={async () => {}}
+      onDraftChange={body => drafts.push(body)} />));
+    try {
+      renderDraft('first'); await settle(); timers.tick();
+      assert(drafts.length === 0, 'An untouched composer must not delete a draft saved on an earlier visit');
+      changeInput(editor(), 'Remember this unsent comment'); await settle(); timers.tick();
+      assert(drafts.join() === 'Remember this unsent comment', 'Typing must still save an unsent draft');
+      renderDraft('reopened'); await settle(); timers.tick();
+      assert(Number(drafts.length) === 1, 'Reopening must preserve the saved unsent text');
+      changeInput(editor(), 'Temporary text'); await settle(); timers.tick();
+      changeInput(editor(), ''); await settle(); timers.tick();
+      assert(drafts.at(-1) === '', 'Explicitly clearing a changed draft must remove it');
+      changeInput(editor(), 'Ready to post'); await settle(); timers.tick();
+      await click('Comment'); timers.tick();
+      assert(drafts.at(-1) === '', 'A successful post must clear the saved draft');
+    }
+    finally { timers.restore(); }
     return 'Comment and close recovery passed';
   }
   finally {

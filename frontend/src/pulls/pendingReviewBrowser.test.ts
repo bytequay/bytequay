@@ -48,3 +48,10 @@ it('keeps an approval on its viewed commit when detail refreshes and blocks an u
   });
   expect(result).toBe('Approvals stay bound to the viewed commit');
 }, deadline(40_000));
+
+it('keeps review text while the saved draft is still loading', async () => {
+  const result = await fixture.run<string>({
+    body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runDelayedDraftClose()');",
+  });
+  expect(result).toBe('Unloaded review drafts never silently discard edits');
+}, deadline(40_000));

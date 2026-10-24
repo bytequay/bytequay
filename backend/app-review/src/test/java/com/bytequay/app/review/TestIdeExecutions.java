@@ -161,6 +161,17 @@ class TestIdeExecutions
     }
 
     @Test
+    void stopRequiresTheOriginalTaskAndEditorSession()
+    {
+        LocalRun run = start(Scope.RUN);
+        assertThatThrownBy(() -> executions.stop(taskId.toString(), "other-session", run.id())).hasMessageContaining("no longer active");
+        assertThatThrownBy(() -> executions.stop(TaskId.random().toString(), "session", run.id())).hasMessageContaining("no longer active");
+        verify(runtime, never()).stop(anyString(), anyString());
+        executions.stop(taskId.toString(), "session", run.id());
+        verify(runtime).stop(taskId.toString(), "session");
+    }
+
+    @Test
     void failureBeforeDispatchReleasesOnlyItsOwnClaim()
     {
         when(runtime.trackExecution(taskId.toString(), "session")).thenThrow(new IllegalStateException("Runtime ownership unavailable"));

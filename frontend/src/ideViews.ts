@@ -189,7 +189,8 @@ export class IdeViews {
           return run;
         } finally { editor.executionStarting = false; }
       }
-      if (request.id !== editor.execution) throw new Error('The execution does not belong to this editor');
+      // An accepted start can lose its response; Stop still reaches the backend's task/session ownership check.
+      if (request.id !== editor.execution && (request.operation !== 'stop' || editor.execution !== null)) throw new Error('The execution does not belong to this editor');
       const route = `/${connection.taskId}/${connection.sessionId}/executions/${request.id}`;
       if (request.operation === 'output') return runtimeRequest(`${route}/output`, 'POST', request.request);
       const run = parseLocalRun(await runtimeRequest(request.operation === 'finish' ? `${route}/finish` : route,

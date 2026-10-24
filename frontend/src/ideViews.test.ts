@@ -427,6 +427,7 @@ it('binds execution metadata to the owning task and keeps cleanup-pending runs a
     body: JSON.stringify({ scope: 'DEBUG', label: 'Example', path: null, sessionId: 'session' }),
   }));
   await expect(invoke('ide:execution', child(), start)).rejects.toThrow('already using');
+  await expect(invoke('ide:execution', child(), { operation: 'output', id: 'another-run', request: { sequence: 1, text: 'output', truncated: false } })).rejects.toThrow('does not belong');
   await expect(invoke('ide:execution', child(), { operation: 'stop', id: 'another-run' })).rejects.toThrow('does not belong');
   const finish: ExecutionRequest = { operation: 'finish', id: run.id, request: { cancelled: false, failed: false, incomplete: false, exitCode: 0, tests: [] } };
   fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...run, status: 'COMPLETED', treeUnverified: true })));
@@ -437,6 +438,24 @@ it('binds execution metadata to the owning task and keeps cleanup-pending runs a
   await invoke('ide:execution', child(), finish);
   await vi.advanceTimersByTimeAsync(15_000);
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+});
+
+
+it('stops an accepted execution after its start response is lost, using only its editor session', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:update', parent(), id, { host });
+  const start: ExecutionRequest = { operation: 'start', request: { scope: 'RUN', label: 'Example', path: null } };
+  fetchMock.mockRejectedValueOnce(new TypeError('Response connection closed'));
+  await expect(invoke('ide:execution', child(), start)).rejects.toThrow('request may still finish');
+  const stopped: LocalRunDto = { id: 'accepted-run', ordinal: 1, initiator: 'USER', scope: 'RUN', path: null, testClass: null, testMethod: null, module: null,
+    command: 'Example', sourceHeadSha: 'a'.repeat(40), localPaths: [], sourceFingerprint: 'source', status: 'STOPPED',
+    startedAt: '2026-01-01T00:00:00Z', endedAt: '2026-01-01T00:01:00Z', exitCode: null, tests: null, failures: null, errors: null, skipped: null,
+    outputTruncated: false, omittedBytes: null, treeUnverified: false, results: [] };
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(stopped)));
+  expect(await invoke('ide:execution', child(), { operation: 'stop', id: stopped.id })).toEqual(stopped);
+  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/ide/task/session/executions/accepted-run', expect.objectContaining({ method: 'DELETE' }));
+  fetchMock.mockResolvedValueOnce(new Response('IDE execution is no longer active', { status: 404 }));
+  await expect(invoke('ide:execution', child(), { operation: 'stop', id: 'other-session-run' })).rejects.toThrow('no longer active');
 });
 
 

@@ -581,10 +581,14 @@ function registerIpc(): void {
     if (action === 'zoom') mainWindow.setFullScreen(!mainWindow.isFullScreen());
   });
   ipcMain.handle('app:version', () => ({ version: app.getVersion() }));
-  ipcMain.handle('find:start', (_event, text: string, options: Electron.FindInPageOptions) => {
-    mainWindow?.webContents.findInPage(text, options);
+  ipcMain.handle('find:start', (_event, text: string, options: Electron.FindInPageOptions, tabId?: string) => {
+    if (tabId !== undefined) browserTabs.find(tabId, text, options);
+    else mainWindow?.webContents.findInPage(text, options);
   });
-  ipcMain.handle('find:stop', () => mainWindow?.webContents.stopFindInPage('clearSelection'));
+  ipcMain.handle('find:stop', (_event, tabId?: string) => {
+    if (tabId !== undefined) browserTabs.stopFind(tabId);
+    else mainWindow?.webContents.stopFindInPage('clearSelection');
+  });
 
   ipcMain.handle('agent:better-words', async (
     _event,

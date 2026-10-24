@@ -549,7 +549,7 @@ function AppContent() {
           return !value;
         })}
         onApp={backToApp}
-        onNewPage={() => browserAction(window.bridge.openInAppBrowser('https://www.google.com/'))}
+        onNewPage={() => browserAction(window.bridge.newInAppBrowserPage())}
         onSelect={id => browserAction(window.bridge.selectInAppBrowserTab(id))}
         onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))}
         onRename={(id, name) => browserAction(window.bridge.renameInAppBrowserTab(id, name))} />

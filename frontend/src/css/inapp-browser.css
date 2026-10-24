@@ -127,10 +127,19 @@
   align-items: center;
   justify-content: center;
 }
-.inapp-browser__open-external:hover {
+.inapp-browser__open-external:hover:not(:disabled) {
   background: var(--accent-a7);
   border-color: var(--accent-a40);
   color: var(--accent);
+}
+.inapp-browser__open-external:disabled { opacity: 0.6; cursor: not-allowed; }
+/* Native pages sit above DOM overlays, so Find takes space above the page slot. */
+.inapp-browser > .find-bar {
+  position: static;
+  flex: 0 0 auto;
+  align-self: flex-end;
+  margin: 6px 8px;
+  box-shadow: none;
 }
 .inapp-browser__slot {
   flex: 1;

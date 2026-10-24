@@ -17,6 +17,7 @@ import { WindowControls } from './AppSidebar';
 import { readBrowserDisplayMode } from './browserPreferences';
 import type { InAppBrowserTab } from './types';
 import WebAddressForm from './WebAddressForm';
+import FindBar from './FindBar';
 
 type Props = {
   tab: InAppBrowserTab;
@@ -40,7 +41,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && !event.defaultPrevented) {
         event.preventDefault();
         onBack();
       }
@@ -85,19 +86,20 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
           <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.inAppGoForward(tab.id))}
             disabled={!tab.canGoForward} title="Forward" aria-label="Forward"><ArrowRight size={16} /></button>
           <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.inAppReload(tab.id))}
-            title="Reload" aria-label="Reload"><RotateCw size={16} /></button>
+            disabled={!tab.url} title="Reload" aria-label="Reload"><RotateCw size={16} /></button>
         </div>
         <WebAddressForm key={tab.id} url={tab.url} onNavigate={url => window.bridge.inAppNavigate(tab.id, url)} />
         <button type="button" className={`inapp-browser__open-external${tab.pinned ? ' is-pinned' : ''}`}
+          disabled={!tab.url}
           onClick={() => run(window.bridge.pinInAppBrowserTab(tab.id, !tab.pinned))}
           title={tab.pinned ? 'Unpin this page so you can close it permanently' : 'Pin this page to the left bar and keep it after restarting'}
           aria-pressed={tab.pinned} aria-label={tab.pinned ? 'Unpin page' : 'Pin page'}>
           <Pin size={15} />{tab.pinned ? 'Pinned' : 'Pin'}
         </button>
         <button type="button" className="inapp-browser__open-external inapp-browser__popout" onClick={() => run(window.bridge.inAppPopOut(tab.url))}
-          title="Open this page in its own window" aria-label="Pop out page"><PanelsTopLeft size={16} aria-hidden="true" /><span className="inapp-browser__action-label">Pop out</span></button>
+          disabled={!tab.url} title="Open this page in its own window" aria-label="Pop out page"><PanelsTopLeft size={16} aria-hidden="true" /><span className="inapp-browser__action-label">Pop out</span></button>
         <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.openExternal(tab.url))}
-          title="Open in your default browser" aria-label="Open in default browser"><ExternalLink size={16} /></button>
+          disabled={!tab.url} title="Open in your default browser" aria-label="Open in default browser"><ExternalLink size={16} /></button>
         <button type="button" className="inapp-browser__nav-btn inapp-browser__size" onClick={() => setDisplayMode(zoomed ? 'fullscreen' : 'zoom')}
           title={zoomed ? 'Full screen' : 'Restore zoom view'} aria-label={zoomed ? 'Full screen' : 'Restore zoom view'}>
           {zoomed ? <Maximize2 size={16} /> : <Minimize2 size={16} />}
@@ -105,8 +107,12 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
         <button type="button" className="inapp-browser__nav-btn" onClick={() => run(window.bridge.closeInAppBrowserTab(tab.id))}
           title={tab.pinned ? 'Minimize page and keep pin' : 'Close page'} aria-label={tab.pinned ? 'Minimize page' : 'Close page'}><X size={16} /></button>
       </div>
+      <FindBar key={`${tab.id}:${tab.url}`} browserTabId={tab.id} />
       {error && <div className="inapp-browser__error" role="alert">{error}</div>}
       <div className="inapp-browser__slot" ref={slotRef}>
+        {!tab.url && <div className="inapp-browser__start">
+          <Globe size={30} aria-hidden="true" /><h1>New page</h1><p>Enter a web address above to get started.</p>
+        </div>}
         {tab.error && <div className="inapp-browser__start" role="alert">
           <Globe size={30} /><h1>Unable to display this page</h1><p>{tab.error}</p>
           <button type="button" className="bq-button" onClick={() => run(window.bridge.inAppReload(tab.id))}>Try again</button>

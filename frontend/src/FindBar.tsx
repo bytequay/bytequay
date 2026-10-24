@@ -33,7 +33,7 @@ function editingElsewhere(target: EventTarget | null, own: HTMLElement | null): 
  * scroller is highlighted and scrolled into view. It only sees rendered text:
  * a collapsed diff file has no rows in the DOM and cannot match.
  */
-export default function FindBar() {
+export default function FindBar({ browserTabId }: { browserTabId?: string }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState('');
   const [searched, setSearched] = useState('');
@@ -46,23 +46,34 @@ export default function FindBar() {
     setSearched(text);
     if (text === '') {
       setResult(NO_MATCHES);
-      void window.bridge.stopFindInPage();
+      void window.bridge.stopFindInPage(browserTabId);
       return;
     }
     // `findNext` opens a finding session rather than stepping within one: the
     // first request for a query must send true, and every step after it false.
     // False with no session open is dropped, and backward needs an open one.
-    void window.bridge.findInPage(text, { forward, findNext: text !== searched });
+    void window.bridge.findInPage(text, { forward, findNext: text !== searched }, browserTabId);
   };
 
   const close = () => {
-    void window.bridge.stopFindInPage();
+    void window.bridge.stopFindInPage(browserTabId);
     setSearched('');
     setResult(NO_MATCHES);
     setOpen(false);
   };
 
-  useEffect(() => window.bridge.onFindResult(setResult), []);
+  useEffect(() => window.bridge.onFindResult(next => {
+    if (next.tabId === browserTabId) setResult(next);
+  }), [browserTabId]);
+
+  useEffect(() => {
+    if (browserTabId === undefined) return;
+    return window.bridge.onInAppBrowserFind(id => {
+      if (id !== browserTabId) return;
+      setOpen(true);
+      inputRef.current?.select();
+    });
+  }, [browserTabId]);
 
   // Stepping is driven from the window, not the input: each search moves the
   // page selection and blurs the bar, and refocusing it would re-anchor the
@@ -83,15 +94,17 @@ export default function FindBar() {
       if (event.key === 'Escape') close();
       else search(!event.shiftKey);
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    // Browser Escape must close Find before the surrounding browser handles it.
+    const capture = browserTabId !== undefined;
+    window.addEventListener('keydown', handleKeyDown, capture);
+    return () => window.removeEventListener('keydown', handleKeyDown, capture);
   });
 
   useEffect(() => {
     if (open) inputRef.current?.select();
   }, [open]);
 
-  useEffect(() => () => { void window.bridge.stopFindInPage(); }, []);
+  useEffect(() => () => { void window.bridge.stopFindInPage(browserTabId); }, [browserTabId]);
 
   if (!open) return null;
 

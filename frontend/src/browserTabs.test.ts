@@ -20,7 +20,7 @@ import type { EventEmitter } from 'node:events';
 import { BrowserTabs, browserBounds, registerBrowserTabIpc } from './browserTabs';
 
 const electron = vi.hoisted(() => ({
-  views: [] as unknown[], handlers: new Map<string, (...args: unknown[]) => unknown>(), appForProtocol: vi.fn(), showMessageBox: vi.fn(),
+  views: [] as unknown[], handlers: new Map<string, (...args: unknown[]) => unknown>(), appForProtocol: vi.fn(), showMessageBox: vi.fn(), showMessageBoxSync: vi.fn(),
 }));
 const lab = vi.hoisted(() => ({ resolve: vi.fn() }));
 vi.mock('@bytequay/lab/main', async importOriginal => ({
@@ -31,11 +31,11 @@ vi.mock('electron', async () => {
   return {
     app: { getApplicationNameForProtocol: electron.appForProtocol },
     BrowserWindow: { fromWebContents: (): null => null, getFocusedWindow: (): null => null },
-    dialog: { showMessageBox: electron.showMessageBox },
+    dialog: { showMessageBox: electron.showMessageBox, showMessageBoxSync: electron.showMessageBoxSync },
     ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => electron.handlers.set(channel, handler) },
     WebContentsView: class {
       webContents = Object.assign(new EventEmitter(), {
-        url: '', title: '', destroyed: false, formValue: '', scrollY: 0,
+        url: '', title: '', destroyed: false, preventUnload: false, formValue: '', scrollY: 0,
         session: { setPermissionCheckHandler: vi.fn(), setPermissionRequestHandler: vi.fn() },
         isDestroyed: () => this.webContents.destroyed,
         getURL: () => this.webContents.url,
@@ -47,8 +47,16 @@ vi.mock('electron', async () => {
           this.webContents.emit('did-start-navigation', {}, url, false, true);
           this.webContents.emit('did-navigate');
         }),
-        close: vi.fn(() => { this.webContents.destroyed = true; this.webContents.emit('destroyed'); }),
-        reload: vi.fn(), focus: vi.fn(), setWindowOpenHandler: vi.fn(),
+        close: vi.fn((options?: { waitForBeforeUnload: boolean }) => {
+          if (options?.waitForBeforeUnload && this.webContents.preventUnload) {
+            const event = { preventDefault: vi.fn() };
+            this.webContents.emit('will-prevent-unload', event);
+            if (!event.preventDefault.mock.calls.length) return;
+          }
+          this.webContents.destroyed = true;
+          this.webContents.emit('destroyed');
+        }),
+        reload: vi.fn(), focus: vi.fn(), setWindowOpenHandler: vi.fn(), findInPage: vi.fn(), stopFindInPage: vi.fn(),
       });
       setVisible = vi.fn();
       setBounds = vi.fn();
@@ -59,8 +67,9 @@ vi.mock('electron', async () => {
 });
 type MockView = {
   webContents: EventEmitter & {
-    url: string; title: string; formValue: string; scrollY: number;
+    url: string; title: string; formValue: string; scrollY: number; destroyed: boolean; preventUnload: boolean;
     loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn>;
+    findInPage: ReturnType<typeof vi.fn>; stopFindInPage: ReturnType<typeof vi.fn>;
     navigationHistory: { goBack: ReturnType<typeof vi.fn> };
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
     session: { setPermissionCheckHandler: ReturnType<typeof vi.fn>; setPermissionRequestHandler: ReturnType<typeof vi.fn> };
@@ -78,6 +87,7 @@ let contentView: { addChildView: ReturnType<typeof vi.fn>; removeChildView: Retu
 beforeEach(() => {
   electron.views.length = 0;
   electron.handlers.clear();
+  electron.showMessageBoxSync.mockReset().mockReturnValue(0);
   lab.resolve.mockReset().mockImplementation(async (url: string) => url);
   directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-browser-test-'));
   file = path.join(directory, 'browser-tabs.json');
@@ -91,6 +101,56 @@ function open(url: string): string {
   tabs.open(url);
   return tabs.getState().activeTabId as string;
 }
+
+it('creates distinct local new pages without loading until an address is submitted', async () => {
+  tabs.newPage();
+  const first = tabs.getState().activeTabId as string;
+  tabs.newPage();
+  const second = tabs.getState().activeTabId as string;
+  expect(second).not.toBe(first);
+  expect(tabs.getState().tabs).toEqual([first, second].map(id => expect.objectContaining({ id, url: '', title: 'New page', pinned: false, loading: false })));
+  tabs.select(first);
+  tabs.mount(first, bounds);
+  tabs.reload(first);
+  expect(electron.views).toHaveLength(0);
+  expect(() => tabs.pin(first, true)).toThrow('Open a web address');
+  expect(fs.existsSync(file)).toBe(false);
+  await expect(tabs.navigate(first, '')).rejects.toThrow('Enter a web address');
+  expect(electron.views).toHaveLength(0);
+  await tabs.navigate(first, 'example.com');
+  expect(electron.views).toHaveLength(1);
+  expect(view(0).webContents.loadURL).toHaveBeenCalledWith('https://example.com/');
+  expect(tabs.getState().tabs[0]).toMatchObject({ id: first, url: 'https://example.com/' });
+  expect(contentView.addChildView).toHaveBeenLastCalledWith(view(0));
+  tabs.close(second);
+  expect(tabs.getState().tabs).toHaveLength(1);
+  expect(tabs.getState().activeTabId).toBe(first);
+  tabs.pin(first, true);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))[0].url).toBe('https://example.com/');
+});
+
+it('restores pinned pages before opening a local new page through trusted IPC', () => {
+  fs.writeFileSync(file, JSON.stringify([{ id: 'saved', url: 'https://example.com/', title: 'Saved' }]));
+  registerBrowserTabIpc(tabs, () => window);
+  electron.handlers.get('inapp:new')?.({ sender, senderFrame: sender.mainFrame });
+  expect(tabs.getState().tabs).toEqual([
+    expect.objectContaining({ id: 'saved', pinned: true }), expect.objectContaining({ url: '', title: 'New page', pinned: false }),
+  ]);
+  expect(electron.views).toHaveLength(0);
+});
+
+it('saves a new page pinned while its first address is still loading', async () => {
+  const url = 'http://127.0.0.1:45000/lab-01234567-89ab-cdef-0123-456789abcdef/';
+  let ready: (url: string) => void = () => {};
+  lab.resolve.mockImplementationOnce(() => new Promise<string>(resolve => { ready = resolve; }));
+  tabs.newPage();
+  const id = tabs.getState().activeTabId as string;
+  const navigating = tabs.navigate(id, url);
+  tabs.pin(id, true);
+  expect(JSON.parse(fs.readFileSync(file, 'utf8'))[0]).toMatchObject({ id, url });
+  ready(url);
+  await navigating;
+});
 
 it('denies sensitive permissions before loading an untrusted browser page', () => {
   open('https://example.com/');
@@ -255,6 +315,123 @@ it('returns to the app when the open page closes, leaving other pages alone', ()
   expect(tabs.getState()).toMatchObject({ activeTabId: null, tabs: [{ id: pinned }] });
   expect(view(1).webContents.close).toHaveBeenCalledOnce();
   expect(contentView.addChildView).toHaveBeenCalledOnce();
+});
+
+it('keeps an unsaved page attached on Stay and removes it only after Leave', () => {
+  const id = open('https://example.com/draft');
+  tabs.mount(id, bounds);
+  const contents = view(0).webContents;
+  contents.formValue = 'unsent work';
+  contents.preventUnload = true;
+  electron.showMessageBoxSync.mockReturnValueOnce(0).mockReturnValueOnce(1);
+  tabs.close(id);
+  expect(contents.close).toHaveBeenCalledWith({ waitForBeforeUnload: true });
+  expect(electron.showMessageBoxSync).toHaveBeenCalledWith(window, expect.objectContaining({ buttons: ['Stay', 'Leave'], defaultId: 0, cancelId: 0 }));
+  expect(tabs.getState()).toMatchObject({ activeTabId: id, tabs: [{ id, error: null }] });
+  expect(contents.destroyed).toBe(false);
+  expect(contents.formValue).toBe('unsent work');
+  expect(view(0).setVisible).toHaveBeenLastCalledWith(true);
+  expect(contentView.removeChildView).not.toHaveBeenCalled();
+  tabs.close(id);
+  expect(contents.destroyed).toBe(true);
+  expect(tabs.getState()).toEqual({ activeTabId: null, tabs: [] });
+  expect(contentView.removeChildView).toHaveBeenCalledWith(view(0));
+});
+
+it('keeps a background draft on Stay without changing the active page', () => {
+  const first = open('https://example.com/draft');
+  view(0).webContents.preventUnload = true;
+  const second = open('https://example.com/other');
+  tabs.mount(second, bounds);
+  tabs.close(first);
+  expect(tabs.getState().tabs).toHaveLength(2);
+  expect(tabs.getState().activeTabId).toBe(second);
+  expect(contentView.removeChildView).not.toHaveBeenCalled();
+  electron.showMessageBoxSync.mockReturnValueOnce(1);
+  tabs.close(first);
+  expect(tabs.getState()).toMatchObject({ activeTabId: second, tabs: [{ id: second }] });
+});
+
+it('allows another close after a thrown close or a renderer crash interrupts closing', () => {
+  const id = open('https://example.com/draft');
+  const contents = view(0).webContents;
+  contents.close.mockImplementationOnce(() => { throw new Error('Unable to close'); });
+  expect(() => tabs.close(id)).toThrow('Unable to close');
+  expect(tabs.getState().activeTabId).toBe(id);
+  contents.close.mockImplementationOnce(() => {});
+  tabs.close(id);
+  expect(contents.close).toHaveBeenCalledTimes(2);
+  contents.emit('render-process-gone');
+  expect(tabs.getState().tabs[0].error).toContain('stopped unexpectedly');
+  tabs.close(id);
+  expect(tabs.getState()).toEqual({ activeTabId: null, tabs: [] });
+});
+
+it('restores the displayed address when Stay cancels a navigation', async () => {
+  const id = open('https://example.com/draft');
+  const contents = view(0).webContents;
+  contents.loadURL.mockImplementationOnce(async () => {
+    const event = { preventDefault: vi.fn() };
+    contents.emit('will-prevent-unload', event);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    throw Object.assign(new Error('Cancelled'), { code: 'ERR_ABORTED' });
+  });
+  await tabs.navigate(id, 'https://example.com/other');
+  expect(tabs.getState().tabs[0]).toMatchObject({ url: 'https://example.com/draft', loading: false, error: null });
+});
+
+it('searches only the active live page and ignores results from inactive or closed pages', () => {
+  const first = open('https://example.com/one');
+  const second = open('https://example.com/two');
+  const options = { forward: true, findNext: true };
+  tabs.find(first, 'needle', options);
+  expect(view(0).webContents.findInPage).not.toHaveBeenCalled();
+  tabs.find(second, 'needle', options);
+  expect(view(1).webContents.findInPage).toHaveBeenCalledWith('needle', options);
+  expect(() => tabs.find(second, '', options)).toThrow('Invalid page search');
+  expect(() => tabs.find(second, 'needle', { forward: true })).toThrow('Invalid page search');
+  sender.send.mockClear();
+  const result = { activeMatchOrdinal: 2, matches: 4 };
+  view(0).webContents.emit('found-in-page', {}, result);
+  expect(sender.send).not.toHaveBeenCalled();
+  view(1).webContents.emit('found-in-page', {}, result);
+  expect(sender.send).toHaveBeenCalledWith('find:result', { ...result, tabId: second });
+  tabs.stopFind(first);
+  expect(view(0).webContents.stopFindInPage).toHaveBeenCalledWith('clearSelection');
+  tabs.close(second);
+  sender.send.mockClear();
+  view(1).webContents.emit('found-in-page', {}, result);
+  expect(sender.send).not.toHaveBeenCalled();
+  expect(() => tabs.stopFind(second)).not.toThrow();
+  expect(() => tabs.stopFind('missing')).not.toThrow();
+  expect(view(1).webContents.stopFindInPage).not.toHaveBeenCalled();
+});
+
+it('routes Find from the native page to the app and leaves other key events alone', () => {
+  const id = open('https://example.com/one');
+  const contents = view(0).webContents;
+  const input = { type: 'keyDown', key: 'f', meta: true, control: false, alt: false, isAutoRepeat: false };
+  for (const keys of [input, { ...input, meta: false, control: true }, { ...input, key: 'F' }]) {
+    const event = { preventDefault: vi.fn() };
+    contents.emit('before-input-event', event, keys);
+    expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(sender.focus).toHaveBeenCalled();
+    expect(sender.send).toHaveBeenLastCalledWith('inapp:find', id);
+  }
+  sender.send.mockClear();
+  for (const keys of [{ ...input, alt: true }, { ...input, type: 'keyUp' }, { ...input, meta: false }, { ...input, key: 'j' }]) {
+    const event = { preventDefault: vi.fn() };
+    contents.emit('before-input-event', event, keys);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+  }
+  contents.emit('before-input-event', { preventDefault: vi.fn() }, { ...input, isAutoRepeat: true });
+  expect(sender.send).not.toHaveBeenCalled();
+  tabs.hide();
+  sender.send.mockClear();
+  const event = { preventDefault: vi.fn() };
+  contents.emit('before-input-event', event, input);
+  expect(event.preventDefault).not.toHaveBeenCalled();
+  expect(sender.send).not.toHaveBeenCalled();
 });
 
 it('restores a minimized pin in a new app instance until explicitly unpinned', () => {

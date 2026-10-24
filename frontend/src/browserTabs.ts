@@ -18,7 +18,7 @@ import type { InAppBrowserState, InAppBrowserTab } from './types';
 import { normalizeWebAddress } from './webAddress';
 import { labPage, resolveLabPage } from '@bytequay/lab/main';
 
-type Tab = { state: InAppBrowserTab; view: WebContentsView | null; loadVersion: number; committedUrl: string };
+type Tab = { state: InAppBrowserTab; view: WebContentsView | null; loadVersion: number; committedUrl: string; closing: boolean };
 type PinnedTab = Pick<InAppBrowserTab, 'id' | 'url' | 'title' | 'name' | 'favicon'>;
 
 const LOCAL_NETWORK_PERMISSIONS = new Set(['local-network-access', 'local-network', 'loopback-network']);
@@ -137,12 +137,17 @@ export class BrowserTabs {
     this.addTab(url, false);
   }
 
+  newPage(): void {
+    this.restore();
+    this.addTab('', false);
+  }
+
   select(id: string): void {
     this.restore();
     const tab = this.requireTab(id);
     if (this.activeTabId !== id) this.unmountSurface();
     this.activeTabId = id;
-    if (!tab.view || tab.view.webContents.isDestroyed()) {
+    if (tab.state.url && (!tab.view || tab.view.webContents.isDestroyed())) {
       this.createView(tab);
       void this.load(tab, tab.state.url);
     }
@@ -151,6 +156,7 @@ export class BrowserTabs {
 
   pin(id: string, pinned: boolean): void {
     if (typeof pinned !== 'boolean') throw new Error('Invalid pinned state.');
+    if (pinned && !this.requireTab(id).state.url) throw new Error('Open a web address before pinning this page.');
     this.persist(id, { pinned });
   }
 
@@ -171,12 +177,24 @@ export class BrowserTabs {
 
   close(id: string): void {
     const tab = this.tabs.get(id);
-    if (!tab) return;
+    if (!tab || tab.closing) return;
+    if (tab.state.pinned) {
+      if (this.activeTabId === id) this.hide();
+      return;
+    }
+    if (tab.view && !tab.view.webContents.isDestroyed()) {
+      tab.closing = true;
+      try { tab.view.webContents.close({ waitForBeforeUnload: true }); }
+      catch (error) { tab.closing = false; throw error; }
+      return;
+    }
+    this.removeTab(tab);
+  }
+
+  private removeTab(tab: Tab): void {
     // Closing the open page returns to the app; the rail is a set of pages, not a tab strip.
-    if (this.activeTabId === id) this.hide();
-    if (tab.state.pinned) return;
-    this.tabs.delete(id);
-    if (tab.view && !tab.view.webContents.isDestroyed()) tab.view.webContents.close();
+    if (this.activeTabId === tab.state.id) this.hide();
+    this.tabs.delete(tab.state.id);
     this.emit();
   }
 
@@ -236,8 +254,22 @@ export class BrowserTabs {
     if (contents && !contents.isDestroyed() && contents.navigationHistory.canGoForward()) contents.navigationHistory.goForward();
   }
 
+  find(id: string, text: string, options: Electron.FindInPageOptions): void {
+    if (typeof text !== 'string' || !text || !options || typeof options !== 'object'
+      || typeof options.forward !== 'boolean' || typeof options.findNext !== 'boolean') throw new Error('Invalid page search.');
+    const tab = this.requireTab(id);
+    const contents = tab.view?.webContents;
+    if (this.activeTabId === id && !tab.state.error && contents && !contents.isDestroyed()) contents.findInPage(text, options);
+  }
+
+  stopFind(id: string): void {
+    const contents = this.tabs.get(id)?.view?.webContents;
+    if (contents && !contents.isDestroyed()) contents.stopFindInPage('clearSelection');
+  }
+
   reload(id: string): void {
     const tab = this.requireTab(id);
+    if (!tab.state.url) return;
     if (labPage(tab.state.url) !== null) {
       void this.navigate(id, tab.state.url);
       return;
@@ -256,7 +288,7 @@ export class BrowserTabs {
 
   private addTab(url: string, background: boolean): void {
     const id = randomUUID();
-    const tab = this.tab({ id, url, title: '', name: null, favicon: null }, false);
+    const tab = this.tab({ id, url, title: url ? '' : 'New page', name: null, favicon: null }, false);
     this.tabs.set(id, tab);
     if (background) {
       this.createView(tab);
@@ -266,7 +298,7 @@ export class BrowserTabs {
   }
 
   private tab(saved: PinnedTab, pinned: boolean): Tab {
-    return { state: { ...saved, pinned, loading: false, canGoBack: false, canGoForward: false, error: null }, view: null, loadVersion: 0, committedUrl: saved.url };
+    return { state: { ...saved, pinned, loading: false, canGoBack: false, canGoForward: false, error: null }, view: null, loadVersion: 0, committedUrl: saved.url, closing: false };
   }
 
   private restore(): void {
@@ -282,7 +314,7 @@ export class BrowserTabs {
 
   private save(): void {
     const saved = [...this.tabs.values()].filter(tab => tab.state.pinned)
-      .map(({ state: { id, title, name, favicon }, committedUrl }) => ({ id, url: committedUrl, title, name, favicon }));
+      .map(({ state: { id, url, title, name, favicon }, committedUrl }) => ({ id, url: committedUrl || url, title, name, favicon }));
     const file = this.storagePath();
     fs.writeFileSync(`${file}.tmp`, JSON.stringify(saved), { mode: 0o600 });
     fs.chmodSync(`${file}.tmp`, 0o600);
@@ -394,8 +426,47 @@ export class BrowserTabs {
       if (/^https?:/i.test(url)) tab.state.url = url;
       this.fail(tab, `Unable to load this page: ${description}`);
     });
-    contents.on('destroyed', () => { if (current()) this.fail(tab, 'This page stopped unexpectedly. Reload to try again.'); });
-    contents.on('render-process-gone', () => { if (current()) this.fail(tab, 'This page stopped unexpectedly. Reload to try again.'); });
+    contents.on('will-prevent-unload', event => {
+      if (!current()) return;
+      const window = this.window();
+      if (!window || window.isDestroyed()) { tab.closing = false; return; }
+      // The decision must be synchronous so this event can permit the pending unload.
+      const response = dialog.showMessageBoxSync(window, {
+        type: 'question', message: 'Leave this page?', detail: 'Changes you made may not be saved.', buttons: ['Stay', 'Leave'], defaultId: 0, cancelId: 0,
+      });
+      if (response === 1) event.preventDefault();
+      else {
+        tab.closing = false;
+        tab.state.url = tab.committedUrl;
+        tab.state.loading = false;
+        this.emit();
+      }
+    });
+    contents.on('destroyed', () => {
+      if (!current()) return;
+      if (tab.closing) this.removeTab(tab);
+      else this.fail(tab, 'This page stopped unexpectedly. Reload to try again.');
+    });
+    contents.on('render-process-gone', () => {
+      if (!current()) return;
+      tab.closing = false;
+      this.fail(tab, 'This page stopped unexpectedly. Reload to try again.');
+    });
+    contents.on('before-input-event', (event, input) => {
+      if (!current() || this.activeTabId !== tab.state.id || input.type !== 'keyDown' || input.alt || !(input.meta || input.control) || input.key.toLowerCase() !== 'f') return;
+      const window = this.window();
+      if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+      event.preventDefault();
+      if (input.isAutoRepeat) return;
+      window.webContents.focus();
+      window.webContents.send('inapp:find', tab.state.id);
+    });
+    contents.on('found-in-page', (_event, result) => {
+      if (!current() || this.activeTabId !== tab.state.id) return;
+      const window = this.window();
+      if (!window || window.isDestroyed() || window.webContents.isDestroyed()) return;
+      window.webContents.send('find:result', { activeMatchOrdinal: result.activeMatchOrdinal, matches: result.matches, tabId: tab.state.id });
+    });
     contents.setWindowOpenHandler(({ url, disposition }) => {
       if (!current()) return { action: 'deny' };
       try { url = normalizeWebAddress(url); }
@@ -446,6 +517,7 @@ export function registerBrowserTabIpc(tabs: BrowserTabs, window: () => BrowserWi
   };
   ipcMain.handle('inapp:state', event => { trusted(event); return tabs.getState(); });
   ipcMain.handle('inapp:open', (event, url: unknown) => { trusted(event); tabs.open(url); });
+  ipcMain.handle('inapp:new', event => { trusted(event); tabs.newPage(); });
   ipcMain.handle('inapp:select', (event, id: string) => { trusted(event); tabs.select(id); });
   ipcMain.handle('inapp:pin', (event, id: string, pinned: boolean) => { trusted(event); tabs.pin(id, pinned); });
   ipcMain.handle('inapp:rename', (event, id: string, name: unknown) => { trusted(event); tabs.rename(id, name); });

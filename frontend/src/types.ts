@@ -524,10 +524,11 @@ export type InAppBrowserState = {
   activeTabId: string | null;
 };
 
-/** Match counts reported by the window's find-in-page search. */
+/** Match counts for the app or a browser page's find-in-page search. */
 export type FindResult = {
   activeMatchOrdinal: number;
   matches: number;
+  tabId?: string;
 };
 
 export type CherryPickPreviewCommit = {
@@ -1782,9 +1783,11 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   importGitHubCliToken: () => Promise<{ login: string }>;
 
   openInAppBrowser: (url: string) => Promise<void>;
+  newInAppBrowserPage: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
   getInAppBrowserState: () => Promise<InAppBrowserState>;
   onInAppBrowserState: (callback: (state: InAppBrowserState) => void) => () => void;
+  onInAppBrowserFind: (callback: (id: string) => void) => () => void;
   selectInAppBrowserTab: (id: string) => Promise<void>;
   pinInAppBrowserTab: (id: string, pinned: boolean) => Promise<void>;
   closeInAppBrowserTab: (id: string) => Promise<void>;
@@ -1803,8 +1806,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   getFullScreen: () => Promise<boolean>;
   onFullScreenChange: (callback: (fullScreen: boolean) => void) => () => void;
   getAppVersion: () => Promise<{ version: string }>;
-  findInPage: (text: string, options: { forward: boolean; findNext: boolean }) => Promise<void>;
-  stopFindInPage: () => Promise<void>;
+  findInPage: (text: string, options: { forward: boolean; findNext: boolean }, tabId?: string) => Promise<void>;
+  stopFindInPage: (tabId?: string) => Promise<void>;
   onFindResult: (callback: (result: FindResult) => void) => () => void;
 
   previewCherryPickRange: (request: CherryPickPreviewRequest) => Promise<CherryPickPreview>;

@@ -208,6 +208,7 @@ const bridge: Bridge = {
 
   ...createLabBridge(channel => ipcRenderer.invoke(channel), subscribe),
   openInAppBrowser: invoke('inapp:open'),
+  newInAppBrowserPage: invoke('inapp:new'),
   openExternal: invoke('external:open'),
   getInAppBrowserState: invoke('inapp:state'),
   selectInAppBrowserTab: invoke('inapp:select'),
@@ -224,6 +225,7 @@ const bridge: Bridge = {
   inAppNavigate: invoke('inapp:navigate'),
   inAppPopOut: invoke('inapp:popout'),
   onInAppBrowserState: callback => subscribe('inapp:state', callback),
+  onInAppBrowserFind: callback => subscribe('inapp:find', callback),
 
   controlWindow: invoke('window:control'),
   getFullScreen: invoke('window:fullscreen'),

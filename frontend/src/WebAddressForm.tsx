@@ -56,6 +56,7 @@ export default function WebAddressForm({ url = '', onNavigate }: Props) {
       <form className="web-address__form" onSubmit={event => { void submit(event); }} aria-label="Open web page">
         <input
           ref={input}
+          autoFocus={url === ''}
           className="bq-input web-address__input"
           aria-label="Web address"
           aria-invalid={error !== null}

@@ -5,6 +5,7 @@ Set up a workspace, review a change, and build with an agent.
 - [Get started](#getting-started)
 - [Use the Assistant](#assistant)
 - [Review pull requests](#pull-requests)
+- [Browse web pages](#web-pages)
 - [Models, accounts, and agent tasks](#models)
 - [Plan and organize](#issues-and-jira)
 - [Connect integrations](#jira)
@@ -282,6 +283,20 @@ posted on the comment.
 Hover over a PR or issue link to read its title, status, description, and
 labels. Move into the card to follow references, or drag its header to keep it
 open. Choose **Open** for the full item; **Escape** dismisses the preview.
+
+<a id="web-pages"></a>
+
+## Browse web pages
+
+Choose **New page** in the Web pages column to open a blank page, then enter
+an address in the focused address field. Each click creates a separate page.
+Use **Pin** to keep a loaded page in the column after restarting ByteQuay.
+
+Press **⌘F** to find text in the current web page. Enter searches or moves to
+the next match; Shift-Enter moves to the previous match. Escape closes Find.
+**Back to app** keeps the page and its unfinished input open. Closing an
+unpinned page honors the website's unsaved-work warning: choose **Stay** to
+keep editing or **Leave** to close. Closing a pinned page only minimizes it.
 
 <a id="models"></a>
 

@@ -81,6 +81,7 @@ function installBridge() {
     onPrAttentionUpdated: () => () => {},
     onPrNotificationOpen: () => () => {},
     onFindResult: () => () => {},
+    onInAppBrowserFind: () => () => {},
     stopFindInPage: async () => {},
     listJiraConnections: async () => [connection],
     refreshJiraIssueByKey: async (_connection: string, _cloud: string, key: string) => {

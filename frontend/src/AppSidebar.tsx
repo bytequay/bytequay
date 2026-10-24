@@ -32,7 +32,6 @@ import {
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 import PinButton from './home/PinButton';
 import { useMemoryNeeds } from './memory/needs';
-import { useTasksWaiting } from './agents/attention';
 import { openPinned, usePinnedItems } from './home/pinned';
 import { useLabLaunch, useLabLink } from '@bytequay/lab/renderer';
 import { openLab } from './lab';
@@ -118,6 +117,7 @@ export default function AppSidebar({
   onBack,
   onForward,
   workspace,
+  tasksWaiting = 0,
   workspaceTab,
   relatedWorkspaceId = null,
   onWorkspaceTab,
@@ -135,6 +135,7 @@ export default function AppSidebar({
   onBack: () => void;
   onForward: () => void;
   workspace: WorkspaceDto | null;
+  tasksWaiting?: number;
   workspaceTab: WorkspaceTab;
   relatedWorkspaceId?: string | null;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
@@ -160,7 +161,6 @@ export default function AppSidebar({
   }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
   const memoryNeeds = useMemoryNeeds(workspace?.id ?? null, workspaceTab) ?? 0;
-  const tasksWaiting = useTasksWaiting(workspace?.id ?? null);
 
   const historyControls = (
     <div className="app-sidebar__history" role="group" aria-label="View history">

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { QUESTION_TOOL, type AttentionItem, type AttentionKind, type AttentionLink, type AttentionTone } from '../home/attention';
 import { isDeepSeekKeyLane, laneLabel } from '../settings/model';
 import type { AgentQueuedInputDto, AgentTaskActivityDto, AgentTaskDto, AgentTaskPullRequestDto, Bridge } from '../types';
@@ -194,7 +194,9 @@ export function useTaskAttention(
   workspaces: TaskAttentionWorkspace[],
   bridge: () => TaskAttentionBridge = windowBridge,
 ): TaskAttention {
-  const [state, setState] = useState<Omit<TaskAttention, 'refresh'>>({ items: [], tasks: [], activity: {} });
+  const [state, setState] = useState<{ key: string; loaded: {
+    workspace: TaskAttentionWorkspace; tasks: AgentTaskDto[]; activity: Record<string, AgentTaskActivityDto>;
+  }[] } | null>(null);
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((count) => count + 1), []);
   const [laneNames, setLaneNames] = useState<ReadonlyMap<string, string>>(() => new Map());
@@ -211,33 +213,37 @@ export function useTaskAttention(
   useEffect(() => {
     const listed = JSON.parse(key) as TaskAttentionWorkspace[];
     if (listed.length === 0) {
-      setState({ items: [], tasks: [], activity: {} });
+      setState(null);
       return;
     }
     let active = true;
-    let shown: string | null = null;
     const read = () =>
       Promise.allSettled(listed.map((workspace) => Promise.all([
         bridge().listAgentTasks(workspace.id),
         bridge().listAgentTaskActivity(workspace.id),
       ]).then(([tasks, activity]) => ({ workspace, tasks, activity })))).then((results) => {
         if (!active) return;
-        // A workspace that could not be read drops out until the next tick rather than failing the others.
-        const loaded = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-        // Most ticks read what is already shown; new objects would re-render the whole page around it.
-        const snapshot = JSON.stringify(loaded);
-        if (snapshot === shown) return;
-        shown = snapshot;
-        setState({
-          items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, laneNames)),
-          tasks: loaded.flatMap(({ workspace, tasks }) => tasks.map((task) => ({ task, workspace }))),
-          activity: Object.assign({}, ...loaded.map(({ activity }) => activity)),
+        setState(previous => {
+          // A failed refresh must not erase a known approval while the next tick can retry.
+          const loaded = results.flatMap((result, index) => result.status === 'fulfilled' ? [result.value]
+            : previous?.key === key ? previous.loaded.filter(entry => entry.workspace.id === listed[index].id) : []);
+          // Most ticks read what is already shown; keep the same snapshot to avoid re-rendering its consumers.
+          return previous?.key === key && JSON.stringify(previous.loaded) === JSON.stringify(loaded) ? previous : { key, loaded };
         });
       });
     const stop = pollVisible(read, TASK_ATTENTION_POLL_MS);
     return () => { active = false; stop(); };
-  }, [bridge, key, laneNames, tick]);
-  return { ...state, refresh };
+  }, [bridge, key, tick]);
+  return useMemo(() => {
+    // Clear the previous workspace's tasks and approval count before the new workspace's first read lands.
+    const loaded = state?.key === key ? state.loaded : [];
+    return {
+      items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, laneNames)),
+      tasks: loaded.flatMap(({ workspace, tasks }) => tasks.map((task) => ({ task, workspace }))),
+      activity: Object.assign({}, ...loaded.map(({ activity }) => activity)),
+      refresh,
+    };
+  }, [state, key, laneNames, refresh]);
 }
 
 /**
@@ -260,22 +266,4 @@ export function useTaskCardState(workspaceId: string | null, taskId: string | nu
     return () => { active = false; stop(); };
   }, [workspaceId, taskId]);
   return read !== null && read.taskId === taskId ? read.state : null;
-}
-
-/** How many of a workspace's tasks wait on an answer or approval from the user: zero without a workspace and until the first read lands. */
-export function useTasksWaiting(workspaceId: string | null): number {
-  const [read, setRead] = useState<{ workspaceId: string; count: number } | null>(null);
-  useEffect(() => {
-    if (workspaceId === null) return;
-    let active = true;
-    const stop = pollVisible(() => Promise.resolve().then(() => window.bridge.listAgentTaskActivity(workspaceId))
-      .then(activity => {
-        if (!active) return;
-        const count = Object.values(activity).filter(facts => facts.pendingApproval != null).length;
-        setRead(shown => shown?.workspaceId === workspaceId && shown.count === count ? shown : { workspaceId, count });
-      })
-      .catch(() => {}), TASK_ATTENTION_POLL_MS);
-    return () => { active = false; stop(); };
-  }, [workspaceId]);
-  return read !== null && read.workspaceId === workspaceId ? read.count : 0;
 }

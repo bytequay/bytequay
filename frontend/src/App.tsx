@@ -34,6 +34,7 @@ import OnboardingScreen from './OnboardingScreen';
 import SetupFlow from './onboarding/SetupFlow';
 import { OPEN_SETUP, SETUP_CHANGED } from './onboarding/setup';
 import { AgentAvailabilityProvider, useAgentAvailability } from './agents/availability';
+import { useTaskAttention } from './agents/attention';
 import PullsScreen from './pulls/PullsScreen';
 import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
@@ -490,6 +491,11 @@ function AppContent() {
     );
   }, [settingsWorkspace, settingsWorkspaceId]);
 
+  const inWorkspace = page === 'workspaces' && workspace !== null;
+  const taskAttention = useTaskAttention(status === 'ready' && inWorkspace
+    ? [{ id: workspace.id, name: '', repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}` }] : []);
+  const tasksWaiting = Object.values(taskAttention.activity).filter(activity => activity.pendingApproval != null).length;
+
   if (status !== 'ready') {
     if (status === 'needs-setup' && setup !== null) return <SetupFlow initial={setup} connected={githubConnected} revisit={revisitSetup}
       onSaved={setSetup} onConnected={() => setGithubConnected(true)} onFinish={() => {
@@ -522,7 +528,6 @@ function AppContent() {
     window.location.hash = workspaceRoute(workspaceId);
   };
 
-  const inWorkspace = page === 'workspaces' && workspace !== null;
   const onScreen = screenRef(layers.at(-1), window.location.hash, inWorkspace ? `${workspace.monitoredOwner}/${workspace.monitoredRepo}` : null);
   // Only the tasks tab swaps its whole page for a route-owned task, so clicking that tab with
   // one open returns to the task list instead of doing nothing.
@@ -592,6 +597,7 @@ function AppContent() {
             onExit: () => { window.location.hash = '#/home'; },
           }}
           workspace={inWorkspace ? workspace : null}
+          tasksWaiting={tasksWaiting}
           workspaceTab={workspaceTab}
           relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
@@ -627,6 +633,7 @@ function AppContent() {
             <WorkspaceShell
               key={workspace.id}
               workspace={workspace}
+              taskAttention={taskAttention}
               tab={workspaceTab}
               relatedWorkspaceId={relatedWorkspaceId}
               onSelectTab={selectWorkspaceTab}

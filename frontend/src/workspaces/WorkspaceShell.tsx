@@ -11,9 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import React, { Activity, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { Activity, useCallback, useEffect, useRef, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
-import { useTaskAttention } from '../agents/attention';
+import type { TaskAttention } from '../agents/attention';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import AgentTasksView, { type TaskLaunch } from '../agents/AgentTasksView';
 import ReviewTaskScreen from '../agents/ReviewTaskScreen';
@@ -55,8 +55,9 @@ type TaskPage = { kind: 'cherry-pick' | 'review' | 'task'; id: string };
 // ponytail: the open task page and the two before it stay mounted; raise it if switching among more tasks matters more than their memory.
 const KEPT_TASK_PAGES = 3;
 
-export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
+  taskAttention: TaskAttention;
   tab: WorkspaceTab;
   relatedWorkspaceId?: string | null;
   onSelectTab: (tab: WorkspaceTab) => void;
@@ -109,9 +110,6 @@ export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = nu
   // A cherry-pick execution zooms over the task list; an agent task owns the page instead.
   const zoomedCherryPick = tab === 'tasks' && openCherryPick !== null;
   const zoom = useZoom(useCallback(() => setOpenCherryPick(null), []), zoomedCherryPick);
-  // Read once for every page of the workspace: Home lists what needs you, and an Epic counts it.
-  const taskWorkspaces = useMemo(() => [{ id: workspace.id, name: '', repository: monitoredRepository }], [monitoredRepository, workspace.id]);
-  const taskAttention = useTaskAttention(taskWorkspaces);
   const attention = useWorkspaceAttention(workspace.id, monitoredRepository, taskAttention);
   const workItems = useWorkItems(workspace.id);
   const needsYou = needsYouKeys(visibleAttention(attention.candidates, attention.handled, Date.now()));

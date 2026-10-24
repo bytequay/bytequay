@@ -17,12 +17,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { workspaceFixture } from './fixtures/workspace';
 import { ZOOM_REFERENCE } from '../githubReference';
 import AppSidebar from '../AppSidebar';
+import type { TaskAttention } from '../agents/attention';
 import WorkItemsScreen from '../workitems/WorkItemsScreen';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
 import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
 import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import WorkspaceShell from './WorkspaceShell';
+
+const taskAttention: TaskAttention = { items: [], tasks: [], activity: {}, refresh: () => {} };
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
@@ -214,6 +217,7 @@ describe('watched repository workspace UI', () => {
     vi.stubEnv('NODE_ENV', development ? 'development' : 'production');
     const props = {
       workspace: workspace('FORK'),
+      taskAttention,
       tab: 'tasks' as const,
       onSelectTab: () => {},
       onWorkspaceChanged: () => {},
@@ -258,6 +262,7 @@ describe('watched repository workspace UI', () => {
     const value = workspace('FORK');
     const props = {
       workspace: value,
+      taskAttention,
       onSelectTab: () => {},
       onWorkspaceChanged: () => {},
       initialPullRequestNumber: null as number | null,
@@ -284,6 +289,7 @@ describe('watched repository workspace UI', () => {
     let jira: ReactElement<Parameters<typeof WorkItemsScreen>[0]> | undefined;
     function CaptureJira(): null {
       jira = WorkspaceShell({
+        taskAttention,
         workspace: value, tab: 'jira',
         onSelectTab: vi.fn(), onWorkspaceChanged: vi.fn(),
         initialPullRequestNumber: null, initialIssueNumber: null, initialAgentTaskId: null,
@@ -304,6 +310,7 @@ describe('watched repository workspace UI', () => {
     let home: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureHome() {
       const view = WorkspaceShell({
+        taskAttention,
         workspace: workspace('FORK'),
         tab: 'home',
         onSelectTab,
@@ -336,6 +343,7 @@ describe('watched repository workspace UI', () => {
   }
 
   const tasksTab = (overrides: Partial<Parameters<typeof WorkspaceShell>[0]> = {}) => WorkspaceShell({
+    taskAttention,
     workspace: workspace('FORK'),
     tab: 'tasks',
     onSelectTab: () => {},
@@ -355,6 +363,7 @@ describe('watched repository workspace UI', () => {
     let task: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureTask() {
       const view = WorkspaceShell({
+        taskAttention,
         workspace: workspace('FORK'),
         tab: 'tasks',
         onSelectTab: () => {},
@@ -411,6 +420,7 @@ describe('watched repository workspace UI', () => {
 
   it('loads the saved target before opening fork workspace commits', () => {
     const html = renderToStaticMarkup(<WorkspaceShell
+      taskAttention={taskAttention}
       workspace={{ ...workspace('FORK'), lastCodeSyncAt: '2026-09-07T00:00:00Z', upstreamDefaultBranch: 'master' }}
       tab="commits"
       onSelectTab={() => {}}

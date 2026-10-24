@@ -13,6 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
+import { useTaskAttention } from '../../agents/attention';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { assert, changeInput, runScenarios, until } from '../../fixtures/harness';
 import type { AgentTurnDto, Bridge } from '../../types';
@@ -22,6 +23,13 @@ import '../../css/base.css';
 import '../../css/agents.css';
 
 const WORKSPACE = workspaceFixture();
+
+function TaskWorkspace({ taskId }: { taskId: string }) {
+  const taskAttention = useTaskAttention([{ id: WORKSPACE.id, name: '', repository: `${WORKSPACE.monitoredOwner}/${WORKSPACE.monitoredRepo}` }]);
+  return <WorkspaceShell workspace={WORKSPACE} taskAttention={taskAttention} tab="tasks" onSelectTab={() => {}}
+    onWorkspaceChanged={() => {}} initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={taskId}
+    onSelectAgentTask={() => {}} onSelectPullRequest={() => {}} onSelectIssue={() => {}} />;
+}
 
 function fixture() {
   const preview = createPreviewBridge(WORKSPACE.id);
@@ -43,9 +51,7 @@ function fixture() {
   });
   const { host, root, dispose } = createFixtureRoot();
   host.style.cssText = 'height:700px;width:1000px';
-  const show = (taskId: string): void => flushSync(() => root.render(<WorkspaceShell workspace={WORKSPACE} tab="tasks" onSelectTab={() => {}}
-    onWorkspaceChanged={() => {}} initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={taskId}
-    onSelectAgentTask={() => {}} onSelectPullRequest={() => {}} onSelectIssue={() => {}} />));
+  const show = (taskId: string): void => flushSync(() => root.render(<TaskWorkspace taskId={taskId} />));
   const visibleComposer = (): HTMLTextAreaElement | null => [...host.querySelectorAll<HTMLTextAreaElement>('.agt-compose__input')]
     .find(input => input.getClientRects().length > 0) ?? null;
   const reads = (name: string, taskId: string): number => preview.commands.filter(command => command.name === name && command.args[0] === taskId).length;

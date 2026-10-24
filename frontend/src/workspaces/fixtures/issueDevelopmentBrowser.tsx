@@ -16,6 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AgentTasksView, { type TaskLaunch } from '../../agents/AgentTasksView';
 import { AgentTaskBody } from '../../agents/AgentTaskScreen';
+import { useTaskAttention } from '../../agents/attention';
 import { agentTurn, createPreviewBridge, previewTask, TASK_BODY_NOOPS } from '../../agents/fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { parseAgentEventSequence } from '../../agents/events';
@@ -450,9 +451,13 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
   const root = createRoot(host, { onUncaughtError: error => { failures.push(String(error)); } });
   window.location.hash = '';
   // The router follows the hash; here each page is rendered as it would.
-  const show = (tab: WorkspaceTab): void => flushSync(() => root.render(<><WorkspaceShell workspace={WORKSPACE} tab={tab} onSelectTab={() => {}} onWorkspaceChanged={() => {}}
-    initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={null} onSelectAgentTask={() => {}} onSelectPullRequest={() => {}}
-    onSelectIssue={() => {}} />{tab === 'home' && <LocalWorkItems workspace={WORKSPACE} zoomedItemId={item.id} />}</>));
+  function WorkspacePage({ tab }: { tab: WorkspaceTab }) {
+    const taskAttention = useTaskAttention([{ id: WORKSPACE.id, name: '', repository: `${WORKSPACE.monitoredOwner}/${WORKSPACE.monitoredRepo}` }]);
+    return <><WorkspaceShell workspace={WORKSPACE} taskAttention={taskAttention} tab={tab} onSelectTab={() => {}} onWorkspaceChanged={() => {}}
+      initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={null} onSelectAgentTask={() => {}} onSelectPullRequest={() => {}}
+      onSelectIssue={() => {}} />{tab === 'home' && <LocalWorkItems workspace={WORKSPACE} zoomedItemId={item.id} />}</>;
+  }
+  const show = (tab: WorkspaceTab): void => flushSync(() => root.render(<WorkspacePage tab={tab} />));
   const composer = (): HTMLTextAreaElement | null => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
   const opened: ZoomedReference[] = [];
   const onZoom = (event: Event): void => { opened.push((event as CustomEvent<ZoomedReference>).detail); };

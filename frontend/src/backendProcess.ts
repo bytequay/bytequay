@@ -142,6 +142,15 @@ export function spawnBackend(): void {
     '-XX:MaxMetaspaceSize=256m',
     '-XX:ReservedCodeCacheSize=128m',
     '-XX:+ExitOnOutOfMemoryError',
+    // Startup's query parsing and a busy hour can grow the heap far past the ~100 MB the backend keeps live, and G1 left
+    // to itself never returns it while the app idles. A GC after a quiet minute, tighter free-space bounds and a higher GC
+    // time allowance hand that memory back; a few GC threads suffice for a heap this small.
+    '-XX:G1PeriodicGCInterval=60000',
+    '-XX:MinHeapFreeRatio=10',
+    '-XX:MaxHeapFreeRatio=30',
+    '-XX:GCTimeRatio=4',
+    '-XX:ParallelGCThreads=4',
+    '-XX:ConcGCThreads=1',
     `-Dbytequay.launcher-pid=${process.pid}`,
   ];
   child = spawn(java, [...jvmArgs, '-jar', jar], {

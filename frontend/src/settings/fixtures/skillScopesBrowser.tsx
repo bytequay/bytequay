@@ -30,7 +30,7 @@ const SCOPE_LABELS: Record<AgentSkillScope, string> = {
 /** The shell's own save wiring, so the fixture drives the real controls rather than a stand-in. */
 function Harness({ initial, writes }: { initial: AgentSkillDto[]; writes: AgentSkillInput[] }) {
   const [skills, setSkills] = useState(initial);
-  const save = (input: AgentSkillInput, id: string | null) => {
+  const save = async (input: AgentSkillInput, id: string | null) => {
     const skill = parseAgentSkillInput(input);
     writes.push(skill);
     setSkills(current => (id === null

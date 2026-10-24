@@ -120,17 +120,17 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
   }, [drawerOpen]);
 
   const perform = useCallback(async (operation: () => Promise<void>) => {
-    if (inFlight.current) return;
+    if (inFlight.current) return false;
     inFlight.current = true;
     setBusy(true);
     setActionError(null);
-    try { await operation(); }
-    catch (cause) { if (mounted.current) { setActionError(remoteErrorMessage(cause)); void load().catch(() => {}); } }
+    try { await operation(); return true; }
+    catch (cause) { if (mounted.current) { setActionError(remoteErrorMessage(cause)); void load().catch(() => {}); } return false; }
     finally { inFlight.current = false; if (mounted.current) setBusy(false); }
   }, [load]);
 
   /** Applies a change the backend answered with the whole page, and tells the sidebar count. */
-  const change = useCallback((operation: () => Promise<MemoryPageDto>, done: () => void): void => void perform(async () => {
+  const change = useCallback((operation: () => Promise<MemoryPageDto>, done: () => void): Promise<boolean> => perform(async () => {
     const next = await operation();
     if (!mounted.current) return;
     setPage(next);
@@ -407,7 +407,7 @@ export default function MemoryPage({ workspace }: { workspace: WorkspaceDto }) {
           : replay !== null ? <ReplayDrawer replay={replay} busy={busy} now={now} onClose={() => setDrawer(null)} onMark={mark}
             onDelete={() => setDeleting(replay.id)} onOpenUrl={openUrl}
             onOpenReview={reviewId => { window.location.hash = workspaceReviewTaskRoute(workspaceId, reviewId); }} />
-          : selected !== null && <MemoryDrawer key={selected.id + ':' + selected.version} memory={selected} busy={busy} now={now} onClose={() => setDrawer(null)}
+          : selected !== null && <MemoryDrawer key={selected.id} memory={selected} busy={busy} error={actionError} now={now} onClose={() => setDrawer(null)}
             onOpen={openUrl}
             onSave={(title, text) => change(() => window.bridge.editMemory(workspaceId, selected.id, selected.version, title, text),
               () => say('Memory saved · it is yours now'))}

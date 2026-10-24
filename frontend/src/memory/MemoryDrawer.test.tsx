@@ -26,8 +26,8 @@ const memory: MemoryDto = {
   delivered: 6, cited: 0, reports: [{ reason: 'The writer now encodes partition values', quote: 'path(partition)', taskId: 'task', at: '2026-10-01T00:00:00Z' }],
   missingScope: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
 };
-const render = (value: MemoryDto) => renderToStaticMarkup(<MemoryDrawer memory={value} busy={false} now={Date.parse('2026-10-02T00:00:00Z')} onClose={() => {}}
-  onSave={() => {}} onRestore={() => {}} onKeep={() => {}} onDelete={() => {}} onOpen={() => {}} />);
+const render = (value: MemoryDto) => renderToStaticMarkup(<MemoryDrawer memory={value} busy={false} error={null} now={Date.parse('2026-10-02T00:00:00Z')} onClose={() => {}}
+  onSave={async () => true} onRestore={() => {}} onKeep={() => {}} onDelete={() => {}} onOpen={() => {}} />);
 
 describe('MemoryDrawer', () => {
   it('shows the title, the flag with Keep, every source with its quote, and the previous version with Restore', () => {

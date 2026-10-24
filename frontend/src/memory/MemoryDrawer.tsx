@@ -23,8 +23,8 @@ const MAX_TEXT_BYTES = 600;
 const utf8 = new TextEncoder();
 
 /** One memory: its title and text, where it applies, the sources it rests on with their quotes, and the user's edit, restore and delete. */
-export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, onKeep, onDelete, onOpen }: {
-  memory: MemoryDto; busy: boolean; now: number; onClose: () => void; onSave: (title: string, text: string) => void; onRestore: () => void; onKeep: () => void;
+export function MemoryDrawer({ memory, busy, error, now, onClose, onSave, onRestore, onKeep, onDelete, onOpen }: {
+  memory: MemoryDto; busy: boolean; error: string | null; now: number; onClose: () => void; onSave: (title: string, text: string) => Promise<boolean>; onRestore: () => void; onKeep: () => void;
   onDelete: () => void; onOpen: (url: string) => void;
 }) {
   const [draft, setDraft] = useState<{ title: string; text: string } | null>(null);
@@ -39,6 +39,7 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
       <button type="button" className="rcp-close" aria-label="Close" onClick={onClose}><Icon name="close" size={14} /></button>
     </div></div>
     <div className="rcp-drawer__body mem-drawer">
+      {error !== null && <div className="rcp-error" role="alert">{error}</div>}
       {draft === null
         ? <>
           {!titleRepeated(memory) && <p className="mem-drawer__title">{memory.title}</p>}
@@ -46,10 +47,10 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
         </>
         : <>
           <label className="mem-edit">Title
-            <input value={draft.title} maxLength={MAX_TITLE} onChange={event => setDraft({ ...draft, title: event.target.value })} />
+            <input disabled={busy} value={draft.title} maxLength={MAX_TITLE} onChange={event => setDraft({ ...draft, title: event.target.value })} />
           </label>
           <label className="mem-edit">{KIND_LABEL[memory.kind].one}
-            <textarea value={draft.text} rows={5} autoFocus onChange={event => setDraft({ ...draft, text: event.target.value })} />
+            <textarea disabled={busy} value={draft.text} rows={5} autoFocus onChange={event => setDraft({ ...draft, text: event.target.value })} />
             <span className={`mem-edit__hint${size > MAX_TEXT_BYTES ? ' is-over' : ''}`}>{size} of {MAX_TEXT_BYTES} bytes, one paragraph. Editing makes it yours:
               agents won’t change it.</span>
           </label>
@@ -97,8 +98,8 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
         : <>
           <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--sm"
             disabled={busy || draft.title.trim() === '' || draft.text.trim() === '' || size > MAX_TEXT_BYTES}
-            onClick={() => { onSave(draft.title, draft.text); setDraft(null); }}>Save</button>
-          <button type="button" className="rcp-btn rcp-btn--sm" onClick={() => setDraft(null)}>Cancel</button>
+            onClick={() => { void onSave(draft.title, draft.text).then(saved => { if (saved) setDraft(null); }); }}>Save</button>
+          <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => setDraft(null)}>Cancel</button>
         </>}
     </div>
   </>;

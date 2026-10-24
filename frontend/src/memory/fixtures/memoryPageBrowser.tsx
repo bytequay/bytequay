@@ -14,7 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
-import { assert, changeInput, controlTimers, settle, element } from '../../fixtures/harness';
+import { assert, changeInput, controlTimers, settle, element, button, until } from '../../fixtures/harness';
 import type { MemoryDto, MemoryPageDto, MemoryPullDto, StartMemoryHarvestRequest } from '../contracts';
 import type { ContextSpecCandidateDto, ContextSpecCheckDto } from '../../repository-context/contracts';
 import MemoryPage from '../MemoryPage';
@@ -218,4 +218,40 @@ export async function run() {
     assert(!view.calls.includes('harvest') && !view.calls.includes('check'), 'Navigation starts no agent runs');
     return [{ name: 'Memory section navigation, filters, scrolling and spec entry' }];
   } finally { view.close(); }
+}
+
+
+export async function runDraftSave() {
+  const view = mount();
+  const first = Promise.withResolvers<MemoryPageDto>();
+  const writes: string[] = [];
+  let updated = page;
+  window.bridge.getMemoryPage = async () => updated;
+  window.bridge.editMemory = async (_workspace, id, _version, title, text) => {
+    writes.push(text);
+    if (writes.length === 1) return first.promise;
+    updated = { ...updated, memories: updated.memories.map(memory => memory.id === id ? { ...memory, title, text, version: memory.version + 1 } : memory) };
+    return updated;
+  };
+  try {
+    await settle();
+    element<HTMLButtonElement>('#mem-tab-memories', view.host).click(); await settle();
+    element<HTMLButtonElement>('.mem-row', view.host).click(); await settle();
+    const drawer = element<HTMLElement>('.rcp-drawer', view.host);
+    button('Edit', drawer).click(); await settle();
+    changeInput(element<HTMLTextAreaElement>('textarea', drawer), 'Keep this unsaved memory edit.');
+    await settle(); button('Save', drawer).click(); await settle();
+    assert(element<HTMLTextAreaElement>('textarea', drawer).disabled, 'An in-flight save locks the submitted draft');
+    // Another writer advances the saved version while our failed save is reconciled.
+    updated = { ...page, memories: page.memories.map(memory => ({ ...memory, version: memory.version + 1 })) };
+    first.reject(new Error('Memory changed'));
+    await until(() => drawer.textContent?.includes('Memory changed') === true, 'Failure is visible in the drawer');
+    await settle();
+    assert(element<HTMLTextAreaElement>('textarea', drawer).value === 'Keep this unsaved memory edit.', 'Reloading the version must preserve the local draft');
+    button('Save', drawer).click();
+    await until(() => drawer.querySelector('textarea') === null, 'Successful retry ends editing');
+    assert(writes.length === 2 && writes[0] === writes[1], 'Retry saves the retained draft');
+    return [{ name: 'Retain memory draft through failed save and version refresh' }];
+  }
+  finally { view.close(); }
 }

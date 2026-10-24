@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { Pencil } from 'lucide-react';
+import { useAsyncAction } from '../useAsyncAction';
 import type { AgentSkillDto, AgentSkillInput, AgentSkillScope } from '../types';
 import { AddAction, Dialog, Segmented, SettingsCard, SettingsRow, Toggle } from './primitives';
 
@@ -39,7 +40,7 @@ export default function SkillsPage({ skills, busy, error, onSave, onToggle, onRe
   skills: AgentSkillDto[];
   busy: boolean;
   error: string | null;
-  onSave: (input: AgentSkillInput, id: string | null) => void;
+  onSave: (input: AgentSkillInput, id: string | null) => Promise<void>;
   onToggle: (skill: AgentSkillDto) => void;
   onRemove: (skill: AgentSkillDto) => void;
 }) {
@@ -96,7 +97,7 @@ export default function SkillsPage({ skills, busy, error, onSave, onToggle, onRe
         <SkillDialog
           skill={editing === 'new' ? null : editing}
           onCancel={() => setEditing(null)}
-          onSave={input => { setEditing(null); onSave(input, editing === 'new' ? null : editing.id); }}
+          onSave={async input => { await onSave(input, editing === 'new' ? null : editing.id); setEditing(null); }}
           onRemove={editing === 'new' ? undefined : () => { setEditing(null); onRemove(editing); }}
         />
       )}
@@ -106,14 +107,15 @@ export default function SkillsPage({ skills, busy, error, onSave, onToggle, onRe
 
 function SkillDialog({ skill, onSave, onCancel, onRemove }: {
   skill: AgentSkillDto | null;
-  onSave: (input: AgentSkillInput) => void;
+  onSave: (input: AgentSkillInput) => Promise<void>;
   onCancel: () => void;
   onRemove?: () => void;
 }) {
   const [name, setName] = useState(skill?.name ?? '');
   const [scope, setScope] = useState<AgentSkillScope>(skill?.scope ?? 'GLOBAL');
   const [instructions, setInstructions] = useState(skill?.instructions ?? '');
-  const ready = name.trim() !== '';
+  const { busy, error, run } = useAsyncAction();
+  const ready = !busy && name.trim() !== '';
 
   return (
     <Dialog
@@ -121,16 +123,18 @@ function SkillDialog({ skill, onSave, onCancel, onRemove }: {
       confirmLabel={skill === null ? 'Add skill' : 'Save skill'}
       confirmDisabled={!ready}
       destructive={onRemove === undefined ? undefined : (
-        <button type="button" className="setw-btn is-danger" onClick={onRemove}>Remove skill</button>
+        <button type="button" className="setw-btn is-danger" disabled={busy} onClick={onRemove}>Remove skill</button>
       )}
       onConfirm={() => {
-        if (ready) onSave({ name: name.trim(), instructions, enabled: skill?.enabled ?? true, scope });
+        if (ready) void run(() => onSave({ name: name.trim(), instructions, enabled: skill?.enabled ?? true, scope }));
       }}
-      onCancel={onCancel}
+      onCancel={() => { if (!busy) onCancel(); }}
     >
+      {error !== null && <div className="setw-error" role="alert">{error}</div>}
       <div className="setw-field-label">Name</div>
       <input
         value={name}
+        disabled={busy}
         aria-label="Skill name"
         maxLength={100}
         placeholder="Conventional commit subjects"
@@ -141,9 +145,9 @@ function SkillDialog({ skill, onSave, onCancel, onRemove }: {
         label="Skill scope"
         value={scope}
         options={[
-          { value: 'GLOBAL', label: 'Global' },
-          { value: 'DEVELOPMENT', label: 'Development' },
-          { value: 'REVIEW', label: 'Review' },
+          { value: 'GLOBAL', label: 'Global', disabled: busy },
+          { value: 'DEVELOPMENT', label: 'Development', disabled: busy },
+          { value: 'REVIEW', label: 'Review', disabled: busy },
         ]}
         onChange={setScope}
       />
@@ -151,6 +155,7 @@ function SkillDialog({ skill, onSave, onCancel, onRemove }: {
       <textarea
         rows={5}
         value={instructions}
+        disabled={busy}
         aria-label="Skill instructions"
         maxLength={20000}
         placeholder="Write the instruction exactly as you would say it to the agent."

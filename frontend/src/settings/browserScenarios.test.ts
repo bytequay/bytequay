@@ -15,6 +15,11 @@ import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
 testBrowserScenarios([
   {
+    name: 'preserves failed skill edits and serializes preference saves',
+    expected: 2, timeout: 30_000,
+    fixture: { prefix: 'bytequay-settings-saves-', entry: 'src/settings/fixtures/settingsSavesBrowser.tsx', global: 'SettingsSavesTests' },
+  },
+  {
     name: 'starts and refreshes the Lab from Settings and the sidebar, and opens its tasks in their repository\'s task box',
     expected: 6, timeout: 30_000,
     fixture: {

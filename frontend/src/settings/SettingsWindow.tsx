@@ -59,7 +59,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
 
   const [preferences, setPreferences] = useState<AppPreferencesDto | null>(null);
-  const savingPreferences = useRef(false);
+  const preferenceSaves = useRef<Promise<unknown>>(Promise.resolve());
+  const preferenceRequest = useRef(0);
   const [version, setVersion] = useState('');
   const [clearing, setClearing] = useState(false);
   const modelWorkspaceId = section === 'ws-agents' ? workspace?.id : undefined;
@@ -243,11 +244,20 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   };
 
   const savePreferences = (next: AppPreferencesDto) => {
-    if (savingPreferences.current) return;
-    savingPreferences.current = true;
+    const request = ++preferenceRequest.current;
+    setPreferences(next);
     setError(null);
-    window.bridge.saveAppPreferences(next).then(setPreferences).catch(report)
-      .finally(() => { savingPreferences.current = false; });
+    preferenceSaves.current = preferenceSaves.current.then(() => window.bridge.saveAppPreferences(next))
+      .then(saved => { if (request === preferenceRequest.current) setPreferences(saved); })
+      .catch(async (failure: unknown) => {
+        if (request !== preferenceRequest.current) return;
+        report(failure);
+        try {
+          const saved = await window.bridge.getAppPreferences();
+          if (request === preferenceRequest.current) setPreferences(saved);
+        }
+        catch { /* Keep the failed selection visible beside its error until the user retries. */ }
+      });
   };
 
   const copyToken = (copy: Promise<unknown>) => {
@@ -361,7 +371,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 const saved = id === null
                   ? window.bridge.addAgentSkill(input)
                   : window.bridge.updateAgentSkill(id, input);
-                saved.then(setSkills).catch(report).finally(() => setSkillsBusy(false));
+                return saved.then(setSkills).finally(() => setSkillsBusy(false));
               }}
               onToggle={skill => {
                 setSkillsBusy(true);

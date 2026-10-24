@@ -38,3 +38,11 @@ it('shows confirmed findings on the page and opens their retained local work', a
     body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runFindings()");' });
   expect(results).toEqual([{ name: 'Inline spec findings and retained local work' }]);
 }, deadline(30_000));
+
+
+it('retains edited memory text when saving fails and a newer version reloads', async () => {
+  const results = await fixture.run<ScenarioResult[]>({
+    body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runDraftSave()");',
+  });
+  expect(results).toEqual([{ name: 'Retain memory draft through failed save and version refresh' }]);
+}, deadline(30_000));

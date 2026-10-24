@@ -103,7 +103,7 @@
 .ct-terminal__screen { position: absolute; inset: 4px 0 0 10px; }
 .ct-terminal__status { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid var(--line-default); border-radius: 6px; background: light-dark(#f6f8fa, var(--dark-subtle)); color: var(--fg-muted); font-size: 12px; padding: 4px 6px 4px 10px; }
 .ct-terminal__status.is-failed { border-color: light-dark(#ffcecb, var(--dark-red-soft)); background: var(--bg-danger); color: light-dark(#a40e26, var(--dark-red)); }
-.ct-run__tabs { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 4px; overflow-x: auto; padding: 2px 0; scrollbar-width: thin; }
+.ct-run__tabs { display: flex; min-width: 0; flex: 0 1 auto; align-items: center; gap: 4px; overflow-x: auto; padding: 2px 0; }
 /* Tabs keep their names readable and the strip scrolls, rather than every tab shrinking to an unreadable stub. */
 .ct-run__tab { display: flex; max-width: 260px; flex: none; align-items: center; border: 1px solid transparent; border-radius: 6px; }
 .ct-run__tab.is-selected { border-color: light-dark(#d6dce2, var(--dark-border)); background: var(--surface-canvas); }

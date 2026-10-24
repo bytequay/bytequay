@@ -8,7 +8,7 @@
 .agr-summary-page > .review-comment-scroll > .review-comment-content { padding: 18px max(34px, calc((100% - 864px) / 2)) 48px; }
 .agr-development-learning > .review-comment-scroll > .review-comment-content { display: flex; flex-direction: column; gap: 24px; padding: 20px 34px; }
 .review-comment-index { --review-index-row-height: 12px; position: absolute; left: 6px; top: 50%; z-index: 2; transform: translateY(-50%); display: flex; flex-direction: column; max-height: 70%; padding: 4px 0; }
-.review-comment-index ol { max-height: calc(30 * var(--review-index-row-height)); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; margin: 0; padding: 0; list-style: none; }
+.review-comment-index ol { max-height: calc(30 * var(--review-index-row-height)); overflow-y: auto; overscroll-behavior-y: contain; margin: 0; padding: 0; list-style: none; }
 .review-comment-index button { display: flex; width: 22px; height: var(--review-index-row-height); align-items: center; justify-content: center; border: 0; border-radius: 0; background: transparent; color: var(--fg-dim, #8c959f); padding: 0; cursor: pointer; }
 .review-comment-index__dash { display: block; width: 10px; height: 2px; border-radius: 1px; background: currentColor; }
 .review-comment-index:is(:hover, :focus-within) button { width: 36px; }

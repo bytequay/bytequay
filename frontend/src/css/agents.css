@@ -1859,20 +1859,6 @@
   margin-top: 1.6em;
 }
 
-/* macOS hides an overlay scrollbar, which makes a capped output read as cut; this one stays visible. */
-.agt-out > .agt-pre::-webkit-scrollbar,
-.agt-out__stream::-webkit-scrollbar {
-  width: 9px;
-}
-
-.agt-out > .agt-pre::-webkit-scrollbar-thumb,
-.agt-out__stream::-webkit-scrollbar-thumb {
-  border: 2px solid transparent;
-  border-radius: 5px;
-  background: light-dark(#d0d7de, var(--dark-hover));
-  background-clip: content-box;
-}
-
 .agt-out__label {
   display: block;
   margin-bottom: 8px;

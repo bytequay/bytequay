@@ -1,7 +1,7 @@
 html, body, #root { margin: 0; width: 100%; background: transparent; }
 body { font: 13px/1.5 var(--font); color: var(--text-1); overflow: hidden; }
 .app-notices { padding: 6px 0 0; display: flex; flex-direction: column; gap: 8px; max-height: var(--notice-max-height); }
-.app-notices__cards { display: grid; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
+.app-notices__cards { display: grid; overflow-y: auto; min-height: 0; }
 .app-notice { min-width: 0; padding: 16px; display: flex; flex-direction: column; gap: 12px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 4px 12px light-dark(rgb(25 40 30 / 10%), rgb(0 0 0 / 30%)); animation: notice-enter 140ms ease-out; }
 .app-notice__head { display: flex; align-items: center; gap: 8px; font-size: 12px; line-height: 1.4; color: var(--text-2); }
 .app-notice__dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--fg-warning); }

@@ -188,7 +188,7 @@
 .browser-rail.is-expanded .browser-rail__action { justify-content: flex-start; padding: 0 12px; font-size: var(--font-size-sm); }
 .browser-rail__action:hover, .browser-rail__row:hover { background: var(--left-nav-hover-bg); }
 .browser-rail__action.is-active, .browser-rail__row.is-active { background: var(--accent-a7); color: var(--accent); }
-.browser-rail__pages { overflow-y: auto; overflow-x: hidden; min-height: 0; padding-top: 6px; border-top: 1px solid var(--border); scrollbar-width: thin; }
+.browser-rail__pages { overflow-y: auto; overflow-x: hidden; min-height: 0; padding-top: 6px; border-top: 1px solid var(--border); }
 .browser-rail__pages hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
 .browser-rail__group { display: flex; flex-direction: column; gap: 4px; }
 .browser-rail__row { display: flex; align-items: center; border-radius: 6px; position: relative; min-height: 32px; }

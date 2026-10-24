@@ -95,6 +95,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -3571,6 +3572,42 @@ class TestCodexCliDriver
             assertThat(server.turnRequests).hasSize(3);
         }
         assertThat(supervisor.server().exit).isDone();
+    }
+
+    @Test
+    void retainedDoesNotWaitForAnEventBeingRecorded()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.159.3", false);
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .relatedWork(taskId -> Optional.of(new RelatedWorkspaceBridge(arguments -> "linked"))).build();
+        CodexCliDriver driver = reusableDriver(supervisor, broker);
+        ReentrantLock taskLock = new ReentrantLock();
+        CountDownLatch recording = new CountDownLatch(1);
+        try (AgentSession session = driver.open(reusableContext(Optional.empty()), event -> {
+            if (event instanceof ProviderAgentEvent.Usage) {
+                recording.countDown();
+                // Agent-core records usage under the task lock, which its own threads hold while asking for retained().
+                taskLock.lock();
+                taskLock.unlock();
+            }
+        })) {
+            session.allowReuse();
+            RunningTurn turn = session.start(command("first"));
+            AppServerProcess server = supervisor.server();
+            taskLock.lock();
+            try {
+                server.emitUsage("thread-1", server.activeTurn, AppServerProcess.tokens(10, 8, 0, 2), AppServerProcess.tokens(10, 8, 0, 2));
+                assertThat(recording.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(CompletableFuture.supplyAsync(session::retained).get(5, TimeUnit.SECONDS)).isFalse();
+            }
+            finally {
+                taskLock.unlock();
+            }
+            server.completeTurnWithoutOutput();
+            turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(session.retained()).isTrue();
+        }
     }
 
     @ParameterizedTest

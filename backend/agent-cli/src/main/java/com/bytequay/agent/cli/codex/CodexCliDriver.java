@@ -939,7 +939,9 @@ public final class CodexCliDriver
         private boolean closing;
         private boolean reuseAllowed;
         private boolean reuseBlocked;
-        private boolean parked;
+        // Written under this session's lock. Agent-core reads it under its task lock while this session's
+        // notification handler can hold the session lock and wait for that task lock to record an event.
+        private volatile boolean parked;
         private Optional<ExecutorService> unsettledTools = Optional.empty();
         private final String configurationIdentity;
 
@@ -1119,7 +1121,7 @@ public final class CodexCliDriver
         }
 
         @Override
-        public synchronized boolean retained()
+        public boolean retained()
         {
             return parked;
         }

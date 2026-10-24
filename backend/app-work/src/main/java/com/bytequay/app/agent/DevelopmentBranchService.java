@@ -185,11 +185,13 @@ public class DevelopmentBranchService
                 }
                 catch (RuntimeException failure) {
                     // Once intent exists, Git or persistence may have changed and recovery must remain mandatory.
-                    if (agentNamed.contains(task.id()) || journal.read(task.id()).isPresent()) {
+                    if (journal.read(task.id()).isPresent()) {
                         throw failure;
                     }
+                    // Before that, a name is only a suggestion: one that cannot be applied, such as a name already taken,
+                    // is dropped rather than failing this and every later delivery.
                     proposed.remove(task.id(), branch);
-                    log.debug("Skipping optional branch name for task {} before rename intent", task.id(), failure);
+                    log.warn("Keeping branch {} for task {}: the proposed name {} could not be applied", previous.generatedBranch(), task.id(), branch, failure);
                     return tasks.require(task.id());
                 }
                 if (!renamed.equals(previous)) {

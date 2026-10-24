@@ -214,18 +214,23 @@ class TestDevelopmentBranchService
     }
 
     @Test
-    void explicitAgentNamingFailuresAreReportedEvenBeforeIntent()
+    void anAgentNameThatCannotBeAppliedBeforeIntentKeepsTheBranchAndIsNotRetried()
     {
         service.rename(id, turnId, SUFFIX);
         finishTurn(TurnState.COMPLETED);
-        IllegalStateException failure = new IllegalStateException("Remote verification unavailable");
-        when(git.renameBranch(any(), any(), any(), any())).thenThrow(failure);
+        when(git.renameBranch(any(), any(), any(), any())).thenThrow(new IllegalStateException("The proposed branch name is already in use"));
 
-        assertThatThrownBy(() -> service.prepare(currentTask.get())).isSameAs(failure);
+        assertThat(service.prepare(currentTask.get())).isEqualTo(currentTask.get());
+        assertThat(service.prepare(currentTask.get())).isEqualTo(currentTask.get());
 
+        verify(git).renameBranch(any(), any(), any(), any());
         verifyNoInteractions(followups);
         verify(journal, never()).write(any(), any());
         verify(tasks, never()).update(any());
+        // The agent's choice still outranks a later background suggestion.
+        service.propose(id, "background-name");
+        assertThat(service.prepare(currentTask.get())).isEqualTo(currentTask.get());
+        verify(git).renameBranch(any(), any(), any(), any());
     }
 
     @Test

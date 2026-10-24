@@ -422,15 +422,18 @@ class TestRelatedWorkspaceWork
     }
 
     @Test
-    void separatelyRequestedFixUsesDestinationDefaultsWithoutACommitOverride()
+    void separatelyRequestedFixUsesTheSavedSettingsHeldToTheSourceTasksLevel()
     {
+        taskData.put(source.id(), task(source.id(), "repository", new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO)
+                .withDevelopmentAutomation(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()))));
         var request = new RelatedWorkspaceWork.Request("fix", "iceberg", RelatedWorkspaceWork.Purpose.FIX, "Fix this upstream issue", Optional.empty(), Optional.empty());
         var view = service().start(source.id().toString(), sourceTurn.id(), request);
         assertThat(view.state()).isEqualTo("RUNNING");
         var created = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(taskService).createInteractive(created.capture());
         assertThat(created.getValue().startCommit()).isEqualTo(newCommit);
-        assertThat(created.getValue().defaults().developmentAutomation()).contains(appSettings.developmentAutomation());
+        // The saved settings reach CI_FIX, but the agent asked from a task the user accepted only up to a draft PR.
+        assertThat(created.getValue().defaults().developmentAutomation()).contains(new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty()));
     }
 
     private RelatedWorkspaceWork service()

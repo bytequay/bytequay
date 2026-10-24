@@ -204,6 +204,8 @@ class TestAgentTurnHttpApi
         driver.holdNextTurn();
         Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
         request.put("developmentAutomation", ImmutableMap.of("level", "CI_FIX"));
+        request.put("defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
+                "developmentAutomation", ImmutableMap.of("level", "CI_FIX")));
         JsonNode created = post("/agent/tasks", request, null).getBody();
         String taskId = created.required("id").asText();
         String taskPath = "/agent/tasks/" + taskId + "?workspaceId=" + workspaceId;
@@ -238,6 +240,25 @@ class TestAgentTurnHttpApi
         assertThat(get(taskPath).getBody().required("state").asText()).isEqualTo("OPEN");
         assertThat(tasks.get(TaskId.valueOf(taskId)).taskWorktree()).contains(worktree);
         assertThat(run("git", "-C", worktree.canonicalWorktree().toString(), "rev-parse", "HEAD")).isEqualTo(unchangedHead);
+    }
+
+    @Test
+    void refusesALaterTurnThatAsksForAnotherAutomationLevel()
+            throws Exception
+    {
+        Map<String, Object> request = new HashMap<>(createTaskBody("codex"));
+        request.put("defaults", ImmutableMap.of("model", "test-model", "effort", "high", "permissionPolicy", "AUTO",
+                "developmentAutomation", ImmutableMap.of("level", "COMMIT")));
+        String taskId = post("/agent/tasks", request, null).getBody().required("id").asText();
+        awaitContinuationSettled(taskId);
+
+        ResponseEntity<JsonNode> widened = post("/agent/tasks/" + taskId + "/turns", ImmutableMap.of(
+                "message", "Ship it",
+                "expectedVersion", taskVersion(taskId),
+                "developmentAutomation", ImmutableMap.of("level", "CI_FIX")), "widened-automation");
+
+        assertThat(widened.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+        assertThat(widened.getBody().toString()).contains("cannot be widened after a task starts");
     }
 
     @Test

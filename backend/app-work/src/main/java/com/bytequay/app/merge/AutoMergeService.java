@@ -14,9 +14,14 @@
 package com.bytequay.app.merge;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -72,6 +77,8 @@ public class AutoMergeService
     private static final Duration DETAIL_FRESHNESS = Duration.ofMinutes(1);
 
     private final AgentTaskStore tasks;
+    private final AgentTurnStore turns;
+    private final QueuedInputStore queue;
     private final AgentServingGate gate;
     private final TaskPullRequestOwnership ownership;
     private final PullRequestService pullRequests;
@@ -83,10 +90,13 @@ public class AutoMergeService
     private final Clock clock;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("auto-merge-", 0).factory());
 
-    public AutoMergeService(AgentTaskStore tasks, AgentServingGate gate, TaskPullRequestOwnership ownership, PullRequestService pullRequests, PrDetailStore details,
-            CiAutofixStore ciRuns, ReviewFixService reviewFixes, AutoMergeStore store, AppSettingsService settings, Clock clock)
+    public AutoMergeService(AgentTaskStore tasks, AgentTurnStore turns, QueuedInputStore queue, AgentServingGate gate, TaskPullRequestOwnership ownership,
+            PullRequestService pullRequests, PrDetailStore details, CiAutofixStore ciRuns, ReviewFixService reviewFixes, AutoMergeStore store, AppSettingsService settings,
+            Clock clock)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.turns = requireNonNull(turns, "turns is null");
+        this.queue = requireNonNull(queue, "queue is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -220,6 +230,16 @@ public class AutoMergeService
 
     private Optional<String> waitingFor(AgentTask task, PullRequest pr, StoredPrDetail detail)
     {
+        // The merge ends delivering the task's own work: not while it is still working, and not before its latest request
+        // delivered, so opening a task on an existing pull request merges nothing by itself.
+        if (turns.findActive(task.id()).isPresent() || queue.listQueued(task.id()).stream().anyMatch(input -> input.state().live())) {
+            return Optional.of("Waiting for the task to finish its current work");
+        }
+        Optional<AgentTurn> latest = turns.list(task.id()).stream().filter(turn -> turn.developmentOrigin().isEmpty()).reduce((previous, next) -> next);
+        if (latest.filter(turn -> turn.state() == TurnState.COMPLETED && turn.cancellationRequestedAt().isEmpty()
+                && turn.developmentResult().filter(DevelopmentResultReport::readyForDelivery).isPresent()).isEmpty()) {
+            return Optional.of("Waiting for the task to deliver its latest request");
+        }
         if (detail.unavailableSections().contains(StoredPrDetail.REVIEW_THREADS)) {
             return Optional.of("Waiting for review threads to refresh");
         }

@@ -145,6 +145,17 @@ public class RelatedWorkspaceWork
             String revision, Optional<String> commit, String state, Optional<String> turnId, Optional<String> result, Optional<String> limitation,
             Instant createdAt, boolean archived) {}
 
+    /**
+     * The agent asks for this work, not the user, so it can reach no further than the scope the user accepted for the task
+     * it came from: the saved settings, held to that task's level.
+     */
+    private DevelopmentAutomation withinSource(DevelopmentAutomation saved, String sourceTaskId)
+    {
+        AutomationLevel source = tasks.find(TaskId.valueOf(sourceTaskId)).flatMap(task -> task.defaults().developmentAutomation())
+                .map(DevelopmentAutomation::level).orElse(AutomationLevel.COMMIT);
+        return saved.level().includes(source) ? new DevelopmentAutomation(saved.autoCommit(), source, saved.ciLaneId()) : saved;
+    }
+
     public Optional<AgentTask> eligible(String taskId)
     {
         return tasks.find(TaskId.valueOf(taskId)).filter(task -> task.interactive() && task.state() == TaskState.OPEN
@@ -167,7 +178,7 @@ public class RelatedWorkspaceWork
                 var destination = relationships.requireRelated(workspaceId, request.workspaceId());
                 var kind = relationships.related(workspaceId).stream().filter(value -> value.workspaceId().equals(destination.id())).findFirst().orElseThrow().position().kind();
                 var model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(destination.id()));
-                var automation = request.purpose() == Purpose.INVESTIGATE ? INVESTIGATION : appSettings.developmentAutomation();
+                var automation = request.purpose() == Purpose.INVESTIGATE ? INVESTIGATION : withinSource(appSettings.developmentAutomation(), sourceTaskId);
                 var defaults = new AgentTaskDefaults(Optional.of(model.model()), model.effort(), AgentPermissionPolicy.AUTO).withDevelopmentAutomation(automation);
                 Link created = new Link(sourceTaskId, acceptedTurn.toString(), TaskId.random().toString(), request,
                         destination.monitoredRepository().fullName(), kind, new AgentLaneId(model.configId()), defaults, Instant.now(), Optional.empty());

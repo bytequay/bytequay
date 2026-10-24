@@ -13,17 +13,26 @@
  */
 package com.bytequay.app.merge;
 
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.AutomationLevel;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
+import com.bytequay.agent.core.store.AgentTurnStore;
+import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -86,13 +95,16 @@ class TestAutoMergeService
     private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
     private final Map<String, AutoMerge> rows = new HashMap<>();
-    private final AutoMergeService service = new AutoMergeService(mock(AgentTaskStore.class), mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE)),
-            ownership, pullRequests, details, ciRuns, reviewFixes, new MemoryStore(), settings, clock);
+    private final AgentTurnStore turns = mock(AgentTurnStore.class);
+    private final AutoMergeService service = new AutoMergeService(mock(AgentTaskStore.class), turns, mock(QueuedInputStore.class),
+            mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE)), ownership, pullRequests, details, ciRuns, reviewFixes, new MemoryStore(), settings, clock);
     private final AgentTask task = task();
 
     @BeforeEach
     void setUp()
     {
+        when(turns.list(task.id())).thenReturn(ImmutableList.of(turn().withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty()))
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), CREATED)));
         when(ownership.linkedPullRequest(any())).thenReturn(Optional.of(pullRequest()));
         when(reviewFixes.settled(any(), any())).thenReturn(true);
         when(settings.preferences()).thenReturn(new AppPreferences(7, 14, AppTheme.SYSTEM, 30, 60));
@@ -218,6 +230,29 @@ class TestAutoMergeService
     }
 
     @Test
+    void aTaskOpenedOnAPullRequestMergesNothingUntilItDelivers()
+    {
+        when(turns.list(task.id())).thenReturn(ImmutableList.of());
+        clock.advance(Duration.ofDays(1));
+        service.advance(task);
+
+        assertThat(summary().message()).contains("Waiting for the task to deliver its latest request");
+        verify(pullRequests, never()).mergePullRequest(anyString(), anyInt(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
+    void waitsWhileTheTaskIsStillWorking()
+    {
+        service.advance(task);
+        when(turns.findActive(task.id())).thenReturn(Optional.of(turn()));
+        clock.advance(Duration.ofDays(1));
+        service.advance(task);
+
+        assertThat(summary().message()).contains("Waiting for the task to finish its current work");
+        verify(pullRequests, never()).mergePullRequest(anyString(), anyInt(), anyLong(), anyString(), anyString());
+    }
+
+    @Test
     void anyBlockerRestartsTheWaitAndSaysWhy()
     {
         service.advance(task);
@@ -330,6 +365,14 @@ class TestAutoMergeService
         AgentTask created = created(id, true, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree,
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), CREATED);
         return created.withDefaults(created.defaults().withDevelopmentAutomation(new DevelopmentAutomation(true, AutomationLevel.MERGE, Optional.empty())), CREATED);
+    }
+
+    private AgentTurn turn()
+    {
+        AgentTurnSettings turnSettings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO, ImmutableList.of(),
+                Optional.empty(), Optional.empty());
+        return AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings, CREATED).markDeliveryStarted(CREATED)
+                .running(new ProviderTurnRef("provider-turn"), Optional.empty());
     }
 
     private static PrTimelineEvent queueEvent(String event, Instant at, PrTimelinePayload payload)

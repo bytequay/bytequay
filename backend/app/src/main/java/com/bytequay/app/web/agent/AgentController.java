@@ -508,7 +508,12 @@ public class AgentController
             checkArgument(requested.isEmpty(), "Development automation requires an interactive task");
             return Optional.empty();
         }
-        DevelopmentAutomation automation = requested.map(DevelopmentAutomationDto::toDomain)
+        // The task's automation is the delivery scope the user accepted when it started: a message may ask for less, never more.
+        Optional<DevelopmentAutomation> asked = requested.map(DevelopmentAutomationDto::toDomain);
+        task.defaults().developmentAutomation().ifPresent(accepted -> checkArgument(asked
+                        .filter(value -> !accepted.level().includes(value.level()) || value.autoCommit() && !accepted.autoCommit()).isEmpty(),
+                "Automation cannot be widened after a task starts"));
+        DevelopmentAutomation automation = asked
                 .or(task.defaults()::developmentAutomation)
                 .orElseGet(appSettings::developmentAutomation);
         appSettings.validateDevelopmentAutomation(automation);

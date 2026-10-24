@@ -18,12 +18,9 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.PrActivitySummaryConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringMapConverter;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -36,6 +33,8 @@ import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -79,11 +78,11 @@ public class PullRequestEntity
     private String origin;
 
     @Column(nullable = false)
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> labels;
 
     @Column(name = "label_colors")
-    @Convert(converter = StringMapConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, String> labelColors;
 
     @Column(nullable = false)
@@ -155,7 +154,7 @@ public class PullRequestEntity
 
     private Instant discussionActivityAt;
 
-    @Convert(converter = PrActivitySummaryConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private PrActivitySummary cardActivity;
 
     private Instant attentionActivityAt;
@@ -164,10 +163,10 @@ public class PullRequestEntity
 
     private String reviewDecision;
 
-    @Convert(converter = StringMapConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, String> activityFingerprints;
 
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> requestedReviewers;
 
     public PullRequestEntity() {}
@@ -222,7 +221,7 @@ public class PullRequestEntity
         String synthesizedState = getMergedAt() != null && "closed".equals(getState()) ? "merged" : getState();
         return new PullRequest(
                 getId(), getRepo(), getNumber(), getTitle(), getAuthor(), getHtmlUrl(), getCreatedAt(), getUpdatedAt(), PullRequest.Origin.valueOf(getOrigin()), getLabels(),
-                getLabelColors(), isDraft(), Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
+                Optional.ofNullable(getLabelColors()).orElse(ImmutableMap.of()), isDraft(), Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
                 Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null), Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
                 Optional.ofNullable(getRequestedReviewers()).orElse(ImmutableList.of()), getCiStatus(), getAdditions(), getDeletions(), getCommentCount(), synthesizedState,
                 getClosedAt(), getMergedAt(), getMergeable(), getMergeableState(), getHeadPushedAt(), getHeadRef(), getMonitoredAt(), getActivityAt(), getReviewRequestedAt(),

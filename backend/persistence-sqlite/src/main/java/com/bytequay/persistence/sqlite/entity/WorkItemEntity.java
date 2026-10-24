@@ -14,7 +14,7 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.WorkItem;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.WorkItemConverter;
+import com.bytequay.persistence.sqlite.converter.WorkItemConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;

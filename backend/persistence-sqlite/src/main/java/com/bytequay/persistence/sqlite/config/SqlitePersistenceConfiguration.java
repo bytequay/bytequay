@@ -13,9 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.config;
 
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.google.common.collect.ImmutableList;
+import org.hibernate.cfg.AvailableSettings;
 import org.hibernate.jpa.boot.spi.IntegratorProvider;
 import org.hibernate.jpa.boot.spi.JpaSettings;
+import org.hibernate.type.format.jackson.JacksonJsonFormatMapper;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomizer;
 import org.springframework.context.annotation.Bean;
@@ -33,5 +36,11 @@ public class SqlitePersistenceConfiguration
     HibernatePropertiesCustomizer unmappedColumnCleanup()
     {
         return properties -> properties.put(JpaSettings.INTEGRATOR_PROVIDER, (IntegratorProvider) () -> ImmutableList.of(new UnmappedColumnCleanup()));
+    }
+
+    @Bean
+    HibernatePropertiesCustomizer jsonColumns()
+    {
+        return properties -> properties.put(AvailableSettings.JSON_FORMAT_MAPPER, new JacksonJsonFormatMapper(JsonColumns.mapper()));
     }
 }

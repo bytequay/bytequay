@@ -14,13 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.TeamActivityEvent;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.TeamActivityEventConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 
@@ -38,7 +38,7 @@ public class TeamActivityEntity
     private Instant occurredAt;
 
     @Column(name = "fact", nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = TeamActivityEventConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private TeamActivityEvent fact;
 
     public TeamActivityEntity() {}

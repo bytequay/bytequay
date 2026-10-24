@@ -14,14 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.ArtifactPage;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.ArtifactPageConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One saved page version, with its HTML in its own column so listing versions never reads a page. */
 @Entity
@@ -43,7 +43,7 @@ public class ArtifactPageEntity
     private long ordinal;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = ArtifactPageConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private ArtifactPage value;
 
     @Column(nullable = false, columnDefinition = "TEXT")

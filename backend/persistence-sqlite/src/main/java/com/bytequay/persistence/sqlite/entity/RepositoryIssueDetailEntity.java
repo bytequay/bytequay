@@ -15,14 +15,13 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssueDetail;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.IssueTimelineListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -43,14 +42,14 @@ public class RepositoryIssueDetailEntity
     private Integer issueNumber;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = IssueTimelineListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<PrTimelineEvent> timeline;
 
     @Column(name = "current_type")
     private String currentType;
 
     @Column(name = "available_types", nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> availableTypes;
 
     @Column(name = "refreshed_at")

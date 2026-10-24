@@ -14,14 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AgendaRun;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AgendaRunConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "agenda_run", indexes = @Index(name = "idx_agenda_run_day", columnList = "day"))
@@ -36,7 +36,7 @@ public class AgendaRunEntity
     private String day;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = AgendaRunConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private AgendaRun value;
 
     protected AgendaRunEntity() {}

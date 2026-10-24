@@ -15,9 +15,7 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.PrTimelinePayloadConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
@@ -27,6 +25,8 @@ import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -61,7 +61,7 @@ public class PrTimelineEntity
     private String localEventKey;
 
     @Column(columnDefinition = "TEXT")
-    @Convert(converter = PrTimelinePayloadConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private PrTimelinePayload payload;
 
     public PrTimelineEntity() {}

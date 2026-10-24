@@ -14,14 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.backport.BackportChain;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.BackportChainConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -39,7 +39,7 @@ public class BackportChainEntity
     private long version;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = BackportChainConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private BackportChain data;
 
     public BackportChainEntity() {}

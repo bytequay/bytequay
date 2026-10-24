@@ -14,13 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AgendaDay;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AgendaDayConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One day's agenda, keyed by its ISO date so text order is day order. */
 @Entity
@@ -33,7 +33,7 @@ public class AgendaDayEntity
     private String id;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = AgendaDayConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private AgendaDay value;
 
     protected AgendaDayEntity() {}

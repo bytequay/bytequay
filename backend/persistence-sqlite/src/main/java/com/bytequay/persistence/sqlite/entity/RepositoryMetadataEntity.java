@@ -18,20 +18,16 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.RepositoryPickerUser;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.RepositoryContributorListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.RepositoryLabelListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.RepositoryPickerUserListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringLongMapConverter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -61,23 +57,23 @@ public class RepositoryMetadataEntity
     private int stargazersCount;
 
     @Column(nullable = false, columnDefinition = "TEXT DEFAULT '{}'")
-    @Convert(converter = StringLongMapConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, Long> languages = ImmutableMap.of();
 
     @Column(nullable = false)
-    @Convert(converter = RepositoryContributorListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<RepositoryContributor> contributors = ImmutableList.of();
 
     @Column(name = "picker_users", nullable = false, columnDefinition = "TEXT DEFAULT '[]'")
-    @Convert(converter = RepositoryPickerUserListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<RepositoryPickerUser> pickerUsers = ImmutableList.of();
 
     @Column(nullable = false)
-    @Convert(converter = RepositoryLabelListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<RepositoryLabel> labels = ImmutableList.of();
 
     @Column(nullable = false)
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> topics = ImmutableList.of();
 
     @Column(name = "contributors_synced_at")

@@ -14,15 +14,15 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -60,11 +60,11 @@ public class RepositoryIssueEntity
     private String htmlUrl;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> labels;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> assignees;
 
     @Column(name = "comment_count", nullable = false)

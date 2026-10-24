@@ -14,13 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.Epic;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.EpicConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "epic")
@@ -35,7 +35,7 @@ public class EpicEntity
     private String workspaceId;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = EpicConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Epic value;
 
     protected EpicEntity() {}

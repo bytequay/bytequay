@@ -14,13 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AttentionMark;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AttentionMarkConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One Needs attention mark, keyed by the item's key in the list. */
 @Entity
@@ -33,7 +33,7 @@ public class AttentionMarkEntity
     private String id;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = AttentionMarkConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private AttentionMark value;
 
     protected AttentionMarkEntity() {}

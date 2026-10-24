@@ -16,17 +16,14 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
 import com.bytequay.core.memory.MemorySource;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.MemoryPreviousConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.MemoryReportListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.MemorySourceListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -56,11 +53,11 @@ public class MemoryEntity
     private String text;
 
     @Column(name = "scope_json", nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> scope;
 
     @Column(name = "sources_json", nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = MemorySourceListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<MemorySource> sources;
 
     @Column(name = "origin_user", nullable = false)
@@ -76,7 +73,7 @@ public class MemoryEntity
     private long version;
 
     @Column(name = "previous_json", columnDefinition = "TEXT")
-    @Convert(converter = MemoryPreviousConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Memory.Previous previous;
 
     @Column(nullable = false)
@@ -86,7 +83,7 @@ public class MemoryEntity
     private int cited;
 
     @Column(name = "reports_json", nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = MemoryReportListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<MemoryReport> reports;
 
     @Column(name = "created_at", nullable = false)

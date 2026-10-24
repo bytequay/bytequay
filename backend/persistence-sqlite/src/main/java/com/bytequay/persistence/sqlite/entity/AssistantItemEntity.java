@@ -14,14 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AssistantItem;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AssistantItemConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One entry of a day's assistant conversation. A message and the failure right after it can share a millisecond, so the ordinal orders them. */
 @Entity
@@ -40,7 +40,7 @@ public class AssistantItemEntity
     private long ordinal;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = AssistantItemConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private AssistantItem value;
 
     protected AssistantItemEntity() {}

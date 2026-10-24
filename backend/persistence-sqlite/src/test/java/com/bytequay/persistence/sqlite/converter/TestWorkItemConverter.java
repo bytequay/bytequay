@@ -16,7 +16,6 @@ package com.bytequay.persistence.sqlite.converter;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemContextLink;
 import com.bytequay.core.domain.WorkItemEvent;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.WorkItemConverter;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 

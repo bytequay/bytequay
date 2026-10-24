@@ -21,11 +21,9 @@ import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiDescriptionChange;
 import com.bytequay.core.ci.CiRerunAssessment;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.collect.ImmutableList;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -37,6 +35,8 @@ import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -94,11 +94,11 @@ public class CiAutofixAttemptEntity
     private String localFingerprint;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> changedPaths;
 
     @Column(columnDefinition = "TEXT")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> commitSubjects;
 
     private String expectedRemoteSha;

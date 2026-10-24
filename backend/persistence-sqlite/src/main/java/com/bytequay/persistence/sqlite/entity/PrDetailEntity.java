@@ -14,17 +14,16 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.StringMapConverter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -59,18 +58,18 @@ public class PrDetailEntity
     private String body;
 
     @Column(nullable = false)
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> labels;
 
-    @Convert(converter = StringMapConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, String> labelColors;
 
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> assignees;
 
     private String milestone;
 
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> unavailableSections;
 
     @Column(nullable = false)
@@ -90,7 +89,7 @@ public class PrDetailEntity
     private int changedFiles;
 
     @Column(name = "requested_reviewers")
-    @Convert(converter = StringListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<String> requestedReviewers;
 
     private String headSha;
@@ -122,7 +121,7 @@ public class PrDetailEntity
     @Column(name = "commit_statuses_etag")
     private String commitStatusesEtag;
 
-    @Convert(converter = StringMapConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, String> discussionEtags;
 
     @Column(nullable = false)

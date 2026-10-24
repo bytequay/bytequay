@@ -14,14 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AssistantAction;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AssistantActionConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "assistant_action", indexes = @Index(name = "ix_assistant_action_item", columnList = "item_id"))
@@ -39,7 +39,7 @@ public class AssistantActionEntity
     private String itemId;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = AssistantActionConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private AssistantAction value;
 
     protected AssistantActionEntity() {}

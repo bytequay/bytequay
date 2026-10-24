@@ -13,7 +13,10 @@
  */
 package com.bytequay.persistence.sqlite.converter;
 
+import com.bytequay.core.domain.Epic;
+import com.bytequay.core.domain.EpicProposal;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -43,5 +46,26 @@ class TestJsonColumns
         finally {
             Thread.currentThread().setContextClassLoader(original);
         }
+    }
+
+    @Test
+    void keepsAProposalsContextAndReadsProposalsSavedBeforeIt()
+            throws Exception
+    {
+        ObjectMapper mapper = JsonColumns.mapper();
+        Epic detailed = epic(new EpicProposal("proposal-1", "Invalidate cached metadata on DDL", "ALTER TABLE reads the table again",
+                "Drop a table's cached metadata when DDL changes it.", Optional.of("Stale metadata survives ALTER TABLE."), Optional.empty(), Optional.of("1. ALTER a table")));
+        assertThat(mapper.readValue(mapper.writeValueAsString(detailed), Epic.class)).isEqualTo(detailed);
+
+        EpicProposal plain = new EpicProposal("proposal-1", "Tune the cache", "Reads are faster", "", Optional.empty(), Optional.empty(), Optional.empty());
+        String older = mapper.writeValueAsString(epic(plain))
+                .replace(",\"description\":\"\"", "").replace(",\"background\":null", "").replace(",\"evidence\":null", "").replace(",\"reproduceSteps\":null", "");
+        assertThat(older).doesNotContain("description", "background", "evidence", "reproduceSteps");
+        assertThat(mapper.readValue(older, Epic.class)).isEqualTo(epic(plain));
+    }
+
+    private static Epic epic(EpicProposal proposal)
+    {
+        return Epic.of("ISSUE:github.com:1", "workspace").withProposals(ImmutableList.of(proposal));
     }
 }

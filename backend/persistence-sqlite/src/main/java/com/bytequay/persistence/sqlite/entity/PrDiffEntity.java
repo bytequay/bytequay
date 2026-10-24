@@ -16,16 +16,14 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.DiffCommitListConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.DiffFileContentMapConverter;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.DiffFileListConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.List;
@@ -44,15 +42,15 @@ public class PrDiffEntity
     private Long prId;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = DiffFileListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<DiffFile> files;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = DiffCommitListConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private List<DiffCommit> commits;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = DiffFileContentMapConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private Map<String, DiffFileContent> fileContents;
 
     private String filesEtag;

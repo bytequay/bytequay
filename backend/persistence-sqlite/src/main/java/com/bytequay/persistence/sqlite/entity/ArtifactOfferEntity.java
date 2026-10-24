@@ -14,14 +14,14 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.ArtifactOffer;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.ArtifactOfferConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** A page an artifact conversation offered. Offers made in one millisecond keep their order through the ordinal. */
 @Entity
@@ -43,7 +43,7 @@ public class ArtifactOfferEntity
     private long ordinal;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = ArtifactOfferConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private ArtifactOffer value;
 
     protected ArtifactOfferEntity() {}

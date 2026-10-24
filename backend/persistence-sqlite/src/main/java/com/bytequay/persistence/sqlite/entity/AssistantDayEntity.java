@@ -14,13 +14,13 @@
 package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.AssistantDay;
-import com.bytequay.persistence.sqlite.converter.JsonColumnConverters.AssistantDayConverter;
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.Getter;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 /** One day's assistant conversation, keyed by its ISO date so text order is day order. */
 @Entity
@@ -33,7 +33,7 @@ public class AssistantDayEntity
     private String id;
 
     @Column(nullable = false, columnDefinition = "TEXT")
-    @Convert(converter = AssistantDayConverter.class)
+    @JdbcTypeCode(SqlTypes.JSON)
     private AssistantDay value;
 
     protected AssistantDayEntity() {}

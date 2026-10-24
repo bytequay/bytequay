@@ -55,7 +55,7 @@ function setup() {
     webContents: Object.assign(new EventEmitter(), { mainFrame: {}, send: vi.fn(), focus: vi.fn() }), contentView: { children, addChildView: vi.fn(child => {
       const index = children.indexOf(child); if (index >= 0) children.splice(index, 1);
       children.push(child);
-    }) },
+    }), removeChildView: vi.fn() },
     isDestroyed: () => false, isVisible: (): boolean => true, isMinimized: (): boolean => false, isFocused: (): boolean => true,
     getContentBounds: () => ({ x: 0, y: 0, width: 1000, height: 620 }),
   });
@@ -107,9 +107,34 @@ it('authenticates IPC, layers only the card rectangle, and rechecks requests bef
   host.stop();
 });
 
+it('starts the overlay renderer only for an alert and closes it a while after the last one leaves', async () => {
+  vi.useFakeTimers();
+  try {
+    const { host, read, window } = setup();
+    await host.refresh();
+    expect(desktop.views).toHaveLength(0);
+    read.mockResolvedValue([notice]); await host.refresh();
+    expect(desktop.views).toHaveLength(1);
+    const view = desktop.views[0] as { webContents: { send: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn> } };
+    const sent = view.webContents.send.mock.calls.length;
+    window.emit('resize'); await host.refresh();
+    expect(view.webContents.send).toHaveBeenCalledTimes(sent);
+    read.mockResolvedValue([]); await host.refresh();
+    vi.advanceTimersByTime(9_000);
+    expect(view.webContents.close).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1_000);
+    expect(view.webContents.close).toHaveBeenCalled();
+    expect(window.contentView.removeChildView).toHaveBeenCalledWith(view);
+    read.mockResolvedValue([{ ...notice, id: 'approval:two' }]); await host.refresh();
+    expect(desktop.views).toHaveLength(2);
+    host.stop();
+  }
+  finally { vi.useRealTimers(); }
+});
+
 it('fits the native hit area to the alert and ignores invalid heights', async () => {
   const { host, read, window } = setup();
-  read.mockResolvedValue([notice]); await host.refresh();
+  await host.refresh(); read.mockResolvedValue([notice]); await host.refresh();
   const view = desktop.views[0] as { webContents: { mainFrame: object }; setBounds: ReturnType<typeof vi.fn> };
   const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   desktop.handlers.get('notices:resize')?.(event, 230.5);
@@ -173,8 +198,8 @@ it.each(['TURN_FINISHED', 'APPROVAL'] as const)('removes %s notices from the pan
   host.stop();
   const restarted = setup();
   restarted.read.mockResolvedValue([current]); await restarted.host.refresh();
-  const newView = desktop.views.at(-1) as { webContents: { mainFrame: object } };
-  expect(desktop.handlers.get('notices:read')?.({ sender: newView.webContents, senderFrame: newView.webContents.mainFrame })).toMatchObject({ notices: [], popupIds: [] });
+  const restartedOwner = { sender: restarted.window.webContents, senderFrame: restarted.window.webContents.mainFrame };
+  expect(desktop.handlers.get('notices:read')?.(restartedOwner)).toMatchObject({ notices: [], popupIds: [] });
   restarted.host.stop();
 });
 
@@ -194,12 +219,11 @@ it.each([null, 'review'])('removes an opened completion across refreshes and res
   host.stop();
   const restarted = setup();
   restarted.read.mockResolvedValue([current]); await restarted.host.refresh();
-  const newView = desktop.views.at(-1) as { webContents: { mainFrame: object } };
-  const newChild = { sender: newView.webContents, senderFrame: newView.webContents.mainFrame };
-  expect(desktop.handlers.get('notices:read')?.(newChild)).toMatchObject({ notices: [], popupIds: [] });
+  const restartedOwner = { sender: restarted.window.webContents, senderFrame: restarted.window.webContents.mainFrame };
+  expect(desktop.handlers.get('notices:read')?.(restartedOwner)).toMatchObject({ notices: [], popupIds: [] });
   const next = { ...current, id: 'finished:next', turnId: 'next' };
   restarted.read.mockResolvedValue([next]); await restarted.host.refresh();
-  expect(desktop.handlers.get('notices:read')?.(newChild)).toMatchObject({ notices: [next], popupIds: [next.id] });
+  expect(desktop.handlers.get('notices:read')?.(restartedOwner)).toMatchObject({ notices: [next], popupIds: [next.id] });
   restarted.host.stop();
 });
 
@@ -243,14 +267,13 @@ it('suppresses a visible source, preserves failed reads, and dismisses without h
 it.each(['TURN_FINISHED', 'APPROVAL'] as const)('keeps %s notices quiet for the open task across turns and navigation', async kind => {
   const { host, read, open, window } = setup();
   await host.refresh();
-  const view = desktop.views[0] as { webContents: { mainFrame: object; send: ReturnType<typeof vi.fn> } };
   const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
-  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
-  const snapshot = () => desktop.handlers.get('notices:read')?.(child) as NoticeSnapshot;
+  const snapshot = () => desktop.handlers.get('notices:read')?.(owner) as NoticeSnapshot;
   const current = { ...notice, kind, occurredAt: new Date().toISOString() };
   const other = { ...current, id: 'other', taskId: 'other-task' };
   desktop.handlers.get('notices:source')?.(owner, 'screen', current.taskId);
   read.mockResolvedValue([current, other]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object; send: ReturnType<typeof vi.fn> } };
   expect(snapshot()).toMatchObject({ popupIds: [other.id], viewedIds: [current.id] });
   expect(view.webContents.send).toHaveBeenLastCalledWith('notices:changed', snapshot());
   const next = { ...current, id: 'next', turnId: 'next-turn' };
@@ -270,9 +293,8 @@ it.each(['TURN_FINISHED', 'APPROVAL'] as const)('keeps %s notices quiet for the 
 it.each(['unfocused', 'hidden', 'minimized', 'obscured', 'covered'] as const)('preserves notifications when the task is %s', async visibility => {
   const { host, read, window } = setup();
   await host.refresh();
-  const view = desktop.views[0] as { webContents: { mainFrame: object } };
   const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
-  const snapshot = () => desktop.handlers.get('notices:read')?.({ sender: view.webContents, senderFrame: view.webContents.mainFrame }) as NoticeSnapshot;
+  const snapshot = () => desktop.handlers.get('notices:read')?.(owner) as NoticeSnapshot;
   if (visibility === 'unfocused') vi.spyOn(window, 'isFocused').mockReturnValue(false);
   if (visibility === 'hidden') vi.spyOn(window, 'isVisible').mockReturnValue(false);
   if (visibility === 'minimized') vi.spyOn(window, 'isMinimized').mockReturnValue(true);
@@ -305,7 +327,7 @@ it.each([
 
 it('fits the native hit area to a zoomed alert eight pixels from the corner', async () => {
   const { host, read } = setup();
-  read.mockResolvedValue([notice]); await host.refresh();
+  await host.refresh(); read.mockResolvedValue([notice]); await host.refresh();
   const view = desktop.views[0] as { webContents: { mainFrame: object; getZoomFactor: ReturnType<typeof vi.fn> }; setBounds: ReturnType<typeof vi.fn> };
   const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   for (const zoom of [0.8, 1.25]) {
@@ -319,7 +341,7 @@ it('fits the native hit area to a zoomed alert eight pixels from the corner', as
 
 it('releases native input while a modal is open and restores pending notices afterward', async () => {
   const { host, read, window } = setup();
-  read.mockResolvedValue([notice]); await host.refresh();
+  await host.refresh(); read.mockResolvedValue([notice]); await host.refresh();
   const view = desktop.views[0] as { webContents: { mainFrame: object }; setVisible: ReturnType<typeof vi.fn> };
   const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
@@ -354,44 +376,43 @@ it('tells the main window when opening the Assistant panel marks a finished turn
 it.each([true, false])('marks a closed alert seen only when the user closed it (seen: %s)', async seen => {
   const { host, read } = setup();
   await host.refresh();
-  const view = desktop.views[0] as { webContents: { mainFrame: object } };
-  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   const finished = { ...notice, kind: 'TURN_FINISHED', occurredAt: new Date().toISOString() };
   read.mockResolvedValue([finished]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object } };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   expect(() => desktop.handlers.get('notices:dismiss')?.(child, finished.id)).toThrow('Invalid notice');
   await desktop.handlers.get('notices:dismiss')?.(child, finished.id, seen);
   expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ notices: [finished], popupIds: [], viewedIds: seen ? [finished.id] : [] });
   host.stop();
 });
 
-it('hides the alert while the Assistant panel lists the notices, and keeps them from popping up after', async () => {
+it('starts no alert while the Assistant panel lists the notices, and keeps them from popping up after', async () => {
   const { host, read, open, window } = setup();
   await host.refresh();
-  const view = desktop.views[0] as { webContents: { mainFrame: object }; setVisible: ReturnType<typeof vi.fn> };
-  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
-  expect(() => desktop.handlers.get('notices:suppress')?.(child, true)).toThrow('Unknown notice owner');
+  expect(() => desktop.handlers.get('notices:suppress')?.({ sender: {}, senderFrame: {} }, true)).toThrow('Unknown notice owner');
   desktop.handlers.get('notices:suppress')?.(owner, true);
   const other = { ...notice, id: 'approval:two', taskId: 'other-task' };
   read.mockResolvedValue([notice, other]); await host.refresh();
-  desktop.handlers.get('notices:resize')?.(child, 260);
-  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  expect(desktop.views).toHaveLength(0);
   expect(window.webContents.send).toHaveBeenCalledWith('notices:changed', expect.objectContaining({ notices: [notice, other] }));
   const changes = () => window.webContents.send.mock.calls.filter(([channel]) => channel === 'notices:changed').length;
   const sent = changes();
   window.emit('resize');
   expect(changes()).toBe(sent);
   desktop.handlers.get('notices:suppress')?.(owner, false);
-  expect(view.setVisible).toHaveBeenLastCalledWith(true);
   expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ popupIds: [], viewedIds: [notice.id, other.id] });
+  expect(desktop.views).toHaveLength(0);
   await desktop.handlers.get('notices:open')?.(owner, notice.id);
   expect(open).toHaveBeenCalledWith(notice);
   await desktop.handlers.get('notices:remove')?.(owner, other.id);
   expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ notices: [notice] });
   desktop.handlers.get('notices:suppress')?.(owner, true);
-  expect(view.setVisible).toHaveBeenLastCalledWith(false);
   window.webContents.emit('did-start-navigation', { isSameDocument: false, isMainFrame: true });
-  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  const third = { ...notice, id: 'approval:three', taskId: 'third-task' };
+  read.mockResolvedValue([notice, third]); await host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(owner)).toMatchObject({ popupIds: [third.id] });
+  expect(desktop.views).toHaveLength(1);
   host.stop();
 });
 

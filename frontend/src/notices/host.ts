@@ -20,6 +20,8 @@ import { NoticeStore } from './store';
 export class NoticeHost {
   private readonly store: NoticeStore;
   private view: WebContentsView | null = null;
+  private viewState = '';
+  private idleClose: ReturnType<typeof setTimeout> | undefined;
   private timer: ReturnType<typeof setInterval> | undefined;
   private reading: Promise<void> | null = null;
   private height = 0;
@@ -217,8 +219,23 @@ export class NoticeHost {
       }
       state = this.snapshot();
     }
-    if (this.view === null) this.create(window);
-    this.view?.webContents.send('notices:changed', state);
+    if (state.popupIds.length > 0) {
+      clearTimeout(this.idleClose); this.idleClose = undefined;
+      if (this.view === null) this.create(window);
+    }
+    else if (this.view !== null && this.idleClose === undefined) {
+      // The overlay is a whole renderer and draws only alerts; close it a while after the last one leaves, past its exit.
+      this.idleClose = setTimeout(() => {
+        this.idleClose = undefined;
+        const current = this.window();
+        if (current && !current.isDestroyed() && this.view && this.snapshot().popupIds.length === 0) {
+          current.contentView.removeChildView(this.view); this.closeView();
+        }
+      }, 10_000);
+      this.idleClose.unref();
+    }
+    const viewState = JSON.stringify(state);
+    if (this.view && viewState !== this.viewState) { this.viewState = viewState; this.view.webContents.send('notices:changed', state); }
     // Window events publish often; the panel and the sidebar's unread dot need only a changed list or viewed set.
     const notices = JSON.stringify([state.notices, state.viewedIds]);
     if (notices !== this.mainNotices) { this.mainNotices = notices; window.webContents.send('notices:changed', state); }
@@ -235,7 +252,7 @@ export class NoticeHost {
     window.contentView.addChildView(view);
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     view.webContents.on('will-navigate', event => event.preventDefault());
-    view.webContents.on('did-finish-load', () => this.publish());
+    view.webContents.on('did-finish-load', () => { this.viewState = ''; this.publish(); });
     const loaded = MAIN_WINDOW_VITE_DEV_SERVER_URL
       ? view.webContents.loadURL(new URL('notices.html', MAIN_WINDOW_VITE_DEV_SERVER_URL.replace('://localhost', '://127.0.0.1')).href)
       : view.webContents.loadFile(path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/notices.html`));
@@ -265,9 +282,14 @@ export class NoticeHost {
   }
 
   releaseWindow(): void {
-    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
-    this.view = null; this.height = 0; this.obscured = false; this.suppressed = false; this.mainNotices = '';
+    this.closeView(); this.obscured = false; this.suppressed = false; this.mainNotices = '';
     this.sources.clear();
+  }
+
+  private closeView(): void {
+    clearTimeout(this.idleClose); this.idleClose = undefined;
+    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
+    this.view = null; this.height = 0; this.viewState = '';
   }
 
   stop(): void {

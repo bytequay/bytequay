@@ -60,7 +60,7 @@ export function useLocalWork(workspaceIds: string): WorkItemDto[] {
         if (!active) return;
         const found = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
         setCached(LOCAL_WORK_SEED, found);
-        setWork(found);
+        setWork(shown => JSON.stringify(shown) === JSON.stringify(found) ? shown : found);
       }), ISSUE_ATTENTION_REFRESH_MS);
     return () => { active = false; stop(); };
   }, [workspaceIds]);

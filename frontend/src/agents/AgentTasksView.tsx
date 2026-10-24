@@ -630,14 +630,18 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
         port.listCiAutofixRuns?.(100) ?? Promise.resolve([]),
       ]).then(([reviews, executions, runs]) => {
         if (!active) return;
-        setWork((last) => ({
-          reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,
-          executions: executions.status === 'fulfilled' ? executions.value.filter((execution) => execution.workspaceId === workspaceId) : last.executions,
-          runs: runs.status === 'fulfilled' ? runs.value.filter((run) => run.workspaceId === workspaceId) : last.runs,
-          failed: [reviews.status === 'rejected' ? 'reviews' : null, executions.status === 'rejected' ? 'cherry-picks' : null,
-            runs.status === 'rejected' ? 'CI fixes' : null]
-            .filter((name): name is string => name !== null),
-        }));
+        setWork((last) => {
+          const next = {
+            reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,
+            executions: executions.status === 'fulfilled' ? executions.value.filter((execution) => execution.workspaceId === workspaceId) : last.executions,
+            runs: runs.status === 'fulfilled' ? runs.value.filter((run) => run.workspaceId === workspaceId) : last.runs,
+            failed: [reviews.status === 'rejected' ? 'reviews' : null, executions.status === 'rejected' ? 'cherry-picks' : null,
+              runs.status === 'rejected' ? 'CI fixes' : null]
+              .filter((name): name is string => name !== null),
+          };
+          // Most ticks read what is shown; a new object would re-render the whole task list.
+          return JSON.stringify(next) === JSON.stringify(last) ? last : next;
+        });
       });
     };
     const stop = pollVisible(read, WORK_POLL_MS);

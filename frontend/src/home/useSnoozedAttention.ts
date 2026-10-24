@@ -129,17 +129,25 @@ export function useSnoozedAttention(candidates: AttentionItem[], handled: Handle
     const refresh = () => {
       const current = ++request;
       void Promise.all(latest.map(async reminder => ({ ...reminder, item: await refreshSnoozedItem(reminder.item, window.bridge) })))
-        .then(updated => { if (active && current === request) { latest = updated; setSnapshots(Object.fromEntries(updated.map(snapshot => [snapshot.item.key, snapshot]))); } });
+        .then(updated => {
+          if (!active || current !== request) return;
+          latest = updated;
+          const next: Record<string, Reminder> = Object.fromEntries(updated.map(snapshot => [snapshot.item.key, snapshot]));
+          setSnapshots(shown => JSON.stringify(shown) === JSON.stringify(next) ? shown : next);
+        });
     };
     refresh();
     const timer = window.setInterval(refresh, 30_000);
     window.addEventListener('focus', refresh);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [reminders]);
-  const existing = new Set(candidates.map(item => item.key));
-  return candidates.concat(reminders.flatMap(reminder => {
-    const snapshot = snapshots[reminder.item.key];
-    const item = snapshot?.until === reminder.until ? snapshot.item : reminder.item;
-    return existing.has(item.key) || !inScope(item, scope) ? [] : [item];
-  }));
+  // A new list on every render would make every pass over it run again.
+  return useMemo(() => {
+    const existing = new Set(candidates.map(item => item.key));
+    return candidates.concat(reminders.flatMap(reminder => {
+      const snapshot = snapshots[reminder.item.key];
+      const item = snapshot?.until === reminder.until ? snapshot.item : reminder.item;
+      return existing.has(item.key) || !inScope(item, scope) ? [] : [item];
+    }));
+  }, [candidates, reminders, snapshots, scope]);
 }

@@ -222,6 +222,7 @@ export function AgentHomeView({
   const { draft, images = [], laneId, providers, models, selection, busy = false, attaching = false, onDraftChange } = composer;
   const availability = useAgentAvailability(workspaceId);
   const wide = useWideWindow();
+  const attentionScope = useMemo(() => ({ workspaceId, repository }), [workspaceId, repository]);
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, error, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
   const onToday = todayKeys(today?.agenda ?? null);
@@ -246,7 +247,7 @@ export function AgentHomeView({
         {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
           variant="workspace"
-          scope={{ workspaceId, repository }}
+          scope={attentionScope}
           todayKeys={onToday}
           candidates={attention}
           handled={handled}
@@ -259,7 +260,7 @@ export function AgentHomeView({
         <AttentionList
           variant="workspace"
           section="my-prs"
-          scope={{ workspaceId, repository }}
+          scope={attentionScope}
           todayKeys={onToday}
           candidates={attention}
           handled={handled}

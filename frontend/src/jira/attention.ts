@@ -44,7 +44,13 @@ export function useJiraAttention(): { items: AttentionItem[]; error: string | nu
       void Promise.resolve().then(() => window.bridge.listJiraConnections())
         .then(connections => { if (active && current === request) setConnected(anyJiraConnected(connections)); })
         .catch(() => {});
-      void window.bridge.listJiraAttention().then(issues => { if (active && current === request) { setItems(jiraAttentionItems(issues)); setError(null); } })
+      void window.bridge.listJiraAttention().then(issues => {
+        if (!active || current !== request) return;
+        // Most reads find what is shown; a new list would re-render every list that draws Jira items.
+        const next = jiraAttentionItems(issues);
+        setItems(shown => JSON.stringify(shown) === JSON.stringify(next) ? shown : next);
+        setError(null);
+      })
         .catch(() => { if (active && current === request) setError('Jira work items could not be loaded. Open Jira to retry.'); });
     };
     reload();

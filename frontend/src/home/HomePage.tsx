@@ -156,15 +156,18 @@ function HomePage({
     };
   }, []);
 
+  const updating = workspaces.some(workspaceIsUpdating);
   useEffect(() => {
-    if (!workspaces.some(workspaceIsUpdating)) return;
-    const timer = window.setTimeout(() => {
+    if (!updating) return;
+    // A clone that never finishes keeps this going, so an unchanged read keeps the shown list and Home does not re-render.
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
       void window.bridge.listWorkspaces()
-        .then(rows => { setCached(SEED.workspaces, rows); setWorkspaces(rows); })
+        .then(rows => { setCached(SEED.workspaces, rows); setWorkspaces(shown => JSON.stringify(shown) === JSON.stringify(rows) ? shown : rows); })
         .catch(() => {});
     }, 1500);
-    return () => window.clearTimeout(timer);
-  }, [workspaces]);
+    return () => window.clearInterval(timer);
+  }, [updating]);
 
   async function load() {
     // Workspaces are backend-owned; localStorage is never authoritative.

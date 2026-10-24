@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
@@ -86,7 +86,8 @@ export default function AttentionList({
   const [openOnly, setOpenOnly] = useState(loadOpenOnly);
   const [showAllApproved, setShowAllApproved] = useState(false);
   const [showHandled, setShowHandled] = useState(false);
-  const circles = useTeams(viewerLogin).directory?.circles ?? [];
+  const directory = useTeams(viewerLogin).directory;
+  const circles = useMemo(() => directory?.circles ?? [], [directory]);
   const [snooze, setSnooze] = useState<Anchored | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
@@ -103,13 +104,18 @@ export default function AttentionList({
 
   // Handled items drop out before the cap, so the next eligible item takes a handled card's place.
   const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
-  const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
-    .filter(item => !(variant === 'workspace' && item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin))
-      && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null) && skip?.(item) !== true);
-  const filters = (variant === 'home' ? HOME_FILTERS : FILTERS).filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()))
-    : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
-  const approved = myPrs ? [] : approvedPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()));
+  // These passes cover thousands of items, and the page re-renders for toasts, menus and other lists' polls.
+  const { filters, cards, approved } = useMemo(() => {
+    const at = Math.max(now, Date.now());
+    const live = visibleAttention(reminders, handled, at)
+      .filter(item => !(variant === 'workspace' && item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin))
+        && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null) && skip?.(item) !== true);
+    const filters = (variant === 'home' ? HOME_FILTERS : FILTERS).filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
+    const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, at)
+      : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, at);
+    const approved = myPrs ? [] : approvedPullRequestCards(reminders, handled, viewerLogin, at);
+    return { filters, cards, approved };
+  }, [reminders, handled, now, variant, viewerLogin, pinned, openOnly, skip, jiraConnected, myPrs, filter, circles, onlyTeam]);
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);

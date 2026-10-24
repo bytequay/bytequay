@@ -190,7 +190,7 @@ it('carries the displayed head commit through the merge request', async () => {
 
   await desktop.handlers.get('prs:merge')?.({}, 12, 'owner/repo', 7, 'rebase', 'displayed-head');
 
-  expect(fetch).toHaveBeenCalledWith(new URL('http://127.0.0.1:9527/prs/merge?repo=owner%2Frepo&number=7&id=12&strategy=rebase&headSha=displayed-head'),
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/prs/merge?repo=owner%2Frepo&number=7&id=12&strategy=rebase&headSha=displayed-head',
     expect.objectContaining({ method: 'POST' }));
 });
 
@@ -209,7 +209,7 @@ it.each([
     await desktop.handlers.get(channel)?.({}, 'owner/repo', 7, ...path, base, head);
     const expected = new URL(`http://127.0.0.1:9527${pathname}?repo=owner%2Frepo&number=7${range}`);
     if (path.length > 0) expected.searchParams.set('path', path[0]);
-    expect(fetch).toHaveBeenLastCalledWith(expected, expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
+    expect(fetch).toHaveBeenLastCalledWith(expected.toString(), expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
     expect(fetch.mock.calls.at(-1)?.[1]?.method).toBe(method);
   }
 });
@@ -221,13 +221,13 @@ it('forwards PR opening freshness separately from periodic and checks-only refre
   const refresh = desktop.handlers.get('prs:detail:refresh:by-ref');
 
   await refresh?.({}, 'owner/repo', 7, false, true);
-  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7&opened=true'),
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7&opened=true',
     expect.objectContaining({ method: 'POST' }));
   await refresh?.({}, 'owner/repo', 7, false, false);
-  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7'),
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7',
     expect.objectContaining({ method: 'POST' }));
   await refresh?.({}, 'owner/repo', 7, true);
-  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7&checksOnly=true'),
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7&checksOnly=true',
     expect.objectContaining({ method: 'POST' }));
 });
 
@@ -266,7 +266,7 @@ it.each([
   expect(getType).toHaveBeenCalledWith(mediaType);
   expect(desktop.createImage).toHaveBeenCalledWith(bytes);
   if (channel === 'agent:attachments:paste') {
-    expect(fetch).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ method: 'POST', body: new Uint8Array(bytes) }));
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/tasks/task/attachments?workspaceId=workspace', expect.objectContaining({ method: 'POST', body: new Uint8Array(bytes) }));
   }
 
   desktop.createImage.mockClear();
@@ -335,7 +335,7 @@ it('authenticates and validates Team IPC, with time for a bounded collection pas
   }));
   const timeout = vi.spyOn(AbortSignal, 'timeout');
   await expect(desktop.handlers.get('teams:refresh')?.({}, { circleId: 'circle-1', memberId: 42, days: 30 })).resolves.toEqual(activity);
-  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/api/teams/refresh?circleId=circle-1&memberId=42&days=30&limit=100'),
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/teams/refresh?circleId=circle-1&memberId=42&days=30&limit=100',
     expect.objectContaining({ method: 'POST', headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   expect(timeout).toHaveBeenCalledWith(15 * 60_000);
   const calls = fetch.mock.calls.length;
@@ -351,7 +351,7 @@ it('routes an inline check log read by PR and job ID', async () => {
   vi.stubGlobal('fetch', fetch);
   await expect(desktop.handlers.get('prs:checks:log')?.({}, 'owner/repo', 42, 301)).resolves.toEqual({ text: 'test failed' });
   expect(fetch).toHaveBeenCalledTimes(1);
-  expect(fetch).toHaveBeenCalledWith(new URL('http://127.0.0.1:9527/prs/checks/log?repo=owner%2Frepo&number=42&jobId=301'), expect.any(Object));
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/prs/checks/log?repo=owner%2Frepo&number=42&jobId=301', expect.any(Object));
 });
 
 it('routes CI detail reads and replies to the authenticated CI API', async () => {

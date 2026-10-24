@@ -286,9 +286,7 @@ async function pickImageFiles(): Promise<Omit<AgentDraftAttachmentDto, 'id'>[]> 
 
 async function uploadAgentImage(taskId: string, workspaceId: string, name: string, mediaType: string, bytes: Uint8Array): Promise<AgentAttachmentDto> {
   if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${name} is larger than 10 MiB`);
-  const url = new URL(taskUrl(taskId, '/attachments'));
-  url.searchParams.set('workspaceId', workspaceId);
-  return parseAgentAttachment(await backendJson(url, {
+  return parseAgentAttachment(await backendJson(taskUrl(taskId, '/attachments', { workspaceId }), {
     method: 'POST',
     headers: {
       'Content-Type': mediaType,
@@ -564,20 +562,12 @@ function githubAccountChanged(): void {
   }
 }
 
-function prUrl(pathname: string, repo: string, number: number): URL {
-  const url = new URL(`${backendBase()}${pathname}`);
-  url.searchParams.set('repo', repo);
-  url.searchParams.set('number', String(number));
-  return url;
+function prUrl(pathname: string, repo: string, number: number, query: Record<string, string> = {}): string {
+  return `${backendBase()}${pathname}?${new URLSearchParams({ repo, number: String(number), ...query })}`;
 }
 
-function prDiffUrl(pathname: string, repo: string, number: number, baseSha?: string, headSha?: string): URL {
-  const url = prUrl(pathname, repo, number);
-  if (baseSha && headSha) {
-    url.searchParams.set('base', baseSha);
-    url.searchParams.set('head', headSha);
-  }
-  return url;
+function prDiffUrl(pathname: string, repo: string, number: number, baseSha?: string, headSha?: string, query: Record<string, string> = {}): string {
+  return prUrl(pathname, repo, number, { ...(baseSha && headSha ? { base: baseSha, head: headSha } : {}), ...query });
 }
 
 let stopGoogle = () => {};
@@ -725,9 +715,7 @@ function registerIpc(): void {
   // Deleting removes the shells' working directory, so they go first.
   ipcMain.handle('agent:task:delete', (_event, taskId: string, workspaceId: string) => {
     codeTerminals.close(`task:${taskId}`);
-    const url = new URL(taskUrl(taskId));
-    url.searchParams.set('workspaceId', workspaceId);
-    return backendJson(url, { method: 'DELETE' });
+    return backendJson(taskUrl(taskId, '', { workspaceId }), { method: 'DELETE' });
   });
   ipcMain.handle('agent:task:effective-settings', (_event, taskId: string, workspaceId: string) =>
     backendJson(taskUrl(taskId, '/effective-settings', { workspaceId }))
@@ -877,9 +865,7 @@ function registerIpc(): void {
     return stored;
   });
   ipcMain.handle('agent:attachments:read', async (_event, taskId: string, workspaceId: string, attachmentId: string) => {
-    const url = new URL(taskUrl(taskId, `/attachments/${encodeURIComponent(attachmentId)}`));
-    url.searchParams.set('workspaceId', workspaceId);
-    const response = await fetch(url, { headers: agentHeaders(), signal: AbortSignal.timeout(60_000) });
+    const response = await fetch(taskUrl(taskId, `/attachments/${encodeURIComponent(attachmentId)}`, { workspaceId }), { headers: agentHeaders(), signal: AbortSignal.timeout(60_000) });
     if (!response.ok) {
       throw new Error(response.status === 404 ? 'Attachment is no longer available' : `GET attachment returned ${response.status}`);
     }
@@ -888,11 +874,8 @@ function registerIpc(): void {
       bytes: new Uint8Array(await response.arrayBuffer()),
     };
   });
-  ipcMain.handle('agent:attachments:remove', (_event, taskId: string, workspaceId: string, attachmentId: string) => {
-    const url = new URL(taskUrl(taskId, `/attachments/${encodeURIComponent(attachmentId)}`));
-    url.searchParams.set('workspaceId', workspaceId);
-    return backendJson(url, { method: 'DELETE' });
-  });
+  ipcMain.handle('agent:attachments:remove', (_event, taskId: string, workspaceId: string, attachmentId: string) =>
+    backendJson(taskUrl(taskId, `/attachments/${encodeURIComponent(attachmentId)}`, { workspaceId }), { method: 'DELETE' }));
   ipcMain.handle('agent:turns:get', (_event, turnId: string) =>
     backendJson(`${backendBase()}/agent/turns/${encodeURIComponent(turnId)}`)
       .then((turn) => parseAgentTurn(turn)));
@@ -950,11 +933,8 @@ function registerIpc(): void {
     agentSubscriptions.stop(subscriptionId);
   });
 
-  const reviewUrl = (path: string, query: Record<string, string> = {}): string => {
-    const url = new URL(`${backendBase()}/api/agent-review${path}`);
-    Object.entries(query).forEach(([key, value]) => url.searchParams.set(key, value));
-    return url.toString();
-  };
+  const reviewUrl = (path: string, query: Record<string, string> = {}): string =>
+    `${backendBase()}/api/agent-review${path}${Object.keys(query).length ? `?${new URLSearchParams(query)}` : ''}`;
   const review = (path: string, query: Record<string, string> = {}, init?: RequestInit) =>
     backendJson(reviewUrl(path, query), { headers: init?.body === undefined ? undefined : { 'Content-Type': 'application/json' }, ...init })
       .then(parseAgentReview);
@@ -1027,10 +1007,7 @@ function registerIpc(): void {
   const codeUrl = (value: unknown, path: string, query: Record<string, string> = {}): string => {
     const host = parseCodeHost(value);
     if (host.kind === 'review') return reviewUrl(`/${encodeURIComponent(host.reviewId)}/code${path}`, query);
-    const url = new URL(taskUrl(host.taskId, `/code${path}`));
-    Object.entries({ workspaceId: host.workspaceId, ...query })
-      .forEach(([key, value]) => url.searchParams.set(key, value));
-    return url.toString();
+    return taskUrl(host.taskId, `/code${path}`, { workspaceId: host.workspaceId, ...query });
   };
   ipcMain.handle('ide:terminal-open', (event, cols: number, rows: number) => {
     const host = ideViews.terminalHost(event);
@@ -1178,20 +1155,12 @@ function registerIpc(): void {
   ipcMain.handle('cherrypick:execution:resume', (_event, executionId: string) => executionAction(executionId, 'resume'));
   ipcMain.handle('cherrypick:execution:squash', (_event, executionId: string, expectedHead: string) =>
     executionAction(executionId, 'squash', { expectedHead }));
-  ipcMain.handle('cherrypick:execution:list', (_event, limit: number) => {
-    const url = new URL(`${backendBase()}/api/cherry-pick-ranges/executions`);
-    url.searchParams.set('limit', String(limit));
-    return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
-  });
+  ipcMain.handle('cherrypick:execution:list', (_event, limit: number) =>
+    backendJson(`${backendBase()}/api/cherry-pick-ranges/executions?${new URLSearchParams({ limit: String(limit) })}`, { headers: { 'X-ByteQuay-Session': sessionToken() } }));
   // Local checkout browsing for the workspace Commits tab. Only the workspace
   // ID crosses IPC; the backend owns and resolves the managed checkout path.
-  const gitGet = (workspaceId: string, endpoint: string, params: Record<string, string>) => {
-    const url = new URL(
-      workspaceUrl(workspaceId, `/git/${endpoint}`),
-    );
-    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
-    return backendJson(url, { headers: { 'X-ByteQuay-Session': sessionToken() } });
-  };
+  const gitGet = (workspaceId: string, endpoint: string, params: Record<string, string>) =>
+    backendJson(`${workspaceUrl(workspaceId, `/git/${endpoint}`)}${Object.keys(params).length ? `?${new URLSearchParams(params)}` : ''}`, { headers: { 'X-ByteQuay-Session': sessionToken() } });
   const gitPost = (workspaceId: string, endpoint: string, body: unknown, timeoutMs = 120_000) =>
     backendJson(workspaceUrl(workspaceId, `/git/${endpoint}`), {
       ...jsonInit('POST', body),
@@ -1495,30 +1464,21 @@ function registerIpc(): void {
 
   // Recent is local-only: every read answers from SQLite, so these stay
   // useful with the network off.
-  ipcMain.handle('recent:list', (_event, query: RecentFilterQuery) => {
-    const url = new URL(`${backendBase()}/recent`);
-    if (query.from) url.searchParams.set('from', query.from);
-    if (query.to) url.searchParams.set('to', query.to);
-    if (query.types?.length) url.searchParams.set('types', query.types.join(','));
-    if (query.action) url.searchParams.set('action', query.action);
-    if (query.workspace) url.searchParams.set('workspace', query.workspace);
-    if (query.changedSinceRead) url.searchParams.set('changedSinceRead', 'true');
-    if (query.text) url.searchParams.set('text', query.text);
-    if (query.cursor) url.searchParams.set('cursor', query.cursor);
-    return backendJson(url);
-  });
-  ipcMain.handle('recent:search', (_event, query: string, limit: number) => {
-    const url = new URL(`${backendBase()}/recent/search`);
-    url.searchParams.set('q', query ?? '');
-    url.searchParams.set('limit', String(limit));
-    return backendJson(url);
-  });
-  ipcMain.handle('recent:words', (_event, query: string, limit: number) => {
-    const url = new URL(`${backendBase()}/recent/words`);
-    url.searchParams.set('q', query ?? '');
-    url.searchParams.set('limit', String(limit));
-    return backendJson(url);
-  });
+  ipcMain.handle('recent:list', (_event, query: RecentFilterQuery) =>
+    backendJson(`${backendBase()}/recent?${new URLSearchParams({
+      ...(query.from ? { from: query.from } : {}),
+      ...(query.to ? { to: query.to } : {}),
+      ...(query.types?.length ? { types: query.types.join(',') } : {}),
+      ...(query.action ? { action: query.action } : {}),
+      ...(query.workspace ? { workspace: query.workspace } : {}),
+      ...(query.changedSinceRead ? { changedSinceRead: 'true' } : {}),
+      ...(query.text ? { text: query.text } : {}),
+      ...(query.cursor ? { cursor: query.cursor } : {}),
+    })}`));
+  ipcMain.handle('recent:search', (_event, query: string, limit: number) =>
+    backendJson(`${backendBase()}/recent/search?${new URLSearchParams({ q: query ?? '', limit: String(limit) })}`));
+  ipcMain.handle('recent:words', (_event, query: string, limit: number) =>
+    backendJson(`${backendBase()}/recent/words?${new URLSearchParams({ q: query ?? '', limit: String(limit) })}`));
   ipcMain.handle('recent:changes', () => backendJson(`${backendBase()}/recent/changes`));
   ipcMain.handle('agenda:today', (_event, workspaceId: unknown) =>
     backendJson(`${backendBase()}/api/agenda/today${typeof workspaceId === 'string' && workspaceId !== '' ? `?workspaceId=${encodeURIComponent(workspaceId)}` : ''}`,
@@ -1552,19 +1512,10 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/recent/draft`, jsonInit('POST', draft)));
   ipcMain.handle('recent:clear', () => backendJson(`${backendBase()}/recent`, { method: 'DELETE' }));
 
-  ipcMain.handle('prs:merged', (_event, workspaceId: string, search: string) => {
-    const url = new URL(`/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/merged`, backendBase());
-    url.searchParams.set('search', search);
-    return backendJson(url);
-  });
-  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) => {
-    const url = new URL(workspaceId
-      ? `/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests`
-      : '/prs', backendBase());
-    url.searchParams.set('page', String(page));
-    url.searchParams.set('size', String(pageSize));
-    return backendJson(url);
-  });
+  ipcMain.handle('prs:merged', (_event, workspaceId: string, search: string) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/pull-requests/merged?${new URLSearchParams({ search })}`));
+  ipcMain.handle('prs:list', (_event, workspaceId: string | undefined, page: number, pageSize: number) =>
+    backendJson(`${workspaceId ? workspaceUrl(workspaceId, '/pull-requests') : `${backendBase()}/prs`}?${new URLSearchParams({ page: String(page), size: String(pageSize) })}`));
   ipcMain.handle('prs:attention', () => backendJson(`${backendBase()}/prs/attention`));
   ipcMain.handle('prs:stored', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/stored', repo, number)));
@@ -1609,22 +1560,12 @@ function registerIpc(): void {
     }));
   ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/detail', repo, number)));
-  ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) => {
-    const url = new URL('/prs/users', backendBase());
-    url.searchParams.set('repo', repo);
-    if (workspaceId) url.searchParams.set('workspaceId', workspaceId);
-    return backendJson(url);
-  });
-  ipcMain.handle('prs:teams', (_event, repo: string) => {
-    const url = new URL('/prs/teams', backendBase());
-    url.searchParams.set('repo', repo);
-    return backendJson(url);
-  });
-  ipcMain.handle('prs:labels', (_event, repo: string) => {
-    const url = new URL('/prs/labels', backendBase());
-    url.searchParams.set('repo', repo);
-    return backendJson(url);
-  });
+  ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) =>
+    backendJson(`${backendBase()}/prs/users?${new URLSearchParams({ repo, ...(workspaceId ? { workspaceId } : {}) })}`));
+  ipcMain.handle('prs:teams', (_event, repo: string) =>
+    backendJson(`${backendBase()}/prs/teams?${new URLSearchParams({ repo })}`));
+  ipcMain.handle('prs:labels', (_event, repo: string) =>
+    backendJson(`${backendBase()}/prs/labels?${new URLSearchParams({ repo })}`));
   ipcMain.handle('prs:metadata:update', (
     _event,
     repo: string,
@@ -1639,20 +1580,14 @@ function registerIpc(): void {
     login: string,
     requested: boolean,
   ) => backendJson(prUrl('/prs/reviewers', repo, number), jsonInit('PATCH', { login, requested })));
-  ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string) => {
-    const url = new URL('/prs/merge-mode', backendBase());
-    url.searchParams.set('repo', repo);
-    url.searchParams.set('branch', branch);
-    return backendJson(url);
-  });
+  ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string) =>
+    backendJson(`${backendBase()}/prs/merge-mode?${new URLSearchParams({ repo, branch })}`));
   ipcMain.handle('prs:conflicts', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/conflicts', repo, number), { signal: AbortSignal.timeout(4 * 60_000) }));
-  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number, checksOnly?: boolean, opened?: boolean) => {
-    const url = prUrl('/prs/detail/refresh', repo, number);
-    if (checksOnly === true) url.searchParams.set('checksOnly', 'true');
-    if (opened === true) url.searchParams.set('opened', 'true');
-    return backendJson(url, { method: 'POST' });
-  });
+  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number, checksOnly?: boolean, opened?: boolean) =>
+    backendJson(prUrl('/prs/detail/refresh', repo, number, {
+      ...(checksOnly === true ? { checksOnly: 'true' } : {}), ...(opened === true ? { opened: 'true' } : {}),
+    }), { method: 'POST' }));
   ipcMain.handle('prs:detail:refresh-all:by-ref', (_event, repo: string, number: number) => {
     const url = prUrl('/prs/detail/refresh-all', repo, number);
     return backendJson(url, { method: 'POST' });
@@ -1680,11 +1615,7 @@ function registerIpc(): void {
     path: string,
     baseSha?: string,
     headSha?: string,
-  ) => {
-    const url = prDiffUrl('/prs/diffContent/refresh', repo, number, baseSha, headSha);
-    url.searchParams.set('path', path);
-    return backendJson(url, { method: 'POST' });
-  });
+  ) => backendJson(prDiffUrl('/prs/diffContent/refresh', repo, number, baseSha, headSha, { path }), { method: 'POST' }));
   // Sent through the pending review under the comment box's key, so a retry after an unknown outcome meets the first send.
   ipcMain.handle('prs:review-comment:create', (
     _event,
@@ -1752,11 +1683,8 @@ function registerIpc(): void {
     const url = prUrl(`/prs/review-comments/${commentId}/resolution`, repo, number);
     return backendJson(url, jsonInit('POST', { resolved }));
   });
-  ipcMain.handle('prs:checks:log', (_event, repo: string, number: number, jobId: number) => {
-    const url = prUrl('/prs/checks/log', repo, number);
-    url.searchParams.set('jobId', String(jobId));
-    return backendJson(url);
-  });
+  ipcMain.handle('prs:checks:log', (_event, repo: string, number: number, jobId: number) =>
+    backendJson(prUrl('/prs/checks/log', repo, number, { jobId: String(jobId) })));
   ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/checks/rerun-failed', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:merge', (
@@ -1766,20 +1694,10 @@ function registerIpc(): void {
     number: number,
     strategy: string,
     headSha: string,
-  ) => {
-    const url = prUrl('/prs/merge', repo, number);
-    url.searchParams.set('id', String(prId));
-    url.searchParams.set('strategy', strategy);
-    url.searchParams.set('headSha', headSha);
-    return backendJson(url, { method: 'POST' });
-  });
+  ) => backendJson(prUrl('/prs/merge', repo, number, { id: String(prId), strategy, headSha }), { method: 'POST' }));
 
-  ipcMain.handle('workspaces:search', (_event, query: string, limit: number) => {
-    const url = new URL(`${backendBase()}/api/repository-search`);
-    url.searchParams.set('q', query);
-    url.searchParams.set('limit', String(limit));
-    return backendJson(url);
-  });
+  ipcMain.handle('workspaces:search', (_event, query: string, limit: number) =>
+    backendJson(`${backendBase()}/api/repository-search?${new URLSearchParams({ q: query, limit: String(limit) })}`));
   ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number, topology?: WatchRepositoryTopology) =>
     backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId, topology })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
@@ -1797,12 +1715,8 @@ function registerIpc(): void {
     backendJson(workspaceUrl(workspaceId)));
   ipcMain.handle('workspaces:metadata', (_event, workspaceId: string) =>
     backendJson(workspaceUrl(workspaceId, `/metadata`)));
-  ipcMain.handle('workspaces:issues', (_event, workspaceId: string, page: number, pageSize: number) => {
-    const url = new URL(workspaceUrl(workspaceId, `/issues`));
-    url.searchParams.set('page', String(page));
-    url.searchParams.set('size', String(pageSize));
-    return backendJson(url);
-  });
+  ipcMain.handle('workspaces:issues', (_event, workspaceId: string, page: number, pageSize: number) =>
+    backendJson(`${workspaceUrl(workspaceId, `/issues`)}?${new URLSearchParams({ page: String(page), size: String(pageSize) })}`));
   ipcMain.handle('workspaces:issue', (_event, workspaceId: string, issueNumber: number) =>
     backendJson(workspaceUrl(workspaceId, `/issues/${encodeURIComponent(issueNumber)}`)));
   ipcMain.handle('workspaces:issues:attention', (_event, workspaceId: string) =>
@@ -1961,9 +1875,8 @@ function registerIpc(): void {
     backendJson(`${teamUrl(id)}/members/${teamMemberId(memberId)}`, { method: 'DELETE' }).then(parseTeams));
   for (const action of ['activity', 'refresh'] as const) {
     ipcMain.handle(`teams:${action}`, (_event, input: unknown) => {
-      const url = new URL(`${backendBase()}/api/teams/${action}`);
-      for (const [key, value] of Object.entries(parseTeamQuery(input))) url.searchParams.set(key, String(value));
-      return backendJson(url, {
+      const query = new URLSearchParams(Object.entries(parseTeamQuery(input)).map(([key, value]) => [key, String(value)]));
+      return backendJson(`${backendBase()}/api/teams/${action}?${query}`, {
         method: action === 'refresh' ? 'POST' : 'GET',
         ...(action === 'refresh' ? { signal: AbortSignal.timeout(15 * 60_000) } : {}),
       }).then(parseTeamActivity);
@@ -1973,41 +1886,22 @@ function registerIpc(): void {
   ipcMain.handle('repos:profile', () => backendJson(`${backendBase()}/api/profile`));
   ipcMain.handle('repos:user-profile', (_event, login: string) =>
     backendJson(`${backendBase()}/api/profile/${encodeURIComponent(login)}`));
-  ipcMain.handle('repos:contribution', (_event, login: string) => {
-    const url = new URL(`${backendBase()}/api/contribution-graph`);
-    url.searchParams.set('login', login);
-    return backendJson(url);
-  });
-  ipcMain.handle('repos:contribution-day', (_event, login: string, date: string) => {
-    const url = new URL(`${backendBase()}/api/contribution-graph/day`);
-    url.searchParams.set('login', login);
-    url.searchParams.set('date', date);
-    return backendJson(url);
-  });
+  ipcMain.handle('repos:contribution', (_event, login: string) =>
+    backendJson(`${backendBase()}/api/contribution-graph?${new URLSearchParams({ login })}`));
+  ipcMain.handle('repos:contribution-day', (_event, login: string, date: string) =>
+    backendJson(`${backendBase()}/api/contribution-graph/day?${new URLSearchParams({ login, date })}`));
   ipcMain.handle('repos:issue-preview', (_event, owner: string, repo: string, number: number) =>
     backendJson(
       `${backendBase()}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/preview`,
     ));
-  ipcMain.handle('repos:code-snippet', (_event, request: GitHubCodeSnippetRequest) => {
-    const url = new URL(
-      `${backendBase()}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet`,
-    );
-    url.searchParams.set('commit', request.commit);
-    url.searchParams.set('path', request.path);
-    url.searchParams.set('startLine', String(request.startLine));
-    url.searchParams.set('endLine', String(request.endLine));
-    return backendJson(url);
-  });
-  ipcMain.handle('repos:activity', (_event, login: string) => {
-    const url = new URL(`${backendBase()}/api/activity/recent`);
-    url.searchParams.set('login', login);
-    return backendJson(url);
-  });
-  ipcMain.handle('repos:following', (_event, login: string) => {
-    const url = new URL(`${backendBase()}/api/activity/following`);
-    url.searchParams.set('login', login);
-    return backendJson(url);
-  });
+  ipcMain.handle('repos:code-snippet', (_event, request: GitHubCodeSnippetRequest) =>
+    backendJson(`${backendBase()}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet?${new URLSearchParams({
+      commit: request.commit, path: request.path, startLine: String(request.startLine), endLine: String(request.endLine),
+    })}`));
+  ipcMain.handle('repos:activity', (_event, login: string) =>
+    backendJson(`${backendBase()}/api/activity/recent?${new URLSearchParams({ login })}`));
+  ipcMain.handle('repos:following', (_event, login: string) =>
+    backendJson(`${backendBase()}/api/activity/following?${new URLSearchParams({ login })}`));
 
   ipcMain.handle('github:cli-available', () =>
     backendJson(`${backendBase()}/api/auth/github/cli`));

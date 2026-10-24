@@ -929,7 +929,6 @@ describe('agent task detail', () => {
     expect(markup).toContain('Plan');
     expect(markup.replace(/<[^>]*>/g, '')).toContain('$ npm test');
     expect(markup).toContain('Approval');
-    expect(markup).toContain('Live');
     // A finished group folds to a sentence derived from its typed members.
     expect(markup).toContain('Ran 1 command, edited 1 file, and used 1 tool');
   });
@@ -1852,12 +1851,10 @@ describe('agent task detail', () => {
     expect(body({ connection: 'open' })).toContain('placeholder="Let&#x27;s ship something"');
   });
 
-  it('keeps a healthy connection in the header instead of spending a row on it', () => {
+  it('keeps a healthy connection out of the header and conversation', () => {
     const open = body({ connection: 'open' });
-    // Live state is the header dot only; no full-width strip.
-    expect(open).toContain('agt-conn-dot is-open');
     expect(open).not.toContain('class="agt-conn ');
-    expect(open).toContain('aria-label="Live"');
+    expect(open).not.toContain('aria-label="Live"');
   });
 
   it('says it is reconnecting, from where, without claiming anything was lost', () => {

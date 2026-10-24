@@ -132,27 +132,6 @@
   background: var(--bg-danger);
 }
 
-/* Healthy connection state lives in the header, so it never costs a whole row. */
-.agt-conn-dot {
-  width: 7px;
-  height: 7px;
-  flex: none;
-  border-radius: 50%;
-  background: light-dark(#8c959f, var(--dark-border-strong));
-}
-
-.agt-conn-dot.is-open {
-  background: light-dark(#2da44e, #287a43);
-}
-
-.agt-conn-dot.is-reconnecting {
-  background: light-dark(#d4a72c, #785b20);
-}
-
-.agt-conn-dot.is-failed {
-  background: light-dark(#cf222e, #b63d49);
-}
-
 .agt-empty,
 .agt-loading {
   padding: 14px 12px;
@@ -181,6 +160,15 @@
   gap: 10px;
   padding: 6px 20px 7px;
   border-bottom: 1px solid light-dark(#e3e3e6, var(--dark-border));
+}
+
+.agt-task-column > .agt-screen-head {
+  gap: 4px;
+  padding-right: 8px;
+}
+
+.agt-task-column > .agt-screen-head > .agt-headbtn {
+  min-width: 28px;
 }
 
 /* The composer and its supporting controls share the transcript's centred reading column. */

@@ -15,6 +15,7 @@
 import {
   Archive,
   ArchiveRestore,
+  ArrowLeft,
   CircleCheck,
   ListChecks,
   PanelRight,
@@ -1217,12 +1218,13 @@ export function AgentTaskBody({
       <div className="agt-body" onClickCapture={selectPullRequestTab}>
       <section className="agt-task-column" aria-label="Agent conversation">
       <div className="agt-screen-head">
-        <button type="button" className="agt-back" onClick={onBack} aria-label="Back to tasks">‹ Tasks</button>
+        <button type="button" className="agt-headbtn" onClick={onBack} aria-label="Back to tasks" title="Back to tasks"><ArrowLeft aria-hidden="true" /></button>
         <TaskTitle
           title={state.task?.title ?? 'Agent task'}
           provisional={state.task?.titleSource === 'PROVISIONAL'}
           onRename={state.task === null ? undefined : onRename}
         />
+        <span className="agt-spacer" />
         <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
           {status === 'running' && !waiting && <Spinner />}
           {(status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
@@ -1257,12 +1259,6 @@ export function AgentTaskBody({
             <CircleCheck aria-hidden="true" />
           </button>
         )}
-        <span className="agt-spacer" />
-        <span
-          className={`agt-conn-dot is-${state.connection}`}
-          title={connectionText(state)}
-          aria-label={connectionText(state)}
-        />
         {state.task !== null && status !== 'loading' && (
           <button
             type="button"
@@ -1283,7 +1279,7 @@ export function AgentTaskBody({
       </div>
 
 
-      {/* A healthy connection is just the header dot; the strip is for states needing attention. */}
+      {/* Only connection states needing attention take space in the conversation. */}
       {((state.connection !== 'open' && state.connection !== 'connecting') || state.gap) && (
         <div className={`agt-conn is-${state.connection}`}>
           {state.connection === 'reconnecting' && <Spinner warn />}

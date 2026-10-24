@@ -4926,7 +4926,8 @@ class TestCodexCliDriver
                 }
                 case "account/read" -> {
                     accountReads.incrementAndGet();
-                    respond(id, account.get());
+                    // What Codex 0.164.0 reports for a provider that does not use OpenAI auth with ephemeral credentials.
+                    respond(id, argv.contains("model_provider=\"deepseek\"") ? "{\"account\":null,\"requiresOpenaiAuth\":false}" : account.get());
                 }
                 case "config/read" -> respond(id, configReadResponse().toString());
                 case "skills/list" -> respond(id, "{\"data\":[{\"cwd\":\""

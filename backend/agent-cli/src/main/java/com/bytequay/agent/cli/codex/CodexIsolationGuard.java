@@ -494,6 +494,14 @@ final class CodexIsolationGuard
     private void verifyChatGptAccount()
     {
         JsonNode response = request("account/read", ACCOUNT_TIMEOUT);
+        if (deepSeek.isPresent()) {
+            // DeepSeek authenticates through ByteQuay's loopback with its own key; an OpenAI login must not be reachable at all.
+            JsonNode account = response.path("account");
+            if (response.path("requiresOpenaiAuth").asBoolean(true) || !(account.isNull() || account.isMissingNode())) {
+                throw unavailable("DeepSeek launch can reach an OpenAI account");
+            }
+            return;
+        }
         if (!response.path("requiresOpenaiAuth").asBoolean(false)
                 || !response.path("account").path("type").asText().equals("chatgpt")) {
             throw unavailable("Codex must use the isolated ChatGPT account");

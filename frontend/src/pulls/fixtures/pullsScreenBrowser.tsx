@@ -1336,11 +1336,15 @@ export async function runPullRequestEpic(): Promise<string> {
     const card = fixtureElement('[data-width="1600"] .pr-epic-card', host);
     const description = fixtureElement('[data-width="1600"] .description', host);
     assert(card.getBoundingClientRect().top === description.getBoundingClientRect().top, 'The card lines up with the description card');
-    const lines = fixtureElement('.pr-epic-card__title', card).getBoundingClientRect().height / 18;
+    const page = fixtureElement('[data-width="1600"]', host).getBoundingClientRect();
+    const box = card.getBoundingClientRect();
+    assert(box.width > 260 && box.right <= page.right - 16, `A wider page widens the card within its margin: ${box.width}, ${page.right - box.right}`);
+    const lines = fixtureElement('.pr-epic-card__title span', card).getBoundingClientRect().height / 19;
     assert(lines === 2, `A long Epic title takes two lines of the card: ${lines}`);
     const flag = fixtureElement('[data-width="900"] .pr-epic-link svg', host).getBoundingClientRect().width;
     assert(flag === 16, `A long Epic title never squeezes the link's icon: ${flag}`);
-    assert(card.querySelector('.pr-epic-card__counts')?.textContent === '1 of 4 done · 1 in progress', `Progress leaves dropped work out: ${card.textContent}`);
+    const counts = fixtureElement('.pr-epic-card__counts', card);
+    assert(counts.textContent === '1/4' && counts.title === '1 of 4 done · 1 in progress', `Progress leaves dropped work out: ${counts.textContent} (${counts.title})`);
     assert(!fixtureElement<HTMLDetailsElement>('details', card).open, 'Next tasks start folded');
     const next = [...card.querySelectorAll('.pr-epic-card__next li button')].map(item => item.textContent);
     assert(JSON.stringify(next) === '["Ready work"]', `Only work waiting on nothing open is next: ${JSON.stringify(next)}`);

@@ -714,29 +714,37 @@
 .pr-overview__branches .pr-task-action { display: inline-flex; width: auto; gap: 6px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .pr-overview__branches .pr-epic-link { display: inline-flex; width: auto; min-width: 0; max-width: 260px; gap: 5px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .pr-epic-link svg { flex: none; }
-.pr-epic-link span, .pr-epic-card__next li button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pr-epic-link span, .pr-epic-card__next li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pull-detail__body--overview { container: pr-body / inline-size; }
 .pr-epic-card { display: none; }
-/* Beside a page wide enough to hold it, the card takes the link's place in the margin, level with the description. */
+/* Beside a page wide enough to hold it, the card takes the link's place in the margin, level with the description. It widens with
+   the margin up to the width of a workspace Home's Today card (today.css), whose frame, header and rows it shares. */
 @container pr-body (min-width: 1480px) {
   .pr-overview__branches .pr-epic-link { display: none; }
   .pr-timeline > .pr-epic-card {
-    position: absolute; top: 0; left: calc(100% + 32px); display: grid; width: 260px; gap: 8px; padding: 12px 14px;
-    border: 1px solid var(--line-default); border-radius: 12px; background: var(--surface-canvas); font-size: 12px;
+    position: absolute; top: 0; left: calc(100% + 32px); display: grid; box-sizing: border-box; width: min(364px, (100cqi - 100%) / 2 - 48px); gap: 2px;
+    padding: 12px 10px 10px; border: 1px solid light-dark(#e3e3e6, var(--dark-border)); border-radius: 12px; background: var(--surface-canvas);
   }
 }
-.pr-epic-card__kicker { display: flex; align-items: center; gap: 5px; color: var(--fg-subtle); }
+.pr-epic-card__head { display: flex; align-items: center; gap: 8px; min-height: 22px; margin-bottom: 4px; padding: 0 6px; }
+.pr-epic-card__name { display: inline-flex; align-items: center; gap: 6px; color: var(--text-1); font-size: 13.5px; }
+.pr-epic-card__name svg, .pr-epic-card__next li svg { flex: none; color: var(--text-4); }
+.pr-epic-card__ref { color: var(--text-3); font-size: 11.5px; white-space: nowrap; }
+.pr-epic-card__counts { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; color: var(--text-3); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pr-epic-card__counts .epic-progress { width: 64px; height: 4px; border-radius: 2px; }
 .pr-epic-card button { min-width: 0; padding: 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.pr-epic-card .pr-epic-card__title { display: -webkit-box; overflow: hidden; color: var(--text-1); font-size: 13px; line-height: 18px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
-.pr-epic-card button:hover { color: var(--accent); }
-.pr-epic-card__counts { color: var(--fg-subtle); }
-.pr-epic-card__next summary { display: flex; align-items: center; gap: 4px; color: var(--fg-subtle); list-style: none; cursor: pointer; }
+.pr-epic-card .pr-epic-card__title, .pr-epic-card__next summary, .pr-epic-card__next li button { padding: 7px 6px; border-radius: 7px; }
+.pr-epic-card :is(.pr-epic-card__title, summary, li button):hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
+/* The clamp sits on the text, not the padded row, so a third line never shows in the row's padding. */
+.pr-epic-card__title span { display: -webkit-box; overflow: hidden; color: var(--text-1); font-size: 13.5px; line-height: 19px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.pr-epic-card__next summary { display: flex; align-items: center; gap: 6px; color: var(--text-3); font-size: 13px; line-height: 19px; list-style: none; cursor: pointer; }
 .pr-epic-card__next summary::-webkit-details-marker { display: none; }
 .pr-epic-card__next summary svg { transition: transform .15s; }
 .pr-epic-card__next[open] summary svg { transform: rotate(90deg); }
-.pr-epic-card__next summary span { margin-left: auto; }
-.pr-epic-card__next ul { display: grid; gap: 6px; margin: 8px 0 0; padding: 0 0 0 17px; }
+.pr-epic-card__next summary span { margin-left: auto; font-size: 12px; font-variant-numeric: tabular-nums; }
+.pr-epic-card__next ul { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .pr-epic-card__next li { display: flex; min-width: 0; }
+.pr-epic-card__next li button { display: flex; flex: 1; align-items: center; gap: 6px; color: var(--text-1); font-size: 13.5px; line-height: 19px; }
 .pr-task-message[role="alert"] { color: var(--fg-danger); }
 .pr-task-spinner { animation: bq-spin 1s linear infinite; }
 .pr-copy-button { position: relative; overflow: visible; }

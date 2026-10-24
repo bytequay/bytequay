@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ChevronRight, Flag } from 'lucide-react';
+import { ChevronRight, Circle, Flag } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { epicLink, findWorkItem } from '../agents/WorkItemPrompt';
 import { zoomReference } from '../githubReference';
@@ -58,22 +58,28 @@ export function PullRequestEpicLink({ value }: { value: PullRequestEpic }) {
   </button>;
 }
 
-/** The Epic beside a wide page: its progress, and the work ready to start next folded below. */
+/** The Epic beside a wide page, styled as a workspace Home's Today card: its progress, and the work ready to start next folded below. */
 export function PullRequestEpicCard({ value }: { value: PullRequestEpic }) {
   const summary = summarize({ items: value.work }, new Set());
   const widths = progressWidths(summary);
   const next = value.work.filter(item => viewOf(item, value.work) === 'next');
   return <aside className="pr-epic-card" aria-label="Epic">
-    <div className="pr-epic-card__kicker"><Flag size={13} aria-hidden="true" />Epic</div>
-    <button type="button" className="pr-epic-card__title" title={`Open Epic: ${value.label}`} onClick={() => openEpic(value)}>{value.label}</button>
-    {summary.total > 0 && <>
-      <div className="epic-progress" aria-hidden="true"><span className="is-done" style={{ width: widths.finished }} /><span className="is-working" style={{ width: widths.working }} /></div>
-      <div className="pr-epic-card__counts">{summary.finished} of {summary.total} done{summary.working > 0 ? ` · ${summary.working} in progress` : ''}</div>
-    </>}
+    <div className="pr-epic-card__head">
+      <span className="pr-epic-card__name"><Flag size={13} aria-hidden="true" />Epic</span>
+      {value.epic.reference && <span className="pr-epic-card__ref">{value.epic.reference.label}</span>}
+      {summary.total > 0 && <span className="pr-epic-card__counts"
+        title={`${summary.finished} of ${summary.total} done${summary.working > 0 ? ` · ${summary.working} in progress` : ''}`}>
+        <span className="epic-progress" aria-hidden="true"><span className="is-done" style={{ width: widths.finished }} /><span className="is-working" style={{ width: widths.working }} /></span>
+        {summary.finished}/{summary.total}
+      </span>}
+    </div>
+    <button type="button" className="pr-epic-card__title" title={`Open Epic: ${value.label}`} onClick={() => openEpic(value)}><span>{value.epic.title}</span></button>
     {next.length > 0 && <details className="pr-epic-card__next">
       <summary><ChevronRight size={13} aria-hidden="true" />Next tasks<span>{next.length}</span></summary>
       <ul>{next.map(item => <li key={item.id}>
-        <button type="button" title={item.title} onClick={() => zoomReference({ kind: 'work', workspaceId: value.workspaceId, itemId: item.id })}>{item.title}</button>
+        <button type="button" title={item.title} onClick={() => zoomReference({ kind: 'work', workspaceId: value.workspaceId, itemId: item.id })}>
+          <Circle size={13} aria-hidden="true" /><span>{item.title}</span>
+        </button>
       </li>)}</ul>
     </details>}
   </aside>;

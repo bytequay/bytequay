@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.artifact;
 
+import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.ArtifactOffer;
 import com.bytequay.core.domain.ArtifactPage;
@@ -26,9 +27,9 @@ import static java.util.Objects.requireNonNull;
  * A conversation as its page shows it, apart from its agent events, which are read on their own: the conversation, the pages it offered,
  * its saved page versions without their HTML, and the questions with choices the agent is waiting on.
  *
- * @param questions the approval ids of the questions still open, so their cards accept an answer
+ * @param questions the questions still open, available even when their events are outside the loaded history
  */
-public record ArtifactView(Artifact artifact, List<ArtifactOffer> offers, List<ArtifactPage> pages, List<String> questions)
+public record ArtifactView(Artifact artifact, List<ArtifactOffer> offers, List<ArtifactPage> pages, List<ApprovalRequest> questions)
 {
     public ArtifactView
     {

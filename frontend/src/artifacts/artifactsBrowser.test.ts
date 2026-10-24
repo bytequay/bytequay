@@ -68,7 +68,7 @@ const QUESTION = JSON.stringify({ questions: [{ question: 'Which path?', header:
 const conversations = {};
 let next = 0;
 const conversation = (id, title, minutes) => {
-  conversations[id] = { view: { artifact: { id, title, working: false, updatedAt: at(minutes) }, offers: [], pages: [], questions: [] }, events: [] };
+  conversations[id] = { view: { artifact: { id, title, working: false, updatedAt: at(minutes) }, offers: [], pages: [], questions: [], pendingApprovals: [] }, events: [] };
   return conversations[id];
 };
 // The same events a task's turn records.
@@ -97,6 +97,7 @@ turn('a1', 't2', 'The read path, and how it differs from equality deletes');
 emit('a1', 't2', 'approval_requested', { approvalId: 'q1', approvalKind: 'OTHER', title: 'Allow Claude AskUserQuestion', detail: QUESTION, scope: ['AskUserQuestion'],
   sandboxed: false, actionable: true, availableDecisions: ['ALLOW_ONCE', 'DENY'] });
 conversations.a1.view.questions = ['q1'];
+conversations.a1.view.pendingApprovals = [{ ...conversations.a1.events.at(-1).payload, taskId: 'a1', turnId: 't2', source: root, occurredAt: at(0) }];
 conversation('a2', 'Snapshots and manifests', 90);
 turn('a2', 't21', 'Explain snapshots');
 answer('a2', 't21', 'Here is the page.');
@@ -114,7 +115,15 @@ ipcMain.handle('fixture:list', () => Object.values(conversations).map(entry => e
   .sort((left, right) => right.artifact.updatedAt.localeCompare(left.artifact.updatedAt))
   .map(view => ({ artifact: view.artifact, pages: new Set(view.pages.map(entry => entry.key)).size })));
 ipcMain.handle('fixture:view', (_event, workspaceId, id) => conversations[id].view);
-ipcMain.handle('fixture:events', (_event, workspaceId, id, after) => conversations[id].events.filter(event => event.sequence > after));
+ipcMain.handle('fixture:events', (_event, workspaceId, id, before, after) => {
+  const all = conversations[id].events;
+  const events = before !== undefined ? all.filter(event => event.sequence < Number(before)).slice(-500)
+    : after !== undefined ? all.filter(event => event.sequence > Number(after)).slice(0, 500) : all.slice(-500);
+  const first = events[0]?.sequence ?? 1;
+  const last = events.at(-1)?.sequence ?? Number(after ?? 0);
+  const latestSequence = all.at(-1)?.sequence ?? 0;
+  return { events, beforeCursor: first > 1 ? String(first) : null, afterCursor: last < latestSequence ? String(last) : null, latestSequence };
+});
 ipcMain.handle('fixture:start', (_event, workspaceId, text) => {
   calls.push(['start', text]);
   conversation('a4', text, 0);
@@ -137,6 +146,7 @@ ipcMain.handle('fixture:offer', (_event, workspaceId, id, offerId, accept) => {
 ipcMain.handle('fixture:question', (_event, workspaceId, id, approvalId, allow, answers) => {
   calls.push(['question', id, approvalId, allow, answers]);
   conversations[id].view.questions = [];
+  conversations[id].view.pendingApprovals = [];
   emit(id, 't2', 'approval_resolved', { approvalId, outcome: allow ? 'ALLOWED' : 'DENIED', forTask: false });
   return conversations[id].view;
 });
@@ -290,7 +300,7 @@ contextBridge.exposeInMainWorld('bridge', {
   listArtifacts: id => ipcRenderer.invoke('fixture:list', id),
   startArtifact: (id, text) => ipcRenderer.invoke('fixture:start', id, text),
   viewArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:view', id, artifactId),
-  artifactEvents: (id, artifactId, after) => ipcRenderer.invoke('fixture:events', id, artifactId, after),
+  artifactEvents: (id, artifactId, before, after) => ipcRenderer.invoke('fixture:events', id, artifactId, before, after),
   sendArtifact: (id, artifactId, text) => ipcRenderer.invoke('fixture:send', id, artifactId, text),
   answerArtifactOffer: (id, artifactId, offerId, accept) => ipcRenderer.invoke('fixture:offer', id, artifactId, offerId, accept),
   answerArtifactQuestion: (id, artifactId, approvalId, allow, answers) => ipcRenderer.invoke('fixture:question', id, artifactId, approvalId, allow, answers),

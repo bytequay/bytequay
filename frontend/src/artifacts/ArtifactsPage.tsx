@@ -17,7 +17,8 @@ import Composer from '../Composer';
 import { AgentConversation, ConversationComposer, useConversationHistory, type ApprovalDecider, type ConversationHistory } from '../agents/AgentConversation';
 import type { AgentEventEnvelope } from '../agents/events';
 import type { PendingMessage } from '../agents/model';
-import { projectTranscript } from '../agents/transcript';
+import type { AgentHistoryPageDto } from '../types';
+import { projectTranscript, withApprovalAuthority } from '../agents/transcript';
 import { ago } from '@bytequay/ui/relativeTime';
 import { remoteErrorMessage } from '../remoteError';
 import { useNow } from '../useNow';
@@ -31,10 +32,7 @@ const VIEW_POLL_MS = 1_000;
 // The backend's limit on one message.
 const MAXIMUM_MESSAGE = 4_000;
 const BUSY = 'Wait for';
-// The backend's page of events; a full page means more are waiting.
-const EVENT_PAGE = 500;
-// The whole log is loaded, so there are no older or newer pages to fetch.
-const WHOLE_LOG: ConversationHistory = { before: null, after: null, loading: false, onLoad: () => {}, onFollow: () => {} };
+const MAX_EVENTS = 1000;
 
 /** Artifacts: the conversations of a workspace, then one conversation with its pages beside it. */
 export default function ArtifactsPage({ workspaceId }: { workspaceId: string }) {
@@ -102,39 +100,65 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const live = useLive();
-  const held = useRef<AgentEventEnvelope[]>([]);
-  const reading = useRef<Promise<void> | null>(null);
+  const held = useRef<AgentHistoryPageDto | null>(null);
+  const following = useRef(true);
+  const [loading, setLoading] = useState(false);
+  const reading = useRef<{ promise: Promise<void>; latest: boolean } | null>(null);
   // Each answer bumps this, so a read that left before a send cannot bring back the idle state the send ended.
   const latest = useRef(0);
   const took = useCallback((next: ArtifactViewDto) => {
     latest.current++;
     if (live.current) setView(next);
   }, [live]);
-  // One read at a time, so pages of events arrive in order and none is fetched twice.
-  const refresh = useCallback((): Promise<void> => reading.current ?? (reading.current = (async () => {
-    const asked = ++latest.current;
-    try {
-      const next = await window.bridge.viewArtifact(workspaceId, artifactId);
-      for (;;) {
-        const more = await window.bridge.artifactEvents(workspaceId, artifactId, held.current.at(-1)?.sequence ?? 0);
-        held.current = [...held.current, ...more];
-        if (more.length < EVENT_PAGE) break;
+  // One bounded read per refresh keeps the conversation usable even when its saved log is large.
+  const refresh = useCallback((direction: 'poll' | 'older' | 'newer' | 'latest' = 'poll'): Promise<void> => {
+    if (!live.current) return Promise.resolve();
+    if (reading.current !== null) {
+      if (direction === 'latest' && !reading.current.latest) {
+        reading.current.latest = true;
+        reading.current.promise = reading.current.promise.then(() => refresh('latest'));
       }
-      if (!live.current) return;
-      setEvents(held.current);
-      if (asked === latest.current) setView(next);
-      setLoadError(null);
+      return reading.current.promise;
     }
-    catch (failure) {
-      if (live.current) setLoadError(remoteErrorMessage(failure));
-    }
-    finally {
-      reading.current = null;
-    }
-  })()), [artifactId, live, workspaceId]);
+    const promise = (async () => {
+      const asked = ++latest.current;
+      setLoading(true);
+      try {
+        const next = await window.bridge.viewArtifact(workspaceId, artifactId);
+        if (!live.current) return;
+        const previous = held.current;
+        if (direction !== 'poll' || following.current || previous === null) {
+          const before = direction === 'older' ? previous?.beforeCursor ?? undefined : undefined;
+          const after = direction === 'newer' ? previous?.afterCursor ?? undefined
+            : direction === 'poll' && previous !== null ? String(previous.events.at(-1)?.sequence ?? 0) : undefined;
+          const page = await window.bridge.artifactEvents(workspaceId, artifactId, before, after);
+          if (!live.current) return;
+          const joined = previous === null || direction === 'latest' ? page.events
+            : direction === 'older' ? [...page.events, ...previous.events].slice(0, MAX_EVENTS)
+            : [...previous.events, ...page.events].slice(-MAX_EVENTS);
+          const first = joined[0]?.sequence ?? 1;
+          const last = joined.at(-1)?.sequence ?? 0;
+          held.current = { events: joined, latestSequence: page.latestSequence,
+            beforeCursor: first > 1 ? String(first) : null, afterCursor: last < page.latestSequence ? String(last) : null };
+          if (page.events.length > 0 || previous === null || direction === 'latest') setEvents(joined);
+        }
+        if (asked === latest.current) setView(next);
+        setLoadError(null);
+      }
+      catch (failure) {
+        if (live.current) setLoadError(remoteErrorMessage(failure));
+      }
+      finally {
+        reading.current = null;
+        if (live.current) setLoading(false);
+      }
+    })();
+    reading.current = { promise, latest: direction === 'latest' };
+    return promise;
+  }, [artifactId, live, workspaceId]);
   useEffect(() => { void refresh(); }, [refresh]);
   const working = view?.artifact.working ?? false;
-  usePoll(refresh, working || pending !== null, VIEW_POLL_MS);
+  usePoll(refresh, working || pending !== null || held.current?.afterCursor != null && following.current, VIEW_POLL_MS);
   const now = useNow(working);
 
   // The sent message shows at once, until its own event arrives.
@@ -142,9 +166,18 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
     if (pending !== null && events.some(event => event.type === 'user_message' && event.sequence > pending.after)) setPending(null);
   }, [events, pending]);
 
-  const turns = useMemo(() => projectTranscript(events), [events]);
-  const scroll = useConversationHistory(events, null, WHOLE_LOG);
-  const current = working ? turns.at(-1) : undefined;
+  const before = held.current?.beforeCursor ?? null;
+  const after = held.current?.afterCursor ?? null;
+  const turns = useMemo(() => withApprovalAuthority(projectTranscript(events, null, {}, before === null, after === null),
+    new Set(view?.questions ?? [])), [events, before, after, view?.questions]);
+  const history: ConversationHistory = { before, after, loading,
+    onLoad: direction => { void refresh(direction); }, onFollow: value => {
+      const resumed = value && !following.current;
+      following.current = value;
+      if (resumed) void refresh('latest');
+    } };
+  const scroll = useConversationHistory(events, null, history);
+  const current = working && after === null ? turns.at(-1) : undefined;
   const activeTurn = current?.turnId != null ? { id: current.turnId, state: 'RUNNING', cancellationRequestedAt: null as string | null } : null;
   const pages = view?.pages ?? [];
   const offers = view?.offers ?? [];
@@ -158,14 +191,19 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
 
   const act = (work: Promise<ArtifactViewDto>): Promise<void> => {
     setNotice(null);
-    return work.then(next => { took(next); return refresh(); }, failure => {
+    return work.then(next => {
+      took(next);
+      // A read started before the action may still hold the old log, even if the action finished its turn.
+      const inFlight = reading.current;
+      return inFlight === null ? refresh() : inFlight.promise.then(() => refresh());
+    }, failure => {
       if (live.current) setNotice(remoteErrorMessage(failure));
       throw failure;
     });
   };
   const send = (text: string) => {
     scroll.followSend();
-    setPending({ text, attachments: [], after: held.current.at(-1)?.sequence ?? 0 });
+    setPending({ text, attachments: [], after: held.current?.latestSequence ?? 0 });
     return act(window.bridge.sendArtifact(workspaceId, artifactId, text)).catch(failure => {
       setPending(null);
       throw failure;
@@ -198,7 +236,7 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
         <span className="artifacts-bar__title">{view?.artifact.title}</span>
       </header>
       <AgentConversation label="Conversation" turns={turns} durableTurns={{}} models={[]} now={now} scroll={scroll} connection="open"
-        running={working} activeTurn={activeTurn} waiting={(view?.questions.length ?? 0) > 0} pendingMessage={pending}
+        running={working} activeTurn={activeTurn} waiting={(view?.questions.length ?? 0) > 0} pendingMessage={pending} pendingApprovals={view?.pendingApprovals ?? []}
         activityChoice={activityChoice} turnChoice={turnChoice}
         onToggleTurn={(id, open) => setTurnChoice(current => ({ ...current, [id]: open }))}
         onToggleActivity={(id, open) => setActivityChoice(current => ({ ...current, [id]: open }))}

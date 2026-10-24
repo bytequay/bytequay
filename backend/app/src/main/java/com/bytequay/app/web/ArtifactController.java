@@ -17,6 +17,9 @@ import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
 import com.bytequay.app.web.agent.AgentHttpModels;
+import com.bytequay.core.domain.Artifact;
+import com.bytequay.core.domain.ArtifactOffer;
+import com.bytequay.core.domain.ArtifactPage;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -31,6 +34,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -53,47 +57,58 @@ public class ArtifactController
     }
 
     @PostMapping
-    public ArtifactView start(@PathVariable String workspaceId, @RequestBody Message request)
+    public View start(@PathVariable String workspaceId, @RequestBody Message request)
     {
-        return artifacts.start(workspaceId, request.text());
+        return response(artifacts.start(workspaceId, request.text()));
     }
 
     @GetMapping("/{artifactId}")
-    public ArtifactView view(@PathVariable String workspaceId, @PathVariable String artifactId)
+    public View view(@PathVariable String workspaceId, @PathVariable String artifactId)
     {
-        return artifacts.view(workspaceId, artifactId);
+        return response(artifacts.view(workspaceId, artifactId));
     }
 
-    /** The conversation's agent events after a sequence, in the form a task's event history has. */
-    @GetMapping("/{artifactId}/events")
-    public List<AgentHttpModels.EventResponse> events(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestParam(defaultValue = "0") long after)
+    private static View response(ArtifactView view)
     {
-        return artifacts.events(workspaceId, artifactId, after).stream().map(AgentHttpModels::event).collect(toImmutableList());
+        return new View(view.artifact(), view.offers(), view.pages(), view.questions().stream().map(question -> question.id().toString()).collect(toImmutableList()),
+                view.questions().stream().map(AgentHttpModels::pendingApproval).collect(toImmutableList()));
+    }
+
+    public record View(Artifact artifact, List<ArtifactOffer> offers, List<ArtifactPage> pages, List<String> questions,
+            List<AgentHttpModels.PendingApprovalResponse> pendingApprovals) {}
+
+    /** A bounded conversation window; without a cursor, the latest events. */
+    @GetMapping("/{artifactId}/events")
+    public AgentHttpModels.HistoryResponse events(@PathVariable String workspaceId, @PathVariable String artifactId,
+            @RequestParam(required = false) Long before, @RequestParam(required = false) Long after)
+    {
+        return AgentHttpModels.history(artifacts.events(workspaceId, artifactId,
+                before == null ? OptionalLong.empty() : OptionalLong.of(before), after == null ? OptionalLong.empty() : OptionalLong.of(after)));
     }
 
     @PostMapping("/{artifactId}/messages")
-    public ArtifactView send(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestBody Message request)
+    public View send(@PathVariable String workspaceId, @PathVariable String artifactId, @RequestBody Message request)
     {
-        return artifacts.send(workspaceId, artifactId, request.text());
+        return response(artifacts.send(workspaceId, artifactId, request.text()));
     }
 
     public record Message(String text) {}
 
     @PostMapping("/{artifactId}/offers/{offerId}")
-    public ArtifactView answerOffer(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String offerId, @RequestBody OfferAnswer request)
+    public View answerOffer(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String offerId, @RequestBody OfferAnswer request)
     {
-        return artifacts.answerOffer(workspaceId, artifactId, offerId, request.accept());
+        return response(artifacts.answerOffer(workspaceId, artifactId, offerId, request.accept()));
     }
 
     public record OfferAnswer(boolean accept) {}
 
     /** Answers a question the agent asked with choices, as a task's question card does. */
     @PostMapping("/{artifactId}/questions/{approvalId}")
-    public ArtifactView answerQuestion(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String approvalId,
+    public View answerQuestion(@PathVariable String workspaceId, @PathVariable String artifactId, @PathVariable String approvalId,
             @RequestBody QuestionAnswer request)
     {
         artifacts.answerQuestion(workspaceId, artifactId, approvalId, request.allow(), request.answers().orElse(ImmutableMap.of()));
-        return artifacts.view(workspaceId, artifactId);
+        return response(artifacts.view(workspaceId, artifactId));
     }
 
     /**

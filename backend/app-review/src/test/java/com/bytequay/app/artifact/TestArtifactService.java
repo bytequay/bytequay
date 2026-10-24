@@ -15,6 +15,7 @@ package com.bytequay.app.artifact;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventJson;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskResources;
@@ -78,6 +79,7 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
@@ -196,6 +198,39 @@ class TestArtifactService
     }
 
     @Test
+    void readsOnlyTheLatestWindowAndPagesBackWithoutReplayingTheLog()
+            throws Exception
+    {
+        String id = artifacts.start(WORKSPACE, "Explain the repository").artifact().id();
+        waitUntilAnswered(id);
+        AgentEventEnvelope original = artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.empty()).events().getFirst();
+        for (long sequence = store.lastEvent(WORKSPACE, id) + 1; sequence <= 5000; sequence++) {
+            AgentEventEnvelope event = new AgentEventEnvelope(original.schemaVersion(), original.eventId(), sequence, original.taskId(), original.turnId(),
+                    original.source(), original.occurredAt(), original.payload());
+            store.addEvent(WORKSPACE, id, sequence, new String(AgentEventJson.write(event), UTF_8));
+        }
+        var latest = artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.empty());
+        assertThat(latest.events()).hasSize(500);
+        assertThat(latest.events().getFirst().sequence()).isEqualTo(4501);
+        assertThat(latest.events().getLast().sequence()).isEqualTo(5000);
+        assertThat(latest.beforeCursor()).hasValue(4501);
+        assertThat(latest.afterCursor()).isEmpty();
+        var older = artifacts.events(WORKSPACE, id, latest.beforeCursor(), OptionalLong.empty());
+        assertThat(older.events()).hasSize(500);
+        assertThat(older.events().getFirst().sequence()).isEqualTo(4001);
+        assertThat(older.events().getLast().sequence()).isEqualTo(4500);
+        assertThat(older.afterCursor()).hasValue(4500);
+        assertThat(artifacts.events(WORKSPACE, id, OptionalLong.empty(), older.afterCursor()).events()).isEqualTo(latest.events());
+        var first = artifacts.events(WORKSPACE, id, OptionalLong.of(5), OptionalLong.empty());
+        assertThat(first.events()).hasSize(4);
+        assertThat(first.beforeCursor()).isEmpty();
+        assertThat(artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(5000)).events()).isEmpty();
+        assertThatThrownBy(() -> artifacts.events(WORKSPACE, id, OptionalLong.of(5), OptionalLong.of(1))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> artifacts.events(WORKSPACE, id, OptionalLong.of(0), OptionalLong.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(-1))).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void talksThenOffersThenMakesThePageBesideTheChat()
     {
         agent.add(turn -> {
@@ -226,11 +261,11 @@ class TestArtifactService
                 "child answer: a child's notes",
                 "answer: They are applied per data file at scan time. The read path or the write path?",
                 "turn_completed: Turn completed");
-        List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, 0);
+        List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0)).events();
         assertThat(events).extracting(AgentEventEnvelope::sequence).containsExactly(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L);
         assertThat(events).extracting(event -> event.taskId().toString()).containsOnly(id);
         assertThat(events).extracting(event -> event.turnId().orElseThrow()).containsOnly(events.getFirst().turnId().orElseThrow());
-        assertThat(artifacts.events(WORKSPACE, id, 5)).extracting(AgentEventEnvelope::sequence).containsExactly(6L, 7L, 8L);
+        assertThat(artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(5)).events()).extracting(AgentEventEnvelope::sequence).containsExactly(6L, 7L, 8L);
         AgentSessionContext first = opened.getFirst();
         assertThat(first.access()).isEqualTo(SessionAccess.READ_ONLY);
         assertThat(first.worktree()).isEqualTo(runtime.resolve("artifacts").resolve(WORKSPACE));
@@ -300,10 +335,11 @@ class TestArtifactService
         });
         String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
         waitUntil(() -> !artifacts.view(WORKSPACE, id).questions().isEmpty());
-        String question = artifacts.view(WORKSPACE, id).questions().getFirst();
+        String question = artifacts.view(WORKSPACE, id).questions().getFirst().id().toString();
 
         // The question is the approval a task records for it, so the window draws the same card.
-        AgentEventPayload.ApprovalRequested requested = (AgentEventPayload.ApprovalRequested) artifacts.events(WORKSPACE, id, 0).getLast().payload();
+        AgentEventPayload.ApprovalRequested requested = (AgentEventPayload.ApprovalRequested) artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0))
+                .events().getLast().payload();
         assertThat(requested.approvalId()).isEqualTo(question);
         assertThat(requested.scope()).containsExactly("AskUserQuestion");
         assertThat(requested.detail()).isEqualTo(QUESTION_INPUT);
@@ -324,10 +360,36 @@ class TestArtifactService
         artifacts.stop(WORKSPACE, id);
         waitUntilAnswered(id);
         // Stop ends the wait at once, and the open question is closed with its turn.
-        List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, 0);
+        List<AgentEventEnvelope> events = artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0)).events();
         assertThat(events.get(events.size() - 2).payload()).isInstanceOfSatisfying(AgentEventPayload.ApprovalResolved.class,
                 resolved -> assertThat(resolved.outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.CANCELLED));
         assertThat(transcript(id)).last().isEqualTo("interrupted: Stopped");
+    }
+
+    @Test
+    void keepsAnOpenQuestionAvailableOutsideTheLatestEventWindow()
+    {
+        agent.add(turn -> {
+            CompletableFuture<ProviderApprovalDecision> answer = turn.context().approvals().request(approval("AskUserQuestion", QUESTION_INPUT), Duration.ofMinutes(1))
+                    .toCompletableFuture();
+            for (int index = 0; index < 510; index++) {
+                turn.step("Read", "Context " + index, Optional.empty());
+            }
+            return answer.thenApply(decision -> new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.empty(), Optional.empty(), Duration.ofSeconds(1), true));
+        });
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
+        waitUntil(() -> artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.empty()).latestSequence() > 510);
+        ArtifactView view = artifacts.view(WORKSPACE, id);
+        assertThat(view.questions()).singleElement().satisfies(question -> {
+            assertThat(question.taskId().toString()).isEqualTo(id);
+            assertThat(question.providerRequest().detail()).isEqualTo(QUESTION_INPUT);
+            assertThat(question.providerRequest().requestedPermissions()).containsExactly("AskUserQuestion");
+            assertThat(artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.empty()).events())
+                    .noneMatch(event -> event.payload() instanceof AgentEventPayload.ApprovalRequested);
+            artifacts.answerQuestion(WORKSPACE, id, question.id().toString(), true, ImmutableMap.of("Which path?", "Read path"));
+        });
+        waitUntilAnswered(id);
+        assertThat(artifacts.view(WORKSPACE, id).questions()).isEmpty();
     }
 
     @Test
@@ -344,7 +406,7 @@ class TestArtifactService
                 new ObjectMapper(), Clock.systemUTC(), executor);
         restarted.settleInterrupted();
 
-        List<AgentEventEnvelope> events = restarted.events(WORKSPACE, id, 0);
+        List<AgentEventEnvelope> events = restarted.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0)).events();
         assertThat(events.get(events.size() - 2).payload()).isInstanceOfSatisfying(AgentEventPayload.ApprovalResolved.class,
                 resolved -> assertThat(resolved.outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.CANCELLED));
         assertThat(transcript(id)).last().isEqualTo("interrupted: Stopped when ByteQuay closed");
@@ -441,7 +503,7 @@ class TestArtifactService
     /** The conversation's events as short lines, in order: what its transcript shows. */
     private List<String> transcript(String id)
     {
-        return artifacts.events(WORKSPACE, id, 0).stream()
+        return artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0)).events().stream()
                 .map(event -> (event.source().parentProviderThreadId().isPresent() ? "child " : "") + switch (event.payload()) {
                     case AgentEventPayload.UserMessage message -> "user: " + message.text();
                     case AgentEventPayload.AssistantMessage message -> message.messageKind().name().toLowerCase(Locale.ROOT) + ": " + message.text();
@@ -461,7 +523,7 @@ class TestArtifactService
 
     private String lastTurn(String id)
     {
-        return artifacts.events(WORKSPACE, id, 0).getLast().turnId().orElseThrow().toString();
+        return artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0)).events().getLast().turnId().orElseThrow().toString();
     }
 
     private static CompletableFuture<AgentTurnResult> completed()

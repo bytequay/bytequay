@@ -16,9 +16,14 @@ package com.bytequay.app.web;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
+import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.spi.ProviderAgentEventSource;
+import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.artifact.ArtifactRow;
 import com.bytequay.app.artifact.ArtifactService;
 import com.bytequay.app.artifact.ArtifactView;
@@ -32,6 +37,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -47,8 +53,11 @@ class TestArtifactController
     private static final Instant NOW = Instant.parse("2026-10-19T10:00:00Z");
     private static final Artifact ARTIFACT = Artifact.started("a1", "workspace", "Teach me position deletes", NOW).working(true, NOW);
     private static final String ID = "8bafef5c-0000-4000-8000-000000000001";
+    private static final ApprovalRequest QUESTION = new ApprovalRequest(ApprovalId.valueOf(ID), TaskId.valueOf(ID), TurnId.valueOf(ID),
+            new ProviderApprovalRequest(ProviderApprovalRequest.Kind.TOOL, "Which path?", "Question choices", ImmutableList.of("AskUserQuestion"),
+                    ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), false, ProviderAgentEventSource.root(), NOW), NOW);
     private static final ArtifactView VIEW = new ArtifactView(ARTIFACT,
-            ImmutableList.of(ArtifactOffer.offered("a1", "t1", "Deletes on read", "How a scan skips deleted rows.", NOW)), ImmutableList.of(), ImmutableList.of("q1"));
+            ImmutableList.of(ArtifactOffer.offered("a1", "t1", "Deletes on read", "How a scan skips deleted rows.", NOW)), ImmutableList.of(), ImmutableList.of(QUESTION));
 
     private final ArtifactService artifacts = mock(ArtifactService.class);
     private final MockMvc mvc = standaloneSetup(new ArtifactController(artifacts)).build();
@@ -69,7 +78,15 @@ class TestArtifactController
                 .andExpect(jsonPath("$.artifact.title").value("Teach me position deletes"))
                 .andExpect(jsonPath("$.offers[0].title").value("Deletes on read"))
                 .andExpect(jsonPath("$.offers[0].state").value("SHOWN"))
-                .andExpect(jsonPath("$.questions[0]").value("q1"))
+                .andExpect(jsonPath("$.questions[0]").value(ID))
+                .andExpect(jsonPath("$.pendingApprovals[0].approvalId").value(ID))
+                .andExpect(jsonPath("$.pendingApprovals[0].taskId").value(ID))
+                .andExpect(jsonPath("$.pendingApprovals[0].turnId").value(ID))
+                .andExpect(jsonPath("$.pendingApprovals[0].title").value("Which path?"))
+                .andExpect(jsonPath("$.pendingApprovals[0].detail").value("Question choices"))
+                .andExpect(jsonPath("$.pendingApprovals[0].scope[0]").value("AskUserQuestion"))
+                .andExpect(jsonPath("$.pendingApprovals[0].availableDecisions[0]").value("ALLOW_ONCE"))
+                .andExpect(jsonPath("$.pendingApprovals[0].actionable").value(true))
                 .andExpect(jsonPath("$.pages").isEmpty());
     }
 
@@ -79,13 +96,16 @@ class TestArtifactController
     {
         AgentEventEnvelope event = new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 3, TaskId.valueOf(ID), Optional.of(TurnId.random()),
                 AgentEventSource.root(), NOW, new AgentEventPayload.UserMessage("The read path", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
-        when(artifacts.events("workspace", ID, 2)).thenReturn(ImmutableList.of(event));
+        when(artifacts.events("workspace", ID, OptionalLong.empty(), OptionalLong.of(2)))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(event), OptionalLong.of(3), OptionalLong.empty(), 3));
         mvc.perform(get("/api/workspaces/workspace/artifacts/" + ID + "/events").param("after", "2"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$[0].sequence").value(3))
-                .andExpect(jsonPath("$[0].taskId").value(ID))
-                .andExpect(jsonPath("$[0].type").value("user_message"))
-                .andExpect(jsonPath("$[0].payload.text").value("The read path"));
+                .andExpect(jsonPath("$.events[0].sequence").value(3))
+                .andExpect(jsonPath("$.events[0].taskId").value(ID))
+                .andExpect(jsonPath("$.events[0].type").value("user_message"))
+                .andExpect(jsonPath("$.events[0].payload.text").value("The read path"))
+                .andExpect(jsonPath("$.beforeCursor").value("3"))
+                .andExpect(jsonPath("$.latestSequence").value(3));
     }
 
     @Test
@@ -106,6 +126,8 @@ class TestArtifactController
             throws Exception
     {
         when(artifacts.start("workspace", "Teach me position deletes")).thenReturn(VIEW);
+        when(artifacts.send("workspace", "a1", "The read path")).thenReturn(VIEW);
+        when(artifacts.answerOffer("workspace", "a1", "i3", true)).thenReturn(VIEW);
         mvc.perform(post("/api/workspaces/workspace/artifacts").contentType(MediaType.APPLICATION_JSON).content("{\"text\":\"Teach me position deletes\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.artifact.id").value("a1"));

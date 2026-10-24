@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgentEventEnvelope } from '../agents/events';
+import type { AgentHistoryPageDto, AgentPendingApprovalDto } from '../types';
+import { parseAgentPendingApprovals } from '../agents/events';
 import { count, flag, list, object, oneOf, optionalText, text } from '../pulls/wireParse';
 
 /** A conversation; its title becomes its first page's title once there is one. */
@@ -27,7 +28,7 @@ export type ArtifactOfferDto = { id: string; turnId: string; title: string; cove
 export type ArtifactPageDto = { id: string; key: string; version: number; title: string; commit: string; writtenAt: string; turnId: string | null };
 
 /** A conversation apart from its agent events, which are read on their own; `questions` are the approval ids still open. */
-export type ArtifactViewDto = { artifact: ArtifactDto; offers: ArtifactOfferDto[]; pages: ArtifactPageDto[]; questions: string[] };
+export type ArtifactViewDto = { artifact: ArtifactDto; offers: ArtifactOfferDto[]; pages: ArtifactPageDto[]; questions: string[]; pendingApprovals: AgentPendingApprovalDto[] };
 
 /** Which page version to show. */
 export type ArtifactTarget = { workspaceId: string; artifactId: string; pageId: string };
@@ -40,8 +41,8 @@ export type ArtifactBridge = {
   startArtifact: (workspaceId: string, text: string) => Promise<ArtifactViewDto>;
   viewArtifact: (workspaceId: string, artifactId: string) => Promise<ArtifactViewDto>;
   sendArtifact: (workspaceId: string, artifactId: string, text: string) => Promise<ArtifactViewDto>;
-  /** The conversation's agent events after a sequence, in the form a task's history has. */
-  artifactEvents: (workspaceId: string, artifactId: string, after: number) => Promise<AgentEventEnvelope[]>;
+  /** A bounded conversation window, latest first unless an adjacent cursor is supplied. */
+  artifactEvents: (workspaceId: string, artifactId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
   answerArtifactOffer: (workspaceId: string, artifactId: string, offerId: string, accept: boolean) => Promise<ArtifactViewDto>;
   /** Answers a question the agent asked with choices; `answers` is keyed by each question's text. */
   answerArtifactQuestion: (workspaceId: string, artifactId: string, approvalId: string, allow: boolean, answers: Record<string, string>) => Promise<ArtifactViewDto>;
@@ -65,8 +66,9 @@ export function parseArtifactRows(value: unknown): ArtifactRowDto[] {
 
 export function parseArtifactView(value: unknown): ArtifactViewDto {
   const view = object(value, 'artifact view');
+  const artifact = parseArtifact(view.artifact);
   return {
-    artifact: parseArtifact(view.artifact),
+    artifact,
     offers: list(view.offers, 'artifact offers').map(entry => {
       const offer = object(entry, 'artifact offer');
       return { id: text(offer.id, 'offer id'), turnId: text(offer.turnId, 'offer turn'), title: text(offer.title, 'offer title'), covers: text(offer.covers, 'offer covers'),
@@ -78,6 +80,10 @@ export function parseArtifactView(value: unknown): ArtifactViewDto {
         commit: text(page.commit, 'page commit'), writtenAt: text(page.writtenAt, 'page time'), turnId: optionalText(page.turnId, 'page turn') };
     }),
     questions: list(view.questions, 'artifact questions').map(entry => text(entry, 'question id')),
+    pendingApprovals: list(view.pendingApprovals, 'artifact pending approvals').map(entry => {
+      const approval = object(entry, 'artifact approval');
+      return parseAgentPendingApprovals([approval], artifact.id, text(approval.turnId, 'approval turn'))[0];
+    }),
   };
 }
 

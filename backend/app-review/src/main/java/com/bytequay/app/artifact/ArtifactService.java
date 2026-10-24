@@ -19,7 +19,10 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventJson;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentResourceService;
+import com.bytequay.agent.core.ApprovalId;
+import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.OneShotSession;
 import com.bytequay.agent.core.ProviderAgentEventAdapter;
@@ -77,6 +80,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -188,16 +192,28 @@ public class ArtifactService
     {
         Artifact artifact = require(workspaceId, artifactId);
         // ponytail: open questions live with the turn in memory; a restart ends the turn and records them as cancelled.
-        List<String> questions = Optional.ofNullable(running.get(workspaceId)).filter(run -> run.artifactId.equals(artifactId))
-                .map(run -> (List<String>) ImmutableList.copyOf(run.questions.keySet())).orElse(ImmutableList.of());
+        List<ApprovalRequest> questions = Optional.ofNullable(running.get(workspaceId)).filter(run -> run.artifactId.equals(artifactId))
+                .map(run -> run.questions.values().stream().map(Question::request).collect(toImmutableList())).orElse(ImmutableList.of());
         return new ArtifactView(artifact, store.offers(workspaceId, artifactId), store.pages(workspaceId, artifactId), questions);
     }
 
-    /** The conversation's agent events after a sequence, in the form a task's transcript reads. */
-    public List<AgentEventEnvelope> events(String workspaceId, String artifactId, long afterSequence)
+    /** Opens at the latest events; older and newer pages are read only when requested. */
+    public AgentHistoryPage events(String workspaceId, String artifactId, OptionalLong before, OptionalLong after)
     {
+        checkArgument(before.isEmpty() || after.isEmpty(), "Choose either before or after");
+        checkArgument(before.isEmpty() || before.orElseThrow() > 0, "before must be positive");
+        checkArgument(after.isEmpty() || after.orElseThrow() >= 0, "after must not be negative");
         require(workspaceId, artifactId);
-        return store.events(workspaceId, artifactId, afterSequence, EVENT_PAGE).stream().map(ArtifactService::event).collect(toImmutableList());
+        long latest = store.lastEvent(workspaceId, artifactId);
+        long end = before.isPresent() ? Math.min(latest, before.orElseThrow() - 1) : latest;
+        long start = after.isPresent() ? after.orElseThrow() : Math.max(0, end - EVENT_PAGE);
+        int limit = (int) Math.min(EVENT_PAGE, Math.max(0, end - start));
+        List<AgentEventEnvelope> page = limit == 0 ? ImmutableList.of()
+                : store.events(workspaceId, artifactId, start, limit).stream().map(ArtifactService::event).collect(toImmutableList());
+        long first = page.isEmpty() ? start + 1 : page.getFirst().sequence();
+        long last = page.isEmpty() ? start : page.getLast().sequence();
+        return new AgentHistoryPage(page, first > 1 ? OptionalLong.of(first) : OptionalLong.empty(),
+                last < latest ? OptionalLong.of(last) : OptionalLong.empty(), latest);
     }
 
     public Optional<String> pageHtml(String workspaceId, String artifactId, String pageId)
@@ -464,8 +480,9 @@ public class ArtifactService
         if (!request.requestedPermissions().contains(QUESTION_TOOL)) {
             return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         }
-        String id = UUID.randomUUID().toString();
-        Question question = new Question(AgentApprovalEvents.source(request), new CompletableFuture<>());
+        ApprovalId approvalId = ApprovalId.random();
+        String id = approvalId.toString();
+        Question question = new Question(new ApprovalRequest(approvalId, TaskId.valueOf(artifact.id()), run.turnId, request, clock.instant()), new CompletableFuture<>());
         synchronized (this) {
             if (run.ended || run.stopped) {
                 return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
@@ -477,7 +494,13 @@ public class ArtifactService
         return question.answer();
     }
 
-    private record Question(AgentEventSource source, CompletableFuture<ProviderApprovalDecision> answer) {}
+    private record Question(ApprovalRequest request, CompletableFuture<ProviderApprovalDecision> answer)
+    {
+        AgentEventSource source()
+        {
+            return AgentApprovalEvents.source(request.providerRequest());
+        }
+    }
 
     /**
      * What a transcript shows: whole messages and each step's start and end. A message is whole when it is final or names its item, as

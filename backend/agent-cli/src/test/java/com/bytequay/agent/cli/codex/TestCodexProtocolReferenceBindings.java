@@ -40,7 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexProtocolReferenceBindings
 {
-    private static final String REFERENCE_BINDINGS = "/com/bytequay/agent/cli/codex/app-server-v0.159.3-bindings.json";
+    private static final String REFERENCE_BINDINGS = "/com/bytequay/agent/cli/codex/app-server-v0.164.0-bindings.json";
     private static final ImmutableSet<String> UNBOUND_RECORDS = ImmutableSet.of(
             "UnknownNotification",
             "UnknownParams",
@@ -59,7 +59,7 @@ class TestCodexProtocolReferenceBindings
     {
         JsonNode reference = referenceBindings();
         assertThat(reference.path("formatVersion").asInt()).isOne();
-        assertThat(reference.path("codexVersion").asText()).isEqualTo("0.159.3");
+        assertThat(reference.path("codexVersion").asText()).isEqualTo("0.164.0");
 
         ImmutableSet<String> protocolRecords = Arrays.stream(CodexProtocol.class.getDeclaredClasses())
                 .filter(Class::isRecord)

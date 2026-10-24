@@ -796,6 +796,8 @@ final class CodexProtocol
     {
         @JsonProperty("commentary")
         COMMENTARY,
+        @JsonProperty("partial_answer")
+        PARTIAL_ANSWER,
         @JsonProperty("final_answer")
         FINAL_ANSWER,
         @JsonEnumDefaultValue
@@ -1165,7 +1167,7 @@ final class CodexProtocol
      *
      * <p>Declared true for exactly one reason: {@code thread/backgroundTerminals/list} is
      * experimental, and it is the only inventory that can prove a thread owns no live process.
-     * Measured against codex-cli 0.159.3, the only experimental methods this client calls are
+     * Measured against codex-cli 0.164.0, the only experimental methods this client calls are
      * that one and its {@code terminate} sibling; every other method ByteQuay calls answers
      * either way.
      */

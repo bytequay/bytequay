@@ -285,7 +285,8 @@ final class CodexEventMapper
                         redactor.redact(message.text()),
                         source);
                 String thread = source.providerThreadId().orElseThrow();
-                if (phase == CodexProtocol.MessagePhase.UNKNOWN && !mapped.text().isBlank()) {
+                // A partial answer that no final answer follows is the answer, like an unlabelled message.
+                if ((phase == CodexProtocol.MessagePhase.UNKNOWN || phase == CodexProtocol.MessagePhase.PARTIAL_ANSWER) && !mapped.text().isBlank()) {
                     unlabelledMessages.put(thread, mapped);
                 }
                 else {

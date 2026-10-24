@@ -333,6 +333,26 @@ class TestCodexEventMapper
     }
 
     @Test
+    void answersWithTheLastPartialAnswerWhenNoFinalAnswerFollows()
+    {
+        only("""
+                {"method":"item/completed","params":{"item":{"type":"agentMessage",
+                "id":"message-1","text":"The cache key ignored the schema.","phase":"partial_answer"},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+
+        List<ProviderAgentEvent> completed = mapper.map(codec.decode("""
+                {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
+                "id":"turn-1","status":"completed","error":null,"durationMs":5,"items":[]}}}
+                """, CodexProtocol.Notification.class), true, CodexEventMapper.ThreadLineage.NONE);
+
+        assertThat(completed).hasSize(2);
+        ProviderAgentEvent.Message answer = (ProviderAgentEvent.Message) completed.getFirst();
+        assertThat(answer.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
+        assertThat(answer.text()).isEqualTo("The cache key ignored the schema.");
+    }
+
+    @Test
     void neverPromotesCommentaryOrTheLastMessageOfAnInterruptedTurn()
     {
         only("""

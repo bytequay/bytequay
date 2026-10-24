@@ -1,11 +1,11 @@
 {
   "formatVersion": 1,
-  "codexVersion": "0.159.3",
+  "codexVersion": "0.164.0",
   "bundleSha256": {
-    "stable": "8683f6fd9fbb994fa2bfb704ab5b02c9890238fa507a4c0ff33ff45884cd0a2e",
-    "stableV2": "81a88c04ae4984b16d73080f4109d0477682bc76c8adbe483e371175ce54c054",
-    "experimental": "7243ba241962af92ca60581f1a81808ebda4212a800f8b205f54703bcfd508c5",
-    "experimentalV2": "e77b7d1436a78f431a74b2cb263a862e92ae40d70411bc63835b47ab2168827c"
+    "stable": "5f633ad1f0a07459a5f63ed5604f8a61e0366ac5c36a15d648b44c8de4ffafb1",
+    "stableV2": "705a08b903fecb9457a6c888040b16ff20be4bc74682ee3896c61cb27ce43060",
+    "experimental": "92fe055424a3709999a05baae615be9e1e1e0b127e033cace6849b2ea785ea07",
+    "experimentalV2": "72b1afcdb14b4880cff9faccdfca1f73f7288ff3a0cb80b7a4bd400a5c4e574c"
   },
   "records": [
     {
@@ -3926,7 +3926,8 @@
       ],
       "wireValues": [
         "commentary",
-        "final_answer"
+        "final_answer",
+        "partial_answer"
       ]
     },
     {

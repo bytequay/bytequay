@@ -19,21 +19,21 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const contract = {
-  version: "0.159.3",
+  version: "0.164.0",
   schemaCommand:
     "codex app-server generate-json-schema --experimental --out <temporary-directory>",
   experimentalBundleSha256:
-    "7243ba241962af92ca60581f1a81808ebda4212a800f8b205f54703bcfd508c5",
+    "92fe055424a3709999a05baae615be9e1e1e0b127e033cace6849b2ea785ea07",
   experimentalV2BundleSha256:
-    "e77b7d1436a78f431a74b2cb263a862e92ae40d70411bc63835b47ab2168827c",
+    "72b1afcdb14b4880cff9faccdfca1f73f7288ff3a0cb80b7a4bd400a5c4e574c",
   stableBundleSha256:
-    "8683f6fd9fbb994fa2bfb704ab5b02c9890238fa507a4c0ff33ff45884cd0a2e",
+    "5f633ad1f0a07459a5f63ed5604f8a61e0366ac5c36a15d648b44c8de4ffafb1",
   stableV2BundleSha256:
-    "81a88c04ae4984b16d73080f4109d0477682bc76c8adbe483e371175ce54c054",
+    "705a08b903fecb9457a6c888040b16ff20be4bc74682ee3896c61cb27ce43060",
 };
 
 const referenceBindingsPath = fileURLToPath(new URL(
-  "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.159.3-bindings.json",
+  "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.164.0-bindings.json",
   import.meta.url,
 ));
 
@@ -1153,7 +1153,7 @@ function checkSchema(directory, experimental) {
   }
   requireExactObjectShape(
     readJson(join(directory, "v2", "ConfigRequirementsReadResponse.json")),
-    ["requirements"],
+    ["requirements", "supportsIndependentSpeedModes"],
     [],
   );
 
@@ -2152,8 +2152,9 @@ function assertNoManagedRequirements(response) {
     response && Object.hasOwn(response, "requirements"),
     "configRequirements/read omitted requirements",
   );
+  // supportsIndependentSpeedModes only says how speed requirements are enforced.
   assert.deepEqual(
-    Object.keys(response),
+    Object.keys(response).filter((key) => key !== "supportsIndependentSpeedModes"),
     ["requirements"],
     "configRequirements/read returned an unknown managed-policy field",
   );

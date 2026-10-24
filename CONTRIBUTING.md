@@ -26,17 +26,17 @@ service within the documented architecture and explicitly approved product scope
 No Docker or PostgreSQL installation is required. Runtime data is stored in a
 local SQLite database.
 
-Codex agent tasks require Codex CLI `0.159.3` or newer. To install the minimum
+Codex agent tasks require Codex CLI `0.164.0` or newer. To install the minimum
 supported release explicitly:
 
 ```bash
-npm install -g @openai/codex@0.159.3
+npm install -g @openai/codex@0.164.0
 codex --version
 ```
 
 The release minimum is configured by `bytequay.agent.codex-minimum-version`
 in `backend/app/src/main/resources/application.properties`, currently
-`0.159.3`. Update that property when a later ByteQuay release requires a newer
+`0.164.0`. Update that property when a later ByteQuay release requires a newer
 CLI. ByteQuay never installs or updates the Codex or Claude CLI itself. An
 older Codex shows as Unsupported in Settings → Models with the
 `npm install --global @openai/codex@<configured minimum>` command to run; an
@@ -45,7 +45,7 @@ The App Server compatibility fixture is generated from that same
 release; when the minimum changes, re-pin `scripts/codex-app-server-compat.mjs`
 and regenerate the fixture with its `--update-bindings` option.
 
-The `0.159.3` minimum includes the GPT-6.1 Sol catalog added in Codex `0.159.1`.
+The `0.164.0` minimum includes the GPT-6.1 Sol catalog added in Codex `0.159.1`.
 ByteQuay discovers available models through the CLI's `model/list` response;
 model names are not hard-coded in the picker. Model discovery refreshes at
 startup and when a provider is checked again. Account availability still determines which

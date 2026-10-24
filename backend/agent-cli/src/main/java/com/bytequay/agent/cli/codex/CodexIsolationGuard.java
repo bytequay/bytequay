@@ -17,6 +17,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
 import java.net.URI;
@@ -25,7 +26,6 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,6 +53,8 @@ final class CodexIsolationGuard
     /** A fresh App Server answers its first account/read only after its own ChatGPT requests return. */
     private static final Duration ACCOUNT_TIMEOUT = Duration.ofSeconds(60);
     private static final String REQUIREMENTS_FIELD = "requirements";
+    // Says only how speed requirements are enforced; with no requirements there is nothing to enforce.
+    private static final Set<String> REQUIREMENTS_RESPONSE_FIELDS = ImmutableSet.of(REQUIREMENTS_FIELD, "supportsIndependentSpeedModes");
 
     private final CodexAppServerClient client;
     private final Path codexHome;
@@ -468,7 +470,7 @@ final class CodexIsolationGuard
     }
 
     /**
-     * Requires managed policy to report exactly one explicitly null requirements field.
+     * Requires managed policy to report an explicitly null requirements field and no unknown sibling.
      *
      * <p>This reads the raw response on purpose. The rule is about unknown siblings, and decoding
      * into a record would silently ignore exactly the field that should fail the check, because the
@@ -480,8 +482,8 @@ final class CodexIsolationGuard
         if (!response.isObject()) {
             throw unavailable("configRequirements/read returned no policy object");
         }
-        Iterator<String> fields = response.fieldNames();
-        if (!fields.hasNext() || !fields.next().equals(REQUIREMENTS_FIELD) || fields.hasNext()) {
+        Set<String> fields = ImmutableSet.copyOf(response.fieldNames());
+        if (!fields.contains(REQUIREMENTS_FIELD) || !REQUIREMENTS_RESPONSE_FIELDS.containsAll(fields)) {
             throw unavailable("configRequirements/read returned an unknown managed-policy field");
         }
         if (!response.get(REQUIREMENTS_FIELD).isNull()) {

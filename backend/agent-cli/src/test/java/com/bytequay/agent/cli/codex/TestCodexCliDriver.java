@@ -1702,6 +1702,9 @@ class TestCodexCliDriver
         assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.managedRequirements = "{\"requirements\":null,\"futurePolicy\":{}}"))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown managed-policy field");
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.managedRequirements = "{\"supportsIndependentSpeedModes\":true}"))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("unknown managed-policy field");
 
         assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.account = "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}"))
                 .isInstanceOf(AgentUnavailableException.class)
@@ -4210,7 +4213,7 @@ class TestCodexCliDriver
         private final List<List<String>> serverArgv = new CopyOnWriteArrayList<>();
         /** The environment of every process launched, App Server and probe alike, in launch order. */
         private final List<Map<String, String>> environments = new CopyOnWriteArrayList<>();
-        private volatile String managedRequirements = "{\"requirements\":null}";
+        private volatile String managedRequirements = "{\"requirements\":null,\"supportsIndependentSpeedModes\":true}";
         private volatile String account = "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"chatgpt\"}}";
         private volatile String hooks = "[]";
         private volatile String configLayers;
@@ -4879,7 +4882,7 @@ class TestCodexCliDriver
                 case "configRequirements/read" -> {
                     String requirements = managedRequirements.get();
                     // Native Codex reports the forced login setting as a requirement even without host policy.
-                    if (argv.contains("forced_login_method=\"chatgpt\"") && requirements.equals("{\"requirements\":null}")) {
+                    if (argv.contains("forced_login_method=\"chatgpt\"") && requirements.startsWith("{\"requirements\":null")) {
                         requirements = "{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}";
                     }
                     respond(id, requirements);

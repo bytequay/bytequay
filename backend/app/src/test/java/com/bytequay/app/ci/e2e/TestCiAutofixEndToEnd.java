@@ -38,6 +38,7 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
+import com.bytequay.app.ci.ReadCiMemoryCommand;
 import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
@@ -171,6 +172,9 @@ class TestCiAutofixEndToEnd
 
     @Autowired
     private AgentResourceService resources;
+
+    @Autowired
+    private CiMemoryService memory;
 
     @Autowired
     private PullRequestJpaRepository pullRequests;
@@ -505,8 +509,7 @@ class TestCiAutofixEndToEnd
         assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
                 .containsExactly("compile-local-check", "test-local-check");
 
-        String memory = Files.readString(resources.require(taskId).runtimeDirectory().resolve("ci-memory.md"));
-        assertThat(memory)
+        assertThat(memory.read(new ReadCiMemoryCommand(taskId, Optional.empty())).markdown())
                 .contains("Backend compile", "Backend tests", "ci-fix.txt", "FAILED", "PASSED")
                 .contains("generated value was missing", "test expected the repaired value")
                 .doesNotContain("RAW_COMPILE_LOG_SENTINEL", "RAW_TEST_LOG_SENTINEL");

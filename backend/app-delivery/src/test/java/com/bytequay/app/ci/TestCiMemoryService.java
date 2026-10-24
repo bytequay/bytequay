@@ -13,9 +13,7 @@
  */
 package com.bytequay.app.ci;
 
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
@@ -30,27 +28,14 @@ import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.io.TempDir;
-import org.mockito.MockMakers;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.time.Clock;
-import java.time.Duration;
 import java.time.Instant;
-import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.withSettings;
 
 class TestCiMemoryService
 {
@@ -59,31 +44,20 @@ class TestCiMemoryService
     private static final String BASE = "b".repeat(40);
     private static final String PUSHED = "c".repeat(40);
 
-    @TempDir
-    private Path temporaryDirectory;
-
     private TaskId taskId;
     private InMemoryCiAutofixStore store;
-    private AgentResourceService resources;
     private CiMemoryService service;
 
     @BeforeEach
     void setUp()
-            throws Exception
     {
         taskId = TaskId.random();
         store = new InMemoryCiAutofixStore();
-        resources = mock(AgentResourceService.class, invocation -> {
-            throw new UnsupportedOperationException("Unexpected resource operation: " + invocation.getMethod().getName());
-        });
-        doAnswer(invocation -> taskResources(invocation.getArgument(0))).when(resources).require(any(TaskId.class));
-        Files.createDirectories(taskResources(taskId).runtimeDirectory());
-        service = new CiMemoryService(store, new CiMemoryFile(resources), Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
+        service = new CiMemoryService(store);
     }
 
     @Test
-    void rebuildsIdempotentlyGroupsNewestAttemptsAndSearchesBoundedSections()
-            throws Exception
+    void groupsNewestAttemptsAndSearchesBoundedSections()
     {
         CiAutofixRun run = run();
         CiAutofixAttempt first = attempt(run, 1, HEAD, ImmutableList.of(failure("compile", "old compiler failure"), failure("test", "unit test failure")), NOW.plusSeconds(2))
@@ -96,17 +70,12 @@ class TestCiMemoryService
                 .withCiResult(CiResult.FAILED, NOW.plusSeconds(8));
         store.run = run.addAttempt(second, NOW.plusSeconds(8));
 
-        service.update(store.run.id());
-        Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
-        String firstBuild = Files.readString(memory);
-        service.update(store.run.id());
-
-        assertThat(Files.readString(memory)).isEqualTo(firstBuild);
-        assertThat(firstBuild.indexOf("### Attempt 2")).isLessThan(firstBuild.indexOf("### Attempt 1"));
-        assertThat(firstBuild).contains("> ## Failure injected", "- Observed CI result: FAILED", "pom.xml");
-        assertThat(firstBuild.lines().filter(line -> line.startsWith("## Failure "))).hasSize(2);
-
         CiMemoryView recent = service.read(new ReadCiMemoryCommand(taskId, Optional.empty()));
+        String memory = recent.markdown();
+        assertThat(service.read(new ReadCiMemoryCommand(taskId, Optional.empty()))).isEqualTo(recent);
+        assertThat(memory.indexOf("### Attempt 2")).isLessThan(memory.indexOf("### Attempt 1"));
+        assertThat(memory).contains("> ## Failure injected", "- Observed CI result: FAILED", "pom.xml");
+        assertThat(memory.lines().filter(line -> line.startsWith("## Failure "))).hasSize(2);
         assertThat(recent.matchedSections()).isEqualTo(2);
         assertThat(recent.markdown()).startsWith("## Failure compile");
         assertThat(service.read(new ReadCiMemoryCommand(taskId, Optional.of("OLD COMPILER"))).matchedSections())
@@ -116,8 +85,7 @@ class TestCiMemoryService
     }
 
     @Test
-    void capsFileRecentSectionsAndToolResult()
-            throws Exception
+    void capsRecentSectionsAndToolResult()
     {
         CiAutofixRun run = run();
         List<FailureEvidence> failures = new ArrayList<>();
@@ -130,10 +98,6 @@ class TestCiMemoryService
         }
         store.run = run;
 
-        service.update(run.id());
-        Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
-        assertThat(Files.size(memory)).isLessThanOrEqualTo(256 * 1024);
-
         CiMemoryView recent = service.read(new ReadCiMemoryCommand(taskId, Optional.empty()));
         assertThat(recent.matchedSections()).isEqualTo(10);
         assertThat(recent.truncated()).isTrue();
@@ -141,28 +105,10 @@ class TestCiMemoryService
     }
 
     @Test
-    void preservesValidMemoryAndOnlyWarnsWhenRefreshFails()
-            throws Exception
+    void isUnavailableWithoutTheTasksFailures()
     {
-        CiAutofixRun run = run();
-        store.run = run.addAttempt(attempt(run, 1, HEAD, ImmutableList.of(failure("compile", "compiler failure")), NOW.plusSeconds(2)), NOW.plusSeconds(2));
-        service.update(store.run.id());
-        Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
-        String valid = Files.readString(memory);
+        store.run = run();
 
-        CiMemoryFile files = mock(CiMemoryFile.class, withSettings().mockMaker(MockMakers.INLINE));
-        doThrow(new IOException("simulated atomic replacement failure")).when(files).write(any(), any());
-        CiMemoryService failingService = new CiMemoryService(store, files, Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
-        failingService.update(store.run.id());
-
-        assertThat(Files.readString(memory)).isEqualTo(valid);
-        assertThat(store.run.status()).isEqualTo(CiAutofixRun.Status.ACTIVE);
-        assertThat(store.run.warnings()).singleElement().satisfies(warning -> {
-            assertThat(warning.code()).isEqualTo("CI_MEMORY_UPDATE_FAILED");
-            assertThat(warning.message()).hasSizeLessThanOrEqualTo(2 * 1024);
-        });
-
-        Files.delete(memory);
         assertThat(service.read(new ReadCiMemoryCommand(taskId, Optional.empty())).markdown())
                 .startsWith("CI memory is unavailable");
         assertThat(service.read(new ReadCiMemoryCommand(TaskId.random(), Optional.empty())).markdown())
@@ -200,11 +146,5 @@ class TestCiMemoryService
     {
         int number = Math.abs(signature.hashCode()) + 1;
         return new FailureEvidence(signature, summary, number, 1, number, 1, Optional.empty());
-    }
-
-    private TaskResources taskResources(TaskId taskId)
-    {
-        Path runtime = temporaryDirectory.resolve("runtime").resolve(taskId.toString()).toAbsolutePath();
-        return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider"));
     }
 }

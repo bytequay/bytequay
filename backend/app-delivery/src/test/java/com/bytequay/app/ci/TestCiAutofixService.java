@@ -92,7 +92,6 @@ import com.bytequay.core.ci.CiAutofixRun.FinishReason;
 import com.bytequay.core.ci.CiAutofixRun.PauseReason;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Status;
-import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -109,7 +108,6 @@ import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
-import org.mockito.InOrder;
 import org.springframework.beans.factory.ObjectProvider;
 
 import java.io.IOException;
@@ -141,7 +139,6 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -175,7 +172,6 @@ class TestCiAutofixService
     private WorkspaceProvisioningService provisioning;
     private AgentEventService eventService;
     private CiAutofixLogReader logReader;
-    private CiMemoryService memoryService;
     private CiGitService gitService;
     private BranchRebaseService rebaseService;
     private PullRequestTimelineService timelineService;
@@ -210,7 +206,6 @@ class TestCiAutofixService
         workspaces = mock(WorkspaceRepositoryService.class);
         provisioning = mock(WorkspaceProvisioningService.class);
         eventService = mock(AgentEventService.class);
-        memoryService = mock(CiMemoryService.class);
         gitService = mock(CiGitService.class);
         rebaseService = mock(BranchRebaseService.class);
         timelineService = mock(PullRequestTimelineService.class);
@@ -313,9 +308,7 @@ class TestCiAutofixService
         assertThat(task.getValue().generatedBranch()).isEqualTo("author/bytequay/ci-autofix-bytequay-sample-" + taskId.toString().substring(0, 8));
 
         ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
-        InOrder order = inOrder(memoryService, turnService);
-        order.verify(memoryService).update(run.id());
-        order.verify(turnService).start(turn.capture());
+        verify(turnService).start(turn.capture());
         assertThat(turn.getValue().idempotencyKey()).isEqualTo(run.attempts().getFirst().id().toString());
         assertThat(turn.getValue().message())
                 .contains("- Remote head: " + HEAD + " (feature)")
@@ -936,22 +929,6 @@ class TestCiAutofixService
         assertThat(recovered.status()).isEqualTo(Status.ACTIVE);
         assertThat(taskId).isEqualTo(reserved);
         assertThat(taskService.get(reserved).taskWorktree()).contains(taskWorktree);
-    }
-
-    @Test
-    void continuesStartingTheTurnWhenMemoryAddsAWarning()
-    {
-        doAnswer(invocation -> {
-            CiAutofixRun current = store.find(invocation.getArgument(0)).orElseThrow();
-            store.update(current.addWarning(new Warning("CI_MEMORY_UPDATE_FAILED", "memory unavailable", NOW), NOW));
-            return null;
-        }).when(memoryService).update(any());
-
-        CiAutofixRun run = service.start(startCommand("memory-warning"));
-
-        assertThat(run.status()).isEqualTo(Status.ACTIVE);
-        assertThat(run.currentTurnId()).contains(turnId.toString());
-        assertThat(run.warnings()).singleElement().satisfies(warning -> assertThat(warning.code()).isEqualTo("CI_MEMORY_UPDATE_FAILED"));
     }
 
     @Test
@@ -2375,7 +2352,6 @@ class TestCiAutofixService
                 workspaces,
                 provisioning,
                 logReader,
-                memoryService,
                 gitService,
                 rebaseService,
                 timelineService,

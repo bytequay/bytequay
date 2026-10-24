@@ -138,7 +138,7 @@ class TestCiAutofixRestartEndToEnd
             rawLog = runtimeDirectory
                     .resolve(uncertain.attempts().getFirst().failures().getFirst().log().orElseThrow().path());
             agentNote = uncertain.attempts().getFirst().untrustedAgentNote().orElseThrow();
-            memoryBeforeRestart = Files.readString(runtimeDirectory.resolve("ci-memory.md"));
+            memoryBeforeRestart = first.getBean(CiMemoryService.class).read(new ReadCiMemoryCommand(taskId, Optional.empty())).markdown();
             eventSequences = first.getBean(AgentEventService.class).readAfter(taskId, 0, 100).stream()
                     .map(event -> event.sequence())
                     .collect(toImmutableList());

@@ -16,7 +16,7 @@ import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/br
 
 const SCREENSHOTS = process.env.BYTEQUAY_TODAY_SCREENSHOTS !== undefined;
 
-it('opens, marks, folds and suns the Today rows in Chromium', async () => {
+it('opens, marks, folds and tags the Today rows in Chromium', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-today-',
     entry: 'src/home/fixtures/todayBrowser.tsx',

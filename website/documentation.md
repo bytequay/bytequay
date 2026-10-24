@@ -72,15 +72,22 @@ directly.
 
 ## Home and workspaces
 
-Home brings together watched repositories and recent activity. A workspace holds
-tasks, PRs, work items, commits, and memory.
+Home brings together your own work, what others ask of you, watched
+repositories, and activity from people you follow. A workspace holds tasks, PRs,
+work items, commits, and memory.
 
 - Choose **Direct clone** to work in the selected repository, or **Personal
   fork** to publish through your fork. Review the source, push, and PR
   destinations before confirming.
-- **My PRs** shows your open work. **Snooze** hides a card, its Today row and
-  the Assistant's mention of it until the time you pick, whatever happens
-  meanwhile; **Needs attention** shows up to five updates needing a response.
+- **My work** shows your open Jira tickets and assigned GitHub issues, local work
+  in progress, your open tasks, and your open PRs in four lanes: **In progress**,
+  **In review**, **Needs you**, and **Ready to merge**. A card shows the agent
+  working on it and the PRs it delivers through. Each lane shows three cards
+  until **Show more**; **Collapse** folds the board to lane counts.
+- **Needs attention** shows up to five things others ask of you, such as review
+  requests, re-reviews, and mentions. On a workspace Home, **My PRs** shows your
+  open PRs. **Snooze** hides a card, its Today row and the Assistant's mention
+  of it until the time you pick, whatever happens meanwhile.
 - An acknowledged PR returns for comments, reviews, a review request to you, a
   new title, description or state, leaving draft, becoming ready to merge, and
   a CI result on your own PR. Pushes, labels, bot comments and other people's
@@ -90,7 +97,7 @@ tasks, PRs, work items, commits, and memory.
   **Show all** to see the rest or **Show less** to return to three. Pushes,
   comments, and check updates stay there without returning to **Needs attention**.
   A new review request or dismissed approval brings the PR back for review.
-  Merged and closed PRs leave this section.
+  Merged and closed PRs leave this section, and Home hides it when it is empty.
 - **Unwatch** retires a workspace while keeping local history. **Watch again**
   restores it. **Delete local data** is a separate, confirmed removal.
 
@@ -98,19 +105,23 @@ tasks, PRs, work items, commits, and memory.
 
 Today is off until you enable it during setup or in **Settings → Agents →
 Features**. It needs a usable global Development model, and each day's
-list spends a model session from that account. Once on, Home opens on working
-days, after the time you set, with **Today**: up to five things worth doing
-first, each with a reason. An agent
+list spends a model session from that account. Once on, **Today** sits at the
+top of Home's right column on working days, after the time you set: up to five
+things worth doing first, each with a reason. In a narrower window it sits above
+**My work**, and **Activity** opens the people you follow. An agent
 picks them from ByteQuay's records; it never writes to GitHub or starts a task.
 If ByteQuay was closed at that time, Today is made when you return.
 
-- Click a row to open its PR, task, issue, ticket, or work item. Hover it for
-  **Done** or **Not today**; a row also closes when its work happens.
-- A row that suggests starting work also has **Start**, which starts the task
-  with your Development model and saved automation, as the item's own Start
-  does. The row then reads **Started**.
+- Each row shows short reason chips. Click it for the full reason and its
+  action, such as **Open PR**, plus **Done** and **Tomorrow**, which sets it
+  aside for today. The circle marks a row done; a row also closes when its
+  work happens.
+- A row that suggests starting work offers **Start task**, which starts the
+  task with your Development model and saved automation, as the item's own
+  Start does. The row then reads **Started**.
 - The circular arrow makes the list again. A workspace Home shows only its
-  repository's rows; **Needs attention** marks Today rows with a sun.
+  repository's rows, in a card that **Today** folds; **My work** and **Needs
+  attention** tag items that are also on Today.
 - On the last working day, **This week** looks back at what merged and slipped.
 - **Settings → Agents → Features** sets the time and working days, and can
   plan around your calendar's busy times (never event titles).

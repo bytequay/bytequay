@@ -12,18 +12,20 @@
  * limitations under the License.
  */
 import { useAgentAvailability } from '../agents/availability';
-import { useState } from 'react';
+import { useMemo, useState, useSyncExternalStore } from 'react';
 import {
-  ArrowUpRight, CalendarCheck, Check, ChevronDown, ChevronRight, Clock, Eye, EyeOff, GitMerge, ListChecks, LoaderCircle, MessageCircleQuestion,
-  MessageSquareReply, Play, RotateCw, TriangleAlert, Wrench, X, type LucideIcon,
+  ArrowUpRight, CalendarCheck, Check, ChevronDown, ChevronRight, Eye, EyeOff, GitMerge, ListChecks, LoaderCircle, MessageCircleQuestion,
+  MessageSquareReply, Play, RotateCw, TriangleAlert, Wrench, type LucideIcon,
 } from 'lucide-react';
-import { CardActions, CardAge, Clickable, IconButton, ItemRow } from '../cards/Card';
+import { CardAge, Clickable, IconButton } from '../cards/Card';
 import { zoomReference } from '../githubReference';
 import { remoteErrorMessage } from '../remoteError';
 import type { AgendaAction, AgendaDto, AgendaItemDto, AgendaTargetDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
+import type { AttentionItem } from './attention';
 import {
-  allDone, calendarFact, clockTime, dayText, doneRatio, doneText, hiddenCount, minuteText, recapLabel, showsToday, todayRows, whereText, type TodayScope,
+  allDone, attentionKey, calendarFact, clockTime, dayText, doneRatio, hiddenCount, minuteText, recapLabel, showsToday, todayChips, todayRef, todayRows,
+  type TodayChip, type TodayScope,
 } from './today';
 import type { TodayAgenda } from './useTodayAgenda';
 import '../css/today.css';
@@ -41,6 +43,26 @@ export const ACTION_ICONS: Record<AgendaAction, LucideIcon> = {
 
 /** The kinds of item a row's Start begins a task for, as the item's own Start button does. */
 const STARTS: readonly AgendaTargetDto['kind'][] = ['WORK', 'ISSUE', 'JIRA'];
+
+const OPEN_LABELS: Record<AgendaTargetDto['kind'], string> = {
+  PULL: 'Open PR', ISSUE: 'Open issue', JIRA: 'Open ticket', TASK: 'Open task', REVIEW: 'Open review', WORK: 'Open work item',
+};
+
+/** From this window width a Home's Today sits in its own column on the right; below it, Today joins the main column. */
+const WIDE_QUERY = '(min-width: 1440px)';
+
+function subscribeWide(notify: () => void): () => void {
+  const media = window.matchMedia?.(WIDE_QUERY);
+  media?.addEventListener('change', notify);
+  return () => media?.removeEventListener('change', notify);
+}
+
+/** Whether the window is wide enough for a Home's right column. */
+export function useWideWindow(): boolean {
+  return useSyncExternalStore(subscribeWide, wideNow, () => true);
+}
+
+const wideNow = () => window.matchMedia?.(WIDE_QUERY).matches ?? true;
 
 /** Opens an item where its work already lives; nothing starts or runs from here. */
 export function openTarget(target: AgendaTargetDto): void {
@@ -61,19 +83,25 @@ export function openTarget(target: AgendaTargetDto): void {
 }
 
 /**
- * Today's agenda above Needs attention, in its row language: a header of counts, the agent's one-line summary on global Home, then
- * at most five rows that open where the work happens. A workspace Home shows only its own rows.
+ * Today's agenda: a header with the day's progress, then rows of a title and reason chips that open to the model's reason and what to
+ * do about it. Home and the Assistant show it as a section, and a workspace Home as a card it can fold; a workspace Home lists only its
+ * own rows.
  */
-export default function TodayList({ today, scope, onOpen = openTarget }: {
+export default function TodayList({ today, scope, onOpen = openTarget, facts, variant = 'section' }: {
   today: TodayAgenda;
   scope: TodayScope;
   /** The Assistant panel shows the app before opening, since it can sit beside an open web page. */
   onOpen?: (target: AgendaTargetDto) => void;
+  /** What the page already holds about the rows' items, by attention key, which the chips are made from. */
+  facts?: AttentionItem[];
+  variant?: 'section' | 'card';
 }): React.JSX.Element | null {
   const availability = useAgentAvailability();
   const { agenda, error, makeAgain, mark, start, showHidden } = today;
-  const [expanded, setExpanded] = useState(false);
+  const [shown, setShown] = useState<boolean | null>(null);
   const [recapOpen, setRecapOpen] = useState(false);
+  const [openRef, setOpenRef] = useState<string | null>(null);
+  const byKey = useMemo(() => new Map((facts ?? []).map(item => [item.key.toLowerCase(), item])), [facts]);
   if (!showsToday(agenda, scope) || !availability.development && agenda.items.length === 0) return null;
 
   const items = agenda.items;
@@ -81,29 +109,30 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
   const { done, total } = doneRatio(items);
   const hidden = hiddenCount(items);
   const finished = allDone(items);
-  const collapsed = finished && !expanded;
+  const card = variant === 'card';
+  // A card folds on its title; a section only once everything is done, when it starts folded.
+  const collapsed = shown === null ? finished : !shown;
   const making = agenda.state === 'RUNNING';
   const before = agenda.state === 'NONE';
   const ready = agenda.state === 'READY' || making && items.length > 0;
   const failure = error ?? agenda.failure;
   const global = scope === 'global';
-  const toggle = () => setExpanded(value => !value);
   const calendar = calendarFact(agenda.calendar);
+  const now = Date.now();
+  const made = !before && agenda.generatedAt !== null ? `Made at ${clockTime(agenda.generatedAt)}${agenda.model ? ` with ${agenda.model}` : ''} · ` : '';
 
-  const head = (
-    <span className="today-head__label">
-      <span className="today-head__title">Today</span>
-      <span className="today-head__date">{dayText(agenda.day)}</span>
-      {finished && (collapsed ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />)}
-    </span>
-  );
+  const label = card ? <span className="today-head__name">Today</span> : <span className="today-head__title">Today</span>;
+  const chevron = collapsed ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />;
 
   return (
-    <section className={`today today--${scope}`} aria-label="Today">
+    <section className={`today today--${scope}${card ? ' today--card' : ''}`} aria-label="Today">
       <div className="today-head">
-        {finished
-          ? <button type="button" className="today-head__toggle" aria-expanded={!collapsed} onClick={toggle}>{head}</button>
-          : head}
+        {card || finished
+          ? <button type="button" className="today-head__toggle" aria-expanded={!collapsed} onClick={() => setShown(collapsed)}>{label}{chevron}</button>
+          : <span className="today-head__label">{label}</span>}
+        <span className="today-head__date" title={calendar === null ? undefined : `${calendar.text === '' ? '' : `${calendar.text} booked · `}${calendar.title}`}>
+          {dayText(agenda.day)}
+        </span>
         <span className="today-head__spacer" />
         <span className="today-head__facts">
           {hidden > 0 && (
@@ -111,20 +140,17 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
               <EyeOff size={13} aria-hidden="true" />{hidden}
             </button>
           )}
-          {calendar !== null && (
-            <span className={`today-fact${calendar.dim ? ' is-dim' : ''}`} title={calendar.title}>
-              <Clock size={13} aria-hidden="true" />{calendar.text}
+          {ready && total > 0 && (
+            <span className="today-fact" title={`${done} of ${total} done`}>
+              <span className="today-progress" aria-hidden="true"><span style={{ width: `${Math.round(done / total * 100)}%` }} /></span>
+              {done}/{total}
             </span>
-          )}
-          {ready && total > 0 && <span className="today-fact" title={`${done} of ${total} done`}><Check size={13} aria-hidden="true" />{done}/{total}</span>}
-          {!before && agenda.generatedAt !== null && (
-            <span className="today-fact" title={`Made at ${clockTime(agenda.generatedAt)}${agenda.model ? ` with ${agenda.model}` : ''}`}>{clockTime(agenda.generatedAt)}</span>
           )}
           {before && <span className="today-fact">at {minuteText(agenda.at)}</span>}
           {making
             ? <span className="today-fact today-fact--icon" title="Making today's agenda"><LoaderCircle className="today-spin" aria-hidden="true" /></span>
             : availability.development && (
-              <IconButton label={before ? 'Make now' : 'Make again'} onClick={makeAgain}>
+              <IconButton label={before ? 'Make now' : 'Make again'} title={`${made}${before ? 'Make now' : 'Make again'}`} onClick={makeAgain}>
                 <RotateCw size={13} aria-hidden="true" />
               </IconButton>
             )}
@@ -133,7 +159,6 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
 
       {!availability.development && <p className="today-line">Reconnect your agent in Settings to update Today.</p>}
       {!collapsed && <>
-        {global && ready && agenda.summary && <p className="today-summary">{agenda.summary}</p>}
         {making && items.length === 0 && <div className="today-line">Making today&apos;s agenda…</div>}
         {failure !== null && (
           <div className="today-failed" role="status">
@@ -145,7 +170,15 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
         {agenda.state === 'READY' && items.length === 0 && <div className="today-line">Nothing pressing today</div>}
         {ready && rows.length > 0 && (
           <div className="item-list today-list" role="list">
-            {rows.map(item => <TodayRow key={item.ref} item={item} scope={scope} onMark={mark} onStart={availability.development ? start : undefined} onOpen={onOpen} />)}
+            {rows.map(item => {
+              const target = todayRef(item.target, scope, item.where);
+              const fact = byKey.get(attentionKey(item.target)?.toLowerCase() ?? '');
+              return (
+                <TodayRow key={item.ref} item={item} reference={target} chips={todayChips(item, fact, now)} open={openRef === item.ref}
+                  onToggle={() => setOpenRef(openRef === item.ref ? null : item.ref)}
+                  onMark={mark} onStart={availability.development ? start : undefined} onOpen={onOpen} />
+              );
+            })}
             {global && agenda.recap !== null && (
               <div role="listitem">
                 <Clickable className="card-row today-recap" label="This week" onOpen={() => setRecapOpen(value => !value)}>
@@ -164,12 +197,15 @@ export default function TodayList({ today, scope, onOpen = openTarget }: {
 }
 
 /**
- * One row of the agenda. A row that suggests starting work also offers Start, which begins the task with the user's saved settings on
- * their click; what refuses it shows under the row.
+ * One row of the agenda: its check, title and reference over its reason chips. Opened, it says the model's reason and offers its action,
+ * Done, and Tomorrow, which sets it aside for today; a row that suggests starting work offers Start, and what refuses it shows below.
  */
-function TodayRow({ item, scope, onMark, onStart, onOpen }: {
+function TodayRow({ item, reference, chips, open, onToggle, onMark, onStart, onOpen }: {
   item: AgendaItemDto;
-  scope: TodayScope;
+  reference: string;
+  chips: TodayChip[];
+  open: boolean;
+  onToggle: () => void;
   onMark: (ref: string, mark: 'DONE' | 'DISMISSED' | null) => void;
   /** Starts the task the row suggests; absent while the development agent is unavailable. */
   onStart?: (ref: string) => Promise<void>;
@@ -177,54 +213,52 @@ function TodayRow({ item, scope, onMark, onStart, onOpen }: {
 }) {
   const [starting, setStarting] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
-  const Icon = ACTION_ICONS[item.action];
   const isDone = item.status === 'done';
-  const where = whereText(item.target, scope, item.where);
   const startable = onStart !== undefined && !isDone && item.action === 'start' && STARTS.includes(item.target.kind);
+  const expanded = open && !isDone;
   const start = () => {
     if (onStart === undefined) return;
     setStarting(true);
     setRefusal(null);
     void onStart(item.ref).catch((cause: unknown) => setRefusal(remoteErrorMessage(cause))).finally(() => setStarting(false));
   };
+  const act = (run: () => void) => (event: React.MouseEvent) => { event.stopPropagation(); run(); };
   return (
     <div role="listitem">
-      <ItemRow className={`today-row${isDone ? ' is-done' : ''}`} label={`${item.title}: ${item.why}`} onOpen={() => onOpen(item.target)}
-        icon={<Icon size={15} className="today-row__icon" aria-hidden="true" />}
-        title={item.title}
-        meta={<>
-          <span className="today-row__where">{where}</span>
-          <span className="item-row__sep">·</span>
-          {isDone
-            ? <span className="today-row__done" title={item.byYou ? 'You marked it done' : 'Closed by what happened since'}><Check size={12} aria-hidden="true" />{doneText(item)}</span>
-            : <span className="today-row__why" title={item.why}>{item.why}</span>}
-        </>}
-        actions={isDone ? undefined : (
-          <CardActions label={`Actions for ${item.title}`}>
-            {startable && (
-              <IconButton label={`Start a task for “${item.label}”`} title="Start a task with your saved settings" disabled={starting} onClick={start}>
-                {starting ? <LoaderCircle size={14} className="today-spin" aria-hidden="true" /> : <Play size={14} aria-hidden="true" />}
-              </IconButton>
-            )}
-            <IconButton label={`Mark “${item.title}” done`} title="Done" tone="ack" onClick={() => onMark(item.ref, 'DONE')}>
-              <Check size={14} aria-hidden="true" />
-            </IconButton>
-            <IconButton label={`Set “${item.title}” aside for today`} title="Not today" onClick={() => onMark(item.ref, 'DISMISSED')}>
-              <X size={14} aria-hidden="true" />
-            </IconButton>
-          </CardActions>
-        )}
-        age={isDone
-          ? (
-            <span className="today-row__reopen">
-              <IconButton label={`Reopen “${item.title}”`} title="Reopen" onClick={() => onMark(item.ref, null)}>
-                <Check size={14} aria-hidden="true" />
-              </IconButton>
-            </span>
-          )
-          : item.at === null ? null : <CardAge at={item.at} />}>
-        {refusal !== null && <div className="today-row__refusal" role="alert"><TriangleAlert size={12} aria-hidden="true" /><span>{refusal}</span></div>}
-      </ItemRow>
+      <Clickable className={`card-row today-row${isDone ? ' is-done' : ''}${expanded ? ' is-open' : ''}`} label={`${item.title}: ${item.why}`} onOpen={onToggle}>
+        <button type="button" className="today-check" aria-label={isDone ? `Reopen “${item.title}”` : `Mark “${item.title}” done`}
+          title={isDone ? (item.byYou ? 'You marked it done · reopen' : 'Closed by what happened since · reopen') : 'Done'}
+          onClick={act(() => onMark(item.ref, isDone ? null : 'DONE'))}>
+          {isDone && <Check size={10} strokeWidth={3} aria-hidden="true" />}
+        </button>
+        <div className="today-row__body">
+          <div className="today-row__line">
+            <span className="today-row__title" title={item.title}>{item.title}</span>
+            <span className="today-row__ref">{reference}</span>
+          </div>
+          <div className="today-row__chips">
+            {chips.map(chip => <span key={chip.text} className={`today-reason is-${chip.tone}`}>{chip.text}</span>)}
+          </div>
+          {expanded && (
+            <div className="today-row__more">
+              <p className="today-row__why">{item.why}</p>
+              <div className="today-row__actions">
+                {startable
+                  ? <button type="button" className="bq-button bq-button--primary" disabled={starting} onClick={act(start)}>
+                    {starting ? <LoaderCircle className="today-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}Start task
+                  </button>
+                  : <button type="button" className="bq-button bq-button--primary" onClick={act(() => onOpen(item.target))}>
+                    {item.action === 'review' && item.target.kind === 'PULL' ? 'Open review' : OPEN_LABELS[item.target.kind]}
+                  </button>}
+                <button type="button" className="bq-button" onClick={act(() => onMark(item.ref, 'DONE'))}>Done</button>
+                <button type="button" className="bq-button" title="Set it aside for today" onClick={act(() => onMark(item.ref, 'DISMISSED'))}>Tomorrow</button>
+              </div>
+            </div>
+          )}
+          {refusal !== null && <div className="today-row__refusal" role="alert"><TriangleAlert size={12} aria-hidden="true" /><span>{refusal}</span></div>}
+        </div>
+        {!isDone && item.at !== null ? <CardAge at={item.at} /> : <span />}
+      </Clickable>
     </div>
   );
 }

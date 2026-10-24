@@ -1,0 +1,320 @@
+/* ── My work ─────────────────────────────────────────────────────
+   Home's board of the viewer's own work (home/MyWork.tsx): the Needs attention header over four lanes of compact cards. */
+
+.mw-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(210px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.mw-lane {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
+  border-radius: 10px;
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+}
+
+.mw-lane__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 2px 4px;
+  font-size: 12.5px;
+  line-height: 18px;
+}
+
+.mw-lane__name {
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.mw-lane__count {
+  color: var(--fg-dim);
+}
+
+.mw-lane__hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  color: var(--text-4);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-lane__more {
+  align-self: flex-start;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.mw-lane__more:hover {
+  text-decoration: underline;
+}
+
+.mw-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.mw-dot.is-progress { background: var(--fg-link); }
+.mw-dot.is-review { background: var(--fg-warning); }
+.mw-dot.is-needs { background: var(--fg-danger); }
+.mw-dot.is-ready { background: var(--fg-success); }
+
+.mw-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  padding: 8px 10px;
+  border: 1px solid light-dark(#e3e3e6, var(--dark-border));
+  border-radius: 10px;
+}
+
+.mw-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.mw-pill:hover {
+  background: light-dark(#eceff2, var(--dark-border-muted));
+}
+
+.mw-pill__count {
+  color: var(--fg-dim);
+}
+
+.mw-card {
+  gap: 8px;
+  padding: 10px 11px;
+}
+
+.mw-card__head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.mw-card__head > * {
+  flex: none;
+}
+
+/* A long key gives way first, so the source, Today tag and age stay inside the card. */
+.mw-card__head > .mw-card__key {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-card__head > .mw-spacer,
+.mw-spacer {
+  flex: 1;
+}
+
+/* The source's glyph: Jira a filled diamond, an issue a ring, local work a dashed square and a pull request a grey ring. */
+.mw-src {
+  flex: none;
+  box-sizing: border-box;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--fg-muted);
+  border-radius: 50%;
+}
+
+.mw-src.is-jira {
+  border-color: var(--fg-link);
+  border-radius: 1.5px;
+  background: var(--fg-link);
+  transform: rotate(45deg);
+}
+
+.mw-src.is-issue { border-color: var(--fg-success); }
+.mw-src.is-local { border-style: dashed; border-radius: 3px; }
+
+.mw-card__title {
+  display: -webkit-box;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mw-run {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 8px;
+  border-radius: 6px;
+  background: var(--bg-info);
+  color: var(--fg-link);
+  font-size: 12px;
+}
+
+.mw-run__avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface-canvas);
+}
+
+.mw-run__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-run__agent {
+  font-weight: 500;
+}
+
+.mw-run > time {
+  flex: none;
+  color: var(--fg-muted);
+}
+
+.mw-nopr {
+  overflow: hidden;
+  padding: 5px 8px;
+  border: 1px dashed light-dark(#d0d7de, var(--dark-border));
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-prs {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid light-dark(#eceef1, var(--dark-border-muted));
+  border-radius: 6px;
+}
+
+.mw-pr {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.mw-pr + .mw-pr {
+  border-top: 1px solid light-dark(#f0f0f2, var(--dark-border-muted));
+}
+
+.mw-pr:hover {
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+}
+
+.mw-pr__icon { flex: none; color: var(--fg-success); }
+.mw-pr__icon.is-draft,
+.mw-pr__icon.is-closed { color: var(--fg-muted); }
+.mw-pr__icon.is-merged { color: var(--fg-purple); }
+
+.mw-pr__line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mw-pr__line > * {
+  flex: none;
+}
+
+.mw-pr__line > .mw-pr__name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mw-pr__line > .mw-spacer {
+  flex: 1;
+}
+
+.mw-ci { flex: none; }
+.mw-ci.is-passing { color: var(--fg-success); }
+.mw-ci.is-failing { color: var(--fg-danger); }
+.mw-ci.is-pending { color: var(--fg-warning); }
+
+/* A reviewer still asked, ringed in the pending grey. */
+.mw-reviewer {
+  display: inline-flex;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px light-dark(#d0d7de, var(--dark-border));
+}
+
+.mw-pr__state {
+  padding-left: 19px;
+  font-size: 12px;
+}
+
+.mw-pr__state.is-red { color: var(--fg-danger); }
+.mw-pr__state.is-amber { color: var(--fg-warning); }
+.mw-pr__state.is-green { color: var(--fg-success); }
+.mw-pr__state.is-purple { color: var(--fg-purple); }
+.mw-pr__state.is-neutral { color: var(--fg-muted); }
+
+.mw-next {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.mw-next > svg {
+  flex: none;
+  align-self: center;
+  color: var(--text-4);
+}

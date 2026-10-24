@@ -13,7 +13,7 @@
  */
 import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play, Sun } from 'lucide-react';
+import { ArrowRight, ArrowUpRight, Check, CircleX, Clock3, MessageSquare, Play } from 'lucide-react';
 import Avatar from '../Avatar';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill, SourceIcon } from '../cards/Card';
 import { jiraIssueLocation } from '../jira/contracts';
@@ -70,8 +70,10 @@ type Props = {
   onSnooze?: (anchor: DOMRect) => void;
   /** Present for an issue or ticket that can start development. */
   onStart?: () => void;
-  /** Whether the item is on today's agenda, shown as a sun beside the title. */
+  /** Whether the item is on today's agenda, shown as a Today tag beside the title. */
   onToday?: boolean;
+  /** Two lines, as both Homes list items: who and where share one line with the latest event. */
+  compact?: boolean;
 };
 
 /** What the person a row leads with did: authored the pull request, opened the issue, or asked for your review. */
@@ -107,7 +109,7 @@ function latestAt(item: AttentionItem, summary: AttentionSummary): string | null
  * row opens the item's hover card; its actions take the age's place while the pointer or focus is inside.
  */
 export default function AttentionRow({
-  item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, onToday = false,
+  item, viewerLogin, showRepo, showState = true, circle = null, age, onOpen, onAcknowledge, onSnooze, onStart, onToday = false, compact = false,
 }: Props) {
   const availability = useAgentAvailability(item.workspaceId ?? undefined);
   const hover = useHoverCard(PREVIEW_OPEN_MS);
@@ -135,38 +137,49 @@ export default function AttentionRow({
     <Avatar login={person.login} avatarUrl={person.avatarUrl} size={18} allowGitHubFallback={github} /><span>{person.login}</span>
   </>;
   const onPerson = circle?.onPerson;
-  const meta = <>
-    {name !== null && (member !== null && onPerson !== undefined
-      ? <button type="button" className="item-person" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.githubId); }}>{name}</button>
-      : <span className="item-person">{name}</span>)}
-    {relation !== '' && <span>{relation}</span>}
-    {circles.length > 0 && (
-      <Pill tone="blue" title={`Your private circle${circles.length > 1 ? 's' : ''}: ${circles.map(value => value.name).join(', ')}`}>
-        {circles[0].name}{circles.length > 1 ? ` +${circles.length - 1}` : ''}
-      </Pill>
-    )}
-    {where !== null && <><span className="item-row__sep">·</span><span className="item-row__muted">{where}</span></>}
-    {circle?.match.reason === 'review-requester' && circle.outside?.(item.author) === true && <>
-      <span className="item-row__sep">·</span><span className="item-row__muted">PR by {item.author} (not in your circles)</span>
-    </>}
-    {links.length > 0 && <span className="item-row__sep">·</span>}
+  const who = name !== null && (member !== null && onPerson !== undefined
+    ? <button type="button" className="item-person" title="Circle member · open person" onClick={event => { event.stopPropagation(); onPerson(member.githubId); }}>{name}</button>
+    : <span className="item-person">{name}</span>);
+  const circlePill = circles.length > 0 && (
+    <Pill tone="blue" title={`Your private circle${circles.length > 1 ? 's' : ''}: ${circles.map(value => value.name).join(', ')}`}>
+      {circles[0].name}{circles.length > 1 ? ` +${circles.length - 1}` : ''}
+    </Pill>
+  );
+  const linkKeys = links.length > 0 && <>
+    <span className="item-row__sep">·</span>
     {links.map(link => (
       <LinkKey key={`${link.source}:${link.key}`} source={link.source} name={link.key} title={link.status === null ? link.title : `${link.title} · ${link.status}`} />
     ))}
   </>;
+  const meta = <>
+    {who}
+    {relation !== '' && <span>{relation}</span>}
+    {circlePill}
+    {where !== null && <><span className="item-row__sep">·</span><span className="item-row__muted">{where}</span></>}
+    {circle?.match.reason === 'review-requester' && circle.outside?.(item.author) === true && <>
+      <span className="item-row__sep">·</span><span className="item-row__muted">PR by {item.author} (not in your circles)</span>
+    </>}
+    {linkKeys}
+  </>;
+  // A workspace's own list names no repository, so its rows name the circle there instead.
+  const line = <>
+    {who}
+    {where !== null ? <><span className="item-row__sep">·</span><span className="item-row__muted">{where}</span></> : circlePill}
+    {linkKeys}
+  </>;
 
   return <>
     <div role="listitem" onMouseEnter={event => hover.show(event.currentTarget)} onMouseLeave={() => hover.hide()}>
-      <ItemRow label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`} onOpen={open}
+      <ItemRow className={compact ? 'is-compact' : ''} label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`} onOpen={open}
         icon={<SourceIcon source={source} size={16} tinted ended={attentionEnded(item)} />}
         title={item.title}
         marks={<>
           {/* A task's reference names its lane, which the line below already does. */}
           {item.task === undefined && <span className="card-key">{reference}</span>}
           {showState && <Pill outline>{status ?? summary.tag.label}</Pill>}
-          {onToday && <span className="today-mark" title="On Today"><Sun size={12} aria-hidden="true" /></span>}
+          {onToday && <span className="today-tag">Today</span>}
         </>}
-        meta={meta}
+        meta={compact ? null : meta}
         actions={
           <CardActions label={`Actions for ${reference}`}>
             {target !== null && <PinButton item={{ key: item.key, title: item.title, reference, target }} className="card-iconbtn" />}
@@ -187,7 +200,7 @@ export default function AttentionRow({
           </CardActions>
         }
         age={age === undefined ? <CardAge at={attentionTime(item)} /> : <CardAge at={age.at} title={age.title} />}>
-        <Latest item={item} summary={summary} viewerLogin={viewerLogin} outside={circle?.outside} />
+        <Latest item={item} summary={summary} viewerLogin={viewerLogin} outside={circle?.outside} line={compact ? line : undefined} person={person?.login ?? null} />
       </ItemRow>
     </div>
     {/* A sibling of the row rather than inside it, so entering the card is leaving the row. */}
@@ -197,26 +210,41 @@ export default function AttentionRow({
   </>;
 }
 
-/** The latest event on one line, and what happened, unfolded while the line is hovered. */
-function Latest({ item, summary, viewerLogin, outside }: {
+/**
+ * The latest event on one line, and what happened, unfolded while the line is hovered. A compact row leads the line with who and where,
+ * and leaves out the time, which its age already says, and an actor who is the person it leads with.
+ */
+function Latest({ item, summary, viewerLogin, outside, line, person }: {
   item: AttentionItem;
   summary: AttentionSummary;
   viewerLogin: string | null;
   outside?: (login: string | null) => boolean;
+  line?: ReactNode;
+  person: string | null;
 }) {
   const at = latestAt(item, summary);
-  if (at === null) return null;
+  if (at === null && line === undefined) return null;
   // A ticket's own verbs name no actor ("Moved to Blocked"); only a pull request's missing actor is worth saying.
   const actor = summary.actor === null ? item.pr === null ? null : 'an account the source did not identify'
     : summary.actor.name.toLowerCase() === viewerLogin?.toLowerCase() ? 'you'
       : `${summary.actor.name}${outside?.(summary.actor.name) === true ? ' (not in your circles)' : ''}`;
+  const event = at === null ? null : line === undefined || actor === null || summary.actor?.name.toLowerCase() !== person?.toLowerCase()
+    ? `${actor === null ? '' : `${actor} `}${summary.verb}` : summary.verb;
+  const detail = at !== null && summary.detail !== null ? <div className="item-row__detail atn-detail"><Detail detail={summary.detail} /></div> : null;
   return (
-    <div className={`item-row__latest${summary.detail === null ? '' : ' has-detail'}`}>
-      <div className="item-row__latest-line">
-        <MessageSquare size={12} aria-hidden="true" />
-        <span>{`Latest: ${actor === null ? '' : `${actor} `}${summary.verb} · ${relativeTime(at, { suffix: false })}`}</span>
-      </div>
-      {summary.detail !== null && <div className="item-row__detail atn-detail"><Detail detail={summary.detail} /></div>}
+    <div className={`item-row__latest${detail === null ? '' : ' has-detail'}`}>
+      {line === undefined ? (
+        <div className="item-row__latest-line">
+          <MessageSquare size={12} aria-hidden="true" />
+          <span>{`Latest: ${event} · ${relativeTime(at ?? item.updatedAt, { suffix: false })}`}</span>
+        </div>
+      ) : (
+        <div className="item-row__meta item-row__line">
+          {line}
+          {event !== null && <><span className="item-row__sep">·</span><span className="item-row__event" title={event}>{event}</span></>}
+        </div>
+      )}
+      {detail}
     </div>
   );
 }

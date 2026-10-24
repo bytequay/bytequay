@@ -96,7 +96,7 @@ function mount(scope: TodayScope, agenda: AgendaDto = AGENDA, start: (ref: strin
       makeAgain: () => {}, mark: (ref, mark) => { marks.push([ref, mark]); }, start: ref => { starts.push(ref); return start(ref); }, showHidden: () => {},
     };
     flushSync(() => root.render(<>
-      <TodayList today={today} scope={scope} />
+      <TodayList today={today} scope={scope} facts={ATTENTION} />
       <AttentionList candidates={ATTENTION} handled={{}} onHandledChange={() => {}} onOpen={() => {}} todayKeys={todayKeys(today.agenda)} />
     </>));
   };
@@ -115,16 +115,23 @@ function zoomed(run: () => void): unknown[] {
   return seen;
 }
 
+const row = (host: HTMLElement, title: string) => element<HTMLElement>(`.today-row[aria-label^="${title}:"]`, host, `Missing row: ${title}`);
+
 async function opensWork(): Promise<void> {
   const view = mount('global');
   try {
     const rows = [...view.host.querySelectorAll<HTMLElement>('.today-row')];
     assert(rows.length === 5, `Five rows must show, found ${rows.length}`);
     assert(rows[4].classList.contains('is-done'), 'The done row must sink to the bottom');
-    const opened = zoomed(() => rows[2].click());
-    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `A row must open its pull request: ${JSON.stringify(opened)}`);
-    const keyed = zoomed(() => rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
-    assert(JSON.stringify(keyed) === JSON.stringify([{ kind: 'work', workspaceId: 'ws1', itemId: 'w22' }]), 'Enter must open the work item');
+    assert(rows.every(each => each.querySelector('.today-row__why') === null), 'Rows start closed, with chips instead of the reason');
+    assert(rows[2].querySelector('.today-reason')?.textContent?.startsWith('Waiting ') === true, `A row says how long it waited: ${rows[2].textContent}`);
+    const clicked = zoomed(() => flushSync(() => rows[2].click()));
+    assert(clicked.length === 0 && rows[2].classList.contains('is-open'), 'A click opens the row in place');
+    assert(rows[2].querySelector('.today-row__why')?.textContent === ITEMS[2].why, 'An open row says the full reason');
+    const opened = zoomed(() => button(rows[2], 'Open review').click());
+    assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `The row's action opens its pull request: ${JSON.stringify(opened)}`);
+    flushSync(() => rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    assert(rows[0].classList.contains('is-open') && !rows[2].classList.contains('is-open'), 'Enter opens a row, and only one row is open at a time');
     assert(view.marks.length === 0, 'Opening must not mark anything');
   }
   finally { view.dispose(); }
@@ -135,10 +142,12 @@ async function marksWithoutOpening(): Promise<void> {
   try {
     const opened = zoomed(() => {
       button(view.host, 'Mark “Review #31377 Add Iceberg metadata cache” done').click();
-      button(view.host, 'Set “Merge #612 Route by client tags” aside for today').click();
+      const merge = row(view.host, 'Merge #612 Route by client tags');
+      flushSync(() => merge.click());
+      button(merge, 'Tomorrow').click();
       button(view.host, 'Reopen “Fix maven-checks on #31390”').click();
     });
-    assert(opened.length === 0, 'Marking must not open the row');
+    assert(opened.length === 0, 'Marking must not open the item');
     assert(JSON.stringify(view.marks) === JSON.stringify([['pr:owner/repository#31377', 'DONE'], ['pr:owner/gateway#612', 'DISMISSED'], ['pr:owner/repository#31390', null]]),
       `Marks must reach the agenda: ${JSON.stringify(view.marks)}`);
   }
@@ -152,18 +161,19 @@ async function startsWorkFromItsRow(): Promise<void> {
     if (refuse) throw new Error("Error invoking remote method 'agenda:start': Error: The development agent isn't ready; check Settings → Models");
     view.render(started);
   });
-  const offered = () => [...view.host.querySelectorAll<HTMLButtonElement>('.today-row button')].map(each => each.getAttribute('aria-label') ?? '')
-    .filter(label => label.startsWith('Start a task'));
+  const offered = () => [...view.host.querySelectorAll<HTMLButtonElement>('.today-row button')].filter(each => each.textContent === 'Start task');
   try {
-    assert(JSON.stringify(offered()) === '["Start a task for “Expose snapshot id”"]', `Only the row that starts work offers Start: ${JSON.stringify(offered())}`);
-    const opened = zoomed(() => button(view.host, 'Start a task for “Expose snapshot id”').click());
+    for (const each of view.host.querySelectorAll<HTMLElement>('.today-row')) flushSync(() => each.click());
+    flushSync(() => row(view.host, 'Start “Expose snapshot id in metadata”').click());
+    assert(offered().length === 1, `Only the row that starts work offers Start: ${offered().length}`);
+    const opened = zoomed(() => offered()[0].click());
     await settle();
-    assert(opened.length === 0 && JSON.stringify(view.starts) === '["work:w22"]', `Start begins the task without opening the row: ${JSON.stringify(view.starts)}`);
+    assert(opened.length === 0 && JSON.stringify(view.starts) === '["work:w22"]', `Start begins the task without opening the item: ${JSON.stringify(view.starts)}`);
     const refusal = view.host.querySelector('.today-row__refusal');
     assert(refusal?.textContent === "The development agent isn't ready; check Settings → Models", `What refused it shows under the row: ${refusal?.textContent}`);
 
     refuse = false;
-    button(view.host, 'Start a task for “Expose snapshot id”').click();
+    offered()[0].click();
     await settle();
     assert(view.host.querySelector('.today-row__refusal') === null && offered().length === 0, 'Once started, the row reads done and offers Start no more');
     assert(view.host.textContent?.includes('Started') === true, 'The row says it started');
@@ -171,15 +181,15 @@ async function startsWorkFromItsRow(): Promise<void> {
   finally { view.dispose(); }
 }
 
-async function recapAndSun(): Promise<void> {
+async function recapAndTag(): Promise<void> {
   const view = mount('global');
   try {
     assert(!view.host.textContent?.includes('Slipped'), 'The recap starts folded');
     const recap = element<HTMLElement>('.today-recap', view.host, 'This week must show on the recap day');
     flushSync(() => recap.click());
     assert(view.host.textContent?.includes('Slipped') === true && view.host.textContent.includes('gateway #605'), 'This week must unfold its chips');
-    const marked = [...view.host.querySelectorAll<HTMLElement>('.atn-section .item-row')].map(row => row.querySelector('.today-mark') !== null);
-    assert(JSON.stringify(marked) === JSON.stringify([true, false]), `Only the row also on Today wears the sun: ${JSON.stringify(marked)}`);
+    const marked = [...view.host.querySelectorAll<HTMLElement>('.atn-section .item-row')].map(each => each.querySelector('.today-tag') !== null);
+    assert(JSON.stringify(marked) === JSON.stringify([true, false]), `Only the row also on Today wears the Today tag: ${JSON.stringify(marked)}`);
   }
   finally { view.dispose(); }
 }
@@ -196,7 +206,7 @@ async function foldsWhenDone(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  const results = await runScenarios([['rows open their work', opensWork], ['marks without opening', marksWithoutOpening], ['recap and sun', recapAndSun],
+  const results = await runScenarios([['rows open their work', opensWork], ['marks without opening', marksWithoutOpening], ['recap and Today tag', recapAndTag],
     ['folds when done', foldsWhenDone], ['starts work from its row', startsWorkFromItsRow]]);
   return results;
 }

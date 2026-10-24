@@ -84,7 +84,9 @@ describe('AttentionList', () => {
     const items = [issueItem(7), prItem(1)];
     const html = list(items);
     expect(html).toContain('aria-pressed="false">Circles</button>');
-    expect(html).toContain('title="Your private circle: Maintainers">Maintainers</span>');
+    // Home names the repository; a workspace's own list names the circle in its place.
+    expect(html).not.toContain('Your private circle');
+    expect(list(items, {}, 'workspace')).toContain('title="Your private circle: Maintainers">Maintainers</span>');
     expect(html).toContain('>PRs</button>');
     expect(html).toContain('>Issues</button>');
   });
@@ -102,13 +104,16 @@ describe('AttentionList', () => {
     const html = list([prItem(1, 'review', {
       event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
     })]);
-    expect(html).toMatch(/<span class="item-person">.*?<span>alice<\/span><\/span><span>authored<\/span><span class="pill is-blue" title="Your private circle: Maintainers">Maintainers<\/span>/);
-    expect(html).toContain('<span>Latest: bob commented · ');
+    expect(html).toMatch(/<span class="item-person">.*?<span>alice<\/span><\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">owner\/repository<\/span>/);
+    expect(html).toContain('>bob commented</span>');
     expect(html).not.toContain('Your team');
+    expect(list([prItem(1, 'review', {
+      event: 'commented', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: null,
+    })], {}, 'workspace')).toMatch(/<span>alice<\/span><\/span><span class="pill is-blue" title="Your private circle: Maintainers">Maintainers<\/span>/);
 
     const unrelated = { ...prItem(2), author: 'outsider', pr: { ...pullRequest(2), author: 'outsider' } };
-    const plain = list([unrelated]);
-    expect(plain).toMatch(/<span>outsider<\/span><\/span><span>authored<\/span>/);
+    const plain = list([unrelated], {}, 'workspace');
+    expect(plain).toMatch(/<span>outsider<\/span><\/span>/);
     expect(plain).not.toContain('Your private circle');
   });
 
@@ -117,8 +122,9 @@ describe('AttentionList', () => {
     const html = list([prItem(1, 'review', {
       event: 'review_requested', actor: 'bob', timestamp: '2026-08-28T00:00:00Z', state: null, label: null, requestedReviewer: 'viewer',
     })]);
-    expect(html).toMatch(/<span>bob<\/span><\/span><span>requested your review<\/span>/);
-    expect(html).not.toMatch(/<span>bob<\/span><\/span><span>authored/);
+    // The requester leads the line, so the event leaves out who did it.
+    expect(html).toMatch(/<span>bob<\/span><\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">owner\/repository<\/span><span class="item-row__sep">·<\/span><span class="item-row__event" title="requested your review">requested your review<\/span>/);
+    expect(html).not.toMatch(/<span>alice<\/span><\/span>/);
   });
 
   it('keeps resolved reminders readable without offering to start development again', () => {
@@ -158,17 +164,17 @@ describe('AttentionList', () => {
     })]);
 
     // The row, its keyboard behaviour and its hover actions come from the shared card base, one row in one list box.
-    expect(html).toContain('<div class="item-list" role="list"><div role="listitem"><div class="card-row item-row" role="button" tabindex="0"');
+    expect(html).toContain('<div class="item-list" role="list"><div role="listitem"><div class="card-row item-row is-compact" role="button" tabindex="0"');
     expect(html).toContain('<span class="item-row__icon"><span class="card-src is-pr">');
     expect(html).toContain('lucide-git-pull-request');
     // The row names no type, and where a pull request stands sits beside its title and key.
     expect(html).not.toContain('>Pull request<');
     expect(html).toContain('<span title="Change 30920">Change 30920</span><span class="card-key">#30920</span><span class="pill is-outline">Review requested</span>');
-    // Global Home names the repository beside the author; the age is the actual event's.
-    expect(html).toMatch(/<span>alice<\/span><\/span><span>authored<\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">owner\/repository<\/span>/);
+    // Two lines: the second names the author, the repository on global Home, and the latest event; the age is the actual event's.
+    expect(html).toMatch(/<div class="item-row__meta item-row__line"><span class="item-person">.*?<span>alice<\/span><\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">owner\/repository<\/span><span class="item-row__sep">·<\/span><span class="item-row__event" title="bob requested your review">bob requested your review<\/span><\/div>/);
     expect(html).toContain('dateTime="2026-08-28T00:00:00Z"');
     expect(html).toContain('>2d</time>');
-    expect(html).toContain('<span>Latest: bob requested your review · 2d</span>');
+    expect(html).not.toContain('Latest:');
     expect(html).toContain('aria-label="Acknowledge #30920"');
     expect(html).toContain('aria-label="Snooze #30920"');
     expect(html).toContain('aria-label="Open #30920"');
@@ -203,7 +209,7 @@ describe('AttentionList', () => {
 
     // What happened waits under the latest line, which unfolds it while hovered.
     expect(html).toContain('<div class="item-row__latest has-detail">');
-    expect(html).toContain('<span>Latest: ravi-moreau left a review comment · ');
+    expect(html).toContain('>ravi-moreau left a review comment</span>');
     expect(html).toContain('<div class="item-row__detail atn-detail">');
     expect(html).toContain('<p><code>TransactionLogAccess.java:562</code> declares the same record.</p>');
     expect(html).toContain('<div class="atn-detail__file" title="plugin/storage/src/main/java/CheckpointWriter.java:101">on CheckpointWriter.java:101</div>');
@@ -219,7 +225,7 @@ describe('AttentionList', () => {
     expect(html).toContain('<span class="card-src is-jira">');
     expect(html).toMatch(/class="item-row__title">.*?class="pill is-outline">To do</);
     expect(html).toContain('<div class="item-row__latest has-detail">');
-    expect(html).toContain('<span>Latest: Moved to Blocked · ');
+    expect(html).toContain('>Moved to Blocked</span>');
     expect(html).toMatch(/<span class="pill is-blue is-square is-struck">In Progress<\/span><svg[^>]*aria-label="to"[^>]*>.*?<\/svg><span class="pill is-red is-square">Blocked<\/span>/);
     expect(html).toContain('<div class="markdown-body"><p>Staging is mid-upgrade.</p></div>');
   });
@@ -228,7 +234,7 @@ describe('AttentionList', () => {
     const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
     const html = list(items, {}, 'workspace');
 
-    expect(html.match(/class="card-row item-row"/g)).toHaveLength(5);
+    expect(html.match(/class="card-row item-row is-compact"/g)).toHaveLength(5);
     // Every watched update is eligible, so a total would count the repositories, not what needs the user.
     expect(html).toMatch(/Needs attention<\/span><button[^>]*aria-pressed="false"[^>]*>Open only<\/button><div class="atn-filters"/);
     expect(html).toMatch(/>PRs<\/button><button[^>]*>Issues<\/button><button[^>]*>Jira<\/button>/);
@@ -288,7 +294,7 @@ describe('AttentionList', () => {
     expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924, 30925]);
     const snoozed = { ...acknowledged, [items[0].key]: handledEntry(items[0], 'snooze', now + 3_600_000, '1 hour') };
     expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925, 30926]);
-    expect(list(items, snoozed).match(/class="card-row item-row"/g)).toHaveLength(5);
+    expect(list(items, snoozed).match(/class="card-row item-row is-compact"/g)).toHaveLength(5);
   });
 
   it('keeps approved PRs available after reading or acknowledging them without triage actions', () => {
@@ -301,7 +307,7 @@ describe('AttentionList', () => {
         const [attention, approved] = html.split('aria-label="Approved by me"');
         expect(attention).not.toContain('Change 42');
         expect(approved).toContain('Change 42');
-        expect(approved).toContain('Latest: bob commented');
+        expect(approved).toContain('>bob commented</span>');
         expect(approved).toContain('aria-label="Open #42"');
         expect(approved).toContain('aria-label="Pin');
         expect(approved).not.toContain('aria-label="Acknowledge');
@@ -325,7 +331,7 @@ describe('AttentionList', () => {
     } }));
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
-      expect(html.match(/class="card-row item-row"/g)).toHaveLength(3);
+      expect(html.match(/class="card-row item-row is-compact"/g)).toHaveLength(3);
       expect(html).toContain('aria-expanded="false">Show all (6)</button>');
       expect(list(items.slice(0, 3), {}, variant)).not.toContain('Show all');
     }
@@ -335,9 +341,9 @@ describe('AttentionList', () => {
     const html = list([issueItem(7)]);
     expect(html).toContain('<span class="card-src is-issue">');
     expect(html).toContain('class="pill is-outline">Assigned to you<');
-    expect(html).toMatch(/<span>finn-ep<\/span><\/span><span>opened · assigned to you<\/span>/);
-    // An issue's opening is the line above; there is no event to name below it.
-    expect(html).not.toContain('Latest:');
+    // An issue names who opened it and where, with no event to add.
+    expect(html).toMatch(/<span>finn-ep<\/span><\/span><span class="item-row__sep">·<\/span><span class="item-row__muted">owner\/repository<\/span><\/div>/);
+    expect(html).not.toContain('item-row__event');
     expect(html).toContain('aria-label="Start development for #7"');
     expect(html).not.toContain('>bug</span>');
 

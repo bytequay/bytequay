@@ -11,8 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaLinkDto, AgendaTargetDto } from '../types';
-import type { Handled } from './attention';
+import { plural } from '@bytequay/ui/displayText';
+import { taskCardState } from '../agents/attention';
+import type { AgendaAction, AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaLinkDto, AgendaTargetDto } from '../types';
+import { statusPill, type AttentionItem, type Handled } from './attention';
 
 export type TodayScope = 'global' | 'workspace';
 
@@ -63,6 +65,62 @@ export function whereText(target: AgendaTargetDto, scope: TodayScope, where: str
   }
 }
 
+/** A row's reference in the compact form of a key: "repository#42" on Home, "#42" on a workspace Home, else what whereText says. */
+export function todayRef(target: AgendaTargetDto, scope: TodayScope, where: string | null = null): string {
+  return whereText(target, scope, where).replace(/^[\w.-]+\/([\w.-]+) #(\d+)$/, '$1#$2');
+}
+
+/** A reason chip's tint: red blocks or is overdue, amber waits, blue is news, green resolved, grey neutral. */
+export type TodayChip = { text: string; tone: 'red' | 'amber' | 'blue' | 'green' | 'neutral' };
+
+const CHIP_ORDER: TodayChip['tone'][] = ['red', 'amber', 'blue', 'green', 'neutral'];
+
+const ACTION_CHIPS: Record<AgendaAction, string> = {
+  start: 'Start', reply: 'Reply', review: 'Review', fix: 'Fix', merge: 'Merge', answer: 'Answer', decide: 'Decide', follow_up: 'Follow up',
+};
+
+/**
+ * Up to three chips for why a row is on Today, from what the Homes already hold about its item; the model's sentence waits for the row
+ * to open. A row with no such facts names its action, and a done row what closed it.
+ */
+export function todayChips(item: AgendaItemDto, fact: AttentionItem | undefined, now: number): TodayChip[] {
+  if (item.status === 'done') return [{ text: doneText(item), tone: 'green' }];
+  const chips: TodayChip[] = [];
+  const days = item.at === null ? 0 : Math.floor((now - Date.parse(item.at)) / 86_400_000);
+  if (days >= 1) chips.push({ text: `Waiting ${days}d`, tone: days >= 7 ? 'red' : 'amber' });
+  const pr = fact?.pr ?? null;
+  const state = pr?.state?.toLowerCase();
+  if (pr !== null && (state === 'merged' || state === 'closed')) chips.push({ text: `PR ${state}`, tone: state === 'merged' ? 'green' : 'neutral' });
+  else if (pr !== null) {
+    if (pr.ciStatus === 'FAILING') chips.push({ text: 'CI failing', tone: 'red' });
+    if (pr.reviewDecision === 'CHANGES_REQUESTED') chips.push({ text: 'Changes requested', tone: 'red' });
+    if (pr.mergeableState === 'dirty') chips.push({ text: 'Merge conflicts', tone: 'red' });
+    else if (pr.mergeableState === 'blocked') chips.push({ text: 'Merge blocked', tone: 'red' });
+    else if (pr.mergeable === true && pr.mergeableState === 'clean' && pr.reviewDecision === 'APPROVED') chips.push({ text: 'Ready to merge', tone: 'green' });
+    const event = pr.latestActivity?.event;
+    if (event === 'commented' || event === 'review_thread') chips.push({ text: 'New comment', tone: 'blue' });
+    const commits = pr.commitsSinceReview?.length ?? 0;
+    if (commits > 0) chips.push({ text: `+${plural(commits, 'commit')}`, tone: 'neutral' });
+  }
+  const task = fact?.task;
+  if (task !== undefined) {
+    const card = taskCardState(task.dto, task.activity);
+    if (card.label === 'Needs you') chips.push({ text: card.reason === 'Question for you' ? 'Question for you' : 'Agent waiting', tone: 'amber' });
+    else if (card.spinning) chips.push({ text: 'Agent running', tone: 'blue' });
+    else if (card.label === 'Failed') chips.push({ text: 'Task failed', tone: 'red' });
+    if (task.dto.pullRequest?.state === 'merged') chips.push({ text: 'PR merged', tone: 'green' });
+  }
+  if (fact?.jira !== undefined) {
+    const { tone } = statusPill(fact.jira.status);
+    chips.push({ text: fact.jira.status.name, tone: tone === 'red' || tone === 'blue' || tone === 'green' ? tone : 'neutral' });
+  }
+  if (fact?.issueState === 'closed') chips.push({ text: 'Closed', tone: 'green' });
+  if (chips.length === 0) chips.push({ text: ACTION_CHIPS[item.action], tone: 'neutral' });
+  return chips.map((chip, index) => ({ chip, index }))
+    .sort((left, right) => CHIP_ORDER.indexOf(left.chip.tone) - CHIP_ORDER.indexOf(right.chip.tone) || left.index - right.index)
+    .slice(0, 3).map(entry => entry.chip);
+}
+
 /**
  * The Needs attention key of the thing an item opens, so that list can mark what is on Today. Pull requests and issues
  * share the repository#number form, which compares in lower case.
@@ -81,7 +139,6 @@ export function attentionKey(target: AgendaTargetDto): string | null {
   }
 }
 
-/** The keys of today's open items, for the sun beside a Needs attention row. */
 /** A snoozed item leaves Today until its snooze ends, whatever happens to it meanwhile, as its Needs attention card does. */
 export function withoutSnoozed(agenda: AgendaDto, handled: Handled, now: number): AgendaDto {
   const snoozed = new Set(Object.entries(handled).filter(([, entry]) => entry.kind === 'snooze' && entry.until !== null && now < entry.until)
@@ -89,6 +146,7 @@ export function withoutSnoozed(agenda: AgendaDto, handled: Handled, now: number)
   return snoozed.size === 0 ? agenda : { ...agenda, items: agenda.items.filter(item => !snoozed.has(attentionKey(item.target)?.toLowerCase() ?? '')) };
 }
 
+/** The keys of today's open items, for the Today tag beside a My work card or Needs attention row. */
 export function todayKeys(agenda: AgendaDto | null): ReadonlySet<string> {
   if (agenda === null) return new Set();
   return new Set(agenda.items.filter(item => item.status === 'open').map(item => attentionKey(item.target)).filter((key): key is string => key !== null));

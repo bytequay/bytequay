@@ -181,29 +181,24 @@ async function ticketLinksOverThePage(): Promise<void> {
   });
 }
 
-async function homeRowsOverHome(): Promise<void> {
+async function myWorkOverHome(): Promise<void> {
   await withApp('#/home', async () => {
-    const row = () => [...document.querySelectorAll<HTMLElement>('.item-row')].find(item => item.textContent?.includes(ticket.title)) ?? null;
-    await until(() => row() !== null, 'Home lists the Jira ticket');
-    row()?.click();
-    await until(() => ticketLayer()?.matches(':modal') ?? false, 'The Home row opened the ticket');
+    const card = () => [...document.querySelectorAll<HTMLElement>('.mw-card')].find(item => item.textContent?.includes(ticket.title)) ?? null;
+    await until(() => card() !== null, 'My work lists the Jira ticket');
+    card()?.click();
+    await until(() => ticketLayer()?.matches(':modal') ?? false, 'The My work card opened the ticket');
     assert(window.location.hash === '#/home' && onTop(ticketLayer()), 'The ticket is drawn over Home instead of leaving it');
-    ticketLayer()?.querySelector<HTMLButtonElement>('button[aria-label="Close ticket"]')?.click();
-    await until(() => ticketLayer() === null && row() === null, 'Closing the viewed ticket clears its notification on Home');
-    ticket.updatedAt = new Date(Date.parse(ticket.updatedAt) + 60_000).toISOString();
-    notifyJiraChanged();
-    await until(() => row() !== null, 'A later ticket update returns to Home');
 
-    row()?.querySelector<HTMLButtonElement>(`button[aria-label="Start development for ${ticket.key}"]`)?.click();
+    [...ticketLayer()?.querySelectorAll('button') ?? []].find(button => button.textContent === 'Start development')?.click();
     const assignment = () => document.querySelector<HTMLDialogElement>(`dialog[aria-label="Assign workspace for ${ticket.key}"]`);
-    await until(() => assignment()?.matches(':modal') ?? false, 'Starting from Home asks for the ticket workspace');
+    await until(() => assignment()?.matches(':modal') ?? false, 'Starting from the ticket asks for its workspace');
     assert(window.location.hash === '#/home' && ticketLayer() !== null && onTop(assignment()), 'Development starts over the ticket, which stays over Home');
   });
 }
 
 async function localWorkAndTasksOverEpic(): Promise<void> {
   await withApp('#/home', async () => {
-    await until(() => document.querySelector('.item-row') !== null, 'Home is ready');
+    await until(() => document.querySelector('.mw-card') !== null, 'Home is ready');
     const workspace: WorkspaceDto = { id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository', selectedOwner: 'owner', selectedRepo: 'repository',
       topology: 'DIRECT', localRepositoryPath: '/managed/repository', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,
       selectedRepositoryId: 40, monitoredRepositoryId: 40, upstreamRepositoryId: null, lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0 };
@@ -265,7 +260,7 @@ async function localWorkAndTasksOverEpic(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results = await runScenarios([
     ['links open tickets, issues and web pages on top of whatever opened them', ticketLinksOverThePage],
-    ['Home Jira rows open and start tickets on top of Home', homeRowsOverHome],
+    ['My work opens and starts tickets on top of Home', myWorkOverHome],
     ['Local Epic cards and task links retain the underlying layers', localWorkAndTasksOverEpic],
   ]);
   return results;

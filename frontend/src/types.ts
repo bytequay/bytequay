@@ -1767,7 +1767,6 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   fetchGitHubIssuePreview: (owner: string, repo: string, number: number) => Promise<GitHubIssuePreviewDto>;
   fetchGitHubCodeSnippet: (request: GitHubCodeSnippetRequest) => Promise<GitHubCodeSnippetDto>;
-  getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
   getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
   getTeams: () => Promise<TeamDirectory>;
   fetchTeamContributors: () => Promise<RepositoryMetadataDto['contributors']>;

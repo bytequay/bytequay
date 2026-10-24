@@ -14,7 +14,8 @@
 import { useJiraAttention } from '../jira/attention';
 import { linkTasks, useTaskAttention } from '../agents/attention';
 import { jiraIssueLocation } from '../jira/contracts';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronRight, X } from 'lucide-react';
 import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
@@ -32,7 +33,9 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
-import TodayList from './TodayList';
+import MyWork, { useLocalWork } from './MyWork';
+import { isOwnWork, myWorkItems } from './work';
+import TodayList, { useWideWindow } from './TodayList';
 import { todayKeys } from './today';
 import { useTodayAgenda } from './useTodayAgenda';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
@@ -92,7 +95,6 @@ function HomePage({
 }: Props) {
   const [profile, setProfile] = useState<UserProfileDto | null>(() => getCached<UserProfileDto>(SEED.profile) ?? null);
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.workspaces) ?? []);
-  const [events, setEvents] = useState<RecentEventDto[]>([]);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(() => getCached<PullRequestDto[]>(SEED.prs) ?? null);
   const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(
@@ -104,6 +106,9 @@ function HomePage({
   const [loading, setLoading] = useState(() => getCached(SEED.workspaces) === undefined);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
+  // Below the wide width the rail is a drawer and Today moves above My work.
+  const wide = useWideWindow();
+  const [drawer, setDrawer] = useState(false);
   const [handled, setHandled] = useState<Handled>(loadHandled);
   const today = useTodayAgenda();
   const onToday = useMemo(() => todayKeys(today.agenda), [today.agenda]);
@@ -195,7 +200,6 @@ function HomePage({
   useEffect(() => {
     if (!login) return;
     const feeds = [
-      { key: `activity:recent:${login}`, read: () => window.bridge.getRecentActivity(login), apply: setEvents },
       { key: `activity:following:${login}`, read: () => window.bridge.getFollowingActivity(login), apply: setFollowingEvents },
     ];
     let cancelled = false;
@@ -274,6 +278,23 @@ function HomePage({
     })).concat(jira.items, tasks.items), login), tasks.tasks),
     [attentionPrs, issueItems, jira.items, login, tasks.items, tasks.tasks, workspaces]);
 
+  const localWork = useLocalWork(workspaceKey);
+  const work = useMemo(() => myWorkItems({ candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null }),
+    [candidates, localWork, login, tasks.activity, tasks.tasks]);
+  // Needs attention keeps what others ask of you; your own work, and anything My work already lists, stays there.
+  const skipOwn = useMemo(() => {
+    const listed = new Set(work.flatMap(item => item.keys));
+    return (item: AttentionItem) => isOwnWork(item, login ?? null) || listed.has(item.key.toLowerCase());
+  }, [login, work]);
+
+  useEffect(() => {
+    if (!drawer) return;
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setDrawer(false); };
+    document.addEventListener('keydown', close);
+    return () => document.removeEventListener('keydown', close);
+  }, [drawer]);
+  const closeDrawer = useCallback(() => setDrawer(false), []);
+
   function applyHandled(next: Handled) {
     setHandled(next);
     saveHandled(next);
@@ -288,22 +309,33 @@ function HomePage({
     });
   }
 
+  const todayList = <TodayList today={today} scope="global" facts={candidates} />;
+
   return (
     <div className="home-page">
       <main className="home-main">
+      {!wide && (
+        <div className="home-main__bar">
+          <button type="button" className="atn-approved__toggle" aria-expanded={drawer} onClick={() => setDrawer(value => !value)}>
+            Activity <ChevronRight size={12} aria-hidden="true" />
+          </button>
+        </div>
+      )}
       {/* ── Contribution card: graph + bio ── */}
       <ContributionCard profile={profile} />
-      <TodayList today={today} scope="global" />
+      {!wide && todayList}
+
+      {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
+      <MyWork items={work} todayKeys={onToday} />
 
       {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
-      {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
       {issueAttentionError && <div className="ws-error" role="alert">{issueAttentionError}</div>}
       <AttentionList
         candidates={candidates}
+        skip={skipOwn}
         todayKeys={onToday}
         handled={handled}
         viewerLogin={login ?? null}
-        jiraConnected={jira.connected}
         onHandledChange={applyHandled}
         onOpen={item => {
           if (item.task) { window.location.hash = workspaceAgentTaskRoute(item.task.dto.workspaceId, item.task.dto.id); return; }
@@ -339,54 +371,42 @@ function HomePage({
 
       </main>
 
-      {/* ── Right panel: GitHub activity + Following activity ── */}
-      <aside className="home-side">
-        <section className="home-side-section home-side-section--recent-activity">
-          <h3 className="home-side-section__title">GitHub activity</h3>
-          {events.length === 0 ? (
-            <div className="hp-empty">No recent activity yet.</div>
-          ) : (
-            <div className="home-following-list">
-              {groupRecentEvents(events).slice(0, 7).map((e, i) => (
-                <ActivityRow
-                  key={i}
-                  event={e}
-                  actor={null}
-                  showActorName={false}
-                  formatTime={iso => relativeTime(iso, { suffix: false })}
-                  onOpenUrl={openActivityLink}
-                />
-              ))}
+      {/* ── Right rail: Today, then activity from people you follow; a drawer on narrower windows ── */}
+      {(wide || drawer) && (
+        <aside className={`home-side${wide ? '' : ' is-drawer'}`} aria-label={wide ? undefined : 'Activity'}>
+          {!wide && (
+            <div className="home-side__close">
+              <button type="button" className="card-iconbtn" aria-label="Close activity" title="Close" onClick={closeDrawer}><X size={14} aria-hidden="true" /></button>
             </div>
           )}
-        </section>
-
-        <section className="home-side-section">
-          <h3 className="home-side-section__title">From people you follow</h3>
-          {followingEvents.length === 0 ? (
-            <div className="hp-empty">No recent activity from people you follow.</div>
-          ) : (
-            <div className="home-following-list">
-              {groupRecentEvents(followingEvents).map((e, i) => (
-                <ActivityRow
-                  key={i}
-                  event={e}
-                  actor={e.actorLogin
-                    ? {
-                      login: e.actorLogin,
-                      profileUrl: `https://github.com/${e.actorLogin}`,
-                      avatarUrl: e.actorAvatarUrl,
-                    }
-                    : null}
-                  showActorName={true}
-                  formatTime={iso => relativeTime(iso, { suffix: false })}
-                  onOpenUrl={openActivityLink}
-                />
-              ))}
-            </div>
-          )}
-        </section>
-      </aside>
+          {wide && <>{todayList}<hr className="home-side__divider" /></>}
+          <section className="home-side-section">
+            <h3 className="home-side-section__title">From people you follow</h3>
+            {followingEvents.length === 0 ? (
+              <div className="hp-empty">No recent activity from people you follow.</div>
+            ) : (
+              <div className="home-following-list">
+                {groupRecentEvents(followingEvents).map((e, i) => (
+                  <ActivityRow
+                    key={i}
+                    event={e}
+                    actor={e.actorLogin
+                      ? {
+                        login: e.actorLogin,
+                        profileUrl: `https://github.com/${e.actorLogin}`,
+                        avatarUrl: e.actorAvatarUrl,
+                      }
+                      : null}
+                    showActorName={true}
+                    formatTime={iso => relativeTime(iso, { suffix: false })}
+                    onOpenUrl={openActivityLink}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </aside>
+      )}
 
       {showModal && (
         <AddRepoModal

@@ -28,14 +28,10 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.ZonedDateTime;
 import java.util.List;
 import java.util.regex.Pattern;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -125,16 +121,6 @@ public class RepoService
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "code line range not found");
         }
         return ImmutableList.copyOf(lines);
-    }
-
-    public List<RecentEvent> getRecentEvents(String login)
-    {
-        checkText(login, "login");
-        Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
-                .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-        return accounts.fetchUserEvents(credentialService.resolveGitHubToken(), login, 100).stream()
-                .filter(event -> event.createdAt() != null && !event.createdAt().isBefore(monthStart))
-                .collect(toImmutableList());
     }
 
     public List<RecentEvent> getFollowingEvents(String login)

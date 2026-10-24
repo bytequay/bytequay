@@ -45,6 +45,8 @@ const MENU_WIDTH = 210;
 /** Header plus three options; kept in step with .atn-menu in home.css. */
 const MENU_HEIGHT = 130;
 const FILTERS: AttentionFilter[] = ['all', 'pr', 'issue', 'jira', 'task'];
+/** Home lists only what others ask of you; tickets and tasks, being your own work, are in My work. */
+const HOME_FILTERS: AttentionFilter[] = ['all', 'pr', 'issue'];
 const OPEN_ONLY_KEY = 'bytequay.attention.openOnly';
 
 function loadOpenOnly(): boolean {
@@ -65,15 +67,17 @@ type Props = {
   scope?: { workspaceId: string; repository: string };
   /** Whether Jira is connected; without it there is no Jira tab unless a Jira card is listed anyway. */
   jiraConnected?: boolean;
-  /** The lower-case keys of today's open agenda items, which a row marks with a sun. */
+  /** The lower-case keys of today's open agenda items, which a row marks with a Today tag. */
   todayKeys?: ReadonlySet<string>;
+  /** Items another section lists, which this one leaves out, snoozed reminders included. */
+  skip?: (item: AttentionItem) => boolean;
 };
 
 type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, jiraConnected = false, todayKeys,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, jiraConnected = false, todayKeys, skip,
 }: Props) {
   const myPrs = section === 'my-prs';
   const title = myPrs ? 'My PRs' : 'Needs attention';
@@ -101,8 +105,8 @@ export default function AttentionList({
   const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
     .filter(item => !(variant === 'workspace' && item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin))
-      && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null));
-  const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
+      && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null) && skip?.(item) !== true);
+  const filters = (variant === 'home' ? HOME_FILTERS : FILTERS).filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
   const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()))
     : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
   const approved = myPrs ? [] : approvedPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()));
@@ -149,7 +153,8 @@ export default function AttentionList({
   const startable = (item: AttentionItem) => item.type === 'issue' && item.canStartDevelopment !== false && onStartIssue !== undefined && item.issueState !== 'closed'
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
-  return <>
+  // Home sets Approved by me beside Needs attention; a workspace stacks them.
+  return <div className={`atn-pair is-${variant}${approved.length > 0 ? ' has-approved' : ''}`}>
     <section className={`atn-section is-${variant}`} aria-label={title}>
       <div className="atn-head">
         <span className="atn-head__label">{title}</span>
@@ -196,6 +201,7 @@ export default function AttentionList({
                 circle={match === null ? null : { match, circles: [match.circle] }}
                 viewerLogin={viewerLogin}
                 showRepo={variant === 'home'}
+                compact
                 onToday={todayKeys?.has(item.key.toLowerCase()) ?? false}
                 onOpen={() => onOpen(item)}
                 onAcknowledge={myPrs ? undefined : () => acknowledge(item)}
@@ -214,7 +220,7 @@ export default function AttentionList({
           {sessionItems.map(item => {
             const match = teamAttentionMatch(item, circles, viewerLogin);
             return (
-              <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'}
+              <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'} compact
                 circle={match === null ? null : { match, circles: [match.circle] }}
                 onToday={todayKeys?.has(item.key.toLowerCase()) ?? false} onOpen={() => onOpen(item)} />
             );
@@ -248,7 +254,7 @@ export default function AttentionList({
           {(showAllApproved ? approved : approved.slice(0, 3)).map(item => {
             const match = teamAttentionMatch(item, circles, viewerLogin);
             return (
-              <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'}
+              <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'} compact
                 circle={match === null ? null : { match, circles: [match.circle] }}
                 onToday={todayKeys?.has(item.key.toLowerCase()) ?? false} onOpen={() => onOpen(item)} />
             );
@@ -256,7 +262,7 @@ export default function AttentionList({
         </div>
       </section>
     )}
-  </>;
+  </div>;
 }
 
 /** The snooze choices, under the button that asked for them; a click anywhere else closes them. */

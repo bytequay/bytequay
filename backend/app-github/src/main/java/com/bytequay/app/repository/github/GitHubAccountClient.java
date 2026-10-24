@@ -460,20 +460,11 @@ public class GitHubAccountClient
 
     // ── Events ────────────────────────────────────────────────────────────────
 
-    public List<RecentEvent> fetchUserEvents(String pat, String login, int limit) {
-        return fetchEventList("/users/{login}/events", pat, login, limit);
-    }
-
     public List<RecentEvent> fetchReceivedEvents(String pat, String login, int limit) {
-        return fetchEventList("/users/{login}/received_events", pat, login, limit);
-    }
-
-    private List<RecentEvent> fetchEventList(
-            String pathTemplate, String pat, String login, int limit) {
         try {
             List<GitHubEventItem> items =
                     get(gitHubRestClient, pat, u ->
-                                    u.path(pathTemplate)
+                                    u.path("/users/{login}/received_events")
                                             .queryParam("per_page", Math.min(limit, 100))
                                             .build(login))
                             .retrieve()

@@ -17,8 +17,6 @@ import com.bytequay.app.repository.github.GitHubAccountClient.GitHubEventItem;
 import com.bytequay.core.domain.RecentEvent;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 
@@ -74,14 +72,13 @@ class TestGitHubAccountClientEvents
         assertEquals("approved", mapped.reviewState());
     }
 
-    @ParameterizedTest
-    @ValueSource(strings = {"events", "received_events"})
-    void returnsNewestEventsFirstBeforeApplyingLimit(String feed)
+    @Test
+    void returnsNewestEventsFirstBeforeApplyingLimit()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
         GitHubAccountClient client = new GitHubAccountClient(builder.build(), RestClient.create());
-        server.expect(requestTo("https://api.github.com/users/octocat/" + feed + "?per_page=2"))
+        server.expect(requestTo("https://api.github.com/users/octocat/received_events?per_page=2"))
                 .andRespond(withSuccess("""
                         [
                           {"type":"PushEvent","created_at":"2026-09-29T00:00:00Z"},
@@ -91,7 +88,7 @@ class TestGitHubAccountClientEvents
                         ]
                         """, APPLICATION_JSON));
 
-        List<RecentEvent> events = feed.equals("events") ? client.fetchUserEvents("token", "octocat", 2) : client.fetchReceivedEvents("token", "octocat", 2);
+        List<RecentEvent> events = client.fetchReceivedEvents("token", "octocat", 2);
 
         assertEquals(ImmutableList.of(Instant.parse("2026-10-12T09:41:00Z"), Instant.parse("2026-10-12T09:00:00Z")), events.stream().map(RecentEvent::createdAt).toList());
         server.verify();

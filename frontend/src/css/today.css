@@ -1,5 +1,5 @@
 /* ── Today ───────────────────────────────────────────────────────
-   The daily agenda above Needs attention (home/TodayList.tsx): the same compact header and box of rows (cards.css), nothing bold. */
+   The daily agenda at the top of Home's rail (home/TodayList.tsx): the same compact header and box of rows (cards.css), nothing bold. */
 
 .today {
   display: flex;
@@ -114,18 +114,6 @@
   animation: bq-spin 0.9s linear infinite;
 }
 
-.today-summary {
-  display: -webkit-box;
-  margin: 0;
-  overflow: hidden;
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--fg-muted);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  text-wrap: pretty;
-}
-
 .today-line {
   font-size: 13px;
   line-height: 18px;
@@ -168,44 +156,195 @@
   color: var(--text-2);
 }
 
-.today-row .item-row__meta {
-  flex-wrap: nowrap;
+/* A row: its check, a line of title and reference, a line of reason chips, and the reason and actions once opened. */
+.today-row {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: start;
+  padding: 10px 12px 10px 14px;
+  background: var(--surface-canvas);
+  cursor: pointer;
+}
+
+.item-list > [role="listitem"] + [role="listitem"] > .today-row {
+  border-top: 1px solid light-dark(#f0f0f2, var(--dark-border-muted));
+}
+
+.today-row:hover,
+.today-row.is-open {
+  background: light-dark(#f6f8fa, var(--dark-subtle));
+}
+
+.today-row > .card-age {
+  padding-top: 1px;
+}
+
+.today-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 15px;
+  height: 15px;
+  margin-top: 2px;
+  padding: 0;
+  border: 1.4px solid var(--text-4);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--surface-canvas);
+  cursor: pointer;
+}
+
+.today-check:hover {
+  border-color: var(--fg-success);
+}
+
+.today-check:focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 2px;
+}
+
+.today-row.is-done .today-check {
+  border-color: var(--fg-success);
+  background: var(--fg-success);
+}
+
+.today-row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   min-width: 0;
 }
 
-.today-row__where {
-  flex: none;
-  white-space: nowrap;
+.today-row__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
 }
 
-.today-row__why {
+.today-row__title {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-3);
+  font-size: 13.5px;
+  line-height: 19px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.today-row__done {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-3);
-  white-space: nowrap;
-}
-
-.today-row.is-done .item-row__title > span:first-child {
+.today-row.is-done .today-row__title {
   color: var(--text-3);
   text-decoration: line-through;
 }
 
-.today-row.is-done .today-row__icon {
-  color: var(--text-4);
+.today-row__ref {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--fg-dim);
+  white-space: nowrap;
 }
 
-.today-row__reopen {
-  flex: none;
+.today-row__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.today-reason {
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, currentColor 40%, transparent);
+  border-radius: 999px;
+  font-size: 11.5px;
+  line-height: 17px;
+  white-space: nowrap;
+}
+
+.today-reason.is-red { color: var(--fg-danger); }
+.today-reason.is-amber { color: var(--fg-warning); }
+.today-reason.is-blue { color: var(--fg-link); }
+.today-reason.is-green { color: var(--fg-success); }
+.today-reason.is-neutral { color: var(--fg-muted); }
+
+.today-row__more {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.today-row__why {
+  margin: 0;
+  font-size: 13px;
+  line-height: 19px;
   color: var(--text-2);
+  text-wrap: pretty;
+}
+
+.today-row__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.today-row__actions > .bq-button {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+  font-weight: 400;
+}
+
+/* The header's done share: a 64px bar beside done/total. */
+.today-progress {
+  display: inline-flex;
+  width: 64px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: light-dark(#eceef1, var(--dark-border-muted));
+}
+
+.today-progress > span {
+  background: var(--fg-success);
+}
+
+/* A workspace Home's Today: a bordered card in the corner, its rows on its own white. */
+.today--card {
+  margin-top: 0;
+  padding: 12px 10px 10px;
+  border: 1px solid light-dark(#e3e3e6, var(--dark-border));
+  border-radius: 12px;
+  background: var(--surface-canvas);
+}
+
+.today--card .today-head {
+  padding: 0 6px;
+}
+
+.today-head__name {
+  font-size: 13.5px;
+  color: var(--text-1);
+}
+
+.today--card .today-list {
+  border: 0;
+  border-radius: 0;
+}
+
+.today--card .today-row {
+  padding: 7px 6px;
+  border-radius: 7px;
+  background: transparent;
+}
+
+.today--card .item-list > [role="listitem"] + [role="listitem"] > .today-row {
+  border-top: 0;
+}
+
+.today--card .today-row:hover,
+.today--card .today-row.is-open {
+  background: light-dark(#f6f8fa, var(--dark-subtle));
 }
 
 /* "This week": a last row that unfolds the recap. */
@@ -282,11 +421,16 @@
   background: light-dark(#f6f8fa, var(--dark-subtle));
 }
 
-/* The sun beside a Needs attention row that is also on Today. */
-.today-mark {
-  display: inline-flex;
+/* Beside a title in My work and Needs attention: the item is also on Today. */
+.today-tag {
   flex: none;
-  color: var(--text-3);
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--bg-info);
+  color: var(--fg-link);
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
 }
 
 /* Today's items for this repository, first among the composer's starting points (agents/AgentHome.tsx). */

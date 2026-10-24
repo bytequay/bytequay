@@ -1898,8 +1898,6 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/repos/${encodeURIComponent(request.owner)}/${encodeURIComponent(request.repo)}/code-snippet?${new URLSearchParams({
       commit: request.commit, path: request.path, startLine: String(request.startLine), endLine: String(request.endLine),
     })}`));
-  ipcMain.handle('repos:activity', (_event, login: string) =>
-    backendJson(`${backendBase()}/api/activity/recent?${new URLSearchParams({ login })}`));
   ipcMain.handle('repos:following', (_event, login: string) =>
     backendJson(`${backendBase()}/api/activity/following?${new URLSearchParams({ login })}`));
 

@@ -35,7 +35,7 @@ import '../css/today.css';
 
 let preferences: AppPreferencesDto = { theme: 'LIGHT', taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60 };
 const surfaces = [
-  ['Home', 'home-page'], ['Today', 'today-summary'], ['Workspaces', 'ws-card'], ['Pull requests', 'pulls-toolbar-button'],
+  ['Home', 'home-page'], ['Today', 'today-row__why'], ['Workspaces', 'ws-card'], ['Pull requests', 'pulls-toolbar-button'],
   ['Recent', 'rc-menu'], ['Commits', 'cmt-root'], ['Agents', 'agt-compose'],
   ['Epics', 'epic-view__sync'], ['Memory', 'mem-head'], ['Repository context', 'rcp'],
   ['Tears of time', 'ct'], ['Settings', 'setw-btn'], ['Jira', 'jira-btn'], ['Circles', 'cir-page'],

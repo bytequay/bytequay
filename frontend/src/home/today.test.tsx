@@ -17,8 +17,9 @@ import type { AgendaCalendarDto, AgendaDto, AgendaItemDto, AgendaTargetDto } fro
 import { AgentHomeView } from '../agents/AgentHome';
 import { inQuietHours } from '../settings/FeaturesPage';
 import TodayList from './TodayList';
-import { allDone, attentionKey, calendarFact, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayKeys, todayRows, whereText, withoutSnoozed } from './today';
-import type { Handled } from './attention';
+import { allDone, attentionKey, calendarFact, doneRatio, doneText, hiddenCount, recapLabel, showsToday, todayChips, todayKeys, todayRows, whereText, withoutSnoozed } from './today';
+import { pullRequestItem, type Handled } from './attention';
+import { pr } from '../pulls/fixtures/pullRequest';
 import type { TodayAgenda } from './useTodayAgenda';
 
 const pull = (repo: string, number: number): AgendaTargetDto =>
@@ -135,23 +136,37 @@ describe('the Today section', () => {
     expect(failed).toContain('Make again</button>');
   });
 
-  it('shows the summary and rows on global Home, but neither summary nor recap on a workspace Home', () => {
+  it('shows rows of chips without the summary, and the recap only on global Home', () => {
     const value = agenda({
       items: [item('pr:owner/repository#31377', 'open'), item('pr:owner/repository#31390', 'done', { doneText: 'Checks passed' })],
       recap: { text: 'Merged 3 PRs.', merged: [{ ref: 'pr:x', target: pull('owner/repository', 31390) }], slipped: [] },
     });
     const global = render(value);
-    expect(global).toContain('Your conflict-retry fix merged last night.');
+    expect(global).not.toContain('Your conflict-retry fix merged last night.');
     expect(global).toContain('1/2');
-    expect(global).toContain('owner/repository #31377');
-    expect(global).toContain('Asked 3 days ago.');
-    expect(global).toContain('Checks passed');
+    expect(global).toContain('<span class="today-row__ref">repository#31377</span>');
+    // The reason waits for the row to open; a done row says what closed it.
+    expect(global).not.toContain('today-row__why');
+    expect(global).toContain('<span class="today-reason is-green">Checks passed</span>');
     expect(global).toContain('This week');
     expect(global).not.toContain('<b>');
     const workspace = render(value, 'workspace');
-    expect(workspace).not.toContain('Your conflict-retry fix merged last night.');
     expect(workspace).not.toContain('This week');
-    expect(workspace).toContain('#31377');
+    expect(workspace).toContain('<span class="today-row__ref">#31377</span>');
+  });
+
+  it('makes at most three chips from what the page holds, the blocking ones first', () => {
+    const now = Date.parse('2026-10-16T12:00:00Z');
+    const open = item('pr:owner/repository#31377', 'open', { at: '2026-10-05T00:00:00Z' });
+    const row = pr({ repo: 'owner/repository', number: 31377, ciStatus: 'FAILING', mergeableState: 'blocked',
+      commitsSinceReview: [{ sha: 'a', message: 'Fix', actor: 'bob', committedAt: '2026-10-15T00:00:00Z' }] });
+    const fact = { ...pullRequestItem(row), pr: row };
+    expect(todayChips(open, fact, now)).toEqual([
+      { text: 'Waiting 11d', tone: 'red' }, { text: 'CI failing', tone: 'red' }, { text: 'Merge blocked', tone: 'red' },
+    ]);
+    expect(todayChips({ ...open, at: '2026-10-14T00:00:00Z' }, { ...fact, pr: { ...row, ciStatus: 'PASSING', mergeableState: 'clean' } }, now))
+      .toEqual([{ text: 'Waiting 2d', tone: 'amber' }, { text: '+1 commit', tone: 'neutral' }]);
+    expect(todayChips({ ...open, at: null, action: 'reply' }, undefined, now)).toEqual([{ text: 'Reply', tone: 'neutral' }]);
   });
 
   it('folds to its header once every item is done, and says so on a quiet day', () => {

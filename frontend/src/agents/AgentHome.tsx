@@ -17,8 +17,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CircleDot, Eye, EyeOff, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import AttentionList from '../home/AttentionList';
-import TodayList, { ACTION_ICONS, openTarget } from '../home/TodayList';
-import { todayKeys } from '../home/today';
+import TodayList, { ACTION_ICONS, openTarget, useWideWindow } from '../home/TodayList';
+import { showsToday, todayKeys } from '../home/today';
 import { useTodayAgenda, type TodayAgenda } from '../home/useTodayAgenda';
 import { Card, CardActions, IconButton, Pill } from '../cards/Card';
 import type { AttentionItem, Handled } from '../home/attention';
@@ -221,6 +221,7 @@ export function AgentHomeView({
 }): React.JSX.Element {
   const { draft, images = [], laneId, providers, models, selection, busy = false, attaching = false, onDraftChange } = composer;
   const availability = useAgentAvailability(workspaceId);
+  const wide = useWideWindow();
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, error, headerAction }} />;
   const [owner, repo = ''] = repository.split('/');
   const onToday = todayKeys(today?.agenda ?? null);
@@ -230,6 +231,8 @@ export function AgentHomeView({
     ...tasks.map(task => developmentItem(task, activity[task.id] ?? null, changes[task.id] ?? null, providers)),
     ...reviews.map(reviewItem).filter(item => item.state.label === 'Running' || item.state.label === 'Needs you'),
   ].sort((left, right) => Number(right.state.spinning) - Number(left.state.spinning));
+  // A card in the corner beside the page on wide windows, else at the top of the page.
+  const todayCard = today === undefined || !showsToday(today.agenda, 'workspace') ? null : <TodayList today={today} scope="workspace" variant="card" facts={attention} />;
   return (
     <div className="agt-home">
       <div className="agt-page">
@@ -239,7 +242,7 @@ export function AgentHomeView({
           <span className="agt-spacer" />
           {headerAction}
         </div>
-        {today !== undefined && <TodayList today={today} scope="workspace" />}
+        {!wide && todayCard}
         {attentionError && <div className="ws-error" role="alert">{attentionError}</div>}
         <AttentionList
           variant="workspace"
@@ -318,6 +321,7 @@ export function AgentHomeView({
           <TaskComposer {...composer} workspaceId={workspaceId} backport />
         </ComposerDock>}
       </div>
+      {wide && todayCard !== null && <aside className="agt-today">{todayCard}</aside>}
     </div>
   );
 }

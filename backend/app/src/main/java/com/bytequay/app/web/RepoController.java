@@ -100,12 +100,6 @@ public class RepoController
         return workspaces.searchRepositories(query, limit);
     }
 
-    @GetMapping("/activity/recent")
-    public List<RecentEvent> getRecentActivity(@RequestParam("login") String login)
-    {
-        return repos.getRecentEvents(login);
-    }
-
     @GetMapping("/activity/following")
     public List<RecentEvent> getFollowingActivity(@RequestParam("login") String login)
     {

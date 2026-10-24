@@ -3578,6 +3578,8 @@ button:is(.agt-type-chip, .agt-type-tile) {
 /* ── Workspace Home: header, attention, open tasks, docked composer with starting points ── */
 
 .agt-home {
+  display: flex;
+  align-items: flex-start;
   height: 100%;
   overflow: auto;
 }
@@ -3586,6 +3588,20 @@ button:is(.agt-type-chip, .agt-type-tile) {
   width: 100%;
   max-width: 900px;
   margin: 0 auto;
+}
+
+/* Today as a card in the corner, level with Needs attention and in view while the page scrolls; no rail of its own. */
+.agt-today {
+  position: sticky;
+  top: 0;
+  flex: none;
+  box-sizing: border-box;
+  width: 380px;
+  padding: 78px 16px 22px 0;
+}
+
+.agt-page > .today--card {
+  margin-top: 22px;
 }
 
 .agt-page-head {

@@ -192,7 +192,6 @@ const bridge: Bridge = {
   getUserCommitsOnDate: invoke('repos:contribution-day'),
   fetchGitHubIssuePreview: invoke('repos:issue-preview'),
   fetchGitHubCodeSnippet: invoke('repos:code-snippet'),
-  getRecentActivity: invoke('repos:activity'),
   getFollowingActivity: invoke('repos:following'),
   getTeams: invoke('teams:list'),
   fetchTeamContributors: invoke('teams:contributors'),

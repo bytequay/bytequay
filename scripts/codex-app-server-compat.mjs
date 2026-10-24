@@ -65,6 +65,8 @@ function recordBinding(javaType, mode, sources, components) {
   return { javaType, mode, sources, components };
 }
 
+const userInputQuestionSample = { id: "value", header: "value", question: "value" };
+
 const referenceRecordBindings = [
   recordBinding("TurnStartedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/started"),
@@ -617,6 +619,36 @@ const referenceRecordBindings = [
     schemaSource("all", "PermissionsRequestApprovalResponse"),
   ], [component("permissions"), sampledComponent("scope"), component("strictAutoReview")]),
   recordBinding("ModelListParams", "encode", [schemaSource("v2", "ModelListParams")], []),
+  recordBinding("UserInputRequest", "decode", [
+    schemaSource("all", "ServerRequest", "method", "item/tool/requestUserInput"),
+  ], [component("id"), component("params", "params", {
+    threadId: "value", turnId: "value", itemId: "value", isBlocking: false, questions: [userInputQuestionSample],
+  })]),
+  recordBinding("UserInputParams", "decode", [schemaSource("all", "ToolRequestUserInputParams")], [
+    component("threadId"),
+    component("turnId"),
+    component("itemId"),
+    component("isBlocking"),
+    component("questions", "questions", [userInputQuestionSample]),
+  ]),
+  recordBinding("UserInputQuestion", "decode", [schemaSource("all", "ToolRequestUserInputQuestion")], [
+    component("id"),
+    component("header"),
+    component("question"),
+    component("isOther"),
+    component("isSecret"),
+    component("options", "options", [{ label: "value", description: "value" }]),
+  ]),
+  recordBinding("UserInputOption", "decode", [schemaSource("all", "ToolRequestUserInputOption")], [
+    component("label"),
+    component("description"),
+  ]),
+  recordBinding("UserInputResponse", "encode", [schemaSource("all", "ToolRequestUserInputResponse")], [
+    component("answers", "answers", { value: { answers: ["value"] } }),
+  ]),
+  recordBinding("UserInputAnswer", "encode", [schemaSource("all", "ToolRequestUserInputAnswer")], [
+    component("answers", "answers", ["value"]),
+  ]),
 ];
 
 const referenceEnumBindings = [

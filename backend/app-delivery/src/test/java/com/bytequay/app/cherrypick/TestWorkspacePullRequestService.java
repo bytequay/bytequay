@@ -13,9 +13,7 @@
  */
 package com.bytequay.app.cherrypick;
 
-import com.bytequay.app.cherrypick.WorkspacePullRequestService.PullRequestCommand;
 import com.bytequay.app.cherrypick.WorkspacePullRequestService.PullRequestResult;
-import com.bytequay.app.cherrypick.WorkspacePullRequestService.PushCommand;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubAccountClient;
@@ -88,11 +86,10 @@ class TestWorkspacePullRequestService
     void rejectsDependencyDeliveryWithoutDiscardingWork()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
+        BackportChain chain = chain(fixture);
         doThrow(new IllegalArgumentException("Dependency transfer blocked")).when(fixture.relationships())
                 .requireTransferAllowed(org.mockito.ArgumentMatchers.<Optional<RepoRef>>any(), any());
-        assertThatThrownBy(() -> fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)))
-                .hasMessage("Dependency transfer blocked");
-        assertThatThrownBy(() -> fixture.service().createPullRequest(new PullRequestCommand("workspace", fixture.executionId(), true)))
+        assertThatThrownBy(() -> fixture.service().deliverChain(chain.id(), 0, false))
                 .hasMessage("Dependency transfer blocked");
         verifyNoInteractions(fixture.git(), fixture.pullRequests());
     }
@@ -101,12 +98,10 @@ class TestWorkspacePullRequestService
     void directDeliveryPushesOriginAndCreatesPullRequestInSelectedRepository()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
+        BackportChain chain = chain(fixture);
 
-        fixture.service().push(new PushCommand("workspace", fixture.executionId(), true));
-        PullRequestResult result = fixture.service().createPullRequest(
-                new PullRequestCommand("workspace", fixture.executionId(), true));
-        PullRequestResult repeated = fixture.service().createPullRequest(
-                new PullRequestCommand("workspace", fixture.executionId(), true));
+        PullRequestResult result = fixture.service().deliverChain(chain.id(), 0, false);
+        PullRequestResult repeated = fixture.service().deliverChain(chain.id(), 0, false);
 
         verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
@@ -126,10 +121,9 @@ class TestWorkspacePullRequestService
     void forkDeliveryPushesForkOriginAndTargetsUpstream()
     {
         Fixture fixture = fixture(forkWorkspace(), forkRepository(true));
+        BackportChain chain = chain(fixture);
 
-        fixture.service().push(new PushCommand("workspace", fixture.executionId(), true));
-        PullRequestResult result = fixture.service().createPullRequest(
-                new PullRequestCommand("workspace", fixture.executionId(), true));
+        PullRequestResult result = fixture.service().deliverChain(chain.id(), 0, false);
 
         verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests()).createPullRequest(
@@ -151,10 +145,10 @@ class TestWorkspacePullRequestService
     void forkDeliveryKeepsTheConfirmedReleaseBranchInsteadOfTheCurrentDefault()
     {
         Fixture fixture = fixture(forkWorkspace(), forkRepository(true), "release/478");
+        BackportChain chain = chain(fixture);
         assertThat(fixture.workspace().upstreamDefaultBranch()).contains("main");
 
-        assertThat(fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)).remote()).isEqualTo("origin");
-        PullRequestResult result = fixture.service().createPullRequest(new PullRequestCommand("workspace", fixture.executionId(), true));
+        PullRequestResult result = fixture.service().deliverChain(chain.id(), 0, false);
 
         verify(fixture.git()).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
         verify(fixture.pullRequests()).createPullRequest(
@@ -167,17 +161,15 @@ class TestWorkspacePullRequestService
     void retriesLocalActivationWithoutCreatingASecondRemotePullRequest()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
-        fixture.service().push(new PushCommand("workspace", fixture.executionId(), true));
+        BackportChain chain = chain(fixture);
         doThrow(new RuntimeException("projection failed"))
                 .doNothing()
                 .when(fixture.pullRequestCatalog())
                 .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
 
-        assertThatThrownBy(() -> fixture.service().createPullRequest(
-                new PullRequestCommand("workspace", fixture.executionId(), true)))
+        assertThatThrownBy(() -> fixture.service().deliverChain(chain.id(), 0, false))
                 .hasMessageContaining("projection failed");
-        PullRequestResult retried = fixture.service().createPullRequest(
-                new PullRequestCommand("workspace", fixture.executionId(), true));
+        PullRequestResult retried = fixture.service().deliverChain(chain.id(), 0, false);
 
         assertThat(retried.number()).isEqualTo(12);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
@@ -189,9 +181,9 @@ class TestWorkspacePullRequestService
     void readOnlyRepositoryRejectsPushWithoutWrites()
     {
         Fixture fixture = fixture(forkWorkspace(), forkRepository(false));
+        BackportChain chain = chain(fixture);
 
-        assertThatThrownBy(() -> fixture.service().push(
-                new PushCommand("workspace", fixture.executionId(), true)))
+        assertThatThrownBy(() -> fixture.service().deliverChain(chain.id(), 0, false))
                 .isInstanceOfSatisfying(WorkspaceException.class,
                         failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_PUSH_NOT_WRITABLE"));
 
@@ -199,23 +191,33 @@ class TestWorkspacePullRequestService
     }
 
     @Test
-    void eachWriteRequiresItsOwnConfirmationAndRepeatedPushIsIdempotent()
+    void publicationRequiresSavedChainAuthority()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true));
 
-        assertThatThrownBy(() -> fixture.service().push(
-                new PushCommand("workspace", fixture.executionId(), false)))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("DELIVERY_CONFIRMATION_REQUIRED"));
-        fixture.service().push(new PushCommand("workspace", fixture.executionId(), true));
-        fixture.service().push(new PushCommand("workspace", fixture.executionId(), true));
-        assertThatThrownBy(() -> fixture.service().createPullRequest(
-                new PullRequestCommand("workspace", fixture.executionId(), false)))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("DELIVERY_CONFIRMATION_REQUIRED"));
+        assertThatThrownBy(() -> fixture.service().deliverChain("fixture-chain", 0, false))
+                .hasMessage("Chain authority is unavailable");
+        BackportChain chain = chain(fixture);
+        when(fixture.chains().find(chain.id())).thenReturn(Optional.of(chain.withState(BackportChain.State.STOPPED, Optional.of("Stop"), NOW)));
+        assertThatThrownBy(() -> fixture.service().deliverChain(chain.id(), 0, false)).hasMessageContaining("stopped or blocked");
 
-        verify(fixture.git(), times(1)).pushBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
-        verify(fixture.pullRequests(), never()).createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean());
+        verifyNoInteractions(fixture.git(), fixture.pullRequests(), fixture.ciAutofix());
+    }
+
+    @Test
+    void createsPullRequestWithoutRepeatingSavedPush()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true));
+        BackportChain chain = chain(fixture);
+        CherryPickExecution execution = fixture.executions().find(fixture.executionId()).orElseThrow();
+        fixture.executions().save(execution.recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW));
+
+        assertThat(fixture.service().deliverChain(chain.id(), 0, false).number()).isEqualTo(12);
+
+        verify(fixture.git(), never()).pushBranch(any(), any(), any());
+        verify(fixture.pullRequests()).createPullRequest(
+                "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body", false);
+        verify(fixture.ciAutofix()).start(any());
     }
 
     @Test
@@ -223,8 +225,9 @@ class TestWorkspacePullRequestService
     {
         Workspace unsynced = directWorkspace().withCodeSyncAt(Optional.empty(), NOW);
         Fixture fixture = fixture(unsynced, directRepository(true));
+        BackportChain chain = chain(fixture);
 
-        assertThat(fixture.service().push(new PushCommand("workspace", fixture.executionId(), true)).remote()).isEqualTo("origin");
+        fixture.service().deliverChain(chain.id(), 0, false);
 
         verify(fixture.provisioning()).synchronizeCode("workspace");
     }
@@ -361,6 +364,11 @@ class TestWorkspacePullRequestService
         WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
         BackportChainStore chains = mock(BackportChainStore.class);
         GitHubPullRequestReadClient reads = mock(GitHubPullRequestReadClient.class);
+        when(reads.fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+                PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), 12),
+                "https://github.com/" + workspace.monitoredRepository().fullName() + "/pull/12",
+                workspace.selectedRepository(), WORK_BRANCH, PARENT_SHA, workspace.monitoredRepository(), targetBranch, SHA,
+                GitHubPullRequestIdentity.State.OPEN, false, workspace.selectedRepository().owner()));
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
         WorkspacePullRequestService service = new WorkspacePullRequestService(
                 workspaceStore,
@@ -382,7 +390,7 @@ class TestWorkspacePullRequestService
                 git,
                 pullRequests,
                 pullRequestCatalog,
-                ciAutofix, relationships, chains, reads, workspaceStore);
+                ciAutofix, relationships, chains, reads, workspaceStore, executionStore);
     }
 
     private CherryPickExecution completedExecution(Workspace workspace, String targetBranch)
@@ -537,7 +545,7 @@ class TestWorkspacePullRequestService
             GitHubPullRequestWriteClient pullRequests,
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
-            WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads, WorkspaceStore workspaceStore)
+            WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads, WorkspaceStore workspaceStore, CherryPickExecutionStore executions)
     {
         private Fixture
         {

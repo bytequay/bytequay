@@ -107,94 +107,48 @@ public class WorkspacePullRequestService
         this.reads = requireNonNull(reads, "reads is null");
     }
 
-    /**
-     * Pushes the generated branch to the persisted writable {@code origin} without force.
-     *
-     * <p>Direct and fork workspaces both push to their selected repository at {@code origin};
-     * ByteQuay never falls back to another remote.</p>
-     *
-     * @param command owning workspace, completed execution, and explicit confirmation
-     * @return persisted push identity; a repeated confirmation returns the existing result
-     */
-    public PushResult push(PushCommand command)
+    private CherryPickExecution push(Workspace workspace, CherryPickExecution execution)
     {
-        requireNonNull(command, "command is null");
-        requireConfirmed(command.confirmed());
-        Lock lock = locks.get(command.executionId());
-        return withLock(lock, () -> {
-            Workspace workspace = requireWorkspace(command.workspaceId());
-            CherryPickExecution execution = requireExecution(workspace, command.executionId());
-            relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
-            requireDeliverable(execution);
-            if (execution.delivery().isPresent()) {
-                return pushResult(execution.delivery().orElseThrow());
-            }
-            UserRepo selected = requireCurrentSelected(workspace);
-            if (!selected.viewerCanPush()) {
-                throw WorkspaceException.pushNotWritable();
-            }
-            String branch = execution.workspace().workBranch();
-            try {
-                git.pushBranch(workspace, branch, execution.currentTargetSha());
-            }
-            catch (ManagedWorkspaceGit.Failure failure) {
-                throw WorkspaceException.deliveryFailed(failure.safeMessage());
-            }
-            CherryPickExecution saved = executions.save(execution.recordPush("origin", branch, execution.currentTargetSha(), clock.instant()));
-            return pushResult(saved.delivery().orElseThrow());
-        });
+        relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
+        if (execution.delivery().isPresent()) {
+            return execution;
+        }
+        UserRepo selected = requireCurrentSelected(workspace);
+        if (!selected.viewerCanPush()) {
+            throw WorkspaceException.pushNotWritable();
+        }
+        String branch = execution.workspace().workBranch();
+        try {
+            git.pushBranch(workspace, branch, execution.currentTargetSha());
+        }
+        catch (ManagedWorkspaceGit.Failure failure) {
+            throw WorkspaceException.deliveryFailed(failure.safeMessage());
+        }
+        return executions.save(execution.recordPush("origin", branch, execution.currentTargetSha(), clock.instant()));
     }
 
-    /**
-     * Creates a pull request by delegating to the existing authenticated PR write client.
-     *
-     * <p>A direct workspace targets its selected repository. A fork uses its selected fork as
-     * the head and its one persisted upstream as the base repository.</p>
-     *
-     * @param command owning workspace, pushed execution, and a second explicit confirmation
-     * @return persisted GitHub pull-request identity; a repeat returns the existing result
-     */
-    public PullRequestResult createPullRequest(PullRequestCommand command)
-    {
-        return createPullRequest(command, () -> {});
-    }
-
-    private PullRequestResult createPullRequest(PullRequestCommand command, Runnable requireAuthority)
+    private PullRequestResult createPullRequest(Workspace workspace, CherryPickExecution execution, Runnable requireAuthority)
     {
         requireAuthority.run();
-        requireNonNull(command, "command is null");
-        requireConfirmed(command.confirmed());
-        Lock lock = locks.get(command.executionId());
-        return withLock(lock, () -> {
-            Workspace workspace = requireWorkspace(command.workspaceId());
-            CherryPickExecution execution = requireExecution(workspace, command.executionId());
-            relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
-            requireDeliverable(execution);
-            Delivery delivery = execution.delivery().orElseThrow(() ->
-                    WorkspaceException.deliveryUnavailable("Push the generated branch before creating a pull request."));
-            if (delivery.pullRequestId().isPresent()) {
-                activatePullRequest(workspace, execution, delivery);
-                return pullRequestResult(workspace, execution, delivery);
-            }
-            requireCurrentSelected(workspace);
-            PullRequestDraft draft = execution.pullRequestDraft().orElseThrow();
-            String head = head(workspace, execution);
-            requireAuthority.run();
-            CreatedPullRequest created = pullRequests.createPullRequest(
-                    credentials.resolveGitHubToken(workspace.id()),
-                    workspace.monitoredRepository(),
-                    head,
-                    execution.workspace().targetBranch(),
-                    draft.title(),
-                    draft.body(),
-                    false);
-            CherryPickExecution saved = executions.save(execution.recordPullRequest(
-                    created.id(), created.number(), created.url(), clock.instant()));
-            Delivery savedDelivery = saved.delivery().orElseThrow();
-            requireAuthority.run();
-            activatePullRequest(workspace, saved, savedDelivery);
-            return pullRequestResult(workspace, saved, savedDelivery);
-        });
+        relationships.requireTransferAllowed(execution.workspace().sourceRepository(), execution.workspace().repository());
+        requireCurrentSelected(workspace);
+        PullRequestDraft draft = execution.pullRequestDraft().orElseThrow();
+        String head = head(workspace, execution);
+        requireAuthority.run();
+        CreatedPullRequest created = pullRequests.createPullRequest(
+                credentials.resolveGitHubToken(workspace.id()),
+                workspace.monitoredRepository(),
+                head,
+                execution.workspace().targetBranch(),
+                draft.title(),
+                draft.body(),
+                false);
+        CherryPickExecution saved = executions.save(execution.recordPullRequest(
+                created.id(), created.number(), created.url(), clock.instant()));
+        Delivery savedDelivery = saved.delivery().orElseThrow();
+        requireAuthority.run();
+        activatePullRequest(workspace, saved, savedDelivery);
+        return pullRequestResult(workspace, saved, savedDelivery);
     }
 
     /** Publishes only the execution named by an active, accepted chain; uncertain writes are inspected, never repeated. */
@@ -253,9 +207,9 @@ public class WorkspacePullRequestService
                 return pullRequestResult(workspace, execution, execution.delivery().orElseThrow());
             }
             requireChain(chainId, index);
-            push(new PushCommand(workspace.id(), executionId, true));
+            execution = push(workspace, execution);
             requireChain(chainId, index);
-            return createPullRequest(new PullRequestCommand(workspace.id(), executionId, true), () -> requireChain(chainId, index));
+            return createPullRequest(workspace, execution, () -> requireChain(chainId, index));
         });
     }
 
@@ -483,13 +437,6 @@ public class WorkspacePullRequestService
                 .isPresent();
     }
 
-    private static void requireConfirmed(boolean confirmed)
-    {
-        if (!confirmed) {
-            throw WorkspaceException.deliveryConfirmationRequired();
-        }
-    }
-
     private static void requireDeliverable(CherryPickExecution execution)
     {
         deliveryReason(execution).ifPresent(reason -> {
@@ -524,11 +471,6 @@ public class WorkspacePullRequestService
         return "cherry-pick-delivery-ci:" + execution.id();
     }
 
-    private static PushResult pushResult(Delivery delivery)
-    {
-        return new PushResult(delivery.pushRemote(), delivery.head(), delivery.sha());
-    }
-
     private static PullRequestResult pullRequestResult(
             Workspace workspace,
             CherryPickExecution execution,
@@ -548,34 +490,6 @@ public class WorkspacePullRequestService
         return workspace.upstreamRepositoryId().isPresent()
                 ? workspace.selectedRepository().owner() + ":" + execution.workspace().workBranch()
                 : execution.workspace().workBranch();
-    }
-
-    public record PushCommand(String workspaceId, CherryPickExecutionId executionId, boolean confirmed)
-    {
-        public PushCommand
-        {
-            requireNonNull(workspaceId, "workspaceId is null");
-            requireNonNull(executionId, "executionId is null");
-        }
-    }
-
-    public record PullRequestCommand(String workspaceId, CherryPickExecutionId executionId, boolean confirmed)
-    {
-        public PullRequestCommand
-        {
-            requireNonNull(workspaceId, "workspaceId is null");
-            requireNonNull(executionId, "executionId is null");
-        }
-    }
-
-    public record PushResult(String remote, String head, String sha)
-    {
-        public PushResult
-        {
-            checkText(remote, "remote");
-            checkText(head, "head");
-            checkText(sha, "sha");
-        }
     }
 
     public record PullRequestResult(

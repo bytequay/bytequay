@@ -131,6 +131,9 @@ app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
 let mainWindow: BrowserWindow | null = null;
 let prNotificationState: PrNotificationState | null = null;
 let prNotificationTimer: ReturnType<typeof setInterval> | undefined;
+let backendRecoveryTimer: ReturnType<typeof setTimeout> | undefined;
+let backendServicesStarted = false;
+let quitting = false;
 let pollingPrNotifications = false;
 let repollPrNotifications = false;
 let prNotificationGeneration = 0;
@@ -1932,6 +1935,31 @@ function registerIpc(): void {
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
 }
 
+function startBackendServices(): void {
+  if (backendServicesStarted || quitting) return;
+  backendServicesStarted = true;
+  ideViews.startQueries();
+  appNotices.start();
+  refreshDashboardInBackground();
+  void pollPrNotifications();
+  prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);
+}
+
+async function recoverBackend(): Promise<void> {
+  if (quitting) return;
+  try {
+    if (await waitForBackendReady(1000)) {
+      if (quitting) return;
+      await backendJson<AppPreferencesDto>(`${backendBase()}/api/settings/app`)
+        .then(applyAppearance).catch(error => console.warn('Unable to load appearance; following system', error));
+      startBackendServices();
+      return;
+    }
+  }
+  catch (error) { console.warn('Unable to check backend readiness', error); }
+  if (!quitting) backendRecoveryTimer = setTimeout(() => { void recoverBackend(); }, 5_000);
+}
+
 app.on('ready', async () => {
   configureApplication();
   nativeTheme.on('updated', () => {
@@ -1947,12 +1975,8 @@ app.on('ready', async () => {
       .then(applyAppearance).catch(error => console.warn('Unable to load appearance; following system', error));
   }
   await ensureWindow();
-  if (!backendReady) return;
-  ideViews.startQueries();
-  appNotices.start();
-  refreshDashboardInBackground();
-  void pollPrNotifications();
-  prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);
+  if (backendReady) startBackendServices();
+  else backendRecoveryTimer = setTimeout(() => { void recoverBackend(); }, 5_000);
 });
 
 // A focused browser or editor view keeps its keys from the renderer, so ⌘J and ⇧⌘J are caught before any page sees them.
@@ -1974,6 +1998,8 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('before-quit', () => {
+  quitting = true;
+  clearTimeout(backendRecoveryTimer);
   stopLab();
   appNotices.stop();
   stopGoogle();

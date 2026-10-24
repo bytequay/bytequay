@@ -22,10 +22,13 @@ import { reviewFixture } from './pulls/agent-review/fixtures/review';
 
 vi.mock('./notices/host', () => ({ NoticeHost: class {
     constructor(_window: unknown, read: () => Promise<unknown>, open: (notice: AppNotice) => Promise<void>) { desktop.readNotices = read; desktop.openNotice = open; }
-    register = vi.fn(); attach = vi.fn(); start = vi.fn(); stop = vi.fn(); releaseWindow = vi.fn(); raise = vi.fn();
+    register = vi.fn(); attach = vi.fn(); start = desktop.startNotices; stop = vi.fn(); releaseWindow = vi.fn(); raise = vi.fn();
 } }));
 
 const desktop = vi.hoisted(() => ({
+  ready: vi.fn(async () => true),
+  reportBackendFailure: vi.fn(),
+  startNotices: vi.fn(),
   listeners: new Map<string, () => Promise<void>>(),
   notifications: [] as EventEmitter[],
   constructNotification: vi.fn(),
@@ -72,7 +75,7 @@ vi.mock('electron', async () => {
 
 vi.mock('./backendProcess', () => ({
   backendBase: () => 'http://127.0.0.1:9527', sessionToken: () => 'test-session',
-  spawnBackend: vi.fn(), waitForBackendReady: async () => true, killBackend: vi.fn(),
+  spawnBackend: vi.fn(), waitForBackendReady: desktop.ready, reportBackendFailure: desktop.reportBackendFailure, killBackend: vi.fn(),
 }));
 
 const pr: PullRequestDto = {
@@ -89,6 +92,9 @@ const failure = 'The operation couldn’t be completed. (UNErrorDomain error 1.)
 beforeEach(() => {
   vi.resetModules();
   vi.useFakeTimers();
+  desktop.ready.mockReset().mockResolvedValue(true);
+  desktop.startNotices.mockClear();
+  desktop.reportBackendFailure.mockClear();
   desktop.notifications.length = 0;
   desktop.constructNotification.mockReset();
   desktop.show.mockReset();
@@ -114,6 +120,43 @@ async function start(): Promise<void> {
   await desktop.listeners.get('ready')?.();
   await vi.advanceTimersByTimeAsync(0);
 }
+
+it('starts background features once after a backend becomes ready beyond the startup deadline', async () => {
+  desktop.ready.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
+  const { IdeViews } = await import('./ideViews');
+  const queries = vi.spyOn(IdeViews.prototype, 'startQueries').mockImplementation(() => {});
+  await start();
+  expect(desktop.reportBackendFailure).toHaveBeenCalledOnce();
+  expect(desktop.startNotices).not.toHaveBeenCalled();
+  expect(queries).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(desktop.startNotices).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(5000);
+  expect(desktop.startNotices).toHaveBeenCalledOnce();
+  expect(queries).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/settings/sync/trigger', expect.objectContaining({ method: 'POST' }));
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/prs/attention', expect.anything());
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.startNotices).toHaveBeenCalledOnce();
+  expect(queries).toHaveBeenCalledOnce();
+  expect(desktop.ready).toHaveBeenCalledTimes(3);
+});
+
+it('does not restart background features if readiness returns during quit', async () => {
+  desktop.ready.mockResolvedValueOnce(false);
+  let ready: (value: boolean) => void = () => { throw new Error('Readiness check has not started'); };
+  desktop.ready.mockImplementationOnce(() => new Promise<boolean>(resolve => { ready = resolve; }));
+  const { IdeViews } = await import('./ideViews');
+  const queries = vi.spyOn(IdeViews.prototype, 'startQueries').mockImplementation(() => {});
+  await start();
+  await vi.advanceTimersByTimeAsync(5000);
+  await desktop.listeners.get('before-quit')?.();
+  ready(true);
+  await vi.advanceTimersByTimeAsync(10_000);
+  expect(desktop.startNotices).not.toHaveBeenCalled();
+  expect(queries).not.toHaveBeenCalled();
+  expect(desktop.ready).toHaveBeenCalledTimes(2);
+});
 
 it('reads only task notices and opens the matching task', async () => {
   const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null,

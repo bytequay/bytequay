@@ -2771,6 +2771,22 @@ class TestAgentReviewService
         assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
     }
 
+    @Test
+    void endingForADevelopmentTaskEndsOnlyThatTasksReview()
+    {
+        AgentTask source = developmentSource();
+        localSource(fixture, source, HEAD);
+        String reviewId = fixture.service.startForTask(WORKSPACE, source.id().toString()).review().id();
+        String reason = "Agent review ended: pull request #7 was merged on GitHub";
+
+        fixture.service.endForTask(TaskId.random(), reason);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
+
+        fixture.service.endForTask(source.id(), reason);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
+        verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID, Optional.of(reason)));
+    }
+
     private static PullRequest storedPullRequest(String state)
     {
         return new PullRequest(

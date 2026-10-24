@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agent.runtime.AgentServingGate;
+import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.service.pr.PullRequestsRefreshed;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.domain.PullRequest;
@@ -43,8 +44,9 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>It reads only stored pull requests, which each list refresh keeps current, so it asks GitHub nothing. Completion
  * keeps its own refusals: a task with a turn running, input queued or changes not committed stays open and is tried
- * again after the next refresh. Reviews end on their own in the review service. A task still open is offered to
- * Auto-Review fix, which reads the refreshed comments.
+ * again after the next refresh. A review of the task's own changes borrows its working copy, so it ends first, as End
+ * does; one that cannot end yet keeps the task open too. Pull request reviews end on their own in the review service. A
+ * task still open is offered to Auto-Review fix, which reads the refreshed comments.
  */
 @Component
 public class PullRequestTaskWatcher
@@ -57,6 +59,7 @@ public class PullRequestTaskWatcher
     private final AgentCompletionService completions;
     private final AgentServingGate gate;
     private final ReviewFixService reviewFixes;
+    private final AgentReviewService reviews;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("pull-request-followup-", 0).factory());
 
     public PullRequestTaskWatcher(
@@ -64,13 +67,15 @@ public class PullRequestTaskWatcher
             TaskPullRequestOwnership ownership,
             AgentCompletionService completions,
             AgentServingGate gate,
-            ReviewFixService reviewFixes)
+            ReviewFixService reviewFixes,
+            AgentReviewService reviews)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.completions = requireNonNull(completions, "completions is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
     }
 
     /** The event arrives on the scheduler or an HTTP thread, so the pass runs on the watcher's own thread. */
@@ -90,9 +95,11 @@ public class PullRequestTaskWatcher
                 continue;
             }
             try {
-                Optional<String> ended = ended(task);
+                Optional<PullRequest> ended = ended(task);
                 if (ended.isPresent()) {
-                    completions.complete(new CompleteAgentTaskCommand(task.id(), ended));
+                    String outcome = "pull request #" + ended.get().number() + " was " + state(ended.get()) + " on GitHub";
+                    reviews.endForTask(task.id(), "Agent review ended: " + outcome);
+                    completions.complete(new CompleteAgentTaskCommand(task.id(), Optional.of("Completed: " + outcome)));
                 }
                 else {
                     reviewFixes.request(task);
@@ -104,15 +111,14 @@ public class PullRequestTaskWatcher
         }
     }
 
-    /** Why the task is done: it owns pull requests, and GitHub reports each of them merged or closed. */
-    private Optional<String> ended(AgentTask task)
+    /** The newest pull request the task owns, when it owns some and GitHub reports each of them merged or closed. */
+    private Optional<PullRequest> ended(AgentTask task)
     {
         List<PullRequest> owned = ownership.pullRequests(task);
         if (owned.isEmpty() || !owned.stream().allMatch(pullRequest -> ENDED.contains(state(pullRequest)))) {
             return Optional.empty();
         }
-        PullRequest newest = owned.getFirst();
-        return Optional.of("Completed: pull request #" + newest.number() + " was " + state(newest) + " on GitHub");
+        return Optional.of(owned.getFirst());
     }
 
     private static String state(PullRequest pullRequest)

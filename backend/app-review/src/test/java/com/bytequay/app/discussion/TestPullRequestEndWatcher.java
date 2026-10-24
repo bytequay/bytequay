@@ -26,12 +26,15 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.runtime.AgentServingGate;
+import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.review.ReviewConflictException;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 import org.mockito.MockMakers;
 
 import java.nio.file.Path;
@@ -41,6 +44,7 @@ import java.util.Optional;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -57,12 +61,14 @@ class TestPullRequestEndWatcher
     private final TaskPullRequestOwnership ownership = mock(TaskPullRequestOwnership.class);
     private final AgentCompletionService completions = mock(AgentCompletionService.class);
     private final AgentServingGate gate = mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE));
+    private final AgentReviewService reviews = mock(AgentReviewService.class);
     private final PullRequestTaskWatcher watcher = new PullRequestTaskWatcher(
             tasks,
             ownership,
             completions,
             gate,
-            mock(ReviewFixService.class));
+            mock(ReviewFixService.class),
+            reviews);
 
     @BeforeEach
     void setUp()
@@ -99,6 +105,7 @@ class TestPullRequestEndWatcher
         watcher.pass();
 
         verify(completions, never()).complete(any());
+        verifyNoInteractions(reviews);
     }
 
     @Test
@@ -126,6 +133,24 @@ class TestPullRequestEndWatcher
         watcher.pass();
 
         verify(completions).complete(new CompleteAgentTaskCommand(done.id(), Optional.of("Completed: pull request #30 was merged on GitHub")));
+    }
+
+    @Test
+    void endsTheTasksOwnReviewBeforeCompletingItAndAReviewThatCannotEndKeepsTheTaskOpen()
+    {
+        AgentTask reviewed = task(true);
+        AgentTask busy = task(true);
+        when(tasks.listLive()).thenReturn(ImmutableList.of(reviewed, busy));
+        when(ownership.pullRequests(any())).thenReturn(ImmutableList.of(pullRequest(31, "merged")));
+        doThrow(new ReviewConflictException("Stop the running turn before ending the review"))
+                .when(reviews).endForTask(busy.id(), "Agent review ended: pull request #31 was merged on GitHub");
+
+        watcher.pass();
+
+        InOrder order = inOrder(reviews, completions);
+        order.verify(reviews).endForTask(reviewed.id(), "Agent review ended: pull request #31 was merged on GitHub");
+        order.verify(completions).complete(new CompleteAgentTaskCommand(reviewed.id(), Optional.of("Completed: pull request #31 was merged on GitHub")));
+        verify(completions, never()).complete(new CompleteAgentTaskCommand(busy.id(), Optional.of("Completed: pull request #31 was merged on GitHub")));
     }
 
     @Test

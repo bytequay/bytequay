@@ -556,6 +556,19 @@ public class AgentReviewService
         return true;
     }
 
+    /**
+     * Ends the open review of a development task's own changes, as End does. That review borrows the task's working copy,
+     * so the task cannot complete while it stays open.
+     *
+     * @throws ReviewConflictException when the review cannot end yet
+     */
+    public void endForTask(TaskId sourceTaskId, String reason)
+    {
+        store.listOpenReviews().stream()
+                .filter(review -> review.sourceTaskId().equals(Optional.of(sourceTaskId.toString())))
+                .forEach(review -> end(review.id(), reason));
+    }
+
     private AgentReviewProjection end(String reviewId, String reason)
     {
         return withLock(locks.lock(reviewId), () -> {

@@ -46,5 +46,7 @@ public interface GoogleWorkspace
 
     GoogleSnapshot.Status archive(String selected, String messageId);
 
+    List<String> replyRecipients(String selected, String messageId);
+
     GoogleSnapshot.Status send(String selected, String to, String subject, String body, String replyId);
 }

@@ -65,6 +65,7 @@ export async function mountPreview(settings = false) {
     addGoogleAccount: async () => structuredClone(status),
     selectGoogleAccount: async selected => { status.profile = selected; return structuredClone(status); },
     archiveGoogleMail: async (_profile, id) => { if (status.snapshot) status.snapshot.mail = status.snapshot.mail.filter(mail => mail.id !== id); return structuredClone(status); },
+    getGoogleReplyRecipients: async () => ['maya@example.com'],
     sendGoogleMail: async () => structuredClone(status),
     getGoogleStatus: async () => structuredClone(status),
     refreshGoogleMail: async (query, token) => { searches.push(`${query}:${token}`); status.error = 'Google is offline. Saved data remains available.'; return structuredClone(status); },
@@ -285,6 +286,43 @@ export async function run() {
       assert(status.snapshot?.mail.length === 2, 'Archived mail leaves memory view');
       button('Compose').click(); await settle();
       assert(document.querySelector('[aria-label="Email recipients"]') !== null && button('Review email').disabled, 'A new email needs a recipient and a body');
+    },
+    async 'keeps reply drafts until explicitly discarded and reads the actual reply recipients'() {
+      await mountPreview();
+      window.bridge.getGoogleReplyRecipients = async () => ['support@example.com', 'team@example.com'];
+      button('Reply').click(); await settle(); await settle();
+      const input = element<HTMLTextAreaElement>('[aria-label="Email body"]');
+      changeInput(input, 'Keep my unfinished reply.'); await settle();
+      for (const item of document.querySelectorAll<HTMLButtonElement>('.google-mail__item')) { assert(item.disabled, 'Mail navigation waits until the draft is finished'); item.click(); }
+      for (const label of ['Older', 'Next page', 'Archive', 'Search / refresh']) { assert(button(label).disabled, `${label} cannot discard a draft`); button(label).click(); }
+      assert(element<HTMLTextAreaElement>('[aria-label="Email body"]').value === 'Keep my unfinished reply.', 'Navigation preserves the reply text');
+      assert(status.snapshot !== null, 'Mailbox is connected');
+      status.snapshot.mail = status.snapshot.mail.slice(1); window.dispatchEvent(new Event(GOOGLE_CHANGED)); await settle(); await settle();
+      assert(element<HTMLTextAreaElement>('[aria-label="Email body"]').value === 'Keep my unfinished reply.' && document.querySelector('.google-reader h2')?.textContent === 'Design review for next week', 'A background mailbox refresh keeps the original reply and its draft visible');
+      button('Review email').click(); await settle();
+      assert(element('[aria-label="Confirm send"]').textContent?.includes('support@example.com, team@example.com') === true, 'Confirmation displays Reply-To recipients rather than From');
+      let request: Parameters<Bridge['sendGoogleMail']>[0] | undefined;
+      let acceptSend: (value: GoogleStatus) => void = () => { throw new Error('Send was not started'); };
+      window.bridge.sendGoogleMail = value => { request = value; return new Promise(resolve => { acceptSend = resolve; }); };
+      button('Send email').click(); await settle();
+      assert(input.disabled && button('Discard draft').disabled, 'The draft cannot change while a send is being accepted');
+      acceptSend(structuredClone(status)); await settle(); await settle();
+      assert(request?.to === 'support@example.com, team@example.com', 'The confirmed recipients are sent unchanged');
+      button('Reply').click(); await settle(); await settle();
+      button('Discard draft').click(); await settle();
+      window.bridge.getGoogleReplyRecipients = async () => { throw new Error('Could not read reply address'); };
+      button('Reply').click(); await settle(); await settle();
+      assert(document.querySelector('[aria-label="Email body"]') === null && document.body.textContent?.includes('Could not read reply address') === true, 'A failed header read never falls back to the From address');
+    },
+    async 'locks the Gemini draft until prompt acceptance and preserves it after a failure'() {
+      await mountPreview();
+      const input = element<HTMLTextAreaElement>('[aria-label="Message Gemini"]');
+      let rejectPrompt: (error: Error) => void = () => { throw new Error('Prompt was not started'); };
+      window.bridge.promptGoogleChat = () => new Promise((_resolve, reject) => { rejectPrompt = reject; });
+      changeInput(input, 'Read my inbox.'); await settle(); button('Send to Gemini').click(); await settle();
+      assert(input.disabled, 'Typing cannot race a pending prompt acceptance');
+      rejectPrompt(new Error('Prompt failed')); await settle(); await settle();
+      assert(!input.disabled && input.value === 'Read my inbox.', 'The failed prompt remains editable');
     },
     async 'sends prompts and displays Gemini responses in the page'() {
       await mountPreview();

@@ -110,11 +110,11 @@ export default function GoogleChat({ profile, email, context, onContext }: { pro
     </div>
     {(ready || busy) && <div className="google-chat__compose">
       <Composer className="is-new-task" inputRef={input} aria-label="Message Gemini" placeholder="Ask Gemini about your mail or calendar…"
-        value={draft} maxLength={20000} onChange={event => setDraft(event.target.value)} busy={pending}
+        value={draft} disabled={pending} maxLength={20000} onChange={event => setDraft(event.target.value)} busy={pending}
         onSubmit={() => { void ask(draft); }} submitEnabled={Boolean(draft.trim()) && !busy && !pending}
         submitLabel="Send to Gemini" submitTitle="Send to Gemini (Enter)"
         header={context && <div className="google-chat__context"><span>{context.kind === 'event' ? <CalendarDays size={12} aria-hidden="true" /> : <Mail size={12} aria-hidden="true" />}<span>{context.label}</span>
-          <button type="button" aria-label="Remove context" title="Remove context" onClick={() => onContext(null)}><X size={11} /></button></span></div>}>
+          <button type="button" aria-label="Remove context" title="Remove context" disabled={pending} onClick={() => onContext(null)}><X size={11} /></button></span></div>}>
         <span className="google-chat__private"><Lock size={12} aria-hidden="true" />Private</span>
         {!busy && <small>· Cleared when ByteQuay quits</small>}
         <span className="google-spacer" />

@@ -386,6 +386,41 @@ public class DefaultGoogleWorkspace
     }
 
     @Override
+    public List<String> replyRecipients(String selected, String messageId)
+    {
+        GoogleSnapshot before;
+        synchronized (this) {
+            checkArgument(profile.equals(selected), "Select the account again before replying.");
+            before = connected();
+            checkArgument(before.mail().stream().anyMatch(mail -> mail.id().equals(messageId)), "Refresh and select a message to reply to.");
+        }
+        try (var session = connector.open(selected, false)) {
+            verifyAccount(session, before);
+            List<String> recipients = readReplyRecipients(session, messageId);
+            synchronized (this) {
+                checkArgument(profile.equals(selected), "Select the account again before replying.");
+            }
+            return recipients;
+        }
+    }
+
+    private static List<String> readReplyRecipients(WorkspaceConnector.Session session, String messageId)
+    {
+        // The connector's full/metadata response omits Reply-To. Read raw headers only when preparing or sending a reply.
+        JsonNode detail;
+        try {
+            detail = session.call("gmail_get", ImmutableMap.of("messageId", messageId, "format", "raw"));
+        }
+        catch (RuntimeException failure) {
+            throw new IllegalStateException("Could not read the reply address. Open Gmail to reply.");
+        }
+        checkState(messageId.equals(required(detail, "id")), "Gmail returned a different message.");
+        JsonNode raw = detail.path("raw");
+        checkState(raw.isTextual() && !raw.asText().isBlank(), "Could not read the reply address. Open Gmail to reply.");
+        return GoogleMailHeaders.replyRecipients(raw.asText());
+    }
+
+    @Override
     public synchronized GoogleSnapshot.Status send(String selected, String to, String subject, String body, String replyId)
     {
         checkArgument(profile.equals(selected), "Select the account again before sending.");
@@ -403,6 +438,7 @@ public class DefaultGoogleWorkspace
                 verifyAccount(session, before);
                 var args = ImmutableMap.<String, Object>builder().put("to", recipients).put("subject", subject).put("body", body).put("isHtml", false);
                 if (reply.isPresent()) {
+                    checkState(recipients.equals(readReplyRecipients(session, replyId)), "The reply address changed. Open the reply again before sending.");
                     args.put("threadId", reply.orElseThrow().threadId());
                     JsonNode draft = session.call("gmail_createDraft", args.buildOrThrow());
                     required(session.call("gmail_sendDraft", ImmutableMap.of("draftId", required(draft, "id"))), "id");

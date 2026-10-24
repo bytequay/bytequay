@@ -41,6 +41,7 @@ export type GoogleBridge = {
   addGoogleAccount: () => Promise<GoogleStatus>;
   selectGoogleAccount: (profile: string) => Promise<GoogleStatus>;
   archiveGoogleMail: (profile: string, messageId: string) => Promise<GoogleStatus>;
+  getGoogleReplyRecipients: (profile: string, messageId: string) => Promise<string[]>;
   sendGoogleMail: (request: GoogleSendRequest) => Promise<GoogleStatus>;
   getGoogleStatus: () => Promise<GoogleStatus>;
   installGoogleConnector: () => Promise<GoogleStatus>;

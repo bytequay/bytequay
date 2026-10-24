@@ -25,6 +25,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -33,6 +34,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -331,10 +333,42 @@ class TestDefaultGoogleWorkspace
         awaitDone();
         when(session.call(eq("gmail_createDraft"), anyMap())).thenReturn(json("{\"id\":\"draft-1\"}"));
         when(session.call(eq("gmail_sendDraft"), anyMap())).thenThrow(new IllegalStateException("timeout"));
+        when(session.call("gmail_get", ImmutableMap.of("messageId", "m1", "format", "raw"))).thenReturn(rawMail("From: to@example.com"));
         google.send(google.status().profile(), "to@example.com", "Re: Project", "Reply body", "m1");
         awaitDone();
         verify(session).call("gmail_sendDraft", ImmutableMap.of("draftId", "draft-1"));
         assertThat(google.status().error()).get().asString().contains("Check Sent mail and Drafts");
+    }
+
+    @Test
+    void resolvesReplyRecipientsAndVerifiesTheConfirmedAddressesBeforeSending()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        String selected = google.status().profile();
+        when(session.call("gmail_get", ImmutableMap.of("messageId", "m1", "format", "raw")))
+                .thenReturn(rawMail("From: notifications@example.com\r\nReply-To: Support <support@example.com>, Team <team@example.com>"));
+        assertThat(google.replyRecipients(selected, "m1")).containsExactly("support@example.com", "team@example.com");
+        assertThatThrownBy(() -> google.replyRecipients("other-account", "m1")).hasMessageContaining("Select the account");
+        assertThatThrownBy(() -> google.replyRecipients(selected, "missing")).hasMessageContaining("select a message");
+        when(session.call(eq("gmail_createDraft"), anyMap())).thenReturn(json("{\"id\":\"reply-draft\"}"));
+        when(session.call(eq("gmail_sendDraft"), anyMap())).thenReturn(json("{\"id\":\"sent\"}"));
+        google.send(selected, "notifications@example.com", "Re: Project", "Body", "m1");
+        awaitDone();
+        assertThat(google.status().error()).isPresent();
+        verify(session, never()).call(eq("gmail_createDraft"), anyMap());
+        google.send(selected, "support@example.com, team@example.com", "Re: Project", "Body", "m1");
+        awaitDone();
+        assertThat(google.status().error()).isEmpty();
+        verify(session).call("gmail_createDraft", ImmutableMap.of("to", ImmutableList.of("support@example.com", "team@example.com"),
+                "subject", "Re: Project", "body", "Body", "isHtml", false, "threadId", ""));
+    }
+
+    private JsonNode rawMail(String headers)
+    {
+        // MIME bodies may exceed the text-field limit even when the reply headers are short.
+        return mapper.valueToTree(ImmutableMap.of("id", "m1", "raw", Base64.getUrlEncoder().encodeToString((headers + "\r\n\r\n" + "x".repeat(1024 * 1024)).getBytes(UTF_8))));
     }
 
     private void awaitDone()

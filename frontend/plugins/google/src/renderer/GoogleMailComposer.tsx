@@ -19,13 +19,13 @@ import { mailSender } from './mailView';
 import Composer from '@bytequay/ui/Composer';
 
 /** Writes a reply under the message being read, or a new email; nothing leaves before the confirmation. */
-export default function GoogleMailComposer({ profile, email, reply, status, busy, act, onClose, onSent }: {
-  profile: string; email: string; reply: GoogleMail | null; status: GoogleStatus; busy: boolean;
+export default function GoogleMailComposer({ profile, email, reply, recipients, status, busy, act, onClose, onSent }: {
+  profile: string; email: string; reply: GoogleMail | null; recipients: string[]; status: GoogleStatus; busy: boolean;
   act: (action: () => Promise<GoogleStatus>) => Promise<void>; onClose: () => void; onSent: () => void;
 }) {
   const { bridge, BetterWords } = useGoogleHost();
   const sender = reply ? mailSender(reply.from) : null;
-  const [to, setTo] = useState(sender?.email ?? '');
+  const [to, setTo] = useState(recipients.join(', '));
   const [subject, setSubject] = useState(reply ? (/^re:/i.test(reply.subject) ? reply.subject : `Re: ${reply.subject}`) : '');
   const [body, setBody] = useState('');
   const [confirm, setConfirm] = useState(false);
@@ -44,10 +44,10 @@ export default function GoogleMailComposer({ profile, email, reply, status, busy
   }, [sent, status.operation, status.error, onSent]);
   const recipient = to.trim() || 'the recipients above';
   const ready = body.trim() !== '' && to.trim() !== '' && !busy && !sent;
-  const discard = <button type="button" className="google-icon-btn" aria-label="Discard draft" title="Discard draft" disabled={sent} onClick={onClose}><X size={reply ? 14 : 16} /></button>;
+  const discard = <button type="button" className="google-icon-btn" aria-label="Discard draft" title="Discard draft" disabled={busy || sent} onClick={onClose}><X size={reply ? 14 : 16} /></button>;
   const editor = <section ref={box} aria-label={reply ? 'Reply to email' : 'New email'}>
     <Composer className="is-new-task google-compose" inputRef={textarea} autoFocus={reply !== null} aria-label="Email body"
-      placeholder={reply ? 'Write your reply…' : 'Write your message…'} value={body} maxLength={100000} disabled={sent} busy={sent}
+      placeholder={reply ? 'Write your reply…' : 'Write your message…'} value={body} maxLength={100000} disabled={busy || sent} busy={busy || sent}
       onChange={event => { setBody(event.target.value); setConfirm(false); }} onSubmit={() => setConfirm(true)} submitEnabled={ready}
       showSubmit={!confirm} submitLabel="Review email" submitTitle="Review before sending (Enter)"
       header={sender && <div className="google-compose__to"><Reply size={14} aria-hidden="true" />
@@ -82,8 +82,8 @@ export default function GoogleMailComposer({ profile, email, reply, status, busy
     <div className="google-compose-new__title"><h2>New message</h2>{discard}</div>
     <div className="google-compose-new__fields">
       <div><span>From</span><span>{email}</span></div>
-      <label><span>To</span><input autoFocus aria-label="Email recipients" value={to} maxLength={2000} placeholder="name@example.com" disabled={sent} onChange={event => { setTo(event.target.value); setConfirm(false); }} /></label>
-      <label><span>Subject</span><input aria-label="Email subject" value={subject} maxLength={1000} placeholder="Subject" disabled={sent} onChange={event => { setSubject(event.target.value); setConfirm(false); }} /></label>
+      <label><span>To</span><input autoFocus aria-label="Email recipients" value={to} maxLength={2000} placeholder="name@example.com" disabled={busy || sent} onChange={event => { setTo(event.target.value); setConfirm(false); }} /></label>
+      <label><span>Subject</span><input aria-label="Email subject" value={subject} maxLength={1000} placeholder="Subject" disabled={busy || sent} onChange={event => { setSubject(event.target.value); setConfirm(false); }} /></label>
     </div>
     {editor}
   </div>;

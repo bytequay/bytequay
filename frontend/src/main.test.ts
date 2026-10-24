@@ -799,6 +799,7 @@ it('authenticates Google account, mail and Gemini connector requests without exp
     ['google:accounts:add', '/accounts', []],
     ['google:account:select', '/account', [profile]],
     ['google:archive', '/archive', [profile, 'message']],
+    ['google:reply-recipients', '/reply-recipients', [profile, 'message']],
     ['google:send', '/send', [{ profile, to: 'to@example.com', subject: 'Hello', body: 'Text', replyId: '' }]],
   ];
   for (const [channel, endpoint, args] of requests) {

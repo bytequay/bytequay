@@ -105,9 +105,15 @@ public class GoogleWorkspaceController
     }
 
     @PostMapping("/archive")
-    public GoogleSnapshot.Status archive(@RequestBody ArchiveRequest request)
+    public GoogleSnapshot.Status archive(@RequestBody MessageRequest request)
     {
         return google.archive(request.profile(), request.messageId());
+    }
+
+    @PostMapping("/reply-recipients")
+    public List<String> replyRecipients(@RequestBody MessageRequest request)
+    {
+        return google.replyRecipients(request.profile(), request.messageId());
     }
 
     @PostMapping("/send")
@@ -118,7 +124,7 @@ public class GoogleWorkspaceController
 
     public record AccountRequest(String profile) {}
 
-    public record ArchiveRequest(String profile, String messageId) {}
+    public record MessageRequest(String profile, String messageId) {}
 
     public record SendRequest(String profile, String to, String subject, String body, String replyId) {}
 

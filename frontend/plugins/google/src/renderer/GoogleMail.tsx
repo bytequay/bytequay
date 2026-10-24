@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useGoogleHost } from './host';
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, ArrowUpRight, CalendarDays, ChevronDown, ChevronRight, ChevronUp, CircleDot, ExternalLink, GitMerge, GitPullRequest, Inbox, LoaderCircle, MailOpen, PenLine, RefreshCw, Reply,
   Search, ShieldCheck, Sparkles, Check } from 'lucide-react';
 import { gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus } from '../contracts';
@@ -20,7 +20,7 @@ import { githubNotification, mailGroups, mailLinks, mailParagraphs, mailSender, 
 import GoogleMailComposer from './GoogleMailComposer';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 
-export type MailDraft = { reply: Mail | null };
+export type MailDraft = { reply: Mail | null; recipients: string[] };
 
 const FILTERS = [
   { label: 'Inbox', query: 'in:inbox' },
@@ -74,6 +74,10 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
   const [query, setQuery] = useState(data.query || 'in:inbox');
   const [selected, setSelected] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  const [loadingReply, setLoadingReply] = useState(false);
+  const [replyError, setReplyError] = useState<string | null>(null);
   const [archiving, setArchiving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => { if (data.query) setQuery(data.query); }, [data.query]);
@@ -90,9 +94,19 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
   }, [toast]);
 
   const composing = compose !== null && compose.reply === null;
-  const message = composing ? undefined : data.mail.find(item => item.id === selected) ?? data.mail[0];
+  const message = composing ? undefined : compose?.reply ?? data.mail.find(item => item.id === selected) ?? data.mail[0];
   const replying = message !== undefined && compose?.reply?.id === message.id;
-  const canReply = message !== undefined && compose === null && !busy;
+  const canReply = message !== undefined && compose === null && !busy && !loadingReply;
+  const startReply = useCallback(async (reply: Mail) => {
+    if (!canReply) return;
+    setLoadingReply(true); setReplyError(null);
+    try {
+      const recipients = await bridge.getGoogleReplyRecipients(status.profile, reply.id);
+      if (mounted.current) onCompose({ reply, recipients });
+    }
+    catch (cause) { if (mounted.current) setReplyError(cause instanceof Error ? cause.message : 'Could not read the reply address. Open Gmail to reply.'); }
+    finally { if (mounted.current) setLoadingReply(false); }
+  }, [canReply, bridge, status.profile, onCompose]);
   useEffect(() => {
     if (hidden || !canReply) return;
     const onKey = (event: KeyboardEvent) => {
@@ -100,14 +114,14 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
       if (event.key !== 'r' || event.metaKey || event.ctrlKey || event.altKey || target?.closest('input, textarea, select, [contenteditable]')
         || !(target === document.body || target?.closest('.google-screen'))) return;
       event.preventDefault();
-      onCompose({ reply: message });
+      void startReply(message);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [hidden, canReply, message, onCompose]);
+  }, [hidden, canReply, message, startReply]);
 
-  const search = (next: string, pageToken = '') => { setSelected(null); setQuery(next); void act(() => bridge.refreshGoogleMail(next, pageToken)); };
-  const select = (id: string) => { setSelected(id); setDetails(false); if (compose?.reply) onCompose(null); };
+  const search = (next: string, pageToken = '') => { if (compose !== null || busy || loadingReply) return; setSelected(null); setQuery(next); void act(() => bridge.refreshGoogleMail(next, pageToken)); };
+  const select = (id: string) => { if (compose !== null || loadingReply) return; setSelected(id); setDetails(false); };
   const position = message ? data.mail.findIndex(item => item.id === message.id) : -1;
   const sender = message ? mailSender(message.from) : null;
   const source = sender ? mailSource(sender.email) : null;
@@ -115,18 +129,20 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
   const actor = github ? mailSender(github.actor.replace(/^@/, '')) : null;
   const subject = message ? mailSubject(message.subject) : null;
   const sentAt = message ? new Date(message.date) : null;
-  const composer = (reply: Mail | null) => <GoogleMailComposer key={`${status.profile}:${reply?.id ?? 'new'}`} profile={status.profile} email={data.email} reply={reply} status={status} busy={busy} act={act}
+  const composer = (reply: Mail | null) => <GoogleMailComposer key={`${status.profile}:${reply?.id ?? 'new'}`} profile={status.profile} email={data.email} reply={reply} recipients={compose?.recipients ?? []} status={status} busy={busy} act={act}
     onClose={() => onCompose(null)} onSent={() => { onCompose(null); setToast(reply ? 'Reply sent' : 'Email sent'); }} />;
 
   return <div className="google-pane" hidden={hidden}>
     <form className="google-toolbar" onSubmit={event => { event.preventDefault(); search(query); }}>
       <label className="google-search"><Search size={15} aria-hidden="true" />
-        <input aria-label="Search Gmail" value={query} maxLength={1000} placeholder="Search Gmail, e.g. from:someone newer_than:7d" onChange={event => setQuery(event.target.value)} /><kbd>⏎</kbd></label>
+        <input aria-label="Search Gmail" disabled={compose !== null || loadingReply} value={query} maxLength={1000} placeholder="Search Gmail, e.g. from:someone newer_than:7d" onChange={event => setQuery(event.target.value)} /><kbd>⏎</kbd></label>
       <div className="google-segmented" role="group" aria-label="Mail filter">{FILTERS.map(filter =>
-        <button type="button" key={filter.label} aria-pressed={query === filter.query} disabled={busy} onClick={() => search(filter.query)}>{filter.label}</button>)}</div>
-      <button type="submit" className="google-square-btn" aria-label="Search / refresh" title="Search / refresh" disabled={busy}><RefreshCw size={14} /></button>
-      <button type="button" className="google-primary-btn" disabled={busy || compose !== null} onClick={() => onCompose({ reply: null })}><PenLine size={14} aria-hidden="true" />Compose</button>
+        <button type="button" key={filter.label} aria-pressed={query === filter.query} disabled={busy || compose !== null || loadingReply} onClick={() => search(filter.query)}>{filter.label}</button>)}</div>
+      <button type="submit" className="google-square-btn" aria-label="Search / refresh" title="Search / refresh" disabled={busy || compose !== null || loadingReply}><RefreshCw size={14} /></button>
+      <button type="button" className="google-primary-btn" disabled={busy || compose !== null || loadingReply} onClick={() => onCompose({ reply: null, recipients: [] })}><PenLine size={14} aria-hidden="true" />Compose</button>
     </form>
+    {replyError && <p className="google-screen__error" role="alert">{replyError}</p>}
+    {loadingReply && <p className="google-status" role="status">Reading reply address…</p>}
     <div className="google-mail">
       <div className="google-mail__side">
         <div className="google-status" role="status">{status.operation ? <><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /><span>{status.operation}…</span></>
@@ -137,12 +153,12 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
             : <div className="google-empty"><span className="google-empty__icon"><Inbox size={18} aria-hidden="true" /></span>
               <strong>{data.mailSavedAt ? 'No messages matched' : 'Nothing cached yet'}</strong>
               <span>{data.mailSavedAt ? 'No messages matched the current search.' : 'Refresh to load your first page of mail. Up to 25 messages are kept in memory until you quit.'}</span>
-              {!data.mailSavedAt && <button type="button" className="setw-btn" disabled={busy} onClick={() => search('in:inbox')}><RefreshCw size={13} aria-hidden="true" />Load inbox</button>}
+              {!data.mailSavedAt && <button type="button" className="setw-btn" disabled={busy || compose !== null || loadingReply} onClick={() => search('in:inbox')}><RefreshCw size={13} aria-hidden="true" />Load inbox</button>}
             </div>
             : mailGroups(data.mail).map(group => <section key={group.label}><h3>{group.label}</h3>{group.items.map(item => {
               const from = mailSender(item.from);
               const on = message?.id === item.id;
-              return <button type="button" key={item.id} className={`google-mail__item${on ? ' is-selected' : ''}${item.unread ? ' is-unread' : ''}`} aria-pressed={on} onClick={() => select(item.id)}>
+              return <button type="button" key={item.id} className={`google-mail__item${on ? ' is-selected' : ''}${item.unread ? ' is-unread' : ''}`} aria-pressed={on} disabled={compose !== null || loadingReply} onClick={() => select(item.id)}>
                 <span className={`google-avatar is-tone-${from.tone}`} aria-hidden="true">{from.initials}{mailSource(from.email) === 'github' && <span className="google-avatar__badge"><SourceIcon source="github" size={10} /></span>}</span>
                 <span className="google-mail__text">
                   <span className="google-mail__from"><span>{from.name}</span><time>{mailTime(item.date)}</time>{item.unread && <span aria-label="Unread" className="google-mail__unread" />}</span>
@@ -154,18 +170,18 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
             })}</section>)}
         </div>
         <footer className="google-mail__foot"><span>25 per page · Gemini can search beyond it</span>
-          {data.nextPageToken && <button type="button" className="setw-btn" disabled={busy || query !== data.query} onClick={() => search(data.query, data.nextPageToken)}>Next page<ChevronRight size={13} aria-hidden="true" /></button>}</footer>
+          {data.nextPageToken && <button type="button" className="setw-btn" disabled={busy || compose !== null || loadingReply || query !== data.query} onClick={() => search(data.query, data.nextPageToken)}>Next page<ChevronRight size={13} aria-hidden="true" /></button>}</footer>
       </div>
       <article className="google-reader">
         {composing ? composer(null) : !message || !sender || !subject ? <div className="google-reader__none"><MailOpen size={22} aria-hidden="true" />Select a message to read it.</div> : <>
           <div className="google-reader__bar">
-            <button type="button" className="setw-btn" disabled={!canReply} onClick={() => onCompose({ reply: message })}><Reply size={14} aria-hidden="true" />Reply</button>
-            <button type="button" className="setw-btn" disabled={busy} onClick={() => { void act(async () => { const next = await bridge.archiveGoogleMail(status.profile, message.id); setArchiving(true); return next; }); }}><Archive size={14} aria-hidden="true" />Archive</button>
+            <button type="button" className="setw-btn" disabled={!canReply} onClick={() => { void startReply(message); }}><Reply size={14} aria-hidden="true" />Reply</button>
+            <button type="button" className="setw-btn" disabled={busy || compose !== null || loadingReply} onClick={() => { void act(async () => { const next = await bridge.archiveGoogleMail(status.profile, message.id); setArchiving(true); return next; }); }}><Archive size={14} aria-hidden="true" />Archive</button>
             <button type="button" className="setw-btn google-ask" onClick={() => onAsk(message)}><Sparkles size={14} aria-hidden="true" />Ask Gemini</button>
             <span className="google-spacer" />
             <button type="button" className="google-quiet-btn" onClick={() => open(gmailLink(message, data.email))}>Open Gmail<ExternalLink size={13} aria-hidden="true" /></button>
-            <button type="button" className="google-icon-btn" aria-label="Newer" title="Newer" disabled={position <= 0} onClick={() => select(data.mail[position - 1].id)}><ChevronUp size={15} /></button>
-            <button type="button" className="google-icon-btn" aria-label="Older" title="Older" disabled={position < 0 || position >= data.mail.length - 1} onClick={() => select(data.mail[position + 1].id)}><ChevronDown size={15} /></button>
+            <button type="button" className="google-icon-btn" aria-label="Newer" title="Newer" disabled={compose !== null || loadingReply || position <= 0} onClick={() => select(data.mail[position - 1].id)}><ChevronUp size={15} /></button>
+            <button type="button" className="google-icon-btn" aria-label="Older" title="Older" disabled={compose !== null || loadingReply || position < 0 || position >= data.mail.length - 1} onClick={() => select(data.mail[position + 1].id)}><ChevronDown size={15} /></button>
           </div>
           <div className="google-reader__body">
             <Labels mail={message} source={source} open={open} />
@@ -183,7 +199,7 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
               {(github.reason || github.link) && <div className="google-notice__foot"><span>{github.reason}</span>
                 {github.link && <button type="button" className="google-link" onClick={() => open(github.link ?? '')}>View on GitHub<ArrowUpRight size={13} aria-hidden="true" /></button>}</div>}
             </div> : <div className="google-mail-text">{mailParagraphs(message).map((text, index) => <Block key={index} block={{ text }} subject={subject} open={open} />)}</div>}
-            {replying ? composer(message) : compose === null && <button type="button" className="google-quick-reply" disabled={busy} onClick={() => onCompose({ reply: message })}>
+            {replying ? composer(message) : compose === null && <button type="button" className="google-quick-reply" disabled={!canReply} onClick={() => { void startReply(message); }}>
               <Reply size={15} aria-hidden="true" /><span>Reply to {sender.name}…</span><kbd>R</kbd></button>}
           </div>
         </>}

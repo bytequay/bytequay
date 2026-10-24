@@ -306,6 +306,17 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(menuBounds.left >= sidebarBounds.left && menuBounds.right <= sidebarBounds.right, 'Sprint options and state badges stay inside the sidebar without clipping');
       menuItem('Backlog').click(); await until(() => calls.some(call => call.name === 'sprint')); assert(calls.find(call => call.name === 'sprint')?.args[0] === null, 'Backlog is explicit');
     },
+    async 'locks comment and reply drafts until the pending write finishes'() {
+      await mountPreview();
+      let rejectComment: (error: Error) => void = () => { throw new Error('Comment was not started'); };
+      window.bridge.commentJiraIssue = () => new Promise((_resolve, reject) => { rejectComment = reject; });
+      const input = element<HTMLTextAreaElement>('textarea[aria-label="Add a comment"]');
+      changeInput(input, 'Keep this draft if sending fails.'); await settle(); button('Send').click(); await settle();
+      assert(input.disabled, 'Typing cannot race a pending comment');
+      assert([...document.querySelectorAll<HTMLButtonElement>('[aria-label^="Reply to "]')].every(value => value.disabled), 'A pending write cannot replace the reply editor');
+      rejectComment(new Error('Comment failed')); await settle(); await settle();
+      assert(!input.disabled && input.value === 'Keep this draft if sending fails.', 'The failed comment remains editable');
+    },
     async 'requires transition fields and retains a failed comment operation'() {
       await mountPreview();
       const status = () => { const found = element<HTMLButtonElement>('.jira-status-button', document, 'Status control exists'); return found; };

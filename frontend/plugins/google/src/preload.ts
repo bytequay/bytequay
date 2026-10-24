@@ -27,6 +27,7 @@ export function createGoogleBridge(ipcRenderer: Pick<IpcRenderer, 'invoke'>): Go
     addGoogleAccount: () => ipcRenderer.invoke('google:accounts:add'),
     selectGoogleAccount: profile => ipcRenderer.invoke('google:account:select', profile),
     archiveGoogleMail: (profile, messageId) => ipcRenderer.invoke('google:archive', profile, messageId),
+    getGoogleReplyRecipients: (profile, messageId) => ipcRenderer.invoke('google:reply-recipients', profile, messageId),
     sendGoogleMail: request => ipcRenderer.invoke('google:send', request),
     getGoogleStatus: () => ipcRenderer.invoke('google:status'),
     installGoogleConnector: () => ipcRenderer.invoke('google:install'),

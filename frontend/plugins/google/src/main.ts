@@ -43,6 +43,7 @@ export function registerGoogleIpc({ ipc, home, userData, backend }: GoogleMainHo
   ipc.handle('google:accounts:add', () => backend('/api/google/accounts', jsonInit('POST', {})));
   ipc.handle('google:account:select', (_event, profile: string) => backend('/api/google/account', jsonInit('PUT', { profile })));
   ipc.handle('google:archive', (_event, profile: string, messageId: string) => backend('/api/google/archive', jsonInit('POST', { profile, messageId })));
+  ipc.handle('google:reply-recipients', (_event, profile: string, messageId: string) => backend('/api/google/reply-recipients', jsonInit('POST', { profile, messageId })));
   ipc.handle('google:send', (_event, request: unknown) => backend('/api/google/send', jsonInit('POST', request)));
   ipc.handle('google:status', () => backend('/api/google'));
   ipc.handle('google:install', () => backend('/api/google/install', { method: 'POST' }));

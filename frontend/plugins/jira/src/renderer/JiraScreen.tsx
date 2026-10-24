@@ -644,14 +644,14 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
   // Jira threads are one level deep: a reply to a reply still belongs to the thread's first comment.
   const commentRow = (value: JiraComment, threadId: string, parentId: string, nested = false) => <JiraCommentRow key={value.id} value={value} nested={nested}>
     {commentEdit?.id === value.id
-      ? <form className="jira-comment-edit" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setCommentEdit(null); } }} onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => host.bridge.editJiraComment(location, value.id, body, commentEdit.updated), () => setCommentEdit(null)); }}>
-        <textarea ref={commentEditRef} className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
+      ? <form className="jira-comment-edit" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (!busy) setCommentEdit(null); } }} onSubmit={event => { event.preventDefault(); const body = commentEdit.body.trim(); if (body) void mutate(() => host.bridge.editJiraComment(location, value.id, body, commentEdit.updated), () => setCommentEdit(null)); }}>
+        <textarea ref={commentEditRef} disabled={busy} className="jira-field" aria-label="Edit comment" rows={4} autoFocus value={commentEdit.body} onChange={event => setCommentEdit({ ...commentEdit, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
         <div className="jira-form-actions"><BetterWordsButton text={commentEdit.body} textareaRef={commentEditRef} workspaceId={issue?.workspace?.id} disabled={busy} onError={onRewriteError} />
           <button type="button" className="jira-btn" disabled={busy} onClick={() => setCommentEdit(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !commentEdit.body.trim()}>Save</button></div>
       </form>
       : <><MarkdownBody body={value.body} /><div className="jira-comment__actions">
-        <button type="button" className="bq-iconbtn" aria-label={`Reply to ${value.author.displayName}`} title="Reply" onClick={() => setReply(current => ({ threadId, parentId, to: value.author.displayName, body: current?.threadId === threadId ? current.body : '' }))}><Reply size={14} /></button>
-        {value.mine && <button type="button" className="bq-iconbtn" aria-label={value.editableText === null ? 'Edit comment in Jira' : 'Edit comment'} title={value.editableText === null ? 'Edit in Jira: this comment has formatting ByteQuay cannot edit' : 'Edit'}
+        <button type="button" className="bq-iconbtn" disabled={busy} aria-label={`Reply to ${value.author.displayName}`} title="Reply" onClick={() => setReply(current => ({ threadId, parentId, to: value.author.displayName, body: current?.threadId === threadId ? current.body : '' }))}><Reply size={14} /></button>
+        {value.mine && <button type="button" className="bq-iconbtn" disabled={busy} aria-label={value.editableText === null ? 'Edit comment in Jira' : 'Edit comment'} title={value.editableText === null ? 'Edit in Jira: this comment has formatting ByteQuay cannot edit' : 'Edit'}
           onClick={() => { if (value.editableText !== null) setCommentEdit({ id: value.id, body: value.editableText, updated: value.updated }); else if (issue) void host.openInAppBrowser(`${issue.url}?focusedCommentId=${encodeURIComponent(value.id)}`); }}><Pencil size={13} /></button>}
       </div></>}
   </JiraCommentRow>;
@@ -708,7 +708,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
         <section className="jira-comments" aria-label="Comments">
           <h3>Comments<span className="jira-count">{detail.comments.length}</span></h3>
           <form className="jira-composer" onSubmit={event => { event.preventDefault(); sendComment(); }}>
-            <textarea ref={commentRef} aria-label="Add a comment" rows={5} placeholder="Write a comment…" value={comment} onChange={event => setComment(event.target.value)} onKeyDown={submitOnCommandEnter} />
+            <textarea ref={commentRef} disabled={busy} aria-label="Add a comment" rows={5} placeholder="Write a comment…" value={comment} onChange={event => setComment(event.target.value)} onKeyDown={submitOnCommandEnter} />
             <div className="jira-composer__foot"><BetterWordsButton key={commentRevision} text={comment} textareaRef={commentRef} workspaceId={issue.workspace?.id} disabled={busy} onError={onRewriteError} />
               <span className="jira-kbd" aria-hidden="true">⌘↵</span><button type="submit" className="jira-btn is-primary" disabled={busy || !comment.trim()}>Send</button></div>
           </form>
@@ -720,8 +720,8 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
               {commentRow(root, root.id, parentId)}
               {(replies.length > 0 || replying) && <div className="jira-comment-replies">
                 {replies.map(value => commentRow(value, root.id, parentId, true))}
-                {replying && <form className="jira-reply-form" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); setReply(null); } }} onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => host.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
-                  <textarea ref={replyRef} aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
+                {replying && <form className="jira-reply-form" onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); if (!busy) setReply(null); } }} onSubmit={event => { event.preventDefault(); const body = replying.body.trim(); if (!body) return; if (replyRequest.current?.body !== body || replyRequest.current.parentId !== replying.parentId) replyRequest.current = { body, parentId: replying.parentId, id: crypto.randomUUID() }; const request = replyRequest.current; void mutate(() => host.bridge.commentJiraIssue(location, request.body, request.id, request.parentId), () => { setReply(null); replyRequest.current = null; }, 'comment'); }}>
+                  <textarea ref={replyRef} disabled={busy} aria-label={`Reply to ${replying.to}`} rows={3} autoFocus placeholder={`Reply to ${replying.to}…`} value={replying.body} onChange={event => setReply({ ...replying, body: event.target.value })} onKeyDown={submitOnCommandEnter} />
                   <div className="jira-reply-form__foot"><BetterWordsButton text={replying.body} textareaRef={replyRef} workspaceId={issue.workspace?.id} disabled={busy} onError={onRewriteError} />
                     <button type="button" className="jira-btn" disabled={busy} onClick={() => setReply(null)}>Cancel</button><button type="submit" className="jira-btn is-primary" disabled={busy || !replying.body.trim()}>Reply</button></div>
                 </form>}

@@ -101,7 +101,7 @@
 .agt-auto-card.is-locked { cursor: not-allowed; }
 .agt-auto-card__head { display: grid; grid-template-columns: 24px 1fr 24px; align-items: start; }
 .agt-auto-card__name { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.agt-auto-card__name > span:first-child { font-size: 20px; font-weight: 500; color: light-dark(#0a6fd1, var(--dark-blue)); }
+.agt-auto-card__name > span:first-child { font-size: 14px; font-weight: 500; color: light-dark(#0a6fd1, var(--dark-blue)); }
 .agt-auto-card.is-locked .agt-auto-card__name > span:first-child { color: light-dark(#8e8e93, var(--dark-muted)); }
 .agt-auto-card__trail { display: flex; align-items: center; gap: 8px; height: 16px; color: light-dark(#6e6e73, var(--dark-muted)); }
 .agt-auto-card__corner {

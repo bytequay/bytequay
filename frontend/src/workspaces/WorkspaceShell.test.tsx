@@ -248,7 +248,7 @@ describe('watched repository workspace UI', () => {
       <WorkspaceShell {...props} initialAgentTaskId="task-1" />);
     expect(open).toContain('Message the agent');
     expect(open.match(/aria-label="Show all tasks"/g)).toHaveLength(1);
-    expect(open).toMatch(/<div class="agt-screen-head">.*aria-label="Show all tasks".*<\/button><\/div>/);
+    expect(open).toMatch(/<header class="agt-screen-head">.*class="agt-screen-head__actions">.*aria-label="Show all tasks".*<\/header>/);
     expect(open).not.toContain('agt-overview-toggle');
 
     const review = renderToStaticMarkup(<WorkspaceShell {...props} initialAgentReviewId="review-1" />);

@@ -82,16 +82,30 @@ export async function run(): Promise<{ name: string }[]> {
     assert(window.location.hash === '#/recent' && recent() !== null, 'Opening a pinned task retains Recent instead of navigating to Workspaces');
     assert(document.querySelector('.rc-page h1')?.textContent === 'Recent', 'The original page remains mounted');
   };
+  const assertHeader = (backAvailable: boolean): void => {
+    const header = element<HTMLElement>('.agt-screen-head', taskLayer() ?? document);
+    const actions = element<HTMLElement>('.agt-screen-head__actions', header);
+    assert(header.getBoundingClientRect().height === 40 && getComputedStyle(header).gap === '4px' && getComputedStyle(actions).gap === '4px',
+      'Loading, loaded and failed task overlays must share compact header geometry');
+    for (const button of header.querySelectorAll<HTMLButtonElement>('.agt-headbtn')) {
+      assert(button.getBoundingClientRect().width === 28 && button.getBoundingClientRect().height === 26, 'Task overlay actions must keep consistent targets');
+    }
+    const close = element<HTMLButtonElement>('[aria-label="Close task"]', actions);
+    assert(header.getBoundingClientRect().right - close.getBoundingClientRect().right === 8, 'The close action must remain at the right inset');
+    assert((header.querySelector('[aria-label="Back to tasks"]') !== null) === backAvailable, 'Back navigation appears only after the workspace resolves');
+  };
   try {
     await until(() => recent() !== null, 'Recent navigation did not settle');
     openPin(title);
     await until(() => taskLayer()?.querySelector('[role="status"]')?.textContent === 'Loading…', 'The saved task opens a loading dialog');
+    assertHeader(false);
     assertOrigin();
     assert(workspaceReads.join() === workspace.id, 'The pin resolves its saved workspace');
     assert(!preview.commands.some(command => command.name === 'getAgentTask'), 'The task waits for its workspace');
 
     pendingWorkspace.resolve(workspace);
     await until(() => taskLayer()?.querySelector('.agt-title')?.textContent === title, 'The saved task title appears in its dialog');
+    assertHeader(true);
     const taskReads = preview.commands.filter(command => command.name === 'getAgentTask');
     assert(taskReads.length > 0 && taskReads.every(command => JSON.stringify(command.args) === JSON.stringify([taskId, workspace.id])),
       'The task screen loads exactly the saved task and workspace IDs');
@@ -103,6 +117,7 @@ export async function run(): Promise<{ name: string }[]> {
     openPin(missingTitle);
     await until(() => taskLayer()?.querySelector('[role="alert"]')?.textContent === 'The saved task workspace is unavailable',
       'An unavailable workspace displays its error in the task dialog');
+    assertHeader(false);
     const error = taskLayer()?.querySelector<HTMLElement>('[role="alert"]');
     assert(error !== null && error !== undefined && error.getBoundingClientRect().height > 0, 'The workspace error is visible');
     assert(workspaceReads.join() === `${workspace.id},missing-workspace`, 'The second saved pin resolves its own workspace');

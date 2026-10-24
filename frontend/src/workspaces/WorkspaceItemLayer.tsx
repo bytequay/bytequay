@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
+import TaskHeader from '../agents/TaskHeader';
 import { zoomReference, type ZoomedReference } from '../githubReference';
 import { settingsRoute } from '../settings/routes';
 import type { WorkspaceDto } from '../types';
@@ -37,7 +38,8 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
     {!zoom.full && <ZoomScrim onClose={zoom.close} />}
     <section className={zoom.cardClass} role="dialog" aria-modal="true" aria-label={target.kind === 'work' ? 'Local work item' : 'Task'}>
       {workspace === null ? <>
-        <header className="pull-detail__header"><div className="pull-detail__toolbar"><div className="pull-detail__header-actions">{actions}</div></div></header>
+        {target.kind === 'task' ? <TaskHeader actions={actions} />
+          : <header className="pull-detail__header"><div className="pull-detail__toolbar"><div className="pull-detail__header-actions">{actions}</div></div></header>}
         <div className="pull-detail__body" role={error === null ? 'status' : 'alert'}>{error ?? 'Loading…'}</div>
       </> : target.kind === 'work'
         ? <LocalWorkItems workspace={workspace} zoomedItemId={target.itemId} headerAction={actions} />

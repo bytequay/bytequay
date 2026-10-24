@@ -92,7 +92,7 @@ import ProviderSignInDialog from './ProviderSignInDialog';
 import type { ReviewCardFocus, ReviewRequestTarget } from './ReviewRequestCard';
 import SubagentsPanel from './SubagentsPanel';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
-import TaskBackButton from './TaskBackButton';
+import TaskHeader from './TaskHeader';
 import {
   NO_PULL_REQUEST_CHANGES,
   NO_PULL_REQUEST_DETAIL,
@@ -1217,66 +1217,67 @@ export function AgentTaskBody({
     <div className="agt-screen">
       <div className="agt-body" onClickCapture={selectPullRequestTab}>
       <section className="agt-task-column" aria-label="Agent conversation">
-      <div className="agt-screen-head">
-        <TaskBackButton onBack={onBack} />
-        <TaskTitle
+      <TaskHeader onBack={onBack}
+        title={<TaskTitle
           title={state.task?.title ?? 'Agent task'}
           provisional={state.task?.titleSource === 'PROVISIONAL'}
           onRename={state.task === null ? undefined : onRename}
-        />
-        <span className="agt-spacer" />
-        <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
-          {status === 'running' && !waiting && <Spinner />}
-          {(status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
-          {statusLabel}
-        </span>
-        {attentionStatus && <span className="attention-visit-status" role="status">{attentionStatus}</span>}
-        {state.task !== null && <PinButton className="agt-headbtn" item={{
-          key: `task:${state.task.id}`, title: state.task.title, reference: 'Task',
-          target: { kind: 'task', workspaceId: state.task.workspaceId, taskId: state.task.id },
-        }} />}
-        {state.task !== null && onArchive !== undefined && (
-          <button
-            type="button"
-            className="agt-headbtn is-shelf"
-            title={taskArchived(state.task) ? 'Restore' : 'Archive'}
-            aria-label={taskArchived(state.task) ? 'Restore' : 'Archive'}
-            disabled={state.sending}
-            onClick={() => onArchive(!taskArchived(state.task ?? { archivedAt: null }))}
-          >
-            {taskArchived(state.task) ? <ArchiveRestore aria-hidden="true" /> : <Archive aria-hidden="true" />}
-          </button>
-        )}
-        {!terminal && (
-          <button
-            type="button"
-            className="agt-headbtn"
-            aria-label="Mark it complete"
-            title={completeTitle(status, state)}
-            onClick={onComplete}
-            disabled={state.sending || !canComplete(state)}
-          >
-            <CircleCheck aria-hidden="true" />
-          </button>
-        )}
-        {state.task !== null && status !== 'loading' && (
-          <button
-            type="button"
-            className="agt-headbtn"
-            aria-label="Show or hide the side panel"
-            aria-pressed={panelOpen}
-            title={supportsNestedAgents
-              ? (hasAgents
-                ? `PR, changes and subagents (${agents.length + expiredChildren.length})`
-                : 'PR, changes and subagents')
-              : 'PR and changes'}
-            onClick={onTogglePanel}
-          >
-            <PanelRight aria-hidden="true" />
-          </button>
-        )}
-        {headerAction}
-      </div>
+        />}
+        status={<>
+          <span className={`agt-state is-${status}${waiting && status === 'running' ? ' is-waiting' : ''}`}>
+            {status === 'running' && !waiting && <Spinner />}
+            {(status === 'loading' || (status === 'running' && waiting)) && <span className="agt-state__dot" aria-hidden="true" />}
+            {statusLabel}
+          </span>
+          {attentionStatus && <span className="attention-visit-status" role="status">{attentionStatus}</span>}
+        </>}
+        actions={<>
+          {state.task !== null && <PinButton className="agt-headbtn" item={{
+            key: `task:${state.task.id}`, title: state.task.title, reference: 'Task',
+            target: { kind: 'task', workspaceId: state.task.workspaceId, taskId: state.task.id },
+          }} />}
+          {state.task !== null && onArchive !== undefined && (
+            <button
+              type="button"
+              className="agt-headbtn is-shelf"
+              title={taskArchived(state.task) ? 'Restore' : 'Archive'}
+              aria-label={taskArchived(state.task) ? 'Restore' : 'Archive'}
+              disabled={state.sending}
+              onClick={() => onArchive(!taskArchived(state.task ?? { archivedAt: null }))}
+            >
+              {taskArchived(state.task) ? <ArchiveRestore aria-hidden="true" /> : <Archive aria-hidden="true" />}
+            </button>
+          )}
+          {!terminal && (
+            <button
+              type="button"
+              className="agt-headbtn"
+              aria-label="Mark it complete"
+              title={completeTitle(status, state)}
+              onClick={onComplete}
+              disabled={state.sending || !canComplete(state)}
+            >
+              <CircleCheck aria-hidden="true" />
+            </button>
+          )}
+          {state.task !== null && status !== 'loading' && (
+            <button
+              type="button"
+              className="agt-headbtn"
+              aria-label="Show or hide the side panel"
+              aria-pressed={panelOpen}
+              title={supportsNestedAgents
+                ? (hasAgents
+                  ? `PR, changes and subagents (${agents.length + expiredChildren.length})`
+                  : 'PR, changes and subagents')
+                : 'PR and changes'}
+              onClick={onTogglePanel}
+            >
+              <PanelRight aria-hidden="true" />
+            </button>
+          )}
+          {headerAction}
+        </>} />
 
 
       {/* Only connection states needing attention take space in the conversation. */}

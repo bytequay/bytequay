@@ -34,6 +34,7 @@ import { LinkedWorkList, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { IssueAttachment } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { ProviderIcon } from './ProviderIcon';
+import TaskHeader from './TaskHeader';
 import { AutomationControl } from './AutomationControl';
 import Composer, { ComposerAttachments } from '../Composer';
 import ComposerModelControls from './ComposerModelControls';
@@ -551,15 +552,12 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
   </div>;
   return (
     <div className="agt-screen">
-      <div className="agt-screen-head">
-        <span className="agt-title">New task</span>
+      <TaskHeader title="New task" status={<>
         <span className="agt-state is-running">Starting</span>
         <span className="agt-mono agt-meta">
           <ProviderIcon id={laneId} size={12} /> {provider} · {displayModelName(model?.name ?? selection?.model ?? '')}{selection?.effort ? ` · ${selection.effort}` : ''}
         </span>
-        <span className="agt-spacer" />
-        {headerAction}
-      </div>
+      </>} actions={headerAction} />
       {error !== null && <div className="agt-notice" role="alert">{error}</div>}
       <div className="agt-transcript" aria-label="Starting task conversation">
         <div>

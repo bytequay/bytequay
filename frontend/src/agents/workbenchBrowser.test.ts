@@ -22,6 +22,13 @@ beforeAll(async () => {
 }, deadline(30_000));
 afterAll(() => fixture?.dispose());
 
+it('keeps task headers compact across screens while preserving title edits and actions', async () => {
+  const result = await fixture.run<string>({
+    body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.taskHeaderLayout()');",
+  });
+  expect(result).toContain('editable titles and accessible actions');
+}, deadline(30_000));
+
 it('keeps local WorkBench views and drafts when switching destinations in Chromium', async () => {
   const result = await fixture.run<string>();
   expect(result).toContain('unsaved code before a PR exists');

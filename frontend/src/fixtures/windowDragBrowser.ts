@@ -70,5 +70,20 @@ export async function run(): Promise<boolean> {
   }
   const toolbar = overlay.querySelector('header');
   assert(toolbar !== null && getComputedStyle(toolbar).getPropertyValue('-webkit-app-region') === 'drag', 'The browser toolbar must retain its own handle');
+  const card = document.createElement('button');
+  card.className = 'agt-card__open';
+  card.innerHTML = '<header class="agt-screen-head"><div class="agt-screen-head__title">Task preview</div><div class="agt-screen-head__actions"></div></header>';
+  let opens = 0;
+  card.addEventListener('click', () => { opens++; });
+  document.body.append(card);
+  const thumbnailHeader = card.querySelector('header');
+  assert(thumbnailHeader !== null && getComputedStyle(thumbnailHeader).getPropertyValue('-webkit-app-region') === 'no-drag',
+    'The shared header inside a thumbnail must open its task rather than drag the window');
+  thumbnailHeader.click();
+  assert(opens === 1, 'Clicking the thumbnail header must reach the card open action');
+  const taskHeader = document.createElement('header');
+  taskHeader.className = 'agt-screen-head';
+  document.body.append(taskHeader);
+  assert(getComputedStyle(taskHeader).getPropertyValue('-webkit-app-region') === 'drag', 'A full task header must retain its window handle');
   return true;
 }

@@ -9,16 +9,6 @@
   color: var(--fg-muted);
 }
 
-.cpt-title {
-  flex: 1;
-  min-width: 80px;
-  font-size: 13.5px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .cpt-paused {
   flex: 1;
   min-width: 0;

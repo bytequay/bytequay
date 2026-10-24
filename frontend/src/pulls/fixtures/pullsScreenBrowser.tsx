@@ -356,6 +356,10 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     const loadedBack = conversation.querySelector<HTMLButtonElement>('button[aria-label="Back to tasks"]');
     assert(loadedBack !== null && loadedBack.title === 'Back to tasks' && loadedBack.textContent === '' && loadedBack.querySelector('svg.lucide-arrow-left') !== null,
       'Local and linked review task headers must retain the accessible back arrow');
+    const header = loadedBack.closest<HTMLElement>('.agt-screen-head');
+    assert(header !== null && getComputedStyle(header).gap === '4px' && getComputedStyle(header).paddingRight === '8px'
+      && getComputedStyle(header).minHeight === '40px' && loadedBack.getBoundingClientRect().width === 28 && loadedBack.getBoundingClientRect().height === 26,
+    'Local and linked review task headers must share the compact layout');
     loadedBack.click();
     assert(Number(back) === 2, 'The review workspace back action must return to its task list');
     return local ? 'Local review workspace keeps its reviewer conversation without fetching PR details'

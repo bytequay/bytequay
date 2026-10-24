@@ -157,17 +157,35 @@
   display: flex;
   flex: none;
   align-items: center;
-  gap: 10px;
-  padding: 6px 20px 7px;
+  gap: 4px;
+  min-height: 40px;
+  box-sizing: border-box;
+  padding: 6px 8px 7px 20px;
   border-bottom: 1px solid light-dark(#e3e3e6, var(--dark-border));
 }
 
-.agt-task-column > .agt-screen-head {
-  gap: 4px;
-  padding-right: 8px;
+.agt-screen-head__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
 }
 
-.agt-task-column > .agt-screen-head > .agt-headbtn {
+.agt-screen-head__title :focus-visible {
+  outline-offset: -2px;
+}
+
+.agt-screen-head__actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+}
+
+.agt-screen-head .agt-headbtn {
   min-width: 28px;
 }
 
@@ -1239,9 +1257,8 @@
  */
 /* The title is a control: clicking it renames the task in place. */
 .agt-title {
+  display: block;
   font: inherit;
-  font-size: 14px;
-  font-weight: 500;
   color: inherit;
   background: none;
   border: 0;
@@ -1250,7 +1267,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 420px;
+  max-width: 100%;
 }
 
 /* Named after the first message until the agent proposes a name; reads as not yet settled. */
@@ -1260,10 +1277,8 @@
 
 .agt-title-edit {
   font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  min-width: 240px;
-  max-width: 420px;
+  width: 100%;
+  min-width: 0;
   padding: 1px 6px;
   border: 1px solid var(--accent);
   border-radius: 6px;
@@ -2458,10 +2473,6 @@
   stroke-width: 1.75;
 }
 
-.agt-headbtn.agt-task-back {
-  min-width: 28px;
-}
-
 .agt-headbtn:hover:not(:disabled, [aria-pressed="true"]) {
   background: light-dark(#f0f1f3, var(--dark-subtle));
 }
@@ -2762,23 +2773,6 @@
   line-height: 15px;
 }
 
-.agt-card__head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 20px 11px;
-  border-bottom: 1px solid light-dark(#e3e3e6, var(--dark-border));
-}
-
-.agt-card__title {
-  font-size: 14px;
-  font-weight: 700;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 420px;
-}
-
 /*
  * The body keeps the newest work in view, as the screen does while it follows its bottom: a short
  * transcript sits under the header, a long one overflows out of the top. The trailing spacer takes
@@ -2841,7 +2835,8 @@
   z-index: 85;
 }
 
-:is(.agt-screen-head, .agt-tasks-head, .agt-page-head) > .agt-overview-toggle {
+.agt-screen-head__actions > .agt-overview-toggle,
+:is(.agt-tasks-head, .agt-page-head) > .agt-overview-toggle {
   position: static;
   z-index: auto;
 }

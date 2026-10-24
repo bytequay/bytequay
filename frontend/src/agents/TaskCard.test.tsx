@@ -59,7 +59,7 @@ describe('task window', () => {
     // One unitless width drives both the thumbnail height and the screen's scale.
     expect(markup).toContain('style="--card-w:294"');
     expect(markup).toContain('aria-label="Open task: Fix flaky preview"');
-    const header = markup.match(/<div class="agt-card__head">([^]*?)<\/div>/)?.[1];
+    const header = markup.match(/<header class="agt-screen-head">([^]*?)<\/header>/)?.[1];
     expect(header).toContain('<span class="agt-headbtn agt-task-back" aria-hidden="true">');
     expect(header).toContain('lucide-arrow-left');
     expect(header).not.toContain('<button');

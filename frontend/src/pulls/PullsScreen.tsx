@@ -20,7 +20,7 @@ import { useTaskCardState } from '../agents/attention';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
-import TaskBackButton from '../agents/TaskBackButton';
+import TaskHeader from '../agents/TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/pulls.css';
 import '../css/review-tasks.css';
@@ -1140,11 +1140,7 @@ export default function PullsScreen({
       </section>}
 
       {reviewWorkspace !== undefined && <section className="agr-workspace-conversation" aria-label="Review agent conversation">
-        <header className="agt-screen-head">
-          <TaskBackButton onBack={reviewWorkspace.onBack} />
-          <strong>{selectedPr?.title ?? 'WorkBench'}</strong>
-          <span className="agt-spacer" />{reviewWorkspace.headerAction}
-        </header>
+        <TaskHeader title={selectedPr?.title ?? 'WorkBench'} onBack={reviewWorkspace.onBack} actions={reviewWorkspace.headerAction} />
         {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
           review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
           composerContext={selectedPr === null ? undefined : <PullRequestChip pullRequest={selectedPr} pressed={paneShown && detailTab === 'overview'}

@@ -17,7 +17,7 @@ import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-revi
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
-import TaskBackButton from './TaskBackButton';
+import TaskHeader from './TaskHeader';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { ReviewCardFocus } from './ReviewRequestCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -48,10 +48,7 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
   }, [reviewId, workspaceId, retry, updateReview]);
 
   if (review === null) return <section className="agt-screen" aria-label="Review task">
-    <header className="agt-screen-head">
-      <TaskBackButton onBack={onBack} />
-      <strong>WorkBench</strong><span className="agt-spacer" />{headerAction}
-    </header>
+    <TaskHeader title="WorkBench" onBack={onBack} actions={headerAction} />
     <div className="agr-workspace-status" role={error === null ? 'status' : 'alert'}>
       {error === null && <span className="agr-spinner" aria-hidden="true" />}
       <span>{error ?? 'Loading review task…'}</span>
@@ -104,11 +101,9 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
   const navigateToChanges = (target: ReviewNavigationTarget): void => { setCommitSelection(null); setNavigation(target); setTab('changes'); };
   return <div className="pulls-page pulls-page--review-workspace">
     <section className="agr-workspace-conversation" aria-label="Review agent conversation">
-      <header className="agt-screen-head">
-        <TaskBackButton onBack={() => leave(onBack)} />
-        <strong>{review.repo} · {review.replay === undefined ? 'Local review'
-          : `Replay of #${review.replay.number} · ${review.replay.memory ? 'with' : 'without'} memory`}</strong><span className="agt-spacer" />{headerAction}
-      </header>
+      <TaskHeader onBack={() => leave(onBack)} actions={headerAction}
+        title={`${review.repo} · ${review.replay === undefined ? 'Local review'
+          : `Replay of #${review.replay.number} · ${review.replay.memory ? 'with' : 'without'} memory`}`} />
       <AgentReviewTab workspaceId={review.workspaceId} viewer={null} review={review} onReviewChange={onReviewChange}
         mode="conversation" focusFindingId={null} onNavigateToChanges={navigateToChanges}
         conversationPanel={{ tabTarget: agentTabTarget, bodyTarget: agentBodyTarget, active: tab === 'agents' || tab === 'discussions' ? tab : null,

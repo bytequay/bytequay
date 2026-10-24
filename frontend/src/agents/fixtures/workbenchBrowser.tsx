@@ -14,9 +14,15 @@
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { prepareAgentInput } from '../preparedInput';
 import { installDesktopFixture } from '../../ide/fixtures/desktop';
 import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
+import { StartingAgentTask } from '../AgentTasksView';
+import ReviewTaskScreen from '../ReviewTaskScreen';
+import { TaskCard } from '../TaskCard';
+import CherryPickTaskScreen from '../../commits/CherryPickTaskScreen';
+import { ZoomActions } from '../../Zoom';
 import DevelopmentLearningPanel from '../DevelopmentLearningPanel';
 import type { TaskReviewOptions } from '../../pulls/agent-review/TaskReviewSummary';
 import { useLocalReviewThreads } from '../../pulls/local-review/useLocalReviewThreads';
@@ -31,7 +37,7 @@ import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from './previewBrid
 import type { TaskDiscussionDto } from '../discussions/contracts';
 import type { AgentTaskDto, Bridge } from '../../types';
 import type { CodeHostRef, WorktreeChangesDto, WorktreeChangesRequest } from '../../pulls/code-tests/contracts';
-import { assert, settle, element } from '../../fixtures/harness';
+import { assert, changeInput, settle, element } from '../../fixtures/harness';
 import '../../css/base.css';
 
 export async function run(keepMounted = false, showChanges = false, zoomChanges = false): Promise<string> {
@@ -320,4 +326,84 @@ export async function agentSwitch(published = false, utility = false): Promise<s
     dispose(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
     window.location.hash = '';
   }
+}
+
+export async function taskHeaderLayout(): Promise<string> {
+  const originalBridge = window.bridge;
+  Object.assign(window, { bridge: {
+    getLinkedWorkspaceWork: async () => [], getRelatedWorkspaceRequest: async () => null, getBackportChains: async () => [],
+  } });
+  const { host, root, dispose } = createFixtureRoot();
+  host.style.cssText = 'width:480px;height:400px';
+  const task = { ...previewTask('workspace-1', 'header-task'), mutationClaim: null,
+    title: 'Investigate and repair the very long task title without moving the action controls' };
+  const layout = (label: string): HTMLElement => {
+    const header = element<HTMLElement>('.agt-screen-head', host);
+    const group = element<HTMLElement>('.agt-screen-head__actions', header);
+    const style = getComputedStyle(header);
+    assert(style.gap === '4px' && style.paddingRight === '8px' && style.minHeight === '40px' && getComputedStyle(group).gap === '4px',
+      `${label}: task headers must use the same compact layout`);
+    assert(header.scrollWidth <= header.clientWidth, `${label}: the header must not overflow`);
+    for (const button of header.querySelectorAll<HTMLElement>('.agt-headbtn')) {
+      const target = getComputedStyle(button);
+      assert(target.width === '28px' && target.height === '26px', `${label}: icon controls must keep the same target size`);
+    }
+    return header;
+  };
+  try {
+    const previews = [
+      ['Starting', <StartingAgentTask draft="Fix the header" images={[]} laneId="codex" providers={[]} models={[]} selection={null}
+        headerAction={<button className="agt-headbtn agt-overview-toggle" aria-label="Show all tasks" />} />],
+      ['Review loading', <ReviewTaskScreen workspaceId="workspace-1" reviewId="review-1" browserOpen={false} onBack={() => {}} />],
+      ['Cherry-pick loading', <CherryPickTaskScreen executionId="execution-1" onBack={() => {}} />],
+      ['Thumbnail', <TaskCard task={task} events={[]} providers={[]} width={294} now={0} onOpen={() => {}} />],
+    ] as const;
+    for (const [label, preview] of previews) {
+      host.innerHTML = renderToStaticMarkup(preview);
+      const header = layout(label);
+      const overview = header.querySelector<HTMLElement>('.agt-overview-toggle');
+      if (overview !== null) assert(getComputedStyle(overview).position === 'static', 'Starting tasks must keep overview inside the action group');
+      if (label === 'Thumbnail') assert(header.querySelector('button, input, [tabindex]') === null, 'A thumbnail header must remain noninteractive');
+    }
+    host.replaceChildren();
+    const renamed: string[] = [];
+    const invoked: string[] = [];
+    flushSync(() => root.render(<AgentTaskBody {...TASK_BODY_NOOPS} models={[]} state={{ ...initialAgentTaskState(), task, connection: 'open' }}
+      onBack={() => invoked.push('back')} onRename={title => renamed.push(title)} onArchive={() => {}}
+      headerAction={<><ZoomActions full={false} toggle={() => invoked.push('zoom')} close={() => invoked.push('close')} label="task" className="agt-headbtn" />
+        <button type="button" className="agt-headbtn agt-overview-toggle" aria-label="Show all tasks" onClick={() => invoked.push('overview')} /></>} />));
+    await settle();
+    for (const width of [480, 800]) {
+      host.style.width = `${width}px`;
+      await settle();
+      const header = layout(`Development at ${width}px`);
+      const controls = [...element<HTMLElement>('.agt-screen-head__actions', header).children];
+      for (let index = 1; index < controls.length; index++) {
+        assert(Math.abs(controls[index].getBoundingClientRect().left - controls[index - 1].getBoundingClientRect().right - 4) < 1,
+          'Status and fragment-supplied controls must stay together');
+      }
+      const lastControl = controls.at(-1);
+      assert(lastControl !== undefined && Math.abs(header.getBoundingClientRect().right - lastControl.getBoundingClientRect().right - 8) < 1,
+        'The final action must stay eight pixels from the pane edge');
+    }
+    host.style.width = '480px';
+    flushSync(() => element<HTMLButtonElement>('.agt-title', host).click());
+    const input = element<HTMLInputElement>('input[aria-label="Task name"]', host);
+    const actions = element<HTMLElement>('.agt-screen-head__actions', host);
+    assert(document.activeElement === input && input.getBoundingClientRect().right <= actions.getBoundingClientRect().left - 3
+      && input.getBoundingClientRect().width < 240, 'Renaming in a narrow pane must keep focus and fit before the action group');
+    flushSync(() => changeInput(input, 'Tighten the header'));
+    flushSync(() => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    await settle();
+    assert(renamed.length === 1 && renamed[0] === 'Tighten the header', 'Enter must still commit a renamed task exactly once');
+    for (const label of ['Back to tasks', 'Show all tasks', 'Enter full screen', 'Close task']) {
+      const control = element<HTMLButtonElement>(`button[aria-label="${label}"]`, host);
+      control.focus();
+      assert(document.activeElement === control, `${label}: the shared header must retain keyboard focus`);
+      control.click();
+    }
+    assert(invoked.join(',') === 'back,overview,zoom,close', 'Back, overview and fragment zoom controls must keep their own actions');
+    return 'Shared task headers keep compact geometry, editable titles and accessible actions';
+  }
+  finally { dispose(); Object.assign(window, { bridge: originalBridge }); }
 }

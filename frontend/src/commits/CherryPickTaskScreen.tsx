@@ -19,7 +19,7 @@ import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { AgentConversation, ConversationComposer, Spinner, useConversationHistory, type ConversationHistory } from '../agents/AgentConversation';
 import { TaskStats } from '../agents/AgentTaskScreen';
 import TaskPaneDivider from '../agents/TaskPaneDivider';
-import TaskBackButton from '../agents/TaskBackButton';
+import TaskHeader from '../agents/TaskHeader';
 import { executionTitle } from '../agents/taskList';
 import { agentTaskReducer, historyBefore, initialAgentTaskState, startAgentConversationSession, unloadedTurnIds, type AgentTaskAction, type AgentTaskState } from '../agents/model';
 import { projectTranscript, withApprovalAuthority, type TranscriptTurn } from '../agents/transcript';
@@ -78,10 +78,7 @@ export default function CherryPickTaskScreen({ executionId, onBack, headerAction
 
   if (execution === null) {
     return <section className="agt-screen" aria-label="Cherry-pick task">
-      <div className="agt-screen-head">
-        <TaskBackButton onBack={onBack} />
-        <span className="agt-spacer" />{headerAction}
-      </div>
+      <TaskHeader onBack={onBack} actions={headerAction} />
       <div className="cpt-loading" role={error === null ? 'status' : 'alert'}>{error ?? 'Loading cherry-pick…'}</div>
     </section>;
   }
@@ -173,13 +170,9 @@ function CherryPickTask({ execution, onChange, error, onBack, headerAction, onOp
     <div className="agt-screen">
       <div className="agt-body">
         <section className="agt-task-column" aria-label="Cherry-pick conversation">
-          <div className="agt-screen-head">
-            <TaskBackButton onBack={onBack} />
-            <span className="cpt-title" title={executionTitle(execution)}>{shortTitle(execution)}</span>
-            <Pill tone={status.tone} spinning={status.tone === 'blue' || status.tone === 'purple'}>{status.label}</Pill>
-            <span className="agt-spacer" />
-            {headerAction}
-          </div>
+          <TaskHeader onBack={onBack} title={<span title={executionTitle(execution)}>{shortTitle(execution)}</span>}
+            status={<Pill tone={status.tone} spinning={status.tone === 'blue' || status.tone === 'purple'}>{status.label}</Pill>}
+            actions={headerAction} />
           {(error !== null || notice !== null) && <div className="agt-notice" role="alert">{notice ?? error}</div>}
           <AgentConversation label="Cherry-pick conversation" turns={turns} repository={execution.repository} durableTurns={durableTurns}
             models={models} now={now} scroll={scroll} workspaceId={execution.workspaceId}

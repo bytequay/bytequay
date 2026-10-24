@@ -12,9 +12,24 @@
  * limitations under the License.
  */
 import { ArrowLeft } from 'lucide-react';
+import type { ReactNode } from 'react';
 import '../css/agents.css';
 
-export default function TaskBackButton({ onBack }: { onBack?: () => void }): React.JSX.Element {
+export default function TaskHeader({ title, status, actions, onBack, preview = false }: {
+  title?: ReactNode;
+  status?: ReactNode;
+  actions?: ReactNode;
+  onBack?: () => void;
+  preview?: boolean;
+}): React.JSX.Element {
+  return <header className="agt-screen-head">
+    {(onBack !== undefined || preview) && <TaskBackButton onBack={onBack} />}
+    <div className="agt-screen-head__title">{title}</div>
+    <div className="agt-screen-head__actions">{status}{actions}</div>
+  </header>;
+}
+
+function TaskBackButton({ onBack }: { onBack?: () => void }): React.JSX.Element {
   const icon = <ArrowLeft aria-hidden="true" />;
   const className = 'agt-headbtn agt-task-back';
   // Overview thumbnails are inside an open button, so their preview cannot be another button.

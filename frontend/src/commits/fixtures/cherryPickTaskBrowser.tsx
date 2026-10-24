@@ -105,12 +105,16 @@ async function scenario(name: string, body: (host: HTMLElement, calls: Calls) =>
     const back = host.querySelector<HTMLButtonElement>('button[aria-label="Back to tasks"]');
     assert(back !== null && back.title === 'Back to tasks' && back.textContent === '' && back.querySelector('svg.lucide-arrow-left') !== null,
       'Cherry-pick task headers must expose an accessible back arrow');
+    const header = back.closest<HTMLElement>('.agt-screen-head');
+    assert(header !== null && getComputedStyle(header).gap === '4px' && getComputedStyle(header).paddingRight === '8px'
+      && back.getBoundingClientRect().width === 28 && back.getBoundingClientRect().height === 26,
+    'Loading and loaded cherry-pick headers must share compact spacing and button targets');
     return back;
   };
   try {
     backButton().click();
     assert(backs === 1, 'The loading header must return to tasks');
-    await until(() => host.querySelector('.cpt-title') !== null, 'The cherry-pick task must finish loading');
+    await until(() => host.querySelector('[aria-label="Cherry-pick conversation"]') !== null, 'The cherry-pick task must finish loading');
     backButton().click();
     assert(Number(backs) === 2, 'The loaded header must retain the back action');
     await body(host, calls);

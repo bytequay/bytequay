@@ -500,8 +500,11 @@ class TestClaudeCliDriver
         Optional<AgentSessionRef> sessionReference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(sessionReference, instructions), event -> {})) {
+                // A new session is saved only once Claude answers in it.
+                assertThat(session.resumable()).isEqualTo(index == 1);
                 assertThat(await(session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)))).state())
                         .isEqualTo(AgentTurnResult.State.COMPLETED);
+                assertThat(session.resumable()).isTrue();
                 ScriptedTurn turn = supervisor.turns.getLast();
                 assertThat(turn.prompt).isEqualTo(input + "\n");
                 assertThat(turn.spec.argv().get(turn.spec.argv().indexOf("--append-system-prompt") + 1))

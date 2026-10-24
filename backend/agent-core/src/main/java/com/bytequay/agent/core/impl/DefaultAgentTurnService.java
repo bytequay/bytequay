@@ -185,6 +185,8 @@ public final class DefaultAgentTurnService
      * event for a turn missing here came too late, and counting a turn's tools reads back no further than its first event.
      */
     private final ConcurrentMap<TurnId, Long> launchedTurns = new ConcurrentHashMap<>();
+    /** The session of a running turn whose provider had not saved it at launch; its reference is recorded when the turn ends. */
+    private final ConcurrentMap<TurnId, AgentSession> unsavedSessions = new ConcurrentHashMap<>();
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -809,7 +811,7 @@ public final class DefaultAgentTurnService
             sendTiming.log(System.Logger.Level.DEBUG,
                     () -> "send-timing phase=turn.provider_send.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
             started = Optional.of(runningTurn);
-            registerRunningTurn(accepted, runningTurn, session.reference());
+            registerRunningTurn(accepted, runningTurn, session);
             sendTiming.log(System.Logger.Level.DEBUG,
                     () -> "send-timing phase=turn.running.persisted epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + accepted.id());
             try {
@@ -1596,7 +1598,7 @@ public final class DefaultAgentTurnService
         return claimed;
     }
 
-    private void registerRunningTurn(AgentTurn accepted, RunningTurn runningTurn, AgentSessionRef reference)
+    private void registerRunningTurn(AgentTurn accepted, RunningTurn runningTurn, AgentSession session)
     {
         ProviderTurnRef providerTurnReference = runningTurn.reference();
         Instant acknowledgedAt = Instant.now(clock);
@@ -1608,10 +1610,14 @@ public final class DefaultAgentTurnService
             AgentTurn updated = turnStore.update(turnStore.require(accepted.id()).running(providerTurnReference, Optional.empty()).withSetup(runningTurn.setup()));
             // The thread reference is persisted only now that a turn has run on it. A thread that
             // was opened but never turned has no rollout, so resuming it after a restart fails
-            // forever; forgetting it means the next turn starts a fresh thread instead.
+            // forever; forgetting it means the next turn starts a fresh thread instead. A provider that has not
+            // saved the session yet has it recorded when the turn ends.
             AgentTask task = taskStore.require(updated.taskId());
-            if (task.sessionReference().isEmpty()) {
-                taskStore.update(task.withSessionReference(reference, acknowledgedAt));
+            if (task.sessionReference().isEmpty() && session.resumable()) {
+                taskStore.update(task.withSessionReference(session.reference(), acknowledgedAt));
+            }
+            else if (task.sessionReference().isEmpty()) {
+                unsavedSessions.put(updated.id(), session);
             }
             // The provider acknowledged the turn, so a queued input that became it is consumed for
             // good, whatever that turn does next.
@@ -2339,6 +2345,10 @@ public final class DefaultAgentTurnService
             WorktreeMutationClaim claim = WorktreeMutationClaim.turn(latest.id(), latest.createdAt());
             AgentTask task = taskStore.require(terminal.taskId());
             AgentTask updated = providerQuiescent ? task.releaseWorktreeMutation(claim, endedAt) : task;
+            Optional<AgentSession> unsaved = Optional.ofNullable(unsavedSessions.get(terminal.id())).filter(AgentSession::resumable);
+            if (unsaved.isPresent() && updated.sessionReference().isEmpty() && !updated.state().terminal()) {
+                updated = updated.withSessionReference(unsaved.orElseThrow().reference(), endedAt);
+            }
             if (terminal.developmentOrigin().isEmpty() && developmentTurnEligible(task, terminal) && !runtimeRegistry.closing()) {
                 updated = updated.withDevelopmentContinuation(true, endedAt);
             }
@@ -2356,6 +2366,7 @@ public final class DefaultAgentTurnService
                     endedAt));
             return null;
         });
+        unsavedSessions.remove(turn.id());
     }
 
     /** A turn cannot finish with steer input that is known not to have reached the provider. */

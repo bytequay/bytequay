@@ -712,7 +712,8 @@ public final class ClaudeCliDriver
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;
         private ClaudeRunningTurn lastTurn;
-        private boolean resume;
+        // Written under this session's lock; agent-core reads it under its task lock, which this session's callbacks may need.
+        private volatile boolean resume;
         private boolean sessionClosed;
 
         private ClaudeSession(AgentSessionRef reference, AgentSessionContext context, AgentEventSink events, boolean resume)
@@ -768,6 +769,13 @@ public final class ClaudeCliDriver
         public AgentSessionRef reference()
         {
             return reference;
+        }
+
+        /** Claude writes a new session's transcript only once it has begun answering, which its first message with the session ID shows. */
+        @Override
+        public boolean resumable()
+        {
+            return resume;
         }
 
         @Override

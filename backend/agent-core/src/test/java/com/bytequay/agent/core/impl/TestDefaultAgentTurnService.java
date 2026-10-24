@@ -2770,6 +2770,31 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void recordsASessionReferenceOnlyOnceTheProviderHasSavedTheSession()
+    {
+        driver.sessionSaved(false);
+        service.start(command("first", "key-1"));
+        assertThat(taskService.get(task.id()).sessionReference()).isEmpty();
+
+        driver.sessionSaved(true);
+        driver.complete("done");
+
+        assertThat(taskService.get(task.id()).sessionReference()).isPresent();
+    }
+
+    @Test
+    void forgetsASessionTheProviderNeverSaved()
+    {
+        driver.sessionSaved(false);
+        service.start(command("first", "key-1"));
+
+        driver.complete("done");
+
+        // Resuming it would fail on every later turn, so the next turn starts a fresh session instead.
+        assertThat(taskService.get(task.id()).sessionReference()).isEmpty();
+    }
+
+    @Test
     void rejectsConcurrentTurnAndCancelsTheLiveProviderRun()
     {
         AgentTurn running = service.start(command("first", "key-1"));

@@ -78,6 +78,7 @@ final class DeterministicAgentDriver
     private boolean completeNextStart;
     private boolean failNextCloseVerification;
     private boolean reuseEnabled;
+    private volatile boolean sessionSaved = true;
     private ProviderUsageSample usageOnOpen;
     private Runnable beforeStart = () -> {};
     private Runnable afterStart = () -> {};
@@ -261,6 +262,11 @@ final class DeterministicAgentDriver
         reuseEnabled = true;
     }
 
+    void sessionSaved(boolean saved)
+    {
+        sessionSaved = saved;
+    }
+
     /** Completes a turn the provider could not show had stopped working. */
     synchronized void completeUnverified(String response)
     {
@@ -338,6 +344,12 @@ final class DeterministicAgentDriver
         public boolean retained()
         {
             return reusable && !closed && running != null && running.completion.isDone();
+        }
+
+        @Override
+        public boolean resumable()
+        {
+            return sessionSaved;
         }
 
         @Override

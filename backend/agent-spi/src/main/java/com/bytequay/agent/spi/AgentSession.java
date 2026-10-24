@@ -33,6 +33,15 @@ public interface AgentSession
     /** Opts a task-owned session into bounded reuse; one-shot callers keep their existing lifetime. */
     default void allowReuse() {}
 
+    /**
+     * Whether the provider has saved this session, so a later process can resume {@link #reference()}. A reference saved
+     * before that names a conversation the provider never wrote, and every later resume of it fails.
+     */
+    default boolean resumable()
+    {
+        return true;
+    }
+
     /** A retained process still owns its working copy, even though no turn is running. */
     default boolean retained()
     {

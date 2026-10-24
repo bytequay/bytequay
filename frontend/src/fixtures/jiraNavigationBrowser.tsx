@@ -47,6 +47,8 @@ export async function run(): Promise<{ name: string }[]> {
     listJiraConnections: async () => connections,
     listJiraAttention: async () => [],
     listWorkspaces: async () => [],
+    listRetiredWorkspaces: async () => [],
+    listCherryPickExecutions: async () => [],
     fetchRecentChanges: async () => [],
     fetchRecent: async () => ({ day: null, rows: [], nextCursor: null, endOfWindow: true, activeDays: [], retentionDays: 14 }),
     fetchAttentionPrs: async () => [],
@@ -55,12 +57,43 @@ export async function run(): Promise<{ name: string }[]> {
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
-  window.location.hash = '#/recent';
+  window.history.replaceState({ fixture: true }, '', '#/recent');
   const { root, dispose: disposeRoot } = createFixtureRoot();
   flushSync(() => root.render(<App />));
   try {
     await until(() => jiraButton() !== null && document.querySelector('[aria-label="Recent"][aria-current="page"]') !== null,
       'Jira navigation did not settle');
+    const back = () => element<HTMLButtonElement>('.app-sidebar [aria-label="Back"]', document, `Back button is present at ${window.location.hash}`);
+    const forward = () => element<HTMLButtonElement>('.app-sidebar [aria-label="Forward"]', document, `Forward button is present at ${window.location.hash}`);
+    const at = (hash: string, canGoBack: boolean, canGoForward: boolean) => until(() =>
+      window.location.hash === hash && back().disabled === !canGoBack && forward().disabled === !canGoForward,
+    `History controls did not update for ${hash}`);
+    await at('#/recent', false, false);
+    assert(window.location.protocol === 'file:', 'Native history works in the packaged renderer scheme');
+    assert(JSON.stringify(window.history.state) === '{"fixture":true}', 'App startup preserves history state without a navigation stamp');
+    window.location.hash = '#/workspaces';
+    await at('#/workspaces', true, false);
+    window.location.hash = '#/recent';
+    await at('#/recent', true, false);
+    back().click();
+    await at('#/workspaces', true, true);
+    forward().click();
+    await at('#/recent', true, false);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: '[', metaKey: true }));
+    await at('#/workspaces', true, true);
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: ']', metaKey: true }));
+    await at('#/recent', true, false);
+    back().click();
+    await at('#/workspaces', true, true);
+    window.location.hash = '#/pulls';
+    await at('#/pulls', true, false);
+    window.history.replaceState({ fixture: 'replaced' }, '', '#/recent');
+    await at('#/recent', true, false);
+    back().click();
+    await at('#/workspaces', true, true);
+    forward().click();
+    await at('#/recent', true, false);
+
     const globalLabels = [...document.querySelectorAll('[aria-label="Global navigation"] button')].map(button => button.getAttribute('aria-label'));
     assert(JSON.stringify(globalLabels) === JSON.stringify(['Assistant', 'Home', 'Workspaces', 'Circles', 'Recent']), 'Global navigation order is stable');
     assert(jiraButton()?.closest('nav')?.getAttribute('aria-label') === 'Application navigation', 'Jira belongs below global navigation');

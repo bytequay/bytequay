@@ -14,7 +14,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, deadline } from './fixtures/browserFixture';
 
-it('updates Jira navigation from connected sites in the running app', async () => {
+it('updates Jira visibility and native history navigation in the running app', async () => {
   const results = await runBrowserFixture<{ name: string }[]>({
     prefix: 'bytequay-jira-navigation-',
     entry: 'src/fixtures/jiraNavigationBrowser.tsx',

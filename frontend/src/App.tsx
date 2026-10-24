@@ -29,17 +29,7 @@ import { loadPinned } from './home/pinned';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
-import {
-  canGoBack,
-  canGoForward,
-  INITIAL_NAVIGATION,
-  navigationIndex,
-  navigationShortcutDirection,
-  popNavigation,
-  pushNavigation,
-  stampNavigationState,
-  type NavigationMode,
-} from './navigationHistory';
+import { navigationShortcutDirection, type NavigationMode } from './navigationHistory';
 import OnboardingScreen from './OnboardingScreen';
 import SetupFlow from './onboarding/SetupFlow';
 import { OPEN_SETUP, SETUP_CHANGED } from './onboarding/setup';
@@ -154,9 +144,7 @@ function AppContent() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
-  const navigationSession = useRef(crypto.randomUUID());
-  const navigationRef = useRef(INITIAL_NAVIGATION);
-  const [navigation, setNavigation] = useState(INITIAL_NAVIGATION);
+  const [navigation, setNavigation] = useState({ canGoBack: false, canGoForward: false });
 
   const updateWorkspace = useCallback((next: WorkspaceDto | null) => {
     workspaceRef.current = next;
@@ -165,11 +153,7 @@ function AppContent() {
 
   const replaceCurrentRoute = useCallback((hash: string) => {
     if (window.location.hash === hash) return;
-    window.history.replaceState(
-      stampNavigationState(window.history.state, navigationSession.current, navigationRef.current.index, hash),
-      '',
-      hash,
-    );
+    window.history.replaceState(window.history.state, '', hash);
   }, []);
 
   const navigateTo = useCallback((hash: string, mode: NavigationMode) => {
@@ -179,11 +163,11 @@ function AppContent() {
 
   useEffect(() => {
     const hash = window.location.hash || '#/home';
-    window.history.replaceState(
-      stampNavigationState(window.history.state, navigationSession.current, 0, hash),
-      '',
-      hash,
-    );
+    window.history.replaceState(window.history.state, '', hash);
+    const updateNavigation = () => setNavigation({ canGoBack: window.navigation.canGoBack, canGoForward: window.navigation.canGoForward });
+    updateNavigation();
+    window.navigation.addEventListener('currententrychange', updateNavigation);
+    return () => window.navigation.removeEventListener('currententrychange', updateNavigation);
   }, []);
 
   const initialize = useCallback(async () => {
@@ -398,20 +382,6 @@ function AppContent() {
       // Navigating leaves every open layer; the first route of the session must not, or it
       // races the pull request a notification asked to show while the app was still starting.
       setLayers([]);
-      const hash = window.location.hash || '#/home';
-      const index = navigationIndex(window.history.state, navigationSession.current, hash);
-      const next = index === null
-        ? pushNavigation(navigationRef.current)
-        : popNavigation(navigationRef.current, index);
-      if (index === null) {
-        window.history.replaceState(
-          stampNavigationState(window.history.state, navigationSession.current, next.index, hash),
-          '',
-          hash,
-        );
-      }
-      navigationRef.current = next;
-      setNavigation(next);
       applyRoute();
     };
     applyRoute();
@@ -441,8 +411,8 @@ function AppContent() {
       // Inside a code editor or terminal these keys belong to it (indent, outdent).
       if (direction === 0 || (event.target instanceof Element && event.target.closest('.cm-editor, .xterm') !== null)) return;
       event.preventDefault();
-      if (direction < 0 && canGoBack(navigationRef.current)) window.history.back();
-      if (direction > 0 && canGoForward(navigationRef.current)) window.history.forward();
+      if (direction < 0 && window.navigation.canGoBack) window.history.back();
+      if (direction > 0 && window.navigation.canGoForward) window.history.forward();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -595,8 +565,8 @@ function AppContent() {
             try { localStorage.setItem('bytequay.browser-rail-visible', String(!value)); } catch { /* preference is optional */ }
             return !value;
           })}
-          canGoBack={canGoBack(navigation)}
-          canGoForward={canGoForward(navigation)}
+          canGoBack={navigation.canGoBack}
+          canGoForward={navigation.canGoForward}
           onBack={() => window.history.back()}
           onForward={() => window.history.forward()}
           onNavigate={next => {

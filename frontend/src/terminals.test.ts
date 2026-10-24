@@ -112,6 +112,43 @@ describe('code terminals', () => {
     expect((await terminals.open(sender, 'review:r2', 80, 24, cwd)).terminalId).not.toBe(terminalId);
   });
 
+  it.each(['navigation', 'window close', 'host close', 'shutdown'])('cancels a pending terminal on %s', async action => {
+    const { terminals, processes, cwd } = setup();
+    const sender = new FakeSender();
+    const launch = Promise.withResolvers<TerminalLaunch>();
+    const opening = terminals.open(sender, 'task:t1', 80, 24, () => launch.promise);
+    if (action === 'navigation') sender.navigate();
+    else if (action === 'window close') sender.destroyed();
+    else if (action === 'host close') terminals.close('task:t1');
+    else terminals.stopAll();
+
+    launch.resolve(await cwd());
+
+    await expect(opening).rejects.toThrow('The terminal was closed before it opened');
+    expect(processes).toEqual([]);
+  });
+
+  it('keeps a newer pending open when the cancelled request finishes', async () => {
+    const { terminals, processes, cwd } = setup();
+    const sender = new FakeSender();
+    const oldLaunch = Promise.withResolvers<TerminalLaunch>();
+    const oldOpening = terminals.open(sender, 'task:t1', 80, 24, () => oldLaunch.promise);
+    terminals.close('task:t1');
+    const newLaunch = Promise.withResolvers<TerminalLaunch>();
+    const launch = vi.fn(() => newLaunch.promise);
+    const newOpening = terminals.open(sender, 'task:t1', 80, 24, launch);
+
+    oldLaunch.resolve(await cwd());
+    await expect(oldOpening).rejects.toThrow('The terminal was closed before it opened');
+    const reattaching = terminals.open(sender, 'task:t1', 80, 24, launch);
+    newLaunch.resolve(await cwd());
+    const [opened, reused] = await Promise.all([newOpening, reattaching]);
+
+    expect(reused.terminalId).toBe(opened.terminalId);
+    expect(launch).toHaveBeenCalledOnce();
+    expect(processes).toHaveLength(1);
+  });
+
   it('runs a provider sign-in as a one-shot shell whose exit is the sign-in result', async () => {
     const { terminals, processes, commands, cwd } = setup();
     const sender = new FakeSender();

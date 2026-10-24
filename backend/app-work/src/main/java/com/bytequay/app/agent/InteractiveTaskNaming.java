@@ -16,12 +16,15 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.core.AgentEventOutboxEntry;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -41,6 +44,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Optional naming starts only after the first turn has been accepted; it never delays Send. */
@@ -100,16 +104,8 @@ public class InteractiveTaskNaming
             names.generate(laneId, defaults, context).ifPresent(generated -> {
                 synchronized (runtime.taskLock(taskId)) {
                     tasks.find(taskId).filter(task -> task.state() == TaskState.OPEN && task.titleSource() == TitleSource.PROVISIONAL).ifPresent(task -> {
-                        Instant now = Instant.now(clock);
-                        AgentEventOutboxEntry event = AgentEventOutboxEntry.pendingLifecycle(EventId.random(), taskId, Optional.empty(),
-                                AgentEventPayload.LifecyclePhase.TITLE_UPDATED, "Task title updated", now);
-                        unitOfWork.execute(() -> {
-                            tasks.update(task.withTitle(generated.title(), TitleSource.AGENT, now));
-                            outbox.insert(event);
-                            return null;
-                        });
+                        retitle(task, generated.title());
                         branches.getObject().propose(taskId, generated.branch());
-                        events.drain(event.eventId());
                     });
                 }
             });
@@ -121,5 +117,33 @@ public class InteractiveTaskNaming
             timing.debug("send-timing phase=task.naming.background.end epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             running.remove(taskId);
         }
+    }
+
+    /** The working agent names the change once it knows it, replacing a generated title but never a person's. */
+    public String rename(TaskId taskId, TurnId turnId, String title, Optional<String> suffix)
+    {
+        checkArgument(title.equals(TaskTitles.generated(title)), "title must be plain text of at most %s characters without final punctuation", TaskTitles.MAX_LENGTH);
+        synchronized (runtime.taskLock(taskId)) {
+            String branch = suffix.map(value -> branches.getObject().rename(taskId, turnId, value)).orElse("Kept the current branch.");
+            AgentTask task = tasks.find(taskId).orElseThrow(() -> new IllegalStateException("The task no longer exists"));
+            if (task.titleSource() == TitleSource.USER) {
+                return "Kept the user's task title: " + task.title() + ". " + branch;
+            }
+            retitle(task, title);
+            return "Renamed the task: " + title + ". " + branch;
+        }
+    }
+
+    private void retitle(AgentTask task, String title)
+    {
+        Instant now = Instant.now(clock);
+        AgentEventOutboxEntry event = AgentEventOutboxEntry.pendingLifecycle(EventId.random(), task.id(), Optional.empty(),
+                AgentEventPayload.LifecyclePhase.TITLE_UPDATED, "Task title updated", now);
+        unitOfWork.execute(() -> {
+            tasks.update(task.withTitle(title, TitleSource.AGENT, now));
+            outbox.insert(event);
+            return null;
+        });
+        events.drain(event.eventId());
     }
 }

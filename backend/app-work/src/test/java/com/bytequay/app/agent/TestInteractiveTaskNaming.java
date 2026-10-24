@@ -23,6 +23,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskNames;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -46,9 +47,11 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -158,6 +161,45 @@ class TestInteractiveTaskNaming
         schedule(service(command -> { throw new IllegalStateException("executor stopped"); }));
         verifyNoInteractions(names, branches, outbox, events);
         assertThat(current.get().titleSource()).isEqualTo(TitleSource.PROVISIONAL);
+    }
+
+    @Test
+    void theWorkingAgentRenamesAGeneratedTitleAndProposesItsBranch()
+    {
+        InteractiveTaskNaming naming = service(Runnable::run);
+        schedule(naming);
+        TurnId turnId = TurnId.random();
+        when(branches.rename(id, turnId, "convert-parquet-time-millis")).thenReturn("Recorded proposed branch.");
+        assertThat(naming.rename(id, turnId, "Convert Parquet time millis", Optional.of("convert-parquet-time-millis")))
+                .isEqualTo("Renamed the task: Convert Parquet time millis. Recorded proposed branch.");
+        assertThat(current.get().title()).isEqualTo("Convert Parquet time millis");
+        assertThat(current.get().titleSource()).isEqualTo(TitleSource.AGENT);
+        verify(outbox, times(2)).insert(any());
+        verify(events, times(2)).drain(any());
+    }
+
+    @Test
+    void lateBackgroundNamingKeepsTheAgentTitle()
+    {
+        InteractiveTaskNaming naming = service(queued::add);
+        schedule(naming);
+        assertThat(naming.rename(id, TurnId.random(), "Convert Parquet time millis", Optional.empty()))
+                .isEqualTo("Renamed the task: Convert Parquet time millis. Kept the current branch.");
+        queued.remove().run();
+        assertThat(current.get().title()).isEqualTo("Convert Parquet time millis");
+        verifyNoInteractions(names, branches);
+    }
+
+    @Test
+    void aPersonsTitleOutranksTheAgentAndUnnormalizedTitlesAreRefused()
+    {
+        current.set(current.get().withTitle("Keep this", TitleSource.USER, NOW));
+        InteractiveTaskNaming naming = service(Runnable::run);
+        assertThat(naming.rename(id, TurnId.random(), "Convert Parquet time millis", Optional.empty()))
+                .isEqualTo("Kept the user's task title: Keep this. Kept the current branch.");
+        assertThat(current.get().title()).isEqualTo("Keep this");
+        assertThatThrownBy(() -> naming.rename(id, TurnId.random(), "Fix the bug.", Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(outbox, events);
     }
 
     private InteractiveTaskNaming service(Executor executor)

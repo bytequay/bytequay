@@ -52,15 +52,15 @@ class TestDevelopmentResultBridgeResolverImpl
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final DevelopmentBranchService branches = mock(DevelopmentBranchService.class);
+    private final InteractiveTaskNaming naming = mock(InteractiveTaskNaming.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final DevelopmentResultBridgeResolverImpl resolver = new DevelopmentResultBridgeResolverImpl(tasks, turns, reviews,
-            beans.getBeanProvider(DevelopmentBranchService.class));
+            beans.getBeanProvider(InteractiveTaskNaming.class));
 
     @BeforeEach
     void setUp()
     {
-        beans.registerSingleton("branches", branches);
+        beans.registerSingleton("naming", naming);
     }
 
     @Test
@@ -71,15 +71,16 @@ class TestDevelopmentResultBridgeResolverImpl
 
         DevelopmentResultBridge binding = resolver.resolve(task.id().toString()).orElseThrow();
         assertThat(binding.turnId()).isEqualTo(turn.id().toString());
-        assertThat(binding.instruction()).contains("readyForDelivery=false", "root agent", "rename_task_branch");
-        when(branches.rename(task.id(), turn.id(), "convert-parquet-time-millis-to-micro")).thenReturn("user/bytequay/convert-parquet-time-millis-to-micro");
-        assertThat(binding.branchRenamer().orElseThrow().apply("convert-parquet-time-millis-to-micro")).isEqualTo("user/bytequay/convert-parquet-time-millis-to-micro");
+        assertThat(binding.instruction()).contains("readyForDelivery=false", "root agent", "rename_task");
+        Optional<String> suffix = Optional.of("convert-parquet-time-millis-to-micro");
+        when(naming.rename(task.id(), turn.id(), "Convert Parquet time millis", suffix)).thenReturn("Renamed the task");
+        assertThat(binding.taskRenamer().orElseThrow().apply("Convert Parquet time millis", suffix)).isEqualTo("Renamed the task");
 
         AgentTurn next = accept(task, Optional.of(AUTOMATION));
         DevelopmentResultBridge nextBinding = resolver.resolve(task.id().toString()).orElseThrow();
         assertThat(nextBinding.turnId()).isEqualTo(next.id().toString());
-        assertThat(nextBinding.branchRenamer()).isEmpty();
-        assertThat(nextBinding.instruction()).doesNotContain("rename_task_branch").contains("Keep the task branch name fixed after the first turn");
+        assertThat(nextBinding.taskRenamer()).isEmpty();
+        assertThat(nextBinding.instruction()).doesNotContain("rename_task").contains("Keep the task branch name fixed after the first turn");
     }
 
     @Test
@@ -87,13 +88,13 @@ class TestDevelopmentResultBridgeResolverImpl
     {
         AgentTask task = task(true, Optional.of(AUTOMATION));
         accept(task, Optional.of(AUTOMATION));
-        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isPresent();
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().taskRenamer()).isPresent();
 
         accept(task, Optional.of(AUTOMATION));
-        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isEmpty();
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().taskRenamer()).isEmpty();
 
         accept(task, Optional.of(AUTOMATION));
-        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isEmpty();
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().taskRenamer()).isEmpty();
     }
 
     @Test
@@ -116,7 +117,7 @@ class TestDevelopmentResultBridgeResolverImpl
                 .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id()));
         when(turns.findActive(task.id())).thenReturn(Optional.of(refinement));
         assertThat(resolver.resolve(task.id().toString()).orElseThrow().learningSummaryAllowed()).isTrue();
-        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isEmpty();
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().taskRenamer()).isEmpty();
         accept(task, Optional.of(AUTOMATION));
         assertThat(resolver.resolve(task.id().toString()).orElseThrow().learningSummaryAllowed()).isFalse();
     }

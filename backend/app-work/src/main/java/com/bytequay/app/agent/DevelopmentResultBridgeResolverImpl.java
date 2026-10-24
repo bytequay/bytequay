@@ -40,14 +40,14 @@ public class DevelopmentResultBridgeResolverImpl
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
     private final AgentReviewStore reviews;
-    private final ObjectProvider<DevelopmentBranchService> branches;
+    private final ObjectProvider<InteractiveTaskNaming> naming;
 
-    public DevelopmentResultBridgeResolverImpl(AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews, ObjectProvider<DevelopmentBranchService> branches)
+    public DevelopmentResultBridgeResolverImpl(AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews, ObjectProvider<InteractiveTaskNaming> naming)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
-        this.branches = requireNonNull(branches, "branches is null");
+        this.naming = requireNonNull(naming, "naming is null");
     }
 
     @Override
@@ -66,11 +66,11 @@ public class DevelopmentResultBridgeResolverImpl
                     boolean reviewReplies = turn.developmentOrigin().isEmpty()
                             && turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::reviewFix).isPresent();
                     return new DevelopmentResultBridge(turn.id().toString(),
-                            DevelopmentResultBridge.INSTRUCTION + (canRename ? DevelopmentResultBridge.BRANCH_INSTRUCTION : "")
+                            DevelopmentResultBridge.INSTRUCTION + (canRename ? DevelopmentResultBridge.NAMING_INSTRUCTION : "")
                                     + (reviewReplies ? DevelopmentResultBridge.REVIEW_REPLY_INSTRUCTION : ""),
                             turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
                             reviewReplies,
-                            canRename ? Optional.of(suffix -> branches.getObject().rename(id, turn.id(), suffix)) : Optional.empty());
+                            canRename ? Optional.of((title, suffix) -> naming.getObject().rename(id, turn.id(), title, suffix)) : Optional.empty());
                 });
     }
 }

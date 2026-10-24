@@ -75,13 +75,13 @@ class TestAgentTaskLifecycle
     }
 
     @Test
-    void aChosenTitleIsFinalAndOnlyAProvisionalOneTakesAProposal()
+    void aChosenTitleIsFinalAndOnlyAnUnchosenOneTakesAProposal()
     {
         AgentTask fixed = newTask();
         assertThat(fixed.titleSource()).isEqualTo(TitleSource.USER);
         assertThatThrownBy(() -> fixed.withTitle("Proposed", TitleSource.AGENT, CREATED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("provisional");
+                .hasMessageContaining("final");
         assertThatThrownBy(() -> fixed.withTitle("Back", TitleSource.PROVISIONAL, CREATED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
         AgentTask renamed = fixed.withTitle("Chosen", TitleSource.USER, CREATED_AT.plusSeconds(1));
@@ -106,11 +106,13 @@ class TestAgentTaskLifecycle
                 CREATED_AT);
         AgentTask proposed = provisional.withTitle("Agent proposal", TitleSource.AGENT, CREATED_AT.plusSeconds(1));
         assertThat(proposed.titleSource()).isEqualTo(TitleSource.AGENT);
-        // Generation proposes once; only a person changes it after that.
-        assertThatThrownBy(() -> proposed.withTitle("Again", TitleSource.AGENT, CREATED_AT.plusSeconds(2)))
+        // The working agent may rename a generated title once it knows the change.
+        AgentTask informed = proposed.withTitle("Informed", TitleSource.AGENT, CREATED_AT.plusSeconds(2));
+        assertThat(informed.title()).isEqualTo("Informed");
+        AgentTask mine = informed.withTitle("Mine", TitleSource.USER, CREATED_AT.plusSeconds(3));
+        assertThat(mine.titleSource()).isEqualTo(TitleSource.USER);
+        assertThatThrownBy(() -> mine.withTitle("Again", TitleSource.AGENT, CREATED_AT.plusSeconds(4)))
                 .isInstanceOf(IllegalStateException.class);
-        assertThat(proposed.withTitle("Mine", TitleSource.USER, CREATED_AT.plusSeconds(2)).titleSource())
-                .isEqualTo(TitleSource.USER);
     }
 
     @Test

@@ -473,29 +473,34 @@ class TestPermissionBroker
     }
 
     @Test
-    void branchNamingUsesTheSameTurnBoundToolOnBothProviders()
+    void taskNamingUsesTheSameTurnBoundToolOnBothProviders()
             throws Exception
     {
         AtomicReference<String> proposed = new AtomicReference<>();
         AtomicReference<String> activeTurn = new AtomicReference<>("turn-1");
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
-                .developments(taskId -> Optional.of(new DevelopmentResultBridge(activeTurn.get(), DevelopmentResultBridge.BRANCH_INSTRUCTION, false,
-                        Optional.of(branch -> {
-                            proposed.set(branch);
-                            return "Proposed branch: user/bytequay/" + branch + ". Keep using the current branch during this turn.";
+                .developments(taskId -> Optional.of(new DevelopmentResultBridge(activeTurn.get(), DevelopmentResultBridge.NAMING_INSTRUCTION, false,
+                        Optional.of((title, branch) -> {
+                            proposed.set(title + " " + branch.orElse("unchanged"));
+                            return "Renamed the task: " + title + ". " + branch.map(value -> "Proposed branch: user/bytequay/" + value + ".").orElse("Kept the current branch.");
                         })))).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         try (McpRegistration codex = registerCodexTask(broker, approvals, redactor);
                 McpRegistration claude = registerClaudeTask(broker, approvals, redactor)) {
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
-                assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
-                        "{\"branch\":\"convert-parquet-time-millis-to-micro\"}").at("/result/content/0/text").asText())
-                        .isEqualTo("Proposed branch: user/bytequay/convert-parquet-time-millis-to-micro. Keep using the current branch during this turn.");
-                assertThat(proposed.get()).isEqualTo("convert-parquet-time-millis-to-micro");
-                for (String invalid : ImmutableList.of("{}", "{\"branch\":\"user/bytequay/fix-bug\"}", "{\"branch\":\"../main\"}",
-                        "{\"branch\":\"fix-bug\",\"taskId\":\"other\"}")) {
-                    assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME, invalid).at("/error/code").asInt()).isEqualTo(-32602);
+                assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_TASK_TOOL_NAME,
+                        "{\"title\":\"Convert Parquet time millis\",\"branch\":\"convert-parquet-time-millis-to-micro\"}").at("/result/content/0/text").asText())
+                        .isEqualTo("Renamed the task: Convert Parquet time millis. Proposed branch: user/bytequay/convert-parquet-time-millis-to-micro.");
+                assertThat(proposed.get()).isEqualTo("Convert Parquet time millis convert-parquet-time-millis-to-micro");
+                assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_TASK_TOOL_NAME,
+                        "{\"title\":\"Keep the user's branch\"}").at("/result/content/0/text").asText())
+                        .isEqualTo("Renamed the task: Keep the user's branch. Kept the current branch.");
+                assertThat(proposed.get()).isEqualTo("Keep the user's branch unchanged");
+                for (String invalid : ImmutableList.of("{}", "{\"branch\":\"fix-bug\"}", "{\"title\":\" \"}", "{\"title\":\"%s\"}".formatted("x".repeat(37)),
+                        "{\"title\":\"Fix\",\"branch\":\"user/bytequay/fix-bug\"}", "{\"title\":\"Fix\",\"branch\":\"../main\"}",
+                        "{\"title\":\"Fix\",\"taskId\":\"other\"}", "{\"title\":\"Fix\",\"branch\":\"fix-bug\",\"taskId\":\"other\"}")) {
+                    assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_TASK_TOOL_NAME, invalid).at("/error/code").asInt()).isEqualTo(-32602);
                 }
             }
             for (McpRegistration registration : ImmutableList.of(codex, claude)) {
@@ -505,8 +510,8 @@ class TestPermissionBroker
             }
             activeTurn.set("turn-2");
             proposed.set(null);
-            assertThat(localReviewCall(broker, codex.token(), DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
-                    "{\"branch\":\"fix-another-bug\"}").at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(localReviewCall(broker, codex.token(), DevelopmentResultBridge.RENAME_TASK_TOOL_NAME,
+                    "{\"title\":\"Fix another bug\",\"branch\":\"fix-another-bug\"}").at("/error/code").asInt()).isEqualTo(-32602);
             assertThat(proposed.get()).isNull();
         }
     }

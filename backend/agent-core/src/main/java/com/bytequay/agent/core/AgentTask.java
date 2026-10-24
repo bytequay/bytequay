@@ -254,8 +254,8 @@ public record AgentTask(
     }
 
     /**
-     * Replaces the title. A person's choice is final; generation may replace only a provisional
-     * title, so a result that arrives after a rename changes nothing.
+     * Replaces the title. A person's choice is final, so a generated or agent title that arrives
+     * after a rename changes nothing.
      */
     public AgentTask withTitle(String updatedTitle, TitleSource source, Instant now)
     {
@@ -263,7 +263,7 @@ public record AgentTask(
         requireNonNull(source, "source is null");
         requireNonNull(now, "now is null");
         checkArgument(source != TitleSource.PROVISIONAL, "a title cannot become provisional again");
-        checkState(source == TitleSource.USER || titleSource == TitleSource.PROVISIONAL, "only a provisional title accepts a proposal");
+        checkState(source == TitleSource.USER || titleSource != TitleSource.USER, "a person's title is final");
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
         return toBuilder().title(updatedTitle).titleSource(source).updatedAt(now).build();
     }

@@ -156,6 +156,8 @@ public final class PermissionBroker
     /** Claude's own cap on one answer; a longer one would make it refuse the whole answered input. */
     private static final int MAX_ANSWER_CHARACTERS = 8 * 1024;
     private static final int MAXIMUM_TITLE_CHARACTERS = 256;
+    /** Matches agent-core's TaskTitles.MAX_LENGTH, which this module cannot see. */
+    private static final int MAXIMUM_TASK_TITLE_CHARACTERS = 36;
     private static final int MAXIMUM_BODY_CHARACTERS = 60_000;
     private static final Set<String> PUBLISH_ARGUMENTS = ImmutableSet.of("title", "body");
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -548,7 +550,7 @@ public final class PermissionBroker
             case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
-            case DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME -> renameTaskBranch(request.id(), params.arguments(), context);
+            case DevelopmentResultBridge.RENAME_TASK_TOOL_NAME -> renameTask(request.id(), params.arguments(), context);
             case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
             case PullRequestCiBridge.RERUN_TOOL_NAME -> requestCiRerun(request.id(), params.arguments(), context);
             case PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME -> pullRequestCi(request.id(), params.name(), params.arguments(), context);
@@ -827,25 +829,27 @@ public final class PermissionBroker
                 failure -> context.redactor().redact("Publication was refused: " + failureReason(failure)));
     }
 
-    private McpHttpResponse renameTaskBranch(JsonNode id, JsonNode arguments, PermissionContext context)
+    private McpHttpResponse renameTask(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         Optional<DevelopmentResultBridge> bridge = context.development()
                 .flatMap(bound -> developments.resolve(context.taskId()).filter(current -> current.turnId().equals(bound.turnId())))
-                .filter(current -> current.branchRenamer().isPresent());
+                .filter(current -> current.taskRenamer().isPresent());
         if (bridge.isEmpty()) {
-            return error(id, -32602, "Branch naming is unavailable for this turn");
+            return error(id, -32602, "Task naming is unavailable for this turn");
         }
-        String branch;
+        String title;
+        Optional<String> branch;
         try {
-            checkArgument(arguments != null && arguments.isObject() && arguments.size() == 1, "Expected only branch");
-            branch = requireText(arguments, "branch", 64);
-            checkArgument(branch.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)+"), "Expected a descriptive branch suffix");
+            checkArgument(arguments != null && arguments.isObject() && arguments.size() == (arguments.has("branch") ? 2 : 1), "Expected only title and branch");
+            title = requireText(arguments, "title", MAXIMUM_TASK_TITLE_CHARACTERS);
+            branch = arguments.has("branch") ? Optional.of(requireText(arguments, "branch", 64)) : Optional.empty();
+            checkArgument(branch.stream().allMatch(value -> value.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)+")), "Expected a descriptive branch suffix");
         }
         catch (IllegalArgumentException failure) {
-            return error(id, -32602, "Invalid rename_task_branch arguments");
+            return error(id, -32602, "Invalid rename_task arguments");
         }
-        return runTool(id, context, () -> bridge.orElseThrow().branchRenamer().orElseThrow().apply(branch),
-                failure -> context.redactor().redact("Branch name proposal was refused: " + failureReason(failure)));
+        return runTool(id, context, () -> bridge.orElseThrow().taskRenamer().orElseThrow().apply(title, branch),
+                failure -> context.redactor().redact("Task naming was refused: " + failureReason(failure)));
     }
 
     private static String requireText(JsonNode arguments, String field, int maximumCharacters)
@@ -1328,10 +1332,13 @@ public final class PermissionBroker
                 DevelopmentResultBridge.TOOL_NAME,
                 "Report current root development readiness; the user's accepted automation settings control delivery",
                 DevelopmentResultTool.schema(bridge))));
-        context.development().filter(bridge -> bridge.branchRenamer().isPresent()).ifPresent(ignored -> tools.add(new ToolDefinition(
-                DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
-                "Propose a branch name during the first turn; applied after verified provider shutdown. Keep using the current branch during this turn",
-                ToolSchemas.object(ImmutableMap.of("branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)), "branch"))));
+        context.development().filter(bridge -> bridge.taskRenamer().isPresent()).ifPresent(ignored -> tools.add(new ToolDefinition(
+                DevelopmentResultBridge.RENAME_TASK_TOOL_NAME,
+                "Name the task during the first turn: the title shows at once; the optional branch is applied after verified provider shutdown. "
+                        + "Keep using the current branch during this turn",
+                ToolSchemas.object(ImmutableMap.of(
+                        "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAXIMUM_TASK_TITLE_CHARACTERS),
+                        "branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)), "title"))));
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.PUBLISH_TOOL_NAME,
                 "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the GitHub write",

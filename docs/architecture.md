@@ -258,7 +258,9 @@ uncommitted changes keep the task open until a later refresh.
 
 Interactive creation uses a prompt-derived title and a unique local branch immediately.
 An optional naming session runs after the first turn is accepted; its title can replace
-only a provisional title. Branch suggestions from that helper or the agent are applied
+only a provisional title. Once the agent knows the actual change, it can rename the task
+during that first turn; its title applies at once and replaces any generated one, but a
+person's rename is final. Branch suggestions from that helper or the agent are applied
 only after a successful turn reports readiness for delivery and its processes are verified
 stopped, before automatic publication.
 The active agent keeps its original branch and permission grants for the entire turn.

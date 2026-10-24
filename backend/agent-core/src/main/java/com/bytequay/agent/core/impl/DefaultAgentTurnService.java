@@ -905,8 +905,9 @@ public final class DefaultAgentTurnService
         if (!turnStore.require(turnId).taskId().equals(taskId) || !requireQueued(queuedInputId).taskId().equals(taskId)) {
             throw new AgentConflictException("Turn and queued input must belong to task " + taskId);
         }
-        String idempotencyKey = "queue-steer:" + queuedInputId;
-        return steer(turnId, idempotencyKey, (task, turn) -> {
+        // Keyed by turn as well: an input whose steer was refused returns to the queue and may be steered into a later turn.
+        String idempotencyKey = "queue-steer:" + queuedInputId + ":" + turnId;
+        AgentInputDelivery delivery = steer(turnId, idempotencyKey, (task, turn) -> {
             QueuedAgentInput input = requireQueued(queuedInputId);
             if ((input.state() != QueuedAgentInput.State.QUEUED && input.state() != QueuedAgentInput.State.PAUSED) || input.messageEventId().isPresent()) {
                 throw new AgentConflictException("Queued input is no longer waiting for its first delivery: " + input.id());
@@ -916,6 +917,30 @@ public final class DefaultAgentTurnService
                     .collect(toImmutableList());
             return acceptSteerLocked(task, turn, new SteerAgentTurnCommand(turnId, readUtf8(taskId, input.textBlob()), attachments, idempotencyKey), Optional.of(input));
         });
+        if (delivery.state() == AgentInputDelivery.State.FAILED) {
+            restoreRefusedSteer(queuedInputId, delivery);
+        }
+        return delivery;
+    }
+
+    /** A steer the provider definitely did not take consumed nothing, so its queued input waits again. */
+    private void restoreRefusedSteer(QueuedInputId queuedInputId, AgentInputDelivery refused)
+    {
+        EventId steerMessage = EventId.steerMessage(refused.id());
+        synchronized (runtimeRegistry.taskLock(refused.taskId())) {
+            QueuedAgentInput input = requireQueued(queuedInputId);
+            if (input.state() != QueuedAgentInput.State.STARTED || !input.messageEventId().equals(Optional.of(steerMessage))) {
+                return;
+            }
+            Instant now = Instant.now(clock);
+            unitOfWork.execute(() -> {
+                queueStore.update(input.steerRefused(steerMessage, "Could not add it to the running turn: " + refused.failure().orElse("the provider refused it"), now));
+                outboxStore.insert(pendingLifecycle(EventId.random(), refused.taskId(), Optional.of(refused.turnId()),
+                        AgentEventPayload.LifecyclePhase.QUEUE_CHANGED, "Queued input returned after its steer failed", now));
+                return null;
+            });
+        }
+        drainPending(outboxStore, eventService, refused.taskId());
     }
 
     private AgentInputDelivery steer(TurnId turnId, String idempotencyKey, BiFunction<AgentTask, AgentTurn, SteerAcceptance> accept)
@@ -1657,9 +1682,20 @@ public final class DefaultAgentTurnService
                 if (cancellation != turn) {
                     turnStore.update(cancellation);
                 }
-                running = runtimeRegistry.running(turnId)
-                        .orElseThrow(() -> new AgentConflictException("Turn has no live provider handle: " + turnId));
+                Optional<RunningTurn> live = runtimeRegistry.running(turnId);
+                if (live.isEmpty() && turn.state() == TurnState.ACCEPTED && turn.startedAt().isEmpty()) {
+                    // Still being prepared outside the task lock, so nothing reached a provider. It ends here,
+                    // and its launch refuses to start once it sees the turn is no longer accepted.
+                    persistTerminalTurn(turnStore.require(turnId), TurnState.CANCELLED, Optional.of("Cancelled before the turn started"), true);
+                }
+                else {
+                    running = live.orElseThrow(() -> new AgentConflictException("Turn has no live provider handle: " + turnId));
+                }
             }
+        }
+        if (running == null && cancelledDevelopment.isEmpty()) {
+            drainPending(outboxStore, eventService, initial.taskId());
+            return turnStore.require(turnId);
         }
         if (cancelledDevelopment.isPresent()) {
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation cancelled")));

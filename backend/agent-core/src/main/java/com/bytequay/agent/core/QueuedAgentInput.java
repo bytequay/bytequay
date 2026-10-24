@@ -131,6 +131,18 @@ public record QueuedAgentInput(
     }
 
     /**
+     * Returns a steered input the provider refused to the queue, paused for the user. It waits for a first delivery again:
+     * the failed steer stays in the transcript as its own message.
+     */
+    public QueuedAgentInput steerRefused(EventId steerMessage, String reason, Instant now)
+    {
+        requireNonNull(steerMessage, "steerMessage is null");
+        checkText(reason, "reason");
+        checkState(state == State.STARTED && messageEventId.equals(Optional.of(steerMessage)), "input was not consumed by this steer");
+        return copy(State.PAUSED, Optional.empty(), Optional.empty(), Optional.of(reason), now);
+    }
+
+    /**
      * Settles a claimed input by what its turn durably proves: never sent, it waits again as
      * paused; sent but never acknowledged, nobody knows, so it is uncertain and only the user may
      * discard it; acknowledged, it was consumed.

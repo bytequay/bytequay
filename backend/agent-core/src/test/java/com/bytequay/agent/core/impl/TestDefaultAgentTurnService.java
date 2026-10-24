@@ -1752,6 +1752,28 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void cancelWhileTheAcceptedTurnIsPreparedEndsItWithoutLaunching()
+    {
+        List<AgentTurn> cancelled = new ArrayList<>();
+        reviewTurnInput = new ReviewTurnInputResolver()
+        {
+            @Override
+            public String prepare(AgentTask acceptedTask, AgentTurn turn, String message)
+            {
+                cancelled.add(CompletableFuture.supplyAsync(() -> service.cancel(turn.id())).orTimeout(5, TimeUnit.SECONDS).join());
+                return message;
+            }
+        };
+
+        assertThatThrownBy(() -> service.start(command("Change", "prepare-cancel"))).isInstanceOf(AgentConflictException.class);
+
+        assertThat(cancelled).singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.CANCELLED));
+        assertThat(stores.list(task.id()).getLast().state()).isEqualTo(TurnState.CANCELLED);
+        assertThat(driver.commands()).isEmpty();
+        assertThat(taskService.get(task.id()).worktreeMutationClaim()).isEmpty();
+    }
+
+    @Test
     void shutdownDuringBaselineCapturePreservesTheAcceptedClaimWithoutLaunching()
     {
         developmentAccepted = (acceptedTask, turn) -> runtimeRegistry.close();
@@ -3313,21 +3335,46 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void neverRequeuesFailedOrUncertainQueuedSteers()
+    void neverRequeuesAnUncertainQueuedSteer()
     {
         AgentTurn first = service.start(command("first", "key-1"));
-        for (RuntimeException failure : ImmutableList.of(new AgentUnavailableException("refused"), new AgentDeliveryUncertainException("no response", null))) {
-            QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
-                    task.id(), taskService.get(task.id()).version(), "queued " + failure.getMessage(), ImmutableList.of(), failure.getMessage(),
-                            Optional.empty()));
-            driver.failNextSteer(failure);
-            AgentInputDelivery delivery = service.steerQueued(task.id(), first.id(), input.id());
-            assertThat(delivery.state()).isEqualTo(failure instanceof AgentDeliveryUncertainException ? AgentInputDelivery.State.UNKNOWN : AgentInputDelivery.State.FAILED);
-            assertThat(service.steerQueued(task.id(), first.id(), input.id())).isEqualTo(delivery);
-            assertThat(service.queued(task.id())).isEmpty();
-        }
+        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "queued uncertain", ImmutableList.of(), "uncertain", Optional.empty()));
+        driver.failNextSteer(new AgentDeliveryUncertainException("no response", null));
+
+        AgentInputDelivery delivery = service.steerQueued(task.id(), first.id(), input.id());
+
+        assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.UNKNOWN);
+        assertThat(service.steerQueued(task.id(), first.id(), input.id())).isEqualTo(delivery);
+        assertThat(service.queued(task.id())).isEmpty();
         driver.complete("done");
         assertThat(stores.findActive(task.id())).isEmpty();
+    }
+
+    @Test
+    void returnsARefusedQueuedSteerToTheQueueForALaterTurn()
+    {
+        AgentTurn first = service.start(command("first", "key-1"));
+        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "queued refused", ImmutableList.of(), "refused", Optional.empty()));
+        driver.failNextSteer(new AgentUnavailableException("Turn already ended"));
+
+        AgentInputDelivery refused = service.steerQueued(task.id(), first.id(), input.id());
+
+        assertThat(refused.state()).isEqualTo(AgentInputDelivery.State.FAILED);
+        assertThat(service.steerQueued(task.id(), first.id(), input.id())).isEqualTo(refused);
+        assertThat(service.queued(task.id())).singleElement().satisfies(queued -> {
+            assertThat(queued.id()).isEqualTo(input.id());
+            assertThat(queued.state()).isEqualTo(QueuedAgentInput.State.PAUSED);
+            assertThat(queued.messageEventId()).isEmpty();
+            assertThat(queued.pauseReason()).hasValueSatisfying(reason -> assertThat(reason).contains("Turn already ended"));
+        });
+        driver.complete("done");
+        AgentTurn second = service.start(command("second", "key-2"));
+
+        assertThat(service.steerQueued(task.id(), second.id(), input.id()).state()).isEqualTo(AgentInputDelivery.State.DELIVERED);
+        assertThat(driver.steers()).extracting(AgentTurnInput::message).containsExactly("queued refused");
+        assertThat(service.queued(task.id())).isEmpty();
     }
 
     @Test

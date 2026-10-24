@@ -194,9 +194,9 @@ class TestStore(Folder):
         self.assertEqual(connection.execute("SELECT bytes FROM space").fetchall(), [(2,)])  # a disk count is kept as long as an hourly row
         self.assertEqual(connection.execute("SELECT used FROM heap").fetchall(), [(5,)])  # and so is an ask of the heap
         rows = connection.execute("SELECT at, seconds, memory, memory_peak, cpu, cpu_peak FROM parts WHERE part = 'app' ORDER BY at").fetchall()
-        self.assertEqual(rows, [(hour, 3600, 200, 300, 1.0, 1.5), (hour + 3600, 3600, 50, 50, 0.1, 0.1), (now - 60, 5, 7, 7, 0.2, 0.2)])
+        self.assertEqual(rows, [(hour, 3600, 200, 300, 1.0, 1.5), (hour + 3600, 3600, 50, 50, 0.1, 0.1), (now - 60, monitor.EVERY, 7, 7, 0.2, 0.2)])
         self.assertEqual(connection.execute("SELECT at, seconds, memory_used, cpu, turns, queued FROM machine ORDER BY at").fetchall(),
-                         [(hour, 3600, 4, 1.5, 1, None), (hour + 3600, 3600, 4, 1.5, 1, None), (now - 60, 5, 4, 1.5, 1, None)])
+                         [(hour, 3600, 4, 1.5, 1, None), (hour + 3600, 3600, 4, 1.5, 1, None), (now - 60, monitor.EVERY, 4, 1.5, 1, None)])
         self.assertEqual(connection.execute("SELECT * FROM sessions").fetchall(), [(now - 60, "11:12.0", "13:14.0")])
         monitor.fold(connection, now)  # folding again changes nothing
         self.assertEqual(connection.execute("SELECT COUNT(*) FROM parts WHERE part = 'app'").fetchone(), (3,))
@@ -379,7 +379,7 @@ class TestCommandLine(Folder):
 
     def test_start_keeps_the_sampler_running_and_stop_removes_it(self):
         started = self.command("--start")
-        self.assertEqual((started.returncode, started.stdout), (0, f"The monitor samples every 5 seconds into {self.folder / 'monitor.db'}, from now on.\n"))
+        self.assertEqual((started.returncode, started.stdout), (0, f"The monitor samples every 15 seconds into {self.folder / 'monitor.db'}, from now on.\n"))
         agent = plistlib.loads(self.agent.read_bytes())
         self.assertEqual((agent["ProgramArguments"][1:], agent["RunAtLoad"], agent["KeepAlive"], agent["ProcessType"], agent["StandardOutPath"]),
                          ([str(SCRIPT), "--sample", "--folder", str(self.folder)], True, True, "Background", str(self.folder / "monitor.log")))

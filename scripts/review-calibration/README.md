@@ -346,7 +346,7 @@ prints how every part stands now. `--start` keeps a sampler running from then
 on, at every login and whenever it stops, as a second LaunchAgent the lab
 writes and removes (`com.bytequay.lab.monitor`); `--stop` ends it.
 
-Every five seconds the sampler notes the processes, memory, CPU, threads and
+Every fifteen seconds the sampler notes the processes, memory, CPU, threads and
 open files of each part of the app: the Electron app's main process, its
 windows, its GPU process and its other helpers; the Java backend; the agent
 command lines the backend starts; and the commands they run. It knows the app
@@ -369,7 +369,7 @@ the lab's agent to look for risks (`advisor.py --if-due`), which looks only
 when the last look began a day ago or more and says nothing without a key, so
 a look happens about once a day.
 
-Once a minute, while the backend runs, it asks the backend's JVM how full its
+Every five minutes, while the backend runs, it asks the backend's JVM how full its
 heap is, with the `jcmd` beside the backend's `java` (`jcmd PID GC.heap_info`,
 at the lowest priority): what the heap uses, what the JVM has set aside for it,
 its limit, and what lived through collections (the old and humongous regions).

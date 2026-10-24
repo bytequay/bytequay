@@ -34,10 +34,10 @@ DATABASE = APP_DATA / "bytequay-1.0.db"
 WORKSPACES = Path.home() / ".bytequay/workspaces"
 STORE = "monitor.db"
 AGENT = "com.bytequay.lab.monitor"
-EVERY = 5  # seconds between two samples
+EVERY = 15  # seconds between two samples; listing every process on the Mac is most of a sample's cost
 DISK_EVERY = 6 * 3600  # a disk count walks every file of the app's data, so it runs only a few times a day
 SAVE_EVERY = 3600  # the lab's tables are read again every hour, so no page shows numbers a day old
-HEAP_EVERY = 60  # seconds between two asks of the backend's JVM how full its heap is; an ask takes about a second
+HEAP_EVERY = 300  # seconds between two asks of the backend's JVM how full its heap is; an ask starts a JVM and takes about a second
 RAW = 7 * 86400  # seconds every sample is kept; older ones are folded into one row an hour
 HOURLY = 90 * 86400  # seconds an hourly row is kept
 PARTS = ("app", "window", "gpu", "helpers", "backend", "agents", "commands", "orphaned", "monitor")
@@ -484,7 +484,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--folder", type=Path, default=saved.FOLDER, help="The lab's folder, where the numbers are kept")
     chosen = parser.add_mutually_exclusive_group()
-    chosen.add_argument("--sample", action="store_true", help="Sample every five seconds until stopped (what the LaunchAgent runs)")
+    chosen.add_argument("--sample", action="store_true", help="Sample every fifteen seconds until stopped (what the LaunchAgent runs)")
     chosen.add_argument("--start", action="store_true", help="Keep the sampler running from now on: at every login and whenever it stops")
     chosen.add_argument("--stop", action="store_true", help="Stop the sampler and remove its LaunchAgent")
     chosen.add_argument("--count-disk", action="store_true", help="Count once who holds the app's data on disk (what the sampler starts a few times a day)")

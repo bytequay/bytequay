@@ -75,7 +75,7 @@ def render(folder, runtime):
             st.metric("Turns running", values["turns"] if values["turns"] is not None else "Unknown", border=True)
         st.caption("Resource sample: " + dashboard.when(saved.stamp(samples["machine"]["at"].max())) + ". Analyze now updates this view; Resources shows live charts.")
     else:
-        st.caption("Resource history needs the optional monitor. It samples every five seconds and continues after ByteQuay quits; Processes can stop it.")
+        st.caption("Resource history needs the optional monitor. It samples every fifteen seconds and continues after ByteQuay quits; Processes can stop it.")
         if st.button("Start resource monitoring", key="health_monitor"):
             try:
                 batch.keep_agent(monitor.AGENT, monitor.agent(folder))

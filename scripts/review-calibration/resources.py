@@ -24,7 +24,7 @@ NAMES = {"app": "app, main process", "window": "app windows", "gpu": "app GPU", 
 # How far back each choice reaches, and the bucket its charts average over, so every chart has a few hundred points at most.
 SPANS = {"Last hour": (3600, 30), "Last day": (86400, 300), "7 days": (7 * 86400, 3600), "30 days": (30 * 86400, 3 * 3600), "90 days": (90 * 86400, 86400)}
 LIVE = 900  # seconds the live view reaches back
-STALE = 20  # seconds without a sample before the monitor counts as stopped
+STALE = 3 * monitor.EVERY  # seconds without a sample before the monitor counts as stopped
 AMOUNTS = ["processes", "memory", "cpu", "threads", "files"]
 # What each owner of the app's data is, and what can be done about it.
 NOTES = {

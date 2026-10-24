@@ -1,14 +1,15 @@
 # ByteQuay website
 
 The product landing page, user documentation, design overview, and Lab pages are
-static HTML and CSS in `dist/`, with a small script for switching app
-screenshots. The app tour loops every two seconds, with previous/next arrows,
-direct feature buttons, and a play/pause control. Hovering pauses the tour;
-keyboard navigation and reduced-motion preferences leave it paused until Play.
-It also pauses while offscreen or in a hidden browser tab.
-They need no dependency installation or build step. The logo comes
-from the repository's `assets/logo.svg`; typography uses Google Fonts with
-system fallbacks. No analytics, account system, or application data is embedded.
+static HTML and CSS in `dist/`. They need no dependency installation or build
+step. The logo comes from the repository's `assets/logo.svg`; typography uses
+Mona Sans and Geist Mono from Google Fonts with system fallbacks. No analytics,
+account system, or application data is embedded.
+
+The landing page stays short: a headline with one line, one app screenshot,
+three feature rows, and link cards, each with a sentence or less. Framed bands
+separate the sections, and screenshots sit on light gradient panels. Put
+details in the guides, not on the landing page.
 
 ## Publish with GitHub Pages
 
@@ -30,10 +31,9 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist
 ```
 
 Open `http://127.0.0.1:4173/`. Check the landing page, Docs index, seven topic
-guides, design page, and both Lab pages; also check screenshot switching,
-two-second rotation, wraparound, pause/play, arrow keys, reduced motion, and
-full-size image links, navigation, topic links, disclosures, and narrow layouts
-after edits. The user guide lives in [`documentation.md`](documentation.md) and
+guides, design page, and both Lab pages; also check navigation, topic links,
+disclosures, the still cursor under reduced motion, and narrow layouts after
+edits. The user guide lives in [`documentation.md`](documentation.md) and
 is presented in the Docs index (`dist/documentation.html`) and seven focused
 `dist/guide-*.html` pages. Keep their instructions consistent with the Markdown
 guide and current app controls. Keep the repository README headline and summary
@@ -58,8 +58,8 @@ claims.
 The seven `dist/assets/app-*.jpg` images show development tasks, PR review,
 cherry-pick, the Assistant, Epics, private review discussions, and link previews using
 the app's actual React components and dark palette. Each is captured at 2880 ×
-1800, rendering a 1440 × 900 workspace at 2× scale. The page offers
-full-resolution views with feature descriptions.
+1800, rendering a 1440 × 900 workspace at 2× scale. The landing page shows
+development, review, private discussion, and the Assistant.
 
 Capture through an isolated browser fixture with sample bridge data, blocked
 external images and connections, and no live provider or backend. Development

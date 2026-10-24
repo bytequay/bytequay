@@ -39,7 +39,8 @@ import static java.util.Objects.requireNonNull;
 public class CommitHistorySyncJob
 {
     private static final Logger log = LoggerFactory.getLogger(CommitHistorySyncJob.class);
-    private static final Duration FRESHNESS = Duration.ofMinutes(5);
+    // Each refresh runs several git commands and a fetch per remote; the Commits tab keeps its Refresh button for newer history.
+    private static final Duration FRESHNESS = Duration.ofMinutes(15);
 
     private final WorkspaceRepositoryService workspaces;
     private final CommitHistoryService commits;

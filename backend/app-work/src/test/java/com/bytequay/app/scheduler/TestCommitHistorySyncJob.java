@@ -62,7 +62,7 @@ class TestCommitHistorySyncJob
         WorkspaceSummary unsynced = workspace("unsynced", false, false, 600);
         when(workspaces.listWorkspaces()).thenReturn(ImmutableList.of(linked, direct, fresh, recentFailure, unsynced));
         when(commits.getRefreshStatus("linked")).thenReturn(CommitRefreshStatus.idle("linked"));
-        when(commits.getRefreshStatus("direct")).thenReturn(failedAttempt("direct", NOW.minusSeconds(301)));
+        when(commits.getRefreshStatus("direct")).thenReturn(failedAttempt("direct", NOW.minusSeconds(901)));
         when(commits.getRefreshStatus("fresh")).thenReturn(success("fresh", NOW.minusSeconds(60)));
         when(commits.getRefreshStatus("recent-failure"))
                 .thenReturn(failedAttempt("recent-failure", NOW.minusSeconds(60)));
@@ -70,7 +70,7 @@ class TestCommitHistorySyncJob
 
         job.tick();
 
-        Instant staleBefore = NOW.minusSeconds(300);
+        Instant staleBefore = NOW.minusSeconds(900);
         verify(commits).refreshIfDue("linked", ImmutableList.of(
                 new CommitHistoryRef(Source.WORKSPACE, "main"),
                 new CommitHistoryRef(Source.UPSTREAM, "upstream-main")), staleBefore);
@@ -92,7 +92,7 @@ class TestCommitHistorySyncJob
 
         job.refreshDue();
 
-        Instant staleBefore = NOW.minusSeconds(300);
+        Instant staleBefore = NOW.minusSeconds(900);
         verify(commits).refreshIfDue("due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
         verify(commits, never()).refreshIfDue("recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
     }
@@ -108,7 +108,7 @@ class TestCommitHistorySyncJob
 
         job.refreshDue();
 
-        verify(commits).refreshIfDue("due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), NOW.minusSeconds(300));
+        verify(commits).refreshIfDue("due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), NOW.minusSeconds(900));
     }
 
     private static CommitRefreshStatus success(String workspaceId, Instant succeededAt)

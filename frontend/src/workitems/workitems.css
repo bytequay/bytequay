@@ -96,8 +96,7 @@
 .work-items__event > .is-warning { color: var(--fg-warning); }
 .work-items__event > .is-purple { color: var(--fg-purple); }
 .work-items__event > .is-link { color: var(--fg-link); }
-.work-items__event-detail { margin-top: 6px; padding: 8px 10px; border: 1px solid var(--line-subtle); border-radius: 8px; background: light-dark(#f6f8fa, var(--dark-subtle));
-  font-family: var(--font-mono); font-size: 12px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+.work-items__event-detail.markdown-body { margin-top: 6px; padding: 10px 12px; border: 1px solid var(--line-subtle); border-radius: 8px; background: light-dark(#f6f8fa, var(--dark-subtle)); }
 .work-items__actions { padding-top: 16px; border-top: 1px solid light-dark(#e6eaee, var(--dark-subtle)); }
 .work-items__actions button, .work-items__publish-actions button { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
 

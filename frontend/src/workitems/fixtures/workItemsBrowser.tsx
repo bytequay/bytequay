@@ -14,6 +14,7 @@
 
 import { createRoot } from 'react-dom/client';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
+import { prDetail } from '../../pulls/fixtures/pullRequest';
 import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import type { Bridge } from '../../types';
 import type { EpicRecordDto, WorkItemDto, UnifiedWorkItem, WorkItemContextLink } from '../contracts';
@@ -26,10 +27,11 @@ import WorkspaceIssuesScreen from '../../workspaces/WorkspaceIssuesScreen';
 import { workItemRoute } from '../contracts';
 import '../../css/base.css';
 import '../../css/pulls.css';
+import '../../css/reference-card.css';
 
 const workspace = workspaceFixture({
-  id: 'workspace', name: 'ByteQuay', selectedOwner: 'bytequay', selectedRepo: 'bytequay', monitoredOwner: 'bytequay', monitoredRepo: 'bytequay',
-  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/bytequay',
+  id: 'workspace', name: 'Example', selectedOwner: 'example-org', selectedRepo: 'example-repo', monitoredOwner: 'example-org', monitoredRepo: 'example-repo',
+  selectedRepositoryId: 1, monitoredRepositoryId: 1, localRepositoryPath: '/managed/example-repo',
 });
 const now = '2026-10-07T00:00:00Z';
 function local(id: string, title: string, body: string): WorkItemDto {
@@ -48,8 +50,82 @@ function type(selector: string, text: string) {
   changeInput(input, text);
 }
 
+export async function markdownHistory() {
+  const criteria = '### Description\nOriginal scope for `ExampleComponent` and #42.\n\n- Preserve **expected behavior**.\n\n'
+    + '```text\n' + 'sample '.repeat(100) + '#42\n```\n\n| Check | Expected |\n| --- | --- |\n| Cleanup | Resources released |';
+  const work: WorkItemDto = { ...local('markdown', 'Updated work title', '### Current context\nUpdated scope referencing #42 and unavailable #404.'), history: [
+    { operationId: 'created', action: 'CREATED', detail: `Work item accepted: Original work title\nSuccess: ${criteria}\nCompletion: Merged delivery`, at: now },
+    { operationId: 'receipt', action: 'RECEIPT', detail: 'Checks failed on #42: **unit-tests**', at: '2026-10-07T01:00:00Z' },
+  ] };
+  const pull = prDetail({ repo: 'example-org/example-repo', number: 42, title: 'Fix example behavior', author: 'example-user',
+    htmlUrl: 'https://github.com/example-org/example-repo/pull/42', body: '### Verification\nPreserves **example behavior**.' });
+  const reads: number[] = [];
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    listUnifiedWorkItems: async () => [projected(work)], listWorkItems: async () => [work], listWorkspaces: async () => [workspace],
+    fetchWorkspaceIssue: async () => { throw new Error('Not a cached issue'); },
+    fetchGitHubIssuePreview: async (owner, repo, number) => {
+      assert(`${owner}/${repo}` === 'example-org/example-repo', 'Bare references use the monitored repository, not the selected fork');
+      if (number !== pull.number) throw new Error('Unavailable');
+      return { title: pull.title ?? '', body: pull.body ?? '', author: pull.author ?? '', labels: [], updatedAt: now, state: 'open', pullRequest: true };
+    },
+    fetchPullRequestDetailByRef: async (repo, number) => {
+      assert(repo === pull.repo, 'Pull references retain their repository'); reads.push(number);
+      if (number !== pull.number) throw new Error('Unavailable');
+      return pull;
+    },
+    listJiraConnections: async () => [],
+  } satisfies Partial<Bridge> });
+  window.location.hash = workItemRoute(workspace.id, work.id);
+  const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
+  const root = createRoot(host);
+  const zooms: ZoomedReference[] = [];
+  const capture = (event: Event) => zooms.push((event as CustomEvent<ZoomedReference>).detail);
+  window.addEventListener(ZOOM_REFERENCE, capture);
+  try {
+    root.render(<LocalWorkItems workspace={{ ...workspace, selectedOwner: 'fork' }} />);
+    await until(() => host.querySelectorAll('a[href$="/pull/42"]').length === 3 && reads.includes(404), 'Description and history resolve pull titles');
+    const description = element<HTMLElement>('.pr-description > .markdown-body', host);
+    const history = element<HTMLElement>('.work-items__history', host);
+    const details = [...history.querySelectorAll<HTMLElement>('.work-items__event-detail')];
+    assert(details[0]?.textContent?.startsWith('Checks failed on ') === true && details[1]?.textContent?.includes('Original work title') === true,
+      'History shows the latest event first and creation last');
+    assert(work.history[0].operationId === 'created' && work.history[1].operationId === 'receipt', 'Displaying history does not mutate its saved order');
+    assert(description.querySelector('h3')?.textContent === 'Current context', 'The current description renders Markdown');
+    assert(history.querySelector('h3')?.textContent === 'Description' && history.textContent?.includes('Original work title') === true
+      && !history.textContent?.includes('Updated scope'), 'Creation renders its original Markdown snapshot, not the edited description');
+    assert(history.querySelector('li strong')?.textContent === 'expected behavior' && history.querySelector('code')?.textContent === 'ExampleComponent',
+      'History renders lists, emphasis and inline code');
+    assert(history.querySelector('pre')?.textContent?.includes('#42') === true && history.querySelector('pre a') === null, 'Fenced references stay literal code');
+    assert([...host.querySelectorAll('a[href$="/pull/42"]')].every(link => link.textContent === `${pull.title} #42`), 'References display the title and number');
+    assert(element<HTMLAnchorElement>('a[href$="/issues/404"]', description).textContent === '#404', 'Unavailable references retain their number');
+    assert(reads.filter(number => number === pull.number).length === 1, 'Repeated references share their preview request');
+    const pane = element<HTMLElement>('.pull-detail', host); pane.style.width = '360px'; await settle();
+    assert(details.every(detail => detail.scrollWidth <= detail.clientWidth + 1) && pane.scrollWidth <= pane.clientWidth + 1,
+      'Markdown tables and long code remain inside a narrow detail pane');
+    const link = element<HTMLAnchorElement>('a[href$="/pull/42"]', history);
+    link.scrollIntoView({ block: 'center' }); await settle();
+    link.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await until(() => document.querySelector('.ref-card__title')?.textContent === pull.title, 'Hover opens the pull request card');
+    assert(document.querySelector('.ref-card h3')?.textContent === 'Verification' && document.querySelector('.ref-card strong')?.textContent === 'example behavior',
+      'The hover card renders the pull description');
+    link.click(); await settle();
+    assert(JSON.stringify(zooms) === JSON.stringify([{ kind: 'pull', repo: pull.repo, number: pull.number }]), 'Clicking the reference opens the native pull detail');
+    assert(document.querySelector('.ref-card') === null, 'Opening the reference closes the hover card');
+    link.blur(); link.focus({ preventScroll: true });
+    assert(link.isConnected && document.activeElement === link, 'The keyboard reference remains connected and focusable');
+    // The hidden Electron window updates activeElement without dispatching native focus events.
+    link.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await until(() => document.querySelector('.ref-card__title')?.textContent === pull.title, 'Keyboard focus also opens the preview');
+    link.blur();
+    button('Push to remote…').click();
+    await until(() => host.querySelector('.work-items__preview a[href$="/pull/42"]') !== null, 'The publication preview resolves the same references');
+    return true;
+  }
+  finally { window.removeEventListener(ZOOM_REFERENCE, capture); root.unmount(); host.remove(); }
+}
+
 export async function contextLinks() {
-  const reference = { kind: 'ISSUE' as const, key: 'bytequay/bytequay#42', label: '#42', title: 'Published context owner', addedAt: now };
+  const reference = { kind: 'ISSUE' as const, key: 'example-org/example-repo#42', label: '#42', title: 'Published context owner', addedAt: now };
   let work: WorkItemDto = { ...local('owner', reference.title, 'Retained acceptance criteria.'), revision: 4, epicId: 'LOCAL:parent', blockedBy: ['blocker'],
     contextLinks: [{ targetId: 'ISSUE:github.com:50', title: 'Before publication' }, { targetId: 'removed', title: 'Removed reference' }],
     links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null },
@@ -60,7 +136,7 @@ export async function contextLinks() {
       reference: { ...reference, key: 'other/repository#43', label: '#43', title: 'GitHub regression request' }, work: null },
     { id: 'JIRA:connection:site:7', source: 'JIRA', title: 'Jira compatibility request', description: 'Details.', status: 'In progress', closed: false, updatedAt: now,
       reference: { kind: 'JIRA', key: 'connection:site:7', label: 'BQ-7', title: 'Jira compatibility request', addedAt: now }, work: null },
-    { ...projected(local('published-reference', 'Published local reference', 'Details.')), source: 'GITHUB', reference: { ...reference, key: 'bytequay/bytequay#50', label: '#50' } }];
+    { ...projected(local('published-reference', 'Published local reference', 'Details.')), source: 'GITHUB', reference: { ...reference, key: 'example-org/example-repo#50', label: '#50' } }];
   const owner = (): UnifiedWorkItem => ({ ...projected(work), source: 'GITHUB', reference });
   const contextCount = () => work.contextLinks.length;
   const requests: string[] = [];
@@ -158,20 +234,20 @@ export async function run() {
   const seed = projected(local('seed', 'Improve work item context', '## Outcome\nAgents retain the request, acceptance criteria and prior attempts.\n\n- Preserve local privacy\n- Keep one identity after publication'));
   let items: UnifiedWorkItem[] = [seed,
     { id: 'github', source: 'GITHUB', title: 'Handle interrupted agent sessions', description: 'An existing GitHub request.', status: 'Open', closed: false, updatedAt: now,
-      reference: { kind: 'ISSUE', key: 'bytequay/bytequay#42', label: '#42', title: 'Handle interrupted agent sessions', addedAt: now }, work: null },
+      reference: { kind: 'ISSUE', key: 'example-org/example-repo#42', label: '#42', title: 'Handle interrupted agent sessions', addedAt: now }, work: null },
     { id: 'jira', source: 'JIRA', title: 'Add repository onboarding guidance', description: 'An existing Jira request.', status: 'In progress', closed: false, updatedAt: now,
       reference: { kind: 'JIRA', key: 'connection:site:7', label: 'BQ-7', title: 'Add repository onboarding guidance', addedAt: now }, work: null }];
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     listUnifiedWorkItems: async () => items,
     listWorkItems: async () => [],
-    fetchWorkspaceIssues: async () => ({ repositoryId: 1, repository: { owner: 'bytequay', repo: 'bytequay' }, issues: [], page: 0, pageSize: 50, totalIssues: 0, hasMore: false, syncedAt: now }),
+    fetchWorkspaceIssues: async () => ({ repositoryId: 1, repository: { owner: 'example-org', repo: 'example-repo' }, issues: [], page: 0, pageSize: 50, totalIssues: 0, hasMore: false, syncedAt: now }),
     getWorkspaceMetadata: async () => { throw new Error('Metadata is not synchronized'); },
     listJiraConnections: async () => [],
     createWorkItem: async (_workspace, request) => { const work = local(request.id, request.title, request.acceptanceCriteria); items = [...items, projected(work)]; return work; },
     publishWorkItem: async (_workspace, id, request) => {
       assert(request.source === 'GITHUB' && request.expectedRevision === 0, 'Publication uses the selected destination and preview revision');
       publications++; const item = items.find(value => value.id === id); assert(item?.work != null, 'The local item exists before publication');
-      const reference = { kind: 'ISSUE' as const, key: 'bytequay/bytequay#43', label: '#43', title: item.title, addedAt: now };
+      const reference = { kind: 'ISSUE' as const, key: 'example-org/example-repo#43', label: '#43', title: item.title, addedAt: now };
       const work: WorkItemDto = { ...item.work, links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null }] };
       items = items.map(value => value.id === id ? { ...value, source: 'GITHUB', reference, work } : value);
       return work;
@@ -185,7 +261,7 @@ export async function run() {
   } satisfies Partial<Bridge> });
   const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
   createRoot(host).render(<WorkItemsScreen workspace={workspace} tab="issues" github={<WorkspaceIssuesScreen
-    workspaceId={workspace.id} repository="bytequay/bytequay" initialIssueNumber={null} />} />); await settle(); await settle();
+    workspaceId={workspace.id} repository="example-org/example-repo" initialIssueNumber={null} />} />); await settle(); await settle();
   assert([...document.querySelectorAll('[role="tab"]')].map(value => value.textContent).join('|') === 'Local|GitHub issues|Jira', 'Local is the leftmost source tab');
   assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Local' && document.querySelector('.work-items') !== null, 'Work items opens on Local by default');
   button('Local').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await settle(); await settle();
@@ -357,7 +433,7 @@ export async function localEpic() {
     publishWorkItem: async (_workspace, id) => {
       calls.push(`publish ${id}`);
       const item = items.find(item => item.id === id); assert(item?.work != null, 'The published Epic exists');
-      const reference = { kind: 'ISSUE' as const, key: 'bytequay/bytequay#50', label: '#50', title: item.title, addedAt: now };
+      const reference = { kind: 'ISSUE' as const, key: 'example-org/example-repo#50', label: '#50', title: item.title, addedAt: now };
       const work: WorkItemDto = { ...item.work, links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null }] };
       items = items.map(value => value.id === id ? { ...value, source: 'GITHUB', reference, work } : value);
       return work;

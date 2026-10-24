@@ -15,6 +15,12 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
+it('renders local descriptions and newest-first timeline Markdown with titled pull links and hover cards', async () => {
+  expect(await runBrowserFixture({ prefix: 'bytequay-work-markdown-', entry: 'src/workitems/fixtures/workItemsBrowser.tsx', global: 'UnifiedWorkTests',
+    styles: true, charset: true, width: 1280, height: 850,
+    body: 'const results = await window.webContents.executeJavaScript("UnifiedWorkTests.markdownHistory()");' })).toBe(true);
+}, deadline(30_000));
+
 it('keeps the original source screens under three tabs and creates work locally', async () => {
   const result = await runBrowserFixture({ prefix: 'bytequay-unified-work-', entry: 'src/workitems/fixtures/workItemsBrowser.tsx', global: 'UnifiedWorkTests',
     styles: true, charset: true, width: 1280, height: 850,

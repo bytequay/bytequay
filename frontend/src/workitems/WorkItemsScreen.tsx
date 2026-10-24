@@ -395,6 +395,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const { busy, error, setError, run } = useAsyncAction(errorText);
   const availability = useAgentAvailability(item.work.workspaceId);
   const work = item.work;
+  const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const [workShown, setWorkShown] = useState(work.isEpic);
   const unmark = useUnmarkEpic();
   const open = isOpen(work);
@@ -444,7 +445,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
     </DetailHeader>
     {error && <div className="pull-detail__error" role="alert">{error}</div>}
     {work.isEpic && workShown && !publishing
-      ? <EpicWork epic={work} workspaceId={workspace.id} repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`} work={all} onShowSource={() => setWorkShown(false)} />
+      ? <EpicWork epic={work} workspaceId={workspace.id} repository={repository} work={all} onShowSource={() => setWorkShown(false)} />
       : <div className="pull-detail__body">
       <div className="pr-overview work-items__overview">
         <section className="pr-overview__summary">
@@ -484,10 +485,10 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
               {open && <div className="pr-card__menu"><button type="button" className="work-items__quiet" title="Edit local context" onClick={() => setEditing(true)}>
                 <Pencil size={14} aria-hidden="true" />Edit</button></div>}
             </header>
-            <MarkdownBody body={item.description || 'No description yet.'} />
+            <MarkdownBody body={item.description || 'No description yet.'} repository={repository} />
             {item.source !== 'LOCAL' && work.acceptanceCriteria && work.acceptanceCriteria !== item.description && <>
               <h3 className="work-items__subhead">Local context and acceptance criteria</h3>
-              <MarkdownBody body={work.acceptanceCriteria} />
+              <MarkdownBody body={work.acceptanceCriteria} repository={repository} />
             </>}
             <WorkItemContextLinks work={work} catalog={catalog} onChanged={onChanged} />
             <footer className="work-items__card-foot"><LockKeyhole size={12} aria-hidden="true" />{remote
@@ -528,14 +529,17 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
           <details className="work-items__history" open>
             <summary><ChevronRight size={14} aria-hidden="true" />History<span>{work.history.length}</span></summary>
             <div className="pr-timeline">
-              {work.history.map(event => {
+              {work.history.toReversed().map(event => {
                 const [words, Icon, tone] = EVENTS[event.action] ?? [`${event.action.charAt(0)}${event.action.slice(1).toLowerCase().replaceAll('_', ' ')}`, CircleDot, ''];
                 const canned = event.detail === CLOSED_BY_USER || event.detail === FINISHED_BY_USER || event.detail === REOPENED_BY_USER;
+                // Creation wraps the original Markdown in labels; keep them outside its headings, lists and code fences.
+                const detail = event.action === 'CREATED'
+                  ? event.detail.replace(/^(Work item accepted: [\s\S]*?)\nSuccess: ([\s\S]*)\n(Completion: [^\n]+)$/, '$1\n\nSuccess:\n\n$2\n\n$3') : event.detail;
                 return <div className="pr-event work-items__event" key={event.operationId}>
                   <span className={`issues-event-marker${tone}`}><Icon size={13} aria-hidden="true" /></span>
                   <div>
                     {words} <time>· {relativeTime(event.at)}</time>
-                    {event.detail && !canned && <div className="work-items__event-detail">{event.detail}</div>}
+                    {detail && !canned && <MarkdownBody className="work-items__event-detail" body={detail} repository={repository} />}
                   </div>
                 </div>;
               })}
@@ -606,7 +610,7 @@ function PublishWorkItem({ workspace, item, onChanged, onClose }: { workspace: W
       <div className="work-items__preview">
         <small>Preview</small>
         <strong>{item.title}</strong>
-        <MarkdownBody body={item.acceptanceCriteria || 'No description.'} />
+        <MarkdownBody body={item.acceptanceCriteria || 'No description.'} repository={`${workspace.monitoredOwner}/${workspace.monitoredRepo}`} />
       </div>
       {already && <p>This item already has a {REMOTE[source]} source.</p>}
       {pending && <p role="alert">The previous publication may have succeeded. Find the existing issue or ticket and link it below; ByteQuay will not create another copy.</p>}

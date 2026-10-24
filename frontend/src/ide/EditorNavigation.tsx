@@ -69,7 +69,7 @@ export default function EditorNavigation({ runtime, active, context, file, revis
   const native = runtime.editors.getActiveCodeEditor();
   const uri = active?.document.uri.toString();
   const editor = native?.getModel()?.uri.toString() === uri ? native : runtime.editors.listCodeEditors().find(item => item.getModel()?.uri.toString() === uri);
-  const matches = !!active && !active.document.isDirty && file?.content?.replace(/^\uFEFF/, '') === active.document.getText();
+  const matches = !!active && !runtime.saves.isDirty(active.document.uri) && file?.content?.replace(/^\uFEFF/, '') === active.document.getText();
 
   // Context is cloned over IPC on each shell update; compare its host identity to keep blame installed.
   useEffect(() => {

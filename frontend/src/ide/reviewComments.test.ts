@@ -77,7 +77,8 @@ describe('review comment browser', () => {
     const withUri = vi.fn(value => ({ toString: () => JSON.stringify(value) }));
     const range = { start: 9, end: 11 };
     const Range = vi.fn(function () { return range; });
-    const runtime = { workspace: { path: '/worktree', with: withUri },
+    const isDirty = vi.fn().mockReturnValue(false);
+    const runtime = { saves: { isDirty }, workspace: { path: '/worktree', with: withUri },
       api: { workspace: { textDocuments: [] }, Uri: { parse: (value: string) => value }, Range, TextEditorRevealType: { InCenter: 1 }, window: { showTextDocument } } } as unknown as IdeRuntime;
     const files = { revision: 'head', files: [] } as unknown as ReviewCodeFilesDto;
     const target = { path: 'src/A.java', start: 10, end: 12, revision: 'head' };
@@ -89,6 +90,9 @@ describe('review comment browser', () => {
     await openReviewComment(runtime, { ...target, revision: 'old' }, files);
     expect(withUri).toHaveBeenLastCalledWith({ scheme: 'bytequay-git', authority: '', path: '/src/A.java', query: '{"revision":"old"}' });
     await openReviewComment(runtime, target, { ...files, files: [{ path: target.path, uncommitted: true }] } as ReviewCodeFilesDto);
+    expect(withUri).toHaveBeenLastCalledWith({ scheme: 'bytequay-git', authority: '', path: '/src/A.java', query: '{"revision":"head"}' });
+    isDirty.mockReturnValueOnce(true);
+    await openReviewComment(runtime, target, files);
     expect(withUri).toHaveBeenLastCalledWith({ scheme: 'bytequay-git', authority: '', path: '/src/A.java', query: '{"revision":"head"}' });
     await expect(openReviewComment(runtime, { ...target, path: '../private' }, files)).rejects.toThrow('Invalid workspace path');
     showTextDocument.mockRejectedValueOnce(new Error('File unavailable'));

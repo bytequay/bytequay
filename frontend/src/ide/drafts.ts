@@ -34,7 +34,7 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     && document.uri.path.startsWith(runtime.workspace.path + '/') ? document.uri.path.slice(runtime.workspace.path.length + 1) : null;
   const remember = (document: import('vscode').TextDocument) => {
     const path = pathOf(document);
-    if (path !== null && !document.isDirty) bases.set(path, document.getText());
+    if (path !== null && !runtime.saves.isDirty(document.uri)) bases.set(path, document.getText());
   };
   runtime.api.workspace.textDocuments.forEach(remember);
   const opened = runtime.api.workspace.onDidOpenTextDocument(remember);
@@ -45,7 +45,7 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     try { drafts = new Map(sourceDrafts(localStorage).map(draft => [draft.path, draft])); }
     catch { onError('Saved editor drafts could not be read. Keep this editor open until your changes are saved.'); return; }
     const existing = drafts.get(path);
-    if (!event.document.isDirty) { bases.set(path, event.document.getText()); drafts.delete(path); }
+    if (!runtime.saves.isDirty(event.document.uri)) { bases.set(path, event.document.getText()); drafts.delete(path); }
     else {
       const base = existing?.base ?? bases.get(path);
       if (base === undefined) { onError(`Could not record the original contents of ${path}. Keep this editor open until saved.`); return; }
@@ -54,13 +54,19 @@ export function trackSourceDrafts(runtime: IdeRuntime, onError: (message: string
     try { localStorage.setItem(KEY, JSON.stringify([...drafts.values()])); }
     catch { onError('Editor draft storage is full. Save your changes before closing ByteQuay.'); }
   });
-  const saved = runtime.api.workspace.onDidSaveTextDocument(document => {
-    const path = pathOf(document);
-    if (path !== null) {
-      bases.set(path, document.getText());
-      try { localStorage.setItem(KEY, JSON.stringify(sourceDrafts(localStorage).filter(draft => draft.path !== path))); }
-      catch { onError('Could not update the saved draft. Its previous contents have been retained.'); }
+  const saved = runtime.saves.onDidSave(({ resource, text }) => {
+    const path = pathOf({ uri: resource });
+    if (path === null) return;
+    bases.set(path, text);
+    try {
+      const drafts = new Map(sourceDrafts(localStorage).map(draft => [draft.path, draft]));
+      const document = runtime.api.workspace.textDocuments.find(document => document.uri.toString() === resource.toString());
+      const current = document?.getText() ?? drafts.get(path)?.text;
+      if (current === undefined || current === text) drafts.delete(path);
+      else drafts.set(path, { path, base: text, text: current });
+      localStorage.setItem(KEY, JSON.stringify([...drafts.values()]));
     }
+    catch { onError('Could not update the saved draft. Its previous contents have been retained.'); }
   });
   return { dispose: () => { opened.dispose(); changed.dispose(); saved.dispose(); } };
 }
@@ -81,7 +87,7 @@ export async function restoreSourceDrafts(runtime: IdeRuntime, onConflict: (draf
       const document = await runtime.api.workspace.openTextDocument(uri);
       if (document.getText() !== draft.base && document.getText() !== draft.text) { conflict(draft); continue; }
       if (document.getText() === draft.text) {
-        if (!document.isDirty) localStorage.setItem(KEY, JSON.stringify(sourceDrafts(localStorage).filter(item => item.path !== draft.path)));
+        if (!runtime.saves.isDirty(document.uri)) localStorage.setItem(KEY, JSON.stringify(sourceDrafts(localStorage).filter(item => item.path !== draft.path)));
         continue;
       }
       const edit = new runtime.api.WorkspaceEdit();

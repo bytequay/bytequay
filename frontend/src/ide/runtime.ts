@@ -134,7 +134,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     // The server port changes on restart; language indexes belong to the worktree, not that connection.
     workspaceProvider: { workspace: { folderUri: workspace, id: connection.taskId }, trusted: true, open: async () => false },
   });
-  await coordinateSaves(connection);
+  const saves = await coordinateSaves(connection);
   const api = await extension.getApi();
   await (await getService(IExtensionService)).whenInstalledExtensionsRegistered();
   const views = await getService(IViewDescriptorService);
@@ -146,7 +146,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   installHeaderFolding(editors);
   installTestTabColors(await getService(IEditorService));
   return {
-    api, workspace, views, executions: await coordinateExecutions(api, connection.root, connection.authority),
+    api, workspace, saves, views, executions: await coordinateExecutions(api, connection.root, connection.authority),
     editors,
     tests: await getService(ITestResultService),
     debug: await getService(IDebugService),

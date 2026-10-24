@@ -19,14 +19,15 @@ import { FileOperationError, FileOperationResult } from '@codingame/monaco-vscod
 import type { IdeConnection } from './contracts';
 import { coordinateSaves } from './save';
 
-const mocks = vi.hoisted(() => ({ files: { readFile: vi.fn(), writeFile: vi.fn(), resolve: vi.fn() }, save: vi.fn() }));
-vi.mock('@codingame/monaco-vscode-api', () => ({ IFileService: 'files', getService: async () => mocks.files }));
+const mocks = vi.hoisted(() => ({ files: { readFile: vi.fn(), writeFile: vi.fn(), resolve: vi.fn() }, textFiles: { write: vi.fn(), isDirty: vi.fn() }, save: vi.fn() }));
+vi.mock('@codingame/monaco-vscode-api', () => ({ IFileService: 'files', ITextFileService: 'textFiles', getService: async (service: string) => service === 'files' ? mocks.files : mocks.textFiles }));
 const connection = { authority: '127.0.0.1:4321', root: '/fixture/task' } as IdeConnection;
 const uri = URI.from({ scheme: 'vscode-remote', authority: connection.authority, path: '/fixture/task/main.go' });
 
 beforeEach(async () => {
   vi.resetAllMocks();
   mocks.files.writeFile = vi.fn();
+  mocks.textFiles.write = vi.fn(async (resource, text: string, options) => mocks.files.writeFile(resource, VSBuffer.fromString(text), options));
   mocks.files.readFile.mockResolvedValue({ value: VSBuffer.fromString('before'), etag: 'loaded' });
   mocks.files.resolve.mockResolvedValue({ etag: 'saved' });
   vi.stubGlobal('window', { ideWorkbench: { save: mocks.save } });
@@ -40,6 +41,23 @@ describe('coordinated IDE saves', () => {
     const hash = [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode('before')))].map(byte => byte.toString(16).padStart(2, '0')).join('');
     expect(mocks.save).toHaveBeenCalledWith('main.go', Buffer.from(bytes).toString('base64'), hash);
     expect(mocks.files.resolve).toHaveBeenCalledWith(uri, { resolveMetadata: true });
+  });
+  it('reports the exact text snapshot only after its write succeeds', async () => {
+    const saves = await coordinateSaves(connection);
+    const saved = vi.fn();
+    saves.onDidSave(saved);
+    let finish: () => void = () => { throw new Error('Save has not started'); };
+    mocks.save.mockImplementation(() => new Promise<void>(resolve => { finish = resolve; }));
+    const chunks = ['saved ', 'snapshot'];
+    const writing = mocks.textFiles.write(uri, { read: () => chunks.shift() ?? null }, { etag: 'loaded' });
+    await vi.waitFor(() => expect(mocks.save).toHaveBeenCalled());
+    expect(saved).not.toHaveBeenCalled();
+    finish();
+    await writing;
+    expect(saved).toHaveBeenCalledWith({ resource: uri, text: 'saved snapshot' });
+    mocks.save.mockRejectedValueOnce(new Error('Unavailable'));
+    await expect(mocks.textFiles.write(uri, 'failed snapshot', { etag: 'loaded' })).rejects.toThrow('Unavailable');
+    expect(saved).toHaveBeenCalledTimes(1);
   });
   it('rejects a stale buffer before sending any bytes', async () => {
     await expect(mocks.files.writeFile(uri, VSBuffer.fromString('draft'), { etag: 'old' })).rejects.toMatchObject({ fileOperationResult: FileOperationResult.FILE_MODIFIED_SINCE });

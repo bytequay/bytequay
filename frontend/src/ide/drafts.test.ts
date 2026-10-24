@@ -19,17 +19,18 @@ const store = new Map<string, string>();
 const key = 'bytequay.ide.sourceDrafts';
 beforeEach(() => { store.clear(); vi.stubGlobal('localStorage', { getItem: (key: string) => store.get(key) ?? null, setItem: (key: string, value: string) => store.set(key, value) }); });
 function fixture(text: string) {
-  const document = { uri: { scheme: 'vscode-remote', path: '/task/main.go' }, isDirty: false, getText: () => text, positionAt: (offset: number) => offset };
+  const document = { uri: { scheme: 'vscode-remote', path: '/task/main.go' }, isDirty: false, nativeDirty: false, getText: () => text, positionAt: (offset: number) => offset };
   const applyEdit = vi.fn(async () => true);
   const change = { listener: (_event: { document: typeof document }) => {} };
-  const runtime = { workspace: { path: '/task', with: (value: unknown) => value }, api: {
+  const save = { listener: (_event: { resource: typeof document.uri; text: string }) => {} };
+  const runtime = { saves: { isDirty: () => document.nativeDirty, onDidSave: (listener: typeof save.listener) => { save.listener = listener; return { dispose(): void { return; } }; } }, workspace: { path: '/task', with: (value: unknown) => value }, api: {
     WorkspaceEdit: class { replace(): void { return; } }, Range: class {}, window: { showTextDocument: vi.fn() }, workspace: {
       textDocuments: [document], openTextDocument: async () => document, applyEdit,
       onDidOpenTextDocument: () => ({ dispose(): void { return; } }), onDidSaveTextDocument: () => ({ dispose(): void { return; } }),
       onDidChangeTextDocument: (listener: typeof change.listener) => { change.listener = listener; return { dispose(): void { return; } }; },
     },
   } } as unknown as IdeRuntime;
-  return { runtime, document, applyEdit, change };
+  return { runtime, document, applyEdit, change, save };
 }
 
 describe('IDE draft recovery', () => {
@@ -57,9 +58,34 @@ describe('IDE draft recovery', () => {
   it('keeps the original base through repeated keystrokes', () => {
     const { runtime, document, change } = fixture('base');
     const tracking = trackSourceDrafts(runtime, vi.fn());
-    document.isDirty = true; document.getText = () => 'first edit'; change.listener({ document });
+    document.isDirty = true; document.nativeDirty = true; document.getText = () => 'first edit'; change.listener({ document });
     document.getText = () => 'second edit'; change.listener({ document });
     expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'base', text: 'second edit' }]);
+    tracking.dispose();
+  });
+  it('keeps newer edits when a previous save completes, including the extension API clean notification', async () => {
+    const { runtime, document, change, save } = fixture('base');
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    document.isDirty = true; document.nativeDirty = true;
+    document.getText = () => 'saved snapshot'; change.listener({ document });
+    document.getText = () => 'typed during save'; change.listener({ document });
+    save.listener({ resource: document.uri, text: 'saved snapshot' });
+    // The pinned extension API reports clean on save even when the native model has newer edits.
+    document.isDirty = false; change.listener({ document });
+    expect(sourceDrafts(localStorage)).toEqual([{ path: 'main.go', base: 'saved snapshot', text: 'typed during save' }]);
+    tracking.dispose();
+    const restored = fixture('saved snapshot');
+    await restoreSourceDrafts(restored.runtime, vi.fn());
+    expect(restored.applyEdit).toHaveBeenCalledOnce();
+    expect(sourceDrafts(localStorage)[0].text).toBe('typed during save');
+  });
+  it('removes a draft when the saved snapshot is still the current text', () => {
+    const { runtime, document, change, save } = fixture('base');
+    const tracking = trackSourceDrafts(runtime, vi.fn());
+    document.isDirty = true; document.nativeDirty = true;
+    document.getText = () => 'saved snapshot'; change.listener({ document });
+    save.listener({ resource: document.uri, text: 'saved snapshot' });
+    expect(sourceDrafts(localStorage)).toEqual([]);
     tracking.dispose();
   });
   it('retains malformed storage instead of treating it as an empty draft list', () => {
@@ -77,6 +103,15 @@ describe('IDE draft recovery', () => {
     expect(conflict).toHaveBeenCalledWith(draft);
     expect(sourceDrafts(localStorage)).toEqual([]);
     expect(sourceDrafts(localStorage, 'bytequay.ide.recoveredDrafts')).toEqual([draft]);
+  });
+  it('retains a restored draft still dirty in the native model when the extension API reports clean', async () => {
+    const draft = { path: 'main.go', base: 'base', text: 'draft' };
+    store.set(key, JSON.stringify([draft]));
+    const { runtime, document, applyEdit } = fixture('draft');
+    document.nativeDirty = true;
+    await restoreSourceDrafts(runtime, vi.fn());
+    expect(applyEdit).not.toHaveBeenCalled();
+    expect(sourceDrafts(localStorage)).toEqual([draft]);
   });
   it('clears an already saved draft without changing the file', async () => {
     store.set(key, JSON.stringify([{ path: 'main.go', base: 'base', text: 'saved' }]));

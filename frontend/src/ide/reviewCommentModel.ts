@@ -88,7 +88,7 @@ export async function openReviewComment(runtime: IdeRuntime, target: ReviewComme
   const revision = target.revision ?? (target.end === null ? null : files?.revision ?? null);
   const local = runtime.workspace.with({ path: `${runtime.workspace.path}/${target.path}` });
   const dirty = files?.files.some(file => file.path === target.path && file.uncommitted)
-    || runtime.api.workspace.textDocuments.some(document => document.uri.toString() === local.toString() && document.isDirty);
+    || runtime.saves.isDirty(local);
   const historical = revision !== null && (revision !== files?.revision || dirty);
   const resource = historical
     ? runtime.workspace.with({ scheme: 'bytequay-git', authority: '', path: '/' + target.path, query: JSON.stringify({ revision }) })

@@ -137,7 +137,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const command = (name: string) => { void runtime.api.commands.executeCommand(name).then(undefined, cause => setError(String(cause))); };
   const report = () => {
     const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
-    window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => document.isDirty).length + privateDrafts,
+    window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => runtime.saves.isDirty(document.uri)).length + privateDrafts,
       busy: runtime.executions.run !== null || runtime.terminals.instances.some(terminal => terminal.hasChildProcesses) || runtime.api.debug.activeDebugSession !== undefined || runtime.tests.results.some(result => result.completedAt === undefined) });
   };
 
@@ -215,13 +215,15 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     return () => { live = false; };
   }, [selected, files?.sourceFingerprint, files?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileContext: CommentContext | null = useMemo(() => {
-    if (!selected || !active || file?.path !== selected || !files || (!active.document.isDirty && active.document.getText() !== file.content)) return null;
+    if (!selected || !active || file?.path !== selected || !files) return null;
+    const draft = runtime.saves.isDirty(active.document.uri);
+    if (!draft && active.document.getText() !== file.content) return null;
     if (file.revision !== files.revision || file.sourceFingerprint !== files.sourceFingerprint) return null;
-    return { path: selected, text: active.document.getText(), prPatch: file.prPatch, draft: active.document.isDirty,
+    return { path: selected, text: active.document.getText(), prPatch: file.prPatch, draft,
       uncommitted: files.files.find(entry => entry.path === selected)?.uncommitted ?? true,
       sourceHead: file.revision, observedHead: context.review ? context.review.observedHeadSha : files.revision,
       askBlocked: context.comments?.localReview.disabledReason ?? null };
-  }, [selected, active, file, files, context.review, context.comments?.localReview.disabledReason, generation]); // eslint-disable-line react-hooks/exhaustive-deps -- Native documents are mutable; generation signals their edits.
+  }, [runtime, selected, active, file, files, context.review, context.comments?.localReview.disabledReason, generation]); // eslint-disable-line react-hooks/exhaustive-deps -- Native documents are mutable; generation signals their edits.
 
   const comments = useCodeComments(reviewOptions(context), fileContext, context.review === null ? undefined : {
     review: context.review, onReviewChange: review => { void request('review.changed', review); },

@@ -25,7 +25,7 @@ export async function run() {
   const { host, root, dispose: disposeRoot } = createFixtureRoot();
   const originalBridge = window.ideWorkbench;
   const uri = { toString: () => 'vscode-remote://fixture/main.go' };
-  const documentModel = { uri, isDirty: false, getText: () => 'package main' };
+  const documentModel = { uri, isDirty: false, nativeDirty: false, getText: () => 'package main' };
   const active = { document: documentModel } as unknown as TextEditor;
   let options: { lineNumbers: string | ((line: number) => string); lineNumbersMinChars: number } = { lineNumbers: 'on', lineNumbersMinChars: 5 };
   const currentOptions = () => options;
@@ -36,7 +36,7 @@ export async function run() {
     updateOptions: (value: typeof options) => { options = value; optionChanges++; },
     onMouseDown: listen, onMouseMove: listen, onMouseLeave: listen,
   } as unknown as ICodeEditor;
-  const runtime = { editors: { getActiveCodeEditor: () => editor, listCodeEditors: () => [editor] } } as unknown as IdeRuntime;
+  const runtime = { saves: { isDirty: () => documentModel.nativeDirty }, editors: { getActiveCodeEditor: () => editor, listCodeEditors: () => [editor] } } as unknown as IdeRuntime;
   let context: IdeContext = { host: { kind: 'review', reviewId: 'one' }, review: null, task: null, detail: null };
   let file: ReviewCodeFileDto = { path: 'main.go', content: 'package main', contentHash: 'hash-one', editable: true,
     readOnlyReason: null, unavailableReason: null, prPatch: null, lineChanges: [] };
@@ -70,10 +70,10 @@ export async function run() {
       assert(readCount() === 1, 'Unchanged context must not reread blame');
       assert(currentOptions().lineNumbers === installed && optionChanges === changes, 'Blame must remain installed without a narrow-gutter frame');
     }
-    documentModel.isDirty = true;
+    documentModel.nativeDirty = true;
     render(); await settle();
-    assert(currentOptions().lineNumbers === 'on', 'Unsaved source must hide stale attribution');
-    documentModel.isDirty = false;
+    assert(currentOptions().lineNumbers === 'on', 'Unsaved source must hide stale attribution even when the extension API reports clean');
+    documentModel.nativeDirty = false;
     file = { ...file, contentHash: 'hash-two' };
     render(); await settle();
     assert(readCount() === 2, 'Saved source changes must reload blame');

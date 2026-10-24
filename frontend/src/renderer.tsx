@@ -21,6 +21,12 @@ if (!container) {
     throw new Error('Root element not found');
 }
 
+// Decorative motion pauses while another app has focus; nobody is watching it, and the compositor still draws every frame.
+const focused = () => document.documentElement.classList.toggle('is-app-blurred', !document.hasFocus());
+window.addEventListener('focus', focused);
+window.addEventListener('blur', focused);
+focused();
+
 const root = createRoot(container);
 
 root.render(<App />);

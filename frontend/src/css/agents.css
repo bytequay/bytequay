@@ -435,6 +435,10 @@
   animation: none;
 }
 
+.is-app-blurred .agt-compose__streamer::after {
+  animation-play-state: paused;
+}
+
 @keyframes agt-compose-streamer {
   from { offset-distance: 0%; }
   to { offset-distance: 100%; }

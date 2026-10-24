@@ -13,7 +13,7 @@
  */
 import { afterEach, expect, it, vi } from 'vitest';
 import { UNCONFIRMED_REQUEST } from './agents/contracts';
-import { backendJson } from './backendJson';
+import { backendJson, backendJsonIfChanged } from './backendJson';
 
 vi.mock('./backendProcess', () => ({ sessionToken: () => 'desktop-session' }));
 afterEach(() => { vi.unstubAllGlobals(); });
@@ -74,4 +74,17 @@ it('preserves the provider sign-in details in a typed failure', async () => {
     readiness: 'AUTHENTICATION_REQUIRED', diagnostic: 'Sign in', signInCommand: 'claude auth login', path: '/local' };
   vi.stubGlobal('fetch', vi.fn(async () => Response.json(detail, { status: 503 })));
   await expect(backendJson('/local')).rejects.toThrow(`AGENT_PROVIDER_UNAVAILABLE:${JSON.stringify(detail)}`);
+});
+
+it('names the held copy by its ETag and reads nothing back when it is unchanged', async () => {
+  const fetch = vi.fn(async (_input: string, init: RequestInit) => new Headers(init.headers).get('If-None-Match') === '"v1"'
+    ? new Response(null, { status: 304 })
+    : Response.json([{ id: 7 }], { headers: { ETag: '"v1"' } }));
+  vi.stubGlobal('fetch', fetch);
+
+  await expect(backendJsonIfChanged('/prs/attention', null)).resolves.toEqual({ changed: true, etag: '"v1"', value: [{ id: 7 }] });
+  await expect(backendJsonIfChanged('/prs/attention', '"v1"')).resolves.toEqual({ changed: false });
+  const first = (fetch.mock.calls[0] as unknown as [string, RequestInit])[1];
+  expect(new Headers(first.headers).has('If-None-Match')).toBe(false);
+  expect(new Headers(first.headers).get('X-ByteQuay-Session')).toBe('desktop-session');
 });

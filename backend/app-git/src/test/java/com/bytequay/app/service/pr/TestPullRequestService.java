@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
@@ -209,6 +210,20 @@ class TestPullRequestService
         verify(detailStore).find(12L);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, summaries, writes, notifications, accounts, actions, diffStore);
+    }
+
+    @Test
+    void attentionVersionChangesWithInMemoryInputsTheStoreCannotSee()
+    {
+        when(credentialService.cachedLogin()).thenReturn(Optional.of("me"));
+        when(notifications.mentions("me")).thenReturn(ImmutableSet.of());
+        String unchanged = service.attentionVersion();
+
+        assertThat(service.attentionVersion()).isEqualTo(unchanged);
+        when(notifications.mentions("me")).thenReturn(ImmutableSet.of(PullRequestRef.of("owner", "repo", 12)));
+        assertThat(service.attentionVersion()).isNotEqualTo(unchanged);
+        when(credentialService.cachedLogin()).thenReturn(Optional.empty());
+        assertThat(service.attentionVersion()).isNotEqualTo(unchanged);
     }
 
     @ParameterizedTest
@@ -2905,7 +2920,8 @@ class TestPullRequestService
     {
         return new PullRequestService(gitHub, writes, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
                 gitHub,
-                Runnable::run), viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext, notifications, syncSettings, issues, clock);
+                Runnable::run), viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext, notifications, syncSettings, issues,
+                new WriteVersion(), clock);
     }
 
     private PullRequestService serviceAt(AtomicReference<Instant> now)

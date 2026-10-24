@@ -15,11 +15,15 @@ package com.bytequay.app;
 
 import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.agent.runtime.AgentServingGate;
+import com.bytequay.app.config.WriteVersion;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -46,10 +50,36 @@ class TestApplicationContextSmoke
     @Autowired
     private AgentProperties agentProperties;
 
+    @Autowired
+    private WriteVersion writeVersion;
+
+    @Autowired
+    private PlatformTransactionManager transactionManager;
+
+    @Autowired
+    private EntityManager entityManager;
+
     @Test
     void contextLoads()
     {
         assertThat(agentServingGate.isReady()).isTrue();
         assertThat(agentProperties.codexMinimumVersion()).isEqualTo("0.164.0");
+    }
+
+    @Test
+    void writeVersionChangesOnlyAfterACommittedWrite()
+    {
+        TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+        String before = writeVersion.current();
+
+        transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("SELECT COUNT(*) FROM app_settings").getSingleResult());
+        assertThat(writeVersion.current()).isEqualTo(before);
+        transaction.executeWithoutResult(status -> {
+            entityManager.createNativeQuery("DELETE FROM app_settings WHERE 1 = 0").executeUpdate();
+            status.setRollbackOnly();
+        });
+        assertThat(writeVersion.current()).isEqualTo(before);
+        transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("DELETE FROM app_settings WHERE 1 = 0").executeUpdate());
+        assertThat(writeVersion.current()).isNotEqualTo(before);
     }
 }

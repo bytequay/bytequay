@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { backendJson } from './backendJson';
+import { backendJson, backendJsonIfChanged } from './backendJson';
 import { labPage, labTask, openLab, resolveLabPage, stopLab } from '@bytequay/lab/main';
 import type { JiraLocation } from './jira/contracts';
 import { registerJiraIpc } from '@bytequay/jira/main';
@@ -100,11 +100,13 @@ import type {
   CommitHistorySourceDto,
   CreateAgentTaskRequest,
   GitHubCodeSnippetRequest,
+  IssueAttentionRead,
   QueueAgentInputRequest,
   PullRequestDto,
   RecentDraftRequest,
   RecentFilterQuery,
   RecentTouchRequest,
+  RepositoryIssueSnapshotDto,
   StartAgentTurnRequest,
   SteerAgentTurnRequest,
   WatchRepositoryCommand,
@@ -141,6 +143,7 @@ let prMonitorMutations = 0;
 let nativePrNotificationsDisabled = false;
 let pendingPrNotification: { repo: string; number: number } | null = null;
 let sentAttention: SentAttention = new Map();
+let polledAttention: { etag: string | null; prs: PullRequestDto[] } | null = null;
 const showingPrNotifications = new Map<number, Notification>();
 
 function notificationState(): PrNotificationState {
@@ -183,11 +186,16 @@ async function pollPrNotifications(): Promise<void> {
   repollPrNotifications = false;
   const generation = prNotificationGeneration;
   try {
-    const prs = await backendJson<PullRequestDto[]>(`${backendBase()}/prs/attention`);
+    const read = await backendJsonIfChanged<PullRequestDto[]>(`${backendBase()}/prs/attention`, polledAttention?.etag ?? null);
     if (generation !== prNotificationGeneration || prMonitorMutations > 0) return;
-    const next = attentionUpdate(prs, sentAttention);
-    sentAttention = next.sent;
-    if (next.update !== null) mainWindow?.webContents.send('prs:attention-updated', next.update);
+    if (read.changed) {
+      polledAttention = { etag: read.etag, prs: read.value };
+      const next = attentionUpdate(read.value, sentAttention);
+      sentAttention = next.sent;
+      if (next.update !== null) mainWindow?.webContents.send('prs:attention-updated', next.update);
+    }
+    if (polledAttention === null) return;
+    const prs = polledAttention.prs;
     const state = notificationState();
     if (nativePrNotificationsDisabled || !Notification.isSupported()) return;
     for (const item of pendingPrNotifications(prs, state, Date.now())) {
@@ -1726,8 +1734,11 @@ function registerIpc(): void {
     backendJson(`${workspaceUrl(workspaceId, `/issues`)}?${new URLSearchParams({ page: String(page), size: String(pageSize) })}`));
   ipcMain.handle('workspaces:issue', (_event, workspaceId: string, issueNumber: number) =>
     backendJson(workspaceUrl(workspaceId, `/issues/${encodeURIComponent(issueNumber)}`)));
-  ipcMain.handle('workspaces:issues:attention', (_event, workspaceId: string) =>
-    backendJson(workspaceUrl(workspaceId, `/issues/attention`)));
+  ipcMain.handle('workspaces:issues:attention', async (_event, workspaceId: string, etag?: unknown): Promise<IssueAttentionRead> => {
+    const held = typeof etag === 'string' ? etag : null;
+    const read = await backendJsonIfChanged<RepositoryIssueSnapshotDto>(workspaceUrl(workspaceId, `/issues/attention`), held);
+    return read.changed ? { etag: read.etag, snapshot: read.value } : { etag: held, snapshot: null };
+  });
   ipcMain.handle('workspaces:issues:epic', (_event, workspaceId: string, issueNumber: number, isEpic: boolean) =>
     backendJson(workspaceUrl(workspaceId, `/issues/${encodeURIComponent(issueNumber)}/epic`),
       jsonInit('PATCH', { isEpic })));

@@ -406,6 +406,9 @@ export type AgentIssueSourceDto = IssueTaskSourceRequest & {
   body: string;
 };
 
+/** A workspace's open issues, or a null snapshot when they are unchanged since the read whose etag the caller passed. */
+export type IssueAttentionRead = { etag: string | null; snapshot: RepositoryIssueSnapshotDto | null };
+
 export type RepositoryIssueSnapshotDto = {
   repositoryId: number;
   repository: { owner: string; repo: string };
@@ -1706,7 +1709,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number] | null>;
-  fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
+  fetchWorkspaceIssueAttention: (workspaceId: string, etag?: string | null) => Promise<IssueAttentionRead>;
   setWorkspaceIssueEpic: (workspaceId: string, issueNumber: number, isEpic: boolean) => Promise<IssueDevelopmentDto>;
   /** The workspace's work items with every link read locally; nothing here writes to GitHub or Jira. */
   listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;

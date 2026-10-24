@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -52,7 +53,7 @@ class TestWorkspaceIssueDevelopmentController
     private final MockMvc mvc = standaloneSetup(new WorkspaceController(
             mock(WorkspaceRepositoryService.class), mock(WorkspaceDeletionService.class), mock(PullRequestService.class), mock(PullRequestRefreshService.class),
             mock(WorkspaceMetadataService.class), issues, mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class),
-            development, mock(WorkspaceRelationships.class))).build();
+            development, mock(WorkspaceRelationships.class), new WriteVersion())).build();
 
     @Test
     void issueProjectionStaysFlatAndRetainsExistingTaskWorkspace()

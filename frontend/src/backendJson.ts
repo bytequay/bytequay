@@ -16,6 +16,17 @@ import { parseAgentProviderUnavailable, UNCONFIRMED_REQUEST } from './agents/con
 
 /** Authenticated localhost JSON transport. The session secret stays in the main process. */
 export async function backendJson<T = unknown>(input: string | URL, init?: RequestInit): Promise<T> {
+  return body<T>(await send(input, init), init);
+}
+
+/** A GET that names the copy the caller holds by its ETag; the backend answers 304 instead of rebuilding an unchanged reply. */
+export async function backendJsonIfChanged<T>(input: string | URL, etag: string | null): Promise<{ changed: false } | { changed: true; etag: string | null; value: T }> {
+  const response = await send(input, etag === null ? undefined : { headers: { 'If-None-Match': etag } });
+  if (response.status === 304) return { changed: false };
+  return { changed: true, etag: response.headers.get('ETag'), value: await body<T>(response) };
+}
+
+async function send(input: string | URL, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   headers.set('X-ByteQuay-Session', sessionToken());
   const mutation = !['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase());
@@ -23,7 +34,7 @@ export async function backendJson<T = unknown>(input: string | URL, init?: Reque
     // A lost connection cannot prove that a write was rejected; its request key must survive retry.
     throw mutation || (failure as { name?: unknown } | null)?.name === 'TimeoutError' ? new Error(UNCONFIRMED_REQUEST) : failure;
   });
-  if (!response.ok) {
+  if (!response.ok && response.status !== 304) {
     const text = await response.text().catch(() => '');
     let body: unknown;
     try { body = JSON.parse(text); }
@@ -41,6 +52,11 @@ export async function backendJson<T = unknown>(input: string | URL, init?: Reque
     }
     throw new Error(text || `${init?.method ?? 'GET'} ${input.toString()} returned ${response.status}`);
   }
+  return response;
+}
+
+async function body<T>(response: Response, init?: RequestInit): Promise<T> {
+  const mutation = !['GET', 'HEAD'].includes((init?.method ?? 'GET').toUpperCase());
   if (response.status === 204) return null as T;
   try {
     const text = await response.text();

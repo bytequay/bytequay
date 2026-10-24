@@ -244,21 +244,32 @@ function HomePage({
     }
     let cancelled = false;
     let request = 0;
+    // Each workspace's last read: an unchanged one answers without its issues, which stay as they were.
+    const reads = new Map<string, { etag: string | null; items: AttentionItem[] }>();
     const reload = () => {
       const current = ++request;
-      void Promise.allSettled(workspaceKey.split(',').map(workspaceId =>
-        window.bridge.fetchWorkspaceIssueAttention(workspaceId)
-          .then(snapshot => issueAttentionItems(snapshot, workspaceId, login))))
+      const ids = workspaceKey.split(',');
+      void Promise.allSettled(ids.map(workspaceId =>
+        window.bridge.fetchWorkspaceIssueAttention(workspaceId, reads.get(workspaceId)?.etag ?? null)
+          .then(read => {
+            if (read.snapshot === null || current !== request) return false;
+            reads.set(workspaceId, { etag: read.etag, items: issueAttentionItems(read.snapshot, workspaceId, login) });
+            return true;
+          }, (failure: unknown) => {
+            if (current === request) reads.delete(workspaceId);
+            throw failure;
+          })))
         .then(results => {
           if (cancelled || current !== request) return;
-          const items = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);
-          setCached(SEED.issues, items);
-          setIssueItems(items);
           setIssueAttentionError(results.some(result => result.status === 'rejected')
             ? 'Some work items could not be loaded. Open the workspace’s Issues tab to retry.' : null);
+          if (!results.some(result => result.status === 'rejected' || result.value)) return;
+          const items = ids.flatMap(workspaceId => reads.get(workspaceId)?.items ?? []);
+          setCached(SEED.issues, items);
+          setIssueItems(items);
         });
     };
-    const changed = () => { setIssueItems([]); reload(); };
+    const changed = () => { reads.clear(); setIssueItems([]); reload(); };
     reload();
     // Its own clock: pull request updates are sent only when a row changes, and say nothing about issues.
     const timer = window.setInterval(() => { if (!document.hidden) reload(); }, ISSUE_ATTENTION_REFRESH_MS);

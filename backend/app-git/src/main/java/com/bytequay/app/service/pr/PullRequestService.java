@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
@@ -154,6 +155,7 @@ public class PullRequestService
     private final GitHubNotificationClient notifications;
     private final AppSettingsStore syncSettings;
     private final WorkspaceIssueService issues;
+    private final WriteVersion writes;
     private final Clock clock;
     @Autowired
     public PullRequestService(
@@ -175,6 +177,7 @@ public class PullRequestService
             GitHubNotificationClient notifications,
             AppSettingsStore syncSettings,
             WorkspaceIssueService issues,
+            WriteVersion writes,
             Clock clock)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -195,6 +198,7 @@ public class PullRequestService
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.syncSettings = requireNonNull(syncSettings, "syncSettings is null");
         this.issues = requireNonNull(issues, "issues is null");
+        this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -202,6 +206,17 @@ public class PullRequestService
     {
         checkPage(page, pageSize);
         return store.findPage(page, pageSize);
+    }
+
+    /**
+     * Changes whenever the attention list may change: after a stored write, or when the login, the inbox mentions, or the pull
+     * requests awaiting a summary change in memory. Read it before the list.
+     */
+    public String attentionVersion()
+    {
+        Optional<String> login = credentialService.cachedLogin();
+        Set<PullRequestRef> mentions = login.map(notifications::mentions).orElse(ImmutableSet.of());
+        return writes.current() + "-" + Objects.hash(login, mentions, summaryStamps.keySet());
     }
 
     public List<PullRequest> listAttentionCandidates()

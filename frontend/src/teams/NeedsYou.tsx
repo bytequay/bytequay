@@ -46,8 +46,10 @@ export function useLiveAttention(accountLogin: string | undefined) {
       const request = ++generation;
       try {
         const [prs, workspaces] = await Promise.all([knownPrs ?? window.bridge.fetchAttentionPrs(), window.bridge.listWorkspaces()]);
-        const results = await Promise.allSettled(workspaces.map(async workspace =>
-          issueAttentionItems(await window.bridge.fetchWorkspaceIssueAttention(workspace.id), workspace.id, accountLogin)));
+        const results = await Promise.allSettled(workspaces.map(async workspace => {
+          const { snapshot } = await window.bridge.fetchWorkspaceIssueAttention(workspace.id);
+          return snapshot === null ? [] : issueAttentionItems(snapshot, workspace.id, accountLogin);
+        }));
         if (!active || request !== generation) return;
         setCandidates(attentionCandidates(prs, results.flatMap(result => result.status === 'fulfilled' ? result.value : []), accountLogin));
         setError(results.some(result => result.status === 'rejected') ? 'Some assigned issues could not be loaded.' : null);

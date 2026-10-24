@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -53,6 +54,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Files;
@@ -79,6 +81,7 @@ public class WorkspaceController
     private final WorkspaceCommitsSettingsService commitsSettings;
     private final IssueDevelopmentService issueDevelopment;
     private final WorkspaceRelationships relationships;
+    private final WriteVersion writes;
 
     public WorkspaceController(
             WorkspaceRepositoryService workspaces,
@@ -91,7 +94,8 @@ public class WorkspaceController
             CredentialService credentials,
             WorkspaceCommitsSettingsService commitsSettings,
             IssueDevelopmentService issueDevelopment,
-            WorkspaceRelationships relationships)
+            WorkspaceRelationships relationships,
+            WriteVersion writes)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.deletion = requireNonNull(deletion, "deletion is null");
@@ -104,6 +108,7 @@ public class WorkspaceController
         this.commitsSettings = requireNonNull(commitsSettings, "commitsSettings is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
+        this.writes = requireNonNull(writes, "writes is null");
     }
 
     @PostMapping
@@ -187,8 +192,12 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues/attention")
-    public WorkspaceIssueHttpContract.Page attentionIssues(@PathVariable String workspaceId)
+    public WorkspaceIssueHttpContract.Page attentionIssues(@PathVariable String workspaceId, WebRequest request)
     {
+        // Home re-reads every open issue on a timer; this page is built from stored rows alone.
+        if (request.checkNotModified(writes.current())) {
+            return null;
+        }
         return WorkspaceIssueHttpContract.page(issueDevelopment.attention(workspaceId), issueDevelopment);
     }
 

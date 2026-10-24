@@ -41,6 +41,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.WebRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -73,8 +74,12 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/attention")
-    public List<AttentionPullRequest> attention()
+    public List<AttentionPullRequest> attention(WebRequest request)
     {
+        // Electron polls this every few seconds, and most polls find nothing new: answer those without rebuilding every row.
+        if (request.checkNotModified(pullRequests.attentionVersion())) {
+            return null;
+        }
         List<PullRequest> candidates = pullRequests.listAttentionCandidates();
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);

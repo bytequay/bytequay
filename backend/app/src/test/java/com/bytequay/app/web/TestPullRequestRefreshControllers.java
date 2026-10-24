@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestCheckLog;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
@@ -50,6 +51,7 @@ import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -59,6 +61,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -139,8 +142,34 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).findCachedCommitsSinceReview(candidates);
         verify(pullRequests).findCachedFailingChecks(candidates);
         verify(pullRequests).findMentioned(candidates);
+        verify(pullRequests).attentionVersion();
         verifyNoMoreInteractions(pullRequests);
         verifyNoInteractions(refresh);
+    }
+
+    @Test
+    void answersAnUnchangedAttentionListWithoutRebuildingIt()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        when(pullRequests.attentionVersion()).thenReturn("boot-7-42");
+        when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of());
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
+
+        mvc.perform(get("/prs/attention"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"boot-7-42\""))
+                .andExpect(content().json("[]"));
+        mvc.perform(get("/prs/attention").header("If-None-Match", "\"boot-7-42\""))
+                .andExpect(status().isNotModified())
+                .andExpect(content().string(""));
+        when(pullRequests.attentionVersion()).thenReturn("boot-8-42");
+        mvc.perform(get("/prs/attention").header("If-None-Match", "\"boot-7-42\""))
+                .andExpect(status().isOk())
+                .andExpect(header().string("ETag", "\"boot-8-42\""));
+
+        verify(pullRequests, times(2)).listAttentionCandidates();
     }
 
     private static PullRequest attentionPullRequest(long id)
@@ -445,7 +474,7 @@ class TestPullRequestRefreshControllers
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
-                mock(WorkspaceRelationships.class));
+                mock(WorkspaceRelationships.class), new WriteVersion());
 
         standaloneSetup(controller).build().perform(post("/api/workspaces/workspace-id/issues/9/close"))
                 .andExpect(status().isNoContent());
@@ -463,7 +492,7 @@ class TestPullRequestRefreshControllers
                 workspaces, deletion, mock(PullRequestService.class), mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
-                mock(WorkspaceRelationships.class));
+                mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(delete("/api/workspaces/workspace-id"))
@@ -494,7 +523,7 @@ class TestPullRequestRefreshControllers
                 workspaces, deletion, mock(PullRequestService.class), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
-                mock(WorkspaceRelationships.class));
+                mock(WorkspaceRelationships.class), new WriteVersion());
         var mvc = standaloneSetup(controller).build();
 
         mvc.perform(get("/api/workspaces/retired"))
@@ -530,7 +559,7 @@ class TestPullRequestRefreshControllers
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class),
                 mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
-                mock(WorkspaceRelationships.class));
+                mock(WorkspaceRelationships.class), new WriteVersion());
 
         controller.syncPullRequests("workspace-id");
 

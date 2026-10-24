@@ -94,20 +94,23 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     if (!login) return;
     let active = true;
     let request = 0;
+    let etag: string | null = null;
     const reload = () => {
       const current = ++request;
-      void window.bridge.fetchWorkspaceIssueAttention(workspaceId).then(snapshot => {
+      void window.bridge.fetchWorkspaceIssueAttention(workspaceId, etag).then(read => {
         if (!active || current !== request) return;
-        const assigned = issueAttentionItems(snapshot, workspaceId, login);
+        setError(null);
+        if (read.snapshot === null) return;
+        etag = read.etag;
+        const assigned = issueAttentionItems(read.snapshot, workspaceId, login);
         setCached(ATTENTION_SEED.issues, (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? [])
           .filter(item => item.workspaceId !== workspaceId).concat(assigned));
         setIssues(assigned);
-        setError(null);
       }).catch(() => {
         if (active && current === request) setError('Work items could not be loaded. Open Issues to retry.');
       });
     };
-    const changed = () => { setIssues([]); reload(); };
+    const changed = () => { etag = null; setIssues([]); reload(); };
     reload();
     // Its own clock: pull request updates are sent only when a row changes, and say nothing about issues.
     const timer = window.setInterval(() => { if (!document.hidden) reload(); }, ISSUE_ATTENTION_REFRESH_MS);

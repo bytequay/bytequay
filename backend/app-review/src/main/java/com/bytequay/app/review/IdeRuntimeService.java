@@ -83,10 +83,12 @@ public class IdeRuntimeService
     // The oldest release the bundled Java extension accepts for its language server.
     private static final int MINIMUM_JAVA_SERVER_RELEASE = 21;
     // The Java extension's default arguments with its 2 GB heap cap raised: eight parallel builders of a large multi-module
-    // project run out at 2 GB, leaving class folders half written for test launches. The cap stays fixed because the parallel
-    // collector keeps what it once took; a share of a large Mac's memory grew one idle server past 13 GB around a 2 GB live set.
-    private static final String JAVA_SERVER_ARGUMENTS = "-XX:+UseParallelGC -XX:GCTimeRatio=4 -XX:AdaptiveSizePolicyWeight=90 -Dsun.zip.disableMemoryMapping=true "
-            + "-Xmx6g -Xms100m -Xlog:disable";
+    // project run out at 2 GB, leaving class folders half written for test launches. The cap stays fixed: a share of a large
+    // Mac's memory grew one idle server past 13 GB around a 2 GB live set. G1 replaces the extension's parallel collector, which
+    // keeps what it once took: after a quiet minute G1 collects and returns the free heap, so an idle server shrinks toward
+    // its live set.
+    private static final String JAVA_SERVER_ARGUMENTS = "-XX:+UseG1GC -XX:G1PeriodicGCInterval=60000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 "
+            + "-XX:GCTimeRatio=4 -Dsun.zip.disableMemoryMapping=true -Xmx6g -Xms100m -Xlog:disable";
     private final ProcessSupervisor supervisor;
     private final LaunchIntentRecorder intents;
     private final LoginShellEnvironment loginShell;

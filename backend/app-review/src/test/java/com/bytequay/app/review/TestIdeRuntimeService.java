@@ -199,6 +199,9 @@ class TestIdeRuntimeService
         assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.java.home").asText()).isEqualTo(System.getProperty("java.home"));
         // The extension's 2 GB default runs out building a large project.
         assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.vmargs").asText()).contains("-Xmx6g").doesNotContain("MaxRAMPercentage");
+        // An idle server hands its free heap back.
+        assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.vmargs").asText()).contains("-XX:+UseG1GC", "-XX:G1PeriodicGCInterval=60000")
+                .doesNotContain("UseParallelGC");
         assertThat(storage.resolve("redhat.java")).doesNotExist();
         assertThat(otherState).hasContent("kept");
         runtime.stopWorktree(worktree);

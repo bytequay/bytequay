@@ -582,7 +582,8 @@ Drafts before retrying.
 ## Measure with ByteQuay Lab
 
 Choose **Settings → Integrations → Lab → Open Lab**. ByteQuay refreshes the local
-statistics and opens the dashboard automatically. Turn on **Show the Lab** for
+statistics when starting the dashboard and immediately reuses it on later opens.
+Choose **Analyze now** to refresh an open dashboard. Turn on **Show the Lab** for
 a sidebar shortcut. No terminal commands or Python installation are needed.
 
 Start with **App health** for recent backend errors, measured send latency,

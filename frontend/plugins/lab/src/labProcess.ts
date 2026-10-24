@@ -115,6 +115,8 @@ async function healthy(address: string): Promise<boolean> {
 }
 
 async function prepare(): Promise<string> {
+  const previous = dashboard;
+  if (previous && await healthy(previous.address) && !previous.process.exited && !stopping) return previous.address;
   const { python, source, folder, args } = locations();
   if (!existsSync(python) || !existsSync(path.join(source, 'desktop.py'))) {
     throw new Error('ByteQuay’s Lab installation is incomplete. Reinstall ByteQuay and try again.');
@@ -122,8 +124,6 @@ async function prepare(): Promise<string> {
   await mkdir(folder, { recursive: true });
   await refresh(python, source, folder, args);
   if (stopping) throw new Error('ByteQuay is shutting down.');
-  const previous = dashboard;
-  if (previous && await healthy(previous.address) && !previous.process.exited) return previous.address;
   if (previous) terminate(previous.process);
   const port = await availablePort();
   // A per-launch route distinguishes our dashboard if another process takes the chosen port before Python binds it.
@@ -142,7 +142,7 @@ async function prepare(): Promise<string> {
   throw new Error(`Could not open Lab. ${reason}${owned.output.trim() ? `\n\n${owned.output.trim()}` : ''}`);
 }
 
-/** Refresh on every open; concurrent clicks share the same refresh and dashboard startup. */
+/** Reuse a healthy dashboard immediately; new launches refresh their data before serving. */
 export function openLab(): Promise<string> {
   if (stopping) return Promise.reject(new Error('ByteQuay is shutting down.'));
   opening ??= prepare().finally(() => { opening = null; });

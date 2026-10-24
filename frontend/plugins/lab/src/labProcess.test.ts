@@ -91,12 +91,12 @@ it('refreshes before serving, using only bundled Python even with no system Pyth
   lab.stopLab();
 });
 
-it('refreshes again on reopen and reuses the healthy dashboard process', async () => {
+it('reopens a healthy dashboard without rebuilding its statistics', async () => {
   const lab = await import('./labProcess');
   const first = lab.openLab(); await flush(); children[0].end(); await first;
-  const second = lab.openLab(); await flush(); children[2].end();
+  const second = lab.openLab();
   expect(await second).toBe(await first);
-  expect(children).toHaveLength(3);
+  expect(children).toHaveLength(2);
   lab.stopLab();
 });
 

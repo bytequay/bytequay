@@ -51,7 +51,7 @@ public class SqliteRepositoryIssueStore
     }
 
     @Override
-    @Transactional
+    @Transactional(readOnly = true)
     public RepositoryIssuePage findPage(long repositoryId, RepoRef repositoryRef, int page, int pageSize)
     {
         requireNonNull(repositoryRef, "repositoryRef is null");

@@ -34,6 +34,10 @@ public interface PrDetailJpaRepository
     @Query("SELECT e.syncedAt FROM PrDetailEntity e WHERE e.prId = :prId")
     Optional<Instant> findSyncedAtByPrId(@Param("prId") long prId);
 
+    @Query("SELECT e.metadataValidatedAt AS metadataValidatedAt, e.discussionValidatedAt AS discussionValidatedAt, e.checksValidatedAt AS checksValidatedAt, "
+            + "e.discussionSourceUpdatedAt AS discussionSourceUpdatedAt FROM PrDetailEntity e WHERE e.prId = :prId")
+    Optional<Freshness> findFreshness(@Param("prId") long prId);
+
     @Query("SELECT e.prId AS prId, e.authorAvatarUrl AS authorAvatarUrl FROM PrDetailEntity e "
             + "WHERE e.prId IN :ids AND e.authorAvatarUrl IS NOT NULL AND TRIM(e.authorAvatarUrl) <> ''")
     List<AuthorAvatar> findAuthorAvatarUrls(@Param("ids") Set<Long> ids);
@@ -43,6 +47,17 @@ public interface PrDetailJpaRepository
 
     @Query("SELECT e.prId AS prId, e.requestedReviewers AS requestedReviewers FROM PrDetailEntity e WHERE e.prId IN :ids")
     List<RequestedReviewers> findRequestedReviewers(@Param("ids") Set<Long> ids);
+
+    interface Freshness
+    {
+        Instant getMetadataValidatedAt();
+
+        Instant getDiscussionValidatedAt();
+
+        Instant getChecksValidatedAt();
+
+        Instant getDiscussionSourceUpdatedAt();
+    }
 
     interface RequestedReviewers
     {

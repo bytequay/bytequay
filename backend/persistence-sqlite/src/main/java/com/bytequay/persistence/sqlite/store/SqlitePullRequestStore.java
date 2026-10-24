@@ -24,6 +24,8 @@ import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
+import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository.AttentionActivity;
+import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository.CardActivity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -94,15 +96,18 @@ public class SqlitePullRequestStore
     @Transactional(readOnly = true)
     public Map<Long, PrActivitySummary> findActivities(Set<Long> prIds)
     {
-        return jpaRepository.findAllById(prIds).stream().filter(row -> row.getCardActivity() != null)
-                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getCardActivity));
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return jpaRepository.findCardActivities(prIds).stream().collect(toImmutableMap(CardActivity::getId, CardActivity::getCardActivity));
     }
 
     @Override
     @Transactional(readOnly = true)
     public Optional<Instant> findDiscussionActivityAt(long prId)
     {
-        return jpaRepository.findById(prId).map(PullRequestEntity::getDiscussionActivityAt);
+        // One column: attention sync asks this for every candidate each minute.
+        return jpaRepository.findDiscussionActivityAt(prId);
     }
 
     @Override
@@ -125,8 +130,11 @@ public class SqlitePullRequestStore
     @Transactional(readOnly = true)
     public Map<Long, Instant> findAttentionActivities(Set<Long> prIds)
     {
-        return jpaRepository.findAllById(prIds).stream().filter(row -> row.getAttentionActivityAt() != null)
-                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getAttentionActivityAt));
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return jpaRepository.findAttentionActivities(prIds).stream()
+                .collect(toImmutableMap(AttentionActivity::getId, AttentionActivity::getAttentionActivityAt));
     }
 
     @Override

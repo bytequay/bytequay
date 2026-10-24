@@ -106,9 +106,10 @@ public class SqlitePrDetailStore
     @Override
     public PrDetailFreshness findFreshness(long prId)
     {
-        return detailRepo.findById(prId)
-                .map(entity -> new PrDetailFreshness(Optional.ofNullable(entity.getMetadataValidatedAt()), Optional.ofNullable(entity.getDiscussionValidatedAt()),
-                        Optional.ofNullable(entity.getChecksValidatedAt()), Optional.ofNullable(entity.getDiscussionSourceUpdatedAt())))
+        // Four timestamps, not the whole row: attention reads this once per failing pull request.
+        return detailRepo.findFreshness(prId)
+                .map(row -> new PrDetailFreshness(Optional.ofNullable(row.getMetadataValidatedAt()), Optional.ofNullable(row.getDiscussionValidatedAt()),
+                        Optional.ofNullable(row.getChecksValidatedAt()), Optional.ofNullable(row.getDiscussionSourceUpdatedAt())))
                 .orElseGet(PrDetailFreshness::unknown);
     }
 

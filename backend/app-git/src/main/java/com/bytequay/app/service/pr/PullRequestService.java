@@ -568,9 +568,8 @@ public class PullRequestService
         store.findAttentionCandidates().stream()
                 .filter(row -> {
                     SummaryStamp stamp = summaryStamps.get(parseRef(row.repo(), row.number()));
-                    Instant source = store.findDiscussionActivityAt(row.id()).filter(at -> at.isAfter(row.updatedAt())).orElse(row.updatedAt());
-                    return stamp == null || !stamp.credential().equals(pat) || source.isAfter(stamp.sourceAt())
-                            || row.monitoredAt() != null || row.ciStatus() == PullRequestDetail.CiStatus.PENDING;
+                    return stamp == null || !stamp.credential().equals(pat) || row.monitoredAt() != null || row.ciStatus() == PullRequestDetail.CiStatus.PENDING
+                            || discussionSourceUpdatedAt(row).isAfter(stamp.sourceAt());
                 })
                 .map(row -> parseRef(row.repo(), row.number())).forEach(changed::add);
         enrichCards(credential, ImmutableList.copyOf(changed));

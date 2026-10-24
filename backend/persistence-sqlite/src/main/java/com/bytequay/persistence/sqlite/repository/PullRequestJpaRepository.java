@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
+import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -20,8 +21,10 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface PullRequestJpaRepository
         extends JpaRepository<PullRequestEntity, Long>
@@ -76,4 +79,27 @@ public interface PullRequestJpaRepository
     Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(String repo, int number);
 
     List<PullRequestEntity> findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(String repo, String headRef);
+
+    @Query("SELECT e.discussionActivityAt FROM PullRequestEntity e WHERE e.id = :id")
+    Optional<Instant> findDiscussionActivityAt(@Param("id") long id);
+
+    @Query("SELECT e.id AS id, e.cardActivity AS cardActivity FROM PullRequestEntity e WHERE e.id IN :ids AND e.cardActivity IS NOT NULL")
+    List<CardActivity> findCardActivities(@Param("ids") Set<Long> ids);
+
+    @Query("SELECT e.id AS id, e.attentionActivityAt AS attentionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids AND e.attentionActivityAt IS NOT NULL")
+    List<AttentionActivity> findAttentionActivities(@Param("ids") Set<Long> ids);
+
+    interface CardActivity
+    {
+        long getId();
+
+        PrActivitySummary getCardActivity();
+    }
+
+    interface AttentionActivity
+    {
+        long getId();
+
+        Instant getAttentionActivityAt();
+    }
 }

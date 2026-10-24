@@ -5,22 +5,10 @@
   "type": "module",
   "license": "Apache-2.0",
   "exports": {
-    "./contracts": {
-      "types": "./dist/contracts.d.ts",
-      "default": "./dist/contracts.js"
-    },
-    "./main": {
-      "types": "./dist/main.d.ts",
-      "default": "./dist/main.js"
-    },
-    "./preload": {
-      "types": "./dist/preload.d.ts",
-      "default": "./dist/preload.js"
-    },
-    "./renderer": {
-      "types": "./dist/renderer.d.ts",
-      "default": "./dist/renderer.js"
-    },
+    "./contracts": "./dist/contracts.js",
+    "./main": "./dist/main.js",
+    "./preload": "./dist/preload.js",
+    "./renderer": "./dist/renderer.js",
     "./styles.css": "./dist/renderer/jira.css"
   },
   "typesVersions": {

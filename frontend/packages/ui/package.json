@@ -5,34 +5,13 @@
   "type": "module",
   "license": "Apache-2.0",
   "exports": {
-    "./settings": {
-      "types": "./dist/settings.d.ts",
-      "default": "./dist/settings.js"
-    },
-    "./Composer": {
-      "types": "./dist/Composer.d.ts",
-      "default": "./dist/Composer.js"
-    },
-    "./displayText": {
-      "types": "./dist/displayText.d.ts",
-      "default": "./dist/displayText.js"
-    },
-    "./relativeTime": {
-      "types": "./dist/relativeTime.d.ts",
-      "default": "./dist/relativeTime.js"
-    },
-    "./CopyLinkButton": {
-      "types": "./dist/CopyLinkButton.d.ts",
-      "default": "./dist/CopyLinkButton.js"
-    },
-    "./usePopoverDismiss": {
-      "types": "./dist/usePopoverDismiss.d.ts",
-      "default": "./dist/usePopoverDismiss.js"
-    },
-    "./cards": {
-      "types": "./dist/cards.d.ts",
-      "default": "./dist/cards.js"
-    },
+    "./settings": "./dist/settings.js",
+    "./Composer": "./dist/Composer.js",
+    "./displayText": "./dist/displayText.js",
+    "./relativeTime": "./dist/relativeTime.js",
+    "./CopyLinkButton": "./dist/CopyLinkButton.js",
+    "./usePopoverDismiss": "./dist/usePopoverDismiss.js",
+    "./cards": "./dist/cards.js",
     "./cards.css": "./dist/cards.css"
   },
   "typesVersions": {

@@ -922,9 +922,13 @@ public final class ClaudeCliDriver
                 }
             }
             try {
-                started.write(prompt).toCompletableFuture().join();
+                started.write(prompt).toCompletableFuture().get(INPUT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
             }
-            catch (RuntimeException failure) {
+            catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                failPromptDelivery(started, "Claude prompt delivery was interrupted", failure);
+            }
+            catch (ExecutionException | TimeoutException | RuntimeException failure) {
                 failPromptDelivery(started, "Unable to write Claude prompt", failure);
             }
             if (!streamingInput) {
@@ -1030,7 +1034,7 @@ public final class ClaudeCliDriver
             }
         }
 
-        private void failPromptDelivery(ManagedProcess process, String message, RuntimeException failure)
+        private void failPromptDelivery(ManagedProcess process, String message, Throwable failure)
         {
             interruptionReason = session.redactor.redact(message + ": " + failureMessage(failure));
             try {
@@ -1041,7 +1045,8 @@ public final class ClaudeCliDriver
                     failure.addSuppressed(cancellationFailure);
                 }
             }
-            throw new AgentUnavailableException(interruptionReason, failure);
+            // A failed write or close may follow input the provider already received.
+            throw new AgentDeliveryUncertainException(interruptionReason, failure);
         }
 
         @Override

@@ -1184,7 +1184,7 @@ class TestClaudeCliDriver
         AgentSession session = driver.open(context(Optional.empty()), ignored -> {});
 
         assertThatThrownBy(() -> session.start(command(operation + "-failure")))
-                .isInstanceOf(AgentUnavailableException.class)
+                .isInstanceOf(AgentDeliveryUncertainException.class)
                 .hasMessageContaining(message)
                 .hasRootCauseMessage("simulated prompt " + operation + " failure");
 
@@ -1194,6 +1194,69 @@ class TestClaudeCliDriver
         });
         session.close();
         driver.close();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void timesOutInitialPromptWriteAndStopsTheProcess(boolean streaming)
+            throws Exception
+    {
+        supervisor.versionOutput = streaming ? "2.1.295" : "2.1.233";
+        CompletableFuture<Void> stalled = new CompletableFuture<>()
+        {
+            @Override
+            public Void get(long timeout, TimeUnit unit)
+                    throws TimeoutException
+            {
+                assertThat(unit.toMillis(timeout)).isEqualTo(30_000);
+                throw new TimeoutException("Input pipe stayed blocked");
+            }
+        };
+        supervisor.nextPromptWrite = Optional.of(stalled);
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            CompletableFuture<Void> delivery = CompletableFuture.runAsync(() ->
+                    assertThatThrownBy(() -> session.start(new AgentTurnCommand("blocked-input", "Review the change", ImmutableList.of(), Duration.ZERO)))
+                            .isInstanceOf(AgentDeliveryUncertainException.class)
+                            .hasRootCauseInstanceOf(TimeoutException.class));
+            try {
+                delivery.get(2, TimeUnit.SECONDS);
+                assertThat(stalled).isNotDone();
+                assertThat(supervisor.turns).singleElement().satisfies(turn -> assertThat(turn.cancelled).isTrue());
+            }
+            finally {
+                // An unbounded write must fail the test without leaving its worker or session stuck.
+                stalled.complete(null);
+            }
+        }
+    }
+
+    @Test
+    void interruptsInitialPromptWriteWithoutLosingTheInterrupt()
+            throws Exception
+    {
+        CompletableFuture<Void> stalled = new CompletableFuture<>();
+        supervisor.nextPromptWrite = Optional.of(stalled);
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            try {
+                CompletableFuture.runAsync(() -> {
+                    Thread.currentThread().interrupt();
+                    try {
+                        assertThatThrownBy(() -> session.start(command("Review the change")))
+                                .isInstanceOf(AgentDeliveryUncertainException.class)
+                                .hasRootCauseInstanceOf(InterruptedException.class);
+                    }
+                    finally {
+                        assertThat(Thread.interrupted()).isTrue();
+                    }
+                }).get(2, TimeUnit.SECONDS);
+                assertThat(supervisor.turns).singleElement().satisfies(turn -> assertThat(turn.cancelled).isTrue());
+            }
+            finally {
+                stalled.complete(null);
+            }
+        }
     }
 
     @Test
@@ -2111,6 +2174,7 @@ class TestClaudeCliDriver
         private String runtimeSecret = "";
         private boolean failNextPromptWrite;
         private boolean failNextPromptClose;
+        private Optional<CompletableFuture<Void>> nextPromptWrite = Optional.empty();
 
         @Override
         public PreparedProcess prepare(ProcessSpec spec)
@@ -2204,6 +2268,8 @@ class TestClaudeCliDriver
             ScriptedTurn turn = new ScriptedTurn(spec, output, failNextPromptWrite, failNextPromptClose, runtimeSecret);
             failNextPromptWrite = false;
             failNextPromptClose = false;
+            turn.promptWrite = nextPromptWrite;
+            nextPromptWrite = Optional.empty();
             turns.add(turn);
             return turn;
         }
@@ -2262,6 +2328,7 @@ class TestClaudeCliDriver
         private final CompletableFuture<JsonNode> steeringInput = new CompletableFuture<>();
         private boolean acknowledgeInput = true;
         private boolean failSteerWrite;
+        private Optional<CompletableFuture<Void>> promptWrite = Optional.empty();
 
         private ScriptedTurn(ProcessSpec spec, ProcessOutputSink output, boolean failPromptWrite, boolean failPromptClose, String runtimeSecret)
         {
@@ -2292,6 +2359,9 @@ class TestClaudeCliDriver
         @Override
         public CompletionStage<Void> write(ByteBuffer bytes)
         {
+            if (promptWrite.isPresent()) {
+                return promptWrite.orElseThrow();
+            }
             if (failPromptWrite || failSteerWrite) {
                 return CompletableFuture.failedFuture(new IllegalStateException("simulated prompt write failure"));
             }

@@ -177,6 +177,43 @@ public final class AgentStartupRecovery
         return settled.developmentContinuationUnfinished() ? turns.failLostDevelopmentContinuation(taskId) : settled;
     }
 
+    /**
+     * Deletes a task only once no process an earlier backend started for it can still be running.
+     *
+     * <p>Deleting the task removes the durable facts that attribute such a process to it, and a process that names no task
+     * blocks every agent operation at the next startup. So an unverifiable launch refuses the delete, and verified ones are
+     * acknowledged only after the delete has committed. This backend's own launches are left to the delete, which stops them.
+     *
+     * @param taskId task to delete
+     * @param delete the deletion itself
+     */
+    public void deleteAfterVerifiedStop(TaskId taskId, Runnable delete)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(delete, "delete is null");
+        ImmutableSet.Builder<String> launchIds = ImmutableSet.builder();
+        taskStore.find(taskId).flatMap(AgentTask::worktreeMutationClaim)
+                .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
+                .ifPresent(claim -> launchIds.add(claim.ownerId()));
+        launchStore.list().stream()
+                .filter(launch -> ownerTask(launch).filter(taskId::equals).isPresent())
+                .map(AgentProcessLaunch::launchId)
+                .forEach(launchIds::add);
+        List<OwnedProcessRecovery> recoveries = launchIds.build().stream()
+                .filter(launchId -> !supervisor.launchedHere(launchId))
+                .map(supervisor::recoverOwnedProcess)
+                .collect(toImmutableList());
+        recoveries.stream()
+                .filter(recovery -> recovery.outcome() == OwnedProcessRecovery.Outcome.UNVERIFIABLE)
+                .findFirst()
+                .ifPresent(unresolved -> {
+                    throw new AgentConflictException("Task " + taskId + " cannot be deleted while its provider process " + unresolved.launchId()
+                            + " from before the restart is not verified stopped (" + unresolved.detail() + "); mark the task failed instead");
+                });
+        delete.run();
+        recoveries.forEach(recovery -> supervisor.acknowledge(recovery.launchId()));
+    }
+
     private AgentTask stopRecoveredProvider(AgentTask task, WorktreeMutationClaim claim)
     {
         TaskId taskId = task.id();
@@ -184,9 +221,11 @@ public final class AgentStartupRecovery
         launchStore.list().forEach(launch -> launches.put(launch.launchId(), launch));
         ImmutableSet.Builder<String> launchIds = ImmutableSet.builder();
         launchIds.add(claim.ownerId());
+        // A launch of this backend, such as the task's open IDE, is live work its own owner stops; it is not a leftover.
         launches.values().stream()
                 .filter(launch -> ownerTask(launch).filter(taskId::equals).isPresent())
                 .map(AgentProcessLaunch::launchId)
+                .filter(launchId -> !supervisor.launchedHere(launchId))
                 .forEach(launchIds::add);
         List<OwnedProcessRecovery> recoveries = launchIds.build().stream()
                 .map(supervisor::recoverOwnedProcess)
@@ -221,7 +260,8 @@ public final class AgentStartupRecovery
      * Stops provider process trees left by an earlier backend instance.
      *
      * <p>An unverifiable tree that can be attributed to one live task holds that task's worktree
-     * mutation claim, so only that task is blocked. One that cannot be attributed blocks every
+     * mutation claim, so only that task is blocked. One whose task the user has since failed
+     * blocks nothing more than that task did. One that cannot be attributed blocks every
      * agent operation, because something may still be writing somewhere nobody can name. The only
      * exception is a launch durably identified as non-worktree control work or the model-catalog or
      * usage App Server: none receives a task worktree, so its retained receipt cannot represent a stray writer.
@@ -276,6 +316,13 @@ public final class AgentStartupRecovery
                 continue;
             }
             Optional<TaskId> owner = blockableTask(recovery, launch);
+            if (owner.isEmpty() && namesEndedTask(recovery, launch)) {
+                // Failing a blocked task is how the user gives it up. The launch could only ever have reserved that
+                // task's worktree, so it keeps its evidence for a later check without blocking every other task.
+                log.warn("Owned provider process {} is unverifiable, but the task it belongs to has ended; its recovery evidence is retained: {}",
+                        recovery.launchId(), recovery.detail());
+                continue;
+            }
             if (owner.isEmpty()) {
                 log.error("Owned provider process {} owned by {} is unverifiable and belongs to no "
                                 + "live task, so agent operations remain unavailable: {}",
@@ -326,7 +373,7 @@ public final class AgentStartupRecovery
      * <p>The owner is read from the launch marker when it survived and from the durable launch row
      * when it did not, which is the case that most needs attributing. An App Server launch names a
      * task directly; a Claude launch names a durable turn whose task is resolved here. A task that
-     * is gone or already terminal cannot hold a claim, so those fall back to blocking everything.
+     * is gone or already terminal cannot hold a claim; {@link #namesEndedTask} decides those.
      *
      * @param recovery what the supervisor reported
      * @param launch the durable row for that launch, when it still exists
@@ -334,12 +381,22 @@ public final class AgentStartupRecovery
      */
     private Optional<TaskId> blockableTask(OwnedProcessRecovery recovery, AgentProcessLaunch launch)
     {
-        Optional<TaskId> taskId = recovery.owner()
-                .flatMap(this::ownerTask)
-                .or(() -> Optional.ofNullable(launch).flatMap(this::ownerTask));
-        return taskId.flatMap(taskStore::find)
+        return ownerTask(recovery, launch).flatMap(taskStore::find)
                 .filter(task -> !task.state().terminal())
                 .map(AgentTask::id);
+    }
+
+    /** Whether a launch names a task that still exists and has ended; a missing task is not known to have been given up. */
+    private boolean namesEndedTask(OwnedProcessRecovery recovery, AgentProcessLaunch launch)
+    {
+        return ownerTask(recovery, launch).flatMap(taskStore::find).filter(task -> task.state().terminal()).isPresent();
+    }
+
+    private Optional<TaskId> ownerTask(OwnedProcessRecovery recovery, AgentProcessLaunch launch)
+    {
+        return recovery.owner()
+                .flatMap(this::ownerTask)
+                .or(() -> Optional.ofNullable(launch).flatMap(this::ownerTask));
     }
 
     private Optional<TaskId> ownerTask(ProcessOwner owner)

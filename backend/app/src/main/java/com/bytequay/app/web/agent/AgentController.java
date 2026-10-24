@@ -349,8 +349,10 @@ public class AgentController
         if (task.developmentContinuationUnfinished()) {
             stopTaskRuntime(task, turnService.stopImpact(id).generation());
         }
-        ci.deleteDevelopment(id);
-        completionService.delete(id);
+        startupRecovery.deleteAfterVerifiedStop(id, () -> {
+            ci.deleteDevelopment(id);
+            completionService.delete(id);
+        });
         log.info("Deleted task {} (correlation {})", id, correlationId);
         return ResponseEntity.noContent().build();
     }

@@ -329,7 +329,13 @@ class TestClaudeCliDriver
         Map<String, JsonNode> acknowledgedReceipts = new ConcurrentHashMap<>();
         ProcessSupervisor supervisor = new ProcessSupervisor()
         {
-    @Override
+        @Override
+        public boolean launchedHere(String launchId)
+        {
+            return false;
+        }
+
+        @Override
         public OwnedProcessRecovery recoverOwnedProcess(String launchId)
         {
             return new OwnedProcessRecovery(
@@ -2143,7 +2149,13 @@ class TestClaudeCliDriver
     private static final class ScriptedProcessSupervisor
             implements ProcessSupervisor
     {
-    @Override
+        @Override
+        public boolean launchedHere(String launchId)
+        {
+            return false;
+        }
+
+        @Override
         public OwnedProcessRecovery recoverOwnedProcess(String launchId)
         {
             return new OwnedProcessRecovery(

@@ -161,6 +161,13 @@ public final class DefaultProcessSupervisor
     }
 
     @Override
+    public boolean launchedHere(String launchId)
+    {
+        requireNonNull(launchId, "launchId is null");
+        return store.read(launchId).filter(marker -> marker.backendId().equals(backendId)).isPresent();
+    }
+
+    @Override
     public void acknowledge(String launchId)
     {
         requireNonNull(launchId, "launchId is null");

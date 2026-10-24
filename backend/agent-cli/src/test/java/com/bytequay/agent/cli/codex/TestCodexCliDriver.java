@@ -4224,7 +4224,13 @@ class TestCodexCliDriver
     private static final class ScriptedProcessSupervisor
             implements ProcessSupervisor
     {
-    @Override
+        @Override
+        public boolean launchedHere(String launchId)
+        {
+            return false;
+        }
+
+        @Override
         public OwnedProcessRecovery recoverOwnedProcess(String launchId)
         {
             return new OwnedProcessRecovery(

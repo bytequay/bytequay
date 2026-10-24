@@ -762,6 +762,88 @@ class TestAgentStartupRecovery
         verify(supervisor, never()).acknowledge(any());
     }
 
+    @Test
+    void opensTheGateWhenAnUnverifiableProcessBelongsToAFailedTask()
+    {
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId).fail("Marked failed by the user during recovery", now, now.plusSeconds(60))));
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiableFor("leaked", taskId.toString())));
+
+        new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(appServerLaunch("leaked", taskId)), taskStore, turnStore, mock(AgentTurnService.class))
+                .afterSingletonsInstantiated();
+
+        assertThat(servingGate.isReady()).isTrue();
+        verify(taskStore, never()).update(any());
+        verify(supervisor, never()).acknowledge("leaked");
+    }
+
+    @Test
+    void explicitRetryLeavesThisBackendsOwnLaunchesToTheirOwners()
+    {
+        AgentTaskStore taskStore = mock(AgentTaskStore.class, CALLS_REAL_METHODS);
+        TaskId taskId = TaskId.random();
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        AgentTask blocked = openTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("old-provider", now), now);
+        when(taskStore.find(taskId)).thenReturn(Optional.of(blocked));
+        when(taskStore.update(any())).thenAnswer(invocation -> ((AgentTask) invocation.getArgument(0)).withVersion(blocked.version() + 1));
+        when(supervisor.launchedHere("open-ide")).thenReturn(true);
+        when(supervisor.recoverOwnedProcess("old-provider")).thenReturn(stopped("old-provider"));
+        AgentStartupRecovery recovery = new AgentStartupRecovery(mock(AgentEventOutboxStore.class), mock(AgentEventService.class), maintenance(taskStore, turnStore),
+                supervisor, new AgentServingGate(), launchStore(appServerLaunch("old-provider", taskId), launch("open-ide", LaunchOwnerKind.IDE, taskId.toString())),
+                taskStore, turnStore, mock(AgentTurnService.class));
+
+        assertThat(recovery.stopRecoveredRuntime(taskId, "task:" + blocked.version()).worktreeMutationClaim()).isEmpty();
+
+        verify(supervisor, never()).recoverOwnedProcess("open-ide");
+        verify(supervisor, never()).acknowledge("open-ide");
+        verify(supervisor).acknowledge("old-provider");
+    }
+
+    @Test
+    void deleteRefusesWhileAnEarlierProcessOfTheTaskIsUnverified()
+    {
+        TaskId taskId = TaskId.random();
+        Instant now = Instant.parse("2026-09-01T00:00:00Z");
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("old-provider", now), now)));
+        when(supervisor.recoverOwnedProcess("old-provider")).thenReturn(unverifiableFor("old-provider", taskId.toString()));
+        Runnable delete = mock(Runnable.class);
+        AgentStartupRecovery recovery = new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(), taskStore, turnStore, mock(AgentTurnService.class));
+
+        assertThatThrownBy(() -> recovery.deleteAfterVerifiedStop(taskId, delete))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("old-provider")
+                .hasMessageContaining("mark the task failed");
+
+        verifyNoInteractions(delete);
+        verify(supervisor, never()).acknowledge(any());
+    }
+
+    @Test
+    void deleteAcknowledgesVerifiedLaunchesOnlyAfterDeleting()
+    {
+        TaskId taskId = TaskId.random();
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
+        when(supervisor.launchedHere("retained-codex")).thenReturn(true);
+        when(supervisor.recoverOwnedProcess("old-provider")).thenReturn(stopped("old-provider"));
+        Runnable delete = mock(Runnable.class);
+        AgentStartupRecovery recovery = new AgentStartupRecovery(outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(appServerLaunch("old-provider", taskId), appServerLaunch("retained-codex", taskId), appServerLaunch("other", TaskId.random())),
+                taskStore, turnStore, mock(AgentTurnService.class));
+
+        recovery.deleteAfterVerifiedStop(taskId, delete);
+
+        InOrder order = inOrder(delete, supervisor);
+        order.verify(delete).run();
+        order.verify(supervisor).acknowledge("old-provider");
+        verify(supervisor, never()).recoverOwnedProcess("retained-codex");
+        verify(supervisor, never()).recoverOwnedProcess("other");
+        verify(supervisor, never()).acknowledge("retained-codex");
+    }
+
     private static AgentTask openTask(TaskId taskId)
     {
         return created(

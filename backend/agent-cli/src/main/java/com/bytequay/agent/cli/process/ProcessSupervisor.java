@@ -59,6 +59,15 @@ public interface ProcessSupervisor
     OwnedProcessRecovery recoverOwnedProcess(String launchId);
 
     /**
+     * Whether this backend instance prepared the launch, so it is live work with its own owner rather than one
+     * left behind by an earlier instance.
+     *
+     * @param launchId agent-cli-local opaque launch identifier
+     * @return true while this instance's marker for the launch exists
+     */
+    boolean launchedHere(String launchId);
+
+    /**
      * Deletes a terminal launch marker and its receipt only after the owning state transition has
      * committed durably.
      *

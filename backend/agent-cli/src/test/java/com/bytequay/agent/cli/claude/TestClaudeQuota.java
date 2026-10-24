@@ -183,6 +183,12 @@ class TestClaudeQuota
         }
 
         @Override
+        public boolean launchedHere(String launchId)
+        {
+            return false;
+        }
+
+        @Override
         public OwnedProcessRecovery recoverOwnedProcess(String launchId)
         {
             return new OwnedProcessRecovery(

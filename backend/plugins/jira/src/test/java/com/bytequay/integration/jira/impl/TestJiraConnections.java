@@ -16,6 +16,7 @@ package com.bytequay.integration.jira.impl;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.JiraConnectionStore;
 import com.bytequay.integration.jira.JiraDtos;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -25,6 +26,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +47,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -53,16 +57,19 @@ class TestJiraConnections
     private static final String SECRET = "private-pairing-secret-that-is-long-enough";
     private static final JiraDtos.Account ACCOUNT = new JiraDtos.Account("account-1", "Alice", Optional.of("alice@example.com"));
     private static final JiraDtos.Site SITE = new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net");
+    private static final Instant NOW = Instant.parse("2025-01-01T00:00:00Z");
+    private final Clock clock = mock(Clock.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     private final JiraConnectionStore store = mock(JiraConnectionStore.class);
     private final JiraHttpClient http = mock(JiraHttpClient.class);
     private final JiraCache cache = new JiraCache(mock(AppSettingsStore.class), mapper);
-    private final DefaultJiraConnections connections = new DefaultJiraConnections(store, cache, http, "https://broker.example");
+    private final DefaultJiraConnections connections = new DefaultJiraConnections(store, cache, http, "https://broker.example", clock);
     private final Map<String, JiraConnectionStore.Connection> records = new HashMap<>();
 
     @BeforeEach
     void setup()
     {
+        when(clock.instant()).thenReturn(NOW);
         when(store.ids()).thenAnswer(ignored -> records.keySet().stream().sorted().collect(toImmutableList()));
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(records.get(call.getArgument(0))));
         doAnswer(call -> {
@@ -115,11 +122,131 @@ class TestJiraConnections
                 """));
         assertThat(connections.refresh("connection").account()).contains(ACCOUNT);
         when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
-                .thenReturn(mapper.readTree("{\"accessToken\":\"atlassian-access-token\"}"));
+                .thenReturn(token("atlassian-access-token", NOW.plusSeconds(3600)));
         when(http.request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/10001"), "GET", Optional.of("atlassian-access-token"), Optional.empty()))
                 .thenReturn(mapper.readTree("{\"id\":\"10001\"}"));
         assertThat(connections.request("connection", "cloud", "/rest/api/3/issue/10001", "GET", Optional.empty()).path("id").asText()).isEqualTo("10001");
         assertThat(cache.encode(connections.list())).doesNotContain(SECRET, "atlassian-access-token", "brokerUrl");
+    }
+
+    @Test
+    void reusesSiteTokenUntilItsRefreshWindowWithoutPersistingIt()
+    {
+        put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
+        when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenReturn(token("test-access-one", NOW.plusSeconds(3600)), token("test-access-two", NOW.plusSeconds(7200)));
+        URI issue = URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1");
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        when(clock.instant()).thenReturn(NOW.plusSeconds(3569));
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        verify(http, times(1)).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        verify(http, times(2)).request(issue, "GET", Optional.of("test-access-one"), Optional.empty());
+        when(clock.instant()).thenReturn(NOW.plusSeconds(3570));
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        verify(http, times(2)).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        verify(http).request(issue, "GET", Optional.of("test-access-two"), Optional.empty());
+        verify(store, never()).save(any());
+        assertThat(cache.encode(connections.list())).doesNotContain("test-access-one", "test-access-two");
+    }
+
+    @Test
+    void cachedTokensStayWithinTheirConnectionAndAuthorizedSite()
+    {
+        JiraDtos.Site second = new JiraDtos.Site("other-cloud", "Other", "https://other.atlassian.net");
+        put("first", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE, second));
+        put("second", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
+        when(http.request(tokenUri("first"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenReturn(token("test-first-site", NOW.plusSeconds(3600)));
+        when(http.request(tokenUri("first"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "other-cloud"))))
+                .thenReturn(token("test-other-site", NOW.plusSeconds(3600)));
+        when(http.request(tokenUri("second"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenReturn(token("test-second-connection", NOW.plusSeconds(3600)));
+        for (int index = 0; index < 2; index++) {
+            connections.request("first", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+            connections.request("first", "other-cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+            connections.request("second", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        }
+        verify(http).request(tokenUri("first"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        verify(http).request(tokenUri("first"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "other-cloud")));
+        verify(http).request(tokenUri("second"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        verify(http, times(2)).request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1"), "GET", Optional.of("test-first-site"), Optional.empty());
+        verify(http, times(2)).request(URI.create("https://api.atlassian.com/ex/jira/other-cloud/rest/api/3/issue/1"), "GET", Optional.of("test-other-site"), Optional.empty());
+        verify(http, times(2)).request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1"), "GET", Optional.of("test-second-connection"), Optional.empty());
+    }
+
+    @Test
+    void concurrentRequestsShareTheTokenFetch()
+            throws Exception
+    {
+        put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
+        CountDownLatch fetching = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenAnswer(ignored -> {
+                    fetching.countDown();
+                    assertThat(release.await(5, SECONDS)).isTrue();
+                    return token("test-shared-access", NOW.plusSeconds(3600));
+                });
+        try (ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<?> first = executor.submit(() -> connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty()));
+            try {
+                assertThat(fetching.await(5, SECONDS)).isTrue();
+                Future<?> second = executor.submit(() -> connections.request("connection", "cloud", "/rest/api/3/issue/2", "GET", Optional.empty()));
+                release.countDown();
+                first.get(5, SECONDS);
+                second.get(5, SECONDS);
+                verify(http).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+            }
+            finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
+    void rejectedCachedTokenDoesNotReplayAWritingRequest()
+    {
+        put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
+        when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenReturn(token("test-rejected-access", NOW.plusSeconds(3600)));
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        URI comments = URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1/comment");
+        Optional<Object> body = Optional.of(ImmutableMap.of("body", "Test comment"));
+        when(http.request(comments, "POST", Optional.of("test-rejected-access"), body)).thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        assertThatThrownBy(() -> connections.request("connection", "cloud", "/rest/api/3/issue/1/comment", "POST", body)).isInstanceOf(ResponseStatusException.class);
+        assertThat(connections.get("connection").state()).isEqualTo("error");
+        verify(http).request(comments, "POST", Optional.of("test-rejected-access"), body);
+        verify(http).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+    }
+
+    @Test
+    void failedReconnectDiscardsCachedAuthorizationBeforeAnotherWrite()
+    {
+        put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
+        when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenReturn(token("test-before-reconnect", NOW.plusSeconds(3600))).thenThrow(new ResponseStatusException(HttpStatus.UNAUTHORIZED));
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        when(http.request(URI.create("https://broker.example/v1/connections/connection/reconnect"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of())))
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
+        assertThatThrownBy(() -> connections.reconnect("connection")).isInstanceOf(ResponseStatusException.class);
+        Optional<Object> body = Optional.of(ImmutableMap.of("body", "Test comment"));
+        assertThatThrownBy(() -> connections.request("connection", "cloud", "/rest/api/3/issue/1/comment", "POST", body)).isInstanceOf(ResponseStatusException.class);
+        verify(http, times(2)).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        verify(http, never()).request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1/comment"), "POST", Optional.of("test-before-reconnect"), body);
+    }
+
+    @Test
+    void disconnectDiscardsTheCachedGrantEvenIfRemoteRemovalFails()
+    {
+        put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
+        when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
+                .thenReturn(token("test-before-removal", NOW.plusSeconds(3600)), token("test-after-removal", NOW.plusSeconds(3600)));
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        when(http.request(statusUri("connection"), "DELETE", Optional.of(SECRET), Optional.empty())).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
+        assertThatThrownBy(() -> connections.disconnect("connection")).isInstanceOf(ResponseStatusException.class);
+        connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+        verify(http, times(2)).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        verify(http).request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1"), "GET", Optional.of("test-after-removal"), Optional.empty());
     }
 
     @Test
@@ -231,7 +358,7 @@ class TestJiraConnections
                 "sites":[{"id":"cloud","name":"Example","url":"https://example.atlassian.net"}]}
                 """));
         when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
-                .thenReturn(mapper.readTree("{\"accessToken\":\"old-access-token\"}"));
+                .thenReturn(token("old-access-token", NOW.plusSeconds(3600)), token("test-new-access", NOW.plusSeconds(3600)));
         CountDownLatch requestStarted = new CountDownLatch(1);
         CountDownLatch releaseFailure = new CountDownLatch(1);
         when(http.request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1"), "GET", Optional.of("old-access-token"), Optional.empty()))
@@ -250,6 +377,9 @@ class TestJiraConnections
                 assertThatThrownBy(() -> request.get(5, SECONDS)).hasCauseInstanceOf(ResponseStatusException.class);
                 // The restored state equals the one the request read, so only the change count tells its 401 is stale.
                 assertThat(records.get("connection").stateJson()).isEqualTo(originalState);
+                connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty());
+                verify(http).request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1"), "GET", Optional.of("test-new-access"), Optional.empty());
+                verify(http, times(2)).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
             }
             finally {
                 releaseFailure.countDown();
@@ -263,11 +393,15 @@ class TestJiraConnections
     {
         put("connection", "https://broker.example", "connected", Optional.of(ACCOUNT), ImmutableList.of(SITE));
         when(http.request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud"))))
-                .thenReturn(mapper.readTree("{\"accessToken\":\"access\"}"));
+                .thenReturn(token("access", NOW.plusSeconds(3600)));
         when(http.request(URI.create("https://api.atlassian.com/ex/jira/cloud/rest/api/3/issue/1"), "GET", Optional.of("access"), Optional.empty()))
                 .thenThrow(new ResponseStatusException(HttpStatus.FORBIDDEN));
         assertThatThrownBy(() -> connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty())).isInstanceOf(ResponseStatusException.class);
         assertThat(connections.get("connection").state()).isEqualTo("connected");
+        // Recheck the site's authorization on the next request without replaying the rejected request.
+        verify(http).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
+        assertThatThrownBy(() -> connections.request("connection", "cloud", "/rest/api/3/issue/1", "GET", Optional.empty())).isInstanceOf(ResponseStatusException.class);
+        verify(http, times(2)).request(tokenUri("connection"), "POST", Optional.of(SECRET), Optional.of(ImmutableMap.of("cloudId", "cloud")));
     }
 
     @Test
@@ -301,6 +435,11 @@ class TestJiraConnections
         assertThatThrownBy(() -> DefaultJiraConnections.broker("https://user:secret@broker.example")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> DefaultJiraConnections.broker("https://broker.example/path")).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(http);
+    }
+
+    private JsonNode token(String value, Instant expiresAt)
+    {
+        return mapper.valueToTree(ImmutableMap.of("accessToken", value, "expiresAt", expiresAt.toString()));
     }
 
     private void put(String id, String brokerUrl, String state, Optional<JiraDtos.Account> account, List<JiraDtos.Site> sites)

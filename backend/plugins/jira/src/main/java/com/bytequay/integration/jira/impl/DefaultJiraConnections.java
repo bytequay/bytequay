@@ -23,8 +23,12 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -42,16 +46,25 @@ public class DefaultJiraConnections
     private final JiraCache json;
     private final JiraHttpClient http;
     private final Optional<URI> authOrigin;
+    private final Clock clock;
+    // Guarded by this; credentials stay in memory and are scoped to the authorized site.
+    private final Map<TokenKey, AccessToken> accessTokens = new HashMap<>();
     // Guarded by this; bumped by every change to a saved connection.
     // ponytail: one count for all connections, so another account's change leaves a concurrent failure for the next request to record; count per connection if that lag matters.
     private long changes;
 
     public DefaultJiraConnections(JiraConnectionStore store, JiraCache json, JiraHttpClient http, String authUrl)
     {
+        this(store, json, http, authUrl, Clock.systemUTC());
+    }
+
+    DefaultJiraConnections(JiraConnectionStore store, JiraCache json, JiraHttpClient http, String authUrl, Clock clock)
+    {
         this.store = requireNonNull(store, "store is null");
         this.json = requireNonNull(json, "json is null");
         this.http = requireNonNull(http, "http is null");
         this.authOrigin = Optional.of(requireNonNull(authUrl, "authUrl is null").strip()).filter(value -> !value.isEmpty()).map(DefaultJiraConnections::broker);
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     @Override
@@ -166,6 +179,9 @@ public class DefaultJiraConnections
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Replace the API token in Jira settings to reconnect this account.");
         }
         URI base = broker(saved.authUrl());
+        // The broker may replace the grant even when its reconnect response never reaches us.
+        accessTokens.keySet().removeIf(key -> key.connectionId().equals(id));
+        changes++;
         JsonNode result;
         try {
             result = http.request(base.resolve("/v1/connections/" + segment(id) + "/reconnect"), "POST", Optional.of(saved.credential()), Optional.of(ImmutableMap.of()));
@@ -230,6 +246,7 @@ public class DefaultJiraConnections
     public synchronized void disconnect(String id)
     {
         JiraConnectionStore.Connection saved = stored(id);
+        accessTokens.keySet().removeIf(key -> key.connectionId().equals(id));
         changes++;
         if (view(saved).authType().equals("api_token")) {
             store.delete(id);
@@ -277,10 +294,7 @@ public class DefaultJiraConnections
                 tokenAccepted = true;
                 return http.basicRequest(uri, method, connection.tokenEmail().orElseThrow(), saved.credential(), body);
             }
-            JsonNode token = http.request(broker(saved.authUrl()).resolve("/v1/connections/" + segment(connectionId) + "/token"),
-                    "POST", Optional.of(saved.credential()), Optional.of(ImmutableMap.of("cloudId", cloudId)));
-            String accessToken = token.path("accessToken").asText();
-            checkArgument(!accessToken.isBlank() && accessToken.length() <= 16384, "Invalid Jira access token response");
+            String accessToken = accessToken(saved, cloudId, seen);
             tokenAccepted = true;
             return http.request(uri, method, Optional.of(accessToken), body);
         }
@@ -288,6 +302,9 @@ public class DefaultJiraConnections
             synchronized (this) {
                 if (changes != seen) {
                     throw failure;
+                }
+                if (failure.getStatusCode().value() == 403) {
+                    accessTokens.remove(new TokenKey(connectionId, cloudId));
                 }
                 if (failure.getStatusCode().value() == 401 || !tokenAccepted && failure.getStatusCode().value() == 404) {
                     save(saved, error(connection, connection.authType().equals("api_token") ? TOKEN_EXPIRED
@@ -305,6 +322,29 @@ public class DefaultJiraConnections
             throw failure;
         }
     }
+
+    private synchronized String accessToken(JiraConnectionStore.Connection saved, String cloudId, long seen)
+    {
+        TokenKey key = new TokenKey(saved.id(), cloudId);
+        AccessToken cached = accessTokens.get(key);
+        if (changes == seen && cached != null && clock.instant().plusSeconds(30).isBefore(cached.expiresAt())) {
+            return cached.value();
+        }
+        JsonNode token = http.request(broker(saved.authUrl()).resolve("/v1/connections/" + segment(saved.id()) + "/token"),
+                "POST", Optional.of(saved.credential()), Optional.of(ImmutableMap.of("cloudId", cloudId)));
+        String value = token.path("accessToken").asText();
+        checkArgument(!value.isBlank() && value.length() <= 16384, "Invalid Jira access token response");
+        Instant expiresAt = Instant.parse(token.path("expiresAt").asText());
+        checkArgument(expiresAt.isAfter(clock.instant()), "Jira returned an expired access token");
+        if (changes == seen) {
+            accessTokens.put(key, new AccessToken(value, expiresAt));
+        }
+        return value;
+    }
+
+    private record TokenKey(String connectionId, String cloudId) {}
+
+    private record AccessToken(String value, Instant expiresAt) {}
 
     private static URI apiUri(String cloudId, String path)
     {
@@ -354,6 +394,7 @@ public class DefaultJiraConnections
     private JiraDtos.Connection save(JiraConnectionStore.Connection stored, JiraDtos.Connection view)
     {
         store.save(new JiraConnectionStore.Connection(stored.id(), stored.authUrl(), stored.credential(), json.encode(view)));
+        accessTokens.keySet().removeIf(key -> key.connectionId().equals(stored.id()));
         changes++;
         return duplicates(view, snapshots());
     }

@@ -116,8 +116,10 @@ public final class AgentRequestFilter
                 || path.startsWith("/api/ci-autofix")
                 || path.startsWith("/api/cherry-pick-ranges")
                 || (path.startsWith("/api/workspaces/") && (path.contains("/git/") || path.contains("/cherry-pick/")))
-                // Writing a page starts an agent session; reading saved pages does not.
-                || (path.startsWith("/api/workspaces/") && path.contains("/artifacts") && !read);
+                // Writing a page, building repository context, checking specs, harvesting memory and running a backport chain
+                // each start agent sessions; reading what they saved does not.
+                || (path.startsWith("/api/workspaces/") && !read && (path.contains("/artifacts") || path.contains("/repository-context/")
+                        || path.endsWith("/memory/harvest") || path.contains("/backport-chains")));
     }
 
     private static boolean isStartupStatusRequest(HttpServletRequest request)

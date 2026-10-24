@@ -117,7 +117,12 @@ class TestAgentRequestFilter
             "GET, /api/jira/connections/connection/sites/cloud/issues/1001",
             "GET, /api/jira/attention",
             "POST, /api/workspaces/workspace-a/artifacts",
-            "POST, /api/workspaces/workspace-a/artifacts/a1/change"})
+            "POST, /api/workspaces/workspace-a/artifacts/a1/change",
+            "POST, /api/workspaces/workspace-a/repository-context/build",
+            "POST, /api/workspaces/workspace-a/repository-context/spec-checks",
+            "POST, /api/workspaces/workspace-a/memory/harvest",
+            "POST, /api/workspaces/workspace-a/backport-chains",
+            "POST, /api/workspaces/workspace-a/backport-chains/chain-1/resume"})
     void rejectsAgentOperationsUntilStartupRecoveryCompletes(String method, String path)
             throws Exception
     {
@@ -132,7 +137,7 @@ class TestAgentRequestFilter
 
     @ParameterizedTest
     @ValueSource(strings = {"/agent/providers/status", "/api/jira/config", "/api/jira/connections", "/api/workspaces/workspace-a/artifacts",
-            "/api/workspaces/workspace-a/artifacts/a1"})
+            "/api/workspaces/workspace-a/artifacts/a1", "/api/workspaces/workspace-a/repository-context/spec-checks", "/api/workspaces/workspace-a/memory"})
     void keepsAuthenticatedStatusReadsAvailableDuringRecovery(String path)
             throws Exception
     {

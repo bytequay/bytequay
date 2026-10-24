@@ -556,4 +556,15 @@ class TestGitHubPullRequestWriteClient
         client.setReviewThreadResolved("pat", "PRRT_1", true);
         client.setReviewThreadResolved("pat", "PRRT_1", false);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "12", "{\"errors\":{}}", "{\"errors\":[{\"message\":\"Rejected\"}]}"})
+    void rejectsMalformedOrFailedReviewThreadResponses(String response)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.setReviewThreadResolved("pat", "PRRT_1", true))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502))
+                .hasMessageContaining("GitHub review thread update failed");
+    }
 }

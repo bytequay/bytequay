@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.MergeResult;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -23,6 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
@@ -58,7 +60,7 @@ class TestGitHubClientMergeQueue
         MergeResult result = client.enqueuePullRequest("pat", "PR_1", "displayed-head");
 
         assertThat(result.queued()).isTrue();
-        assertThat(result.message()).contains("position 2");
+        assertThat(result.message()).isEqualTo("Added to merge queue (position 2, queued)");
     }
 
     @Test
@@ -96,7 +98,74 @@ class TestGitHubClientMergeQueue
                         """, MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> client.dequeuePullRequest("pat", "PR_1"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("Write access is required");
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(422))
+                .hasMessageContaining("GitHub dequeuePullRequest failed: Write access is required");
+    }
+
+    @Test
+    void readsPullRequestNodeIdWithNoGraphQlErrors()
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().string(containsString("\"number\":12")))
+                .andRespond(withSuccess("{\"data\":{\"repository\":{\"pullRequest\":{\"id\":\"PR_12\"}}},\"errors\":[]}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 12))).contains("PR_12");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"id\":null}"})
+    void returnsEmptyWhenPullRequestHasNoNodeId(String pullRequest)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("{\"data\":{\"repository\":{\"pullRequest\":" + pullRequest + "}}}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 12))).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"data\":null}", "{\"data\":{\"repository\":null}}", "{\"data\":{\"repository\":{\"pullRequest\":null}}}",
+            "{\"data\":{\"repository\":{\"pullRequest\":{\"id\":12}}}}", "{\"data\":{\"repository\":{\"pullRequest\":{\"id\":{}}}}}"})
+    void rejectsIncompleteOrMalformedPullRequestLookup(String response)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 12)))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502))
+                .hasMessageContaining("GitHub pullRequestNodeId returned incomplete GraphQL data");
+    }
+
+    @Test
+    void reportsLookupRejectionEvenWithPartialData()
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"repository":{"pullRequest":{"id":"PR_12"}}},"errors":[{"type":"FORBIDDEN","message":"Read access is required"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 12)))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502))
+                .hasMessageContaining("GitHub pullRequestNodeId failed: FORBIDDEN: Read access is required");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"[]", "false", "\"MQ_1\""})
+    void rejectsMalformedMergeQueue(String queue)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("{\"data\":{\"repository\":{\"mergeQueue\":" + queue + "}}}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.hasMergeQueue("pat", RepoRef.of("owner", "repo"), "main"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"position\":{}}", "{\"position\":\"unknown\"}", "{\"position\":1.5}", "{\"position\":2147483648}", "{\"state\":[]}"})
+    void rejectsMalformedQueueEntry(String entry)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("{\"data\":{\"enqueuePullRequest\":{\"mergeQueueEntry\":" + entry + "}}}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.enqueuePullRequest("pat", "PR_1", "head"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502));
     }
 }

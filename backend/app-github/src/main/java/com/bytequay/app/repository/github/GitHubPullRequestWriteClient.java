@@ -27,7 +27,6 @@ import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
@@ -245,11 +244,10 @@ public class GitHubPullRequestWriteClient
                               addPullRequestReviewThreadReply(input:{pullRequestReviewId:$review,pullRequestReviewThreadId:$thread,body:$body}){comment{id}}
                             }
                             """;
-                    JsonNode response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of(
-                            "review", pending.nodeId(), "thread", replyThreads.get(comment.replyToCommentId().getAsLong()), "body", comment.body()))
-                            .body(JsonNode.class);
-                    if (response == null || response.has("errors") && !response.path("errors").isEmpty()
-                            || !response.path("data").path("addPullRequestReviewThreadReply").path("comment").path("id").isTextual()) {
+                    JsonNode data = graphqlData(pat, mutation, ImmutableMap.of(
+                            "review", pending.nodeId(), "thread", replyThreads.get(comment.replyToCommentId().getAsLong()), "body", comment.body()),
+                            HttpStatus.BAD_GATEWAY, "GitHub did not confirm the pending reply");
+                    if (!data.path("addPullRequestReviewThreadReply").path("comment").path("id").isTextual()) {
                         throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not confirm the pending reply");
                     }
                 }
@@ -338,11 +336,7 @@ public class GitHubPullRequestWriteClient
         String mutation = resolved
                 ? "mutation($threadId:ID!){resolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}"
                 : "mutation($threadId:ID!){unresolveReviewThread(input:{threadId:$threadId}){thread{id isResolved}}}";
-        ReviewThreadMutationResponse response = requireBody(translating(() -> graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("threadId", threadId))
-                .body(ReviewThreadMutationResponse.class)), "Empty response from GitHub when updating review thread");
-        if (response.errors() != null && !response.errors().isEmpty()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub review thread update failed: " + response.errors().getFirst().message());
-        }
+        graphqlData(pat, mutation, ImmutableMap.of("threadId", threadId), HttpStatus.BAD_GATEWAY, "GitHub review thread update failed");
     }
 
     /** One mutation only; automated delivery also verifies its authorized PR revision before and after this call. */
@@ -351,18 +345,11 @@ public class GitHubPullRequestWriteClient
         requirePat(pat);
         checkText(nodeId, "nodeId", 255);
         String mutation = "mutation($id:ID!){markPullRequestReadyForReview(input:{pullRequestId:$id}){pullRequest{id isDraft}}}";
-        translating(() -> {
-            JsonNode response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", nodeId))
-                    .body(JsonNode.class);
-            if (response == null || (response.has("errors") && (!response.path("errors").isArray() || !response.path("errors").isEmpty()))) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review response is uncertain; the mutation will not be retried");
-            }
-            JsonNode result = response.path("data").path("markPullRequestReadyForReview").path("pullRequest");
-            if (!nodeId.equals(result.path("id").asText()) || !result.path("isDraft").isBoolean() || result.path("isDraft").booleanValue()) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review result could not be verified; the mutation will not be retried");
-            }
-            return result;
-        });
+        JsonNode result = graphqlData(pat, mutation, ImmutableMap.of("id", nodeId), HttpStatus.BAD_GATEWAY,
+                "Ready-for-review response is uncertain; the mutation will not be retried").path("markPullRequestReadyForReview").path("pullRequest");
+        if (!nodeId.equals(result.path("id").asText()) || !result.path("isDraft").isBoolean() || result.path("isDraft").booleanValue()) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review result could not be verified; the mutation will not be retried");
+        }
     }
 
     /** Creates a pull request using the same authenticated write client as existing PR actions. */
@@ -398,22 +385,15 @@ public class GitHubPullRequestWriteClient
 
     private record GitHubReaction(long id) {}
 
-    private record ReviewThreadMutationResponse(List<GraphQlError> errors) {}
-
     public boolean hasMergeQueue(String pat, RepoRef repo, String branch)
     {
         String query = "query($owner: String!, $name: String!, $branch: String!) {" + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
-        return translating(() -> {
-            MergeQueueResponse response = graphql(graphQlRestClient, pat, query, ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch))
-                    .body(MergeQueueResponse.class);
-            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup failed: " + response.errors().getFirst().message());
-            }
-            if (response == null || response.data() == null || response.data().repository() == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
-            }
-            return response.data().repository().mergeQueue() != null;
-        });
+        JsonNode repository = graphqlData(pat, query, ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch),
+                HttpStatus.BAD_GATEWAY, "GitHub merge queue lookup failed").path("repository");
+        if (!repository.isObject() || (repository.hasNonNull("mergeQueue") && !repository.path("mergeQueue").isObject())) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub merge queue lookup returned incomplete GraphQL data");
+        }
+        return repository.hasNonNull("mergeQueue");
     }
 
     public MergeResult mergePullRequest(String pat, PullRequestRef pr, MergePullRequestCommand command)
@@ -432,74 +412,59 @@ public class GitHubPullRequestWriteClient
 
     public Optional<String> pullRequestNodeId(String pat, PullRequestRef pr)
     {
-        return Optional.ofNullable(requirePullRequest(fetchProbe(pat, pr), "pullRequestNodeId").id());
-    }
-
-    private ProbeResponse fetchProbe(String pat, PullRequestRef pr)
-    {
         String query = "query($owner: String!, $name: String!, $number: Int!) {" + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
-        return translating(() -> graphql(graphQlRestClient, pat, query, ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()))
-                .body(ProbeResponse.class));
-    }
-
-    private static ProbePullRequest requirePullRequest(ProbeResponse response, String operation)
-    {
-        if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-            GraphQlError error = response.errors().getFirst();
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub " + operation + " returned GraphQL error " + error.type() + ": " + error.message());
+        JsonNode pullRequest = graphqlData(pat, query, ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()),
+                HttpStatus.BAD_GATEWAY, "GitHub pullRequestNodeId failed").path("repository").path("pullRequest");
+        if (!pullRequest.isObject() || (pullRequest.hasNonNull("id") && !pullRequest.path("id").isTextual())) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub pullRequestNodeId returned incomplete GraphQL data");
         }
-        if (response == null
-                || response.data() == null
-                || response.data().repository() == null
-                || response.data().repository().pullRequest() == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub " + operation + " returned incomplete GraphQL data");
-        }
-        return response.data().repository().pullRequest();
+        return Optional.ofNullable(pullRequest.path("id").textValue());
     }
 
     public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId, String headSha)
     {
         String mutation = "mutation($id: ID!, $head: GitObjectID!) { enqueuePullRequest(input: { pullRequestId: $id, expectedHeadOid: $head }) {"
                 + " mergeQueueEntry { position state } } }";
-        return translating(() -> {
-            EnqueueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId, "head", headSha))
-                    .body(EnqueueResponse.class);
-            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub enqueuePullRequest failed: " + response.errors().getFirst().message());
-            }
-            QueueEntry entry = response == null
-                    || response.data() == null
-                    || response.data().enqueuePullRequest() == null
-                    ? null
-                    : response.data().enqueuePullRequest().mergeQueueEntry();
-            if (entry == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub enqueuePullRequest returned no queue entry");
-            }
-            return MergeResult.enqueued(queueMessage(entry));
-        });
+        JsonNode entry = graphqlData(pat, mutation, ImmutableMap.of("id", pullRequestNodeId, "head", headSha),
+                HttpStatus.UNPROCESSABLE_ENTITY, "GitHub enqueuePullRequest failed").path("enqueuePullRequest").path("mergeQueueEntry");
+        if (!entry.isObject()
+                || (entry.hasNonNull("position") && (!entry.path("position").isIntegralNumber() || !entry.path("position").canConvertToInt()))
+                || (entry.hasNonNull("state") && !entry.path("state").isTextual())) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub enqueuePullRequest returned no queue entry");
+        }
+        return MergeResult.enqueued(queueMessage(entry));
     }
 
     public void dequeuePullRequest(String pat, String pullRequestNodeId)
     {
         String mutation = "mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }";
-        translating(() -> {
-            DequeueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
-                    .body(DequeueResponse.class);
-            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub dequeuePullRequest failed: " + response.errors().getFirst().message());
-            }
-            if (response == null || response.data() == null || response.data().dequeuePullRequest() == null) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub dequeuePullRequest returned incomplete GraphQL data");
-            }
-            return null;
-        });
+        JsonNode result = graphqlData(pat, mutation, ImmutableMap.of("id", pullRequestNodeId),
+                HttpStatus.UNPROCESSABLE_ENTITY, "GitHub dequeuePullRequest failed").path("dequeuePullRequest");
+        if (!result.isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub dequeuePullRequest returned incomplete GraphQL data");
+        }
     }
 
-    private static String queueMessage(QueueEntry entry)
+    private JsonNode graphqlData(String pat, String query, Map<String, Object> variables, HttpStatus errorStatus, String failureMessage)
     {
-        String state = entry.state() == null ? null : entry.state().toLowerCase(Locale.ROOT).replace('_', ' ');
-        if (entry.position() != null && state != null) {
-            return "Added to merge queue (position " + entry.position() + ", " + state + ")";
+        JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, query, variables).body(JsonNode.class)), failureMessage);
+        if (!response.isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, failureMessage);
+        }
+        JsonNode errors = response.path("errors");
+        if (!errors.isMissingNode() && (!errors.isArray() || !errors.isEmpty())) {
+            JsonNode error = errors.path(0);
+            String type = error.path("type").isTextual() ? error.path("type").textValue() + ": " : "";
+            throw new ResponseStatusException(errorStatus, failureMessage + ": " + type + error.path("message").asText("Invalid GraphQL errors"));
+        }
+        return response.path("data");
+    }
+
+    private static String queueMessage(JsonNode entry)
+    {
+        String state = Optional.ofNullable(entry.path("state").textValue()).map(value -> value.toLowerCase(Locale.ROOT).replace('_', ' ')).orElse(null);
+        if (entry.hasNonNull("position") && state != null) {
+            return "Added to merge queue (position " + entry.path("position").asText() + ", " + state + ")";
         }
         return state != null ? "Added to merge queue (" + state + ")" : "Added to merge queue";
     }
@@ -511,36 +476,4 @@ public class GitHubPullRequestWriteClient
             return new MergeResult(sha, merged, message);
         }
     }
-
-    record ProbeResponse(ProbeData data, List<GraphQlError> errors) {}
-
-    record MergeQueueResponse(MergeQueueData data, List<GraphQlError> errors) {}
-
-    record MergeQueueData(MergeQueueRepository repository) {}
-
-    record MergeQueueRepository(MergeQueue mergeQueue) {}
-
-    record MergeQueue(String id) {}
-
-    record ProbeData(ProbeRepository repository) {}
-
-    record ProbeRepository(ProbePullRequest pullRequest) {}
-
-    record ProbePullRequest(String id) {}
-
-    record GraphQlError(String type, String message) {}
-
-    record EnqueueResponse(EnqueueData data, List<GraphQlError> errors) {}
-
-    record EnqueueData(EnqueuePayload enqueuePullRequest) {}
-
-    record EnqueuePayload(QueueEntry mergeQueueEntry) {}
-
-    record QueueEntry(Integer position, String state) {}
-
-    record DequeueResponse(DequeueData data, List<GraphQlError> errors) {}
-
-    record DequeueData(DequeuePayload dequeuePullRequest) {}
-
-    record DequeuePayload(String clientMutationId) {}
 }

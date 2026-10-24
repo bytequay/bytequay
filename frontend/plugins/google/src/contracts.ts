@@ -101,6 +101,17 @@ export function eventTime(event: GoogleEvent): string {
   return `${day(start)} · ${clock(start)} – ${day(start) === day(end) ? '' : `${day(end)} · `}${clock(end)}`;
 }
 
+/** Use the same local clock as the 24-hour grid, including days with a daylight-saving change. */
+export function eventHours(event: Pick<GoogleEvent, 'start' | 'end'>, day: string): { start: number; end: number } {
+  const dayStart = new Date(`${day}T00:00:00`);
+  const dayEnd = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+  const startDate = new Date(event.start); const endDate = new Date(event.end);
+  const hour = (date: Date) => date.getHours() + date.getMinutes() / 60 + date.getSeconds() / 3600;
+  const start = startDate <= dayStart ? 0 : hour(startDate);
+  // An event across the repeated hour still needs a visible row when its end clock precedes its start clock.
+  return { start, end: Math.max(start, endDate >= dayEnd ? 24 : hour(endDate)) };
+}
+
 /** Side-by-side columns for the events of one day, so overlapping ones stay readable. */
 export function dayLayout(events: { start: number; end: number }[]): { column: number; columns: number }[] {
   const layout = events.map(() => ({ column: 0, columns: 1 }));

@@ -16,7 +16,7 @@ import { clock, shortDate } from '@bytequay/ui/displayText';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { Calendar, CalendarClock, ChevronDown, ChevronLeft, ChevronRight, Clock, ExternalLink, LoaderCircle, RefreshCw, Sparkles, X } from 'lucide-react';
 import type { GoogleEvent, GoogleSnapshot, GoogleStatus } from '../contracts';
-import { agendaRange, dayLayout, eventTime, googleLink, localDate } from '../contracts';
+import { agendaRange, dayLayout, eventHours, eventTime, googleLink, localDate } from '../contracts';
 
 const HOUR = 46;
 const iso = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
@@ -64,9 +64,8 @@ export default function GoogleCalendar({ status, data, busy, hidden, act, open, 
   const columns = { gridTemplateColumns: `52px repeat(${days}, minmax(0, 1fr))` };
   const week = calendarDays(date, days).map(day => {
     const start = new Date(`${day}T00:00:00`); const end = new Date(start); end.setDate(end.getDate() + 1);
-    const span = (end.getTime() - start.getTime()) / 3_600_000;
     const timed = cached ? data.events.filter(event => !event.allDay && new Date(event.start) < end && new Date(event.end) > start).map(event => ({
-      event, start: Math.max(0, (new Date(event.start).getTime() - start.getTime()) / 3_600_000), end: Math.min(span, (new Date(event.end).getTime() - start.getTime()) / 3_600_000),
+      event, ...eventHours(event, day),
     })) : [];
     const layout = dayLayout(timed);
     return { day, date: new Date(`${day}T12:00:00`), allDay: cached ? data.events.filter(event => event.allDay && event.start <= day && event.end > day) : [],

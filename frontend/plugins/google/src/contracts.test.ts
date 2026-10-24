@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { execFileSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { agendaRange, dayLayout, eventTime, githubLink, googleLink } from './contracts';
+import { agendaRange, dayLayout, eventHours, eventTime, githubLink, googleLink } from './contracts';
 
 describe('Google display boundaries', () => {
   it('keeps all-day dates in their original calendar day', () => {
@@ -33,4 +34,17 @@ describe('Google display boundaries', () => {
     expect(dayLayout([{ start: 9, end: 10 }, { start: 9.5, end: 11 }, { start: 10, end: 10.5 }, { start: 13, end: 14 }])).toEqual([
       { column: 0, columns: 2 }, { column: 1, columns: 2 }, { column: 0, columns: 2 }, { column: 0, columns: 1 }]);
   });
+});
+
+it('keeps events aligned with clock labels across daylight-saving transitions and midnight', () => {
+  // Vitest's worker threads keep their startup time zone. Exercise the actual helper in a process with a DST zone.
+  const result = execFileSync(process.execPath, ['-e', `
+    const hours = ${eventHours.toString()};
+    process.stdout.write(JSON.stringify([
+      ...['2026-03-08', '2026-11-01'].map(day => hours({ start: day + 'T09:00:00', end: day + 'T10:30:00' }, day)),
+      hours({ start: '2026-03-07T23:00:00', end: '2026-03-09T01:00:00' }, '2026-03-08'),
+      hours({ start: '2026-11-01T01:45:00-04:00', end: '2026-11-01T01:15:00-05:00' }, '2026-11-01')
+    ]));
+  `], { env: { ...process.env, TZ: 'America/New_York' }, encoding: 'utf8' });
+  expect(JSON.parse(result)).toEqual([{ start: 9, end: 10.5 }, { start: 9, end: 10.5 }, { start: 0, end: 24 }, { start: 1.75, end: 1.75 }]);
 });

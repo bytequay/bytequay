@@ -44,6 +44,8 @@ type Editor = {
   visible: boolean;
   dirty: number;
   busy: boolean;
+  /** The last report sent on to the window; the editor repeats its report every few seconds. */
+  reported?: string;
   lastUsed: number;
   queryReady: boolean;
   execution: string | null;
@@ -275,6 +277,9 @@ export class IdeViews {
       editor.dirty = report.dirty;
       editor.busy = report.busy;
       const error = typeof report.error === 'string' ? report.error.slice(0, 10_000) : undefined;
+      const reported = JSON.stringify([editor.dirty, editor.busy, error]);
+      if (reported === editor.reported) return;
+      editor.reported = reported;
       this.window()?.webContents.send('ide:event', { id: editor.id, dirty: editor.dirty, busy: editor.busy, error } satisfies IdeEvent);
     });
   }
@@ -460,6 +465,7 @@ export class IdeViews {
       }
       try { await runtimeRequest(`/${editor.connection.taskId}/${editor.connection.sessionId}/touch`, 'POST'); }
       catch (cause) {
+        editor.reported = undefined;
         this.window()?.webContents.send('ide:event', { id: editor.id, dirty: editor.dirty, busy: editor.busy, error: `The IDE connection needs recovery: ${String(cause)}` } satisfies IdeEvent);
       }
     }));

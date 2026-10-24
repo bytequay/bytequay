@@ -526,6 +526,35 @@ class TestGitHubActionsClient
     }
 
     @Test
+    void inlineAndAgentLogsExcludeCheckoutNoiseWhenAnActionFails()
+    {
+        Fixture fixture = fixture();
+        String checkout = "##[group]Run actions/checkout@v7\n##[endgroup]\n"
+                + " * [new branch] example-error-branch -> origin/example-error-branch\n"
+                + " * [new tag] release -> release\n".repeat(3000);
+        String action = "##[group]Run actions/download-artifact@v8\n  digest-mismatch: error\n##[endgroup]\n";
+        String failure = "Downloading example-build-bundle\n"
+                + "##[error]Unable to download artifact(s): Artifact download failed after 5 retries.\n";
+        String rawLog = checkout + action + failure + "Post job cleanup.\n";
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+                .andRespond(withSuccess(rawLog, MediaType.TEXT_PLAIN));
+
+        ReadCiLogQuery query = logQuery(1024 * 1024);
+        BoundedCiLog log = fixture.client.readLog(query);
+        String stored = new String(fixture.stored.get(), StandardCharsets.UTF_8);
+        String inline = fixture.client.readJobLog(PULL_REQUEST, 902);
+
+        assertThat(stored).endsWith(inline);
+        assertThat(inline).contains(failure).doesNotContain("[new branch]", "[new tag]", "digest-mismatch");
+        assertThat(log.blob().orElseThrow().size()).isLessThan(32 * 1024);
+        assertThat(log.compacted()).isTrue();
+        assertThat(fixture.rawLogs.read(query.taskId(), log.rawLogId().orElseThrow())).isEqualTo(rawLog);
+        fixture.verify();
+    }
+
+    @Test
     void cachesTheCompleteLogBeyondTheExcerptLimitAndReturnsAnExplicitTailWhenNoDiagnosticsMatch()
     {
         Fixture fixture = fixture();

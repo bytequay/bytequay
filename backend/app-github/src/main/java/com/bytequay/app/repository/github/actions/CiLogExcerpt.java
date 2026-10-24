@@ -65,10 +65,15 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
         Map<Integer, Integer> failedCommands = new HashMap<>();
         boolean commandHeader = false;
         boolean failureReported = false;
+        boolean actionFailed = false;
         int commandOutputStart = -1;
         for (int index = 0; index < lines.size(); index++) {
             String line = normalized.get(index);
             if (line.startsWith("##[group]Run ")) {
+                if (actionFailed) {
+                    failedCommands.put(index - 1, commandOutputStart);
+                }
+                actionFailed = false;
                 commandHeader = true;
                 commandOutputStart = -1;
             }
@@ -82,17 +87,25 @@ public record CiLogExcerpt(String text, boolean compacted, boolean diagnosticsMa
             }
             var exitStatus = EXIT_STATUS.matcher(line);
             if (exitStatus.matches()) {
-                if (commandOutputStart >= 0 && index > commandOutputStart && !exitStatus.group(1).equals("0")) {
+                if (commandOutputStart >= 0 && index > commandOutputStart && (actionFailed || !exitStatus.group(1).equals("0"))) {
                     diagnostics.add(index);
                     failedCommands.put(index, commandOutputStart);
                 }
                 commandOutputStart = -1;
+                actionFailed = false;
                 continue;
             }
-            failureReported |= line.startsWith("##[error]");
+            if (line.startsWith("##[error]")) {
+                failureReported = true;
+                // An action may report its failure before printing the underlying cause.
+                actionFailed = commandOutputStart >= 0;
+            }
             if (!PASSING_TEST.matcher(line).find() && !line.startsWith("##[end-action ") && ERROR.matcher(line).find()) {
                 diagnostics.add(index);
             }
+        }
+        if (actionFailed) {
+            failedCommands.put(lines.size() - 1, commandOutputStart);
         }
         // A job that reports no failure, such as one whose runner was lost, stopped inside the step its log ends in.
         boolean stopped = failedCommands.isEmpty() && !failureReported && commandOutputStart >= 0 && commandOutputStart < lines.size();

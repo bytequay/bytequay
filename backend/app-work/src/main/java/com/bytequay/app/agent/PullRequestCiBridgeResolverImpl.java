@@ -313,8 +313,9 @@ public class PullRequestCiBridgeResolverImpl
 
     private String readLog(TaskId taskId, Scope scope, CiHeadSnapshot head, long jobId)
     {
+        // A partial rerun retains the latest result of jobs that were not rerun, including earlier-attempt failures.
         Optional<CiWorkflowRun> workflow = head.workflowRuns().stream()
-                .filter(run -> run.jobs().stream().anyMatch(job -> job.id() == jobId && job.attempt() == run.attempt() && job.actionableFailure()))
+                .filter(run -> run.jobs().stream().anyMatch(job -> job.id() == jobId && job.actionableFailure()))
                 .findFirst();
         if (workflow.isEmpty()) {
             return message("unknown_job", "No current failed Actions job in this task's pull request matches that jobId.");

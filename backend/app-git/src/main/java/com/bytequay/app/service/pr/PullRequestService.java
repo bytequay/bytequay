@@ -492,7 +492,7 @@ public class PullRequestService
         return pullRequestWrites.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
     }
 
-    public String readCheckLog(String repo, int number, long jobId)
+    public PullRequestCheckLog readCheckLog(String repo, int number, long jobId)
     {
         checkArgument(jobId > 0, "jobId must be positive");
         return snapshots.readCheckLog(parseRef(repo, number), jobId);

@@ -80,7 +80,7 @@ public class PullRequestSnapshotService
                 .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId, repo, number, stored, stored.viewerCanWrite()));
     }
 
-    String readCheckLog(PullRequestRef pullRequest, long jobId)
+    PullRequestCheckLog readCheckLog(PullRequestRef pullRequest, long jobId)
     {
         CiHeadSnapshot head = actions.inspect(pullRequest);
         boolean failedJob = head.workflowRuns().stream()
@@ -89,11 +89,16 @@ public class PullRequestSnapshotService
         if (!failedJob) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This failed job is no longer part of the current PR checks. Refresh the pull request.");
         }
-        String log = actions.readJobLog(pullRequest, jobId);
         String annotations = actions.readFailureAnnotations(pullRequest, jobId).stream()
                 .map(message -> "GitHub annotation: " + message + "\n")
                 .collect(joining());
-        return annotations.isEmpty() ? log : annotations + "\n" + log;
+        try {
+            String log = actions.readJobLog(pullRequest, jobId);
+            return new PullRequestCheckLog(annotations.isEmpty() ? log : annotations + "\n" + log, Optional.empty());
+        }
+        catch (ResponseStatusException failure) {
+            return new PullRequestCheckLog(annotations, Optional.ofNullable(failure.getReason()).or(() -> Optional.of("GitHub Actions log retrieval failed")));
+        }
     }
 
     void rerunFailedChecks(PullRequestRef pullRequest)

@@ -1301,9 +1301,10 @@ class TestPullRequestService
                 "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
         when(actions.readJobLog(ref, 301)).thenReturn("test failed");
 
-        assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo("test failed");
+        assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo(new PullRequestCheckLog("test failed", Optional.empty()));
         when(actions.readFailureAnnotations(ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
-        assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo("GitHub annotation: The self-hosted runner lost communication with the server.\n\ntest failed");
+        assertThat(service.readCheckLog("owner/repo", 7, 301))
+                .isEqualTo(new PullRequestCheckLog("GitHub annotation: The self-hosted runner lost communication with the server.\n\ntest failed", Optional.empty()));
         for (long jobId : ImmutableList.of(302L, 999L)) {
             assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, jobId))
                     .isInstanceOf(ResponseStatusException.class)
@@ -1311,6 +1312,26 @@ class TestPullRequestService
             verify(actions, never()).readJobLog(ref, jobId);
         }
         assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, 0)).isInstanceOf(IllegalArgumentException.class);
+        verify(actions, never()).rerunFailedJobs(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {404, 403, 502})
+    void preservesAnnotationsAndUnavailableReasonWhenTheLogCannotBeDownloaded(int status)
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        String headSha = "1111111111111111111111111111111111111111";
+        CiJob failed = new CiJob(301, 101, "test", 1, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
+        CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 1, "completed", Optional.of("failure"), headSha,
+                "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed));
+        when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
+                "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
+        when(actions.readFailureAnnotations(ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."), ImmutableList.of());
+        when(actions.readJobLog(ref, 301)).thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Log unavailable"));
+
+        assertThat(service.readCheckLog("owner/repo", 7, 301))
+                .isEqualTo(new PullRequestCheckLog("GitHub annotation: The self-hosted runner lost communication with the server.\n", Optional.of("Log unavailable")));
+        assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo(new PullRequestCheckLog("", Optional.of("Log unavailable")));
         verify(actions, never()).rerunFailedJobs(any());
     }
 

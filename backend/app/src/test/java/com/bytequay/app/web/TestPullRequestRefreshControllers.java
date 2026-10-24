@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestCheckLog;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -204,12 +205,32 @@ class TestPullRequestRefreshControllers
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.readCheckLog("owner/repo", 7, 301)).thenReturn("test failed\n");
+        when(pullRequests.readCheckLog("owner/repo", 7, 301)).thenReturn(new PullRequestCheckLog("test failed\n", Optional.empty()));
 
         standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
                 .perform(get("/prs/checks/log").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("jobId", "301"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.text").value("test failed\n"));
+                .andExpect(jsonPath("$.text").value("test failed\n"))
+                .andExpect(jsonPath("$.unavailableReason").value(nullValue()));
+        verify(pullRequests).readCheckLog("owner/repo", 7, 301);
+        verifyNoMoreInteractions(pullRequests);
+        verifyNoInteractions(refresh);
+    }
+
+    @Test
+    void returnsCheckAnnotationsAlongsideTheLogDownloadFailure()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        String annotations = "GitHub annotation: The self-hosted runner lost communication with the server.\n";
+        when(pullRequests.readCheckLog("owner/repo", 7, 301)).thenReturn(new PullRequestCheckLog(annotations, Optional.of("GitHub Actions log is missing or expired")));
+
+        standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
+                .perform(get("/prs/checks/log").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("jobId", "301"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.text").value(annotations))
+                .andExpect(jsonPath("$.unavailableReason").value("GitHub Actions log is missing or expired"));
         verify(pullRequests).readCheckLog("owner/repo", 7, 301);
         verifyNoMoreInteractions(pullRequests);
         verifyNoInteractions(refresh);

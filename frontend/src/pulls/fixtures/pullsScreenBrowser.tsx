@@ -1109,14 +1109,15 @@ export async function runCheckLogs(): Promise<string> {
   detail.checkRuns = [{ githubId: 999, name: 'Unit tests', status: 'completed', conclusion: 'failure',
     detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301', source: 'check_run',
     startedAt: null, completedAt: null, category: 'failing' }];
-  const requests: ReturnType<typeof Promise.withResolvers<{ text: string }>>[] = [];
+  type CheckLog = Awaited<ReturnType<Bridge['getPrCheckLog']>>;
+  const requests: ReturnType<typeof Promise.withResolvers<CheckLog>>[] = [];
   const opened: string[] = [];
   Object.assign(window, { bridge: {
     getUserProfile: async () => ({ login: 'bob' }),
     openExternal: async (url: string) => { opened.push(url); },
     getPrCheckLog: (repo: string, number: number, jobId: number) => {
       assert(repo === detail.repo && number === detail.number && jobId === 301, 'Log requests must use the PR and Actions job ID, not the check-run ID');
-      const request = Promise.withResolvers<{ text: string }>();
+      const request = Promise.withResolvers<CheckLog>();
       requests.push(request);
       return request.promise;
     },
@@ -1141,7 +1142,7 @@ export async function runCheckLogs(): Promise<string> {
       + 'Caused by: java.io.IOException: connection closed\r\n    at Worker.call(Worker.java:42)\r\n'
       + '    Suppressed: TimeoutException: timed out\r\n[error] cannot find symbol\r\n'
       + 'FATAL FAILURE panic traceback mismatch segmentation fault\r\n[INFO] errorCount=0 failedChecks=0\r\n';
-    requests[0].resolve({ text: log });
+    requests[0].resolve({ text: log, unavailableReason: null });
     await settle();
     assert(host.querySelector('.pr-check__log pre')?.textContent === log
       && host.querySelector('.pr-check__log script') === null, 'Highlighting must preserve every log character and keep HTML-looking content as text');
@@ -1156,19 +1157,51 @@ export async function runCheckLogs(): Promise<string> {
     render();
     assert(host.querySelector('.pr-check__log') === null, 'Switching PR must clear the previous excerpt');
     click('Show log');
-    requests[1].reject(new Error('Log expired'));
+    requests[1].resolve({ text: '', unavailableReason: 'Log expired' });
     await settle();
-    assert(host.querySelector('.pr-check__log [role="alert"]')?.textContent === 'Log expired', 'Failed retrieval must show its reason');
+    assert(host.querySelector('.pr-check__log [role="alert"]')?.textContent === 'Log expired'
+      && host.querySelector('.pr-check__log pre') === null, 'An unavailable log without annotations must show its reason without claiming the log is empty');
     click('Retry log');
-    requests[2].resolve({ text: '' });
+    const annotation = 'GitHub annotation: The self-hosted runner lost communication with the server.\n';
+    requests[2].resolve({ text: annotation, unavailableReason: 'Log expired' });
     await settle();
-    assert(host.querySelector('.pr-check__log pre')?.textContent === 'This job returned an empty log.', 'Retry must handle an empty log');
+    assert(host.querySelector('.pr-check__log pre')?.textContent === annotation
+      && host.querySelector('.pr-check__log [role="alert"]')?.textContent === 'Log expired',
+    'Missing logs must preserve failure annotations beside the unavailable reason');
+    click('Retry log');
+    assert(Number(requests.length) === 4 && button('Loading…').disabled && host.querySelector('.pr-check__log pre')?.textContent === annotation,
+      'Annotations must remain visible while retrying the unavailable log');
+    requests[3].reject(new Error('Network timeout'));
+    await settle();
+    assert(host.querySelector('.pr-check__log pre')?.textContent === annotation
+      && host.querySelector('.pr-check__log [role="alert"]')?.textContent === 'Network timeout',
+    'A failed retry must retain the previously fetched annotations');
+    click('Retry log');
+    requests[4].resolve({ text: '', unavailableReason: 'Log not ready' });
+    await settle();
+    assert(host.querySelector('.pr-check__log pre')?.textContent === annotation
+      && host.querySelector('.pr-check__log [role="alert"]')?.textContent === 'Log not ready',
+    'An unavailable retry without new annotations must preserve the previously fetched evidence');
+    click('Retry log');
+    requests[5].resolve({ text: '', unavailableReason: null });
+    await settle();
+    assert(host.querySelector('.pr-check__log pre')?.textContent === 'This job returned an empty log.'
+      && host.querySelector('.pr-check__log [role="alert"]') === null, 'A successful retry must clear the error and handle an empty log');
+    click('Hide log');
+    click('Show log');
+    assert(Number(requests.length) === 6, 'A successfully retried log must be reused when reopened');
     detail.checkRuns = [{ ...detail.checkRuns[0], completedAt: '2026-01-01T00:00:00Z' }];
     render();
     click('Show log');
+    requests[6].resolve({ text: annotation, unavailableReason: 'Log expired' });
+    await settle();
+    detail.number++;
+    render();
+    assert(host.querySelector('.pr-check__log') === null, 'Switching PR must clear annotations and download errors');
+    click('Show log');
     detail.checkRuns = [{ ...detail.checkRuns[0], githubId: 1000, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/302' }];
     render();
-    requests[3].resolve({ text: 'Late response for the previous attempt' });
+    requests[7].resolve({ text: annotation, unavailableReason: 'Late response for the previous attempt' });
     await settle();
     assert(host.querySelector('.pr-check__log') === null, 'A previous attempt must not populate the replacement row');
     return 'Open failed CI in the browser, load and retry inline logs, and discard stale attempts';

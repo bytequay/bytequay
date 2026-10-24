@@ -625,14 +625,14 @@ describe('agent task side panel', () => {
   });
 
   it('opens the task pull request from one chip above the composer', () => {
-    const draft = [pullRequest(31105, 'Clean up nits in Delta Lake', 'open', true)];
+    const draft = [pullRequest(42, 'Clean up sample code', 'open', true)];
     const chip = (extra: object = {}) => renderBody(state, { pullRequests: draft, ...extra });
     // Both task composers show the state mark and number, with the title only on hover.
     const closed = chip();
-    expect(closed).toMatch(/<button type="button" class="agt-pr-chip" aria-pressed="false" title="#31105 Clean up nits in Delta Lake">/);
+    expect(closed).toMatch(/<button type="button" class="agt-pr-chip" aria-pressed="false" title="#42 Clean up sample code">/);
     expect(closed).toContain('agt-pr-icon is-draft');
-    expect(closed).toContain('class="agt-pr-chip__number">#31105<');
-    expect(closed).toMatch(/class="agt-pr-chip__number">#31105<\/span><\/button>/);
+    expect(closed).toContain('class="agt-pr-chip__number">#42<');
+    expect(closed).toMatch(/class="agt-pr-chip__number">#42<\/span><\/button>/);
     expect(closed.indexOf('agt-pr-chip')).toBeLessThan(closed.indexOf('agt-compose__input'));
     expect(closed).not.toContain('Last checked');
     // It reads as pressed only where clicking it folds the panel away again.
@@ -1528,7 +1528,7 @@ describe('agent task detail', () => {
   });
 
   it('names an MCP tool without its server prefix and folds a JSON result', () => {
-    const result = JSON.stringify({ step: 2, kind: 'VALIDATE', sealed: false, changeMap: 'Single commit e7dc4a0 on the review branch' });
+    const result = JSON.stringify({ step: 2, kind: 'VALIDATE', sealed: false, changeMap: 'Single commit abcdef1 on the review branch' });
     const called = events.map((event): AgentEventEnvelope => event.type !== 'tool' ? event : ({
       ...event,
       payload: { ...event.payload, name: 'mcp__bytequay__review_get_context', summary: result },

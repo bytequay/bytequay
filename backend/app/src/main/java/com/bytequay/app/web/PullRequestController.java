@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.pr.PullRequestCheckLog;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.DiffCommit;
@@ -315,9 +316,9 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/checks/log")
-    public Map<String, String> readCheckLog(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam("jobId") long jobId)
+    public PullRequestCheckLog readCheckLog(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam("jobId") long jobId)
     {
-        return ImmutableMap.of("text", pullRequests.readCheckLog(repo, number, jobId));
+        return pullRequests.readCheckLog(repo, number, jobId);
     }
 
     @PostMapping("/prs/checks/rerun-failed")

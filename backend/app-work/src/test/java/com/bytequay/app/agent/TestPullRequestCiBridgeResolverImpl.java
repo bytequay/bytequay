@@ -93,17 +93,17 @@ class TestPullRequestCiBridgeResolverImpl
     private static final String HEAD = "b".repeat(40);
     private static final String NEXT = "c".repeat(40);
     private static final String BASE = "a".repeat(40);
-    private static final String BRANCH = "alice/delta-metadata";
+    private static final String BRANCH = "alice/example-change";
     private static final RepoRef FORK = new RepoRef("alice", "repository");
     private static final RepoRef UPSTREAM = new RepoRef("owner", "repository");
-    private static final PullRequestRef PR = new PullRequestRef("owner", "repository", 31105);
+    private static final PullRequestRef PR = new PullRequestRef("owner", "repository", 42);
     private static final String COMMIT_FAILURE = """
             Complete job name: check-commit-messages
             Commit subjects must not start with a lowercase letter or end with a period.
             Common past-tense leading verbs must use their imperative form.
             Commit subjects should be at most 50 characters; this check fails subjects over 60 characters.
 
-            891680591dd8 Use Guava collector and identity function in Delta Lake metadata
+            0123456789ab Improve sample validation messages and cover missing log retries
               subject: 64 characters
 
             ##[error]Process completed with exit code 1.
@@ -126,7 +126,7 @@ class TestPullRequestCiBridgeResolverImpl
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf(FORK.fullName()),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
-    private final AgentTask task = created(taskId, true, "Fix Delta Lake metadata", TitleSource.USER, AgentLaneId.CODEX_CLI,
+    private final AgentTask task = created(taskId, true, "Fix sample validation", TitleSource.USER, AgentLaneId.CODEX_CLI,
             worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     private final CiHeadSnapshot failing = snapshot(PR, HEAD, 1, "check-commit-messages", "failure");
 
@@ -187,7 +187,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(detail.path("status").asText()).isEqualTo("available");
         assertThat(detail.at("/log/excerpt").asText()).contains(
                 "Commit subjects should be at most 50 characters; this check fails subjects over 60 characters.",
-                "891680591dd8 Use Guava collector and identity function in Delta Lake metadata", "subject: 64 characters");
+                "0123456789ab Improve sample validation messages and cover missing log retries", "subject: 64 characters");
         assertThat(detail.at("/log/terminalErrorLines").toString()).contains("Process completed with exit code 1");
         ArgumentCaptor<ReadCiLogQuery> query = ArgumentCaptor.forClass(ReadCiLogQuery.class);
         verify(actions).readLog(query.capture());
@@ -307,21 +307,52 @@ class TestPullRequestCiBridgeResolverImpl
 
         assertThat(result.path("status").asText()).isEqualTo("stale");
         assertThat(result.has("log")).isFalse();
-        assertThat(result.toString()).doesNotContain("891680591dd8", "subject: 64 characters");
+        assertThat(result.toString()).doesNotContain("0123456789ab", "subject: 64 characters");
     }
 
     @Test
-    void anOlderJobAttemptCannotDownloadUnderANewerWorkflowAttempt()
+    void readsARetainedFailedJobAfterAnotherJobWasRerun()
             throws Exception
     {
+        storeLog(COMMIT_FAILURE);
+        CiJob rerun = snapshot(PR, HEAD, 2, "rerun-check", "success").jobs().getFirst();
         CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "completed", Optional.of("failure"), HEAD,
-                "https://github.com/owner/repository/actions/runs/100", failing.jobs());
+                "https://github.com/owner/repository/actions/runs/100", ImmutableList.of(failing.jobs().getFirst(), rerun));
         when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
+
+        PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        JsonNode summary = read(bridge, Optional.empty());
+        assertThat(summary.at("/actions/workflows/0/attempt").asInt()).isEqualTo(2);
+        long jobId = summary.at("/actions/workflows/0/jobs/0/id").asLong();
+        JsonNode result = read(bridge, Optional.of(jobId));
+
+        assertThat(result.path("status").asText()).isEqualTo("available");
+        assertThat(result.at("/log/jobId").asLong()).isEqualTo(201);
+        assertThat(result.at("/log/attempt").asInt()).isEqualTo(1);
+        assertThat(result.at("/log/excerpt").asText()).contains("subject: 64 characters");
+        ArgumentCaptor<ReadCiLogQuery> query = ArgumentCaptor.forClass(ReadCiLogQuery.class);
+        verify(actions).readLog(query.capture());
+        assertThat(query.getValue().workflowRun().attempt()).isEqualTo(2);
+        assertThat(query.getValue().job().attempt()).isEqualTo(1);
+    }
+
+    @Test
+    void discardsARetainedFailedJobsLogWhenItsReplacementAppearsDuringTheRead()
+            throws Exception
+    {
+        storeLog(COMMIT_FAILURE);
+        CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "in_progress", Optional.empty(), HEAD,
+                "https://github.com/owner/repository/actions/runs/100", failing.jobs());
+        CiHeadSnapshot before = new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current));
+        CiHeadSnapshot after = snapshot(PR, HEAD, 2, "check-commit-messages", "failure");
+        when(actions.inspect(PR)).thenReturn(before, after);
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
-        assertThat(result.path("status").asText()).isEqualTo("unknown_job");
-        verify(actions, never()).readLog(any());
+        verify(actions).readLog(any());
+        assertThat(result.path("status").asText()).isEqualTo("stale");
+        assertThat(result.has("log")).isFalse();
+        assertThat(result.toString()).doesNotContain("0123456789ab", "subject: 64 characters");
     }
 
     @Test
@@ -353,16 +384,18 @@ class TestPullRequestCiBridgeResolverImpl
     }
 
     @Test
-    void reportsUnavailableLogsWithoutInventingPassingChecks()
+    void preservesFailureAnnotationsWhenTheJobLogIsUnavailable()
             throws Exception
     {
         when(actions.readLog(any())).thenReturn(BoundedCiLog.unavailable("This Actions log has expired"));
+        when(actions.readFailureAnnotations(PR, 201L)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
         assertThat(result.at("/log/unavailableReason").asText()).contains("expired");
         assertThat(result.path("status").asText()).isEqualTo("available");
         assertThat(result.at("/log/excerpt").asText()).isEmpty();
+        assertThat(result.at("/log/githubAnnotations/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
         verifyNoInteractions(logs);
     }
 
@@ -593,7 +626,7 @@ class TestPullRequestCiBridgeResolverImpl
 
     private static PullRequest row(PullRequestRef ref)
     {
-        return new PullRequest(ref.number(), ref.owner() + "/" + ref.repo(), ref.number(), "Fix Delta Lake metadata", "alice", url(ref), NOW, NOW,
+        return new PullRequest(ref.number(), ref.owner() + "/" + ref.repo(), ref.number(), "Fix sample validation", "alice", url(ref), NOW, NOW,
                 PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), true, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.FAILING,
                 1, 0, 0, "open", null, null, false, "blocked", NOW, BRANCH, null, null, null, null);
     }

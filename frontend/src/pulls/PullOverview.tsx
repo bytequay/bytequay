@@ -1633,11 +1633,13 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
       return;
     }
     setExpanded(true);
-    if (log !== null || jobId === null) return;
+    if ((log !== null && error === null) || jobId === null) return;
     setLoading(true);
     setError(null);
     try {
-      setLog((await window.bridge.getPrCheckLog(pr.repo, pr.number, jobId)).text);
+      const result = await window.bridge.getPrCheckLog(pr.repo, pr.number, jobId);
+      setLog(previous => result.unavailableReason === null ? result.text : result.text || previous);
+      setError(result.unavailableReason);
     }
     catch (failure) {
       setError(remoteErrorMessage(failure));
@@ -1675,7 +1677,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
         {loading && <div role="status">Loading log…</div>}
         {error && <div role="alert">{error}</div>}
         {log !== null && <>
-          <p>Diagnostic excerpt. Open in GitHub for the complete log.</p>
+          <p>{error ? 'GitHub failure annotations. Open in GitHub for job details.' : 'Diagnostic excerpt. Open in GitHub for the complete log.'}</p>
           <pre tabIndex={0} aria-label={`${check.name ?? 'Check'} log`}><CiLogText text={log || 'This job returned an empty log.'} /></pre>
         </>}
       </div>}

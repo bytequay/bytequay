@@ -121,12 +121,12 @@ class TestCiLogExcerpt
     @Test
     void selectsFailedCommandOutputInsteadOfSetupOptionsAndEchoedScript()
     {
-        String timestamp = "2026-10-01T06:18:41.0908244Z ";
+        String timestamp = "2000-01-01T00:00:00.0000000Z ";
         String setup = timestamp + "##[group]Run actions/checkout@v7.0.1\n"
                 + timestamp + "env:\n"
                 + timestamp + "  MAVEN_OPTS: -Xmx512M -XX:+ExitOnOutOfMemoryError\n"
                 + timestamp + "##[endgroup]\n";
-        String checkout = timestamp + " * [new branch] vector-api-error-messages -> origin/vector-api-error-messages\n"
+        String checkout = timestamp + " * [new branch] example-error-branch -> origin/example-error-branch\n"
                 + (timestamp + " * [new tag] release -> release\n").repeat(1500);
         String command = timestamp + "##[group]Run ./check-commit-messages.sh\n"
                 + timestamp + "\u001b[36;1mecho 'error: invalid base ref'\u001b[0m\n"
@@ -134,9 +134,9 @@ class TestCiLogExcerpt
                 + timestamp + "  MAVEN_OPTS: -XX:+ExitOnOutOfMemoryError\n"
                 + timestamp + "##[endgroup]\n";
         String failure = timestamp + "Commit descriptions should wrap at 72 characters.\n"
-                + timestamp + "6405a0d6df6d Abort output stream on file writer rollback\n"
+                + timestamp + "abcdef012345 Handle errors in the sample output writer\n"
                 + timestamp + "  line 3: 89 characters\n"
-                + timestamp + "  Rollback discards the pending upload instead of publishing the file and then deleting it.\n"
+                + timestamp + "  This synthetic example intentionally uses a long commit description to exercise wrapping.\n"
                 + timestamp + "##[error]Process completed with exit code 1.\n";
         String cleanup = timestamp + "##[end-action outcome=failure;conclusion=failure]\n" + timestamp + "Post job cleanup.\n";
 
@@ -148,6 +148,54 @@ class TestCiLogExcerpt
                 assertThat(excerpt.text()).startsWith("[... log lines omitted ...]\n" + compilerError + timestamp + "Commit descriptions");
                 assertThat(excerpt.diagnosticsMatched()).isTrue();
                 assertThat(excerpt.compacted()).isTrue();
+            }
+        }
+    }
+
+    @Test
+    void selectsFailedActionOutputWithoutAShellExitStatus()
+    {
+        String checkout = "##[group]Run actions/checkout@v7\n##[endgroup]\n"
+                + " * [new branch] example-error-branch -> origin/example-error-branch\n"
+                + " * [new tag] release -> release\n".repeat(3000);
+        String action = "##[group]Run actions/download-artifact@v8\n  digest-mismatch: error\n##[endgroup]\n";
+        String failure = "Downloading example-build-bundle\n"
+                + "##[error]Unable to download artifact(s): Artifact download failed after 5 retries.\n"
+                + "java.io.IOException: could not extract artifact\n"
+                + "    at Archive.extract(Archive.java:42)\n"
+                + "Caused by: java.net.SocketException: connection reset\n"
+                + "    at Client.download(Client.java:55)\n";
+        for (String cleanup : new String[] {
+                "Post job cleanup.\n",
+                "##[group]Run ./cleanup.sh\n##[endgroup]\nCleanup directory is read-only\n##[error]Process completed with exit code 1.\n"}) {
+            CiLogExcerpt excerpt = CiLogExcerpt.from(checkout + action + failure + cleanup, 32 * 1024, 1024 * 1024);
+
+            assertThat(excerpt.text()).contains(failure, cleanup).doesNotContain("[new branch]", "[new tag]", "digest-mismatch");
+            assertThat(excerpt.diagnosticsMatched()).isTrue();
+            assertThat(excerpt.compacted()).isTrue();
+            assertThat(excerpt.text().getBytes(UTF_8).length).isLessThan(32 * 1024);
+        }
+    }
+
+    @Test
+    void keepsLaterDiagnosticsUntilTheFailedActionEnds()
+    {
+        String checkout = "##[group]Run actions/checkout@v7\n##[endgroup]\n"
+                + " * [new branch] example-error-branch -> origin/example-error-branch\n";
+        String action = "##[group]Run actions/example@v1\n##[endgroup]\n"
+                + "##[error]Build failed; gathering diagnostic output\n"
+                + "[INFO] collecting context\n".repeat(50)
+                + "[ERROR] RootCauseException: dependency download refused\n"
+                + "[INFO] collecting context\n".repeat(50);
+        for (String ending : new String[] {
+                "",
+                "##[group]Run ./cleanup.sh\n##[endgroup]\nCleanup complete\n",
+                "##[group]Run ./cleanup.sh\n##[endgroup]\n[ERROR] Cleanup failed\n##[error]Process completed with exit code 1.\n"}) {
+            CiLogExcerpt excerpt = CiLogExcerpt.from(checkout + action + ending, 32 * 1024, 1024 * 1024);
+
+            assertThat(excerpt.text()).contains("Build failed", "RootCauseException: dependency download refused").doesNotContain("[new branch]");
+            if (ending.contains("Cleanup failed")) {
+                assertThat(excerpt.text()).contains("Cleanup failed", "exit code 1");
             }
         }
     }

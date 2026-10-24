@@ -104,14 +104,14 @@ describe('agent home on a return visit', () => {
 
   it('paints task rows with their pull request and their checkout\'s last known changes', () => {
     setCached('agent-tasks:workspace-rows', [
-      { ...previewTask('workspace-rows', 'row-1'), title: 'Refactor nits', pullRequest: { number: 31105, title: 'Clean up nits', state: 'open', draft: true } },
+      { ...previewTask('workspace-rows', 'row-1'), title: 'Refactor nits', pullRequest: { number: 42, title: 'Clean up nits', state: 'open', draft: true } },
       { ...previewTask('workspace-rows', 'row-2'), title: 'Another nit' },
     ]);
     setCached('agent-task-changes:workspace-rows', { 'row-2': { uncommitted: false, commits: 2 } });
     const markup = renderToStaticMarkup(
       <AgentTasksView workspaceId="workspace-rows" bridge={createPreviewBridge('workspace-rows')} onOpenTask={() => {}} onOpenReview={() => {}} />);
 
-    expect(markup).toMatch(/<span class="card-link" title="Clean up nits"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#31105<\/span><\/span>/);
+    expect(markup).toMatch(/<span class="card-link" title="Clean up nits"><span class="card-src is-pr"><svg[^>]*>.*?<\/svg><\/span><span class="card-key">#42<\/span><\/span>/);
     expect(markup).toContain('2 commits');
   });
 

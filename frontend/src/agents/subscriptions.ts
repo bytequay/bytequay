@@ -31,7 +31,7 @@ interface Subscription {
 }
 
 /**
- * Streams tasks to renderers, one live reader per renderer and task, until each is stopped.
+ * Streams tasks to each mounted screen until that screen unsubscribes.
  *
  * Every push names its subscription and task, so a renderer that has moved on can drop events
  * still arriving for the screen it left rather than rendering them into the new one.
@@ -48,13 +48,6 @@ export class AgentSubscriptions {
   ) {}
 
   start(sender: StreamSender, taskId: string, after: number, statusOnly = false): string {
-    // Re-subscribing replaces: two readers on one task would push the same events twice into the
-    // same screen and both would hold a connection open.
-    for (const [id, existing] of this.subscriptions) {
-      if (existing.sender === sender && existing.taskId === taskId) {
-        this.stop(id);
-      }
-    }
     this.watch(sender);
     const subscriptionId = randomUUID();
     const controller = new AbortController();

@@ -129,14 +129,36 @@ describe('AgentSubscriptions', () => {
     expect(sender.pushed).toEqual([{ subscriptionId, taskId: 'task-1', kind: 'state', state: 'connecting' }]);
   });
 
-  it('replaces the reader when a renderer subscribes to the same task again', () => {
-    const { subscriptions, signals } = registry();
+  it('keeps the workspace task live after its pinned overlay closes', async () => {
+    const signals: AbortSignal[] = [];
+    const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
+    const subscriptions = new AgentSubscriptions(async (_taskId, _after, signal) => {
+      signals.push(signal);
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) {
+        streams.push(controller);
+        signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+      } }));
+    });
     const sender = new FakeSender();
+    const taskId = fixture.events[0].taskId;
+    const workspace = subscriptions.start(sender, taskId, 0, true);
+    const overlay = subscriptions.start(sender, taskId, 0, true);
+    const frame = (index: number) => new TextEncoder().encode(`data: ${JSON.stringify(fixture.events[index])}\n\n`);
 
-    subscriptions.start(sender, 'task-1', 0);
-    subscriptions.start(sender, 'task-1', 5);
-
-    expect(signals.map((signal) => signal.aborted)).toEqual([true, false]);
+    try {
+      expect(workspace).not.toBe(overlay);
+      expect(signals.map(signal => signal.aborted)).toEqual([false, false]);
+      streams.forEach(stream => stream.enqueue(frame(0)));
+      for (const subscriptionId of [workspace, overlay]) {
+        await vi.waitFor(() => expect(sender.pushed).toContainEqual(expect.objectContaining({ subscriptionId, kind: 'changed', sequence: 1 })));
+      }
+      subscriptions.stop(overlay);
+      expect(signals.map(signal => signal.aborted)).toEqual([false, true]);
+      streams[0].enqueue(frame(1));
+      await vi.waitFor(() => expect(sender.pushed).toContainEqual(expect.objectContaining({ subscriptionId: workspace, kind: 'changed', sequence: 2 })));
+      expect(sender.pushed).not.toContainEqual(expect.objectContaining({ subscriptionId: overlay, kind: 'changed', sequence: 2 }));
+    }
+    finally { subscriptions.stopAll(); }
   });
 
   it('stops every reader a renderer opened when its page navigates away, and no others', () => {

@@ -16,6 +16,7 @@ import { previewTask } from '../agents/fixtures/previewBridge';
 import { jiraAttentionItem } from '../jira/attention';
 import { jiraIssue } from '../jira/fixtures/jira';
 import { pr } from '../pulls/fixtures/pullRequest';
+import { laneLabel } from '../settings/model';
 import type { JiraTaskSource } from '../jira/contracts';
 import type { PullRequestDto } from '../types';
 import { pullRequestItem, type AttentionItem } from './attention';
@@ -62,6 +63,16 @@ describe('My work', () => {
     expect(isOwnWork(pullRequestItem(pr({ number: 8, author: 'ana' })), 'me')).toBe(false);
   });
 
+  it('lists ended work only for All my work, with how it ended and who worked on it', () => {
+    const done = { ...previewTask('ws1', 'task-1'), state: 'COMPLETED', updatedAt: '2026-08-15T00:01:00Z' };
+    const input: Parameters<typeof myWorkItems>[0] = { candidates: [mine(9, { state: 'merged', updatedAt: '2026-08-15T00:02:00Z' })], tasks: [{ task: done, workspace }],
+      activity: {}, work: [], viewerLogin: 'me' };
+    expect(myWorkItems(input)).toEqual([]);
+    expect(myWorkItems({ ...input, ended: true }).map(item => [item.label, item.ended, item.repos, item.agents])).toEqual([
+      ['repository#9', 'Merged', ['owner/repository'], []],
+      ['', 'Completed', ['owner/repository'], [laneLabel(done.laneId)]],
+    ]);
+  });
 });
 
 function jiraSource(): JiraTaskSource {

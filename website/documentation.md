@@ -85,6 +85,8 @@ work items, commits, and memory.
   **In review**, **Needs you**, and **Ready to merge**. A card shows the agent
   working on it and the PRs it delivers through. Each lane shows three cards
   until **Show more**; **Collapse** folds the board to lane counts.
+- **All my work** lists every card, including merged, closed, and finished
+  work, newest first, filtered by source, repository, agent, and date.
 - **Needs attention** shows up to five things others ask of you, such as review
   requests, re-reviews, and mentions. On a workspace Home, **My PRs** shows your
   open PRs. **Snooze** hides a card, its Today row and the Assistant's mention

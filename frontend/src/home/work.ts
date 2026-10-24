@@ -13,7 +13,7 @@
  */
 import { plural } from '@bytequay/ui/displayText';
 import { taskCardState, taskLastMessage, type WorkspaceTask } from '../agents/attention';
-import { taskArchived } from '../agents/taskStatus';
+import { taskArchived, taskStatePill } from '../agents/taskStatus';
 import { pullRequestIsMine } from '../pulls/model';
 import { laneLabel } from '../settings/model';
 import type { AgendaTargetDto, AgentTaskActivityDto, AgentTaskDto, PullRequestDto } from '../types';
@@ -69,6 +69,12 @@ export type WorkItem = {
   next: string | null;
   /** Every Needs attention and Today key this work stands for: its own, its pull requests' and its tasks'. */
   keys: string[];
+  /** How the work ended, such as Done, Closed or Merged; null while it is open. Only All my work lists ended work. */
+  ended: string | null;
+  /** The repositories it touches: its own, its pull requests' and its tasks'. */
+  repos: string[];
+  /** Every agent that worked on it. */
+  agents: string[];
 };
 
 function target(kind: AgendaTargetDto['kind'], fields: Partial<AgendaTargetDto>): AgendaTargetDto {
@@ -137,7 +143,7 @@ const later = (left: string, right: string) => Date.parse(right) > Date.parse(le
  * the attention rows when they hold them, plus any the work names itself.
  */
 function workItem(
-  base: Pick<WorkItem, 'key' | 'source' | 'label' | 'title' | 'updatedAt' | 'target'>,
+  base: Pick<WorkItem, 'key' | 'source' | 'label' | 'title' | 'updatedAt' | 'target' | 'ended'>,
   tasks: WorkspaceTask[],
   named: WorkPr[],
   rows: ReadonlyMap<string, PullRequestDto>,
@@ -174,6 +180,9 @@ function workItem(
     next: nextAction(lane, list, waiting),
     keys: [attentionKey(base.target), ...list.map(pr => prKey(pr.repo, pr.number)), ...tasks.map(({ task: linked }) => `task:${linked.id}`)]
       .filter((key): key is string => key !== null).map(key => key.toLowerCase()),
+    repos: [...new Set([base.target.repo, ...list.map(pr => pr.repo), ...tasks.map(({ workspace }) => workspace.repository)]
+      .filter((repo): repo is string => repo !== null))],
+    agents: [...new Set(tasks.map(({ task: linked }) => laneLabel(linked.laneId)))],
   };
 }
 
@@ -188,16 +197,18 @@ export function isOwnWork(item: AttentionItem, viewerLogin: string | null): bool
  * Everything the viewer is working on: open Jira tickets and GitHub issues assigned to them, local work in progress, open tasks of
  * their own, and their open pull requests that none of those already deliver. Each task and pull request belongs to one piece of work.
  */
-export function myWorkItems({ candidates, tasks, activity, work, viewerLogin }: {
+export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, ended = false }: {
   candidates: AttentionItem[];
   tasks: WorkspaceTask[];
   activity: Record<string, AgentTaskActivityDto>;
   /** Local work items of every watched repository. */
   work: WorkItemDto[];
   viewerLogin: string | null;
+  /** Also lists done tickets, closed issues and pull requests, finished local work, and ended or archived tasks, as All my work does. */
+  ended?: boolean;
 }): WorkItem[] {
   const rows = new Map(candidates.flatMap(item => item.pr === null ? [] : [[prKey(item.repo, item.number), item.pr] as const]));
-  const live = tasks.filter(({ task }) => !taskArchived(task));
+  const live = ended ? tasks : tasks.filter(({ task }) => !taskArchived(task));
   const claimed = new Set<string>();
   const claim = (linked: WorkspaceTask[]) => {
     linked.forEach(({ task }) => claimed.add(task.id));
@@ -207,25 +218,27 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin }: 
 
   for (const item of candidates) {
     const jira = item.jira;
-    if (jira === undefined || jira.status.category === 'done') continue;
+    if (jira === undefined || !ended && jira.status.category === 'done') continue;
     const linked = claim(live.filter(({ task }) => task.id === jira.task?.id || task.jiraSource?.cloudId === jira.cloudId && task.jiraSource.issueId === jira.id));
     items.push(workItem({
       key: item.key, source: 'jira', label: jira.key, title: item.title, updatedAt: item.updatedAt,
+      ended: jira.status.category === 'done' ? jira.status.name : null,
       target: target('JIRA', { id: jira.id, connectionId: jira.connectionId, cloudId: jira.cloudId }),
     }, linked, [], rows, activity));
   }
 
   for (const item of candidates) {
-    if (item.type !== 'issue' || item.jira !== undefined || item.kind !== 'assigned' || item.issueState === 'closed') continue;
+    if (item.type !== 'issue' || item.jira !== undefined || item.kind !== 'assigned' || !ended && item.issueState === 'closed') continue;
     const linked = claim(live.filter(({ task, workspace }) => task.issueSource?.number === item.number && workspace.repository.toLowerCase() === item.repo.toLowerCase()));
     items.push(workItem({
       key: item.key, source: 'issue', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
+      ended: item.issueState === 'closed' ? 'Closed' : null,
       target: target('ISSUE', { workspaceId: item.workspaceId, repo: item.repo, number: item.number }),
     }, linked, [], rows, activity));
   }
 
   for (const entry of work) {
-    if (entry.state !== 'WORKING' || entry.isEpic) continue;
+    if (entry.isEpic || entry.state === 'PLANNED' || !ended && entry.state !== 'WORKING') continue;
     const taskIds = new Set(entry.links.filter(link => link.kind === 'TASK').map(link => link.key));
     const linked = claim(live.filter(({ task }) => taskIds.has(task.id)));
     const named = entry.links.flatMap((link): WorkPr[] => {
@@ -238,15 +251,17 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin }: 
     });
     items.push(workItem({
       key: `work:${entry.id}`, source: 'local', label: '', title: entry.title, updatedAt: entry.updatedAt,
+      ended: entry.state === 'DONE' ? 'Done' : entry.state === 'DROPPED' ? 'Dropped' : null,
       target: target('WORK', { workspaceId: entry.workspaceId, id: entry.id }),
     }, linked, named, rows, activity));
   }
 
   for (const entry of live) {
-    if (claimed.has(entry.task.id) || entry.task.state !== 'OPEN') continue;
+    if (claimed.has(entry.task.id) || !ended && entry.task.state !== 'OPEN') continue;
     claim([entry]);
     items.push(workItem({
       key: `task:${entry.task.id}`, source: 'local', label: '', title: entry.task.title, updatedAt: entry.task.updatedAt,
+      ended: entry.task.state !== 'OPEN' ? taskStatePill(entry.task).label : taskArchived(entry.task) ? 'Archived' : null,
       target: target('TASK', { workspaceId: entry.task.workspaceId, id: entry.task.id }),
     }, [entry], [], rows, activity));
   }
@@ -254,11 +269,12 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin }: 
   const delivered = new Set(items.flatMap(item => item.prs.map(pr => prKey(pr.repo, pr.number))));
   for (const item of candidates) {
     const pr = item.pr;
-    if (pr === null || pr.state !== 'open' || !pullRequestIsMine(pr, viewerLogin) || delivered.has(prKey(item.repo, item.number))) continue;
+    if (pr === null || !ended && pr.state !== 'open' || !pullRequestIsMine(pr, viewerLogin) || delivered.has(prKey(item.repo, item.number))) continue;
     const linked = live.filter(({ task, workspace }) => !claimed.has(task.id) && task.pullRequest?.number === item.number
       && workspace.repository.toLowerCase() === item.repo.toLowerCase());
     items.push(workItem({
       key: item.key, source: 'pr', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
+      ended: prState(pr) === 'merged' ? 'Merged' : prState(pr) === 'closed' ? 'Closed' : null,
       target: target('PULL', { repo: item.repo, number: item.number }),
     }, claim(linked), [{ repo: item.repo, number: item.number, title: item.title, state: prState(pr), row: pr }], rows, activity));
   }

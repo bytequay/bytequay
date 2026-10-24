@@ -82,7 +82,8 @@ export function WindowControls() {
   );
 }
 
-export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'teams' | 'jira' | 'google' | 'settings';
+/** `work` is All my work, which opens from Home and keeps Home marked in the sidebar. */
+export type AppPage = 'home' | 'work' | 'recent' | 'pulls' | 'workspaces' | 'teams' | 'jira' | 'google' | 'settings';
 
 type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
@@ -206,7 +207,7 @@ export default function AppSidebar({
   );
 
   const navItem = ({ page: destination, label, icon }: NavItem) =>
-    row({ key: destination, label, icon, active: page === destination && workspace === null, onClick: () => onNavigate(destination) });
+    row({ key: destination, label, icon, active: (page === 'work' ? 'home' : page) === destination && workspace === null, onClick: () => onNavigate(destination) });
 
   const disabledReason = (tab: WorkspaceTab): string | null => {
     if (!workspace) return null;

@@ -33,7 +33,7 @@ import {
   type Handled,
 } from './attention';
 import ContributionCard from './ContributionCard';
-import MyWork, { useLocalWork } from './MyWork';
+import MyWork, { AllMyWork, useLocalWork } from './MyWork';
 import { isOwnWork, myWorkItems } from './work';
 import TodayList, { useWideWindow } from './TodayList';
 import { todayKeys } from './today';
@@ -51,6 +51,8 @@ type Props = {
   onSelectRepo: (owner: string, repo: string, prNumber?: number) => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onStartIssue?: (workspaceId: string, issueNumber: number) => void;
+  /** Shows All my work in place of Home: the same reads, so moving between the two re-reads nothing. */
+  allWork?: boolean;
 };
 
 const ACTIVITY_TTL_MS = 5 * 60 * 1000;
@@ -92,6 +94,7 @@ function HomePage({
   onSelectRepo,
   onOpenWorkspace,
   onStartIssue,
+  allWork = false,
 }: Props) {
   const [profile, setProfile] = useState<UserProfileDto | null>(() => getCached<UserProfileDto>(SEED.profile) ?? null);
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.workspaces) ?? []);
@@ -281,6 +284,9 @@ function HomePage({
   const localWork = useLocalWork(workspaceKey);
   const work = useMemo(() => myWorkItems({ candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null }),
     [candidates, localWork, login, tasks.activity, tasks.tasks]);
+  const everything = useMemo(() => allWork
+    ? myWorkItems({ candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null, ended: true }) : [],
+  [allWork, candidates, localWork, login, tasks.activity, tasks.tasks]);
   // Needs attention keeps what others ask of you; your own work, and anything My work already lists, stays there.
   const skipOwn = useMemo(() => {
     const listed = new Set(work.flatMap(item => item.keys));
@@ -310,6 +316,19 @@ function HomePage({
   }
 
   const todayList = <TodayList today={today} scope="global" facts={candidates} />;
+
+  if (allWork) {
+    return (
+      <div className="home-page">
+        <main className="home-main">
+          {jira.error && <div className="ws-error" role="alert">{jira.error}</div>}
+          {attentionError && <div className="ws-error" role="alert">Unable to load PR attention: {attentionError}</div>}
+          {issueAttentionError && <div className="ws-error" role="alert">{issueAttentionError}</div>}
+          <AllMyWork items={everything} todayKeys={onToday} />
+        </main>
+      </div>
+    );
+  }
 
   return (
     <div className="home-page">

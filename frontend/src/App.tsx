@@ -80,7 +80,7 @@ function layerKey(layer: ZoomedReference): string {
 function pageFromRoute(hash: string): AppPage {
   if (hash === '#/jira' || hash.startsWith('#/jira?')) return 'jira';
   if (settingsLocationFromRoute(hash) !== null) return 'settings';
-  const match = /^#\/(home|recent|pulls|workspaces|teams|google)$/.exec(hash);
+  const match = /^#\/(home|work|recent|pulls|workspaces|teams|google)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
 }
 
@@ -606,8 +606,9 @@ function AppContent() {
             label: assistantEnabled ? 'Assistant' : 'Task notices', onToggle: () => setAssistantOpen(open => !open) } : undefined}
         />
         <main className="app-content">
-          {page === 'home' && (
+          {(page === 'home' || page === 'work') && (
             <HomePage
+              allWork={page === 'work'}
               onSelectRepo={openPr}
               onOpenWorkspace={openWorkspace}
               onStartIssue={(workspaceId, issueNumber) => navigateTo(workspaceIssueTaskRoute(workspaceId, issueNumber), 'push')}

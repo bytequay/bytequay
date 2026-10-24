@@ -32,6 +32,14 @@ const FILTERS: ('all' | WorkSource)[] = ['all', 'jira', 'issue', 'local', 'pr'];
 const LOCAL_WORK_SEED = 'home:local-work';
 /** A lane shows this many cards until asked for the rest, so one busy lane does not stretch the board. */
 const LANE_LIMIT = 3;
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DATES = [
+  { days: 0, label: 'Any time' },
+  { days: 1, label: 'Past day' },
+  { days: 7, label: 'Past week' },
+  { days: 30, label: 'Past month' },
+  { days: 90, label: 'Past 3 months' },
+];
 
 function loadCollapsed(): boolean {
   try { return window.localStorage.getItem(COLLAPSED_KEY) === 'true'; } catch { return false; }
@@ -99,19 +107,13 @@ export default function MyWork({ items, todayKeys }: { items: WorkItem[]; todayK
       <div className="atn-head">
         <span className="atn-head__label">My work</span>
         {items.length > 0 && <span className="atn-count">{items.length}</span>}
-        <div className="atn-filters" role="tablist" aria-label="Filter my work by source">
-          {FILTERS.map(id => (
-            <button key={id} type="button" role="tab" aria-selected={source === id}
-              className={`atn-filter${source === id ? ' is-active' : ''}`} onClick={() => setSource(id)}>
-              {id === 'all' ? 'All' : WORK_SOURCES[id].filter}
-            </button>
-          ))}
-        </div>
+        <SourceTabs source={source} onSource={setSource} />
         {items.length > 0 && (
           <button type="button" className="atn-approved__toggle" aria-expanded={!collapsed} onClick={() => collapse(!collapsed)}>
             {collapsed ? 'Expand' : 'Collapse'}
           </button>
         )}
+        <a className="mw-all" href="#/work">All my work<ArrowRight size={12} aria-hidden="true" /></a>
       </div>
       {items.length === 0 ? <div className="atn-clear">Nothing in progress.</div>
         : collapsed ? (
@@ -153,6 +155,62 @@ export default function MyWork({ items, todayKeys }: { items: WorkItem[]; todayK
   );
 }
 
+/** Every piece of the viewer's work, open or ended, newest first, narrowed by source, repository, agent and when it last moved. */
+export function AllMyWork({ items, todayKeys }: { items: WorkItem[]; todayKeys: ReadonlySet<string> }) {
+  const [source, setSource] = useState<'all' | WorkSource>('all');
+  const [repo, setRepo] = useState('');
+  const [agent, setAgent] = useState('');
+  const [days, setDays] = useState(0);
+  const repos = [...new Set(items.flatMap(item => item.repos))].sort();
+  const agents = [...new Set(items.flatMap(item => item.agents))].sort();
+  const since = Date.now() - days * DAY_MS;
+  const shown = items.filter(item => (source === 'all' || item.source === source) && (repo === '' || item.repos.includes(repo))
+    && (agent === '' || item.agents.includes(agent)) && (days === 0 || Date.parse(item.updatedAt) >= since));
+  const changes = useBranchChanges(shown);
+
+  return (
+    <section className="mw" aria-label="All my work">
+      <div className="atn-head mw-filters">
+        <span className="atn-head__label">All my work</span>
+        <span className="atn-count">{shown.length}</span>
+        <SourceTabs source={source} onSource={setSource} />
+        <select className="mw-select" aria-label="Filter by repository" value={repo} onChange={event => setRepo(event.target.value)}>
+          <option value="">All repositories</option>
+          {repos.map(each => <option key={each} value={each}>{each}</option>)}
+        </select>
+        <select className="mw-select" aria-label="Filter by agent" value={agent} onChange={event => setAgent(event.target.value)}>
+          <option value="">All agents</option>
+          {agents.map(each => <option key={each} value={each}>{each}</option>)}
+        </select>
+        <select className="mw-select" aria-label="Filter by last update" value={days} onChange={event => setDays(Number(event.target.value))}>
+          {DATES.map(each => <option key={each.days} value={each.days}>{each.label}</option>)}
+        </select>
+      </div>
+      {shown.length === 0 ? <div className="atn-clear">{items.length === 0 ? 'No work yet.' : 'No work matches these filters.'}</div> : (
+        <div className="mw-list" role="list" aria-label="Work">
+          {shown.map(item => (
+            <WorkCard key={item.key} item={item} onToday={item.keys.some(key => todayKeys.has(key))}
+              commits={item.task === null ? 0 : changes[item.task.id]?.commits ?? 0} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SourceTabs({ source, onSource }: { source: 'all' | WorkSource; onSource: (source: 'all' | WorkSource) => void }) {
+  return (
+    <div className="atn-filters" role="tablist" aria-label="Filter my work by source">
+      {FILTERS.map(id => (
+        <button key={id} type="button" role="tab" aria-selected={source === id}
+          className={`atn-filter${source === id ? ' is-active' : ''}`} onClick={() => onSource(id)}>
+          {id === 'all' ? 'All' : WORK_SOURCES[id].filter}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function WorkCard({ item, onToday, commits }: { item: WorkItem; onToday: boolean; commits: number }) {
   const source = WORK_SOURCES[item.source];
   const { running } = item;
@@ -177,7 +235,7 @@ function WorkCard({ item, onToday, commits }: { item: WorkItem; onToday: boolean
           </div>
         )}
         {item.prs.length === 0 && (
-          <div className="mw-nopr">{['No PR yet', item.branch, commits === 0 ? null : plural(commits, 'local commit')].filter(Boolean).join(' · ')}</div>
+          <div className="mw-nopr">{item.ended ?? ['No PR yet', item.branch, commits === 0 ? null : plural(commits, 'local commit')].filter(Boolean).join(' · ')}</div>
         )}
         {item.prs.length > 0 && <div className="mw-prs">{item.prs.map(pr => <PrLine key={`${pr.repo}#${pr.number}`} pr={pr} />)}</div>}
         {item.next !== null && <div className="mw-next"><ArrowRight size={12} aria-hidden="true" /><span>{item.next}</span></div>}

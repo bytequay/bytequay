@@ -318,3 +318,53 @@
   align-self: center;
   color: var(--text-4);
 }
+
+/* After Collapse, or alone at the header's end when there is no open work to collapse. */
+.mw-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  color: var(--fg-link);
+  font-size: 11.5px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.atn-approved__toggle + .mw-all {
+  margin-left: 4px;
+}
+
+.mw-all:hover {
+  text-decoration: underline;
+}
+
+/* ── All my work ─────────────────────────────────────────────────
+   The full page (AllMyWork in home/MyWork.tsx): the board's cards, open and ended, in one wrapping grid under the filters. */
+
+.mw-filters {
+  flex-wrap: wrap;
+  row-gap: 6px;
+}
+
+.mw-select {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid var(--line-default);
+  border-radius: 6px;
+  background: var(--surface-canvas);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 11.5px;
+}
+
+.atn-filters + .mw-select {
+  margin-left: auto;
+}
+
+.mw-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+  margin-top: 6px;
+}

@@ -2045,6 +2045,24 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void settlesAFinishedTurnByItselfAfterItsFirstSettlementFails()
+            throws InterruptedException
+    {
+        AgentTurn running = service.start(command("first", "key-1"));
+        stores.failTurnUpdate(TurnState.COMPLETED, new AgentStorageException("database busy"));
+
+        driver.complete("done");
+
+        // Read the store, not the service: a service read would itself retry the settlement.
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+        while (stores.find(running.id()).orElseThrow().state() != TurnState.COMPLETED && System.nanoTime() < deadline) {
+            Thread.sleep(20);
+        }
+        assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.COMPLETED);
+        assertThat(runtimeRegistry.running(running.id())).isEmpty();
+    }
+
+    @Test
     void stopStillClosesTheProviderWhenApprovalCleanupFails()
     {
         enableDevelopment(ignored -> {});

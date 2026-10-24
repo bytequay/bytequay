@@ -189,6 +189,9 @@ public final class DefaultAgentTurnService
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
 
+    /** How long a finished turn whose settlement failed waits before it is tried again. */
+    private static final Duration SETTLE_RETRY_DELAY = Duration.ofSeconds(1);
+
     /** Refuses a key another kind of input already used. The desktop matches this text to clear a draft it already sent. */
     static final String ALREADY_SENT = "This message was already sent";
 
@@ -874,18 +877,7 @@ public final class DefaultAgentTurnService
             }
             throw failure;
         }
-        RunningTurn runningTurn = launch.runningTurn().orElseThrow();
-        try {
-            observeCompletion(turn, runningTurn);
-        }
-        catch (RuntimeException failure) {
-            synchronized (runtimeRegistry.taskLock(turn.taskId())) {
-                runtimeRegistry.removeRunning(turn.id(), runningTurn);
-            }
-            suppressFailure(failure, runningTurn::cancel);
-            suppressFailure(failure, () -> approvalService.denyPending(turn.id()));
-            throw failure;
-        }
+        observeCompletion(turn, launch.runningTurn().orElseThrow());
         return turnStore.require(turn.id());
     }
 
@@ -2120,7 +2112,24 @@ public final class DefaultAgentTurnService
 
     private void observeCompletion(AgentTurn turn, RunningTurn runningTurn)
     {
-        runningTurn.completion().whenComplete((result, failure) -> finishTurn(turn, runningTurn, result, failure, true));
+        runningTurn.completion().whenComplete((result, failure) -> {
+            try {
+                finishTurn(turn, runningTurn, result, failure, true);
+            }
+            catch (RuntimeException settleFailure) {
+                // Nothing reads the stage whenComplete returns. The handle stays registered, so any later read of the task
+                // retries; one retry here keeps a passing storage failure from leaving the turn running until someone looks.
+                log.log(System.Logger.Level.WARNING, "Turn " + turn.id() + " finished but could not be settled; retrying", settleFailure);
+                CompletableFuture.delayedExecutor(SETTLE_RETRY_DELAY.toMillis(), TimeUnit.MILLISECONDS, queueStarter).execute(() -> {
+                    try {
+                        retryCompletedTurn(turnStore.require(turn.id()));
+                    }
+                    catch (RuntimeException retryFailure) {
+                        log.log(System.Logger.Level.WARNING, "Turn " + turn.id() + " still could not be settled; the next read of its task retries", retryFailure);
+                    }
+                });
+            }
+        });
     }
 
     private void finishTurn(AgentTurn observedTurn, RunningTurn runningTurn, AgentTurnResult providerResult, Throwable completionFailure, boolean liveCompletion)

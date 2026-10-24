@@ -131,7 +131,8 @@ message uses your model allowance.
    includes that item as context; remove its **×** to leave it out.
 3. Browse **Decision**, **Running**, **Finished**, or **Today**. Use **← →** to
    page through cards, or **View all**. Answer approvals and questions on their
-   cards; **Esc** closes the panel.
+   cards; **Esc** closes the panel. While you talk, the cards fold away; click
+   a group to show them again.
 4. Ask it to find or list work, such as your open pull requests. It shows them
    as a list; switch between rows, cards and a timeline from the list's header,
    and click an item to open it. Ask it to take you to a page or an item, such

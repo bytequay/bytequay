@@ -239,6 +239,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     assert(refusal?.querySelector('.assistant-receipt__line')?.textContent === 'Use the buttons: this one runs outside the sandbox ↓'
       && refusal.querySelector('.assistant-receipt__words')?.textContent === '“allow it”' && refusal.querySelector('button') === null,
       `A refusal shows the words it refused and points down at the card: ${refusal?.textContent}`);
+    assert(top(view.host)?.dataset.card === 'approval:a1', 'A refusal that points down at the buttons keeps the cards out');
     assert(/^Sent at \d{1,2}:\d{2}$/.test(talk.querySelector('.agt-user__bubble')?.getAttribute('title') ?? ''), 'A message keeps its time on hover');
     const links = [...talk.querySelectorAll<HTMLAnchorElement>('.assistant-reply a')].map(link => link.textContent);
     assert(JSON.stringify(links) === JSON.stringify(['#31377', 'task']), `Both refs link, bare or not: ${JSON.stringify(links)}`);
@@ -262,6 +263,35 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     await settle();
     [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-receipt .assistant-action')].find(button => button.textContent === 'Open')?.click();
     assert(window.location.hash === workspaceAgentTaskRoute('ws1', 't9'), `Open goes to the started task: ${window.location.hash}`);
+  }
+  finally { view.dispose(); }
+}
+
+async function foldsTheCardsWhileTheUserTalks(): Promise<void> {
+  const view = mount({ ...VIEW, items: VIEW.items.slice(0, 3) });
+  const decision = () => view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="decision"]')?.click();
+  try {
+    await settle();
+    enter(type(view.host, 'What should I look at first?'));
+    await settle();
+    assert(view.host.querySelector('.assistant-talk') !== null && top(view.host) === null && selected(view.host) === undefined,
+      'Talking folds the cards and leaves no pill selected');
+    assert(JSON.stringify(pills(view.host)) === JSON.stringify(['All2', 'Decision1', 'Finished1', 'Today0/2']), `The pills stay to unfold them: ${JSON.stringify(pills(view.host))}`);
+    decision();
+    await settle();
+    assert(top(view.host)?.dataset.card === 'approval:a1' && selected(view.host) === 'Decision1' && view.host.querySelector('.assistant-talk') !== null,
+      'A pill unfolds its group under the conversation');
+    decision();
+    await settle();
+    assert(top(view.host) === null, 'The open pill folds it again');
+    enter(type(view.host, 'and then?'));
+    await settle();
+    assert(JSON.stringify(view.calls.sent[1][1]) === '[]', `Folded cards are not on screen: ${JSON.stringify(view.calls.sent[1][1])}`);
+    decision();
+    await settle();
+    enter(type(view.host, 'thanks'));
+    await settle();
+    assert(top(view.host) === null, 'The next message folds them again');
   }
   finally { view.dispose(); }
 }
@@ -864,7 +894,7 @@ async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
-    ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
+    ['folds the cards while the user talks', foldsTheCardsWhileTheUserTalks], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
     ['moves with the keyboard', movesWithTheKeyboard], ['draws finished cards like running ones', drawsFinishedCardsLikeRunningOnes],
     ['opens at a card from its alert', opensAtACardFromItsAlert],
     ['stops a running reply', stopsARunningReply], ['shows a list as rows, cards or a timeline', showsAListAsRowsCardsOrATimeline],

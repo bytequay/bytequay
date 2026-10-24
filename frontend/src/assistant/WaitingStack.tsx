@@ -44,10 +44,13 @@ const cardMeta = (card: WaitingCard): string => 'notice' in card ? noticeLabel(c
  * What waits on the user, under the composer: a pill for each group with something in it, then the group's top card with two
  * peeking behind it, or today's agenda. Tab moves between the pills and ← → page the cards.
  */
-export default function WaitingStack({ notices, talk, request, onRequestDone, onAnswered, onLeave, onOpenNotice, onClearNotice, visible, input }: {
+export default function WaitingStack({ notices, talk, folded, onFold, request, onRequestDone, onAnswered, onLeave, onOpenNotice, onClearNotice, visible, input }: {
   notices: AppNotice[];
   /** The day's conversation, between the pills and the cards. */
   talk: ReactNode;
+  /** Only the pills show, so the conversation has the room. */
+  folded: boolean;
+  onFold: (folded: boolean) => void;
   /** The card an alert's Answer asked for, until it has been brought to the top. */
   request: { id: string } | null;
   onRequestDone: () => void;
@@ -78,7 +81,7 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
   const group: Group | undefined = groups.includes(chosen) ? chosen : groups[0];
   const shown = group === 'all' ? cards : cards.filter(card => card.group === group);
   const at = Math.max(0, shown.findIndex(card => card.key === topKey));
-  const drawn = group === 'today' ? [] : listed ? shown : stackOf(shown, at);
+  const drawn = folded || group === 'today' ? [] : listed ? shown : stackOf(shown, at);
 
   useLayoutEffect(() => {
     visible.current = drawn.flatMap(card => 'notice' in card ? [card.notice.id] : []);
@@ -87,11 +90,12 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
   useLayoutEffect(() => {
     if (request === null) return;
     onRequestDone();
+    onFold(false);
     setChosen('all');
     setTopKey(request.id);
     setListed(false);
     setOpened(request.id);
-  }, [request, onRequestDone]);
+  }, [request, onRequestDone, onFold]);
 
   useEffect(() => {
     if (opened === null) return;
@@ -109,6 +113,12 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
     setTopKey(null);
     setListed(false);
   };
+  // Beside the conversation, the open pill folds its group again.
+  const pick = (each: Group) => {
+    if (talk && !folded && each === group) return onFold(true);
+    if (each !== group) choose(each);
+    onFold(false);
+  };
   const page = (step: number) => {
     if (shown.length > 1) setTopKey(shown[(at + step + shown.length) % shown.length].key);
   };
@@ -116,7 +126,8 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
     if (event.altKey || event.ctrlKey || event.metaKey) return;
     const target = event.target instanceof HTMLElement ? event.target : null;
     const pill = target?.dataset.group as Group | undefined;
-    if (pill !== undefined && event.key === 'Tab') {
+    // Folded, Tab moves on as anywhere else, and nothing pages.
+    if (!folded && pill !== undefined && event.key === 'Tab') {
       event.preventDefault();
       const next = groups[(groups.indexOf(pill) + (event.shiftKey ? groups.length - 1 : 1)) % groups.length];
       choose(next);
@@ -126,7 +137,7 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
       event.preventDefault();
       root.current?.querySelector<HTMLElement>('[data-card], .assistant-line, .today button')?.focus();
     }
-    else if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
+    else if (!folded && (event.key === 'ArrowLeft' || event.key === 'ArrowRight') && !(target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement)) {
       event.preventDefault();
       page(event.key === 'ArrowLeft' ? -1 : 1);
     }
@@ -146,8 +157,8 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
     <div ref={root} className="assistant-waiting" onKeyDown={onKeyDown}>
       <div className="assistant-pills" role="group" aria-label="Waiting on you">
         {groups.map(each => (
-          <button key={each} type="button" data-group={each} className={`assistant-pill${each === group ? ' is-selected' : ''}`} aria-pressed={each === group}
-            title={`${LABELS[each]} (Tab to move)`} onClick={() => choose(each)}>
+          <button key={each} type="button" data-group={each} className={`assistant-pill${!folded && each === group ? ' is-selected' : ''}`}
+            aria-pressed={!folded && each === group} title={`${LABELS[each]} (Tab to move)`} onClick={() => pick(each)}>
             {each === 'decision' && <span className="assistant-dot" aria-hidden="true" />}
             {each === 'running' && <span className="assistant-spinner" aria-hidden="true" />}
             {each === 'finished' && <CircleCheck size={13} aria-hidden="true" />}
@@ -159,7 +170,7 @@ export default function WaitingStack({ notices, talk, request, onRequestDone, on
         ))}
       </div>
       {talk}
-      {group === 'today'
+      {folded ? null : group === 'today'
         ? <div className="assistant-sheet assistant-today"><TodayList today={today} scope="global" onOpen={target => { onLeave(); openTarget(target); }} /></div>
         : listed
           ? (

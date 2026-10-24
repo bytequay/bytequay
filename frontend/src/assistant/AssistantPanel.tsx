@@ -57,6 +57,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   const [request, setRequest] = useState(openCard);
   // The conversation shows once the user talks, or when a reply came in while the Assistant was closed.
   const [talking, setTalking] = useState(false);
+  // While the conversation shows, what waits folds under its pills; a pill opens it until the next message.
+  const [unfolded, setUnfolded] = useState(false);
   const [closedAt, setClosedAt] = useState(Date.now);
   const input = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
@@ -79,6 +81,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
       return;
     }
     setTalking(false);
+    setUnfolded(false);
     setFailure(null);
     setClosedAt(Date.now());
     const previous = returnFocus.current;
@@ -89,6 +92,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
 
   useEffect(() => setRequest(openCard), [openCard]);
   const requestDone = useCallback(() => setRequest(null), []);
+  const fold = useCallback((folded: boolean) => setUnfolded(!folded), []);
 
   useEffect(() => setAnswered(current => {
     const live = current.size === 0 ? current : new Set([...current].filter(id => notices.some(notice => notice.id === id)));
@@ -134,10 +138,13 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     void send(text, visible.current, screen).then(sent => {
       if (!sent) return;
       setTalking(true);
+      setUnfolded(false);
       setDraft(current => current.trim() === text ? '' : current);
       setHiddenScreen(null);
     });
   };
+  // A refusal in the latest exchange points down at a card's buttons, so the cards stay out.
+  const pointsDown = items.slice(items.findLastIndex(item => item.kind === 'USER')).some(item => item.receipt?.fix === 'BUTTONS');
   const targets: Record<string, AgendaTargetDto> = {};
   for (const item of items) Object.assign(targets, item.targets);
   const drafts = createdDrafts(items);
@@ -172,7 +179,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     void action.then(then).catch(() => setFailure(message));
   };
 
-  const talk = talkShown && items.length > 0 && (
+  const talkOpen = talkShown && items.length > 0;
+  const talk = talkOpen && (
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
       {items.map(item => item.kind === 'RECEIPT'
         ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
@@ -226,7 +234,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           <button type="button" className="assistant-link" onClick={() => openSettings('features')}>Set up Assistant in Settings</button>
           {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}
         </div>}
-        <WaitingStack notices={waiting} talk={talk} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
+        <WaitingStack notices={waiting} talk={talk} folded={talkOpen && !unfolded && !pointsDown} onFold={fold} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
           onAnswered={id => { setAnswered(current => new Set(current).add(id)); refresh(); }}
           onOpenNotice={id => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose)}
           onClearNotice={id => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.')} />

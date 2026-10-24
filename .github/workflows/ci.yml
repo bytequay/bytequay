@@ -124,6 +124,11 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Test Jira authorization broker
+        run: node --test services/jira-auth/broker.test.mjs
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
       - name: Test dev launcher
         run: python3 scripts/test_dev.py

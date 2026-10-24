@@ -112,7 +112,7 @@ export class CodeTerminals {
       terminal = await pending.promise;
     }
     terminal.lastUsed = Date.now();
-    return { terminalId: terminal.id, scrollback: terminal.scrollback };
+    return { terminalId: terminal.id, scrollback: terminal.scrollback.slice(-SCROLLBACK_LIMIT) };
   }
 
   write(sender: TerminalSender, terminalId: string, data: string): void {
@@ -153,7 +153,8 @@ export class CodeTerminals {
     terminal.process.onData(data => {
       terminal.lastUsed = Date.now();
       const scrollback = terminal.scrollback + data;
-      terminal.scrollback = scrollback.length > SCROLLBACK_LIMIT ? scrollback.slice(scrollback.length - SCROLLBACK_LIMIT) : scrollback;
+      // Trimming copies the whole buffer; at twice the limit a busy build pays that once per 256 KiB, not on every chunk.
+      terminal.scrollback = scrollback.length > 2 * SCROLLBACK_LIMIT ? scrollback.slice(scrollback.length - SCROLLBACK_LIMIT) : scrollback;
       if (!sender.isDestroyed()) sender.send('terminal:data', { terminalId: terminal.id, data });
     });
     terminal.process.onExit(({ exitCode }) => {

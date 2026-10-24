@@ -429,16 +429,16 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
         <ExternalLink size={15} aria-hidden="true" /></button>}
       <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={busy} onClick={() => { void onChanged().catch(cause => setError(errorText(cause))); }}>
         <RefreshIcon /></button>
-      {(open || work.isEpic) && <button type="button" aria-label={work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'} aria-pressed={work.isEpic}
+      {(open || work.isEpic) && <button className="work-items__header-action is-epic" type="button" aria-label={work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'} aria-pressed={work.isEpic}
         title={!work.isEpic && work.epicId ? 'Remove this item from its Epic before marking it as an Epic.' : work.isEpic ? 'Unmark as Epic' : 'Mark as Epic'}
         disabled={busy || (!work.isEpic && !!work.epicId)} onClick={() => {
           if (work.isEpic) unmark.request(workspace.id, localEpicId(work.id), () => { void toggleEpic(); });
           else void toggleEpic();
         }}><Flag size={14} aria-hidden="true" />{work.isEpic ? 'Epic' : 'Mark as Epic'}</button>}
-      {canPublish && <button type="button" aria-expanded={publishing} onClick={() => { setWorkShown(false); onPublishing(!publishing); }}><Upload size={14} aria-hidden="true" />Push to remote…</button>}
+      {canPublish && <button className="work-items__header-action is-publish" type="button" aria-expanded={publishing} onClick={() => { setWorkShown(false); onPublishing(!publishing); }}><Upload size={14} aria-hidden="true" />Push to remote…</button>}
       {canStart && <button className="pull-detail__review-action" type="button" onClick={onStart}><Play size={13} aria-hidden="true" />Start development</button>}
-      {task && <button type="button" onClick={onViewTask}><ListTodo size={14} aria-hidden="true" />View task</button>}
-      {work.state !== 'DONE' && <button type="button" disabled={busy} onClick={() => void decide({ action: 'FINISH', detail: FINISHED_BY_USER })}>
+      {task && <button className="work-items__header-action is-task" type="button" onClick={onViewTask}><ListTodo size={14} aria-hidden="true" />View task</button>}
+      {work.state !== 'DONE' && <button className="work-items__header-action is-finish" type="button" disabled={busy} onClick={() => void decide({ action: 'FINISH', detail: FINISHED_BY_USER })}>
         <CircleCheck size={14} aria-hidden="true" />Mark finished</button>}
       {headerAction}
     </DetailHeader>

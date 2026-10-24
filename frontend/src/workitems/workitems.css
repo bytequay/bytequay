@@ -12,6 +12,26 @@
 .work-items > .pulls-list { flex: 1; }
 .work-items > .pull-detail { flex: 0 1 auto; min-width: 0; }
 .work-items .pull-detail__header-actions { flex: 0 1 auto; flex-wrap: wrap; }
+.work-items__header-action.is-epic { --work-action-color: light-dark(#6639ba, var(--dark-purple)); }
+.work-items__header-action.is-publish { --work-action-color: light-dark(#0550ae, var(--dark-blue)); }
+.work-items__header-action.is-task { --work-action-color: light-dark(#0f6862, var(--dark-teal)); }
+.work-items__header-action.is-finish { --work-action-color: light-dark(#116329, var(--dark-green)); }
+.pull-detail__header-actions button.work-items__header-action {
+  color: var(--work-action-color);
+  border-color: color-mix(in srgb, var(--work-action-color) 35%, var(--surface-canvas));
+  background: color-mix(in srgb, var(--work-action-color) 8%, var(--surface-canvas));
+  cursor: pointer;
+}
+.pull-detail__header-actions button.work-items__header-action:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--work-action-color) 65%, var(--surface-canvas));
+  background: color-mix(in srgb, var(--work-action-color) 14%, var(--surface-canvas));
+}
+.pull-detail__header-actions button.work-items__header-action:is([aria-pressed="true"], [aria-expanded="true"], :active):not(:disabled) {
+  border-color: var(--work-action-color);
+  background: color-mix(in srgb, var(--work-action-color) 18%, var(--surface-canvas));
+}
+.pull-detail__header-actions button.work-items__header-action:focus-visible { outline-color: var(--work-action-color); }
+.pull-detail__header-actions button.work-items__header-action:disabled { color: var(--fg-dim); border-color: var(--line-default); background: var(--surface-canvas); cursor: default; }
 .work-items .pulls-list__toolbar { height: auto; min-height: 47px; flex: 0 0 auto; flex-wrap: wrap; }
 .work-items__scope { display: inline-flex; flex: none; align-items: center; gap: 4px; margin-right: 4px; }
 .pulls-toolbar-button.work-items__new { width: auto; flex: none; gap: 5px; padding: 0 9px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; }

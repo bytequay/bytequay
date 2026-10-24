@@ -14,7 +14,7 @@
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import '../../index.css';
-import { changeInput, element, runScenarios } from '../../fixtures/harness';
+import { changeInput, controlTimers, element, runScenarios } from '../../fixtures/harness';
 import type { WorkItemDto } from '../../workitems/contracts';
 import type { ReviewDraftDto } from '../../pulls/agent-review/contracts';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
@@ -412,6 +412,7 @@ async function drawsFinishedCardsLikeRunningOnes(): Promise<void> {
 async function opensAtACardFromItsAlert(): Promise<void> {
   const rows = Array.from({ length: 4 }, (_, index) => ({ ...notice(`finished:turn-${index + 3}`, 'TURN_FINISHED', `task-${index + 3}`, `Finished task ${index + 3}`),
     occurredAt: '2026-10-16T07:30:00Z' }));
+  const timers = controlTimers(2400);
   const view = mount(VIEW, 0, [NOTICES[0], ...rows]);
   try {
     await settle();
@@ -428,7 +429,7 @@ async function opensAtACardFromItsAlert(): Promise<void> {
       `The card gets a 2px accent outline: ${style.outlineStyle} ${style.outlineWidth} ${style.outlineColor}`);
     assert(style.animationName === 'assistant-opened' && style.animationDelay === '2s' && style.animationDuration === '0.4s', 'The outline holds for 2 s, then fades');
     assert(card.querySelector('button[aria-label="Allow once: Run the focused Maven test"]') !== null, 'The card shows the task’s own buttons');
-    await new Promise(resolve => setTimeout(resolve, 2500));
+    assert(timers.tick() === 1, 'The outline clears after its 2400ms display and fade');
     await settle();
     assert(!card.classList.contains('is-opened') && document.activeElement === card, 'The outline is gone after it fades, and focus stays on the card');
     view.render(false);
@@ -436,7 +437,7 @@ async function opensAtACardFromItsAlert(): Promise<void> {
     await settle();
     assert(top(view.host)?.dataset.card !== 'approval:a1', 'Opening again with ⌘J does not go back to that card');
   }
-  finally { view.dispose(); }
+  finally { view.dispose(); timers.restore(); }
 }
 
 async function showsAListAsRowsCardsOrATimeline(): Promise<void> {

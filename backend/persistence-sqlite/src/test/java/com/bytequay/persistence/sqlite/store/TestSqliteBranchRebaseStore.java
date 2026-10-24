@@ -23,8 +23,6 @@ import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.rebase.BranchRebaseId;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -34,7 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteBranchRebaseStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
     private static final String ORIGINAL = "a".repeat(40);
@@ -43,12 +41,6 @@ class TestSqliteBranchRebaseStore
 
     @Autowired
     private SqliteBranchRebaseStore store;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-rebase-store-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void roundTripsConflictAndActionJournal()

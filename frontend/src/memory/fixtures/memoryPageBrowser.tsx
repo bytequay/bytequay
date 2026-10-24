@@ -14,7 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
-import { assert, changeInput, settle, element } from '../../fixtures/harness';
+import { assert, changeInput, controlTimers, settle, element } from '../../fixtures/harness';
 import type { MemoryDto, MemoryPageDto, MemoryPullDto, StartMemoryHarvestRequest } from '../contracts';
 import type { ContextSpecCandidateDto, ContextSpecCheckDto } from '../../repository-context/contracts';
 import MemoryPage from '../MemoryPage';
@@ -106,18 +106,22 @@ export function mount(withFindings = false) {
 }
 
 export async function runLearnOne() {
+  const timers = controlTimers(400);
   const view = mount();
-  // Longer than the search's pause after typing.
-  const paused = () => new Promise(resolve => setTimeout(resolve, 600));
   try {
     await settle();
     view.host.querySelector<HTMLButtonElement>('#mem-tab-learn')?.click(); await settle();
     const input = element<HTMLInputElement>('.mem-pull-search input', view.host, 'The Learn tab has a box to find one pull request');
-    changeInput(input, 'check');
-    changeInput(input, 'checkpoint'); await paused();
+    changeInput(input, 'check'); await settle();
+    changeInput(input, 'checkpoint'); await settle();
+    assert(Number(view.searches.length) === 0, 'Typing does not search before the pause');
+    assert(timers.tick() === 1, 'Further typing replaces the pending 400ms search');
+    await settle();
     assert(view.searches.length === 1 && view.searches[0] === 'checkpoint', 'Typing searches once, after it pauses');
     assert(view.host.textContent?.includes('No closed pull request matches “checkpoint”.') === true, 'An empty search says so');
-    changeInput(input, ' #31354 '); await paused(); await settle();
+    changeInput(input, ' #31354 '); await settle();
+    assert(timers.tick() === 1, 'The next query waits for its own 400ms pause');
+    await settle();
     const row = view.host.querySelector<HTMLElement>('.mem-pull-search .mem-learn__item');
     assert(row !== null && row.textContent?.includes('#31354 Fix checkpoint write for struct null counts') === true && row.textContent.includes('merged'),
       'A number finds that pull request with its title');
@@ -127,7 +131,7 @@ export async function runLearnOne() {
       'Learn starts one run for that pull request in the monitored repository');
     assert(document.body.textContent?.includes('Learning from #31354 · 3 maintainer threads to read') === true, 'The toast says what started');
     return [{ name: 'Find one closed pull request by number or title words and learn from it' }];
-  } finally { view.close(); }
+  } finally { view.close(); timers.restore(); }
 }
 
 export async function runFindings() {

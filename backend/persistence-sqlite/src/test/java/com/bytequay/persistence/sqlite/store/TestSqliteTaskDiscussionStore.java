@@ -22,8 +22,6 @@ import com.bytequay.core.discussion.TaskDiscussion;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -32,7 +30,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteTaskDiscussionStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-09-21T00:00:00Z");
     private static final String HASH = "a".repeat(64);
@@ -40,12 +38,6 @@ class TestSqliteTaskDiscussionStore
 
     @Autowired
     private SqliteTaskDiscussionStore store;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-discussion-store-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void roundTripsTheWholeAggregateAndKeepsOnePassagePerDiscussion()

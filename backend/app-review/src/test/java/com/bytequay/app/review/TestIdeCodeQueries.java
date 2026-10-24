@@ -41,6 +41,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
@@ -66,8 +67,7 @@ class TestIdeCodeQueries
         TaskId id = TaskId.random();
         root = Files.createDirectory(directory.resolve(id.toString())).toRealPath();
         run("init", "--initial-branch=fixture");
-        run("config", "user.name", "Fixture");
-        run("config", "user.email", "fixture@example.invalid");
+        configureUser(root, "Fixture", "fixture@example.invalid");
         Files.writeString(root.resolve("main.go"), "package main\nfunc caller() {}\n");
         run("add", "main.go");
         run("-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "commit", "-m", "Fixture");

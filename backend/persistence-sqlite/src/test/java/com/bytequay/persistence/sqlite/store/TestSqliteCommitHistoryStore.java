@@ -22,8 +22,6 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -31,7 +29,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteCommitHistoryStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-08-23T00:00:00Z");
     private static final String SHA = "0123456789abcdef";
@@ -50,12 +48,6 @@ class TestSqliteCommitHistoryStore
 
     @Autowired
     private JdbcTemplate jdbc;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-commit-history-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void roundTripsPositiveAndCheckedNegativeEnrichment()

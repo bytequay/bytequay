@@ -19,8 +19,6 @@ import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -31,7 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteLocalRunStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-09-15T10:00:00.123Z");
     private static final String HEAD = "3333333333333333333333333333333333333333";
@@ -41,12 +39,6 @@ class TestSqliteLocalRunStore
 
     @Autowired
     private EntityManager entityManager;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-local-run-store-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void roundTripsRunningAndFinishedRunsAndListsNewestFirst()

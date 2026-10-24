@@ -23,8 +23,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -33,7 +31,7 @@ import java.util.stream.IntStream;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteRepositoryMetadataStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final RepoRef REPOSITORY = RepoRef.of("owner", "project");
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
@@ -46,12 +44,6 @@ class TestSqliteRepositoryMetadataStore
 
     @Autowired
     private RepositoryMetadataJpaRepository repository;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-repository-metadata-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void upsertsProviderIdsWithoutDuplicatingTheRepositoryProjection()

@@ -17,8 +17,6 @@ import com.bytequay.core.domain.TeamActivityEvent;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -26,16 +24,10 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteTeamActivityStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     @Autowired
     private SqliteTeamActivityStore store;
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-team-activity-"), "create-drop");
-    }
 
     @Test
     void sourceDeduplicationAccountIsolationAndRetentionSurviveDatabaseRoundTrip()

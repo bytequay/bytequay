@@ -20,6 +20,8 @@ import com.bytequay.app.git.command.SequenceState.Kind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -35,6 +37,7 @@ import static com.bytequay.app.git.GitTestSupport.initRepository;
 import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Execution(ExecutionMode.CONCURRENT)
 class TestGitSequencerDriver
 {
     private static final GitCommandRunner GIT = new GitCommandRunner();

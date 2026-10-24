@@ -23,12 +23,10 @@ import java.nio.file.Path;
 import java.util.UUID;
 
 /**
- * Shared wiring for the SQLite store tests. Each subclass still declares its own
- * {@code @DynamicPropertySource} method: {@code DynamicPropertiesContextCustomizer} compares only the
- * set of annotated methods, which the context bootstrapper collects from the whole class hierarchy, so
- * a method declared here would make every subclass share one Spring context and one database file.
+ * Shared SQLite wiring. Tests that commit writes, change schemas, or customize Hibernate declare their own
+ * {@code @DynamicPropertySource}; rollback-only tests reuse {@link AbstractTestTransactionalSqliteStore}.
  */
-@DataJpaTest
+@DataJpaTest(showSql = false)
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @ContextConfiguration(classes = SqlitePersistenceConfiguration.class)
 abstract class AbstractTestSqliteStore

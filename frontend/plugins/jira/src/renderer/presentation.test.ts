@@ -31,8 +31,10 @@ function inTimezone(timezone: string, scenario: string): unknown {
 describe('Jira completion dates', () => {
   it.each(['America/New_York', 'Asia/Singapore', 'UTC'])('groups local dates over a year and Monday boundary in %s', timezone => {
     const rows = "[done('older', local(2026, 12, 20)), done('last-week', local(2026, 12, 27)), done('this-week', local(2026, 12, 31)), done('yesterday', local(2027, 1, 2)), done('early-today', local(2027, 1, 3, 0)), done('late-today', local(2027, 1, 3, 10)), done('unknown', null)]";
-    expect(inTimezone(timezone, `keys(completedGroups(${rows}, new Date(2027, 0, 3, 15)))`)).toEqual({ Today: ['late-today', 'early-today'], Yesterday: ['yesterday'], 'This week': ['this-week'], 'Last week': ['last-week'], Earlier: ['older'], 'Completion date unavailable': ['unknown'] });
-    expect(inTimezone(timezone, `keys(completedGroups(${rows}, new Date(2027, 0, 4, 15)))`)).toEqual({ Yesterday: ['late-today', 'early-today'], 'Last week': ['yesterday', 'this-week'], Earlier: ['last-week', 'older'], 'Completion date unavailable': ['unknown'] });
+    expect(inTimezone(timezone, `[keys(completedGroups(${rows}, new Date(2027, 0, 3, 15))), keys(completedGroups(${rows}, new Date(2027, 0, 4, 15)))]`)).toEqual([
+      { Today: ['late-today', 'early-today'], Yesterday: ['yesterday'], 'This week': ['this-week'], 'Last week': ['last-week'], Earlier: ['older'], 'Completion date unavailable': ['unknown'] },
+      { Yesterday: ['late-today', 'early-today'], 'Last week': ['yesterday', 'this-week'], Earlier: ['last-week', 'older'], 'Completion date unavailable': ['unknown'] },
+    ]);
   });
   it('uses calendar days across daylight saving and never falls back to updatedAt', () => {
     expect(inTimezone('America/New_York', "keys(completedGroups([done('today', '2026-03-09T04:00:00Z'), done('yesterday', '2026-03-08T05:00:00Z'), done('last-week', '2026-03-08T04:59:59Z'), done('unknown', null), done('invalid', 'not-a-date')], new Date('2026-03-09T04:30:00Z')))"))

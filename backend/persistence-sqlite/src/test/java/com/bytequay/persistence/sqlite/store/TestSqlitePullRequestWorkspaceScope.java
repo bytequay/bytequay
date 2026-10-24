@@ -28,8 +28,6 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Map;
@@ -41,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqlitePullRequestWorkspaceScope
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant RETENTION_CUTOFF = Instant.parse("2026-08-01T00:00:00Z");
 
@@ -59,12 +57,6 @@ class TestSqlitePullRequestWorkspaceScope
 
     @Autowired
     private SqliteWorkspaceStore workspaceStore;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-pr-scope-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void notificationPreviewAndDiscussionTimestampSurviveOlderDiscovery()

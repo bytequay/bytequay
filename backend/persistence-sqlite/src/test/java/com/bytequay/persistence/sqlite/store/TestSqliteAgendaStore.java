@@ -25,8 +25,6 @@ import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -36,7 +34,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteAgendaStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant MADE = Instant.parse("2026-10-16T01:02:00Z");
 
@@ -48,12 +46,6 @@ class TestSqliteAgendaStore
 
     @Autowired
     private EntityManager entities;
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-agenda-store-"), "create-drop");
-    }
 
     @Test
     void keepsADayWithItsItemsRecapAndMarks()

@@ -21,8 +21,6 @@ import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -30,7 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteMemoryStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00.123Z");
 
@@ -42,12 +40,6 @@ class TestSqliteMemoryStore
 
     @Autowired
     private EntityManager entityManager;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-memory-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void savesSourcesReportsAndPreviousVersionsAndCountsWithoutRewriting()

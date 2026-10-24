@@ -44,6 +44,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
@@ -79,8 +80,7 @@ class TestManagedWorktreeService
         Files.writeString(paths.workspace(WORKSPACE_ID).resolve(ManagedWorkspaceGit.OWNERSHIP_FILE), WORKSPACE_ID + "\n1\n");
         git = new RecordingGitCommandRunner();
         run(repository, "init", "--initial-branch=main");
-        run(repository, "config", "user.name", "ByteQuay Test");
-        run(repository, "config", "user.email", "bytequay@example.test");
+        configureUser(repository, "ByteQuay Test", "bytequay@example.test");
         run(repository, "remote", "add", "origin", ORIGIN);
         Files.writeString(repository.resolve("README.md"), "start\n");
         run(repository, "add", "README.md");

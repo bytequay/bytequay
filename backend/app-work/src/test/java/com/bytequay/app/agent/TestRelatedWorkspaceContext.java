@@ -42,6 +42,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -57,8 +58,7 @@ class TestRelatedWorkspaceContext
     {
         GitCommandRunner git = new GitCommandRunner();
         command(git, "init", "-q");
-        command(git, "config", "user.name", "Test");
-        command(git, "config", "user.email", "test@example.com");
+        configureUser(repository, "Test", "test@example.com");
         Files.writeString(repository.resolve("API.txt"), "old API");
         command(git, "add", "API.txt");
         command(git, "commit", "-qm", "Old API");

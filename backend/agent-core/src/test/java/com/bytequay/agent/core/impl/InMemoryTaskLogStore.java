@@ -15,6 +15,7 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentHistoryPage;
+import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.TaskLogStore;
@@ -23,16 +24,19 @@ import com.google.common.collect.Lists;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.function.Predicate;
 
-/** A task log that keeps envelopes in memory, enough for tests that fold metrics from persisted events. */
+/** Keeps service tests independent of disk durability, which TestFileTaskLogStore covers. */
 class InMemoryTaskLogStore
         implements TaskLogStore
 {
     private final List<AgentEventEnvelope> events = new ArrayList<>();
+    private final Map<String, byte[]> blobs = new HashMap<>();
 
     @Override
     public synchronized void append(AgentEventEnvelope envelope)
@@ -66,14 +70,22 @@ class InMemoryTaskLogStore
     }
 
     @Override
-    public BlobRef writeBlob(TaskId taskId, ByteBuffer content, String mediaType)
+    public synchronized BlobRef writeBlob(TaskId taskId, ByteBuffer content, String mediaType)
     {
-        throw new UnsupportedOperationException("blobs are not part of this test");
+        ByteBuffer bytes = content.asReadOnlyBuffer();
+        byte[] stored = new byte[bytes.remaining()];
+        bytes.get(stored);
+        String path = "blobs/" + blobs.size();
+        blobs.put(taskId + ":" + path, stored);
+        return new BlobRef(path, mediaType, stored.length);
     }
 
     @Override
-    public ByteBuffer readBlob(TaskId taskId, BlobRef blobRef)
+    public synchronized ByteBuffer readBlob(TaskId taskId, BlobRef blobRef)
     {
-        throw new UnsupportedOperationException("blobs are not part of this test");
+        byte[] stored = Optional.ofNullable(blobs.get(taskId + ":" + blobRef.relativePath()))
+                .filter(bytes -> bytes.length == blobRef.size())
+                .orElseThrow(() -> new AgentStorageException("blob is missing"));
+        return ByteBuffer.wrap(stored).asReadOnlyBuffer();
     }
 }

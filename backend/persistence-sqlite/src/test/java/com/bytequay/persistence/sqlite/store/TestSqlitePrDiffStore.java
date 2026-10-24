@@ -24,8 +24,6 @@ import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -33,19 +31,13 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqlitePrDiffStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     @Autowired
     private SqlitePrDiffStore store;
 
     @Autowired
     private EntityManager entities;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-pr-diff-store-"), "create-drop");
-    }
 
     @Test
     void bindsDefaultFileBodiesToTheirFetchedCommits()

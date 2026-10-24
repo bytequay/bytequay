@@ -20,8 +20,6 @@ import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -30,7 +28,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteRecentStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final LocalDate TODAY = LocalDate.parse("2026-08-28");
     private static final Instant MORNING = Instant.parse("2026-08-28T09:00:00Z");
@@ -38,12 +36,6 @@ class TestSqliteRecentStore
 
     @Autowired
     private SqliteRecentStore store;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-recent-store-"), "create-drop");
-    }
 
     @Test
     void keepsOneRowPerItemPerDayCarryingTheStrongestReason()

@@ -80,6 +80,7 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.write;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
@@ -132,8 +133,7 @@ class TestLocalRunService
         Files.createDirectories(repository);
         Files.writeString(paths.workspace(WORKSPACE_ID).resolve(".bytequay-workspace"), WORKSPACE_ID + "\n1\n");
         git(repository, "init", "--initial-branch=main");
-        git(repository, "config", "user.name", "ByteQuay Test");
-        git(repository, "config", "user.email", "test@example.invalid");
+        configureUser(repository, "ByteQuay Test", "test@example.invalid");
         git(repository, "config", "core.hooksPath", "/dev/null");
         git(repository, "remote", "add", "origin", ORIGIN);
         write(repository, "mvnw", "#!/bin/sh\n");

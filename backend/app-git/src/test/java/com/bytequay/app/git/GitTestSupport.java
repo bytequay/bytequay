@@ -21,6 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+import static java.nio.file.StandardOpenOption.APPEND;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** Plain git plumbing for tests that build throwaway repositories. */
@@ -47,9 +48,15 @@ public final class GitTestSupport
             throws IOException
     {
         git(root.getParent(), "init", "--quiet", "-b", "main", root.toString());
-        git(root, "config", "user.name", "ByteQuay Test");
-        git(root, "config", "user.email", "bytequay@example.com");
+        configureUser(root, "ByteQuay Test", "bytequay@example.com");
         return root.toRealPath();
+    }
+
+    /** Sets fixture identity without launching two more Git processes for each new repository. */
+    public static void configureUser(Path repository, String name, String email)
+            throws IOException
+    {
+        Files.writeString(repository.resolve(".git/config"), "\n[user]\n\tname = " + name + "\n\temail = " + email + "\n", StandardCharsets.UTF_8, APPEND);
     }
 
     public static Path cloneFork(Path source, Path root)

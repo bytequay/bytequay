@@ -27,8 +27,6 @@ import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -37,7 +35,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteAssistantStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final LocalDate DAY = LocalDate.parse("2026-10-17");
     private static final Instant AT = Instant.parse("2026-10-17T01:02:00Z");
@@ -47,12 +45,6 @@ class TestSqliteAssistantStore
 
     @Autowired
     private EntityManager entities;
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-assistant-store-"), "create-drop");
-    }
 
     @Test
     void keepsADayWithItsSessionAndServedRefs()

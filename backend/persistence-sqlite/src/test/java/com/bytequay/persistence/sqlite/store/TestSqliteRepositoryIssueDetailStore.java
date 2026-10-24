@@ -19,8 +19,6 @@ import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -28,7 +26,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteRepositoryIssueDetailStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
 
@@ -37,12 +35,6 @@ class TestSqliteRepositoryIssueDetailStore
 
     @Autowired
     private EntityManager entities;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-issue-detail-store-"), "create-drop");
-    }
 
     @Test
     void storesIssueDetailsByRepositoryAndIssueNumber()

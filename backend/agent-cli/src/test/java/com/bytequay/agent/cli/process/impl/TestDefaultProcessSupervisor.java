@@ -466,10 +466,12 @@ class TestDefaultProcessSupervisor
         StringBuilder stdout = new StringBuilder();
         CountDownLatch reported = new CountDownLatch(1);
         ManagedProcess process = supervisor
-                .prepare(spec("/bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"; sleep 1'"))
+                .prepare(spec("/bin/bash -c 'set -m; sleep 45 >/dev/null 2>&1 & printf \"%s\\n\" \"$!\"; read value'"))
                 .start(firstStdoutLine(stdout, reported));
         assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
         long descendantPid = Long.parseLong(stdout.toString().trim());
+        awaitRecordedDescendant(process, descendantPid);
+        process.write(ByteBuffer.wrap("exit\n".getBytes(StandardCharsets.UTF_8))).toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
 
@@ -813,15 +815,7 @@ class TestDefaultProcessSupervisor
         try {
             assertThat(reported.await(5, TimeUnit.SECONDS)).isTrue();
             long childPid = Long.parseLong(output.toString().trim());
-            LaunchMarkerStore store = new LaunchMarkerStore(launches);
-            long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-            while (store.read(process.launchId()).orElseThrow().descendants().orElseThrow().stream().noneMatch(identity -> identity.pid() == childPid)
-                    && System.nanoTime() < deadline) {
-                Thread.sleep(10);
-            }
-            assertThat(store.read(process.launchId()).orElseThrow().descendants().orElseThrow())
-                    .extracting(ProcessIdentity::pid)
-                    .contains(childPid);
+            awaitRecordedDescendant(process, childPid);
 
             assertThat(process.stopAfterWorkFinished().toCompletableFuture().get(15, TimeUnit.SECONDS))
                     .isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
@@ -1062,6 +1056,20 @@ class TestDefaultProcessSupervisor
                 }
             }
         };
+    }
+
+    private void awaitRecordedDescendant(ManagedProcess process, long childPid)
+            throws InterruptedException
+    {
+        LaunchMarkerStore store = new LaunchMarkerStore(launches);
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (store.read(process.launchId()).orElseThrow().descendants().orElseThrow().stream().noneMatch(identity -> identity.pid() == childPid)
+                && System.nanoTime() < deadline) {
+            Thread.sleep(10);
+        }
+        assertThat(store.read(process.launchId()).orElseThrow().descendants().orElseThrow())
+                .extracting(ProcessIdentity::pid)
+                .contains(childPid);
     }
 
     private static boolean awaitDead(long pid, Duration timeout)

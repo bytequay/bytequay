@@ -64,6 +64,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -115,8 +116,7 @@ class TestDevelopmentGitInspector
         Files.writeString(paths.workspace(WORKSPACE_ID).resolve(".bytequay-workspace"), WORKSPACE_ID + "\n1\n");
         git = new TestGitRunner();
         run(repository, "init", "--initial-branch=main");
-        run(repository, "config", "user.name", "ByteQuay Test");
-        run(repository, "config", "user.email", "test@example.invalid");
+        configureUser(repository, "ByteQuay Test", "test@example.invalid");
         run(repository, "remote", "add", "origin", ORIGIN);
         Files.writeString(repository.resolve("README.md"), "initial\n");
         Files.writeString(repository.resolve(".gitignore"), "build/\n");
@@ -787,9 +787,7 @@ class TestDevelopmentGitInspector
     {
         run(repository, "push", "--", bareRemote.toString(), baseSha + ":refs/heads/main");
         Path ci = temporaryDirectory.resolve("ci");
-        run(repository, "clone", "--branch", "main", bareRemote.toString(), ci.toString());
-        run(ci, "config", "user.name", "CI Test");
-        run(ci, "config", "user.email", "ci@example.invalid");
+        run(repository, "clone", "--branch", "main", "--config", "user.name=CI Test", "--config", "user.email=ci@example.invalid", bareRemote.toString(), ci.toString());
         run(ci, "checkout", "-b", worktree.generatedBranch());
         return ci;
     }

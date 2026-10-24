@@ -40,6 +40,7 @@ import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -77,8 +78,7 @@ class TestReviewExperiments
         Files.createDirectories(repository);
         Files.writeString(paths.workspace(WORKSPACE_ID).resolve(".bytequay-workspace"), WORKSPACE_ID + "\n1\n");
         run(repository, "init", "--initial-branch=main");
-        run(repository, "config", "user.name", "ByteQuay Test");
-        run(repository, "config", "user.email", "test@example.invalid");
+        configureUser(repository, "ByteQuay Test", "test@example.invalid");
         run(repository, "config", "core.hooksPath", "/dev/null");
         run(repository, "remote", "add", "origin", ORIGIN);
         Files.writeString(repository.resolve("Code.java"), "original source\n");

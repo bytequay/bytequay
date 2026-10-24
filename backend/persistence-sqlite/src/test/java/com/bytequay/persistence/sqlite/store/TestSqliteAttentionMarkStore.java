@@ -18,8 +18,6 @@ import com.google.common.collect.ImmutableList;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -27,19 +25,13 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteAttentionMarkStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     @Autowired
     private SqliteAttentionMarkStore store;
 
     @Autowired
     private EntityManager entities;
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-attention-mark-store-"), "create-drop");
-    }
 
     @Test
     void savesReplacesAndRemovesMarksByKey()

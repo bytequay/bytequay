@@ -29,8 +29,6 @@ import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -40,7 +38,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteLocalReviewStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     @Autowired
     private SqliteLocalReviewStore store;
@@ -50,12 +48,6 @@ class TestSqliteLocalReviewStore
 
     @Autowired
     private EntityManager entityManager;
-
-    @DynamicPropertySource
-    static void properties(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-local-review-"), "create-drop");
-    }
 
     @Test
     void roundTripsPrivateEvidenceMessagesAndReplayKeysWithOptimisticVersions()

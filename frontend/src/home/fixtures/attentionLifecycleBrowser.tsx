@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import AppSidebar from '../../AppSidebar';
 import { taskAttentionItem } from '../../agents/attention';
 import { previewTask } from '../../agents/fixtures/previewBridge';
-import { assert, runScenarios, settle, until, element } from '../../fixtures/harness';
+import { assert, controlTimers, runScenarios, settle, until, element } from '../../fixtures/harness';
 import { jiraAttentionItem } from '../../jira/attention';
 import { jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge, ModelSettingsDto, PullRequestDto, WorkspaceDto, WorkspaceRelationshipsDto } from '../../types';
@@ -151,6 +151,7 @@ async function myPullRequests(): Promise<void> {
   const original = item(51);
   assert(original.pr !== null, 'PR fixture required');
   const own = { ...original, author: 'viewer', pr: { ...original.pr, author: 'viewer', origin: 'AUTHORED' as const } };
+  const timers = controlTimers(2000);
   const f = mount([own], true);
   try {
     await settle();
@@ -162,7 +163,9 @@ async function myPullRequests(): Promise<void> {
     button(f.host, `Pin ${own.title}`).click(); await settle();
     assert(f.cards().length === 1, 'Pinning must not remove an own PR');
     f.cards()[0].parentElement?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
-    await new Promise(resolve => setTimeout(resolve, 2100)); await settle();
+    assert(document.querySelector('.ref-card') === null, 'The hover preview waits for its delay');
+    assert(timers.tick() === 1, 'The hover preview opens after its 2000ms delay');
+    await settle();
     const preview = document.querySelector('.ref-card');
     assert(preview !== null && !preview.textContent?.includes(' Ack'), 'Own PR hover card must not offer Ack');
     button(f.host, 'Snooze #51').click(); await settle();
@@ -190,7 +193,7 @@ async function myPullRequests(): Promise<void> {
       await f.open(); await f.close();
     }
   }
-  finally { await f.dispose(); }
+  finally { await f.dispose(); timers.restore(); }
 }
 
 function approvedItem(number: number): AttentionItem {

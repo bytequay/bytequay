@@ -24,8 +24,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -35,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteBackportChainStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     @Autowired
     private SqliteBackportChainStore store;
@@ -45,12 +43,6 @@ class TestSqliteBackportChainStore
 
     @Autowired
     private SqliteWorkspacePurge purge;
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-chain-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void retainsAuthorityMergeEvidenceChildrenAndStopAcrossReads()

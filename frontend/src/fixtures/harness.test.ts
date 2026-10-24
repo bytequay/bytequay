@@ -13,7 +13,7 @@
  */
 
 import { expect, it, vi } from 'vitest';
-import { button, element, runScenarios, textButton } from './harness';
+import { button, controlTimers, element, runScenarios, textButton } from './harness';
 
 it('keeps DOM queries scoped and preserves their missing-element diagnostics', () => {
   const found = { textContent: 'value' };
@@ -67,4 +67,34 @@ it('does not add a scheduling turn after synchronous cleanup', async () => {
     queueMicrotask(() => order.push('cleanup turn'));
   });
   expect(order).toEqual(['second', 'cleanup turn', 'cleanup turn']);
+});
+
+it('advances only the selected delay, honors cancellation and restores real timers', () => {
+  const originalSet = vi.fn(() => 7);
+  const originalClear = vi.fn();
+  vi.stubGlobal('window', { setTimeout: originalSet, clearTimeout: originalClear });
+  const timers = controlTimers(400);
+  try {
+    const cancelled = vi.fn();
+    const called = vi.fn();
+    const cancelledId = window.setTimeout(cancelled, 400);
+    window.clearTimeout(cancelledId);
+    window.setTimeout(called, 400, 'argument');
+    expect(window.setTimeout(called, 30)).toBe(7);
+    expect(originalSet).toHaveBeenCalledWith(called, 30);
+    window.clearTimeout(7);
+    expect(originalClear).toHaveBeenCalledWith(7);
+    expect(called).not.toHaveBeenCalled();
+    expect(timers.tick()).toBe(1);
+    expect(called).toHaveBeenCalledTimes(1);
+    expect(called).toHaveBeenCalledWith('argument');
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(timers.tick()).toBe(0);
+    window.setTimeout(cancelled, 400);
+    timers.restore();
+    expect(window.setTimeout).toBe(originalSet);
+    expect(window.clearTimeout).toBe(originalClear);
+    expect(timers.tick()).toBe(0);
+  }
+  finally { timers.restore(); vi.unstubAllGlobals(); }
 });

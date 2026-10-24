@@ -16,26 +16,18 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.discussion.ReviewFixReply;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteReviewFixStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-10-21T00:00:00Z");
 
     @Autowired
     private SqliteReviewFixStore store;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-review-fix-store-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void keepsTheFirstRequestOfACommentAndEveryStepOfItsReply()

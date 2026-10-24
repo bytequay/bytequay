@@ -40,6 +40,7 @@ import static com.bytequay.app.ci.CiPushResult.Outcome.RETRYABLE;
 import static com.bytequay.app.ci.CiPushResult.Outcome.STALE;
 import static com.bytequay.app.ci.FixupPositionCheck.Result.VALID;
 import static com.bytequay.app.git.GitTestSupport.commit;
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.head;
 import static com.bytequay.app.git.GitTestSupport.write;
@@ -283,8 +284,7 @@ class TestCiGitService
         git(root, "init", "--bare", fork.toString());
         git(root, "init", "--bare", upstream.toString());
         git(root, "init", "-b", HEAD_REF, worktree.toString());
-        git(worktree, "config", "user.name", "ByteQuay Test");
-        git(worktree, "config", "user.email", "bytequay@example.com");
+        configureUser(worktree, "ByteQuay Test", "bytequay@example.com");
         git(worktree, "remote", "add", "origin", REMOTE_URL);
         git(worktree, "remote", "add", "upstream", "https://github.com/upstream/project.git");
         git(worktree, "config", RoutedGitCommandRunner.ROUTE_CONFIG, RoutedGitCommandRunner.route(root, "https://github.com/"));
@@ -522,8 +522,7 @@ class TestCiGitService
         Files.createDirectories(root);
         git(root, "init", "--bare", remote.toString());
         git(root, "init", "-b", HEAD_REF, worktree.toString());
-        git(worktree, "config", "user.name", "ByteQuay Test");
-        git(worktree, "config", "user.email", "bytequay@example.com");
+        configureUser(worktree, "ByteQuay Test", "bytequay@example.com");
         git(worktree, "remote", "add", "origin", REMOTE_URL);
         git(worktree, "config", RoutedGitCommandRunner.ROUTE_CONFIG, RoutedGitCommandRunner.route(remote, REMOTE_URL));
 
@@ -542,9 +541,8 @@ class TestCiGitService
             throws IOException
     {
         Path publisher = fixture.remote().getParent().resolve("publisher");
-        git(fixture.remote().getParent(), "clone", "--branch", "main", fixture.remote().toString(), publisher.toString());
-        git(publisher, "config", "user.name", "ByteQuay Test");
-        git(publisher, "config", "user.email", "bytequay@example.com");
+        git(fixture.remote().getParent(), "clone", "--branch", "main", "--config", "user.name=ByteQuay Test", "--config", "user.email=bytequay@example.com",
+                fixture.remote().toString(), publisher.toString());
         write(publisher.resolve("base-next.txt"), "new base\n");
         commit(publisher, "Advance base");
         git(publisher, "push", "origin", "HEAD:refs/heads/main");

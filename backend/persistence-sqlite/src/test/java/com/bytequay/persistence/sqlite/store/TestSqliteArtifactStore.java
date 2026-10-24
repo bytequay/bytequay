@@ -21,8 +21,6 @@ import com.bytequay.core.domain.ArtifactSession;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -30,7 +28,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteArtifactStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant AT = Instant.parse("2026-10-19T10:00:00Z");
 
@@ -39,12 +37,6 @@ class TestSqliteArtifactStore
 
     @Autowired
     private EntityManager entities;
-
-    @DynamicPropertySource
-    static void database(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-artifact-store-"), "create-drop");
-    }
 
     @Test
     void keepsConversationsEventsOffersAndPageVersionsApartFromTheirHtml()

@@ -33,6 +33,25 @@ export const settle = async (): Promise<void> => {
   });
 };
 
+/** Advance one application delay while rendering and unrelated timers keep running normally. */
+export function controlTimers(delayMs: number) {
+  const originalSet = window.setTimeout;
+  const originalClear = window.clearTimeout;
+  let id = 1_000_000;
+  const timers = new Map<number, () => void>();
+  window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]): number => {
+    if (delay !== delayMs || typeof handler !== 'function') return originalSet(handler, delay, ...args);
+    const key = ++id;
+    timers.set(key, () => handler(...args));
+    return key;
+  }) as typeof window.setTimeout;
+  window.clearTimeout = (key?: number) => { if (key !== undefined && timers.delete(key)) return; originalClear(key); };
+  return {
+    tick: () => { const due = [...timers.values()]; timers.clear(); due.forEach(run => run()); return due.length; },
+    restore: () => { window.setTimeout = originalSet; window.clearTimeout = originalClear; timers.clear(); },
+  };
+}
+
 export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }

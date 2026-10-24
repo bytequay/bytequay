@@ -70,12 +70,11 @@ final class E2eGitRepository
         createDirectory(root);
         String remoteUrl = "https://github.com/" + pullRequest.repoFullName() + ".git";
         git(root, "clone", "--bare", "--config", "core.logAllRefUpdates=true", template.toString(), bareRemote.toString());
-        git(root, "clone", "--branch", HEAD_REF, bareRemote.toString(), worktree.toString());
         // The program commits here through its own Git calls, which carry no identity
         // environment, and a clone inherits none. Git only invents one when the host name
         // has a domain, so without this the rebase fails on a plain CI host.
-        git(worktree, "config", "user.name", DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_NAME"));
-        git(worktree, "config", "user.email", DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_EMAIL"));
+        git(root, "clone", "--branch", HEAD_REF, "--config", "user.name=" + DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_NAME"),
+                "--config", "user.email=" + DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_EMAIL"), bareRemote.toString(), worktree.toString());
         git(worktree, "remote", "set-url", "origin", remoteUrl);
         git(worktree, "config", RoutedGitCommandRunner.ROUTE_CONFIG, RoutedGitCommandRunner.route(bareRemote, remoteUrl));
         String baseSha = git(worktree, "rev-parse", "origin/" + BASE_REF);

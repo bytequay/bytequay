@@ -70,6 +70,7 @@ import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -158,7 +159,7 @@ class TestDefaultAgentTurnService
 
     private InMemoryAgentStores stores;
     private FileAgentResourceService resources;
-    private FileTaskLogStore logs;
+    private TaskLogStore logs;
     private DefaultAgentEventService events;
     private DefaultAgentMetricsService metrics;
     private RecordingApprovalService approvals;
@@ -199,7 +200,7 @@ class TestDefaultAgentTurnService
                 TaskBranches.generate(taskId, "user", "Lifecycle test"),
                 "Lifecycle test",
                 new AgentTaskDefaults(Optional.of("model-a"), Optional.of("low"), AgentPermissionPolicy.AUTO)));
-        logs = new FileTaskLogStore(resources);
+        logs = new InMemoryTaskLogStore();
         events = new DefaultAgentEventService(logs, stores, stores, CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, logs, CLOCK);
         approvals = new RecordingApprovalService();
@@ -3554,6 +3555,11 @@ class TestDefaultAgentTurnService
     @Test
     void startsQueuedInputInOrderOnlyAfterASuccessfulTurn()
     {
+        // Keep the queued-turn lifecycle integrated with durable events and blobs.
+        logs = new FileTaskLogStore(resources);
+        events = new DefaultAgentEventService(logs, stores, stores, CLOCK);
+        metrics = new DefaultAgentMetricsService(stores, stores, logs, CLOCK);
+        service = service(driver, runtimeRegistry);
         AgentTurn first = service.start(command("first", "key-1"));
         long version = taskService.get(task.id()).version();
         QueuedAgentInput second = service.enqueue(new QueueAgentInputCommand(task.id(), version, "second", ImmutableList.of(), "queue-1", Optional.empty()));

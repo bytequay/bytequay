@@ -19,28 +19,9 @@ import { AgentTaskList } from '../AgentTasksView';
 import AgentTaskScreen from '../AgentTaskScreen';
 import { CI_PROJECTION, CI_RUN } from './ciAutofix';
 import { createPreviewBridge } from './previewBridge';
-import { assert, changeInput, settle, element, until } from '../../fixtures/harness';
+import { assert, changeInput, controlTimers, settle, element, until } from '../../fixtures/harness';
 
 function pressEnter(input: HTMLTextAreaElement) { input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); }
-
-/** Advance five-second polling; ordinary rendering and stream coalescing use real timers. */
-function ciTimers() {
-  const originalSet = window.setTimeout;
-  const originalClear = window.clearTimeout;
-  let id = 1_000_000;
-  const timers = new Map<number, () => void>();
-  Object.defineProperty(window, 'setTimeout', { configurable: true, writable: true, value: (handler: TimerHandler, delay?: number, ...args: unknown[]): number => {
-    if (delay !== 5000 || typeof handler !== 'function') return originalSet(handler, delay, ...args);
-    const key = ++id;
-    timers.set(key, () => handler(...args));
-    return key;
-  } });
-  Object.defineProperty(window, 'clearTimeout', { configurable: true, writable: true, value: (key?: number) => { if (key !== undefined && timers.delete(key)) return; originalClear(key); } });
-  return {
-    tick: () => { const due = [...timers.values()]; timers.clear(); due.forEach(run => run()); },
-    restore: () => { window.setTimeout = originalSet; window.clearTimeout = originalClear; timers.clear(); },
-  };
-}
 
 async function ciReplyAndOwnership(steering = false): Promise<{ name: string; error?: string }> {
   const bridge = createPreviewBridge('workspace-1');
@@ -79,7 +60,7 @@ async function ciReplyAndOwnership(steering = false): Promise<{ name: string; er
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
     return run;
   };
-  const timers = ciTimers();
+  const timers = controlTimers(5000);
   const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
@@ -163,7 +144,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
   bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
   bridge.subscribeAgentTask = async (id, _after, notify) => { notify({ subscriptionId: id, taskId: id, kind: 'state', state: 'open' }); return () => {}; };
   bridge.getCiAutofixRun = async () => ({ ...CI_RUN, status: 'ACTIVE', activity: 'WATCHING_CI', currentTurnId: null, parentTaskId: task.id });
-  const timers = ciTimers();
+  const timers = controlTimers(5000);
   const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
@@ -228,7 +209,7 @@ async function ciApprovalCard(): Promise<{ name: string; error?: string }> {
     assert(id === approval.taskId && turnId === approval.turnId, 'The source must read only its verified CI turn');
     return [approval];
   };
-  const timers = ciTimers();
+  const timers = controlTimers(5000);
   const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
@@ -325,7 +306,7 @@ async function laterRunAndRecovery(): Promise<{ name: string; error?: string }> 
     replies.push({ runId, message });
     return { ...CI_RUN, id: 'new-ci-run', agentTaskId: 'new-ci-task' };
   };
-  const timers = ciTimers();
+  const timers = controlTimers(5000);
   const { host, root, dispose } = createFixtureRoot();
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {

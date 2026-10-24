@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -442,8 +443,7 @@ class TestWorkspaceProvisioningService
         Path source = temporary.resolve(name + "-source");
         Files.createDirectories(source);
         git(source, "init", "--initial-branch=main");
-        git(source, "config", "user.name", "ByteQuay Test");
-        git(source, "config", "user.email", "test@bytequay.local");
+        configureUser(source, "ByteQuay Test", "test@bytequay.local");
         Files.writeString(source.resolve("README.md"), name, StandardCharsets.UTF_8);
         git(source, "add", "README.md");
         git(source, "commit", "-m", "initial");

@@ -31,6 +31,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -77,9 +78,9 @@ class TestGitCommandRunner
 
     @Test
     void failsOnlyOnLeftoverMarkersNotOnWhitespaceTheAuthorWrote()
+            throws IOException
     {
-        git(repository, "config", "user.name", "ByteQuay Test");
-        git(repository, "config", "user.email", "bytequay@example.com");
+        configureUser(repository, "ByteQuay Test", "bytequay@example.com");
         GitTestSupport.write(repository, "file.txt", "one\n");
         GitTestSupport.commit(repository, "Base");
         String before = GitTestSupport.head(repository);
@@ -175,8 +176,7 @@ class TestGitCommandRunner
     void stopsHooksAndTheirChildrenBeforeReturningFromTimeoutOrInterruption(boolean interrupt)
             throws Exception
     {
-        git(repository, "config", "user.name", "ByteQuay Test");
-        git(repository, "config", "user.email", "bytequay@example.com");
+        configureUser(repository, "ByteQuay Test", "bytequay@example.com");
         git(repository, "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-m", "Base");
         Path hook = repository.resolve(".git/hooks/post-checkout");
         Files.writeString(hook, """

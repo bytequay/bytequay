@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Optional;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestWorktreeDiffReader
@@ -37,8 +38,7 @@ class TestWorktreeDiffReader
             throws Exception
     {
         run("init");
-        run("config", "user.name", "Test");
-        run("config", "user.email", "test@example.invalid");
+        configureUser(repository, "Test", "test@example.invalid");
         Files.writeString(repository.resolve("tracked.txt"), "original\n");
         Files.writeString(repository.resolve("deleted.txt"), "delete me\n");
         Files.writeString(repository.resolve(".gitignore"), "ignored.txt\n");

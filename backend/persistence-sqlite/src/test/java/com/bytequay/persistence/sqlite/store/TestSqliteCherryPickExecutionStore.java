@@ -43,8 +43,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.test.context.DynamicPropertyRegistry;
-import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -58,7 +56,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteCherryPickExecutionStore
-        extends AbstractTestSqliteStore
+        extends AbstractTestTransactionalSqliteStore
 {
     private static final Instant NOW = Instant.parse("2026-08-20T00:00:00Z");
     private static final String TARGET = "a".repeat(40);
@@ -73,12 +71,6 @@ class TestSqliteCherryPickExecutionStore
 
     @Autowired
     private jakarta.persistence.EntityManager entities;
-
-    @DynamicPropertySource
-    static void configureDatabase(DynamicPropertyRegistry registry)
-    {
-        registerSqliteProperties(registry, newDatabaseUrl("bytequay-cherry-pick-store-") + "?foreign_keys=ON", "create-drop");
-    }
 
     @Test
     void roundTripsAThreeHundredItemExecution()

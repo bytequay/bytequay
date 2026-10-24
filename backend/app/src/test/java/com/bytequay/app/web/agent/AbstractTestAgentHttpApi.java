@@ -76,6 +76,7 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -224,8 +225,7 @@ abstract class AbstractTestAgentHttpApi
         Files.createDirectories(repository);
         Files.writeString(workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"), workspaceId + "\n" + repositoryId + "\n");
         run("git", "init", "-b", "main", repository.toString());
-        run("git", "-C", repository.toString(), "config", "user.name", "ByteQuay Test");
-        run("git", "-C", repository.toString(), "config", "user.email", "test@bytequay.local");
+        configureUser(repository, "ByteQuay Test", "test@bytequay.local");
         Files.writeString(repository.resolve("README.md"), "agent e2e\n");
         run("git", "-C", repository.toString(), "add", "README.md");
         run("git", "-C", repository.toString(), "commit", "-m", "Initial commit");

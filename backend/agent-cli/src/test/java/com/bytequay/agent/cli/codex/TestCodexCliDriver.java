@@ -788,13 +788,9 @@ class TestCodexCliDriver
 
         // No answer and then the process gone: nothing says whether the input landed.
         supervisor.server().ignoreSteer = true;
+        int delivered = supervisor.server().steerRequests.size();
         Thread.ofVirtual().start(() -> {
-            try {
-                Thread.sleep(200);
-            }
-            catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            awaitCondition(() -> supervisor.server().steerRequests.size() > delivered);
             supervisor.server().disconnect();
         });
         assertThatThrownBy(() -> turn.steer(new AgentTurnInput("silent", ImmutableList.of())))

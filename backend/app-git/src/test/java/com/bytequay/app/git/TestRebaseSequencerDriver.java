@@ -19,6 +19,8 @@ import com.bytequay.app.git.command.SequenceState.Kind;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -32,6 +34,7 @@ import static com.bytequay.app.git.GitTestSupport.initRepository;
 import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 
+@Execution(ExecutionMode.CONCURRENT)
 class TestRebaseSequencerDriver
 {
     private static final GitCommandRunner GIT = new GitCommandRunner();

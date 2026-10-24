@@ -89,6 +89,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -131,8 +132,7 @@ class TestRelatedWorkspaceWork
             throws Exception
     {
         command("init", "-q");
-        command("config", "user.name", "Test");
-        command("config", "user.email", "test@example.com");
+        configureUser(repository, "Test", "test@example.com");
         Files.writeString(repository.resolve("API.txt"), "old API");
         command("add", ".");
         command("commit", "-qm", "Old API");

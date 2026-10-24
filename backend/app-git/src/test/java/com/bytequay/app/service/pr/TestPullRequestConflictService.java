@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalLong;
 
+import static com.bytequay.app.git.GitTestSupport.configureUser;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -78,8 +79,7 @@ class TestPullRequestConflictService
             throws IOException
     {
         command("init", "--quiet", "-b", "main");
-        command("config", "user.name", "ByteQuay Test");
-        command("config", "user.email", "test@example.com");
+        configureUser(repository, "ByteQuay Test", "test@example.com");
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.id()).thenReturn("workspace");
         when(workspace.monitoredRepository()).thenReturn(REPO);

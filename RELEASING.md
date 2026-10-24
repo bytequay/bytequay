@@ -22,16 +22,29 @@ see on first launch, and the planned auto-update path.
 
 ### Versioning
 
-Three places carry the version number — keep them in sync before tagging.
+These places carry the version number — keep them in sync before tagging.
+The app reads its own version from `frontend/package.json` through
+`app.getVersion()`.
 
-| File                                              | Field                            |
-|---------------------------------------------------|----------------------------------|
-| `frontend/src/main.ts`                            | `APP_VERSION`                    |
-| `frontend/package.json`                           | `version`                        |
-| `backend/pom.xml`                                 | top-level `<version>`            |
+| File                                                      | Field                                   |
+|-----------------------------------------------------------|-----------------------------------------|
+| `frontend/package.json`                                   | `version` and the four `@bytequay/*` dependencies |
+| `frontend/packages/ui/package.json`                       | `version`                               |
+| `frontend/plugins/{google,jira,lab}/package.json`         | `version` and the `@bytequay/ui` dependency |
+| `frontend/package-lock.json`                              | the same fields for the root and the four workspaces |
+| `backend/pom.xml`                                         | top-level `<version>`                   |
+| every module `pom.xml` under `backend/`                   | parent `<version>`                      |
+| `backend/agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexAppServerClient.java` | `ClientInfo` version |
 
-A small follow-up worth doing: add a CI check that compares the three
-and fails if they disagree (one-line bash + xq/jq).
+The poms change together from `backend/`:
+
+```bash
+mvn versions:set -DnewVersion=0.5.2 -DgenerateBackupPoms=false
+```
+
+`npm version --workspaces` leaves the `@bytequay/*` dependency versions
+behind, so edit the frontend rows by hand. Then check that
+`git grep -n '<old version>'` finds only unrelated dependency versions.
 
 ### Tag + push
 

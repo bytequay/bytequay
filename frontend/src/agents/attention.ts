@@ -163,10 +163,15 @@ export function taskAttentionAfterQueue(item: AttentionItem | null, queued: Pick
 
 /** Ties each pull request's card to the tasks whose branch opened it. */
 export function linkTasks(items: AttentionItem[], tasks: WorkspaceTask[]): AttentionItem[] {
+  const byPullRequest = new Map<string, WorkspaceTask[]>();
+  for (const linked of tasks) {
+    if (linked.task.pullRequest == null) continue;
+    const key = `${linked.workspace.repository.toLowerCase()}#${linked.task.pullRequest.number}`;
+    byPullRequest.set(key, [...byPullRequest.get(key) ?? [], linked]);
+  }
   return items.map((item) => {
     if (item.type !== 'pr') return item;
-    const linked = tasks.filter(({ task, workspace }) =>
-      task.pullRequest?.number === item.number && workspace.repository.toLowerCase() === item.repo.toLowerCase());
+    const linked = byPullRequest.get(`${item.repo.toLowerCase()}#${item.number}`) ?? [];
     return linked.length === 0 ? item : { ...item, links: linked.map(({ task }) => taskLink(task)) };
   });
 }

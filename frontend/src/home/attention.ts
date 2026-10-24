@@ -191,9 +191,19 @@ export function attentionTime(item: AttentionItem): string {
   return eventTime !== undefined && Date.parse(eventTime) > Date.parse(item.updatedAt) ? eventTime : item.updatedAt;
 }
 
+// A sort compares each of thousands of items many times; parse an item's time once.
+const attentionMillis = new WeakMap<AttentionItem, number>();
+function attentionAt(item: AttentionItem): number {
+  let at = attentionMillis.get(item);
+  if (at === undefined) {
+    at = Date.parse(attentionTime(item)) || 0;
+    attentionMillis.set(item, at);
+  }
+  return at;
+}
+
 function compareAttention(left: AttentionItem, right: AttentionItem): number {
-  return (Date.parse(attentionTime(right)) || 0) - (Date.parse(attentionTime(left)) || 0)
-    || PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind);
+  return attentionAt(right) - attentionAt(left) || PRIORITY.indexOf(left.kind) - PRIORITY.indexOf(right.kind);
 }
 
 export function attentionSource(item: AttentionItem): AttentionSource {
@@ -455,7 +465,7 @@ export function attentionCards(live: AttentionItem[], filter: AttentionFilter, l
     const rank = attentionRank(item, team.circles, team.viewerLogin);
     if (rank === null || (filter !== 'all' && attentionSource(item) !== filter)
       || (team.onlyTeam && teamAttentionMatch(item, team.circles, team.viewerLogin) === null)) return [];
-    const recent = now - (Date.parse(attentionTime(item)) || 0) <= RANKED_WINDOW_MS;
+    const recent = now - attentionAt(item) <= RANKED_WINDOW_MS;
     return [{ item, order: recent ? rank : Number.MAX_SAFE_INTEGER }];
   }).sort((left, right) => left.order - right.order || compareAttention(left.item, right.item)).slice(0, limit).map(entry => entry.item);
 }

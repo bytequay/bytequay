@@ -29,7 +29,7 @@ export type WorkItemContextLink = {
   reference: { kind: 'ISSUE' | 'JIRA'; key: string; label: string } | null;
 };
 export type WorkItemBridge = {
-  listUnifiedWorkItems: (workspaceId: string) => Promise<UnifiedWorkItem[]>;
+  listUnifiedWorkItems: (workspaceId: string, localOnly?: boolean) => Promise<UnifiedWorkItem[]>;
   listWorkItemContextLinks: (workspaceId: string, itemId: string) => Promise<WorkItemContextLink[]>;
   linkWorkItemContext: (workspaceId: string, itemId: string, expectedRevision: number, targetId: string) => Promise<WorkItemDto>;
   unlinkWorkItemContext: (workspaceId: string, itemId: string, expectedRevision: number, targetId: string) => Promise<WorkItemDto>;

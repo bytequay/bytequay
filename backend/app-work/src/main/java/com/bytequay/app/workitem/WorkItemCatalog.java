@@ -19,6 +19,7 @@ import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.JiraIssueSource;
+import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemContextLink;
@@ -70,6 +71,11 @@ public class WorkItemCatalog
 
     public List<UnifiedWorkItem> list(String workspaceId)
     {
+        return list(workspaceId, false);
+    }
+
+    public List<UnifiedWorkItem> list(String workspaceId, boolean localOnly)
+    {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Map<String, UnifiedWorkItem> result = new LinkedHashMap<>();
         Map<String, WorkItemView> views = work.list(workspaceId).stream().collect(toImmutableMap(WorkItemView::id, item -> item));
@@ -85,35 +91,67 @@ public class WorkItemCatalog
                     item.title(), body, item.state().name(), item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED, item.updatedAt(),
                     source.map(WorkItemLink::reference), Optional.ofNullable(views.get(item.id()))));
         }
-        int page = 0;
-        RepositoryIssuePage found;
-        do {
-            found = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), page++, 100);
-            found.issues().forEach(issue -> {
-                WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", issue.id(), workspace.monitoredRepository().fullName(),
-                        issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
-                add(result, owners, views, link, issue.title(), issue.body(), "Open", false);
-            });
+        if (localOnly) {
+            // Local rows need only their own remote references and parent Epics, not every cached issue and ticket.
+            items.stream().flatMap(item -> item.links().stream()).map(WorkItemLink::reference).filter(reference -> reference.kind() == GoalItemKind.ISSUE)
+                    .map(reference -> GoalReferenceReader.NumberedKey.parse(reference.key()))
+                    .filter(reference -> reference.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()))
+                    .forEach(reference -> issues.find(workspace.monitoredRepositoryId(), reference.number())
+                            .ifPresent(issue -> addIssue(result, owners, views, workspace, issue)));
+            items.stream().flatMap(item -> item.links().stream()).filter(link -> link.reference().kind() == GoalItemKind.JIRA)
+                    .flatMap(link -> EpicSources.ticket(link.identity()).stream())
+                    .forEach(ticket -> jira.cachedIssue(ticket.cloudId(), ticket.issueId())
+                            .filter(issue -> issue.workspace().filter(value -> value.id().equals(workspaceId)).isPresent())
+                            .ifPresent(issue -> addJira(result, owners, views, issue)));
+            items.stream().flatMap(item -> item.epicId().stream()).distinct().filter(id -> id.startsWith("JIRA:") && !owners.containsKey(id))
+                    .flatMap(id -> EpicSources.ticket(id).stream())
+                    .forEach(ticket -> jira.cachedIssue(ticket.cloudId(), ticket.issueId())
+                            .filter(issue -> issue.workspace().filter(value -> value.id().equals(workspaceId)).isPresent())
+                            .ifPresent(issue -> addJira(result, owners, views, issue)));
         }
-        while (found.hasMore());
-        for (JiraIssue issue : jira.cachedIssues()) {
-            if (issue.workspace().filter(value -> value.id().equals(workspaceId)).isEmpty()) {
-                continue;
+        else {
+            int page = 0;
+            RepositoryIssuePage found;
+            do {
+                found = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), page++, 100);
+                found.issues().forEach(issue -> addIssue(result, owners, views, workspace, issue));
             }
-            WorkItemLink link = GoalReferenceReader.jiraLink(new JiraIssueSource(issue.connectionId(), issue.cloudId(), issue.id(),
-                    issue.key(), issue.url(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
-            add(result, owners, views, link, issue.title(), issue.body(), issue.status().name(), issue.status().category().equals("done"));
+            while (found.hasMore());
+            for (JiraIssue issue : jira.cachedIssues()) {
+                if (issue.workspace().filter(value -> value.id().equals(workspaceId)).isPresent()) {
+                    addJira(result, owners, views, issue);
+                }
+            }
         }
         // The issue cache may not hold an Epic's issue; its mark still names it by number, so work in it shows and opens its Epic.
         String repository = workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT);
         items.stream().flatMap(item -> item.epicId().stream()).distinct()
                 .filter(epicId -> epicId.startsWith("ISSUE:github.com:") && !owners.containsKey(epicId) && !result.containsKey(epicId))
                 .forEach(epicId -> markers.findEpic("github.com", EpicSources.issueId(epicId)).filter(epic -> epic.isEpic() && epic.repo().equals(repository)).ifPresent(epic -> {
+                    Optional<RepositoryIssue> cached = localOnly ? issues.find(workspace.monitoredRepositoryId(), epic.number()) : Optional.empty();
+                    if (cached.isPresent()) {
+                        addIssue(result, owners, views, workspace, cached.orElseThrow());
+                        return;
+                    }
                     GoalItem reference = new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(epic.repo(), epic.number()), "#" + epic.number(), "", epic.updatedAt());
                     result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.GITHUB, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
                             Optional.empty()));
                 }));
         return result.values().stream().sorted(Comparator.comparing(UnifiedWorkItem::updatedAt).reversed()).collect(toImmutableList());
+    }
+
+    private static void addIssue(Map<String, UnifiedWorkItem> result, Map<String, String> owners, Map<String, WorkItemView> views, Workspace workspace, RepositoryIssue issue)
+    {
+        WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", issue.id(), workspace.monitoredRepository().fullName(),
+                issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
+        add(result, owners, views, link, issue.title(), issue.body(), "Open", false);
+    }
+
+    private static void addJira(Map<String, UnifiedWorkItem> result, Map<String, String> owners, Map<String, WorkItemView> views, JiraIssue issue)
+    {
+        WorkItemLink link = GoalReferenceReader.jiraLink(new JiraIssueSource(issue.connectionId(), issue.cloudId(), issue.id(),
+                issue.key(), issue.url(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
+        add(result, owners, views, link, issue.title(), issue.body(), issue.status().name(), issue.status().category().equals("done"));
     }
 
     private static void add(Map<String, UnifiedWorkItem> result, Map<String, String> owners, Map<String, WorkItemView> views,

@@ -676,8 +676,8 @@ function registerIpc(): void {
     backendJson(taskUrl(taskId, '/defaults', { workspaceId }),
     jsonInit('PUT', { expectedVersion, defaults }))
       .then((task) => parseAgentTask(task)));
-  ipcMain.handle('agent:tasks:changes', (_event, workspaceId: string) =>
-    backendJson(`${backendBase()}/agent/tasks/changes?${new URLSearchParams({ workspaceId })}`)
+  ipcMain.handle('agent:tasks:changes', (_event, workspaceId: string, taskIds: string[]) =>
+    backendJson(`${backendBase()}/agent/tasks/changes?${new URLSearchParams({ workspaceId, taskIds: taskIds.join(',') })}`)
       .then(parseAgentTaskChanges));
   ipcMain.handle('agent:tasks:activity', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/agent/tasks/activity?${new URLSearchParams({ workspaceId })}`)
@@ -1733,8 +1733,8 @@ function registerIpc(): void {
       jsonInit('PATCH', { isEpic })));
   const goalsUrl = (workspaceId: string, path = '') => workspaceUrl(workspaceId, `/goals${path}`);
   const workItemsUrl = (workspaceId: string, suffix = '') => workspaceUrl(workspaceId, `/work-items${suffix}`);
-  ipcMain.handle('work-items:catalog', (_event, workspaceId: string) =>
-    backendJson(workItemsUrl(workspaceId, '/catalog')).then(items => parseList(items, parseUnifiedWorkItem, 'work items')));
+  ipcMain.handle('work-items:catalog', (_event, workspaceId: string, localOnly = false) =>
+    backendJson(workItemsUrl(workspaceId, `/catalog?localOnly=${localOnly}`)).then(items => parseList(items, parseUnifiedWorkItem, 'work items')));
   ipcMain.handle('work-items:context-links', (_event, workspaceId: string, itemId: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/context-links`)).then(links => parseList(links, parseWorkItemContextLink, 'context links')));
   ipcMain.handle('work-items:link-context', (_event, workspaceId: string, itemId: string, expectedRevision: number, targetId: string) =>

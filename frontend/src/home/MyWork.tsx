@@ -62,16 +62,19 @@ export function useLocalWork(workspaceIds: string): WorkItemDto[] {
 /** What the checkouts of tasks still without a pull request hold, read again only when that set of tasks changes. */
 function useBranchChanges(items: WorkItem[]): Record<string, AgentTaskChangesDto> {
   const [changes, setChanges] = useState<Record<string, AgentTaskChangesDto>>({});
-  const workspaces = [...new Set(items.flatMap(item => item.branch === null || item.task === null ? [] : [item.task.workspaceId]))].sort().join(',');
-  const tasks = items.flatMap(item => item.branch === null || item.task === null ? [] : [item.task.id]).sort().join(',');
+  const tasks = JSON.stringify(items.flatMap(item => item.branch === null || item.task === null ? [] : [[item.task.workspaceId, item.task.id]])
+    .sort(([leftWorkspace, leftTask], [rightWorkspace, rightTask]) => leftWorkspace.localeCompare(rightWorkspace) || leftTask.localeCompare(rightTask)));
   useEffect(() => {
-    if (workspaces === '') return;
+    const listed = JSON.parse(tasks) as [string, string][];
+    if (listed.length === 0) return;
+    const workspaces = [...new Set(listed.map(([workspace]) => workspace))];
     let active = true;
-    void Promise.allSettled(workspaces.split(',').map(id => Promise.resolve().then(() => window.bridge.listAgentTaskChanges(id)))).then(results => {
+    void Promise.allSettled(workspaces.map(id => Promise.resolve().then(() => window.bridge.listAgentTaskChanges(id,
+      [...new Set(listed.filter(([workspace]) => workspace === id).map(([, task]) => task))])))).then(results => {
       if (active) setChanges(Object.assign({}, ...results.map(result => result.status === 'fulfilled' ? result.value : {})));
     });
     return () => { active = false; };
-  }, [workspaces, tasks]);
+  }, [tasks]);
   return changes;
 }
 
@@ -83,9 +86,9 @@ export default function MyWork({ items, todayKeys }: { items: WorkItem[]; todayK
   const [source, setSource] = useState<'all' | WorkSource>('all');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const [openLanes, setOpenLanes] = useState<ReadonlySet<WorkLane>>(new Set());
-  const changes = useBranchChanges(items);
   const shown = items.filter(item => source === 'all' || item.source === source);
   const lanes = WORK_LANES.map(lane => ({ ...lane, items: shown.filter(item => item.lane === lane.id) }));
+  const changes = useBranchChanges(collapsed ? [] : lanes.flatMap(lane => openLanes.has(lane.id) ? lane.items : lane.items.slice(0, LANE_LIMIT)));
   const collapse = (next: boolean) => {
     setCollapsed(next);
     try { window.localStorage.setItem(COLLAPSED_KEY, String(next)); } catch { /* the choice still holds for this visit */ }

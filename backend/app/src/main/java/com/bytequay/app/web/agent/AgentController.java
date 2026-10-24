@@ -368,9 +368,11 @@ public class AgentController
 
     /** What each listed task's live checkout holds, by task id; a checkout that cannot be read is absent. */
     @GetMapping("/tasks/changes")
-    public Map<String, WorktreeChanges> taskChanges(@RequestParam String workspaceId)
+    public Map<String, WorktreeChanges> taskChanges(@RequestParam String workspaceId, @RequestParam List<String> taskIds)
     {
+        checkArgument(taskIds.size() <= 100, "At most 100 tasks can be inspected");
         List<TaskWorktree> checkouts = taskService.list(workspaceId, 100).stream()
+                .filter(task -> taskIds.contains(task.id().toString()))
                 .filter(task -> task.worktreeRemovedAt().isEmpty())
                 .flatMap(task -> task.taskWorktree().stream())
                 .collect(toImmutableList());

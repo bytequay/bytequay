@@ -210,8 +210,8 @@ export function createPreviewBridge(
       record('listAgentTaskPullRequests', taskId, id, refresh);
       return [];
     },
-    listAgentTaskChanges: async (id) => {
-      record('listAgentTaskChanges', id);
+    listAgentTaskChanges: async (id, taskIds) => {
+      record('listAgentTaskChanges', id, taskIds);
       return {};
     },
     listAgentTaskActivity: async (id) => {

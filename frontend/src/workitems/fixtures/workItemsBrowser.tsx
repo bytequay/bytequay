@@ -64,6 +64,7 @@ export async function contextLinks() {
   const owner = (): UnifiedWorkItem => ({ ...projected(work), source: 'GITHUB', reference });
   const contextCount = () => work.contextLinks.length;
   const requests: string[] = [];
+  const catalogReads: boolean[] = [];
   let failRead = true;
   let failWrite = false;
   let importedVisible = false;
@@ -83,8 +84,11 @@ export async function contextLinks() {
     return work;
   };
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
-    listUnifiedWorkItems: async () => [owner(), ...related.map(item => !importedVisible && item.id === 'published-reference'
-      ? { ...item, id: 'ISSUE:github.com:50', work: null } : item)], listWorkItems: async () => [work],
+    listUnifiedWorkItems: async (_workspace, localOnly = false) => {
+      catalogReads.push(localOnly);
+      return [owner(), ...related.map(item => !importedVisible && item.id === 'published-reference'
+        ? { ...item, id: 'ISSUE:github.com:50', work: null } : item)].filter(item => !localOnly || item.work !== null);
+    }, listWorkItems: async () => [work],
     listWorkItemContextLinks: async () => { if (failRead) { failRead = false; throw new Error('Context lookup failed'); } return summaries(); },
     linkWorkItemContext: async (_workspace, id, revision, targetId) => { assert(id === 'owner', 'The retained owner receives links'); return mutate(revision, targetId, false); },
     unlinkWorkItemContext: async (_workspace, _id, revision, targetId) => mutate(revision, targetId, true),
@@ -103,6 +107,7 @@ export async function contextLinks() {
   try {
     root.render(<LocalWorkItems workspace={workspace} />);
     await until(() => document.querySelector('.work-items__context-links [role="alert"]') !== null, 'Failed lookup is visible');
+    assert(catalogReads.every(localOnly => localOnly), 'Opening local work does not load the remote catalog');
     assert(document.querySelector('[aria-label="Unlink Before publication"]') !== null, 'Saved links can still be removed when lookup fails');
     button('Retry').click();
     await until(() => document.querySelector('.work-items__context-links')?.textContent?.includes('Published local reference') === true, 'Retry resolves current titles');
@@ -112,6 +117,7 @@ export async function contextLinks() {
     importedVisible = true;
     window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspace.id })); await settle(); await settle();
     button('Link work item').click(); await settle();
+    assert(catalogReads.includes(false), 'Opening the context picker loads remote work on demand');
     const picker = () => document.querySelector('.work-items__context-picker');
     assert(!picker()?.textContent?.includes(work.title) && !picker()?.textContent?.includes('Published local reference'), 'Picker excludes self and resolved aliases already linked');
     type('[aria-label="Search work to link"]', 'BQ-7'); await settle();

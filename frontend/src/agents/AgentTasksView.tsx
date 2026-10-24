@@ -926,7 +926,7 @@ export function useTaskChanges(workspaceId: string, tasks: AgentTaskDto[], bridg
     if (taskIds === '') return;
     let active = true;
     // A failed read keeps the last answer; a row without one simply names nothing.
-    void bridge().listAgentTaskChanges(workspaceId).then((found) => {
+    void bridge().listAgentTaskChanges(workspaceId, taskIds.split(' ')).then((found) => {
       setCached(seed, found);
       if (active) setChanges(found);
     }, () => {});

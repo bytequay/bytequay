@@ -18,6 +18,7 @@ import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.IssueEpic;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -41,17 +42,100 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
 class TestWorkItemCatalog
 {
+    @Test
+    void localCatalogDoesNotReadUnrelatedRemoteSources()
+    {
+        ContextFixture fixture = new ContextFixture();
+        assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id).containsExactlyInAnyOrder("owner", "target");
+        verifyNoInteractions(fixture.issues, fixture.jira);
+    }
+
+    @Test
+    void localCatalogReadsOnlyTheReferencedParentEpic()
+    {
+        ContextFixture fixture = new ContextFixture();
+        WorkItem item = local("owner", ImmutableList.of());
+        String epicId = WorkItemLink.jiraIdentity("cloud", "workspace");
+        WorkItem inEpic = new WorkItem(item.id(), item.workspaceId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+                item.revision(), item.links(), item.history(), item.createdAt(), item.updatedAt(), item.priority(), item.blockedBy(), Optional.of(epicId), 0, item.contextLinks());
+        when(fixture.store.list("workspace")).thenReturn(ImmutableList.of(inEpic));
+        when(fixture.jira.cachedIssue("cloud", "workspace")).thenReturn(Optional.of(ticket("workspace")));
+
+        assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id).containsExactlyInAnyOrder("owner", epicId);
+        verify(fixture.jira).cachedIssue("cloud", "workspace");
+        verify(fixture.jira, never()).cachedIssues();
+        verifyNoInteractions(fixture.issues);
+    }
+
+    @Test
+    void localCatalogHydratesReferenceOnlyLinkedRows()
+    {
+        ContextFixture fixture = new ContextFixture();
+        WorkItem github = linked("github", new WorkItemLink(WorkItemLink.issueIdentity("github.com", 10),
+                new GoalItem(GoalItemKind.ISSUE, "org/repo#1", "#1", "Before issue sync", Instant.EPOCH)));
+        WorkItem jira = linked("jira", new WorkItemLink(WorkItemLink.jiraIdentity("cloud", "workspace"),
+                new GoalItem(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "workspace"), "ENG-1", "Before ticket sync", Instant.EPOCH)));
+        when(fixture.store.list("workspace")).thenReturn(ImmutableList.of(github, jira));
+
+        assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id, UnifiedWorkItem::title, UnifiedWorkItem::description, UnifiedWorkItem::status)
+                .containsExactlyInAnyOrder(tuple("github", "Remote request", "Remote context", "Open"), tuple("jira", "Jira request", "Jira context", "Open"));
+        verify(fixture.issues).find(1, 1);
+        verify(fixture.issues, never()).findPage(anyLong(), any(), anyInt(), anyInt());
+        verify(fixture.jira).cachedIssue("cloud", "workspace");
+        verify(fixture.jira, never()).cachedIssues();
+    }
+
+    @Test
+    void localCatalogHydratesCanonicalTicketAfterReconnecting()
+    {
+        ContextFixture fixture = new ContextFixture();
+        JiraIssue cached = ticket("workspace");
+        WorkItemLink link = GoalReferenceReader.jiraLink(new JiraIssueSource("previous-connection", cached.cloudId(), cached.id(), cached.key(),
+                cached.url(), "Previous title", "Previous body", Instant.EPOCH), Instant.EPOCH);
+        when(fixture.store.list("workspace")).thenReturn(ImmutableList.of(linked("jira", link)));
+
+        assertThat(fixture.catalog.list("workspace", true)).singleElement().satisfies(item -> {
+            assertThat(item.id()).isEqualTo("jira");
+            assertThat(item.title()).isEqualTo(cached.title());
+            assertThat(item.description()).isEqualTo(cached.body());
+            assertThat(item.reference().orElseThrow().key()).isEqualTo(GoalItem.jiraKey(cached.connectionId(), cached.cloudId(), cached.id()));
+        });
+        verify(fixture.jira).cachedIssue("cloud", "workspace");
+        verify(fixture.jira, never()).cachedIssues();
+    }
+
+    @Test
+    void localCatalogDoesNotHydrateReferencesFromAnotherRepositoryOrWorkspace()
+    {
+        ContextFixture fixture = new ContextFixture();
+        WorkItem github = linked("github", new WorkItemLink(WorkItemLink.issueIdentity("github.com", 99),
+                new GoalItem(GoalItemKind.ISSUE, "other/repo#1", "#1", "Other repository", Instant.EPOCH)));
+        WorkItem jira = linked("jira", new WorkItemLink(WorkItemLink.jiraIdentity("cloud", "other"),
+                new GoalItem(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "other"), "ENG-2", "Other workspace", Instant.EPOCH)));
+        when(fixture.store.list("workspace")).thenReturn(ImmutableList.of(github, jira));
+        when(fixture.jira.cachedIssue("cloud", "other")).thenReturn(Optional.of(ticket("other")));
+
+        assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id, UnifiedWorkItem::title, UnifiedWorkItem::description, UnifiedWorkItem::status)
+                .containsExactlyInAnyOrder(tuple("github", "github", "", "PLANNED"), tuple("jira", "jira", "", "PLANNED"));
+        verifyNoInteractions(fixture.issues);
+        verify(fixture.jira, never()).cachedIssues();
+    }
+
     @Test
     void readsAllThreeSourcesWithoutCreatingOrPublishingAndKeepsOneIdentityAfterExposure()
     {
@@ -215,11 +299,20 @@ class TestWorkItemCatalog
                 ImmutableList.of(), Optional.empty(), 0, links);
     }
 
+    private static WorkItem linked(String id, WorkItemLink link)
+    {
+        return new WorkItem(id, "workspace", id, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
+                WorkItem.State.PLANNED, 0, ImmutableList.of(link), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL,
+                ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
+    }
+
     private static final class ContextFixture
     {
         private final WorkItemStore store = mock(WorkItemStore.class);
         private final WorkItemService work = mock(WorkItemService.class);
         private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
+        private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+        private final JiraService jira = mock(JiraService.class);
         private final WorkItemCatalog catalog;
 
         private ContextFixture()
@@ -229,13 +322,13 @@ class TestWorkItemCatalog
             when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
             when(workspace.monitoredRepositoryId()).thenReturn(1L);
             when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
-            RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
             RepositoryIssue issue = new RepositoryIssue(10, 1, "Remote request", "Remote context", "alice", "", "https://github.com/org/repo/issues/1",
                     ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, Instant.EPOCH);
             when(issues.findPage(1, RepoRef.of("org", "repo"), 0, 100)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"),
                     ImmutableList.of(issue), 0, 100, 1, false, Optional.of(Instant.EPOCH)));
-            JiraService jira = mock(JiraService.class);
+            when(issues.find(1, 1)).thenReturn(Optional.of(issue));
             when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("workspace"), ticket("other")));
+            when(jira.cachedIssue("cloud", "workspace")).thenReturn(Optional.of(ticket("workspace")));
             catalog = new WorkItemCatalog(workspaces, issues, jira, store, work, markers);
             owner(ImmutableList.of());
         }

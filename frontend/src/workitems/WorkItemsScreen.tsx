@@ -140,10 +140,10 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const { busy, error, setError, run } = useAsyncAction(errorText);
   const lend = useEpicLend(workspace.id);
   const [issueTitles, setIssueTitles] = useState<ReadonlyMap<string, string>>(new Map());
-  const reload = useCallback(async () => setItems(await window.bridge.listUnifiedWorkItems(workspace.id)), [workspace.id]);
+  const reload = useCallback(async () => setItems(await window.bridge.listUnifiedWorkItems(workspace.id, true)), [workspace.id]);
   useEffect(() => {
     let active = true;
-    const read = (): void => { void window.bridge.listUnifiedWorkItems(workspace.id).then(value => { if (active) { setItems(value); setLoaded(true); } }).catch(cause => { if (active) setError(errorText(cause)); }); };
+    const read = (): void => { void window.bridge.listUnifiedWorkItems(workspace.id, true).then(value => { if (active) { setItems(value); setLoaded(true); } }).catch(cause => { if (active) setError(errorText(cause)); }); };
     // An Epic's Work tab can change this work from a layer over the page.
     const changed = (event: Event) => { if ((event as CustomEvent<string>).detail === workspace.id) read(); };
     read();

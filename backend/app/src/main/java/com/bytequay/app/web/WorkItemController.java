@@ -69,9 +69,9 @@ public class WorkItemController
     public record SpecFinding(String checkId, String candidateId) {}
 
     @GetMapping("/catalog")
-    public List<UnifiedWorkItem> catalog(@PathVariable String workspaceId)
+    public List<UnifiedWorkItem> catalog(@PathVariable String workspaceId, @RequestParam(defaultValue = "false") boolean localOnly)
     {
-        return catalog.list(workspaceId);
+        return catalog.list(workspaceId, localOnly);
     }
 
     @GetMapping("/catalog/{id}")

@@ -126,19 +126,17 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   useEffect(() => {
     if (selected === null) return;
     const date = selected.day.date;
-    if (commitsByDate[date] !== undefined) return;
-    setCommitsByDate(prev => ({ ...prev, [date]: 'loading' }));
-    let cancelled = false;
+    const key = `${login}:${date}`;
+    if (commitsByDate[key] !== undefined) return;
+    setCommitsByDate(prev => ({ ...prev, [key]: 'loading' }));
+    // Finish filling the session cache even if the popover closes or another day is selected.
     void window.bridge.getUserCommitsOnDate(login, date)
       .then((list) => {
-        if (cancelled) return;
-        setCommitsByDate(prev => ({ ...prev, [date]: list }));
+        setCommitsByDate(prev => ({ ...prev, [key]: list }));
       })
       .catch(() => {
-        if (cancelled) return;
-        setCommitsByDate(prev => ({ ...prev, [date]: 'error' }));
+        setCommitsByDate(prev => ({ ...prev, [key]: 'error' }));
       });
-    return () => { cancelled = true; };
   }, [selected, login, commitsByDate]);
 
   // Dismiss on outside click + Escape. The popover stops propagation
@@ -328,7 +326,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
           day={selected.day}
           clientX={selected.clientX}
           clientY={selected.clientY}
-          state={commitsByDate[selected.day.date] ?? 'loading'}
+          state={commitsByDate[`${login}:${selected.day.date}`] ?? 'loading'}
           onClose={closePopover}
         />,
         document.body,

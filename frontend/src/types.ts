@@ -2005,7 +2005,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   /** Reads cached PRs on the task's generated/current branch, or refreshes those branches directly from GitHub. */
   listAgentTaskPullRequests: (taskId: string, workspaceId: string, refresh?: boolean) => Promise<PullRequestDto[]>;
   /** Reads every listed task's live checkout at once, by task id; a checkout that cannot be read is absent. */
-  listAgentTaskChanges: (workspaceId: string) => Promise<Record<string, AgentTaskChangesDto>>;
+  listAgentTaskChanges: (workspaceId: string, taskIds: string[]) => Promise<Record<string, AgentTaskChangesDto>>;
   /** Reads what every listed task last said and waits on, by task id, from local stores only. */
   listAgentTaskActivity: (workspaceId: string) => Promise<Record<string, AgentTaskActivityDto>>;
   getCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;

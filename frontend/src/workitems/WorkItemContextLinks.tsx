@@ -29,6 +29,8 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
   const [readError, setReadError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   const [picking, setPicking] = useState(false);
+  const [available, setAvailable] = useState<UnifiedWorkItem[] | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const { busy, error, run } = useAsyncAction(errorText);
   useEffect(() => {
@@ -40,6 +42,15 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
       .catch(cause => { if (active) setReadError(errorText(cause)); });
     return () => { active = false; };
   }, [work.workspaceId, work.id, work.revision, work.contextLinks.length, catalog, retry]);
+  useEffect(() => {
+    if (!picking) return;
+    let active = true;
+    setAvailable(null); setCatalogError(null);
+    void window.bridge.listUnifiedWorkItems(work.workspaceId)
+      .then(items => { if (active) setAvailable(items); })
+      .catch(cause => { if (active) setCatalogError(errorText(cause)); });
+    return () => { active = false; };
+  }, [picking, work.workspaceId, work.revision, retry]);
 
   const change = (targetId: string, remove: boolean) => run(async () => {
     const mutate = remove ? window.bridge.unlinkWorkItemContext : window.bridge.linkWorkItemContext;
@@ -62,7 +73,7 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
   };
   const linked = new Set([...work.contextLinks.map(link => link.targetId), ...(links ?? []).map(link => link.id), work.id]);
   const search = query.trim().toLowerCase();
-  const choices = catalog.filter(item => !linked.has(item.id)
+  const choices = (available ?? catalog).filter(item => !linked.has(item.id)
     && `${item.title} ${item.reference?.label ?? ''} ${item.reference?.key ?? ''}`.toLowerCase().includes(search));
   return <section className="work-items__context-links" aria-label="Linked work">
     <header className="work-items__context-head">
@@ -90,12 +101,14 @@ export default function WorkItemContextLinks({ work, catalog, onChanged }: {
     {error && <div className="work-items__context-note" role="alert">{error}</div>}
     {picking && <div className="work-items__context-picker">
       <input type="search" autoFocus aria-label="Search work to link" placeholder="Search local work, GitHub, or Jira" value={query} onChange={event => setQuery(event.target.value)} />
+      {available === null && catalogError === null && <p className="work-items__context-note">Loading available work…</p>}
+      {catalogError && <p className="work-items__context-note" role="alert">{catalogError} <button type="button" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
       {choices.slice(0, 20).map(item => <div className="work-items__dev-row" key={item.id}>
         <Link2 size={15} aria-hidden="true" />
         <span>{item.title}{item.reference && <span className="card-key">{item.reference.label}</span>}<small>{SOURCE[item.source]} · {item.status}</small></span>
         <button type="button" className="work-items__plain" aria-label={`Link ${item.title}`} disabled={busy || links === null} onClick={() => void change(item.id, false)}>Link</button>
       </div>)}
-      {choices.length === 0 && <p className="work-items__context-note">{search ? 'No matching work items.' : 'No other work items to link.'}</p>}
+      {available !== null && choices.length === 0 && <p className="work-items__context-note">{search ? 'No matching work items.' : 'No other work items to link.'}</p>}
       {choices.length > 20 && <p className="work-items__context-note">Search to narrow {choices.length} work items.</p>}
     </div>}
   </section>;

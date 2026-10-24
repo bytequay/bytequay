@@ -60,7 +60,6 @@ import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.merge.AutoMergeService;
-import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
@@ -70,7 +69,6 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
-import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -80,10 +78,10 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
-import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockMakers;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -104,6 +102,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -126,6 +125,7 @@ class TestAgentHttpErrors
     private AgentCompletionService completionService;
     private CiAutofixStore ciRuns;
     private CiAutofixService ci;
+    private final ManagedWorktreeService managedWorktrees = mock(ManagedWorktreeService.class, withSettings().mockMaker(MockMakers.INLINE));
 
     @BeforeEach
     void setUp()
@@ -178,7 +178,7 @@ class TestAgentHttpErrors
                 mock(AgentResourceService.class),
                 mock(RecentTouchRecorder.class),
                 mock(PullRequestTaskStore.class),
-                new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git, mock(IdeRuntimeService.class)),
+                managedWorktrees,
                 mock(PullRequestService.class),
                 appSettings,
                 ciRuns,
@@ -427,6 +427,21 @@ class TestAgentHttpErrors
         verify(completionService).abandon(task.id(), "Start over");
         verify(completionService, times(2)).cleanupWorktree(task.id());
         verify(taskService, never()).getInteractive(any(), any());
+    }
+
+    @Test
+    void inspectsOnlyRequestedTaskCheckouts()
+            throws Exception
+    {
+        AgentTask selected = deliveryTask();
+        AgentTask hidden = deliveryTask();
+        when(taskService.list("workspace-1", 100)).thenReturn(ImmutableList.of(selected, hidden));
+
+        mvc.perform(get("/agent/tasks/changes").queryParam("workspaceId", "workspace-1").queryParam("taskIds", selected.id().toString()))
+                .andExpect(status().isOk());
+
+        verify(managedWorktrees).changes("workspace-1", ImmutableList.of(selected.taskWorktree().orElseThrow()));
+        verifyNoMoreInteractions(managedWorktrees);
     }
 
     private static AgentTask deliveryTask()

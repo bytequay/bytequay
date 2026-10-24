@@ -36,6 +36,7 @@ import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.FinishReason;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.ci.CiRerunAssessment;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -293,6 +294,26 @@ class TestCiAutofixHttpApi
 
         assertThat(response.activity()).isEqualTo("PREPARING_AGENT");
         assertThat(response.attempts()).isEmpty();
+    }
+
+    @Test
+    void exposesARequestedRerunAsWaitingToRerun()
+    {
+        CiAutofixRun source = run();
+        CiAutofixAttempt attempt = CiAutofixAttempt.create(
+                CiAutofixAttemptId.random(),
+                source.id(),
+                1,
+                "a".repeat(40),
+                ImmutableList.of(new FailureEvidence("compile", "compile failed", 100, 1, 200, 1, Optional.empty())),
+                NOW.plusSeconds(1));
+        source = source.addAttempt(attempt, NOW.plusSeconds(1))
+                .linkAttemptTurn(attempt.id(), "turn-1", NOW.plusSeconds(1))
+                .clearCurrentTurn("turn-1", NOW.plusSeconds(2));
+        attempt = source.attempts().getFirst().withRerunAssessment(new CiRerunAssessment(200, "The runner lost its network connection"), NOW.plusSeconds(2));
+        source = source.updateAttempt(attempt, NOW.plusSeconds(2));
+
+        assertThat(CiAutofixHttpModels.run(source, Optional.empty(), Optional.empty(), false).activity()).isEqualTo("WAITING_TO_RERUN");
     }
 
     @Test

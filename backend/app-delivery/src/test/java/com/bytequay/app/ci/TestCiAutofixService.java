@@ -1253,6 +1253,31 @@ class TestCiAutofixService
     }
 
     @Test
+    void waitsForTheFailedWorkflowRunToFinishBeforeRerunning()
+    {
+        CiAutofixRun run = service.start(startCommand("rerun-while-running"));
+        service.requestRerun(taskId, turnId, 200, "The runner lost its network connection before tests started");
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
+        CiWorkflowRun failed = snapshot.workflowRuns().getFirst();
+        CiWorkflowRun running = new CiWorkflowRun(
+                failed.id(), failed.workflowId(), failed.name(), failed.attempt(), "in_progress", Optional.empty(), failed.headSha(), failed.url(), failed.jobs());
+        when(gitHub.inspect(any())).thenReturn(snapshot(HEAD, BASE, ImmutableList.of(running)));
+
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.ACTIVE);
+        assertThat(run.rerunJournal()).isEmpty();
+        verify(gitHub, never()).rerunFailedJobs(any());
+
+        when(gitHub.inspect(any())).thenReturn(snapshot);
+        when(gitHub.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        run = service.advance(run.id());
+        assertThat(run.rerunJournal()).isPresent();
+        verify(gitHub).rerunFailedJobs(any());
+    }
+
+    @Test
     void doesNotBlindlyRepeatAnUncertainRerunAfterRestart()
     {
         CiAutofixRun run = service.start(startCommand("uncertain-rerun"));

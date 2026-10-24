@@ -1019,6 +1019,10 @@ public class CiAutofixService
             return startNextAttemptOrFinish(run, snapshot, now);
         }
         CiWorkflowRun workflow = requested.orElseThrow();
+        if (!"completed".equals(workflow.status())) {
+            // GitHub reruns failed jobs only once every job in the workflow run has finished.
+            return run;
+        }
         RerunJournal journal = new RerunJournal(attempt.id(), workflow.id(), snapshot.headSha(), workflow.attempt(), now, Optional.empty());
         CiAutofixRun journaled = store.update(run.recordRerunJournal(journal, now));
         CiAutofixRun latest = get(run.id());

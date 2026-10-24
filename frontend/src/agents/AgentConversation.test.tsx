@@ -588,6 +588,7 @@ describe('CI automation presentation', () => {
     expect(html).not.toContain('placeholder="Draft your next message…"');
     expect(html).toMatch(/<button[^>]*aria-label="Send message"(?![^>]*disabled)[^>]*>/);
     expect(ciActivity({ ...CI_PROJECTION, status: 'ACTIVE', activity: 'BASE_FAILURE', canMessage: false })).toBe('Already failing on the base branch');
+    expect(ciActivity({ ...CI_PROJECTION, status: 'ACTIVE', activity: 'WAITING_TO_RERUN', canMessage: false })).toBe('Waiting for all CI to finish');
   });
 
   it('allows steering the linked CI turn using its own provider capability', () => {

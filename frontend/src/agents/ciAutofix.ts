@@ -33,6 +33,7 @@ export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity'
     case 'REBASING': return 'Rebasing CI changes';
     case 'PUSHING': return 'Pushing CI changes';
     case 'RERUNNING_CI': return 'Rerunning CI';
+    case 'WAITING_TO_RERUN': return 'Waiting for all CI to finish';
     case 'INSPECTING_GIT': return 'Checking CI changes';
     case 'PREPARING_PUSH': return 'Preparing CI push';
     case 'PREPARING_AGENT': return 'Preparing CI agent';

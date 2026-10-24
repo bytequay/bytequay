@@ -172,7 +172,7 @@ public final class CiAutofixHttpModels
             return attempt.descriptionChange().orElseThrow().appliedAt().isPresent() ? "WATCHING_CI" : "FIXING";
         }
         if (attempt.gitResult().isEmpty()) {
-            return "INSPECTING_GIT";
+            return attempt.rerunAssessment().isPresent() ? "WAITING_TO_RERUN" : "INSPECTING_GIT";
         }
         if (attempt.pushedSha().isEmpty()) {
             return "PREPARING_PUSH";

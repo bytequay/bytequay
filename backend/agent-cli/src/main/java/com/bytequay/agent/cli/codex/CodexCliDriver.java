@@ -1769,7 +1769,7 @@ public final class CodexCliDriver
                 }
                 String label = lineage.labelOf(child.getKey()).orElse(child.getValue().label());
                 if (announcedChildren.add(child.getKey())) {
-                    events.emit(new ProviderAgentEvent.Lifecycle(
+                    emitRecorded(new ProviderAgentEvent.Lifecycle(
                             Optional.of(child.getKey() + ":agent-started"),
                             ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
                             label,
@@ -1778,7 +1778,7 @@ public final class CodexCliDriver
                 // The spawn that carries the prompt can arrive before or after the thread it
                 // creates, so the purpose is published when it is known rather than at discovery.
                 if (child.getValue().purpose().isPresent() && promptedChildren.add(child.getKey())) {
-                    events.emit(new ProviderAgentEvent.Message(
+                    emitRecorded(new ProviderAgentEvent.Message(
                             Optional.of(child.getKey() + ":agent-prompt"),
                             ProviderAgentEvent.MessageKind.PROMPT,
                             ProviderAgentEvent.MessagePhase.FINAL,

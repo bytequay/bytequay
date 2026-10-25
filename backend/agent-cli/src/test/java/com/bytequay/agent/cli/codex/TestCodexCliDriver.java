@@ -3782,6 +3782,43 @@ class TestCodexCliDriver
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"agent-started", "agent-prompt"})
+    void keepsChildRoutingWhenItsDiscoveryCannotBeRecorded(String refusedEvent)
+            throws Exception
+    {
+        AtomicInteger refused = new AtomicInteger();
+        try (AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {
+            if (event.providerEventId().filter(("child-1:" + refusedEvent)::equals).isPresent()) {
+                refused.incrementAndGet();
+                throw new IllegalStateException("Event exceeds the configured size limit");
+            }
+            events.add(event);
+        })) {
+            RunningTurn turn = session.start(command("delegate"));
+            supervisor.server().emitThreadStarted("child-1", "History tests");
+            supervisor.server().emitSpawnAgent("child-1", "Trace the request path");
+            supervisor.server().emitSubagentActivity("child-1");
+
+            awaitCondition(() -> events.stream().anyMatch(event -> event instanceof ProviderAgentEvent.Message message
+                    && message.text().contains("from a child thread")));
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            assertThat(events)
+                    .filteredOn(event -> event.source().providerThreadId().filter("child-1"::equals).isPresent())
+                    .isNotEmpty()
+                    .allSatisfy(event -> {
+                        assertThat(event.source().parentProviderThreadId()).contains("thread-1");
+                        assertThat(event.source().logicalAgentPath()).contains("History tests");
+                    });
+            assertThat(events).anySatisfy(event -> assertThat(event).isInstanceOfSatisfying(ProviderAgentEvent.Error.class,
+                    error -> assertThat(error.code()).isEqualTo("codex_stream")));
+
+            supervisor.server().completeTurn();
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            assertThat(refused).hasValue(1);
+        }
+    }
+
     @Test
     void addressesAV1SubagentFromAnEarlierTurn()
             throws Exception

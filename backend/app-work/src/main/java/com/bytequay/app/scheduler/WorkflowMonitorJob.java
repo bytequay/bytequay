@@ -65,6 +65,7 @@ public class WorkflowMonitorJob
     private final AgentTaskStore tasks;
     private final AgentServingGate servingGate;
     private final Clock clock;
+    private volatile Instant cherryPicksRetriedAt = Instant.MIN;
 
     public WorkflowMonitorJob(
             CherryPickExecutionStore cherryPicks, CherryPickExecutionService cherryPickService,
@@ -94,6 +95,12 @@ public class WorkflowMonitorJob
         }
         advanceEach("cherry-pick execution", cherryPicks.listRunning(BATCH_SIZE).stream().map(CherryPickExecution::id).collect(toImmutableList()),
                 cherryPickService::advance);
+        // The retry selects only tasks idle for the retry delay, so looking every five seconds finds the same ones.
+        Instant now = clock.instant();
+        if (now.isBefore(cherryPicksRetriedAt.plus(TERMINAL_RETRY_DELAY))) {
+            return;
+        }
+        cherryPicksRetriedAt = now;
         retryFinished("cherry-pick execution", AgentPermissionPolicy.CHERRY_PICK, BATCH_SIZE,
                 taskId -> cherryPicks.findByAgentTaskId(taskId).filter(run -> run.status() == CherryPickExecution.Status.FINISHED).map(CherryPickExecution::id),
                 cherryPickService::advance);

@@ -137,10 +137,14 @@ class TestCherryPickMonitoring
         CherryPickExecutionId executionId = CherryPickExecutionId.random();
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finishedExecution(executionId, taskId)));
+        WorkflowMonitorJob monitor = monitor(store, taskStore, service, readyAgentServingGate(), CLOCK);
 
-        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK).monitorCherryPicks();
+        monitor.monitorCherryPicks();
+        // The next tick within the retry delay leaves the retry alone.
+        monitor.monitorCherryPicks();
 
         verify(service, times(expectedAdvances)).advance(executionId);
+        verify(taskStore).listLive();
         verifyNoMoreInteractions(service);
     }
 

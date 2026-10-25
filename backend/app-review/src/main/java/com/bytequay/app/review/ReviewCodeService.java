@@ -176,13 +176,15 @@ public class ReviewCodeService
         }
         Path checkout = source.checkout().orElseThrow();
         String head = source.headSha().get();
-        Result listed = git.runStdout(checkout, "ls-files", "-z", "--cached", "--others", "--exclude-standard");
+        Result listed = git.runStdout(checkout, "ls-files", "-z", "--cached");
         checkState(listed.successful(), "Cannot list the working copy: %s", listed.output().strip());
         Result status = status(checkout);
         ListMultimap<String, String> codes = statusCodes(entries(status.output(), status.truncated()));
+        // Status already walks the tree for untracked paths; a second walk by ls-files doubled the cost on large repositories.
+        Set<String> untracked = codes.entries().stream().filter(entry -> entry.getValue().equals("??")).map(Map.Entry::getKey).collect(toImmutableSet());
         ImmutableList.Builder<CodeFileEntry> files = ImmutableList.builder();
         // An unmerged path is listed once per index stage.
-        for (String path : ImmutableSortedSet.copyOf(entries(listed.output(), listed.truncated()))) {
+        for (String path : ImmutableSortedSet.<String>naturalOrder().addAll(entries(listed.output(), listed.truncated())).addAll(untracked).build()) {
             List<String> pathCodes = codes.get(path);
             // A staged deletion can leave the same path untracked, so only the disk says whether it is gone.
             if (pathCodes.stream().anyMatch(code -> code.indexOf('D') >= 0) && Files.notExists(checkout.resolve(path), LinkOption.NOFOLLOW_LINKS)) {

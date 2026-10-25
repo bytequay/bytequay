@@ -2076,6 +2076,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   assignPullRequestAgent: (workspaceId: string, repo: string, number: number) => Promise<PullRequestTaskLink>;
   /** Private reviews belonging to this workspace, including ended reviews. */
   listAgentReviews: (workspaceId: string) => Promise<AgentReviewDto[]>;
+  /** The same list, or null reviews when nothing changed since the read whose etag the caller passed. */
+  listAgentReviewsIfChanged: (workspaceId: string, etag: string | null) => Promise<{ etag: string | null; reviews: AgentReviewDto[] | null }>;
   /** The open Agent review of a pull request, or null when it has none. */
   findAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto | null>;
   /** Starts a private review, or returns the open one: one review per workspace and pull request. */

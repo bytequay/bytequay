@@ -44,6 +44,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.agent.runtime.AgentStartupRecovery;
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
@@ -117,7 +118,7 @@ class TestReviewRuntimeRecovery
     private final ReviewPublicationService publications = mock(ReviewPublicationService.class);
     private final ReviewController controller = new ReviewController(
             reviews, publications, turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
-            memories);
+            memories, new WriteVersion());
 
     @Test
     void reviewValuesKeepTheirExactJsonFieldsWithoutExposingStoredRunInternals()
@@ -175,7 +176,7 @@ class TestReviewRuntimeRecovery
         when(reviews.find("workspace-1", "owner/repo", 7)).thenReturn(Optional.of(projection));
         MockMvc mvc = standaloneSetup(controller).build();
 
-        mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1"))
+        String etag = mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].id").value(REVIEW_ID))
@@ -184,7 +185,12 @@ class TestReviewRuntimeRecovery
                 .andExpect(jsonPath("$[0].messages[0].cardId").value("run-1:limitations"))
                 .andExpect(jsonPath("$[0].messages[0].turnId").value("turn-2"))
                 .andExpect(jsonPath("$[0].messages[0].queuedInputId").value("queue-1"))
-                .andExpect(jsonPath("$[0].messages[0].messageEventId").value("event-1"));
+                .andExpect(jsonPath("$[0].messages[0].messageEventId").value("event-1"))
+                .andReturn().getResponse().getHeader("ETag");
+        // Nothing was written since, so the poll's copy is current.
+        mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1").header("If-None-Match", etag))
+                .andExpect(status().isNotModified());
+        verify(reviews).list("workspace-1");
         mvc.perform(get("/api/agent-review").param("workspaceId", "workspace-1").param("repo", "owner/repo").param("number", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(REVIEW_ID));

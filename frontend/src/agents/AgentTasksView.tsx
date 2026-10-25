@@ -619,18 +619,23 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
   const [work, setWork] = useState<WorkspaceWork>(() => getCached<WorkspaceWork>(seed) ?? NO_WORK);
   useEffect(() => {
     let active = true;
+    let reviewsEtag: string | null = null;
     const read = () => {
       const port = bridge();
       // ponytail: every list on every tick; per-source change events if these reads ever show up.
+      // Reviews carry their runs' evidence, so an unchanged list comes back as null instead of megabytes.
+      const reviews: Promise<AgentReviewDto[] | null> = port.listAgentReviewsIfChanged
+        ? port.listAgentReviewsIfChanged(workspaceId, reviewsEtag).then((read) => { reviewsEtag = read.etag; return read.reviews; })
+        : port.listAgentReviews?.(workspaceId) ?? Promise.resolve([]);
       return Promise.allSettled([
-        port.listAgentReviews?.(workspaceId) ?? Promise.resolve([]),
+        reviews,
         port.listCherryPickExecutions?.(200) ?? Promise.resolve([]),
         port.listCiAutofixRuns?.(100) ?? Promise.resolve([]),
       ]).then(([reviews, executions, runs]) => {
         if (!active) return;
         setWork((last) => {
           const next = {
-            reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,
+            reviews: reviews.status === 'fulfilled' ? reviews.value ?? last.reviews : last.reviews,
             executions: executions.status === 'fulfilled' ? executions.value.filter((execution) => execution.workspaceId === workspaceId) : last.executions,
             runs: runs.status === 'fulfilled' ? runs.value.filter((run) => run.workspaceId === workspaceId) : last.runs,
             failed: [reviews.status === 'rejected' ? 'reviews' : null, executions.status === 'rejected' ? 'cherry-picks' : null,
@@ -638,7 +643,9 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
               .filter((name): name is string => name !== null),
           };
           // Most ticks read what is shown; a new object would re-render the whole task list.
-          return JSON.stringify(next) === JSON.stringify(last) ? last : next;
+          const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b);
+          return same(next.reviews, last.reviews) && same(next.executions, last.executions) && same(next.runs, last.runs)
+            && same(next.failed, last.failed) ? last : next;
         });
       });
     };

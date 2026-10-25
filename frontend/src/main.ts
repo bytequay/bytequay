@@ -970,6 +970,11 @@ function registerIpc(): void {
 
   ipcMain.handle('review:list', (_event, workspaceId: string) =>
     backendJson(reviewUrl('', { workspaceId })).then(parseAgentReviews));
+  ipcMain.handle('review:list:if-changed', async (_event, workspaceId: string, etag?: unknown) => {
+    const held = typeof etag === 'string' ? etag : null;
+    const read = await backendJsonIfChanged<unknown>(reviewUrl('', { workspaceId }), held);
+    return read.changed ? { etag: read.etag, reviews: parseAgentReviews(read.value) } : { etag: held, reviews: null };
+  });
   ipcMain.handle('review:find', async (_event, workspaceId: string, repo: string, number: number) => {
     const value = await backendJson(reviewUrl('', { workspaceId, repo, number: String(number) }));
     return value === null ? null : parseAgentReview(value);

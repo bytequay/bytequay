@@ -25,6 +25,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.agent.runtime.AgentStartupRecovery;
+import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
@@ -55,6 +56,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
@@ -88,6 +90,7 @@ public class ReviewController
     private final AgentStartupRecovery startupRecovery;
     private final AgentStreamRegistry streams;
     private final MemoryService memories;
+    private final WriteVersion writes;
 
     public ReviewController(
             AgentReviewService reviews,
@@ -97,7 +100,8 @@ public class ReviewController
             AgentApprovalService approvals,
             AgentStartupRecovery startupRecovery,
             AgentStreamRegistry streams,
-            MemoryService memories)
+            MemoryService memories,
+            WriteVersion writes)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.publications = requireNonNull(publications, "publications is null");
@@ -107,12 +111,18 @@ public class ReviewController
         this.startupRecovery = requireNonNull(startupRecovery, "startupRecovery is null");
         this.streams = requireNonNull(streams, "streams is null");
         this.memories = requireNonNull(memories, "memories is null");
+        this.writes = requireNonNull(writes, "writes is null");
     }
 
     @GetMapping(params = {"!repo", "!number"})
-    public List<ReviewHttpModels.ReviewResponse> list(@RequestParam String workspaceId)
+    public List<ReviewHttpModels.ReviewResponse> list(@RequestParam String workspaceId, WebRequest request)
     {
         checkText(workspaceId, "workspaceId");
+        // Home and Tasks poll this every five seconds, and each review carries its runs' evidence.
+        // ponytail: a driver's nested-agent support, probed in memory, reaches a held copy only with the next write.
+        if (request.checkNotModified(writes.current())) {
+            return null;
+        }
         return reviews.list(workspaceId).stream().map(ReviewHttpModels::review).collect(toImmutableList());
     }
 

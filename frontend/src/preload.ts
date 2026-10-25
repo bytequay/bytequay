@@ -415,6 +415,7 @@ const bridge: Bridge = {
   getAgentRuntimeStopImpact: invoke('agent:task:stop-impact'),
   stopAgentRuntime: invoke('agent:task:stop'),
   listAgentReviews: invoke('review:list'),
+  listAgentReviewsIfChanged: invoke('review:list:if-changed'),
   findPullRequestTask: invoke('agent:pr-task:find'),
   assignPullRequestAgent: invoke('agent:pr-task:assign'),
   findAgentReview: invoke('review:find'),

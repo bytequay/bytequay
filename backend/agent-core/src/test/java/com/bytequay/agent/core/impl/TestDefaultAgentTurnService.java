@@ -2055,7 +2055,7 @@ class TestDefaultAgentTurnService
 
         // Read the store, not the service: a service read would itself retry the settlement.
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-        while (stores.find(running.id()).orElseThrow().state() != TurnState.COMPLETED && System.nanoTime() < deadline) {
+        while ((stores.find(running.id()).orElseThrow().state() != TurnState.COMPLETED || runtimeRegistry.running(running.id()).isPresent()) && System.nanoTime() < deadline) {
             Thread.sleep(20);
         }
         assertThat(stores.find(running.id()).orElseThrow().state()).isEqualTo(TurnState.COMPLETED);

@@ -100,6 +100,7 @@ import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
@@ -134,6 +135,9 @@ public class PullRequestService
     private final Map<PullRequestRef, SummaryStamp> summaryStamps = new ConcurrentHashMap<>();
     private String summaryCredential;
     private String lastDiscovery = "";
+    private Optional<PullRequestRef> lastAttentionSummary = Optional.empty();
+    private final ReentrantLock summaryLock = new ReentrantLock(true);
+    private long summaryGeneration;
     private final Map<PullRequestRef, DetailWork> detailRefreshes = new ConcurrentHashMap<>();
     private volatile TimelineActivities timelineActivities;
 
@@ -612,7 +616,7 @@ public class PullRequestService
                             || discussionSource(row, discussed).isAfter(stamp.sourceAt());
                 })
                 .map(row -> parseRef(row.repo(), row.number())).forEach(changed::add);
-        enrichCards(credential, ImmutableList.copyOf(changed));
+        enrichAttentionCards(credential, ImmutableList.copyOf(changed));
     }
 
     /** Returns whether the query was due; one that completed within two minutes is skipped. */
@@ -663,7 +667,10 @@ public class PullRequestService
         if (!"ci_activity".equals(notification.reason())) {
             store.observeActivity(row.id(), Optional.empty(), notification.updatedAt());
         }
-        summaryStamps.remove(ref);
+        synchronized (summaryStamps) {
+            summaryStamps.remove(ref);
+            summaryGeneration++;
+        }
         changed.add(ref);
         try {
             notifications.activity(credential.token(), notification)
@@ -733,6 +740,7 @@ public class PullRequestService
                 return;
             }
             summaryStamps.clear();
+            summaryGeneration++;
             if (summaryCredential == null) {
                 // ponytail: a change saved but not summarized before the last shutdown stays stale until the next one; persist the stamp if that shows.
                 Instant now = clock.instant();
@@ -759,11 +767,53 @@ public class PullRequestService
         return !settled(row) && (row.origin() != OTHER || row.monitoredAt() != null || row.ciStatus() == PullRequestDetail.CiStatus.PENDING);
     }
 
-    // One stream: concurrent scans would summarize the same pull requests twice and together exceed GitHub's GraphQL execution allowance.
-    private synchronized void enrichCards(GitHubCredential credential, List<PullRequestRef> candidates)
+    private void enrichCards(GitHubCredential credential, List<PullRequestRef> candidates)
+    {
+        List<PullRequestRef> refs = dueSummaries(credential, candidates);
+        for (int offset = 0; offset < refs.size(); offset += GitHubPullRequestSummaryClient.BATCH_SIZE) {
+            summaryLock.lock();
+            try {
+                List<PullRequestRef> batch = dueSummaries(credential, refs.subList(offset, Math.min(offset + GitHubPullRequestSummaryClient.BATCH_SIZE, refs.size())));
+                enrichCardBatch(credential, batch);
+            }
+            finally {
+                summaryLock.unlock();
+            }
+            if (Thread.currentThread().isInterrupted()) {
+                return;
+            }
+        }
+    }
+
+    /** The inbox must keep polling while a repository scan owns the summary stream; each tick attempts only one batch. */
+    private void enrichAttentionCards(GitHubCredential credential, List<PullRequestRef> candidates)
+    {
+        if (!summaryLock.tryLock()) {
+            return;
+        }
+        try {
+            List<PullRequestRef> refs = dueSummaries(credential, candidates);
+            if (refs.isEmpty()) {
+                return;
+            }
+            int start = refs.size() <= GitHubPullRequestSummaryClient.BATCH_SIZE ? 0 : lastAttentionSummary.map(refs::indexOf).orElse(-1) + 1;
+            List<PullRequestRef> batch = new ArrayList<>();
+            for (int index = 0; index < Math.min(refs.size(), GitHubPullRequestSummaryClient.BATCH_SIZE); index++) {
+                batch.add(refs.get((start + index) % refs.size()));
+            }
+            // Failed and omitted summaries use their turn too, so later cards cannot starve.
+            lastAttentionSummary = Optional.of(batch.getLast());
+            enrichCardBatch(credential, batch);
+        }
+        finally {
+            summaryLock.unlock();
+        }
+    }
+
+    private List<PullRequestRef> dueSummaries(GitHubCredential credential, List<PullRequestRef> candidates)
     {
         Instant now = clock.instant();
-        List<PullRequestRef> refs = candidates.stream().distinct().filter(ref -> {
+        return candidates.stream().distinct().filter(ref -> {
             Optional<PullRequest> row = store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).flatMap(store::findById);
             SummaryStamp stamp = summaryStamps.get(ref);
             if (stamp == null || !stamp.credential().equals(credential.token()) || row.isEmpty()) {
@@ -777,47 +827,64 @@ public class PullRequestService
             boolean behind = source.isAfter(stamp.sourceAt()) && stamp.checkedAt().isBefore(source.plus(NOTIFICATION_SETTLE));
             return behind || (timed(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
         }).collect(toImmutableList());
+    }
+
+    /** One batch owns GraphQL and its pacing delay, but never the inbox monitor. */
+    private void enrichCardBatch(GitHubCredential credential, List<PullRequestRef> batch)
+    {
+        if (batch.isEmpty()) {
+            return;
+        }
+        Instant now = clock.instant();
+        long generation;
+        synchronized (summaryStamps) {
+            generation = summaryGeneration;
+        }
         Set<PullRequestRef> reviewRequests = notifications.reviewRequests(credential.profile().login());
-        for (int offset = 0; offset < refs.size(); offset += GitHubPullRequestSummaryClient.BATCH_SIZE) {
-            List<PullRequestRef> batch = refs.subList(offset, Math.min(offset + GitHubPullRequestSummaryClient.BATCH_SIZE, refs.size()));
-            long started = System.nanoTime();
-            try {
-                // Persist each completed batch before asking for the next one.
-                for (GitHubPullRequestSummary summary : summaries.fetchSummaries(credential.token(), batch, credential.profile().login())) {
-                    FetchedPullRequest fetched = summary.pullRequest();
-                    PullRequestRef ref = parseRef(fetched.repo(), fetched.number());
-                    if (fetched.origin() != AUTHORED && reviewRequests.contains(ref)) {
-                        fetched = fetched.withOrigin(REVIEW_REQUESTED);
+        long started = System.nanoTime();
+        try {
+            // Persist each completed batch before asking for the next one.
+            for (GitHubPullRequestSummary summary : summaries.fetchSummaries(credential.token(), batch, credential.profile().login())) {
+                synchronized (summaryStamps) {
+                    if (generation != summaryGeneration) {
+                        break;
                     }
-                    PullRequest row = store.saveObserved(fetched);
-                    storeCardSummary(credential.token(), row, summary, credential.profile().login());
-                    if (row.updatedAt().isAfter(summary.pullRequest().updatedAt())) {
-                        continue;
+                }
+                FetchedPullRequest fetched = summary.pullRequest();
+                PullRequestRef ref = parseRef(fetched.repo(), fetched.number());
+                if (fetched.origin() != AUTHORED && reviewRequests.contains(ref)) {
+                    fetched = fetched.withOrigin(REVIEW_REQUESTED);
+                }
+                PullRequest row = store.saveObserved(fetched);
+                storeCardSummary(credential.token(), row, summary, credential.profile().login());
+                if (row.updatedAt().isAfter(summary.pullRequest().updatedAt())) {
+                    continue;
+                }
+                Instant source = summary.discussionUpdatedAt().isAfter(summary.pullRequest().updatedAt()) ? summary.discussionUpdatedAt() : summary.pullRequest().updatedAt();
+                synchronized (summaryStamps) {
+                    // An inbox update or credential switch during this request must remain eligible for a newer read.
+                    if (generation == summaryGeneration) {
+                        summaryStamps.put(ref, new SummaryStamp(credential.token(), source, now));
                     }
-                    Instant source = summary.discussionUpdatedAt().isAfter(summary.pullRequest().updatedAt()) ? summary.discussionUpdatedAt() : summary.pullRequest().updatedAt();
-                    summaryStamps.put(ref, new SummaryStamp(credential.token(), source, now));
                 }
             }
-            catch (RuntimeException failure) {
-                if (isRateLimit(failure)) {
-                    throw failure;
-                }
-                if (failure instanceof ResponseStatusException response && (response.getStatusCode().value() == 401
-                        || response.getStatusCode().value() == 403 || response.getStatusCode().value() == 429)) {
-                    throw failure;
-                }
-                log.warn("GitHub PR card enrichment failed for {} PRs; keeping discovered updates: {}", batch.size(), failure.getMessage());
+        }
+        catch (RuntimeException failure) {
+            if (isRateLimit(failure)) {
+                throw failure;
             }
-            if (offset + GitHubPullRequestSummaryClient.BATCH_SIZE < refs.size()) {
-                try {
-                    // GitHub's secondary limit allows about a minute of GraphQL execution per minute; resting as long as each batch ran leaves half of it free.
-                    Thread.sleep(Duration.ofNanos(System.nanoTime() - started));
-                }
-                catch (InterruptedException interrupted) {
-                    Thread.currentThread().interrupt();
-                    return;
-                }
+            if (failure instanceof ResponseStatusException response && (response.getStatusCode().value() == 401
+                    || response.getStatusCode().value() == 403 || response.getStatusCode().value() == 429)) {
+                throw failure;
             }
+            log.warn("GitHub PR card enrichment failed for {} PRs; keeping discovered updates: {}", batch.size(), failure.getMessage());
+        }
+        try {
+            // GitHub's secondary limit allows about a minute of GraphQL execution per minute; resting as long as each batch ran leaves half of it free.
+            Thread.sleep(Duration.ofNanos(System.nanoTime() - started));
+        }
+        catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
         }
     }
 

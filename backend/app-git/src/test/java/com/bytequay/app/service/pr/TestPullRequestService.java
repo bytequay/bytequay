@@ -112,6 +112,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
@@ -690,6 +691,100 @@ class TestPullRequestService
 
         verify(store).setMonitored(merged.id(), false);
         verifyNoInteractions(summaries);
+    }
+
+    @Test
+    void notificationPollingDoesNotWaitForRepositorySummariesAndRetainsConcurrentInvalidation()
+            throws Exception
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        FetchedPullRequest fetched = pullRequest();
+        PullRequest row = storedPullRequest();
+        CountDownLatch summarizing = new CountDownLatch(1);
+        CountDownLatch releaseSummary = new CountDownLatch(1);
+        CountDownLatch polled = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        AtomicInteger polls = new AtomicInteger();
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(row.id()));
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        when(store.saveObserved(any())).thenReturn(row);
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(fetched);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(invocation ->
+                new PullRequestHistoryPage(invocation.<String>getArgument(1).startsWith("is:pr repo:") ? ImmutableList.of(fetched) : ImmutableList.of(), false));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenAnswer(invocation -> {
+            summarizing.countDown();
+            assertThat(releaseSummary.await(5, TimeUnit.SECONDS)).isTrue();
+            return ImmutableList.of(summary(fetched, PullRequestDetail.CiStatus.PASSING, "checks-v1"));
+        });
+        doAnswer(invocation -> {
+            if (polls.getAndIncrement() == 0) {
+                invocation.<Consumer<GitHubNotificationRef>>getArgument(2).accept(new GitHubNotificationRef(
+                        "thread-1", ref, true, "Title", "ci_activity", REVIEWED_AT, Optional.empty()));
+            }
+            return null;
+        }).when(notifications).poll(eq("pat"), eq("me"), any());
+        Thread repository = Thread.ofVirtual().start(() -> {
+            try {
+                service.syncRepository(RepoRef.of("owner", "repo"));
+            }
+            catch (Throwable error) {
+                failure.compareAndSet(null, error);
+            }
+        });
+        assertThat(summarizing.await(5, TimeUnit.SECONDS)).isTrue();
+        Thread attention = Thread.ofVirtual().start(() -> {
+            try {
+                service.syncAttentionSummaries();
+                polled.countDown();
+            }
+            catch (Throwable error) {
+                failure.compareAndSet(null, error);
+            }
+        });
+        try {
+            assertThat(polled.await(5, TimeUnit.SECONDS)).isTrue();
+            verify(gitHub).getPullRequest("pat", ref);
+            verify(summaries).fetchSummaries("pat", ImmutableList.of(ref), "me");
+        }
+        finally {
+            releaseSummary.countDown();
+            repository.join(5000);
+            attention.join(5000);
+        }
+        assertThat(failure.get()).isNull();
+        assertThat(repository.isAlive()).isFalse();
+        assertThat(attention.isAlive()).isFalse();
+
+        // CI notifications can leave updatedAt unchanged; the older in-flight response must not make this card fresh.
+        service.syncAttentionSummaries();
+
+        verify(summaries, times(2)).fetchSummaries("pat", ImmutableList.of(ref), "me");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void attentionSummariesAreBoundedAndAdvancePastFailedOrOmittedCards(boolean failed)
+    {
+        List<PullRequest> candidates = IntStream.rangeClosed(1, 12)
+                .mapToObj(number -> storedPullRequest(pullRequestNumber(number))).collect(toImmutableList());
+        when(store.findAttentionCandidates()).thenReturn(candidates);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        if (failed) {
+            when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me")))
+                    .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Summary unavailable"));
+        }
+
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        ArgumentCaptor<List<PullRequestRef>> batches = ArgumentCaptor.forClass(List.class);
+        verify(summaries, times(3)).fetchSummaries(eq("pat"), batches.capture(), eq("me"));
+        assertThat(batches.getAllValues()).allSatisfy(batch -> assertThat(batch).hasSize(GitHubPullRequestSummaryClient.BATCH_SIZE));
+        assertThat(batches.getAllValues().stream().flatMap(List::stream).map(PullRequestRef::number))
+                .containsExactly(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 1, 2, 3);
     }
 
     @Test

@@ -133,7 +133,8 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
     }
     const promise = (async () => {
       const asked = ++latest.current;
-      setLoading(true);
+      // Once history is visible, the once-a-second poll stays silent.
+      if (direction !== 'poll' || held.current === null) setLoading(true);
       try {
         const next = await window.bridge.viewArtifact(workspaceId, artifactId);
         if (!live.current) return;

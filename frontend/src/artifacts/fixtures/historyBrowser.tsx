@@ -56,6 +56,7 @@ async function boundedHistory(): Promise<void> {
   const all = Array.from({ length: 1250 }, (_, index) => turn(index + 1)).flat();
   const requests: { before?: string; after?: string; size: number }[] = [];
   const sends: string[] = [];
+  const initialRead = Promise.withResolvers<void>();
   let olderRead: PromiseWithResolvers<void> | null = null;
   const view: ArtifactViewDto = { artifact: { id: 'artifact', title: 'Long conversation', updatedAt: occurredAt, working: false },
     offers: [], pages: [], questions: [], pendingApprovals: [] };
@@ -68,6 +69,7 @@ async function boundedHistory(): Promise<void> {
       const first = events[0]?.sequence ?? 1;
       const last = events.at(-1)?.sequence ?? 0;
       requests.push({ before, after, size: events.length });
+      if (requests.length === 1) await initialRead.promise;
       if (before !== undefined && olderRead !== null) await olderRead.promise;
       return { events, beforeCursor: first > 1 ? String(first) : null, afterCursor: last < all.length ? String(last) : null, latestSequence: all.length };
     },
@@ -84,6 +86,10 @@ async function boundedHistory(): Promise<void> {
     flushSync(() => root.render(<ArtifactsPage workspaceId="workspace" />));
     await until(() => host.querySelector('.artifacts-row') !== null, 'The conversation is listed');
     element<HTMLButtonElement>('.artifacts-row', host).click();
+    await until(() => requests.length === 1, 'The initial history request stays in flight');
+    await settle();
+    assert(host.querySelector('.agt-history-edge') !== null, 'Opening a conversation shows history loading');
+    initialRead.resolve();
     await until(() => shown(1250), 'The newest turn renders without draining the history');
     await settle();
     assert(Number(requests.length) === 1 && requests[0].size === 500 && requests[0].before === undefined && requests[0].after === undefined,
@@ -109,6 +115,8 @@ async function boundedHistory(): Promise<void> {
     olderRead = Promise.withResolvers<void>();
     older();
     await until(() => requests.length === 4, 'Another older-page request stays in flight');
+    await settle();
+    assert(host.querySelector('.agt-history-edge') !== null, 'An explicit older-page request shows history loading');
     const input = element<HTMLTextAreaElement>('[aria-label="Message the agent"]', host);
     changeInput(input, 'Continue from the latest answer');
     await until(() => !element<HTMLButtonElement>('[aria-label="Send message"]', host).disabled, 'The composer works while reading older history');
@@ -123,7 +131,7 @@ async function boundedHistory(): Promise<void> {
       'Sending and resuming share one latest read, followed by a read after the completed send');
     assert(turnCount() <= 250 && requests.every(request => request.size <= 500), 'History and individual reads stay bounded after sending');
   }
-  finally { dispose(); }
+  finally { initialRead.resolve(); olderRead?.resolve(); dispose(); }
 }
 
 async function approvalAuthority(): Promise<void> {
@@ -291,6 +299,8 @@ async function answerDuringRead(): Promise<void> {
     pendingRead = Promise.withResolvers<void>();
     timers.tick();
     await until(() => reads.length === 2, 'A poll holds an event response from before the answer');
+    await settle();
+    assert(host.querySelector('.agt-history-edge') === null, 'A background poll does not show history loading');
     const question = element('[aria-label="Question: Which path?"]', host);
     element<HTMLButtonElement>('[role="radio"]', question).click();
     await until(() => !element<HTMLButtonElement>('[aria-label="Send answer: Which path?"]', question).disabled, 'The question accepts a choice');

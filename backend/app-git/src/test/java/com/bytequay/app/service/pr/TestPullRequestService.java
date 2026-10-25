@@ -1662,6 +1662,7 @@ class TestPullRequestService
         List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
         cacheDetail(null, PrDetailFreshness.unknown());
         when(diffStore.find(12L, null, null)).thenReturn(Optional.empty());
+        when(diffStore.defaultDiffValidated(12L, "base", "head")).thenReturn(false);
         // the store resolves the row on repo and number and hands back the stored row
         when(store.saveObserved(any())).thenAnswer(invocation -> storedPullRequest(invocation.getArgument(0)));
         when(notifications.reviewRequests("me")).thenReturn(reviewRequested ? ImmutableSet.of(ref) : ImmutableSet.of());
@@ -1719,6 +1720,7 @@ class TestPullRequestService
         List<DiffFile> newFiles = ImmutableList.of(new DiffFile("new.txt", "modified", 1, 0, "+new"));
         when(diffStore.find(12L, null, null)).thenReturn(Optional.of(new StoredPrDiff(oldFiles, ImmutableList.of(), ImmutableMap.of(),
                 Optional.of("base"), Optional.of("old-head"), Optional.of(REVIEWED_AT))));
+        when(diffStore.defaultDiffValidated(12L, "base", "head")).thenReturn(false);
         when(gitHub.fetchPrDiffFiles("pat", ref, oldFiles, Optional.empty()))
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Diff unavailable"))
                 .thenReturn(new ConditionalList<>(Optional.of(newFiles), Optional.of("new-files")));
@@ -2884,6 +2886,7 @@ class TestPullRequestService
         }).when(detailStore).saveStatus(eq(12L), any());
         lenient().when(diffStore.find(12L, null, null)).thenReturn(Optional.of(new StoredPrDiff(ImmutableList.of(), ImmutableList.of(), ImmutableMap.of(),
                 Optional.of("base"), Optional.of("head"), Optional.of(Instant.now()))));
+        lenient().when(diffStore.defaultDiffValidated(12L, "base", "head")).thenReturn(true);
     }
 
     private static PrDetailFreshness freshTimes()

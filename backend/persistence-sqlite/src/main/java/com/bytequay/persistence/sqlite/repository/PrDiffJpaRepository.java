@@ -24,6 +24,8 @@ import java.util.Set;
 public interface PrDiffJpaRepository
         extends JpaRepository<PrDiffEntity, String>
 {
+    boolean existsByIdAndBaseShaAndHeadShaAndValidatedAtIsNotNull(String id, String baseSha, String headSha);
+
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("DELETE FROM PrDiffEntity e WHERE e.prId IN :ids")
     void deleteByPrIdIn(@Param("ids") Set<Long> ids);

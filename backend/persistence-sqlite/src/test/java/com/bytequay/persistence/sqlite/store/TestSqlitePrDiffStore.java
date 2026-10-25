@@ -51,6 +51,9 @@ class TestSqlitePrDiffStore
         DiffFileContent content = new DiffFileContent("before", "after");
 
         assertThat(store.find(prId, null, null)).contains(diff);
+        assertThat(store.defaultDiffValidated(prId, base, head)).isTrue();
+        // A same head with a different base is another diff.
+        assertThat(store.defaultDiffValidated(prId, "d".repeat(40), head)).isFalse();
         assertThat(store.saveDefaultFileContent(prId, base, "c".repeat(40), "file.txt", content)).isFalse();
         assertThat(store.find(prId, null, null).orElseThrow().fileContents()).isEmpty();
         assertThat(store.saveDefaultFileContent(prId, base, head, "file.txt", content)).isTrue();
@@ -99,6 +102,7 @@ class TestSqlitePrDiffStore
         assertThat(store.find(42, null, null)).contains(updated);
         assertThat(store.find(42, "base", "head").orElseThrow().files()).isEqualTo(original.files());
         assertThat(store.find(43, null, null)).contains(original);
+        assertThat(store.defaultDiffValidated(42, "base", "head")).isFalse();
         assertThat(entities.createQuery("SELECT count(d) FROM PrDiffEntity d", Long.class).getSingleResult()).isEqualTo(3);
 
         store.deleteByPrIds(ImmutableSet.of(42L));

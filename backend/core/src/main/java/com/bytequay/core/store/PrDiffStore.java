@@ -26,6 +26,9 @@ public interface PrDiffStore
 
     void save(long prId, String baseSha, String headSha, StoredPrDiff diff);
 
+    /** Whether the default diff was validated at these commit coordinates; reads three columns, not the diff. */
+    boolean defaultDiffValidated(long prId, String baseSha, String headSha);
+
     /** The ETags stored alongside the default diff, or none when it was never fetched conditionally. */
     PrDiffEtags findDefaultEtags(long prId);
 

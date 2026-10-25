@@ -209,9 +209,7 @@ public class PullRequestSnapshotService
 
     boolean defaultDiffMatches(long prId, PrRawDetail raw)
     {
-        return raw.baseSha() != null && raw.headSha() != null && diffs.find(prId, null, null)
-                .filter(diff -> diff.validatedAt().isPresent() && diff.baseSha().filter(raw.baseSha()::equals).isPresent()
-                        && diff.headSha().filter(raw.headSha()::equals).isPresent()).isPresent();
+        return raw.baseSha() != null && raw.headSha() != null && diffs.defaultDiffValidated(prId, raw.baseSha(), raw.headSha());
     }
 
     void refreshDefaultDiff(String pat, PullRequestRef pullRequest, long prId)

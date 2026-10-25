@@ -59,6 +59,12 @@ public class SqlitePrDiffStore
     }
 
     @Override
+    public boolean defaultDiffValidated(long prId, String baseSha, String headSha)
+    {
+        return repository.existsByIdAndBaseShaAndHeadShaAndValidatedAtIsNotNull(snapshotId(prId, null, null), requireNonNull(baseSha), requireNonNull(headSha));
+    }
+
+    @Override
     public PrDiffEtags findDefaultEtags(long prId)
     {
         return repository.findById(snapshotId(prId, null, null))

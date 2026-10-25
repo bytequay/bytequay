@@ -212,15 +212,6 @@ class TestPullRequestSnapshotService
         verify(diffs).saveDefaultFileContent(1L, base, head, "a.txt", content);
     }
 
-    @Test
-    void aSameHeadWithADifferentBaseDoesNotReuseTheDiff()
-    {
-        when(diffs.find(1L, null, null)).thenReturn(Optional.of(new StoredPrDiff(ImmutableList.of(), ImmutableList.of(), ImmutableMap.of(),
-                Optional.of("d".repeat(40)), Optional.of(HEAD), Optional.of(UPDATED))));
-
-        assertThat(snapshots.defaultDiffMatches(1L, raw())).isFalse();
-    }
-
     private static PullRequestFetch coordinates(String head)
     {
         return coordinates(BASE, head);

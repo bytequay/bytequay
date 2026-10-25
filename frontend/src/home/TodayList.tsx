@@ -199,6 +199,7 @@ export default function TodayList({ today, scope, onOpen = openTarget, facts, va
 /**
  * One row of the agenda: its check, title and reference over its reason chips. Opened, it says the model's reason and offers its action,
  * Done, and Tomorrow, which sets it aside for today; a row that suggests starting work offers Start, and what refuses it shows below.
+ * A done row has nothing left to offer, so a click opens its item instead.
  */
 function TodayRow({ item, reference, chips, open, onToggle, onMark, onStart, onOpen }: {
   item: AgendaItemDto;
@@ -225,7 +226,8 @@ function TodayRow({ item, reference, chips, open, onToggle, onMark, onStart, onO
   const act = (run: () => void) => (event: React.MouseEvent) => { event.stopPropagation(); run(); };
   return (
     <div role="listitem">
-      <Clickable className={`card-row today-row${isDone ? ' is-done' : ''}${expanded ? ' is-open' : ''}`} label={`${item.title}: ${item.why}`} onOpen={onToggle}>
+      <Clickable className={`card-row today-row${isDone ? ' is-done' : ''}${expanded ? ' is-open' : ''}`} label={`${item.title}: ${item.why}`}
+        onOpen={isDone ? () => onOpen(item.target) : onToggle}>
         <button type="button" className="today-check" aria-label={isDone ? `Reopen “${item.title}”` : `Mark “${item.title}” done`}
           title={isDone ? (item.byYou ? 'You marked it done · reopen' : 'Closed by what happened since · reopen') : 'Done'}
           onClick={act(() => onMark(item.ref, isDone ? null : 'DONE'))}>

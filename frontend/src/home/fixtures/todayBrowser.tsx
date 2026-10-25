@@ -132,6 +132,9 @@ async function opensWork(): Promise<void> {
     assert(JSON.stringify(opened) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31377, workspaceId: 'ws1' }]), `The row's action opens its pull request: ${JSON.stringify(opened)}`);
     flushSync(() => rows[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
     assert(rows[0].classList.contains('is-open') && !rows[2].classList.contains('is-open'), 'Enter opens a row, and only one row is open at a time');
+    const done = zoomed(() => flushSync(() => rows[4].click()));
+    assert(JSON.stringify(done) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31390, workspaceId: 'ws1' }]) && !rows[4].classList.contains('is-open'),
+      `A click on a done row opens its item: ${JSON.stringify(done)}`);
     assert(view.marks.length === 0, 'Opening must not mark anything');
   }
   finally { view.dispose(); }

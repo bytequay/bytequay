@@ -201,6 +201,7 @@
   display: inline-flex;
   margin-left: 4px;
   padding: 2px;
+  border: 1px solid var(--line-subtle);
   border-radius: 7px;
   background: light-dark(#eceff2, var(--dark-subtle));
 }
@@ -218,8 +219,14 @@
   cursor: pointer;
 }
 
+.atn-filter:hover {
+  background: light-dark(rgba(31, 35, 40, 0.07), var(--dark-hover));
+  color: var(--text-1);
+}
+
+/* The dark canvas is darker than the track, so the selected tab is lifted above it rather than painted with the canvas. */
 .atn-filter.is-active {
-  background: var(--surface-canvas);
+  background: light-dark(#ffffff, var(--dark-border));
   color: var(--text-1);
   box-shadow: 0 1px 2px light-dark(rgba(31, 35, 40, 0.12), rgb(0 0 0 / 21.6%));
 }

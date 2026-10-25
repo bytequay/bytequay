@@ -36,6 +36,7 @@ import { EpicWork } from '../workspaces/EpicView';
 import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import { workspaceIssueTaskRoute, workspaceRoute } from '../workspaces/model';
 import WorkItemContextLinks from './WorkItemContextLinks';
+import { openGoalItem } from './open';
 import '../css/issues.css';
 import '../css/epic-view.css';
 import './workitems.css';
@@ -267,7 +268,7 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
 }
 
 /** Opens the issue or ticket where it lives; `start` opens it ready to start development. */
-function openReference(workspace: WorkspaceDto, reference: UnifiedWorkItem['reference'] | Pick<GoalItemDto, 'kind' | 'key'>, start = false) {
+function openReference(workspace: WorkspaceDto, reference: UnifiedWorkItem['reference'], start = false) {
   if (reference?.kind === 'JIRA') {
     const [connectionId, cloudId, issueId] = reference.key.split(':');
     zoomReference({ kind: 'jira', connectionId, cloudId, issueId, ...(start ? { start: true } : {}) });
@@ -416,11 +417,7 @@ function WorkItemDetail({ workspace, item, all, catalog, epic, publishing, onPub
   const decide = (command: { action: 'FINISH' | 'DROP' | 'REOPEN' | 'PRIORITIZE' | 'EDIT'; detail: string; priority?: WorkItemPriority; completionRule?: CompletionRule }) => run(async () => {
     await goals.decideWork(work, { operationId: crypto.randomUUID(), expectedRevision: work.revision, ...command }); await onChanged();
   });
-  const openLink = (link: GoalItemDto) => {
-    if (link.kind === 'TASK') zoomReference({ kind: 'task', workspaceId: workspace.id, taskId: link.key });
-    else if (link.kind === 'PULL_REQUEST') { if (link.url) void window.bridge.openInAppBrowser(link.url); }
-    else openReference(workspace, link);
-  };
+  const openLink = (link: GoalItemDto) => openGoalItem(link, workspace.id, taskId => zoomReference({ kind: 'task', workspaceId: workspace.id, taskId }));
   if (editing) return <WorkItemForm workspaceId={workspace.id} item={work} onClose={() => setEditing(false)} onSaved={async () => { await onChanged(); setEditing(false); }} headerAction={headerAction} />;
   return <>
     <DetailHeader label={remote ? `Work item · on ${REMOTE[item.source === 'JIRA' ? 'JIRA' : 'GITHUB']} ${remote.label}` : 'Work item'}

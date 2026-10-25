@@ -56,7 +56,8 @@ export async function markdownHistory() {
   const work: WorkItemDto = { ...local('markdown', 'Updated work title', '### Current context\nUpdated scope referencing #42 and unavailable #404.'), history: [
     { operationId: 'created', action: 'CREATED', detail: `Work item accepted: Original work title\nSuccess: ${criteria}\nCompletion: Merged delivery`, at: now },
     { operationId: 'receipt', action: 'RECEIPT', detail: 'Checks failed on #42: **unit-tests**', at: '2026-10-07T01:00:00Z' },
-  ] };
+  ], links: [{ kind: 'PULL_REQUEST', key: 'example-org/example-repo#42', label: '#42', title: 'Delivered example fix', addedAt: now, state: 'MERGED', status: 'Merged',
+    blocked: false, url: 'https://github.com/example-org/example-repo/pull/42', activity: null }] };
   const pull = prDetail({ repo: 'example-org/example-repo', number: 42, title: 'Fix example behavior', author: 'example-user',
     htmlUrl: 'https://github.com/example-org/example-repo/pull/42', body: '### Verification\nPreserves **example behavior**.' });
   const reads: number[] = [];
@@ -117,6 +118,9 @@ export async function markdownHistory() {
     link.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
     await until(() => document.querySelector('.ref-card__title')?.textContent === pull.title, 'Keyboard focus also opens the preview');
     link.blur();
+    button('Delivered example fix').click();
+    assert(JSON.stringify(zooms.at(-1)) === JSON.stringify({ kind: 'pull', repo: pull.repo, number: pull.number, workspaceId: workspace.id }),
+      'The Development pull request opens the native pull detail');
     button('Push to remote…').click();
     await until(() => host.querySelector('.work-items__preview a[href$="/pull/42"]') !== null, 'The publication preview resolves the same references');
     return true;

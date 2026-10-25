@@ -236,7 +236,7 @@ function WorkCard({ item, onToday, commits }: { item: WorkItem; onToday: boolean
           <div className="mw-run">
             <span className="mw-run__avatar" title={running.agent}><ProviderIcon id={running.laneId} size={11} /></span>
             <span className="mw-run__text"><span className="mw-run__agent">{running.agent}</span> · {running.text}</span>
-            <LoaderCircle size={12} className="today-spin" aria-label="Running" />
+            <span className="bq-spinner is-spinning"><LoaderCircle size={12} className="today-spin" aria-label="Running" /></span>
             <time dateTime={running.since}>{relativeTime(running.since, { suffix: false })}</time>
           </div>
         )}

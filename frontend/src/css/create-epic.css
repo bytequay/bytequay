@@ -141,9 +141,6 @@
   color: var(--fg-muted);
 }
 
-.create-epic__message.is-waiting > svg {
-  animation: bq-spin 1s linear infinite;
-}
 
 .create-epic__draft {
   display: flex;
@@ -297,8 +294,4 @@
   flex: none;
   color: var(--red);
   font-size: 12.5px;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .create-epic__message.is-waiting > svg { animation: none; }
 }

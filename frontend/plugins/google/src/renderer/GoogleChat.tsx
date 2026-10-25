@@ -114,7 +114,7 @@ export default function GoogleChat({ profile, email, context, onContext }: { pro
         <div>{state.approval.options.map((option, index) => <button type="button" className={index === 0 ? 'google-primary-btn' : 'setw-btn'} disabled={pending} key={option.id}
           onClick={() => { const approval = state.approval; if (approval) void act(() => bridge.approveGoogleChat(profile, approval.id, option.id)); }}>{option.label}</button>)}
         <button type="button" className="setw-btn is-danger" disabled={pending} onClick={stop}>Stop</button></div></section>}
-      {busy && !state?.approval && <p className="google-chat__activity" role="status"><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" />{state?.activity}</p>}
+      {busy && !state?.approval && <p className="google-chat__activity" role="status"><span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /></span>{state?.activity}</p>}
       {failure && <p className="google-screen__error" role="alert">{failure}</p>}
       <div ref={bottom} />
     </div>
@@ -128,7 +128,7 @@ export default function GoogleChat({ profile, email, context, onContext }: { pro
         <span className="google-chat__private"><Lock size={12} aria-hidden="true" />Private</span>
         {!busy && <small>· Cleared when ByteQuay quits</small>}
         <span className="google-spacer" />
-        {busy && <><LoaderCircle className="pr-task-spinner" size={14} aria-label="Gemini is responding" /><button type="button" className="google-chat__stop" disabled={pending} onClick={stop}><Square size={11} aria-hidden="true" />Stop</button></>}
+        {busy && <><span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={14} aria-label="Gemini is responding" /></span><button type="button" className="google-chat__stop" disabled={pending} onClick={stop}><Square size={11} aria-hidden="true" />Stop</button></>}
       </Composer>
     </div>}
   </aside>;

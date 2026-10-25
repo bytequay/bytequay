@@ -199,7 +199,7 @@ function ItemCard({ id, row, onOpen, onComplete, onPull }: { id: string; row: As
         <div className="assistant-item-card__foot" role="group" aria-label={`Actions for ${row.title}`}>
           {actions.map(action => (
             <CardButton key={action.text} text={busy === action.text ? action.busy : action.text} label={action.label} title={action.title}
-              icon={busy === action.text ? <LoaderCircle className="agt-spin" aria-hidden="true" /> : action.icon} danger={action.danger}
+              icon={busy === action.text ? <span className="bq-spinner is-spinning"><LoaderCircle className="agt-spin" aria-hidden="true" /></span> : action.icon} danger={action.danger}
               disabled={action.disabled === true || busy !== null} onClick={() => act(action)} />
           ))}
         </div>

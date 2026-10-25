@@ -150,7 +150,7 @@ export default function TodayList({ today, scope, onOpen = openTarget, facts, va
           )}
           {before && <span className="today-fact">at {minuteText(agenda.at)}</span>}
           {making
-            ? <span className="today-fact today-fact--icon" title="Making today's agenda"><LoaderCircle className="today-spin" aria-hidden="true" /></span>
+            ? <span className="today-fact today-fact--icon" title="Making today's agenda"><span className="bq-spinner is-spinning"><LoaderCircle className="today-spin" aria-hidden="true" /></span></span>
             : availability.development && (
               <IconButton label={before ? 'Make now' : 'Make again'} title={`${made}${before ? 'Make now' : 'Make again'}`} onClick={makeAgain}>
                 <RotateCw size={13} aria-hidden="true" />
@@ -249,7 +249,7 @@ function TodayRow({ item, reference, chips, open, onToggle, onMark, onStart, onO
               <div className="today-row__actions">
                 {startable
                   ? <button type="button" className="bq-button bq-button--primary" disabled={starting} onClick={act(start)}>
-                    {starting ? <LoaderCircle className="today-spin" aria-hidden="true" /> : <Play aria-hidden="true" />}Start task
+                    {starting ? <span className="bq-spinner is-spinning"><LoaderCircle className="today-spin" aria-hidden="true" /></span> : <Play aria-hidden="true" />}Start task
                   </button>
                   : <button type="button" className="bq-button bq-button--primary" onClick={act(() => onOpen(item.target))}>
                     {item.action === 'review' && item.target.kind === 'PULL' ? 'Open review' : OPEN_LABELS[item.target.kind]}

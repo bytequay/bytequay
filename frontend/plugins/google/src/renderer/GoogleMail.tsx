@@ -145,7 +145,7 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
     {loadingReply && <p className="google-status" role="status">Reading reply address…</p>}
     <div className="google-mail">
       <div className="google-mail__side">
-        <div className="google-status" role="status">{status.operation ? <><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /><span>{status.operation}…</span></>
+        <div className="google-status" role="status">{status.operation ? <><span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /></span><span>{status.operation}…</span></>
           : data.mailSavedAt ? <><span className="google-dot" /><span>Updated {mailTime(data.mailSavedAt)} · {data.mail.length} messages · <code>{data.query || 'All mail'}</code></span></>
             : <span>No cached data yet. Refresh to load from Google.</span>}</div>
         <div className="google-mail__list" aria-label="Cached messages">

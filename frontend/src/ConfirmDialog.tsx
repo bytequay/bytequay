@@ -55,7 +55,7 @@ export function ConfirmDialog({ title, children, confirmLabel, cancelLabel = 'Ca
       <div className="bq-confirm-dialog__actions">
         <button ref={cancelRef} type="button" className="bq-button" disabled={busy} onClick={onCancel}>{cancelLabel}</button>
         <button type="button" className={`bq-button ${destructive ? 'bq-confirm-dialog__confirm is-destructive' : 'bq-button--primary'}`} disabled={busy || confirmDisabled} onClick={onConfirm}>
-          {busy && <LoaderCircle size={14} className="bq-confirm-dialog__spinner" aria-hidden="true" />}
+          {busy && <span className="bq-spinner is-spinning"><LoaderCircle size={14} className="bq-confirm-dialog__spinner" aria-hidden="true" /></span>}
           {confirmLabel}
         </button>
       </div>

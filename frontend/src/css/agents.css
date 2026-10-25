@@ -1312,7 +1312,7 @@
 }
 
 .agt-user__delivery .agt-icon,
-.agt-user__delivery .agt-icon > svg {
+.agt-user__delivery .agt-icon svg {
   width: 13px;
   height: 13px;
 }
@@ -1358,8 +1358,6 @@
   flex: none;
   color: var(--accent);
   stroke-width: 1.75;
-  transform-origin: center;
-  animation: bq-spin 0.9s linear infinite;
 }
 
 .agt-state .agt-spin {
@@ -1403,7 +1401,7 @@
   color: var(--fg-dim);
 }
 
-.agt-icon > svg {
+.agt-icon svg {
   width: 16px;
   height: 16px;
   stroke-width: 1.75;
@@ -3795,7 +3793,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
   }
 
   .agt-compose__streamer::after,
-  .agt-spin,
   .agt-state__dot,
   .agt-skeleton__bar,
   .agt-skeleton__block,

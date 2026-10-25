@@ -78,7 +78,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
         {/* A push whose outcome is unknown is linked or pushed again from the work item's own page. */}
         {made && error !== null && <button type="button" className="bq-button bq-button--ghost assistant-draft__open" onClick={() => onOpen(work)}>Open work item</button>}
         <button type="submit" className="assistant-button is-primary" aria-busy={busy} disabled={busy || title.trim() === ''}>
-          {busy && <LoaderCircle className="agt-spin" size={12} aria-hidden="true" />}
+          {busy && <span className="bq-spinner is-spinning"><LoaderCircle className="agt-spin" size={12} aria-hidden="true" /></span>}
           {busy ? 'Creating…' : 'Create issue'}
         </button>
       </div>

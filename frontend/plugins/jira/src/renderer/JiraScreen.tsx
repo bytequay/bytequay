@@ -290,7 +290,7 @@ export default function JiraScreen({ workspace }: { workspace?: { id: string; na
       </nav>}
       <span className="jira-spacer" />
       {site && <span className="jira-muted jira-header__updated">{loading ? 'Updating…' : page.fetchedAt === null ? '' : `Updated ${relativeTime(page.fetchedAt)}`}</span>}
-      {site && <button type="button" className="bq-iconbtn" aria-label="Refresh tickets" title="Refresh tickets" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><RefreshCw size={15} className={loading ? 'jira-spin' : ''} /></button>}
+      {site && <button type="button" className="bq-iconbtn" aria-label="Refresh tickets" title="Refresh tickets" disabled={loading || boardId === null} onClick={() => { void refreshSprint(); }}><span className={`bq-spinner${loading ? ' is-spinning' : ''}`}><RefreshCw size={15} /></span></button>}
       {site && boardId !== null && <button type="button" className="jira-btn" title="Open board in Jira" onClick={() => { void host.openInAppBrowser(`${site.url.replace(/\/$/, '')}/secure/RapidBoard.jspa?rapidView=${boardId}`); }}>Open in Jira<ExternalLink size={13} aria-hidden="true" /></button>}
     </header>
     {!site && <div className="jira-connect"><h2>Connect your Jira account</h2><p>Add an Atlassian account in Settings to choose a site and board.</p><button type="button" className="jira-btn" onClick={() => { window.location.hash = host.settingsUrl; }}>Open Jira settings</button></div>}
@@ -352,7 +352,7 @@ export default function JiraScreen({ workspace }: { workspace?: { id: string; na
           <GroupHead label={group.label} tone={group.tone} count={group.issues.length} />
           <div className="jira-list__rows">{group.issues.map(row)}</div>
         </section>)}</div>}
-      {shown.length === 0 && <div className="jira-empty">{loading ? <><LoaderCircle size={18} className="jira-spin" /> Loading tickets…</>
+      {shown.length === 0 && <div className="jira-empty">{loading ? <><span className="bq-spinner is-spinning"><LoaderCircle size={18} /></span> Loading tickets…</>
         : boardId === null ? 'Select a board to load tickets.'
           : page.fetchedAt === null && error ? 'Tickets could not be loaded. Refresh tickets to try again.'
             : page.nextPageToken !== null ? 'No loaded tickets match these filters.' : 'No tickets match these filters.'}</div>}
@@ -670,7 +670,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
         {epic.tabs}
         <span className="jira-spacer" />
         {issue && <Pin issue={issue} />}
-        <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={refresh}><RefreshCw size={15} className={loading || refreshing ? 'jira-spin' : ''} /></button>
+        <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={refresh}><span className={`bq-spinner${loading || refreshing ? ' is-spinning' : ''}`}><RefreshCw size={15} /></span></button>
         <button type="button" className="bq-iconbtn" aria-label="Close ticket" title="Close (Esc)" disabled={busy} onClick={close}><X size={17} /></button>
       </div>
       {issue && detail && !workShown && <><h2>{issue.title}</h2>

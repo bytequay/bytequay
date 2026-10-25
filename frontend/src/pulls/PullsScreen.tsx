@@ -1068,7 +1068,7 @@ export default function PullsScreen({
             disabled={loading || syncing}
             onClick={() => { void refreshList(); }}
           >
-            <RefreshIcon />
+            <span className={`bq-spinner${syncing ? ' is-spinning' : ''}`}><RefreshIcon /></span>
           </button>
           <button
             className={`pulls-toolbar-button${paneShown ? ' is-active' : ''}`}
@@ -1562,7 +1562,7 @@ export function PullDetailHeader({
             aria-label="Refresh pull request"
             aria-busy={refreshing} disabled={refreshing}
             onClick={() => { void onRefresh(); }}>
-            <RefreshIcon />
+            <span className={`bq-spinner${refreshing ? ' is-spinning' : ''}`}><RefreshIcon /></span>
           </button>}
           {canReview && (
             <button className="pull-detail__review-action" type="button"

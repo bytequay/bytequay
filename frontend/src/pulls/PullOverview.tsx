@@ -1154,7 +1154,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const discard = () => { setReplying(false); setBody(''); setPreview(false); setError(''); setDrafted(false); };
   const controls = drafting ? (
     <footer className="lrc__foot pr-thread-draft" role="status">
-      <LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /> Agent is drafting a reply from your private thread…
+      <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /></span> Agent is drafting a reply from your private thread…
     </footer>
   ) : replying ? (
     <footer className="lrc__foot is-composing">
@@ -1567,7 +1567,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
         <strong>{passing ? 'All checks have passed' : failing ? 'Some checks were not successful' : pending ? 'Checks are in progress' : 'No checks reported'}</strong>
         {canRerun && <button type="button" className="pr-checks__rerun" disabled={rerunning || rerunRequested}
           aria-label={rerunLabel} title={rerunLabel} onClick={() => { void rerun(); }}>
-          {rerunning ? <LoaderCircle size={16} className="is-running" aria-hidden="true" />
+          {rerunning ? <span className="bq-spinner is-spinning"><LoaderCircle size={16} aria-hidden="true" /></span>
             : rerunRequested ? <Check size={16} aria-hidden="true" /> : <RotateCw size={16} aria-hidden="true" />}
         </button>}
       </header>
@@ -1667,7 +1667,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
           <button type="button" aria-label={logLabel} aria-expanded={expanded} aria-controls={logId} disabled={loading || jobId === null}
             title={jobId === null ? 'Inline logs are available for GitHub Actions jobs' : logLabel}
             onClick={() => { void toggleLog(); }}>
-            {loading ? <LoaderCircle size={16} className="is-running" aria-hidden="true" />
+            {loading ? <span className="bq-spinner is-spinning"><LoaderCircle size={16} aria-hidden="true" /></span>
               : error ? <RotateCw size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}
           </button>
         </>}
@@ -1700,7 +1700,8 @@ function CheckStatusIcon({ check }: { check: PullRequestDetailDto['checkRuns'][n
   const { Icon, label } = running
     ? { Icon: LoaderCircle, label: 'Running' }
     : queued ? { Icon: Clock3, label: 'Queued' } : CHECK_STATUS_ICONS[check.category];
-  return <Icon className={`pr-check__icon is-${check.category}${running ? ' is-running' : ''}`} role="img" aria-label={label} />;
+  const icon = <Icon className={`pr-check__icon is-${check.category}${running ? ' is-running' : ''}`} role="img" aria-label={label} />;
+  return running ? <span className="bq-spinner is-spinning">{icon}</span> : icon;
 }
 
 export type MentionCandidate = { login: string; avatarUrl: string | null };

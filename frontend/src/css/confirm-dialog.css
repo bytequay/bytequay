@@ -54,11 +54,6 @@
   background: var(--red-soft);
 }
 
-.bq-confirm-dialog__spinner { animation: bq-spin 1s linear infinite; }
-
-@media (prefers-reduced-motion: reduce) {
-  .bq-confirm-dialog__spinner { animation: none; }
-}
 
 .bq-confirm-dialog__choice {
   display: grid;

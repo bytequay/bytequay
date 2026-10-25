@@ -214,7 +214,7 @@ function Talk({ workspaceId, busy, onCreate, onEdit }: {
             </div>
           );
         })}
-        {waiting && <div className="create-epic__message is-agent is-waiting" role="status"><LoaderCircle size={14} aria-hidden="true" />Thinking…</div>}
+        {waiting && <div className="create-epic__message is-agent is-waiting" role="status"><span className="bq-spinner is-spinning"><LoaderCircle size={14} aria-hidden="true" /></span>Thinking…</div>}
         {unanswered && (
           <div className="create-epic__retry" role={failure === null ? undefined : 'alert'}>
             <span>{failure ?? 'No reply yet.'}</span>

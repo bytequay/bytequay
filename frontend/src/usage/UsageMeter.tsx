@@ -103,7 +103,7 @@ function AccountUsage({ accountId }: { accountId: string }) {
     <footer className="usage-footer">
       <span>{data === null ? 'Account-wide usage' : `Checked ${new Date(data.checkedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}</span>
       <button type="button" className="usage-icon-button" aria-label="Refresh usage" title="Refresh usage (cached for up to a minute)" disabled={loading}
-        onClick={() => setRevision(value => value + 1)}><RefreshCw size={14} className={loading ? 'usage-refreshing' : ''} /></button>
+        onClick={() => setRevision(value => value + 1)}><span className={`bq-spinner${loading ? ' is-spinning' : ''}`}><RefreshCw size={14} /></span></button>
     </footer>
   </>;
 }

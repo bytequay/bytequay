@@ -66,7 +66,6 @@
 .agt-auto-pill.is-blue { --pill-line: light-dark(#cfe2f6, var(--dark-blue-border)); background: light-dark(#e8f2fc, var(--dark-blue-soft)); color: light-dark(#0a6fd1, var(--dark-blue)); }
 .agt-auto-pill.is-amber { --pill-line: light-dark(#f3dfbf, var(--dark-amber-border)); background: light-dark(#fdf3e4, var(--dark-amber-soft)); color: light-dark(#a85d00, var(--dark-amber)); }
 .agt-auto-pill__label { display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 8px; white-space: nowrap; }
-.agt-auto-pill__spin { flex: none; animation: bq-spin 0.9s linear infinite; }
 .agt-auto-pill__stop {
   display: flex;
   align-items: center;
@@ -180,7 +179,7 @@ button.agt-auto-card__corner:disabled { cursor: default; opacity: 0.4; }
 
 @media (prefers-reduced-motion: reduce) {
   .agt-auto-slider__fill, .agt-auto-slider__knob { transition: none; }
-  .agt-auto-chip__step.is-running, .agt-auto-chip__step.is-running::before, .agt-auto-pill__spin { animation: none; }
+  .agt-auto-chip__step.is-running, .agt-auto-chip__step.is-running::before { animation: none; }
 }
 
 /* Settings and onboarding show the slider inline beside the chosen step. */

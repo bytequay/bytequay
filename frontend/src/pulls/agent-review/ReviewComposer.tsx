@@ -111,7 +111,7 @@ export default function ReviewComposer({
         disabled={busy || preview} onError={failure => setRewriteError(failure === null ? null : remoteErrorMessage(failure))} />}
       {extra}
       {waitingReason !== null && <span className="agr-composer__waiting" role="status" aria-label={waitingReason} title={waitingReason}>
-        <LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" />
+        <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /></span>
       </span>}
       {secondary ?? <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
       <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? waitingReason ?? undefined} onClick={() => { void submit(); }}>

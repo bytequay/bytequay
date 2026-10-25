@@ -764,12 +764,9 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
           disabled={syncing}
           onClick={() => { void sync(); }}
         >
-          <RefreshCw
-            className={syncing ? 'is-spinning' : undefined}
-            size={15}
-            strokeWidth={2}
-            aria-hidden="true"
-          />
+          <span className={`bq-spinner${syncing ? ' is-spinning' : ''}`}>
+            <RefreshCw size={15} strokeWidth={2} aria-hidden="true" />
+          </span>
         </button>
         <span className="cmt-sync-text">{syncing ? 'syncing…' : commitSyncLabel(refreshStatus)}</span>
 

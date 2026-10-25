@@ -582,6 +582,10 @@ samp {
 .bq-slash-3 { animation-delay: 0.26s; }
 
 @keyframes bq-spin { to { transform: rotate(360deg); } }
+/* Chromium rotates an <svg>'s own transform on the main thread and redraws the page every frame; the same rotation on an
+   HTML box runs on the compositor. Spinning icons sit inside one of these. */
+.bq-spinner { display: inline-flex; flex: none; }
+.bq-spinner.is-spinning { animation: bq-spin 1s linear infinite; }
 @keyframes bq-pulse {
   0%, 100% { opacity: 0.32; }
   45% { opacity: 1; }
@@ -605,6 +609,7 @@ samp {
 @keyframes bq-draw-slash { to { stroke-dashoffset: 0; } }
 
 @media (prefers-reduced-motion: reduce) {
+  .bq-spinner.is-spinning,
   .bq-sweep,
   .bq-slash,
   .bq-onboarding .bq-ring,

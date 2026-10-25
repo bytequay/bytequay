@@ -255,7 +255,7 @@ export default function CircleDialog({ circle, initialName = '', circles, busy, 
       <span className="cir-spacer" />
       <button type="button" className="bq-button" disabled={busy} onClick={onCancel}>Cancel</button>
       <button type="button" className="bq-button bq-button--primary" disabled={busy} onClick={save}>
-        {busy && <LoaderCircle size={14} className="bq-confirm-dialog__spinner" aria-hidden="true" />}
+        {busy && <span className="bq-spinner is-spinning"><LoaderCircle size={14} className="bq-confirm-dialog__spinner" aria-hidden="true" /></span>}
         {busy ? circle === null ? 'Creating…' : 'Saving…' : circle === null ? 'Create circle' : 'Save changes'}
       </button>
     </div>

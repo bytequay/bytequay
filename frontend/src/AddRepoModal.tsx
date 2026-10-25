@@ -134,7 +134,7 @@ export function WatchRepositoryConfirmation({ preview, topology, ready, adding, 
       <div className="modal-preview__actions">
         {adding && (
           <div className="modal__progress" role="status">
-            <LoaderCircle size={16} className="modal__spinner" aria-hidden="true" />
+            <span className="bq-spinner is-spinning"><LoaderCircle size={16} className="modal__spinner" aria-hidden="true" /></span>
             <span>{preview.forkRequired ? `Creating ${fullName(preview.pushRepository)} and saving your workspace…` : 'Saving your workspace…'}</span>
           </div>
         )}
@@ -328,7 +328,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
               <div className="modal__loading" role="status">
                 {selectedRepositoryName && <div className="modal__loading-repo">{selectedRepositoryName}</div>}
                 <div className="modal__progress">
-                  <LoaderCircle size={16} className="modal__spinner" aria-hidden="true" />
+                  <span className="bq-spinner is-spinning"><LoaderCircle size={16} className="modal__spinner" aria-hidden="true" /></span>
                   <span>Checking repository routing…</span>
                 </div>
               </div>

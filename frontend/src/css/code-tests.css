@@ -86,7 +86,6 @@
 .ct-text-button { flex: none; border: 1px solid light-dark(#d6dce2, var(--dark-border)); border-radius: 6px; background: var(--surface-canvas); color: var(--fg-strong); cursor: pointer; padding: 3px 9px; font-size: 11.5px; }
 .ct-text-button:hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
 
-.ct-spin { animation: bq-spin 1s linear infinite; }
 .ct-status.is-pass { color: var(--fg-success); }
 .ct-status.is-fail { color: var(--fg-danger); }
 .ct-status.is-running { color: var(--accent); }

@@ -100,11 +100,6 @@
   font-size: 13px;
 }
 
-.modal__spinner { flex: none; animation: bq-spin 1s linear infinite; }
-
-@media (prefers-reduced-motion: reduce) {
-  .modal__spinner { animation: none; }
-}
 
 .modal-repo-row {
   display: flex;

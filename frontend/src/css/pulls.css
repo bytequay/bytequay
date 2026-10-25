@@ -88,15 +88,7 @@
 .pulls-toolbar-button.is-active { background: light-dark(#e7e9ec, var(--dark-subtle)); color: light-dark(#17191c, var(--dark-text)); }
 .pulls-toolbar-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; }
 .pulls-toolbar-button:disabled { opacity: 0.4; cursor: default; }
-.pulls-toolbar-button.is-syncing svg,
-.pull-card__monitor[aria-busy='true'] svg,
-.pull-detail__icon-action.is-refreshing svg { animation: bq-spin 0.8s linear infinite; }
 
-@media (prefers-reduced-motion: reduce) {
-  .pulls-toolbar-button.is-syncing svg,
-  .pull-card__monitor[aria-busy='true'] svg,
-  .pull-detail__icon-action.is-refreshing svg { animation: none; }
-}
 
 .pulls-toolbar {
   display: flex;
@@ -746,7 +738,6 @@
 .pr-epic-card__next li { display: flex; min-width: 0; }
 .pr-epic-card__next li button { display: flex; flex: 1; align-items: center; gap: 6px; color: var(--text-1); font-size: 13.5px; line-height: 19px; }
 .pr-task-message[role="alert"] { color: var(--fg-danger); }
-.pr-task-spinner { animation: bq-spin 1s linear infinite; }
 .pr-copy-button { position: relative; overflow: visible; }
 .lrc__head .pr-copy-button { display: grid; place-items: center; flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--lrc-ink); cursor: pointer; }
 .lrc__head .pr-copy-button:hover { background: var(--lrc-hover); }
@@ -1138,7 +1129,7 @@
 .pr-checks { margin-top: 4px; }
 .pr-checks > header { display: flex; min-height: 54px; align-items: center; gap: 11px; border-bottom: 1px solid light-dark(#d8dee4, var(--dark-border)); padding: 11px 16px; }
 .pr-checks > header > span { display: grid; width: 16px; height: 16px; place-items: center; }
-.pr-checks > header > span > svg { width: 16px; height: 16px; stroke-width: 2.25; transform-origin: center; }
+.pr-checks > header > span > svg { width: 16px; height: 16px; stroke-width: 2.25; }
 .pr-checks > header > span.is-success { color: var(--fg-success); }
 .pr-checks > header > span.is-failure { color: var(--fg-danger); }
 .pr-checks > header > span.is-pending { color: light-dark(#bf8700, var(--dark-amber)); }
@@ -1161,7 +1152,7 @@
 .pr-check__log [role="alert"] { color: light-dark(#a40e26, var(--dark-red)); }
 .pr-check__log pre { max-height: 320px; overflow: auto; margin: 6px 0; border: 1px solid var(--line-default); border-radius: 6px; background: light-dark(#f6f8fa, var(--dark-subtle)); padding: 10px; color: var(--fg-strong); font-family: var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 .pr-check__log mark { border-radius: 2px; background: var(--bg-danger); color: light-dark(#a40e26, var(--dark-red)); font-weight: 600; }
-.pr-check__icon { display: block; width: 16px; height: 16px; stroke-width: 2.25; transform-origin: center; }
+.pr-check__icon { display: block; width: 16px; height: 16px; stroke-width: 2.25; }
 .pr-check strong { overflow: hidden; color: var(--fg-strong); font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
 .pr-check time { color: var(--fg-dim); white-space: nowrap; }
 .pr-check small { border: 1px solid var(--line-default); border-radius: 999px; padding: 1px 6px; }
@@ -1171,13 +1162,10 @@
 .pr-check .is-neutral,
 .pr-check .is-skipped,
 .pr-check .is-cancelled { color: light-dark(#6e7781, var(--dark-muted)); }
-.pr-checks button > svg.is-running,
-.pr-checks > header > span > svg.is-running,
-.pr-check__icon.is-running { animation: bq-spin 0.9s linear infinite; }
+/* The summary icon's box holds only the icon, so the box itself spins. */
+.pr-checks > header > span:has(> .is-running) { animation: bq-spin 0.9s linear infinite; }
 @media (prefers-reduced-motion: reduce) {
-  .pr-checks button > svg.is-running,
-  .pr-checks > header > span > svg.is-running,
-  .pr-check__icon.is-running { animation: none; }
+  .pr-checks > header > span:has(> .is-running) { animation: none; }
 }
 
 

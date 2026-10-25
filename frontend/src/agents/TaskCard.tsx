@@ -60,7 +60,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
   const meta = `${providerName}${model === '' ? '' : ` · ${model}`}`;
   const pillNode = (
     <span className={`agt-state ${pill.className}`}>
-      {pill.spinning && <LoaderCircle className="agt-spin" aria-hidden="true" />}
+      {pill.spinning && <span className="bq-spinner is-spinning"><LoaderCircle className="agt-spin" aria-hidden="true" /></span>}
       {pill.label}
     </span>
   );

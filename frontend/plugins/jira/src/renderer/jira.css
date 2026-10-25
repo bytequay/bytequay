@@ -367,8 +367,6 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 .jira-source-preview { position: fixed; z-index: 200; width: min(480px, calc(100vw - 20px)); max-height: 350px; overflow: auto; padding: 18px; border: 1px solid var(--border, light-dark(#d8dee4, var(--dark-border))); border-radius: 12px; box-shadow: 0 12px 35px #0002; background: var(--bg-base); }
 .jira-source-preview > strong { display: block; margin-bottom: 12px; }
 
-.jira-spin { animation: bq-spin 1s linear infinite; }
-
 @keyframes jira-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes jira-detail-open { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
 @media (max-width: 1000px) { .jira-header, .jira-toolbar { padding-inline: 18px; } }
@@ -378,6 +376,6 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
   .jira-detail__main, .jira-side { overflow: visible; }
   .jira-side { width: auto; border-top: 1px solid light-dark(#e3e3e6, var(--dark-border)); border-left: 0; }
 }
-@media (prefers-reduced-motion: reduce) { .jira-spin, .jira-detail[open], .jira-pop, .jira-work__form, .jira-reply-form, .jira-edit { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .jira-detail[open], .jira-pop, .jira-work__form, .jira-reply-form, .jira-edit { animation: none; } }
 
 .jira-load-more { display: flex; justify-content: center; padding: 16px; }

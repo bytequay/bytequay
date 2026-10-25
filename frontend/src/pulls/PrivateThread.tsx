@@ -437,7 +437,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
           )}
           {thread?.pending === true && (
             <LocalCardMessage timestamp={null} author="Agent" avatar={<ProviderAvatar id={thread.providerLane} />}>
-              <p className="pr-private-answering"><LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /> Agent is answering…</p>
+              <p className="pr-private-answering"><span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" /></span> Agent is answering…</p>
             </LocalCardMessage>
           )}
         </LocalCard>

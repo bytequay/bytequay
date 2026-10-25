@@ -1029,7 +1029,8 @@ describe('agent task detail', () => {
   it('turns off transcript motion when reduced motion is requested', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('.agt-icon.is-outcome > svg');
-    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[^]*?\.agt-spin[^]*?animation: none/);
+    expect(readFileSync(resolve(process.cwd(), 'src/css/base.css'), 'utf8'))
+      .toMatch(/@media \(prefers-reduced-motion: reduce\)[^]*?\.bq-spinner\.is-spinning[^]*?animation: none/);
   });
 
   it('anchors the composer card with one round button that sends, or stops while a turn runs', () => {

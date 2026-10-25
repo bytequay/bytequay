@@ -578,7 +578,7 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
               {steps.map((step) => (
                 <li key={step.label} className={`agt-starting-step is-${step.state}`}>
                   <span className={`agt-icon${step.state === 'current' ? ' is-running' : step.state === 'done' ? ' is-ok' : ''}`} aria-hidden="true">
-                    {step.state === 'current' ? <LoaderCircle className="agt-spin" /> : step.state === 'done' ? <Check /> : <Circle />}
+                    {step.state === 'current' ? <span className="bq-spinner is-spinning"><LoaderCircle className="agt-spin" /></span> : step.state === 'done' ? <Check /> : <Circle />}
                   </span>
                   <span>{step.label}</span>
                 </li>

@@ -90,7 +90,7 @@ export default function GoogleCalendar({ status, data, busy, hidden, act, open, 
         <button type="button" aria-pressed={days === 7} onClick={() => { setDays(7); setPicked(null); }}>Week</button></div>
       <button type="button" className="google-square-btn" aria-label="Refresh agenda" title="Refresh agenda" disabled={busy} onClick={refresh}><RefreshCw size={14} /></button>
     </div>
-    <div className="google-status is-bar" role="status">{status.operation ? <><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /><span>{status.operation}…</span></>
+    <div className="google-status is-bar" role="status">{status.operation ? <><span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={12} aria-hidden="true" /></span><span>{status.operation}…</span></>
       : cached ? <><span className="google-dot" /><span>Cached {shortDate(new Date(data.timeMin))} – {shortDate(lastCached)}{data.calendarSavedAt && ` · updated ${clock(new Date(data.calendarSavedAt))}`}</span></>
         : <><span className="google-dot is-stale" /><span>Not cached — refresh to load this range</span></>}</div>
     <div className={`google-cal${days === 1 ? ' is-day' : ''}`} aria-label={days === 1 ? 'Day calendar' : 'Week calendar'}>

@@ -144,8 +144,6 @@
   white-space: nowrap;
 }
 
-.artifacts-spin { animation: bq-spin 1.1s linear infinite; }
-
 /* The message box: one row, text first, then a borderless arrow or Stop. */
 .artifacts-compose.agt-compose {
   display: flex;

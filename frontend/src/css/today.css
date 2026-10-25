@@ -111,7 +111,6 @@
 .today-spin {
   width: 13px;
   height: 13px;
-  animation: bq-spin 0.9s linear infinite;
 }
 
 .today-line {

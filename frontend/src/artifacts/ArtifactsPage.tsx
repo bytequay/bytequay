@@ -87,7 +87,7 @@ function ConversationList({ workspaceId, onOpen }: { workspaceId: string; onOpen
               {rows.map(({ artifact, pages }) => <button key={artifact.id} type="button" className="artifacts-row" onClick={() => onOpen(artifact.id, null)}>
                 <FileText size={15} className="artifacts-row__icon" aria-hidden="true" />
                 <span className="artifacts-row__title">{artifact.title}</span>
-                {artifact.working && <span className="artifacts-row__working" title="Answering"><LoaderCircle size={13} className="artifacts-spin" aria-label="Answering" /></span>}
+                {artifact.working && <span className="artifacts-row__working" title="Answering"><span className="bq-spinner is-spinning"><LoaderCircle size={13} className="artifacts-spin" aria-label="Answering" /></span></span>}
                 {pages > 0 && <span className="artifacts-row__pages" title={pages === 1 ? '1 page' : `${pages} pages`}><Files size={13} aria-hidden="true" />{pages}</span>}
                 <span className="artifacts-row__age">{ago(artifact.updatedAt)}</span>
               </button>)}
@@ -334,14 +334,14 @@ function PagePanel({ workspaceId, artifactId, pages, page, making, title, since,
         {versions.map(entry => <button key={entry.id} type="button" className={entry.id === page?.id ? 'is-selected' : ''} aria-pressed={entry.id === page?.id}
           onClick={() => onShow(entry.id)}>v{entry.version}</button>)}
         {making && <span className="artifacts-versions__writing" title="Writing the page">
-          <LoaderCircle size={11} className="artifacts-spin" aria-hidden="true" />v1 writing…
+          <span className="bq-spinner is-spinning"><LoaderCircle size={11} className="artifacts-spin" aria-hidden="true" /></span>v1 writing…
         </span>}
       </div>
     </header>
     {page !== null
       ? <ArtifactFrame workspaceId={workspaceId} artifactId={artifactId} pageId={page.id} />
       : <div className="artifacts-panel__placeholder" role="status">
-        <LoaderCircle size={14} className="artifacts-spin is-accent" aria-hidden="true" />Writing the page…<Elapsed since={since} />
+        <span className="bq-spinner is-spinning"><LoaderCircle size={14} className="artifacts-spin is-accent" aria-hidden="true" /></span>Writing the page…<Elapsed since={since} />
       </div>}
   </section>;
 }

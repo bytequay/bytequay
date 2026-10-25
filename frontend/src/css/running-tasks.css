@@ -21,10 +21,11 @@
 .app-sidebar__running-item.is-failed .app-sidebar__running-status { color: var(--fg-danger); }
 .app-sidebar__running-item.is-waiting .app-sidebar__running-status,
 .app-sidebar__running-item.is-blocked .app-sidebar__running-status { color: var(--fg-warning); }
-.app-sidebar__running-item.is-running .app-sidebar__running-status svg { animation: bq-spin 1.2s linear infinite; }
+/* The status box holds only the icon, so the box itself spins. */
+.app-sidebar__running-item.is-running .app-sidebar__running-status { animation: bq-spin 1.2s linear infinite; }
 /* The collapsed rail has room for one icon; the status matters more than the kind there. */
 .app-sidebar.is-collapsed .app-sidebar__running-item > span:first-child { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-sidebar__running-item.is-running .app-sidebar__running-status svg { animation: none; }
+  .app-sidebar__running-item.is-running .app-sidebar__running-status { animation: none; }
 }

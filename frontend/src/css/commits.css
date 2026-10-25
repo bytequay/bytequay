@@ -208,7 +208,6 @@
 
 .cmt-refresh:hover { background: light-dark(#f0f1f3, var(--dark-subtle)); }
 .cmt-refresh:disabled { cursor: default; }
-.cmt-refresh .is-spinning { animation: bq-spin 1s linear infinite; }
 
 .cmt-sync-text {
   flex: none;

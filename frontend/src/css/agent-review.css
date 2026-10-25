@@ -247,7 +247,7 @@
 .agr-run__actions { margin: 0; padding: 0; list-style: none; }
 .agr-run__actions > li { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 10px; border-top: 1px solid var(--line-subtle); padding: 5px 0; }
 .agr-run__actions > li > .agt-icon { width: 22px; height: 22px; border-radius: 6px; background: light-dark(#f6f8fa, var(--dark-subtle)); }
-.agr-run__actions > li > .agt-icon > svg { width: 13px; height: 13px; }
+.agr-run__actions > li > .agt-icon svg { width: 13px; height: 13px; }
 .agr-run__actions > li > .agr-spinner { justify-self: center; }
 .agr-run__actions > li > span:not(.agt-icon, .agr-spinner) { overflow: hidden; color: var(--text-1); text-overflow: ellipsis; white-space: nowrap; }
 .agr-run__actions time { color: var(--fg-dim); font-size: 12px; white-space: nowrap; }

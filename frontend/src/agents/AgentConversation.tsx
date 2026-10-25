@@ -105,7 +105,7 @@ function stamp(iso: string, now: number): string {
 }
 
 export function Spinner({ warn = false }: { warn?: boolean } = {}): React.JSX.Element {
-  return <LoaderCircle className={`agt-spin${warn ? ' is-warn' : ''}`} aria-hidden="true" />;
+  return <span className="bq-spinner is-spinning"><LoaderCircle className={`agt-spin${warn ? ' is-warn' : ''}`} aria-hidden="true" /></span>;
 }
 
 export function Glyph({ icon: Icon, className = '' }: { icon: LucideIcon; className?: string }): React.JSX.Element {

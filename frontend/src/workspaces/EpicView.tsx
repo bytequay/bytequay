@@ -356,7 +356,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           <div className="epic-view__proposals-head">
             <span className="epic-view__proposals-title">
               <Sparkles size={14} aria-hidden="true" />{record.breakingDown ? 'Suggesting work…' : `Suggested · ${proposals.length}`}
-              {record.breakingDown && <LoaderCircle size={13} className="agt-spin" aria-hidden="true" />}
+              {record.breakingDown && <span className="bq-spinner is-spinning"><LoaderCircle size={13} className="agt-spin" aria-hidden="true" /></span>}
             </span>
             <span className="epic-view__proposals-sub">
               {record.breakingDown ? `Reading ${sourceName} and the work already here` : 'Nothing joins the Epic until you accept it. Accepted work is created as Local.'}
@@ -597,6 +597,6 @@ function StateIcon({ item, running }: { item: WorkItemDto; running: boolean }): 
   const props = { size: 15, strokeWidth: 1.9, 'aria-hidden': true } as const;
   if (item.state === 'DONE') return <CircleCheck className="epic-state is-done" {...props} />;
   if (item.state === 'DROPPED') return <CircleSlash className="epic-state is-dropped" {...props} />;
-  if (item.state === 'WORKING') return running ? <LoaderCircle className="epic-state is-working agt-spin" {...props} /> : <CircleDotDashed className="epic-state is-working" {...props} />;
+  if (item.state === 'WORKING') return running ? <span className="bq-spinner is-spinning"><LoaderCircle className="epic-state is-working agt-spin" {...props} /></span> : <CircleDotDashed className="epic-state is-working" {...props} />;
   return <Circle className="epic-state is-planned" {...props} />;
 }

@@ -60,7 +60,7 @@ const MIN_LOG_WIDTH = 220;
 function StatusIcon({ run }: { run: LocalRunDto }) {
   const tone = statusTone(run.status);
   const label = statusLabel(run.status);
-  if (tone === 'running') return <LoaderCircle className="ct-spin ct-status is-running" size={12} strokeWidth={2} aria-label={label} />;
+  if (tone === 'running') return <span className="bq-spinner is-spinning"><LoaderCircle className="ct-spin ct-status is-running" size={12} strokeWidth={2} aria-label={label} /></span>;
   if (tone === 'pass') return <CircleCheck className="ct-status is-pass" size={12} strokeWidth={2} aria-label={label} />;
   if (tone === 'fail') return <CircleX className="ct-status is-fail" size={12} strokeWidth={2} aria-label={label} />;
   return <CircleHelp className="ct-status is-neutral" size={12} strokeWidth={2} aria-label={label} />;

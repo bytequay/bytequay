@@ -46,7 +46,7 @@ export default function PullRowItem({ row, wide, selected, monitoring = false, o
         disabled={monitoring || row.kind === 'merged'}
         onClick={onMonitor}
       >
-        <MonitorIcon size={16} aria-hidden="true" />
+        <span className={`bq-spinner${monitoring ? ' is-spinning' : ''}`}><MonitorIcon size={16} aria-hidden="true" /></span>
       </button>
     </div>
   );

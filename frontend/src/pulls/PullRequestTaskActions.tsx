@@ -93,12 +93,12 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   return <>
     {authored && (availability.development || existingTask) && <button type="button" className="pr-task-action" aria-label="Development task" title={blocked ?? 'Open or create the development task'}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('development'); }}>
-      {busy === 'development' ? <LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /> : <Bot size={16} aria-hidden="true" />}
+      {busy === 'development' ? <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /></span> : <Bot size={16} aria-hidden="true" />}
       Development task
     </button>}
     {(availability.review || review !== null) && <button type="button" className="pr-task-action" aria-label="Review task" title={blocked ?? 'Open the review task, or start a review if none exists'}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('review'); }}>
-      {busy === 'review' ? <LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+      {busy === 'review' ? <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /></span> : <Eye size={16} aria-hidden="true" />}
       Review task
     </button>}
     {busy !== null && <span className="pr-task-message" role="status">{busy === 'development' ? 'Opening development task…' : 'Opening review task…'}</span>}

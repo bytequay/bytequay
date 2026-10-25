@@ -15,6 +15,7 @@ package com.bytequay.core.domain;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -52,6 +53,8 @@ public record AssistantAction(String id, LocalDate day, String itemId, Assistant
     public static AssistantAction of(AssistantItem message, AssistantReceipt.Operation operation, String target, String words, AssistantReceipt.Outcome outcome,
             Optional<String> reason, Optional<String> result, Instant at)
     {
-        return new AssistantAction(UUID.randomUUID().toString(), message.day(), message.id(), operation, target, words, outcome, reason, result, at);
+        // The day is the user's wall-clock day, as the agenda's, which retention counts in.
+        LocalDate day = LocalDate.ofInstant(at, ZoneId.systemDefault());
+        return new AssistantAction(UUID.randomUUID().toString(), day, message.id(), operation, target, words, outcome, reason, result, at);
     }
 }

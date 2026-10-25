@@ -14,21 +14,25 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.AssistantAction;
-import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantConversation;
 import com.bytequay.core.domain.AssistantItem;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
 public interface AssistantStore
 {
-    Optional<AssistantDay> find(LocalDate day);
+    Optional<AssistantConversation> find(String conversationId);
 
-    void save(AssistantDay day);
+    void save(AssistantConversation conversation);
 
-    /** The day's items in the order they were added. */
-    List<AssistantItem> items(LocalDate day);
+    /** The most recently updated conversations, newest first. */
+    List<AssistantConversation> conversations(int limit);
+
+    /** The conversation's items in the order they were added. */
+    List<AssistantItem> items(String conversationId);
 
     void add(AssistantItem item);
 
@@ -37,6 +41,6 @@ public interface AssistantStore
     /** The action tool's calls on one message, in the order they were made. */
     List<AssistantAction> actions(String itemId);
 
-    /** Removes the days, their items and their actions before {@code day}. */
-    void deleteBefore(LocalDate day);
+    /** Removes the conversations last updated before {@code updatedBefore} with their items, and the actions made before {@code actionsBefore}. */
+    void deleteBefore(Instant updatedBefore, LocalDate actionsBefore);
 }

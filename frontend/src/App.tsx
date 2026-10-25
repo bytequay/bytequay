@@ -251,8 +251,8 @@ function AppContent() {
   useEffect(() => {
     let current = true;
     if (!assistantEnabled) { setAssistantHasHistory(false); return; }
-    void window.bridge.getAssistantToday?.().then(view => {
-      if (current) setAssistantHasHistory(view.running || view.items.length > 0);
+    void window.bridge.listAssistantConversations?.().then(conversations => {
+      if (current) setAssistantHasHistory(conversations.length > 0);
     }).catch(() => {});
     return () => { current = false; };
   }, [assistantEnabled, availability.development]);

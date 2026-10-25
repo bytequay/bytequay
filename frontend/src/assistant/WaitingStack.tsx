@@ -44,13 +44,15 @@ const cardMeta = (card: WaitingCard): string => 'notice' in card ? noticeLabel(c
  * What waits on the user, under the composer: a pill for each group with something in it, then the group's top card with two
  * peeking behind it, or today's agenda. Tab moves between the pills and ← → page the cards.
  */
-export default function WaitingStack({ notices, talk, folded, onFold, request, onRequestDone, onAnswered, onLeave, onOpenNotice, onClearNotice, visible, input }: {
+export default function WaitingStack({ notices, talk, folded, onFold, conversation, request, onRequestDone, onAnswered, onLeave, onOpenNotice, onClearNotice, visible, input }: {
   notices: AppNotice[];
-  /** The day's conversation, between the pills and the cards. */
+  /** The conversation on screen, the history, or the line to continue, between the pills and the cards. */
   talk: ReactNode;
   /** Only the pills show, so the conversation has the room. */
   folded: boolean;
   onFold: (folded: boolean) => void;
+  /** The conversation a card's answer leaves its receipt in. */
+  conversation: string;
   /** The card an alert's Answer asked for, until it has been brought to the top. */
   request: { id: string } | null;
   onRequestDone: () => void;
@@ -192,7 +194,7 @@ export default function WaitingStack({ notices, talk, folded, onFold, request, o
                     {'task' in card
                       ? <TaskCard task={card.task} pager={pager} onOpen={() => { onLeave(); window.location.hash = runningTaskRoute(card.task); }} />
                       : card.notice.id.startsWith(APPROVAL_NOTICE)
-                        ? <ApprovalCard notice={card.notice} pager={pager} onAnswered={() => onAnswered(card.notice.id)}
+                        ? <ApprovalCard notice={card.notice} pager={pager} conversation={conversation} onAnswered={() => onAnswered(card.notice.id)}
                           onOpen={() => onOpenNotice(card.notice.id)} onClear={() => onClearNotice(card.notice.id)} />
                         : <NoticeCard notice={card.notice} pager={pager} onOpen={() => onOpenNotice(card.notice.id)} onClear={() => onClearNotice(card.notice.id)} />}
                   </div>
@@ -312,9 +314,10 @@ function NoticeCard({ notice, pager, onOpen, onClear }: { notice: AppNotice; pag
 }
 
 /** An approval or a question with the task's own buttons; its data is the task's, read fresh, never the notice's text. */
-function ApprovalCard({ notice, pager, onAnswered, onOpen, onClear }: {
+function ApprovalCard({ notice, pager, conversation, onAnswered, onOpen, onClear }: {
   notice: AppNotice;
   pager: ReactNode;
+  conversation: string;
   onAnswered: () => void;
   onOpen: () => void;
   onClear: () => void;
@@ -344,7 +347,7 @@ function ApprovalCard({ notice, pager, onAnswered, onOpen, onClear }: {
       ? window.bridge.resolveAgentApproval(id, decision, undefined, answers)
       : window.bridge.resolveAgentReviewApproval(reviewId, id, decision, answers);
     // The answer stands whether or not its receipt is kept, so a lost receipt never brings the card back.
-    void resolved.then(() => window.bridge.recordAssistantAnswer(id).catch((): void => undefined)).then(onAnswered)
+    void resolved.then(() => window.bridge.recordAssistantAnswer(conversation, id).catch((): void => undefined)).then(onAnswered)
       .catch((cause: unknown) => setError(remoteErrorMessage(cause)));
   };
   return <>

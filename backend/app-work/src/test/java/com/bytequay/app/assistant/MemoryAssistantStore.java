@@ -14,12 +14,14 @@
 package com.bytequay.app.assistant;
 
 import com.bytequay.core.domain.AssistantAction;
-import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantConversation;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.store.AssistantStore;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,26 +33,32 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 final class MemoryAssistantStore
         implements AssistantStore
 {
-    final Map<LocalDate, AssistantDay> days = new HashMap<>();
+    final Map<String, AssistantConversation> conversations = new HashMap<>();
     private final List<AssistantItem> items = new ArrayList<>();
     private final List<AssistantAction> actions = new ArrayList<>();
 
     @Override
-    public synchronized Optional<AssistantDay> find(LocalDate day)
+    public synchronized Optional<AssistantConversation> find(String conversationId)
     {
-        return Optional.ofNullable(days.get(day));
+        return Optional.ofNullable(conversations.get(conversationId));
     }
 
     @Override
-    public synchronized void save(AssistantDay day)
+    public synchronized void save(AssistantConversation conversation)
     {
-        days.put(day.day(), day);
+        conversations.put(conversation.id(), conversation);
     }
 
     @Override
-    public synchronized List<AssistantItem> items(LocalDate day)
+    public synchronized List<AssistantConversation> conversations(int limit)
     {
-        return items.stream().filter(item -> item.day().equals(day)).collect(toImmutableList());
+        return conversations.values().stream().sorted(Comparator.comparing(AssistantConversation::updatedAt).reversed()).limit(limit).collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized List<AssistantItem> items(String conversationId)
+    {
+        return items.stream().filter(item -> item.conversationId().equals(conversationId)).collect(toImmutableList());
     }
 
     @Override
@@ -72,10 +80,10 @@ final class MemoryAssistantStore
     }
 
     @Override
-    public synchronized void deleteBefore(LocalDate day)
+    public synchronized void deleteBefore(Instant updatedBefore, LocalDate actionsBefore)
     {
-        days.keySet().removeIf(value -> value.isBefore(day));
-        items.removeIf(item -> item.day().isBefore(day));
-        actions.removeIf(action -> action.day().isBefore(day));
+        conversations.values().removeIf(conversation -> conversation.updatedAt().isBefore(updatedBefore));
+        items.removeIf(item -> !conversations.containsKey(item.conversationId()));
+        actions.removeIf(action -> action.day().isBefore(actionsBefore));
     }
 }

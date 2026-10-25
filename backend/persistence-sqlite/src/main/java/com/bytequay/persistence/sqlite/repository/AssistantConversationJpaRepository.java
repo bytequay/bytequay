@@ -13,11 +13,17 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.persistence.sqlite.entity.AssistantDayEntity;
+import com.bytequay.persistence.sqlite.entity.AssistantConversationEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
-public interface AssistantDayJpaRepository
-        extends JpaRepository<AssistantDayEntity, String>
+import java.time.Instant;
+import java.util.List;
+
+public interface AssistantConversationJpaRepository
+        extends JpaRepository<AssistantConversationEntity, String>
 {
-    void deleteByIdLessThan(String day);
+    List<AssistantConversationEntity> findAllByOrderByUpdatedAtDesc(Pageable page);
+
+    List<AssistantConversationEntity> findByUpdatedAtBefore(Instant updatedAt);
 }

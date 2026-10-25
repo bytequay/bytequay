@@ -64,6 +64,7 @@ class TestAssistantShow
 {
     private static final Instant NOW = Instant.parse("2026-10-17T10:00:00Z");
     private static final LocalDate DAY = LocalDate.parse("2026-10-17");
+    private static final String CONVERSATION = "0c6a3f0e-5b1d-4c39-9d43-7f1f3a2b9e10";
     private static final String PULL = "pr:owner/repository#31402";
     private static final Map<String, ServedRef> SERVED = ImmutableMap.of(
             "work:w22", new ServedRef("epics", Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w22"))),
@@ -104,13 +105,13 @@ class TestAssistantShow
         JsonNode answer = show(message(), "{\"op\":\"list\",\"style\":\"cards\",\"title\":\"Waiting on you\",\"refs\":[\"" + PULL + "\",\"work:w22\",\"task:t1\","
                 + "\"pr:owner/repository#1\",\"ws:ws1\",\"approval:a1\",\"work:w22\"]}");
 
-        // What was on screen, what the day handed out and the tasks of the cards shown; never a card, a repository or an unread ref.
+        // What was on screen, what the conversation handed out and the tasks of the cards shown; never a card, a repository or an unread ref.
         assertThat(answer.path("outcome").asText()).isEqualTo("done");
         assertThat(answer.path("dropped").toString()).isEqualTo("[\"pr:owner/repository#1\",\"ws:ws1\",\"approval:a1\"]");
         AssistantItem list = shown.getLast();
         assertThat(list.kind()).isEqualTo(AssistantItem.Kind.LIST);
         assertThat(list.text()).isEqualTo("Waiting on you");
-        assertThat(list.day()).isEqualTo(DAY);
+        assertThat(list.conversationId()).isEqualTo(CONVERSATION);
         assertThat(list.list()).contains(new AssistantList(AssistantList.Style.CARDS, ImmutableList.of(PULL, "work:w22", "task:t1")));
 
         assertThat(show(message(), "{\"op\":\"list\",\"title\":\"" + "Your day ".repeat(20) + "\",\"refs\":[\"work:w22\"]}").has("dropped")).isFalse();
@@ -239,7 +240,7 @@ class TestAssistantShow
         // The work item the user's click creates is named now, so a retried click creates it once.
         assertThat(UUID.fromString(drafted.workItemId())).isNotNull();
 
-        // Only a repository the day handed out, and the assistant writes nothing to GitHub itself.
+        // Only a repository the conversation handed out, and the assistant writes nothing to GitHub itself.
         assertThat(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws2\",\"title\":\"Elsewhere\"}").path("outcome").asText()).isEqualTo("refused");
         assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"ws:ws1\"}"))).isEqualTo("draft_epic needs a title");
         assertThat(error(show(message(), "{\"op\":\"draft_epic\",\"workspace\":\"repository\",\"title\":\"Mine\"}"))).isEqualTo("draft_epic needs a ws: ref");
@@ -261,12 +262,12 @@ class TestAssistantShow
 
     private static AssistantItem message(String text)
     {
-        return AssistantItem.user(DAY, NOW, text, ImmutableList.of("approval:a1"), Optional.of(PULL), "key-" + text);
+        return AssistantItem.user(CONVERSATION, NOW, text, ImmutableList.of("approval:a1"), Optional.of(PULL), "key-" + text);
     }
 
     private static AssistantItem message()
     {
-        return AssistantItem.user(DAY, NOW, "what is waiting on me?", ImmutableList.of("approval:a1"), Optional.of(PULL), "key-1");
+        return AssistantItem.user(CONVERSATION, NOW, "what is waiting on me?", ImmutableList.of("approval:a1"), Optional.of(PULL), "key-1");
     }
 
     private static String list(List<String> refs)

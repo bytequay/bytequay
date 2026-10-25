@@ -101,7 +101,7 @@ public record AgentSessionContext(
         checkArgument(access != SessionAccess.TEXT_ONLY || worktree.toAbsolutePath().normalize().startsWith(runtimeDirectory.toAbsolutePath().normalize()),
                 "text-only worktree escapes runtimeDirectory");
         // Claude finds a saved session by its working directory, so a tools-only folder outlives the run's own runtime directory:
-        // it is <runtime root>/assistant/<day>, beside the run's directory, which sits directly under the runtime root.
+        // it is <runtime root>/assistant/<conversation>, beside the run's directory, which sits directly under the runtime root.
         checkArgument(access != SessionAccess.TOOLS_ONLY
                         || runtimeDirectory.toAbsolutePath().normalize().resolveSibling("assistant").equals(worktree.toAbsolutePath().normalize().getParent()),
                 "tools-only worktree is not an assistant folder");

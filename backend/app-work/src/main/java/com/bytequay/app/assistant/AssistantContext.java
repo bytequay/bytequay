@@ -38,7 +38,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * The {@code assistant_context} tool for one message. The agenda's kinds read a fresh snapshot on every call; the rest read what runs
  * now, the cards the message lists as visible, the page it was sent from, any item named by its ref or found by its title, number or
- * key, what a task said last, and what a new task can start with. Every ref a call hands out joins the refs served earlier that day,
+ * key, what a task said last, and what a new task can start with. Every ref a call hands out joins the refs served earlier in the conversation,
  * so a later message may act on it.
  */
 final class AssistantContext
@@ -60,7 +60,7 @@ final class AssistantContext
     /**
      * @param visible the cards on screen when the message was sent
      * @param onScreen the ref of what the user was looking at
-     * @param served the refs earlier messages that day were handed
+     * @param served the refs earlier messages in the conversation were handed
      */
     AssistantContext(AssistantReader reader, LocalDate day, List<String> visible, Optional<String> onScreen, Map<String, ServedRef> served, ObjectMapper mapper)
     {
@@ -91,7 +91,7 @@ final class AssistantContext
                 schema, this::call, true);
     }
 
-    /** Every ref handed out today, with the kind of page that named it first. */
+    /** Every ref handed out in this conversation, with the kind of page that named it first. */
     synchronized Map<String, ServedRef> served()
     {
         return ImmutableMap.copyOf(served);

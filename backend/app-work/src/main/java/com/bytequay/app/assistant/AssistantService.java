@@ -32,7 +32,7 @@ import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.SetupSettingsService;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
-import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantConversation;
 import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantReceipt;
@@ -53,6 +53,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -69,14 +70,16 @@ import java.util.stream.Stream;
 
 import static com.bytequay.app.agenda.AgendaReader.clip;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The assistant panel's conversation: one per local day, each message answered in the background by a tools-only session with three
- * tools, {@code assistant_context} to read, {@code assistant_act} to act on that message's words, and {@code assistant_show} to show
- * what it found. A day resumes its provider conversation from one stable folder; a session that is new, on another agent, or lost by
- * its provider opens with the day's last items instead.
+ * The assistant panel's conversations, each message answered in the background by a tools-only session with three tools,
+ * {@code assistant_context} to read, {@code assistant_act} to act on that message's words, and {@code assistant_show} to show what it
+ * found. The panel starts a conversation for each new topic and may go back to an earlier one. A conversation resumes its provider
+ * conversation from its own folder; a session that is new, on another agent, or lost by its provider opens with the conversation's
+ * last items instead.
  */
 @Service
 public class AssistantService
@@ -85,6 +88,8 @@ public class AssistantService
     public static final int MAXIMUM_TEXT = 16 * 1024;
     private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(3);
     private static final int RETAINED_DAYS = 30;
+    private static final int HISTORY = 50;
+    private static final int TITLE = 100;
     private static final int SEED_ITEMS = 20;
     private static final int SEED_TEXT = 400;
     private static final int REASON = 200;
@@ -145,51 +150,66 @@ public class AssistantService
         this.folders = properties.runtimeRoot().toAbsolutePath().normalize().resolve("assistant");
     }
 
-    /** The day so far, each list with its rows read now, so a list stays current and its titles stay the app's data. */
-    public AssistantView today()
+    /** The most recent conversations, newest first, for the panel's history. */
+    public List<AssistantSummary> conversations()
     {
-        LocalDate day = currentDay();
-        List<AssistantItem> items = store.items(day);
+        return store.conversations(HISTORY).stream().map(value -> new AssistantSummary(value.id(), value.title(), value.updatedAt(), answering(value.id())))
+                .collect(toImmutableList());
+    }
+
+    /**
+     * One conversation so far, each list with its rows read now, so a list stays current and its titles stay the app's data. A conversation
+     * nobody wrote in yet reads as empty.
+     */
+    public AssistantView conversation(String conversationId)
+    {
+        List<AssistantItem> items = store.items(conversationId);
         List<String> listed = items.stream().flatMap(item -> item.list().stream()).flatMap(list -> list.refs().stream()).collect(toImmutableList());
-        return new AssistantView(day.toString(), store.find(day).map(AssistantDay::model), running.get() != null, items, listed.isEmpty() ? ImmutableMap.of() : rows.rows(listed));
+        return new AssistantView(conversationId, store.find(conversationId).flatMap(AssistantConversation::model), answering(conversationId), items,
+                listed.isEmpty() ? ImmutableMap.of() : rows.rows(listed));
     }
 
     /**
      * Keeps the user's message and answers it in the background.
      *
+     * @param conversationId the conversation it goes on, or a new one the panel named for it
      * @param visible the cards on screen when it was sent
      * @param onScreen the ref of the page the user was looking at
      * @param key the sender's key for the message; sent again, the message adds nothing and gives the first one's id
      * @return the message's item id
      * @throws AgentConflictException while another reply is being written
      */
-    public String send(String text, List<String> visible, Optional<String> onScreen, String key)
+    public String send(String conversationId, String text, List<String> visible, Optional<String> onScreen, String key)
     {
+        checkArgument(AssistantConversation.isId(conversationId), "conversationId is not a conversation id");
         requireNonNull(text, "text is null");
         requireNonNull(key, "key is null");
-        LocalDate day = currentDay();
-        Optional<AssistantItem> sent = store.items(day).stream().filter(item -> item.key().filter(key::equals).isPresent()).findFirst();
+        Optional<AssistantItem> sent = store.items(conversationId).stream().filter(item -> item.key().filter(key::equals).isPresent()).findFirst();
         if (sent.isPresent()) {
             return sent.orElseThrow().id();
         }
-        return start(() -> {
-            AssistantItem message = AssistantItem.user(day, clock.instant(), text, visible, onScreen, key);
+        return start(conversationId, () -> {
+            boolean fresh = store.find(conversationId).isEmpty();
+            AssistantItem message = AssistantItem.user(conversationId, clock.instant(), text, visible, onScreen, key);
             append(message);
+            if (fresh) {
+                retain();
+            }
             return message;
         });
     }
 
     /**
-     * Answers today's last message again after its reply failed.
+     * Answers the conversation's last message again after its reply failed.
      *
      * @return the message's item id
-     * @throws AgentConflictException while a reply is being written, or when the day's last reply did not fail
+     * @throws AgentConflictException while a reply is being written, or when the conversation's last reply did not fail
      */
-    public String retry()
+    public String retry(String conversationId)
     {
-        return start(() -> {
+        return start(conversationId, () -> {
             // A card answered with its button meanwhile leaves a receipt after the failure, which does not end the exchange.
-            List<AssistantItem> items = store.items(currentDay()).stream().filter(item -> item.kind() != AssistantItem.Kind.RECEIPT).collect(toImmutableList());
+            List<AssistantItem> items = store.items(conversationId).stream().filter(item -> item.kind() != AssistantItem.Kind.RECEIPT).collect(toImmutableList());
             if (items.isEmpty() || items.getLast().kind() != AssistantItem.Kind.FAILURE) {
                 throw new AgentConflictException("There is no failed reply to retry");
             }
@@ -205,53 +225,74 @@ public class AssistantService
     }
 
     /**
-     * Keeps a receipt for a card the user answered with its own button in the panel, so the conversation shows what became of it.
+     * Keeps a receipt for a card the user answered with its own button in the panel, so the conversation on screen shows what became of
+     * it; a receipt with no conversation on screen begins a new one.
      *
      * @throws IllegalArgumentException when the approval is unknown or not answered
      */
-    public void answered(String approvalId)
+    public void answered(String conversationId, String approvalId)
     {
-        append(actions.buttonReceipt(ApprovalId.valueOf(approvalId), currentDay()));
+        checkArgument(AssistantConversation.isId(conversationId), "conversationId is not a conversation id");
+        append(actions.buttonReceipt(ApprovalId.valueOf(approvalId), conversationId));
     }
 
     /**
      * Keeps a receipt for a draft the user created with its own button, once, so the conversation shows the Epic it became.
      *
-     * @throws IllegalArgumentException when the item is not one of today's drafts, or the draft was not created yet
+     * @throws IllegalArgumentException when the item is not one of the conversation's drafts, or the draft was not created yet
      */
     // Under append's lock, so two clicks recorded at once still keep one receipt.
-    public synchronized void drafted(String itemId)
+    public synchronized void drafted(String conversationId, String itemId)
     {
-        LocalDate day = currentDay();
-        List<AssistantItem> items = store.items(day);
+        List<AssistantItem> items = store.items(conversationId);
         AssistantDraft draft = items.stream().filter(item -> item.id().equals(itemId)).findFirst().flatMap(AssistantItem::draft)
-                .orElseThrow(() -> new IllegalArgumentException("That is not one of today's drafts"));
+                .orElseThrow(() -> new IllegalArgumentException("That is not one of this conversation's drafts"));
         boolean kept = items.stream().flatMap(item -> item.receipt().stream()).filter(receipt -> receipt.operation() == AssistantReceipt.Operation.CREATE_EPIC)
                 .anyMatch(receipt -> receipt.target().flatMap(AgendaTarget::id).filter(draft.workItemId()::equals).isPresent());
         if (!kept) {
-            append(work.drafted(draft, day, clock.instant()));
+            append(work.drafted(draft, conversationId, clock.instant()));
         }
     }
 
-    // ponytail: one lock for every item written, by the run or by a button's receipt, since the next ordinal is the day's count.
+    /** Adds the item, beginning its conversation with it when it is the first; the user's own message moves the conversation up the history. */
+    // ponytail: one lock for every item written, by the run or by a button's receipt, since the next ordinal is the conversation's count.
     private synchronized void append(AssistantItem item)
     {
+        Optional<AssistantConversation> stored = store.find(item.conversationId());
+        if (stored.isEmpty()) {
+            store.save(AssistantConversation.start(item.conversationId(), clip(item.text(), TITLE), item.at()));
+        }
+        else if (item.kind() == AssistantItem.Kind.USER) {
+            store.save(touched(stored.orElseThrow(), item.at()));
+        }
         store.add(item);
     }
 
-    // The shared clock is UTC; the conversation's day follows the user's wall clock, as the agenda's does.
+    private static AssistantConversation touched(AssistantConversation conversation, Instant at)
+    {
+        return new AssistantConversation(conversation.id(), conversation.title(), conversation.laneId(), conversation.model(), conversation.session(), conversation.served(),
+                conversation.createdAt(), at);
+    }
+
+    private boolean answering(String conversationId)
+    {
+        Run run = running.get();
+        return run != null && run.conversationId.equals(conversationId);
+    }
+
+    // The shared clock is UTC; the user's day follows their wall clock, as the agenda's does.
     private LocalDate currentDay()
     {
         return LocalDate.ofInstant(clock.instant(), ZoneId.systemDefault());
     }
 
     /** Takes the one reply slot, picks the message, and answers it on a virtual thread that gives the slot back when it ends. */
-    private String start(Supplier<AssistantItem> pick)
+    private String start(String conversationId, Supplier<AssistantItem> pick)
     {
         if (!setup.preferences().assistantEnabled()) {
             throw new AgentConflictException("Enable Assistant in Settings before starting a conversation");
         }
-        Run run = new Run();
+        Run run = new Run(conversationId);
         if (!running.compareAndSet(null, run)) {
             throw new AgentConflictException("The assistant is still answering");
         }
@@ -262,7 +303,7 @@ public class AssistantService
                     reply(run, message);
                 }
                 catch (RuntimeException failure) {
-                    log.warn("The assistant could not keep its answer for {}", message.day(), failure);
+                    log.warn("The assistant could not keep its answer in {}", message.conversationId(), failure);
                 }
                 finally {
                     running.compareAndSet(run, null);
@@ -278,42 +319,41 @@ public class AssistantService
 
     private void reply(Run run, AssistantItem message)
     {
-        LocalDate day = message.day();
+        String id = message.conversationId();
         AgentModelSetting model;
         try {
             model = setup.requireUsableDevelopmentAgent();
         }
         catch (RuntimeException notReady) {
-            append(AssistantItem.failure(day, clock.instant(), reason(notReady), true));
+            append(AssistantItem.failure(id, clock.instant(), reason(notReady), true));
             return;
         }
         String lane = model.configId();
-        Optional<AssistantDay> stored = store.find(day);
-        AssistantContext context = new AssistantContext(reader, day, message.visible(), message.onScreen(), stored.map(AssistantDay::served).orElse(ImmutableMap.of()), mapper);
-        // A provider conversation belongs to its agent; on another one the day goes on in a fresh session.
-        Optional<DiscussionSession> session = stored.filter(value -> value.laneId().equals(lane)).flatMap(AssistantDay::session);
+        // The message began or moved its conversation, so it is stored.
+        AssistantConversation stored = store.find(id).orElseThrow();
+        AssistantContext context = new AssistantContext(reader, currentDay(), message.visible(), message.onScreen(), stored.served(), mapper);
+        // A provider conversation belongs to its agent; on another one the conversation goes on in a fresh session.
+        Optional<DiscussionSession> session = stored.laneId().filter(lane::equals).flatMap(_ -> stored.session());
         try {
             Optional<OneShotSession.Answer> resumed = session.flatMap(value -> resume(run, message, model, context, value));
             if (session.isPresent() && resumed.isEmpty()) {
-                log.info("The provider lost the assistant's conversation for {}; it goes on in a fresh session", day);
+                log.info("The provider lost the assistant's conversation {}; it goes on in a fresh session", id);
                 session = Optional.empty();
             }
             OneShotSession.Answer answer = resumed.orElseGet(() -> converse(run, message, model, context, Optional.empty(), prompt(message, true)));
             session = Optional.of(new DiscussionSession(answer.reference().contractVersion(), answer.reference().providerValue()));
-            append(item(day, answer.result(), context.served()));
+            append(item(id, answer.result(), context.served()));
         }
         catch (RuntimeException failure) {
-            log.warn("The assistant could not answer a message on {}", day, failure);
-            append(AssistantItem.failure(day, clock.instant(), reason(failure), false));
+            log.warn("The assistant could not answer a message in {}", id, failure);
+            append(AssistantItem.failure(id, clock.instant(), reason(failure), false));
         }
-        store.save(new AssistantDay(day, lane, model.modelLabel(), session, context.served(), stored.map(AssistantDay::createdAt).orElseGet(clock::instant)));
-        if (stored.isEmpty()) {
-            retain(day);
-        }
+        store.save(new AssistantConversation(id, stored.title(), Optional.of(lane), Optional.of(model.modelLabel()), session, context.served(), stored.createdAt(),
+                clock.instant()));
     }
 
     /**
-     * The reply in the day's own conversation, or empty when the provider no longer has it: Claude ends such a resume as a failed turn,
+     * The reply in the conversation's own provider session, or empty when the provider no longer has it: Claude ends such a resume as a failed turn,
      * and Codex refuses the thread before any turn starts.
      */
     private Optional<OneShotSession.Answer> resume(Run run, AssistantItem message, AgentModelSetting model, AssistantContext context, DiscussionSession session)
@@ -335,7 +375,7 @@ public class AssistantService
     {
         AgentLaneId lane = new AgentLaneId(model.configId());
         return OneShotSession.run(resources, drivers.require(lane), (scratchId, scratch) -> new AgentSessionContext(
-                        scratchId.toString(), folder(message.day()), scratch.runtimeDirectory(), scratch.providerDirectory(), AgentPermissionPolicy.AUTO,
+                        scratchId.toString(), folder(message.conversationId()), scratch.runtimeDirectory(), scratch.providerDirectory(), AgentPermissionPolicy.AUTO,
                         resume.map(value -> new AgentSessionRef(lane, value.contractVersion(), value.providerValue())),
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), Optional.of(model.model()), model.effort(),
                         SessionAccess.TOOLS_ONLY, Optional.empty(), INSTRUCTIONS, Optional.empty(),
@@ -345,15 +385,15 @@ public class AssistantService
 
     /**
      * The message with what the session needs beside it: the local time, the page and cards on screen and, for a session that does not
-     * hold the day's conversation, the day's last items before it.
+     * hold the conversation, its last items before the message.
      */
     private String prompt(AssistantItem message, boolean fresh)
     {
         StringBuilder prompt = new StringBuilder();
         if (fresh) {
-            List<AssistantItem> earlier = store.items(message.day()).stream().takeWhile(item -> !item.id().equals(message.id())).collect(toImmutableList());
+            List<AssistantItem> earlier = store.items(message.conversationId()).stream().takeWhile(item -> !item.id().equals(message.id())).collect(toImmutableList());
             if (!earlier.isEmpty()) {
-                prompt.append("Earlier today:\n");
+                prompt.append("Earlier in this conversation:\n");
                 earlier.subList(Math.max(0, earlier.size() - SEED_ITEMS), earlier.size()).forEach(item -> prompt.append(line(item)).append('\n'));
                 prompt.append('\n');
             }
@@ -380,16 +420,16 @@ public class AssistantService
         return "[" + who + " " + CLOCK.format(item.at().atZone(ZoneId.systemDefault())) + "] " + clip(text, SEED_TEXT);
     }
 
-    private AssistantItem item(LocalDate day, AgentTurnResult result, Map<String, ServedRef> served)
+    private AssistantItem item(String conversationId, AgentTurnResult result, Map<String, ServedRef> served)
     {
         String text = result.finalResponse().map(String::strip).orElse("");
         if (result.state() == AgentTurnResult.State.COMPLETED && !text.isEmpty()) {
-            return AssistantItem.reply(day, clock.instant(), text, targets(text, served));
+            return AssistantItem.reply(conversationId, clock.instant(), text, targets(text, served));
         }
-        return AssistantItem.failure(day, clock.instant(), clip(result.terminalReason().orElse("The assistant ended without an answer"), REASON), false);
+        return AssistantItem.failure(conversationId, clock.instant(), clip(result.terminalReason().orElse("The assistant ended without an answer"), REASON), false);
     }
 
-    /** Where each ref the reply names opens: only refs the day served, each named whole rather than as the start of a longer one. */
+    /** Where each ref the reply names opens: only refs the conversation served, each named whole rather than as the start of a longer one. */
     private static Map<String, AgendaTarget> targets(String text, Map<String, ServedRef> served)
     {
         ImmutableMap.Builder<String, AgendaTarget> targets = ImmutableMap.builder();
@@ -399,27 +439,34 @@ public class AssistantService
         return targets.buildOrThrow();
     }
 
-    /** The day's folder, which outlives each run because Claude finds a saved conversation by its working directory. */
-    private Path folder(LocalDate day)
+    /** The conversation's folder, which outlives each run because Claude finds a saved conversation by its working directory. */
+    private Path folder(String conversationId)
     {
         try {
             // Made before the session opens: its sandbox may not write the folder.
-            return Files.createDirectories(folders.resolve(day.toString()));
+            return Files.createDirectories(folders.resolve(conversationId));
         }
         catch (IOException failure) {
             throw new AgentUnavailableException("Could not prepare the assistant's folder", failure);
         }
     }
 
-    /** Drops the days, items and folders past retention; called when a day is first written. */
-    private void retain(LocalDate day)
+    /**
+     * Drops the conversations, items, actions and folders past retention; called when a conversation begins. A folder that names no kept
+     * conversation goes too, such as one of the day folders conversations used to have.
+     */
+    private void retain()
     {
-        LocalDate oldest = day.minusDays(RETAINED_DAYS);
-        store.deleteBefore(oldest);
+        store.deleteBefore(clock.instant().minus(Duration.ofDays(RETAINED_DAYS)), currentDay().minusDays(RETAINED_DAYS));
+        if (!Files.isDirectory(folders)) {
+            return;
+        }
         try (Stream<Path> listed = Files.list(folders)) {
-            // Folder names are ISO dates, so text order is day order.
-            for (Path folder : listed.filter(path -> path.getFileName().toString().compareTo(oldest.toString()) < 0).collect(toImmutableList())) {
-                MoreFiles.deleteRecursively(folder, RecursiveDeleteOption.ALLOW_INSECURE);
+            for (Path folder : listed.collect(toImmutableList())) {
+                String name = folder.getFileName().toString();
+                if (!AssistantConversation.isId(name) || store.find(name).isEmpty()) {
+                    MoreFiles.deleteRecursively(folder, RecursiveDeleteOption.ALLOW_INSECURE);
+                }
             }
         }
         catch (IOException failure) {
@@ -432,11 +479,17 @@ public class AssistantService
         return clip(Optional.ofNullable(failure.getMessage()).filter(message -> !message.isBlank()).orElse("The assistant could not answer"), REASON);
     }
 
-    /** The one reply being written. Stop cancels its turn, or the turn as soon as it starts. */
+    /** The one reply being written, in one conversation. Stop cancels its turn, or the turn as soon as it starts. */
     private static final class Run
     {
+        private final String conversationId;
         private volatile Optional<RunningTurn> turn = Optional.empty();
         private volatile boolean stopped;
+
+        Run(String conversationId)
+        {
+            this.conversationId = requireNonNull(conversationId, "conversationId is null");
+        }
 
         void started(RunningTurn started)
         {

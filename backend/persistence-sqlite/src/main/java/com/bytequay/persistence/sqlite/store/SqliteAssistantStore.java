@@ -14,18 +14,20 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.AssistantAction;
-import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantConversation;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.store.AssistantStore;
 import com.bytequay.persistence.sqlite.entity.AssistantActionEntity;
-import com.bytequay.persistence.sqlite.entity.AssistantDayEntity;
+import com.bytequay.persistence.sqlite.entity.AssistantConversationEntity;
 import com.bytequay.persistence.sqlite.entity.AssistantItemEntity;
 import com.bytequay.persistence.sqlite.repository.AssistantActionJpaRepository;
-import com.bytequay.persistence.sqlite.repository.AssistantDayJpaRepository;
+import com.bytequay.persistence.sqlite.repository.AssistantConversationJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AssistantItemJpaRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -38,46 +40,53 @@ import static java.util.Objects.requireNonNull;
 public class SqliteAssistantStore
         implements AssistantStore
 {
-    private final AssistantDayJpaRepository days;
+    private final AssistantConversationJpaRepository conversations;
     private final AssistantItemJpaRepository items;
     private final AssistantActionJpaRepository actions;
 
-    public SqliteAssistantStore(AssistantDayJpaRepository days, AssistantItemJpaRepository items, AssistantActionJpaRepository actions)
+    public SqliteAssistantStore(AssistantConversationJpaRepository conversations, AssistantItemJpaRepository items, AssistantActionJpaRepository actions)
     {
-        this.days = requireNonNull(days, "days is null");
+        this.conversations = requireNonNull(conversations, "conversations is null");
         this.items = requireNonNull(items, "items is null");
         this.actions = requireNonNull(actions, "actions is null");
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<AssistantDay> find(LocalDate day)
+    public Optional<AssistantConversation> find(String conversationId)
     {
-        return days.findById(day.toString()).map(AssistantDayEntity::toDomain);
+        return conversations.findById(conversationId).map(AssistantConversationEntity::toDomain);
     }
 
     @Override
     @Transactional
-    public void save(AssistantDay day)
+    public void save(AssistantConversation conversation)
     {
-        AssistantDayEntity entity = days.findById(day.day().toString()).orElseGet(() -> new AssistantDayEntity(day));
-        entity.update(day);
-        days.save(entity);
+        AssistantConversationEntity entity = conversations.findById(conversation.id()).orElseGet(() -> new AssistantConversationEntity(conversation));
+        entity.update(conversation);
+        conversations.save(entity);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<AssistantItem> items(LocalDate day)
+    public List<AssistantConversation> conversations(int limit)
     {
-        return items.findByDayOrderByOrdinalAsc(day.toString()).stream().map(AssistantItemEntity::toDomain).collect(toImmutableList());
+        return conversations.findAllByOrderByUpdatedAtDesc(PageRequest.of(0, limit)).stream().map(AssistantConversationEntity::toDomain).collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<AssistantItem> items(String conversationId)
+    {
+        return items.findByConversationIdOrderByOrdinalAsc(conversationId).stream().map(AssistantItemEntity::toDomain).collect(toImmutableList());
     }
 
     @Override
     @Transactional
     public void add(AssistantItem item)
     {
-        // ponytail: the next ordinal is the day's count; the assistant writes one run at a time, and the unique ordinal refuses a second writer.
-        items.save(new AssistantItemEntity(item, items.countByDay(item.day().toString())));
+        // ponytail: the next ordinal is the conversation's count; the assistant writes one item at a time, and the unique ordinal refuses a second writer.
+        items.save(new AssistantItemEntity(item, items.countByConversationId(item.conversationId())));
     }
 
     @Override
@@ -96,10 +105,11 @@ public class SqliteAssistantStore
 
     @Override
     @Transactional
-    public void deleteBefore(LocalDate day)
+    public void deleteBefore(Instant updatedBefore, LocalDate actionsBefore)
     {
-        days.deleteByIdLessThan(day.toString());
-        items.deleteByDayLessThan(day.toString());
-        actions.deleteByDayLessThan(day.toString());
+        List<AssistantConversationEntity> old = conversations.findByUpdatedAtBefore(updatedBefore);
+        items.deleteByConversationIdIn(old.stream().map(AssistantConversationEntity::getId).collect(toImmutableList()));
+        conversations.deleteAll(old);
+        actions.deleteByDayLessThan(actionsBefore.toString());
     }
 }

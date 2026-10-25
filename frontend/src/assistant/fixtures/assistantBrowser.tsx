@@ -23,7 +23,8 @@ import type { AgentEventEnvelope } from '../../agents/events';
 import type { RunningTask } from '../../agents/runningTaskModel';
 import type { AppNotice } from '../../notices/contracts';
 import type {
-  AgendaDto, AgendaTargetDto, AgentHistoryPageDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantViewDto, Bridge,
+  AgendaDto, AgendaTargetDto, AgentHistoryPageDto, AgentPendingApprovalDto, AssistantItemDto, AssistantListStyle, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto, AssistantViewDto,
+  Bridge,
 } from '../../types';
 import { settingsRoute } from '../../settings/routes';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
@@ -51,15 +52,15 @@ const AGENDA: AgendaDto = {
 };
 
 const VIEW: AssistantViewDto = {
-  day: '2026-10-16', model: 'Claude Sonnet', running: false,
+  id: 'c0', model: 'Claude Sonnet', running: false,
   items: [
-    { id: 'u1', day: '2026-10-16', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null },
-    { id: 'r1', day: '2026-10-16', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:owner/repository#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
+    { id: 'u1', conversationId: 'c0', at: '2026-10-16T07:06:00Z', kind: 'USER', text: 'What should I look at first?', targets: {}, notReady: false, receipt: null, list: null, draft: null },
+    { id: 'r1', conversationId: 'c0', at: '2026-10-16T07:06:20Z', kind: 'REPLY', targets: { 'pr:owner/repository#31377': PULL, 'task:t1': target('TASK', { id: 't1' }) },
       text: 'Start with [#31377](pr:owner/repository#31377): it has waited 3 days and CI is green. Then answer elric-t on task:t1.', notReady: false, receipt: null, list: null, draft: null },
-    { id: 'c1', day: '2026-10-16', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
+    { id: 'c1', conversationId: 'c0', at: '2026-10-16T07:08:00Z', kind: 'RECEIPT', text: 'Started “Expose snapshot id in metadata”', targets: {}, notReady: false,
       receipt: { operation: 'START_TASK', outcome: 'DONE', detail: 'owner/repository · Claude Code Opus 5.5 · Auto-Draft PR', target: target('TASK', { id: 't9' }),
         page: null, turnId: 'turn-9', fix: null, words: 'start the snapshot id one' }, list: null, draft: null },
-    { id: 'c2', day: '2026-10-16', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
+    { id: 'c2', conversationId: 'c0', at: '2026-10-16T07:08:01Z', kind: 'RECEIPT', text: 'Use the buttons: this one runs outside the sandbox', targets: {}, notReady: false,
       receipt: { operation: 'ANSWER_APPROVAL', outcome: 'REFUSED', detail: null, target: null, page: null, turnId: null, fix: 'BUTTONS', words: 'allow it' }, list: null, draft: null },
   ],
   rows: {},
@@ -85,7 +86,7 @@ const ROWS: Record<string, AssistantRowDto> = Object.fromEntries([
 ].map(each => [each.ref, each]));
 const REFS = ['pr:owner/repository#31377', 'pr:owner/repository#31402', 'task:t1', 'jira:cloud:10042', 'work:w22', 'epic:LOCAL:w1', 'pr:owner/repository#1'];
 const listView = (style: AssistantListStyle, extra: AssistantRowDto[] = []): AssistantViewDto => {
-  const list: AssistantItemDto = { id: 'l1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
+  const list: AssistantItemDto = { id: 'l1', conversationId: 'c0', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Waiting on you', targets: {}, notReady: false,
     receipt: null, list: { style, refs: [...REFS, ...extra.map(each => each.ref)] }, draft: null };
   return { ...VIEW, items: [VIEW.items[0], list], rows: { ...ROWS, ...Object.fromEntries(extra.map(each => [each.ref, each])) } };
 };
@@ -139,13 +140,21 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
   let failures = failSends;
   history = [step(1, 'sed -n 1,100p IcebergMetadata.java', 'READ', 'IcebergMetadata.java')];
-  let today = view;
+  // As the backend keeps them: a conversation begins with its first message, which titles it, and holds what its replies left.
+  const views = new Map<string, AssistantViewDto>();
+  const summaries: AssistantSummaryDto[] = [];
+  let last: string | null = null;
   window.bridge = {
-    getAssistantToday: async () => today,
+    listAssistantConversations: async () => summaries.map(each => ({ ...each, running: views.get(each.id)?.running ?? false })),
+    getAssistantConversation: async (id: string) => views.get(id) ?? { id, model: null, running: false, items: [], rows: {} },
     sendAssistantMessage: async (...args: unknown[]) => {
       calls.sent.push(args);
       if (failures-- > 0) throw new Error("Error invoking remote method 'assistant:send': Error: The backend is busy");
-      today = replied();
+      const [id, text] = args as [string, string];
+      const title = summaries.find(each => each.id === id)?.title ?? text;
+      summaries.splice(0, summaries.length, { id, title, updatedAt: new Date().toISOString(), running: false }, ...summaries.filter(each => each.id !== id));
+      views.set(id, { ...view, ...replied(), id });
+      last = id;
       return { itemId: 'u2' };
     },
     stopAssistant: async () => { calls.stopped++; },
@@ -160,9 +169,13 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
     },
     readAgentPendingApprovals: async (taskId: string, turnId: string) => taskId === APPROVAL.taskId && turnId === APPROVAL.turnId ? [APPROVAL] : [],
     resolveAgentApproval: async (...args: unknown[]) => { calls.resolved.push(args); return {}; },
-    recordAssistantAnswer: async (id: string) => { calls.answered.push(id); },
+    recordAssistantAnswer: async (_conversation: string, id: string) => { calls.answered.push(id); },
     cancelAgentTurn: async (turnId: string) => { calls.cancelled.push(turnId); return {}; },
-    completeAgentTask: async (...args: unknown[]) => { calls.completed.push(args); today = completed(); return {}; },
+    completeAgentTask: async (...args: unknown[]) => {
+      calls.completed.push(args);
+      if (last !== null) views.set(last, { ...completed(), id: last });
+      return {};
+    },
     openAppNotice: async (id: string) => { calls.opened.push(id); },
     removeAppNotice: async (id: string) => { calls.removed.push(id); },
     findStoredPullRequest: async (): Promise<null> => null,
@@ -258,7 +271,7 @@ async function showsTheDayOnceTheUserTalks(): Promise<void> {
     assert(Number(view.calls.closed) === 1, 'Opening something closes the Assistant over it');
     view.render(true);
     await settle();
-    assert(view.host.querySelector('.assistant-talk') === null, 'Opened again, the conversation folds away');
+    assert(view.host.querySelector('.assistant-talk') !== null, 'Opened again soon after, the conversation is still there');
     enter(type(view.host, 'and the task?'));
     await settle();
     [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-receipt .assistant-action')].find(button => button.textContent === 'Open')?.click();
@@ -286,7 +299,7 @@ async function foldsTheCardsWhileTheUserTalks(): Promise<void> {
     assert(top(view.host) === null, 'The open pill folds it again');
     enter(type(view.host, 'and then?'));
     await settle();
-    assert(JSON.stringify(view.calls.sent[1][1]) === '[]', `Folded cards are not on screen: ${JSON.stringify(view.calls.sent[1][1])}`);
+    assert(JSON.stringify(view.calls.sent[1][2]) === '[]', `Folded cards are not on screen: ${JSON.stringify(view.calls.sent[1][2])}`);
     decision();
     await settle();
     enter(type(view.host, 'thanks'));
@@ -330,9 +343,9 @@ async function sendsWithWhatIsShown(): Promise<void> {
     enter(input);
     await settle();
     const [first, second] = view.calls.sent;
-    assert(JSON.stringify(first.slice(0, 3)) === JSON.stringify(['allow it', ['approval:a1', 'finished:turn-2'], 'pr:owner/repository#31377']),
+    assert(JSON.stringify(first.slice(1, 4)) === JSON.stringify(['allow it', ['approval:a1', 'finished:turn-2'], 'pr:owner/repository#31377']),
       `A message carries the cards on screen and what is on screen: ${JSON.stringify(first)}`);
-    assert(second[3] === first[3], 'Sending the same words again reuses the key');
+    assert(second[4] === first[4] && second[0] === first[0], 'Sending the same words again reuses the key, in the same conversation');
     assert(String(input.value) === '' && view.host.querySelector('.assistant-error') === null, 'A sent message clears the draft');
     view.host.querySelector<HTMLButtonElement>('.assistant-chip button')?.click();
     await settle();
@@ -340,8 +353,8 @@ async function sendsWithWhatIsShown(): Promise<void> {
     view.host.querySelector<HTMLButtonElement>('.assistant-pill[data-group="today"]')?.click();
     enter(type(view.host, 'and the next one?'));
     await settle();
-    assert(view.calls.sent[2][2] === null && view.calls.sent[2][3] !== first[3], `A removed chip sends no screen, with a new key: ${JSON.stringify(view.calls.sent[2])}`);
-    assert(JSON.stringify(view.calls.sent[2][1]) === '[]', 'With the agenda showing, no card is on screen');
+    assert(view.calls.sent[2][3] === null && view.calls.sent[2][4] !== first[4], `A removed chip sends no screen, with a new key: ${JSON.stringify(view.calls.sent[2])}`);
+    assert(JSON.stringify(view.calls.sent[2][2]) === '[]' && view.calls.sent[2][0] === first[0], 'With the agenda showing, no card is on screen; the conversation goes on');
     assert(view.host.querySelector('.assistant-chip') !== null, 'The chip comes back for the next message');
     press(input, 'Escape');
     assert(Number(view.calls.closed) === 1, 'Escape closes the Assistant');
@@ -546,7 +559,7 @@ async function showsAListAsRowsCardsOrATimeline(): Promise<void> {
 }
 
 const opened = (id: string, at: string, page: string | null, item: AgendaTargetDto | null, words: string): AssistantItemDto => ({
-  id, day: '2026-10-16', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null, draft: null,
+  id, conversationId: 'c0', at, kind: 'RECEIPT', text: page === null ? 'Opened “Add Iceberg metadata cache”' : 'Opened Settings · Models', targets: {}, notReady: false, list: null, draft: null,
   receipt: { operation: 'OPEN', outcome: 'DONE', detail: null, target: item, page, turnId: null, fix: null, words },
 });
 
@@ -586,7 +599,7 @@ const taskRow = (id: string, title: string, state: string): AssistantRowDto => r
 const taskView = (first: string): AssistantViewDto => {
   const rows = [taskRow('t1', 'Expose snapshot id in metadata', first), taskRow('t2', 'Retry Iceberg commit on conflict', 'running'),
     taskRow('t3', 'Drop the old cache key', 'completed')];
-  const list: AssistantItemDto = { id: 'l2', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Your tasks', targets: {}, notReady: false, receipt: null,
+  const list: AssistantItemDto = { id: 'l2', conversationId: 'c0', at: '2026-10-16T07:06:10Z', kind: 'LIST', text: 'Your tasks', targets: {}, notReady: false, receipt: null,
     list: { style: 'CARDS', refs: rows.map(each => each.ref) }, draft: null };
   return { ...VIEW, items: [VIEW.items[0], list], rows: Object.fromEntries(rows.map(each => [each.ref, each])) };
 };
@@ -636,9 +649,9 @@ async function completesATaskFromItsCard(): Promise<void> {
 }
 
 const draftView = (created: boolean): AssistantViewDto => {
-  const draft: AssistantItemDto = { id: 'd1', day: '2026-10-16', at: '2026-10-16T07:06:10Z', kind: 'DRAFT', text: 'Iceberg snapshot metadata', targets: {}, notReady: false,
+  const draft: AssistantItemDto = { id: 'd1', conversationId: 'c0', at: '2026-10-16T07:06:10Z', kind: 'DRAFT', text: 'Iceberg snapshot metadata', targets: {}, notReady: false,
     receipt: null, list: null, draft: { workspaceId: 'ws1', repository: 'owner/repository', body: 'Track the work that exposes snapshot ids.', workItemId: 'w-new' } };
-  const receipt: AssistantItemDto = { id: 'c9', day: '2026-10-16', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text: 'Created “Iceberg snapshot ids” as an Epic',
+  const receipt: AssistantItemDto = { id: 'c9', conversationId: 'c0', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text: 'Created “Iceberg snapshot ids” as an Epic',
     targets: {}, notReady: false, list: null, draft: null,
     receipt: { operation: 'CREATE_EPIC', outcome: 'DONE', detail: 'owner/repository#77', target: target('WORK', { id: 'w-new' }), page: null, turnId: null, fix: null, words: null } };
   return { ...VIEW, items: created ? [VIEW.items[0], draft, receipt] : [VIEW.items[0], draft] };
@@ -650,7 +663,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
   let made: WorkItemDto | null = null;
   let publishFails = 1;
   const view = mount(draftView(false), 0, [], [], () => draftView(created), () => draftView(created), {
-    getAssistantToday: async () => draftView(created),
+    getAssistantConversation: async (id: string) => ({ ...draftView(created), id }),
     listWorkItems: async () => { steps.push(['list']); return made === null ? [] : [made]; },
     createWorkItem: async (...args: unknown[]) => {
       steps.push(['create', ...args]);
@@ -663,7 +676,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
       if (publishFails-- > 0) throw new Error("Error invoking remote method 'work-items:publish': Error: GitHub's rate limit was reached; try again in a minute");
       return { id: 'w-new', revision: 2, links: [{ kind: 'ISSUE', key: 'owner/repository#77' }] } as unknown as WorkItemDto;
     },
-    recordAssistantDraft: async (id: string) => { steps.push(['drafted', id]); created = true; },
+    recordAssistantDraft: async (_conversation: string, id: string) => { steps.push(['drafted', id]); created = true; },
   });
   try {
     await settle();
@@ -717,7 +730,7 @@ async function createsADraftedIssueAsAnEpic(): Promise<void> {
 
 async function readsTheMarksTheAssistantMade(): Promise<void> {
   let reads = 0;
-  const acknowledged: AssistantItemDto = { id: 'c8', day: '2026-10-16', at: '2026-10-16T07:05:00Z', kind: 'RECEIPT', text: 'Acknowledged “Add Iceberg metadata cache”',
+  const acknowledged: AssistantItemDto = { id: 'c8', conversationId: 'c0', at: '2026-10-16T07:05:00Z', kind: 'RECEIPT', text: 'Acknowledged “Add Iceberg metadata cache”',
     targets: {}, notReady: false, list: null, draft: null,
     receipt: { operation: 'ACKNOWLEDGE', outcome: 'DONE', detail: 'Back when something new happens', target: PULL, page: null, turnId: null, fix: null, words: 'clear it' } };
   const view = mount({ ...VIEW, items: [VIEW.items[0], acknowledged] }, 0, [], [], undefined, undefined, {
@@ -726,7 +739,10 @@ async function readsTheMarksTheAssistantMade(): Promise<void> {
   });
   try {
     await settle();
-    assert(reads === 1, `A mark the assistant made reaches the lists when its receipt arrives: ${reads} reads`);
+    assert(reads === 0, 'Nothing to read before a receipt arrives');
+    enter(type(view.host, 'clear it'));
+    await settle();
+    assert(Number(reads) === 1, `A mark the assistant made reaches the lists when its receipt arrives: ${reads} reads`);
   }
   finally { view.dispose(); }
 }
@@ -836,7 +852,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
   finally { view.dispose(); }
 }
 
-const signIn: AssistantItemDto = { id: 'f1', day: '2026-10-16', at: '2026-10-16T07:06:30Z', kind: 'FAILURE', text: 'Claude sign-in required', targets: {},
+const signIn: AssistantItemDto = { id: 'f1', conversationId: 'c0', at: '2026-10-16T07:06:30Z', kind: 'FAILURE', text: 'Claude sign-in required', targets: {},
   notReady: true, receipt: null, list: null, draft: null };
 
 async function asksToSignInWhenTheModelIsNotReady(): Promise<void> {
@@ -860,8 +876,10 @@ async function asksToSignInWhenTheModelIsNotReady(): Promise<void> {
 }
 
 async function stopsARunningReply(): Promise<void> {
-  const view = mount({ ...VIEW, running: true });
+  const view = mount(VIEW, 0, NOTICES, [], () => ({ ...VIEW, running: true }));
   try {
+    await settle();
+    enter(type(view.host, 'What should I look at first?'));
     await settle();
     assert(view.host.querySelector('.assistant-talk .assistant-thinking') !== null, 'A running reply shows the conversation with Thinking');
     const light = view.host.querySelector('.assistant-float.is-replying .agt-compose__streamer');
@@ -875,11 +893,15 @@ async function stopsARunningReply(): Promise<void> {
 }
 
 async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
-  // Newer than the panel's last close, so the conversation unfolds at once and fills the window.
-  const soon = new Date(Date.now() + 60_000).toISOString();
-  const long = { ...VIEW, items: Array.from({ length: 24 }, (_, index) => ({ ...VIEW.items[0], id: `u${index}`, at: soon })) };
-  const view = mount(long, 0, [], [], undefined, undefined, {}, false);
+  // A long conversation from before chat was turned off, which fills the window.
+  const long = { ...VIEW, items: Array.from({ length: 24 }, (_, index) => ({ ...VIEW.items[0], id: `u${index}` })) };
+  const view = mount(long, 0, [], [], undefined, undefined, {
+    listAssistantConversations: async () => [{ id: 'c0', title: 'What should I look at first?', updatedAt: '2026-10-16T07:06:00Z', running: false }],
+    getAssistantConversation: async (id: string) => id === 'c0' ? long : { id, model: null, running: false, items: [], rows: {} },
+  }, false);
   try {
+    await settle();
+    element<HTMLButtonElement>('.assistant-list .assistant-line', view.host, 'The earlier conversation is a line to continue').click();
     await settle();
     const box = view.host.querySelector<HTMLElement>('.assistant-off');
     const link = box?.querySelector<HTMLElement>('.assistant-link');
@@ -892,6 +914,64 @@ async function keepsTheSetUpBoxWholeWithChatOff(): Promise<void> {
   finally { view.dispose(); }
 }
 
+async function keepsAConversationForEachTopic(): Promise<void> {
+  const view = mount(VIEW, 0, [], [], () => ({ ...VIEW, items: VIEW.items.slice(0, 2) }));
+  const button = (label: string) => view.host.querySelector<HTMLButtonElement>(`.assistant-float button[aria-label="${label}"]`);
+  const lines = () => [...view.host.querySelectorAll<HTMLButtonElement>('.assistant-list .assistant-line')];
+  const realNow = Date.now;
+  try {
+    await settle();
+    assert(button('New conversation') === null && button('Conversations') === null && lines().length === 0, 'Before the first message there is nothing to go back to');
+    enter(type(view.host, 'What should I look at first?'));
+    await settle();
+    assert(view.host.querySelector('.assistant-talk') !== null && button('New conversation') !== null, 'A conversation can be left for a new one');
+
+    button('New conversation')?.click();
+    await settle();
+    assert(view.host.querySelector('.assistant-talk') === null, 'New leaves the earlier conversation off screen');
+    assert(lines().length === 1 && lines()[0].querySelector('.assistant-line__text')?.textContent === 'What should I look at first?',
+      'The earlier conversation stays one line away, titled by its first message');
+    enter(type(view.host, 'How are old snapshots expired?'));
+    await settle();
+    const [first, second] = view.calls.sent as string[][];
+    assert(second[0] !== first[0], 'The new topic goes to a conversation of its own');
+    assert(view.host.querySelector('.assistant-talk') !== null && lines().length === 0, 'Its conversation shows in place of the line');
+
+    button('Conversations')?.click();
+    await settle();
+    const titles = lines().map(line => line.querySelector('.assistant-line__text')?.textContent);
+    assert(JSON.stringify(titles) === '["How are old snapshots expired?","What should I look at first?"]' && lines()[0].getAttribute('aria-current') === 'true',
+      `The history lists the newest first and marks the one on screen: ${JSON.stringify(titles)}`);
+    assert(button('Conversations')?.getAttribute('aria-pressed') === 'true' && top(view.host) === null, 'The history folds the cards like a conversation does');
+    press(element('.assistant-float textarea', view.host, 'The composer shows'), 'Escape');
+    await settle();
+    assert(lines().length === 0 && view.calls.closed === 0, 'Escape closes the history before the Assistant');
+    button('Conversations')?.click();
+    await settle();
+    lines()[1].click();
+    await settle();
+    enter(type(view.host, 'and after that?'));
+    await settle();
+    assert(view.calls.sent[2][0] === first[0], 'A conversation chosen from the history goes on');
+
+    view.host.querySelector('.assistant-float textarea')?.dispatchEvent(new KeyboardEvent('keydown', { key: 'n', metaKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    assert(view.host.querySelector('.assistant-talk') === null, '⌘N starts a new conversation too');
+
+    lines()[0].click();
+    await settle();
+    view.render(false);
+    Date.now = () => realNow() + 16 * 60_000;
+    view.render(true);
+    await settle();
+    assert(view.host.querySelector('.assistant-talk') === null && lines().length === 1, 'After a break the Assistant opens on a new conversation, one line from the last');
+  }
+  finally {
+    Date.now = realNow;
+    view.dispose();
+  }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([['floats over the page', floatsOverThePage], ['shows the day once the user talks', showsTheDayOnceTheUserTalks],
     ['folds the cards while the user talks', foldsTheCardsWhileTheUserTalks], ['answers with the task’s buttons', answersWithTheTasksButtons], ['sends with what is shown', sendsWithWhatIsShown],
@@ -901,12 +981,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['follows an open once when it arrives', followsAnOpenOnceWhenItArrives], ['completes a task from its card', completesATaskFromItsCard],
     ['creates a drafted issue as an Epic', createsADraftedIssueAsAnEpic], ['reads the marks the assistant made', readsTheMarksTheAssistantMade],
     ['acts on a pull request from its card', actsOnAPullRequestFromItsCard], ['asks to sign in when the model is not ready', asksToSignInWhenTheModelIsNotReady],
-    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff]]);
+    ['keeps the set-up box whole with chat off', keepsTheSetUpBoxWholeWithChatOff], ['keeps a conversation for each topic', keepsAConversationForEachTopic]]);
 }
 
 const receiptsView = (): AssistantViewDto => {
   const receipt = (id: string, text: string, fields: Partial<AssistantReceiptDto> & Pick<AssistantReceiptDto, 'operation'>): AssistantItemDto => ({
-    id, day: '2026-10-16', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text, targets: {}, notReady: false, list: null, draft: null,
+    id, conversationId: 'c0', at: '2026-10-16T07:07:00Z', kind: 'RECEIPT', text, targets: {}, notReady: false, list: null, draft: null,
     receipt: { outcome: 'DONE', detail: null, target: PULL, page: null, turnId: null, fix: null, words: null, ...fields },
   });
   return { ...VIEW, items: [VIEW.items[0],
@@ -923,19 +1003,27 @@ let preview: { dispose: () => void } | null = null;
 
 /**
  * Draws a list the assistant showed in one style, for a screenshot; `tasks` is a list of task cards with an idle one focused, `draft` a
- * drafted issue, and `receipts` what actions did and refused, ending with a reply that needs a sign-in.
+ * drafted issue, `receipts` what actions did and refused, ending with a reply that needs a sign-in, and `history` two conversations.
  */
-export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft' | 'receipts'): Promise<void> {
+export async function showListPreview(style: AssistantListStyle | 'tasks' | 'draft' | 'receipts' | 'history'): Promise<void> {
   preview?.dispose();
   document.body.style.margin = '0';
   document.body.style.background = 'var(--bg)';
-  const view = style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : style === 'receipts' ? receiptsView() : listView(style);
+  const view = style === 'tasks' ? taskView('idle') : style === 'draft' ? draftView(false) : style === 'receipts' ? receiptsView()
+    : style === 'history' ? { ...VIEW, items: VIEW.items.slice(0, 2) } : listView(style);
   const mounted = mount(view, 0, []);
   preview = mounted;
   await new Promise(resolve => setTimeout(resolve, 150));
   enter(type(mounted.host, 'What is waiting on me?'));
   await new Promise(resolve => setTimeout(resolve, 150));
   if (style === 'tasks') mounted.host.querySelector<HTMLElement>('.assistant-item-card')?.focus();
+  if (style !== 'history') return;
+  mounted.host.querySelector<HTMLButtonElement>('button[aria-label="New conversation"]')?.click();
+  await new Promise(resolve => setTimeout(resolve, 50));
+  enter(type(mounted.host, 'How are old snapshots expired?'));
+  await new Promise(resolve => setTimeout(resolve, 150));
+  mounted.host.querySelector<HTMLButtonElement>('button[aria-label="Conversations"]')?.click();
+  await new Promise(resolve => setTimeout(resolve, 150));
 }
 
 /** Draws the Assistant over a page for a screenshot: the day's conversation once the user talks, and an approval on top of a few cards. */

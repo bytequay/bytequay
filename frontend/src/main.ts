@@ -1518,15 +1518,18 @@ function registerIpc(): void {
   ipcMain.handle('agenda:mark', (_event, ref: unknown, mark: unknown) =>
     backendJson(`${backendBase()}/api/agenda/today/marks`, jsonInit('PUT', { ref, mark: mark === 'DONE' || mark === 'DISMISSED' ? mark : null }, agentHeaders())));
   ipcMain.handle('agenda:start', (_event, ref: unknown) => backendJson(`${backendBase()}/api/agenda/today/start`, jsonInit('POST', { ref }, agentHeaders())));
-  ipcMain.handle('assistant:today', () => backendJson(`${backendBase()}/api/assistant/today`, { headers: agentHeaders() }));
-  ipcMain.handle('assistant:send', (_event, text: unknown, visible: unknown, onScreen: unknown, key: unknown) =>
-    backendJson(`${backendBase()}/api/assistant/messages`, jsonInit('POST', { text, visible, onScreen, key }, agentHeaders())));
+  ipcMain.handle('assistant:conversations', () => backendJson(`${backendBase()}/api/assistant/conversations`, { headers: agentHeaders() }));
+  ipcMain.handle('assistant:conversation', (_event, conversationId: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/conversations/${encodeURIComponent(String(conversationId))}`, { headers: agentHeaders() }));
+  ipcMain.handle('assistant:send', (_event, conversationId: unknown, text: unknown, visible: unknown, onScreen: unknown, key: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/messages`, jsonInit('POST', { conversationId, text, visible, onScreen, key }, agentHeaders())));
   ipcMain.handle('assistant:stop', () => backendJson(`${backendBase()}/api/assistant/stop`, { method: 'POST', headers: agentHeaders() }));
-  ipcMain.handle('assistant:retry', () => backendJson(`${backendBase()}/api/assistant/retry`, { method: 'POST', headers: agentHeaders() }));
-  ipcMain.handle('assistant:answered', (_event, approvalId: unknown) =>
-    backendJson(`${backendBase()}/api/assistant/answers`, jsonInit('POST', { approvalId }, agentHeaders())));
-  ipcMain.handle('assistant:drafted', (_event, itemId: unknown) =>
-    backendJson(`${backendBase()}/api/assistant/drafts`, jsonInit('POST', { itemId }, agentHeaders())));
+  ipcMain.handle('assistant:retry', (_event, conversationId: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/retry`, jsonInit('POST', { conversationId }, agentHeaders())));
+  ipcMain.handle('assistant:answered', (_event, conversationId: unknown, approvalId: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/answers`, jsonInit('POST', { conversationId, approvalId }, agentHeaders())));
+  ipcMain.handle('assistant:drafted', (_event, conversationId: unknown, itemId: unknown) =>
+    backendJson(`${backendBase()}/api/assistant/drafts`, jsonInit('POST', { conversationId, itemId }, agentHeaders())));
   ipcMain.handle('settings:assistant', () => backendJson(`${backendBase()}/api/settings/assistant`, { headers: agentHeaders() }));
   ipcMain.handle('settings:assistant:save', (_event, permissions: unknown) => {
     const value = permissions as Partial<Record<'startTasks' | 'answerTasks' | 'changeWork' | 'markAttention', unknown>> | null;

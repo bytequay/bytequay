@@ -46,7 +46,7 @@ export default function DraftCard({ item, created, onCreated, onOpen }: {
     if (!work.links.some(link => link.kind === 'ISSUE')) {
       await window.bridge.publishWorkItem(draft.workspaceId, work.id, { source: 'GITHUB', expectedRevision: work.revision });
     }
-    await window.bridge.recordAssistantDraft(item.id);
+    await window.bridge.recordAssistantDraft(item.conversationId, item.id);
     onCreated();
   });
   const work: AgendaTargetDto = { kind: 'WORK', workspaceId: draft.workspaceId, repo: null, number: null, id: draft.workItemId, connectionId: null, cloudId: null };

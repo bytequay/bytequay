@@ -44,7 +44,7 @@ import com.bytequay.app.web.AssistantController;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.discussion.DiscussionSession;
 import com.bytequay.core.domain.AgendaTarget;
-import com.bytequay.core.domain.AssistantDay;
+import com.bytequay.core.domain.AssistantConversation;
 import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
@@ -64,7 +64,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -107,7 +106,9 @@ class TestAssistantConversation
 {
     private static final ZoneId ZONE = ZoneId.systemDefault();
     private static final AgentLaneId LANE = new AgentLaneId("claude");
-    private static final LocalDate DAY = LocalDate.parse("2026-10-17");
+    private static final String C1 = "0c6a3f0e-5b1d-4c39-9d43-7f1f3a2b9e10";
+    private static final String C2 = "5f0c1d9a-2e7b-4a61-8c3f-9b4d2e6a1c07";
+    private static final String C3 = "9a8b7c6d-5e4f-4a3b-9c2d-1e0f9a8b7c6d";
     private static final AgendaTarget TASK = AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", "t1");
 
     private final ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
@@ -210,65 +211,84 @@ class TestAssistantConversation
     @Test
     void disabledAssistantKeepsHistoryAndReceiptsButAdmitsNoNewMessages()
     {
-        store.add(AssistantItem.user(DAY, now.get(), "earlier question", ImmutableList.of(), Optional.empty(), "earlier"));
-        store.add(AssistantItem.failure(DAY, now.get(), "The provider signed out", true));
+        store.add(AssistantItem.user(C1, now.get(), "earlier question", ImmutableList.of(), Optional.empty(), "earlier"));
+        store.add(AssistantItem.failure(C1, now.get(), "The provider signed out", true));
         setup.save(new SetupPreferences(SetupPreferences.Step.COMPLETE, false));
 
-        assertThatThrownBy(() -> assistant.send("what's next?", ImmutableList.of(), Optional.empty(), "new"))
+        assertThatThrownBy(() -> assistant.send(C1, "what's next?", ImmutableList.of(), Optional.empty(), "new"))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("Enable Assistant");
-        assertThatThrownBy(assistant::retry).isInstanceOf(AgentConflictException.class).hasMessageContaining("Enable Assistant");
-        assertThat(assistant.today().items()).hasSize(2);
-        assertThat(assistant.today().running()).isFalse();
+        assertThatThrownBy(() -> assistant.retry(C1)).isInstanceOf(AgentConflictException.class).hasMessageContaining("Enable Assistant");
+        assertThat(assistant.conversation(C1).items()).hasSize(2);
+        assertThat(assistant.conversation(C1).running()).isFalse();
         assertThat(opened).isEmpty();
 
         ApprovalId approval = ApprovalId.random();
-        when(actions.buttonReceipt(approval, DAY)).thenReturn(AssistantItem.receipt(DAY, now.get(), "Denied",
+        when(actions.buttonReceipt(approval, C1)).thenReturn(AssistantItem.receipt(C1, now.get(), "Denied",
                 AssistantReceipt.done(AssistantReceipt.Operation.ANSWER_APPROVAL, Optional.of(TASK))));
-        assistant.answered(approval.toString());
-        assertThat(assistant.today().items()).extracting(AssistantItem::kind).containsExactly(USER, FAILURE, RECEIPT);
+        assistant.answered(C1, approval.toString());
+        assertThat(assistant.conversation(C1).items()).extracting(AssistantItem::kind).containsExactly(USER, FAILURE, RECEIPT);
     }
 
     @Test
-    void keepsOneConversationPerLocalDateWhileTheSharedClockIsUtc()
+    void keepsEachConversationApartWithItsOwnSessionAndFolder()
     {
-        // Half past midnight and half past eleven are one local day, which a UTC date splits in any other zone.
-        now.set(local("2026-10-17T00:30"));
-        String first = assistant.send("what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:owner/repository#31402"), "key-1");
-        waitForReply();
         now.set(local("2026-10-17T23:30"));
+        String first = assistant.send(C1, "what's waiting on me?", ImmutableList.of("approval:a1"), Optional.of("pr:owner/repository#31402"), "key-1");
+        waitForReply();
+        // A conversation goes on past midnight in the same session.
+        now.set(local("2026-10-18T00:30"));
         results.add(CompletableFuture.completedFuture(completed("Answer task:t1. task:t12 and ws:ws1 can wait.")));
-        assistant.send("and now?", ImmutableList.of(), Optional.empty(), "key-2");
+        assistant.send(C1, "and now?", ImmutableList.of(), Optional.empty(), "key-2");
         waitForReply();
 
-        AssistantView view = assistant.today();
-        assertThat(view.day()).isEqualTo("2026-10-17");
+        AssistantView view = assistant.conversation(C1);
+        assertThat(view.id()).isEqualTo(C1);
         assertThat(view.model()).contains("Sonnet");
         assertThat(view.items()).extracting(AssistantItem::kind).containsExactly(USER, REPLY, USER, REPLY);
         assertThat(view.items().getFirst().id()).isEqualTo(first);
         assertThat(view.items().getFirst().visible()).containsExactly("approval:a1");
-        // Only a ref the day served, named whole, links; a repository opens no page.
+        // Only a ref the conversation served, named whole, links; a repository opens no page.
         assertThat(view.items().getLast().targets()).containsExactly(Map.entry("task:t1", TASK));
 
-        AgentSessionContext morning = opened.getFirst();
-        assertThat(morning.access()).isEqualTo(SessionAccess.TOOLS_ONLY);
-        assertThat(morning.managedInstructions()).isEqualTo(AssistantService.INSTRUCTIONS);
-        assertThat(morning.sessionTools()).extracting(tool -> tool.name()).containsExactly("assistant_context", "assistant_act", "assistant_show");
-        assertThat(morning.worktree()).isEqualTo(runtime.resolve("assistant").resolve("2026-10-17")).isDirectory();
-        assertThat(morning.sessionReference()).isEmpty();
+        AgentSessionContext opening = opened.getFirst();
+        assertThat(opening.access()).isEqualTo(SessionAccess.TOOLS_ONLY);
+        assertThat(opening.managedInstructions()).isEqualTo(AssistantService.INSTRUCTIONS);
+        assertThat(opening.sessionTools()).extracting(tool -> tool.name()).containsExactly("assistant_context", "assistant_act", "assistant_show");
+        assertThat(opening.worktree()).isEqualTo(runtime.resolve("assistant").resolve(C1)).isDirectory();
+        assertThat(opening.sessionReference()).isEmpty();
         assertThat(opened.get(1).sessionReference()).contains(new AgentSessionRef(LANE, 1, "session-1"));
         assertThat(prompts.getFirst())
                 .contains("On screen: pr:owner/repository#31402", "- approval:a1: Retry Iceberg commit · Allow Claude Bash", "The user's message:\nwhat's waiting on me?")
-                .doesNotContain("Earlier today");
-        assertThat(prompts.get(1)).contains("Cards on screen: none").doesNotContain("Earlier today");
-        assertThat(store.days.get(DAY).served()).containsOnlyKeys("task:t1", "ws:ws1");
+                .doesNotContain("Earlier in this conversation");
+        assertThat(prompts.get(1)).contains("Cards on screen: none").doesNotContain("Earlier in this conversation");
+        assertThat(store.conversations.get(C1).served()).containsOnlyKeys("task:t1", "ws:ws1");
 
-        now.set(local("2026-10-18T00:30"));
-        assertThat(assistant.today().items()).isEmpty();
-        assistant.send("good morning", ImmutableList.of(), Optional.empty(), "key-3");
+        // Another topic starts its own conversation, which knows nothing of the first.
+        now.set(local("2026-10-18T09:00"));
+        assertThat(assistant.conversation(C2).items()).isEmpty();
+        assistant.send(C2, "how are old snapshots expired?", ImmutableList.of(), Optional.empty(), "key-3");
         waitForReply();
         assertThat(opened.get(2).sessionReference()).isEmpty();
-        assertThat(opened.get(2).worktree()).isEqualTo(runtime.resolve("assistant").resolve("2026-10-18"));
-        assertThat(store.days).containsOnlyKeys(DAY, DAY.plusDays(1));
+        assertThat(opened.get(2).worktree()).isEqualTo(runtime.resolve("assistant").resolve(C2));
+        assertThat(prompts.get(2)).doesNotContain("what's waiting on me?", "Earlier in this conversation");
+        assertThat(assistant.conversation(C2).items()).extracting(AssistantItem::text).first().isEqualTo("how are old snapshots expired?");
+        assertThat(assistant.conversations()).containsExactly(
+                new AssistantSummary(C2, "how are old snapshots expired?", local("2026-10-18T09:00"), false),
+                new AssistantSummary(C1, "what's waiting on me?", local("2026-10-18T00:30"), false));
+    }
+
+    @Test
+    void aCardsReceiptWithNoConversationOnScreenBeginsOne()
+    {
+        ApprovalId approval = ApprovalId.random();
+        when(actions.buttonReceipt(approval, C2)).thenReturn(AssistantItem.receipt(C2, now.get(), "Allowed once · Retry Iceberg commit",
+                AssistantReceipt.done(AssistantReceipt.Operation.ANSWER_APPROVAL, Optional.of(TASK))));
+
+        assistant.answered(C2, approval.toString());
+
+        assertThat(assistant.conversations()).containsExactly(new AssistantSummary(C2, "Allowed once · Retry Iceberg commit", now.get(), false));
+        assertThat(assistant.conversation(C2).items()).extracting(AssistantItem::kind).containsExactly(RECEIPT);
+        assertThat(opened).isEmpty();
     }
 
     @Test
@@ -277,98 +297,103 @@ class TestAssistantConversation
     {
         CompletableFuture<AgentTurnResult> slow = new CompletableFuture<>();
         results.add(slow);
-        String id = assistant.send("first", ImmutableList.of(), Optional.empty(), "key-1");
+        String id = assistant.send(C1, "first", ImmutableList.of(), Optional.empty(), "key-1");
 
-        assertThatThrownBy(() -> assistant.send("second", ImmutableList.of(), Optional.empty(), "key-2")).isInstanceOf(AgentConflictException.class);
-        assertThatThrownBy(assistant::retry).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> assistant.send(C2, "second", ImmutableList.of(), Optional.empty(), "key-2")).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> assistant.retry(C1)).isInstanceOf(AgentConflictException.class);
         MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
-        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content("{\"text\": \"second\", \"key\": \"key-2\"}"))
+        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C2, "second", "key-2")))
                 .andExpect(status().isConflict());
         // Sent again with its key, the first message is the same message, while its reply runs and after.
-        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content("{\"text\": \"first\", \"key\": \"key-1\"}"))
+        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C1, "first", "key-1")))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.itemId").value(id));
-        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content("{\"text\": \" \", \"key\": \"key-3\"}"))
+        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message(C1, " ", "key-3")))
                 .andExpect(status().isBadRequest());
-        assertThat(assistant.today().running()).isTrue();
+        // The id names the conversation's folder, so only a UUID is one.
+        http.perform(post("/api/assistant/messages").contentType(MediaType.APPLICATION_JSON).content(message("../escape", "third", "key-4")))
+                .andExpect(status().isBadRequest());
+        assertThat(assistant.conversation(C1).running()).isTrue();
+        assertThat(assistant.conversation(C2).running()).isFalse();
+        assertThat(assistant.conversations()).extracting(AssistantSummary::running).containsExactly(true);
 
         slow.complete(completed("Nothing waits on you."));
         waitForReply();
-        assertThat(assistant.send("first", ImmutableList.of(), Optional.empty(), "key-1")).isEqualTo(id);
-        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, REPLY);
+        assertThat(assistant.send(C1, "first", ImmutableList.of(), Optional.empty(), "key-1")).isEqualTo(id);
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, REPLY);
         assertThat(opened).hasSize(1);
     }
 
     @Test
-    void aFreshSessionOpensWithTheDaysLastTwentyItems()
+    void aFreshSessionOpensWithTheConversationsLastTwentyItems()
     {
         for (int index = 1; index <= 24; index++) {
             String text = "message %02d ".formatted(index) + (index == 24 ? "long ".repeat(100) : "");
-            store.add(index % 2 == 1 ? AssistantItem.user(DAY, now.get(), text, ImmutableList.of(), Optional.empty(), "old-" + index)
-                    : AssistantItem.reply(DAY, now.get(), text, ImmutableMap.of()));
+            store.add(index % 2 == 1 ? AssistantItem.user(C1, now.get(), text, ImmutableList.of(), Optional.empty(), "old-" + index)
+                    : AssistantItem.reply(C1, now.get(), text, ImmutableMap.of()));
         }
-        // The day's conversation ran on another agent, whose session this one cannot resume.
-        store.save(new AssistantDay(DAY, "codex", "GPT", Optional.of(new DiscussionSession(1, "codex-thread")), ImmutableMap.of(), now.get()));
+        // The conversation ran on another agent, whose session this one cannot resume.
+        store.save(conversation(C1, "codex", "codex-thread"));
 
-        assistant.send("what changed?", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C1, "what changed?", ImmutableList.of(), Optional.empty(), "key-1");
         waitForReply();
 
         assertThat(opened.getFirst().sessionReference()).isEmpty();
         String prompt = prompts.getFirst();
-        assertThat(prompt).startsWith("Earlier today:\n[user 12:00] message 05\n[you 12:00] message 06\n").contains("[you 12:00] message 24 long", "…")
+        assertThat(prompt).startsWith("Earlier in this conversation:\n[user 12:00] message 05\n[you 12:00] message 06\n").contains("[you 12:00] message 24 long", "…")
                 .doesNotContain("message 04");
         assertThat(prompt.lines().filter(line -> line.startsWith("[")).count()).isEqualTo(20);
         assertThat(prompt).endsWith("The user's message:\nwhat changed?");
-        assertThat(store.days.get(DAY).laneId()).isEqualTo("claude");
-        assertThat(store.days.get(DAY).session()).contains(new DiscussionSession(1, "session-1"));
+        assertThat(store.conversations.get(C1).laneId()).contains("claude");
+        assertThat(store.conversations.get(C1).session()).contains(new DiscussionSession(1, "session-1"));
     }
 
     @Test
-    void startsAgainFromTheDaysItemsWhenClaudeNoLongerHasTheConversation()
+    void startsAgainFromTheConversationsItemsWhenClaudeNoLongerHasIt()
     {
-        store.add(AssistantItem.user(DAY, now.get(), "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-0"));
-        store.add(AssistantItem.reply(DAY, now.get(), "Answer task:t1 first.", ImmutableMap.of("task:t1", TASK)));
-        store.save(new AssistantDay(DAY, "claude", "Sonnet", Optional.of(new DiscussionSession(1, "lost")), ImmutableMap.of(), now.get()));
+        store.add(AssistantItem.user(C1, now.get(), "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-0"));
+        store.add(AssistantItem.reply(C1, now.get(), "Answer task:t1 first.", ImmutableMap.of("task:t1", TASK)));
+        store.save(conversation(C1, "claude", "lost"));
         results.add(CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(),
                 Optional.of("No conversation found with session ID: lost"), Duration.ofSeconds(1), true)));
 
-        assistant.send("and then?", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C1, "and then?", ImmutableList.of(), Optional.empty(), "key-1");
         waitForReply();
 
         assertThat(opened).extracting(AgentSessionContext::sessionReference).containsExactly(Optional.of(new AgentSessionRef(LANE, 1, "lost")), Optional.empty());
-        assertThat(prompts.getFirst()).doesNotContain("Earlier today");
-        assertThat(prompts.get(1)).startsWith("Earlier today:\n[user 12:00] what's waiting on me?\n[you 12:00] Answer task:t1 first.\n");
-        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, REPLY, USER, REPLY);
-        assertThat(store.days.get(DAY).session()).contains(new DiscussionSession(1, "session-2"));
+        assertThat(prompts.getFirst()).doesNotContain("Earlier in this conversation");
+        assertThat(prompts.get(1)).startsWith("Earlier in this conversation:\n[user 12:00] what's waiting on me?\n[you 12:00] Answer task:t1 first.\n");
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, REPLY, USER, REPLY);
+        assertThat(store.conversations.get(C1).session()).contains(new DiscussionSession(1, "session-2"));
     }
 
     @Test
     void startsAgainAtOnceWhenCodexRefusesTheThread()
     {
-        store.save(new AssistantDay(DAY, "claude", "Sonnet", Optional.of(new DiscussionSession(1, "lost")), ImmutableMap.of(), now.get()));
+        store.save(conversation(C1, "claude", "lost"));
         threadLost.set(true);
 
-        assistant.send("what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C1, "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
         waitForReply();
 
         assertThat(opened).extracting(AgentSessionContext::sessionReference).containsExactly(Optional.of(new AgentSessionRef(LANE, 1, "lost")), Optional.empty());
         assertThat(prompts).hasSize(1);
-        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, REPLY);
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, REPLY);
     }
 
     @Test
     void aResumedTurnThatFailsOnItsOwnKeepsTheConversation()
     {
-        store.save(new AssistantDay(DAY, "claude", "Sonnet", Optional.of(new DiscussionSession(1, "kept")), ImmutableMap.of(), now.get()));
+        store.save(conversation(C1, "claude", "kept"));
         results.add(CompletableFuture.failedFuture(new IllegalStateException("stream closed")));
 
-        assistant.send("what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C1, "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
         waitForReply();
 
         assertThat(opened).hasSize(1);
-        assertThat(store.items(DAY).getLast().kind()).isEqualTo(FAILURE);
-        assertThat(store.items(DAY).getLast().text()).isEqualTo("The model session failed");
-        assertThat(store.days.get(DAY).session()).contains(new DiscussionSession(1, "kept"));
+        assertThat(store.items(C1).getLast().kind()).isEqualTo(FAILURE);
+        assertThat(store.items(C1).getLast().text()).isEqualTo("The model session failed");
+        assertThat(store.conversations.get(C1).session()).contains(new DiscussionSession(1, "kept"));
     }
 
     @Test
@@ -376,10 +401,10 @@ class TestAssistantConversation
     {
         when(driver.probe()).thenReturn(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED, Optional.empty(),
                 "Claude is signed out. " + "Sign in again from Settings. ".repeat(10), AgentCapabilities.none()));
-        String message = assistant.send("what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
+        String message = assistant.send(C1, "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
         waitForReply();
 
-        AssistantItem notReady = store.items(DAY).getLast();
+        AssistantItem notReady = store.items(C1).getLast();
         assertThat(notReady.kind()).isEqualTo(FAILURE);
         assertThat(notReady.notReady()).isTrue();
         assertThat(notReady.text()).startsWith("Claude is signed out.").endsWith("…").hasSizeLessThanOrEqualTo(200);
@@ -388,18 +413,18 @@ class TestAssistantConversation
         when(driver.probe()).thenReturn(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.READY, Optional.empty(), "Ready", AgentCapabilities.none()));
         results.add(CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.INTERRUPTED, Optional.empty(), Optional.of("Claude turn timed out"),
                 Duration.ofMinutes(3), true)));
-        assertThat(assistant.retry()).isEqualTo(message);
+        assertThat(assistant.retry(C1)).isEqualTo(message);
         waitForReply();
-        AssistantItem timedOut = store.items(DAY).getLast();
+        AssistantItem timedOut = store.items(C1).getLast();
         assertThat(timedOut.kind()).isEqualTo(FAILURE);
         assertThat(timedOut.notReady()).isFalse();
         assertThat(timedOut.text()).isEqualTo("Claude turn timed out");
 
-        assertThat(assistant.retry()).isEqualTo(message);
+        assertThat(assistant.retry(C1)).isEqualTo(message);
         waitForReply();
-        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, FAILURE, FAILURE, REPLY);
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, FAILURE, FAILURE, REPLY);
         assertThat(prompts).hasSize(2).allSatisfy(prompt -> assertThat(prompt).endsWith("what's waiting on me?"));
-        assertThatThrownBy(assistant::retry).isInstanceOf(AgentConflictException.class).hasMessage("There is no failed reply to retry");
+        assertThatThrownBy(() -> assistant.retry(C1)).isInstanceOf(AgentConflictException.class).hasMessage("There is no failed reply to retry");
     }
 
     @Test
@@ -410,7 +435,7 @@ class TestAssistantConversation
             AssistantItem message = call.getArgument(0);
             Consumer<AssistantItem> receipts = call.getArgument(2);
             return new ReviewTool("assistant_act", "Act", ImmutableMap.of("type", "object"), arguments -> {
-                receipts.accept(AssistantItem.receipt(message.day(), now.get(), "Allowed once · Retry Iceberg commit", allowed));
+                receipts.accept(AssistantItem.receipt(message.conversationId(), now.get(), "Allowed once · Retry Iceberg commit", allowed));
                 return "{\"outcome\":\"done\"}";
             }, false);
         }).when(actions).tool(any(), any(), any());
@@ -422,22 +447,22 @@ class TestAssistantConversation
         }).when(driver).open(any(), any());
         results.add(CompletableFuture.completedFuture(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("Claude turn failed"),
                 Duration.ofSeconds(1), true)));
-        String message = assistant.send("allow it", ImmutableList.of("approval:a1"), Optional.empty(), "key-1");
+        String message = assistant.send(C1, "allow it", ImmutableList.of("approval:a1"), Optional.empty(), "key-1");
         waitForReply();
         ApprovalId clicked = ApprovalId.random();
-        when(actions.buttonReceipt(clicked, DAY)).thenReturn(AssistantItem.receipt(DAY, now.get(), "Denied · Metadata cache", allowed));
-        assistant.answered(clicked.toString());
+        when(actions.buttonReceipt(clicked, C1)).thenReturn(AssistantItem.receipt(C1, now.get(), "Denied · Metadata cache", allowed));
+        assistant.answered(C1, clicked.toString());
 
-        assertThat(assistant.retry()).isEqualTo(message);
+        assertThat(assistant.retry(C1)).isEqualTo(message);
         waitForReply();
-        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, RECEIPT, FAILURE, RECEIPT, RECEIPT, REPLY);
-        verify(actions, atLeastOnce()).tool(eq(store.items(DAY).getFirst()), any(), any());
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, RECEIPT, FAILURE, RECEIPT, RECEIPT, REPLY);
+        verify(actions, atLeastOnce()).tool(eq(store.items(C1).getFirst()), any(), any());
     }
 
     @Test
-    void readsEachListsRowsWhenTheDayIsRead()
+    void readsEachListsRowsWhenTheConversationIsRead()
     {
-        assertThat(assistant.today().rows()).isEmpty();
+        assertThat(assistant.conversation(C1).rows()).isEmpty();
         verify(rows, never()).rows(any());
 
         AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
@@ -445,17 +470,17 @@ class TestAssistantConversation
                 Optional.of("failing"), Optional.empty(), Optional.of(0), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.empty(), Optional.empty(), Optional.empty(), pull);
         AssistantList shown = new AssistantList(AssistantList.Style.CARDS, ImmutableList.of("pr:owner/repository#31402", "task:gone"));
-        store.add(AssistantItem.user(DAY, now.get(), "what is red?", ImmutableList.of(), Optional.empty(), "key-1"));
-        store.add(AssistantItem.list(DAY, now.get(), "Red pull requests", shown));
+        store.add(AssistantItem.user(C1, now.get(), "what is red?", ImmutableList.of(), Optional.empty(), "key-1"));
+        store.add(AssistantItem.list(C1, now.get(), "Red pull requests", shown));
         when(rows.rows(shown.refs())).thenReturn(ImmutableMap.of("pr:owner/repository#31402", row));
 
-        AssistantView view = assistant.today();
+        AssistantView view = assistant.conversation(C1);
         assertThat(view.items().getLast().list()).contains(shown);
-        // The day keeps refs only; each read draws them from the stores as they are now, and a ref that is gone has no row.
+        // The conversation keeps refs only; each read draws them from the stores as they are now, and a ref that is gone has no row.
         assertThat(view.rows()).containsExactly(Map.entry("pr:owner/repository#31402", row));
 
-        // A session that starts over reads what the day's lists named.
-        assistant.send("and now?", ImmutableList.of(), Optional.empty(), "key-2");
+        // A session that starts over reads what the conversation's lists named.
+        assistant.send(C1, "and now?", ImmutableList.of(), Optional.empty(), "key-2");
         waitForReply();
         assertThat(prompts.getFirst()).contains("[you listed 12:00] Red pull requests: pr:owner/repository#31402, task:gone");
     }
@@ -465,21 +490,23 @@ class TestAssistantConversation
             throws Exception
     {
         AssistantDraft draft = new AssistantDraft("ws1", "owner/repository", "Track the snapshot work.", "w9");
-        AssistantItem drafted = AssistantItem.draft(DAY, now.get(), "Iceberg snapshot metadata", draft);
-        store.add(AssistantItem.user(DAY, now.get(), "a new issue for the snapshot work, as an epic", ImmutableList.of(), Optional.empty(), "key-1"));
+        AssistantItem drafted = AssistantItem.draft(C1, now.get(), "Iceberg snapshot metadata", draft);
+        store.add(AssistantItem.user(C1, now.get(), "a new issue for the snapshot work, as an epic", ImmutableList.of(), Optional.empty(), "key-1"));
         store.add(drafted);
-        when(work.drafted(eq(draft), eq(DAY), any())).thenReturn(AssistantItem.receipt(DAY, now.get(), "Created “Iceberg snapshot ids” as an Epic",
+        when(work.drafted(eq(draft), eq(C1), any())).thenReturn(AssistantItem.receipt(C1, now.get(), "Created “Iceberg snapshot ids” as an Epic",
                 new AssistantReceipt(AssistantReceipt.Operation.CREATE_EPIC, AssistantReceipt.Outcome.DONE, Optional.of("owner/repository#123"),
                         Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, "ws1", "w9")), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty())));
 
         MockMvc http = standaloneSetup(new AssistantController(assistant, mock(AssistantSettings.class))).setControllerAdvice(new GlobalExceptionHandler()).build();
-        http.perform(post("/api/assistant/drafts").contentType(MediaType.APPLICATION_JSON).content("{\"itemId\": \"" + drafted.id() + "\"}"))
+        http.perform(post("/api/assistant/drafts").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"conversationId\": \"" + C1 + "\", \"itemId\": \"" + drafted.id() + "\"}"))
                 .andExpect(status().isNoContent());
         // A click recorded twice, such as after a lost reply, still leaves one receipt.
-        assistant.drafted(drafted.id());
-        assertThat(store.items(DAY)).extracting(AssistantItem::kind).containsExactly(USER, AssistantItem.Kind.DRAFT, RECEIPT);
-        assertThatThrownBy(() -> assistant.drafted(store.items(DAY).getFirst().id())).isInstanceOf(IllegalArgumentException.class)
-                .hasMessage("That is not one of today's drafts");
+        assistant.drafted(C1, drafted.id());
+        assertThat(store.items(C1)).extracting(AssistantItem::kind).containsExactly(USER, AssistantItem.Kind.DRAFT, RECEIPT);
+        assertThatThrownBy(() -> assistant.drafted(C1, store.items(C1).getFirst().id())).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("That is not one of this conversation's drafts");
+        assertThatThrownBy(() -> assistant.drafted(C2, drafted.id())).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
@@ -489,7 +516,7 @@ class TestAssistantConversation
         results.add(slow);
         doAnswer(call -> slow.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("Claude turn was cancelled"),
                 Duration.ofSeconds(2), true))).when(turn).cancel();
-        assistant.send("what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C1, "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
         await().alias("assistant turn start").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
                 .untilAsserted(() -> assertThat(prompts).isNotEmpty());
 
@@ -497,35 +524,52 @@ class TestAssistantConversation
         waitForReply();
 
         verify(turn, atLeastOnce()).cancel();
-        assertThat(store.items(DAY).getLast().text()).isEqualTo("Claude turn was cancelled");
+        assertThat(store.items(C1).getLast().text()).isEqualTo("Claude turn was cancelled");
     }
 
     @Test
-    void aNewDayDropsDaysAndFoldersPastThirtyDays()
+    void aNewConversationDropsConversationsAndFoldersPastThirtyDays()
             throws Exception
     {
-        for (LocalDate day : ImmutableList.of(DAY.minusDays(31), DAY.minusDays(30))) {
-            store.save(new AssistantDay(day, "claude", "Sonnet", Optional.empty(), ImmutableMap.of(), now.get()));
-            store.add(AssistantItem.user(day, now.get(), "hello", ImmutableList.of(), Optional.empty(), "key-" + day));
-            Files.createDirectories(runtime.resolve("assistant").resolve(day.toString()));
-            Files.writeString(runtime.resolve("assistant").resolve(day.toString()).resolve("left.txt"), "x");
+        Path assistantFolders = runtime.resolve("assistant");
+        ImmutableMap<String, Instant> updated = ImmutableMap.of(C1, now.get().minus(Duration.ofDays(31)), C2, now.get().minus(Duration.ofDays(29)));
+        updated.forEach((id, at) -> {
+            store.save(AssistantConversation.start(id, "hello", at));
+            store.add(AssistantItem.user(id, at, "hello", ImmutableList.of(), Optional.empty(), "key-" + id));
+        });
+        // A folder that names no kept conversation goes too, such as one conversations kept per day before.
+        for (String folder : ImmutableList.of(C1, C2, "2026-10-01")) {
+            Files.createDirectories(assistantFolders.resolve(folder));
+            Files.writeString(assistantFolders.resolve(folder).resolve("left.txt"), "x");
         }
 
-        assistant.send("what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
+        assistant.send(C3, "what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
         waitForReply();
 
-        assertThat(store.days).containsOnlyKeys(DAY.minusDays(30), DAY);
-        assertThat(store.items(DAY.minusDays(31))).isEmpty();
-        assertThat(store.items(DAY.minusDays(30))).hasSize(1);
-        assertThat(runtime.resolve("assistant").resolve(DAY.minusDays(31).toString())).doesNotExist();
-        assertThat(runtime.resolve("assistant").resolve(DAY.minusDays(30).toString())).isDirectory();
-        assertThat(runtime.resolve("assistant").resolve(DAY.toString())).isDirectory();
+        assertThat(store.conversations).containsOnlyKeys(C2, C3);
+        assertThat(store.items(C1)).isEmpty();
+        assertThat(store.items(C2)).hasSize(1);
+        assertThat(assistantFolders.resolve(C1)).doesNotExist();
+        assertThat(assistantFolders.resolve("2026-10-01")).doesNotExist();
+        assertThat(assistantFolders.resolve(C2)).isDirectory();
+        assertThat(assistantFolders.resolve(C3)).isDirectory();
     }
 
     private void waitForReply()
     {
         await().alias("assistant reply").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
-                .untilAsserted(() -> assertThat(assistant.today().running()).isFalse());
+                .untilAsserted(() -> assertThat(assistant.conversations()).noneMatch(AssistantSummary::running));
+    }
+
+    private AssistantConversation conversation(String id, String lane, String session)
+    {
+        return new AssistantConversation(id, "earlier", Optional.of(lane), Optional.of("Sonnet"), Optional.of(new DiscussionSession(1, session)), ImmutableMap.of(),
+                now.get(), now.get());
+    }
+
+    private static String message(String conversationId, String text, String key)
+    {
+        return "{\"conversationId\": \"" + conversationId + "\", \"text\": \"" + text + "\", \"key\": \"" + key + "\"}";
     }
 
     private static AgentTurnResult completed(String reply)

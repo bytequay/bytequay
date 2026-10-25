@@ -56,7 +56,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
-import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -176,7 +175,7 @@ class AssistantActions
     }
 
     /**
-     * The tool for one message: its calls act only on what that message had on screen or was served that day, and leave their receipts
+     * The tool for one message: its calls act only on what that message had on screen or was served in its conversation, and leave their receipts
      * through {@code receipts}.
      */
     ReviewTool tool(AssistantItem message, AssistantContext context, Consumer<AssistantItem> receipts)
@@ -211,7 +210,7 @@ class AssistantActions
      *
      * @throws IllegalArgumentException when the approval is unknown or still pending
      */
-    AssistantItem buttonReceipt(ApprovalId approvalId, LocalDate day)
+    AssistantItem buttonReceipt(ApprovalId approvalId, String conversationId)
     {
         AgentApproval approval = approvals.find(approvalId).orElseThrow(() -> new IllegalArgumentException("Unknown approval " + approvalId));
         ApprovalDecision decision = approval.decision().orElseThrow(() -> new IllegalArgumentException("That card is not answered yet"));
@@ -219,7 +218,7 @@ class AssistantActions
         String verb = decision.decision() == ApprovalDecision.Decision.DENY ? "Denied" : question ? "Answered" : decision.forTask() ? "Allowed for this task" : "Allowed once";
         String title = tasks.find(approval.request().taskId()).map(AgentTask::title).orElse("a task");
         AssistantReceipt receipt = AssistantReceipt.done(question ? Operation.ANSWER_QUESTION : Operation.ANSWER_APPROVAL, target(approval.request().taskId()));
-        return AssistantItem.receipt(day, clock.instant(), verb + " · " + clip(title, 80), receipt);
+        return AssistantItem.receipt(conversationId, clock.instant(), verb + " · " + clip(title, 80), receipt);
     }
 
     /**
@@ -249,7 +248,7 @@ class AssistantActions
 
     /**
      * Check 4 for anything but a card: the refs a message may name, which are what was on screen when it was sent, the tasks of the
-     * cards it showed, and what the day's reads handed out.
+     * cards it showed, and what the conversation's reads handed out.
      */
     Set<String> shown(AssistantItem message, AssistantContext context)
     {
@@ -349,7 +348,7 @@ class AssistantActions
             AssistantReceipt receipt = result.receipt().withWords(request.words());
             Optional<String> reason = receipt.outcome() == Outcome.DONE ? Optional.empty() : Optional.of(result.line());
             store.addAction(AssistantAction.of(message, request.operation(), request.target(), request.words(), receipt.outcome(), reason, result.result(), clock.instant()));
-            receipts.accept(AssistantItem.receipt(message.day(), clock.instant(), result.line(), receipt));
+            receipts.accept(AssistantItem.receipt(message.conversationId(), clock.instant(), result.line(), receipt));
             return reply(receipt.outcome().name().toLowerCase(Locale.ROOT), result.line());
         }
 
@@ -429,7 +428,7 @@ class AssistantActions
 
         /**
          * Whether the call names only what the user could see: a card on screen when they sent the message, or a task, item or repository
-         * that was on screen or that this day's reads handed out.
+         * that was on screen or that the conversation's reads handed out.
          */
         private boolean onScreen(Request request)
         {

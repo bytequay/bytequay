@@ -23,9 +23,10 @@ import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** One entry of a day's assistant conversation. A message and the failure right after it can share a millisecond, so the ordinal orders them. */
+/** One entry of an assistant conversation. A message and the failure right after it can share a millisecond, so the ordinal orders them. */
 @Entity
-@Table(name = "assistant_item", uniqueConstraints = @UniqueConstraint(name = "uq_assistant_item_day_ordinal", columnNames = {"day", "ordinal"}))
+@Table(name = "assistant_conversation_item",
+        uniqueConstraints = @UniqueConstraint(name = "uq_assistant_conversation_item_ordinal", columnNames = {"conversation_id", "ordinal"}))
 public class AssistantItemEntity
         extends AssignedIdEntity<String>
 {
@@ -33,8 +34,8 @@ public class AssistantItemEntity
     @Getter(onMethod_ = @Override)
     private String id;
 
-    @Column(nullable = false)
-    private String day;
+    @Column(name = "conversation_id", nullable = false)
+    private String conversationId;
 
     @Column(nullable = false)
     private long ordinal;
@@ -48,7 +49,7 @@ public class AssistantItemEntity
     public AssistantItemEntity(AssistantItem item, long ordinal)
     {
         id = item.id();
-        day = item.day().toString();
+        conversationId = item.conversationId();
         this.ordinal = ordinal;
         value = item;
     }

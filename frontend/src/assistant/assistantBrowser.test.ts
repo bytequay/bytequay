@@ -16,7 +16,7 @@ import { runBrowserFixture, deadline, type ScenarioResult } from '../fixtures/br
 
 const SCREENSHOTS = process.env.BYTEQUAY_ASSISTANT_SCREENSHOTS !== undefined;
 
-it('floats the Assistant over the page, folds its cards while the user talks, pages its cards by keyboard, answers them, draws finished cards like running ones, opens at a card from its alert, sends what is on screen, draws lists, follows opens, completes tasks and creates drafted Epics', async () => {
+it('floats the Assistant over the page, folds its cards while the user talks, pages its cards by keyboard, answers them, draws finished cards like running ones, opens at a card from its alert, sends what is on screen, draws lists, follows opens, completes tasks, creates drafted Epics and keeps a conversation per topic', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({
     prefix: 'bytequay-assistant-',
     entry: 'src/assistant/fixtures/assistantBrowser.tsx',
@@ -38,7 +38,7 @@ it('floats the Assistant over the page, folds its cards while the user talks, pa
           await window.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: theme }] });
           await window.webContents.executeJavaScript('AssistantTests.showPreview()');
           await writeFile(join(screenshots, 'assistant-' + theme + '.png'), (await window.webContents.capturePage()).toPNG());
-          for (const style of ['ROWS', 'CARDS', 'TIMELINE', 'tasks', 'draft', 'receipts']) {
+          for (const style of ['ROWS', 'CARDS', 'TIMELINE', 'tasks', 'draft', 'receipts', 'history']) {
             await window.webContents.executeJavaScript('AssistantTests.showListPreview(' + JSON.stringify(style) + ')');
             await writeFile(join(screenshots, 'assistant-list-' + style.toLowerCase() + '-' + theme + '.png'), (await window.webContents.capturePage()).toPNG());
           }
@@ -47,5 +47,5 @@ it('floats the Assistant over the page, folds its cards while the user talks, pa
     `,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(17);
+  expect(results).toHaveLength(18);
 }, deadline(SCREENSHOTS ? 120_000 : 30_000));

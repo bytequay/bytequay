@@ -13,12 +13,13 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, ListEnd, ListPlus, ListTodo, MessageSquareReply, Mic, Play, RotateCw, Send, ShieldCheck,
-  SquarePlus, TriangleAlert, X, type LucideIcon,
+  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Mic, Play, RotateCw, Send, ShieldCheck,
+  SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
+import { relativeTime } from '@bytequay/ui/relativeTime';
 import Composer from '../Composer';
 import { renderMarkdown } from '../agents/markdown';
-import { SourceIcon } from '../cards/Card';
+import { IconButton, SourceIcon } from '../cards/Card';
 import { openTarget } from '../home/TodayList';
 import { reloadHandled, type AttentionSource } from '../home/attention';
 import { requestPullComment } from '../pulls/PullOverview';
@@ -26,7 +27,7 @@ import { clockTime } from '../home/today';
 import type { AppNotice } from '../notices/contracts';
 import { remoteErrorMessage } from '../remoteError';
 import { settingsRoute, type SettingsSection } from '../settings/routes';
-import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
+import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto, AssistantSummaryDto } from '../types';
 import AssistantList from './AssistantList';
 import DraftCard from './DraftCard';
 import { arrivedOpen, createdDrafts, linkRefs, pageRoute, refFromHref, refLabel } from './model';
@@ -35,9 +36,14 @@ import { useAssistant } from './useAssistant';
 import WaitingStack from './WaitingStack';
 import '../css/assistant.css';
 
+/** How long the Assistant stays closed before it opens on a new conversation. */
+const BREAK_MS = 15 * 60_000;
+
 /**
- * The Assistant over every page, opened with ⌘J: the composer, the day's conversation once the user talks, then what waits on them.
- * It floats, and nothing paints over a native view, so the app leaves a web page before it opens and the editor hides under any dialog.
+ * The Assistant over every page, opened with ⌘J: the composer, the conversation on screen, then what waits on the user. Each topic gets
+ * its own conversation: New starts one, after a break the Assistant opens on a new one, and the history or the line to continue goes
+ * back to an earlier one. It floats, and nothing paints over a native view, so the app leaves a web page before it opens and the editor
+ * hides under any dialog.
  */
 export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose }: {
   open: boolean;
@@ -49,17 +55,18 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   onScreen: string | null;
   onClose: () => void;
 }) {
-  const { view, error, sending, send, stop, retry, refresh } = useAssistant(open);
+  const [conversation, setConversation] = useState<string>(() => crypto.randomUUID());
+  const [history, setHistory] = useState(false);
+  const { view, conversations, error, sending, send, stop, retry, refresh } = useAssistant(open, conversation);
   const [draft, setDraft] = useState('');
   const [hiddenScreen, setHiddenScreen] = useState<string | null>(null);
   const [answered, setAnswered] = useState<ReadonlySet<string>>(() => new Set());
   const [failure, setFailure] = useState<string | null>(null);
   const [request, setRequest] = useState(openCard);
-  // The conversation shows once the user talks, or when a reply came in while the Assistant was closed.
-  const [talking, setTalking] = useState(false);
   // While the conversation shows, what waits folds under its pills; a pill opens it until the next message.
   const [unfolded, setUnfolded] = useState(false);
-  const [closedAt, setClosedAt] = useState(Date.now);
+  const closedAt = useRef(Date.now());
+  const replying = useRef(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const scroller = useRef<HTMLDivElement>(null);
   const visible = useRef<string[]>([]);
@@ -71,19 +78,23 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   // A card answered here leaves at once; the notice itself goes on the host's next read.
   const waiting = notices.filter(notice => !answered.has(notice.id));
   const screen = onScreen !== null && onScreen !== hiddenScreen ? onScreen : null;
-  const talkShown = talking || running || items.some(item => Date.parse(item.at) > closedAt);
+  const talkOpen = items.length > 0;
+
+  useEffect(() => { replying.current = running; }, [running]);
 
   useLayoutEffect(() => {
     if (open) {
       openedAt.current = Date.now();
       returnFocus.current = document.activeElement;
+      // A reply still being written keeps its conversation, which the user comes back to read.
+      if (Date.now() - closedAt.current >= BREAK_MS && !replying.current) setConversation(crypto.randomUUID());
       input.current?.focus();
       return;
     }
-    setTalking(false);
     setUnfolded(false);
+    setHistory(false);
     setFailure(null);
-    setClosedAt(Date.now());
+    closedAt.current = Date.now();
     const previous = returnFocus.current;
     returnFocus.current = null;
     const active = document.activeElement;
@@ -102,7 +113,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   useLayoutEffect(() => {
     const node = scroller.current;
     if (node) node.scrollTop = node.scrollHeight;
-  }, [open, talkShown, items.length, running]);
+  }, [open, talkOpen, items.length, running]);
 
   // Where a receipt opens, a page before an item; the Assistant closes first, so nothing opens under it.
   const openReceipt = useCallback((receipt: AssistantReceiptDto) => {
@@ -129,6 +140,13 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   if (!open) return null;
 
   const show = (target: AgendaTargetDto) => { onClose(); openTarget(target); };
+  const choose = (id: string) => {
+    setConversation(id);
+    setHistory(false);
+    setUnfolded(false);
+    input.current?.focus();
+  };
+  const startNew = () => choose(crypto.randomUUID());
   const openSettings = (section: SettingsSection) => { onClose(); window.location.hash = settingsRoute(section); };
   // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
   const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
@@ -137,7 +155,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     const text = draft.trim();
     void send(text, visible.current, screen).then(sent => {
       if (!sent) return;
-      setTalking(true);
+      setHistory(false);
       setUnfolded(false);
       setDraft(current => current.trim() === text ? '' : current);
       setHiddenScreen(null);
@@ -179,8 +197,12 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     void action.then(then).catch(() => setFailure(message));
   };
 
-  const talkOpen = talkShown && items.length > 0;
-  const talk = talkOpen && (
+  // The newest conversation that is not on screen, to continue from a new one with one click.
+  const latest = conversations.find(each => each.id !== conversation);
+  const talk = history ? <Conversations conversations={conversations} current={conversation} onChoose={choose} />
+    // Not while a chosen conversation is still being read, so the line does not flash before it.
+    : !talkOpen ? view !== null && latest !== undefined && <Conversations conversations={[latest]} current={conversation} onChoose={choose} />
+    : (
     <div ref={scroller} className="assistant-sheet assistant-talk" onClickCapture={openLink} onAuxClickCapture={openLink}>
       {items.map(item => item.kind === 'RECEIPT'
         ? <Receipt key={item.id} item={item} onOpen={openReceipt} onSettings={openSettings} />
@@ -188,16 +210,23 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           onRetry={retry} onSettings={openSettings} onOpen={show} onComplete={completeTask} onPull={actOnPull} onRefresh={refresh} />)}
       {running && <p className="assistant-thinking" role="status">Thinking…</p>}
     </div>
-  );
+    );
 
   return (
     <div className="assistant-panel">
       <button type="button" className="assistant-backdrop" tabIndex={-1} aria-label="Close the Assistant" onClick={onClose} />
       <section className={`assistant-float${running || sending ? ' is-replying' : ''}`} role="dialog" aria-label="Assistant"
         onKeyDown={event => {
-          if (event.key !== 'Escape' || event.defaultPrevented) return;
-          event.preventDefault();
-          onClose();
+          if (event.defaultPrevented) return;
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            if (history) setHistory(false);
+            else onClose();
+          }
+          else if (chatEnabled && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey && event.key.toLowerCase() === 'n') {
+            event.preventDefault();
+            startNew();
+          }
         }}>
         {chatEnabled ? <Composer inputRef={input} aria-label="Message the Assistant" placeholder="Ask, or tell it what to start" value={draft} maxLength={16 * 1024}
           onChange={event => setDraft(event.target.value)} busy={sending} onSubmit={submit}
@@ -229,16 +258,36 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           <span className="assistant-mic" role="img" aria-label="Voice comes later" title="Voice comes later. macOS Dictation already types here.">
             <Mic size={15} aria-hidden="true" />
           </span>
+          {latest !== undefined && (
+            <IconButton label="Conversations" tone="active" pressed={history} onClick={() => setHistory(shown => !shown)}><History size={15} aria-hidden="true" /></IconButton>
+          )}
+          {talkOpen && <IconButton label="New conversation" title="New conversation (⌘N)" onClick={startNew}><SquarePen size={15} aria-hidden="true" /></IconButton>}
         </Composer> : <div className="assistant-sheet assistant-off">
           <p>Task notices and your conversation are still available.</p>
           <button type="button" className="assistant-link" onClick={() => openSettings('features')}>Set up Assistant in Settings</button>
           {running && <button type="button" className="assistant-link" onClick={stop}>Stop the reply</button>}
         </div>}
-        <WaitingStack notices={waiting} talk={talk} folded={talkOpen && !unfolded && !pointsDown} onFold={fold} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
+        <WaitingStack notices={waiting} talk={talk} folded={(talkOpen || history) && !unfolded && !pointsDown} onFold={fold} conversation={conversation} request={request} onRequestDone={requestDone} visible={visible} input={input} onLeave={onClose}
           onAnswered={id => { setAnswered(current => new Set(current).add(id)); refresh(); }}
           onOpenNotice={id => noticeAction(window.bridge.openAppNotice(id), 'Unable to open this task.', onClose)}
           onClearNotice={id => noticeAction(window.bridge.removeAppNotice(id), 'Unable to clear this notice.')} />
       </section>
+    </div>
+  );
+}
+
+/** Conversations as one-line rows, titled by their first message: the history, or the newest one to continue. */
+function Conversations({ conversations, current, onChoose }: { conversations: AssistantSummaryDto[]; current: string; onChoose: (id: string) => void }) {
+  return (
+    <div className="assistant-sheet assistant-list" role="group" aria-label="Conversations">
+      {conversations.map(each => (
+        <button key={each.id} type="button" className={`assistant-line${each.id === current ? ' is-current' : ''}`} title={each.title}
+          aria-current={each.id === current} onClick={() => onChoose(each.id)}>
+          <span className="assistant-line__icon" aria-hidden="true">{each.running ? <span className="assistant-spinner" /> : <History size={13} />}</span>
+          <span className="assistant-line__text">{each.title}</span>
+          <span className="assistant-line__meta">{relativeTime(each.updatedAt, { suffix: false })}</span>
+        </button>
+      ))}
     </div>
   );
 }

@@ -48,7 +48,7 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * The {@code assistant_show} tool: what the assistant shows the user, which changes no data. A list names refs the user could see, on
- * screen or handed out that day, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes
+ * screen or handed out in the conversation, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes
  * to a page or such an item only on the user's own words, and leaves a receipt either way. A draft is a new GitHub issue the user
  * edits and creates as an Epic with a click.
  */
@@ -109,7 +109,7 @@ class AssistantShow
     }
 
     /**
-     * The tool for one message: it shows only what that message had on screen or the day handed out, opens only on its words, and adds
+     * The tool for one message: it shows only what that message had on screen or the conversation handed out, opens only on its words, and adds
      * what it shows and the receipts it leaves through {@code items}.
      */
     ReviewTool tool(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items)
@@ -174,10 +174,10 @@ class AssistantShow
             (LISTED.contains(AgendaRefs.kind(named)) && shown.contains(named) ? kept : dropped).add(named);
         }
         if (kept.isEmpty()) {
-            return reply("refused", "None of those refs are on screen or handed out today; read them with assistant_context first", ImmutableList.copyOf(dropped));
+            return reply("refused", "None of those refs are on screen or handed out in this conversation; read them with assistant_context first", ImmutableList.copyOf(dropped));
         }
-        items.accept(AssistantItem.list(message.day(), clock.instant(), clip(title, TITLE), new AssistantList(style, ImmutableList.copyOf(kept))));
-        return reply("done", dropped.isEmpty() ? "Showed " + kept.size() : "Showed " + kept.size() + "; dropped the refs not on screen or handed out today",
+        items.accept(AssistantItem.list(message.conversationId(), clock.instant(), clip(title, TITLE), new AssistantList(style, ImmutableList.copyOf(kept))));
+        return reply("done", dropped.isEmpty() ? "Showed " + kept.size() : "Showed " + kept.size() + "; dropped the refs not on screen or handed out in this conversation",
                 ImmutableList.copyOf(dropped));
     }
 
@@ -220,7 +220,7 @@ class AssistantShow
         checkArgument(repository.startsWith("ws:"), "draft_epic needs a ws: ref");
         checkArgument(!title.isEmpty(), "draft_epic needs a title");
         if (!actions.shown(message, context).contains(repository)) {
-            return reply("refused", "That repository isn't on screen or handed out today; read start_options first", ImmutableList.of());
+            return reply("refused", "That repository isn't on screen or handed out in this conversation; read start_options first", ImmutableList.of());
         }
         Optional<Workspace> watched = workspaces.findById(repository.substring("ws:".length()));
         if (watched.isEmpty()) {
@@ -228,14 +228,14 @@ class AssistantShow
         }
         AssistantDraft draft = new AssistantDraft(watched.orElseThrow().id(), watched.orElseThrow().monitoredRepository().fullName(),
                 clip(body.path("body").asText("").strip(), DRAFT_BODY), UUID.randomUUID().toString());
-        items.accept(AssistantItem.draft(message.day(), clock.instant(), clip(title, DRAFT_TITLE), draft));
+        items.accept(AssistantItem.draft(message.conversationId(), clock.instant(), clip(title, DRAFT_TITLE), draft));
         return reply("done", "Showed the draft; the user edits it and creates the issue as an Epic with a click", ImmutableList.of());
     }
 
     /** Leaves the receipt the user reads, with the words the assistant acted on, and tells the assistant the same line. */
     private String receipt(AssistantItem message, Consumer<AssistantItem> items, String line, AssistantReceipt receipt, String words)
     {
-        items.accept(AssistantItem.receipt(message.day(), clock.instant(), line, receipt.withWords(words)));
+        items.accept(AssistantItem.receipt(message.conversationId(), clock.instant(), line, receipt.withWords(words)));
         return reply(receipt.outcome().name().toLowerCase(Locale.ROOT), line, ImmutableList.of());
     }
 

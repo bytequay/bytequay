@@ -129,6 +129,7 @@ class TestAssistantActions
 {
     private static final Instant NOW = Instant.parse("2026-10-17T10:00:00Z");
     private static final LocalDate DAY = LocalDate.parse("2026-10-17");
+    private static final String CONVERSATION = "0c6a3f0e-5b1d-4c39-9d43-7f1f3a2b9e10";
     private static final ApprovalId APPROVAL = ApprovalId.random();
     private static final String CARD = "approval:" + APPROVAL;
     private static final String QUESTION_INPUT = "{\"questions\":[{\"question\":\"Where should the snapshot id appear?\",\"header\":\"Place\",\"multiSelect\":false,"
@@ -712,14 +713,14 @@ class TestAssistantActions
     void namesTheEpicADraftBecameAndTheIssueItWasPublishedAs()
     {
         AssistantDraft draft = new AssistantDraft("ws1", "owner/repository", "Track the snapshot work.", "w9");
-        assertThatThrownBy(() -> work.drafted(draft, DAY, NOW)).isInstanceOf(IllegalArgumentException.class).hasMessage("That draft was not created yet");
+        assertThatThrownBy(() -> work.drafted(draft, CONVERSATION, NOW)).isInstanceOf(IllegalArgumentException.class).hasMessage("That draft was not created yet");
 
         WorkItem published = new WorkItem("w9", "ws1", "Iceberg snapshot ids", WorkItem.Kind.DEVELOP, "Track the snapshot work.",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(new WorkItemLink("ISSUE:github.com:901",
                         new GoalItem(GoalItemKind.ISSUE, "owner/repository#123", "#123", "Iceberg snapshot ids", NOW), Optional.empty(), Optional.empty())),
                 ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(workItems.find("w9")).thenReturn(Optional.of(published));
-        AssistantItem receipt = work.drafted(draft, DAY, NOW);
+        AssistantItem receipt = work.drafted(draft, CONVERSATION, NOW);
 
         // The user may have edited the title before the click: the receipt names the work as created.
         assertThat(receipt.text()).isEqualTo("Created “Iceberg snapshot ids” as an Epic");
@@ -735,7 +736,7 @@ class TestAssistantActions
         when(approvals.find(APPROVAL)).thenReturn(Optional.of(waiting.resolve(
                 new ApprovalDecision(APPROVAL, ApprovalDecision.Decision.ALLOW, Optional.of("Bash(./mvnw:*)"), true, ImmutableMap.of(), NOW, false),
                 AgentEventPayload.ApprovalOutcome.ALLOWED)));
-        AssistantItem receipt = actions.buttonReceipt(APPROVAL, DAY);
+        AssistantItem receipt = actions.buttonReceipt(APPROVAL, CONVERSATION);
         assertThat(receipt.text()).isEqualTo("Allowed for this task · Retry Iceberg commit on conflict");
         assertThat(receipt.receipt().orElseThrow().target()).contains(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", task.id().toString()));
         assertThat(store.actions(receipt.id())).isEmpty();
@@ -757,7 +758,7 @@ class TestAssistantActions
 
     private static AssistantItem message(String text, List<String> visible, Optional<String> onScreen)
     {
-        return AssistantItem.user(DAY, NOW, text, visible, onScreen, "key-" + text);
+        return AssistantItem.user(CONVERSATION, NOW, text, visible, onScreen, "key-" + text);
     }
 
     private String act(AssistantItem message, String arguments)

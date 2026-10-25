@@ -1464,20 +1464,20 @@ export type AgendaCalendarDto = {
   free: { from: string; to: string }[];
 };
 
-/** One entry in today's Assistant conversation. */
+/** One entry in an Assistant conversation. */
 export type AssistantItemDto = {
   id: string;
-  day: string;
+  conversationId: string;
   at: string;
   kind: 'USER' | 'REPLY' | 'RECEIPT' | 'FAILURE' | 'LIST' | 'DRAFT';
   /** The user's words, the reply's Markdown, a receipt's line, a list's or a draft's title, or why the reply failed. */
   text: string;
-  /** Where each ref a reply names opens; only refs the day served. */
+  /** Where each ref a reply names opens; only refs the conversation served. */
   targets: Record<string, AgendaTargetDto>;
   /** Whether a failure is the model not being ready, which Settings fixes. */
   notReady: boolean;
   receipt: AssistantReceiptDto | null;
-  /** The style a list shows first and its refs in order; their rows come with the day. */
+  /** The style a list shows first and its refs in order; their rows come with the conversation. */
   list: AssistantListDto | null;
   /** A new GitHub issue the assistant drafted, which the user edits and creates as an Epic with a click. */
   draft: AssistantDraftDto | null;
@@ -1561,13 +1561,17 @@ export type AssistantReceiptDto = {
 export type AssistantPermissionsDto = { startTasks: boolean; answerTasks: boolean; changeWork: boolean; markAttention: boolean };
 
 export type AssistantViewDto = {
-  day: string;
+  id: string;
   model: string | null;
+  /** Whether a reply in this conversation is being written. */
   running: boolean;
   items: AssistantItemDto[];
-  /** Each ref the day's lists name that still resolves; a ref missing here is gone. */
+  /** Each ref the conversation's lists name that still resolves; a ref missing here is gone. */
   rows: Record<string, AssistantRowDto>;
 };
+
+/** One conversation in the Assistant's history, titled by its first message. */
+export type AssistantSummaryDto = { id: string; title: string; updatedAt: string; running: boolean };
 
 export type AgendaDay = 'MONDAY' | 'TUESDAY' | 'WEDNESDAY' | 'THURSDAY' | 'FRIDAY' | 'SATURDAY' | 'SUNDAY';
 
@@ -1989,16 +1993,19 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   startAgendaItem: (ref: string) => Promise<AgendaDto>;
   getAgendaSchedule: () => Promise<AgendaScheduleDto>;
   saveAgendaSchedule: (schedule: AgendaScheduleDto) => Promise<AgendaScheduleDto>;
-  getAssistantToday: () => Promise<AssistantViewDto>;
-  /** The reply runs in the background; the same key twice adds the message once. */
-  sendAssistantMessage: (text: string, visible: string[], onScreen: string | null, key: string) => Promise<{ itemId: string }>;
+  /** The most recent conversations, newest first. */
+  listAssistantConversations: () => Promise<AssistantSummaryDto[]>;
+  /** One conversation; one nobody wrote in yet is empty. */
+  getAssistantConversation: (conversationId: string) => Promise<AssistantViewDto>;
+  /** The reply runs in the background; the same key twice adds the message once. A conversation id the panel made up begins a new one. */
+  sendAssistantMessage: (conversationId: string, text: string, visible: string[], onScreen: string | null, key: string) => Promise<{ itemId: string }>;
   stopAssistant: () => Promise<void>;
-  /** Runs the last message again after a failed reply. */
-  retryAssistant: () => Promise<{ itemId: string }>;
-  /** Keeps a receipt for a card answered with its own button in the panel. */
-  recordAssistantAnswer: (approvalId: string) => Promise<void>;
+  /** Runs the conversation's last message again after a failed reply. */
+  retryAssistant: (conversationId: string) => Promise<{ itemId: string }>;
+  /** Keeps a receipt for a card answered with its own button in the panel, in the conversation on screen. */
+  recordAssistantAnswer: (conversationId: string, approvalId: string) => Promise<void>;
   /** Keeps the receipt for a draft the user created with its own button. */
-  recordAssistantDraft: (itemId: string) => Promise<void>;
+  recordAssistantDraft: (conversationId: string, itemId: string) => Promise<void>;
   getAssistantPermissions: () => Promise<AssistantPermissionsDto>;
   saveAssistantPermissions: (permissions: AssistantPermissionsDto) => Promise<AssistantPermissionsDto>;
 

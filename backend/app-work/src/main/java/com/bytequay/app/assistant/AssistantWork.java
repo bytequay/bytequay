@@ -36,7 +36,6 @@ import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
-import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
@@ -173,14 +172,14 @@ class AssistantWork
      *
      * @throws IllegalArgumentException when the draft's work item was not created
      */
-    AssistantItem drafted(AssistantDraft draft, LocalDate day, Instant at)
+    AssistantItem drafted(AssistantDraft draft, String conversationId, Instant at)
     {
         WorkItem created = items.find(draft.workItemId()).orElseThrow(() -> new IllegalArgumentException("That draft was not created yet"));
         Optional<String> issue = created.links().stream().map(link -> link.reference()).filter(reference -> reference.kind() == GoalItemKind.ISSUE)
                 .map(GoalItem::key).findFirst();
         AssistantReceipt receipt = new AssistantReceipt(AssistantReceipt.Operation.CREATE_EPIC, AssistantReceipt.Outcome.DONE, Optional.of(issue.orElse(draft.repository())),
                 Optional.of(AgendaTarget.of(AgendaTarget.Kind.WORK, created.workspaceId(), created.id())), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        return AssistantItem.receipt(day, at, "Created “" + clip(created.title(), TITLE) + "” as an Epic", receipt);
+        return AssistantItem.receipt(conversationId, at, "Created “" + clip(created.title(), TITLE) + "” as an Epic", receipt);
     }
 
     /** What the item is called and where it opens, read now from the stores. */

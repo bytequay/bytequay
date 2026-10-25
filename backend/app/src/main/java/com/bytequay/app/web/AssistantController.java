@@ -16,10 +16,13 @@ package com.bytequay.app.web;
 import com.bytequay.app.assistant.AssistantPermissions;
 import com.bytequay.app.assistant.AssistantService;
 import com.bytequay.app.assistant.AssistantSettings;
+import com.bytequay.app.assistant.AssistantSummary;
 import com.bytequay.app.assistant.AssistantView;
+import com.bytequay.core.domain.AssistantConversation;
 import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -51,10 +54,17 @@ public class AssistantController
         this.settings = requireNonNull(settings, "settings is null");
     }
 
-    @GetMapping("/assistant/today")
-    public AssistantView today()
+    @GetMapping("/assistant/conversations")
+    public List<AssistantSummary> conversations()
     {
-        return assistant.today();
+        return assistant.conversations();
+    }
+
+    @GetMapping("/assistant/conversations/{conversationId}")
+    public AssistantView conversation(@PathVariable String conversationId)
+    {
+        checkConversation(conversationId);
+        return assistant.conversation(conversationId);
     }
 
     @PostMapping("/assistant/messages")
@@ -62,13 +72,14 @@ public class AssistantController
     public Accepted send(@RequestBody MessageRequest request)
     {
         checkArgument(request != null, "message is required");
+        checkConversation(request.conversationId());
         checkText(request.text(), "text", AssistantService.MAXIMUM_TEXT);
         checkText(request.key(), "key", REF);
         List<String> visible = Optional.ofNullable(request.visible()).orElse(ImmutableList.of());
         checkArgument(visible.size() <= VISIBLE, "visible lists at most %s cards", VISIBLE);
         visible.forEach(ref -> checkText(ref, "visible ref", REF));
         checkOptionalText(request.onScreen(), "onScreen", REF);
-        return new Accepted(assistant.send(request.text(), visible, request.onScreen(), request.key()));
+        return new Accepted(assistant.send(request.conversationId(), request.text(), visible, request.onScreen(), request.key()));
     }
 
     @PostMapping("/assistant/stop")
@@ -80,9 +91,11 @@ public class AssistantController
 
     @PostMapping("/assistant/retry")
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public Accepted retry()
+    public Accepted retry(@RequestBody RetryRequest request)
     {
-        return new Accepted(assistant.retry());
+        checkArgument(request != null, "conversationId is required");
+        checkConversation(request.conversationId());
+        return new Accepted(assistant.retry(request.conversationId()));
     }
 
     /** A card the user answered with its own button in the panel; the conversation keeps its receipt. */
@@ -91,8 +104,9 @@ public class AssistantController
     public void answered(@RequestBody AnsweredRequest request)
     {
         checkArgument(request != null, "approvalId is required");
+        checkConversation(request.conversationId());
         checkText(request.approvalId(), "approvalId", REF);
-        assistant.answered(request.approvalId());
+        assistant.answered(request.conversationId(), request.approvalId());
     }
 
     /** A draft the user created with its own button in the panel; the conversation keeps its receipt. */
@@ -101,8 +115,9 @@ public class AssistantController
     public void drafted(@RequestBody DraftedRequest request)
     {
         checkArgument(request != null, "itemId is required");
+        checkConversation(request.conversationId());
         checkText(request.itemId(), "itemId", REF);
-        assistant.drafted(request.itemId());
+        assistant.drafted(request.conversationId(), request.itemId());
     }
 
     @GetMapping("/settings/assistant")
@@ -118,16 +133,27 @@ public class AssistantController
         return settings.save(permissions);
     }
 
+    private static void checkConversation(String conversationId)
+    {
+        checkArgument(AssistantConversation.isId(conversationId), "conversationId is not a conversation id");
+    }
+
     /**
+     * @param conversationId the conversation the message goes on; the panel names a new one itself
      * @param visible the refs of the cards on screen when the message was sent
      * @param onScreen the ref of the page the user is looking at
      * @param key the sender's own key for this message, so sending it twice adds it once
      */
-    public record MessageRequest(String text, List<String> visible, Optional<String> onScreen, String key) {}
+    public record MessageRequest(String conversationId, String text, List<String> visible, Optional<String> onScreen, String key) {}
 
     public record Accepted(String itemId) {}
 
-    public record AnsweredRequest(String approvalId) {}
+    public record RetryRequest(String conversationId) {}
 
-    public record DraftedRequest(String itemId) {}
+    /**
+     * @param conversationId the conversation on screen, or a new one the receipt begins
+     */
+    public record AnsweredRequest(String conversationId, String approvalId) {}
+
+    public record DraftedRequest(String conversationId, String itemId) {}
 }

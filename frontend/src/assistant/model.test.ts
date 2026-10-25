@@ -161,7 +161,7 @@ describe('lists', () => {
 
 describe('opens', () => {
   const receipt = (id: string, at: string, outcome: AssistantReceiptDto['outcome'], operation: AssistantReceiptDto['operation'] = 'OPEN'): AssistantItemDto => ({
-    id, day: '2026-10-17', at, kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null, draft: null,
+    id, conversationId: 'c1', at, kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null, draft: null,
     receipt: { operation, outcome, detail: null, target, page: null, turnId: null, fix: null, words: 'open it' },
   });
 
@@ -187,7 +187,7 @@ describe('opens', () => {
 describe('createdDrafts', () => {
   it('names the work of each draft a receipt says the user created', () => {
     const receipt = (id: string, operation: AssistantReceiptDto['operation'], work: string | null): AssistantItemDto => ({
-      id, day: '2026-10-17', at: '2026-10-17T07:00:00Z', kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null, draft: null,
+      id, conversationId: 'c1', at: '2026-10-17T07:00:00Z', kind: 'RECEIPT', text: id, targets: {}, notReady: false, list: null, draft: null,
       receipt: { operation, outcome: 'DONE', detail: null, target: work === null ? null : { ...target, kind: 'WORK', id: work }, page: null, turnId: null, fix: null, words: null },
     });
     expect([...createdDrafts([receipt('c1', 'CREATE_EPIC', 'w1'), receipt('c2', 'CREATE_WORK_ITEM', 'w2'), receipt('c3', 'CREATE_EPIC', null)])]).toEqual(['w1']);

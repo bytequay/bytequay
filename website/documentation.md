@@ -93,6 +93,9 @@ allowance.
    **Merge**, **Comment**, and, on your own PRs, **Close**.
 4. Ask for a new Epic issue. Nothing is created until you click **Create
    issue**.
+5. Start a new topic with **New conversation** or **⌘N**. After 15 minutes
+   away, ⌘J opens on a new one. Go back to an earlier one from the clock
+   button to keep going.
 
 **⇧⌘J** opens the task that has waited longest. Task alerts also show as macOS
 notifications.

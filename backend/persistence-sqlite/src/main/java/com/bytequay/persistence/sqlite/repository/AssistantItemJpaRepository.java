@@ -16,14 +16,15 @@ package com.bytequay.persistence.sqlite.repository;
 import com.bytequay.persistence.sqlite.entity.AssistantItemEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface AssistantItemJpaRepository
         extends JpaRepository<AssistantItemEntity, String>
 {
-    List<AssistantItemEntity> findByDayOrderByOrdinalAsc(String day);
+    List<AssistantItemEntity> findByConversationIdOrderByOrdinalAsc(String conversationId);
 
-    long countByDay(String day);
+    long countByConversationId(String conversationId);
 
-    void deleteByDayLessThan(String day);
+    void deleteByConversationIdIn(Collection<String> conversationIds);
 }

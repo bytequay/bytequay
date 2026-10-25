@@ -94,7 +94,8 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
   if (['listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges'].includes(method)) {
     if (codeHostKey(parseCodeHost(args[0])) !== codeHostKey(context.host)) throw new Error('The code request names a different task');
     switch (method) {
-      case 'listCodeFiles': case 'listCodeRuns': count(args, 1); return;
+      case 'listCodeFiles': count(args, 1, 2); if (args[1] != null) text(args[1], 100); return;
+      case 'listCodeRuns': count(args, 1); return;
       case 'readCodeHistory': case 'readHistoryCommit': case 'readHistorySnapshot': {
         count(args, 2);
         const query = object(args[1]);

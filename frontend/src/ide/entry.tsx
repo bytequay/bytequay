@@ -194,10 +194,15 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
 
   useEffect(() => {
     let live = true;
+    let etag: string | null = null;
     const stop = pollVisible(async () => {
       try {
-        const value = await request('listCodeFiles', context.host);
-        if (live) { setFiles(value as ReviewCodeFilesDto); setFilesError(null); }
+        const value = await request('listCodeFiles', context.host, etag) as { etag: string | null; files: ReviewCodeFilesDto | null };
+        if (!live) return;
+        etag = value.etag;
+        // An unchanged list keeps the shown tree, so the poll does not rebuild it for every file in the repository.
+        if (value.files) setFiles(value.files);
+        setFilesError(null);
       } catch (cause) { if (live) setFilesError(`Could not refresh working copy: ${String(cause)}`); }
     }, 5_000);
     return () => { live = false; stop(); };

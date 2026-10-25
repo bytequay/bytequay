@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { backendJson } from './backendJson';
+import { backendJson, backendJsonIfChanged } from './backendJson';
 import { ipcMain, net, protocol, WebContentsView, BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
@@ -231,7 +231,13 @@ export class IdeViews {
             for (const key of ['scope', 'commit', 'base', 'head']) if (query[key] != null) params.set(key, String(query[key]));
           }
         }
-        return backendJson(`${backendBase()}${route}${endpoint}${params.size ? `?${params}` : ''}`).then(parse);
+        const url = `${backendBase()}${route}${endpoint}${params.size ? `?${params}` : ''}`;
+        if (method === 'listCodeFiles') {
+          // The editor polls its file list and names the copy it holds; a large repository's unchanged list stays in the backend.
+          const held = typeof args[1] === 'string' ? args[1] : null;
+          return backendJsonIfChanged(url, held).then(read => read.changed ? { etag: read.etag, files: parse(read.value) } : { etag: held, files: null });
+        }
+        return backendJson(url).then(parse);
       }
       if (method === 'readCodeBlame') {
         const host = editor.host;

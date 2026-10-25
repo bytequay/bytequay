@@ -16,20 +16,25 @@ package com.bytequay.app.web.review;
 import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.LocalRunService.OutputChunk;
 import com.bytequay.app.review.ReviewCodeService;
+import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.TaskCodeHost;
+import com.google.common.hash.Hasher;
+import com.google.common.hash.Hashing;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.context.request.WebRequest;
 
 import java.nio.file.Path;
 import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -61,9 +66,25 @@ public class TaskCodeController
     }
 
     @GetMapping("/files")
-    public CodeFiles files(@PathVariable Map<String, String> target, @RequestParam Optional<String> workspaceId)
+    public CodeFiles files(@PathVariable Map<String, String> target, @RequestParam Optional<String> workspaceId, WebRequest request)
     {
-        return code.files(host(target, workspaceId));
+        CodeFiles files = code.files(host(target, workspaceId));
+        // The editor polls this every five seconds, and a large repository lists megabytes of unchanged paths.
+        return request.checkNotModified(etag(files)) ? null : files;
+    }
+
+    private static String etag(CodeFiles files)
+    {
+        Hasher hasher = Hashing.sha256().newHasher()
+                .putString(files.source().name(), UTF_8).putByte((byte) 0)
+                .putString(files.revision(), UTF_8).putByte((byte) 0)
+                .putString(files.sourceFingerprint().orElse(""), UTF_8).putByte((byte) 0)
+                .putBoolean(files.savedExperiment()).putBoolean(files.truncated());
+        for (CodeFileEntry file : files.files()) {
+            hasher.putString(file.path(), UTF_8).putByte((byte) 0)
+                    .putBoolean(file.changedInPr()).putBoolean(file.addedInPr()).putBoolean(file.onlyInWorkingCopy()).putBoolean(file.uncommitted());
+        }
+        return hasher.hash().toString();
     }
 
     @GetMapping("/file")

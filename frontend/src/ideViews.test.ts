@@ -283,7 +283,7 @@ it.each([host, { kind: 'review', reviewId: 'review' }])('reads retained $kind ed
   for (const test of cases) {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(test.body)));
     const value = await invoke('ide:request', child(), test.method, [owner, ...test.args], false);
-    expect(value).toEqual(test.method === 'listCodeRuns' ? [] : expect.objectContaining(test.body));
+    expect(value).toEqual(test.method === 'listCodeRuns' ? [] : test.method === 'listCodeFiles' ? { etag: null, files: expect.objectContaining(test.body) } : expect.objectContaining(test.body));
     const [url, options] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
     const parsed = new URL(url);
     expect(parsed.pathname).toBe((owner.kind === 'task' ? '/agent/tasks/task/code' : '/api/agent-review/review/code') + test.endpoint);
@@ -305,8 +305,19 @@ it('returns background read failures directly and allows the next refresh to rec
   fetchMock.mockRejectedValueOnce(new Error('Working copy is unavailable'));
   await expect(invoke('ide:request', child(), 'listCodeFiles', [host], false)).rejects.toThrow('Working copy is unavailable');
   fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ source: 'WORKING_COPY', revision: 'head', files: [] })));
-  await expect(invoke('ide:request', child(), 'listCodeFiles', [host], false)).resolves.toMatchObject({ files: [] });
+  await expect(invoke('ide:request', child(), 'listCodeFiles', [host], false)).resolves.toMatchObject({ files: { files: [] } });
   expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
+});
+
+it('names the held file list so an unchanged one returns without its body', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:update', parent(), id, { host, task: null, review: null, detail: null });
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ source: 'WORKING_COPY', revision: 'head', files: [] }), { headers: { ETag: '"v1"' } }));
+  await expect(invoke('ide:request', child(), 'listCodeFiles', [host, null], false)).resolves.toMatchObject({ etag: '"v1"', files: { revision: 'head' } });
+  fetchMock.mockResolvedValueOnce(new Response(null, { status: 304 }));
+  await expect(invoke('ide:request', child(), 'listCodeFiles', [host, '"v1"'], false)).resolves.toEqual({ etag: '"v1"', files: null });
+  expect(new Headers((fetchMock.mock.calls.at(-1) as [string, RequestInit])[1].headers).get('If-None-Match')).toBe('"v1"');
+  expect(() => invoke('ide:request', child(), 'listCodeFiles', [host, 'x'.repeat(101)], false)).toThrow('Invalid IDE action text');
 });
 
 it('reads blame only for the current task and keeps backend credentials in main', async () => {

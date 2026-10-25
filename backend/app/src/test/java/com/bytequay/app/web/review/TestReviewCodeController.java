@@ -113,6 +113,25 @@ class TestReviewCodeController
     }
 
     @Test
+    void answersAnUnchangedFileListWith304()
+            throws Exception
+    {
+        when(code.files(host("review-1"))).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), false, false, ImmutableList.of(
+                new CodeFileEntry("src/test/java/TestCode.java", true, false, false, false))));
+        String etag = mvc.perform(get("/api/agent-review/review-1/code/files")).andExpect(status().isOk()).andReturn().getResponse().getHeader("ETag");
+
+        mvc.perform(get("/api/agent-review/review-1/code/files").header("If-None-Match", etag))
+                .andExpect(status().isNotModified())
+                .andExpect(content().string(""));
+
+        when(code.files(host("review-1"))).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), false, false, ImmutableList.of(
+                new CodeFileEntry("src/test/java/TestCode.java", true, false, false, true))));
+        mvc.perform(get("/api/agent-review/review-1/code/files").header("If-None-Match", etag))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.files[0].uncommitted").value(true));
+    }
+
+    @Test
     void readsFilesWithNullsForAbsentValues()
             throws Exception
     {

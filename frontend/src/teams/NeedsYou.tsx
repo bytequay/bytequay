@@ -42,13 +42,17 @@ export function useLiveAttention(accountLogin: string | undefined) {
     if (!accountLogin) return undefined;
     let generation = 0;
     let active = true;
+    // Each workspace's last read: every pull request update re-checks issues, and an unchanged workspace answers
+    // without them, keeping what it sent before.
+    const reads = new Map<string, { etag: string | null; items: AttentionItem[] }>();
     const reload = async (knownPrs?: PullRequestDto[]) => {
       const request = ++generation;
       try {
         const [prs, workspaces] = await Promise.all([knownPrs ?? window.bridge.fetchAttentionPrs(), window.bridge.listWorkspaces()]);
         const results = await Promise.allSettled(workspaces.map(async workspace => {
-          const { snapshot } = await window.bridge.fetchWorkspaceIssueAttention(workspace.id);
-          return snapshot === null ? [] : issueAttentionItems(snapshot, workspace.id, accountLogin);
+          const read = await window.bridge.fetchWorkspaceIssueAttention(workspace.id, reads.get(workspace.id)?.etag ?? null);
+          if (read.snapshot !== null) reads.set(workspace.id, { etag: read.etag, items: issueAttentionItems(read.snapshot, workspace.id, accountLogin) });
+          return reads.get(workspace.id)?.items ?? [];
         }));
         if (!active || request !== generation) return;
         setCandidates(attentionCandidates(prs, results.flatMap(result => result.status === 'fulfilled' ? result.value : []), accountLogin));
@@ -57,6 +61,7 @@ export function useLiveAttention(accountLogin: string | undefined) {
       catch (failure) { if (active && request === generation) setError(remoteErrorMessage(failure)); }
     };
     const changed = () => { void reload(); };
+    const issuesChanged = () => { reads.clear(); void reload(); };
     const syncPrs = (event: Event) => {
       const prs = (event as CustomEvent<PullRequestDto[]>).detail;
       setCandidates(current => attentionCandidates(prs, current.filter(item => item.type === 'issue'), accountLogin));
@@ -67,12 +72,12 @@ export function useLiveAttention(accountLogin: string | undefined) {
     const stop = window.bridge.onPullRequestsSynced(changed);
     window.addEventListener('bytequay:pr-attention-updated', syncPrs);
     window.addEventListener('bytequay:attention-handled-changed', handling);
-    window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
+    window.addEventListener(ISSUE_DEVELOPMENT_CHANGED, issuesChanged);
     return () => {
       active = false; generation++; stop();
       window.removeEventListener('bytequay:pr-attention-updated', syncPrs);
       window.removeEventListener('bytequay:attention-handled-changed', handling);
-      window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
+      window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, issuesChanged);
     };
   }, [accountLogin]);
   useEffect(() => {

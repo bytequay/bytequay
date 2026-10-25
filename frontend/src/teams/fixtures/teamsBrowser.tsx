@@ -19,7 +19,7 @@ import { assert, changeInput, settle, element as requiredElement, runScenarios }
 import { pr } from '../../pulls/fixtures/pullRequest';
 import CirclesGrid from '../../home/CirclesGrid';
 import { loadHandled, saveHandled } from '../../home/attention';
-import type { Bridge, PullRequestDto } from '../../types';
+import type { Bridge, PullRequestDto, RepositoryIssueSnapshotDto, WorkspaceDto } from '../../types';
 import TeamsPage from '../TeamsPage';
 import { membersOf } from '../activity';
 import type { TeamActivityEvent, TeamActivityQuery, TeamActivitySnapshot, TeamDirectory, TeamMember, TeamStatistics } from '../types';
@@ -137,6 +137,8 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   const added: { id: string; githubId: number }[] = [];
   let refreshes = 0;
   let workspaceReads = 0;
+  let workspaces: WorkspaceDto[] = [];
+  const issueEtags: Array<string | null> = [];
   let failRefresh = false;
   let delayRefresh = false;
   let finishRefresh = noOp;
@@ -212,7 +214,12 @@ async function mount(initial = seededDirectory(), { home = false, observations =
       return result;
     },
     fetchAttentionPrs: async () => prs,
-    listWorkspaces: async () => { workspaceReads++; return []; },
+    listWorkspaces: async () => { workspaceReads++; return workspaces; },
+    fetchWorkspaceIssueAttention: async (_workspaceId, etag) => {
+      issueEtags.push(etag ?? null);
+      return etag === 'issues-1' ? { etag, snapshot: null } : { etag: 'issues-1', snapshot: { repositoryId: 1, repository: { owner: 'owner', repo: 'repository' },
+        issues: [], page: 1, pageSize: 100, totalIssues: 0, hasMore: false, syncedAt: null } satisfies RepositoryIssueSnapshotDto };
+    },
     onPullRequestsSynced: () => noOp,
     findStoredPullRequest: async () => null,
     openInAppBrowser: async url => { opened.push(url); },
@@ -245,7 +252,8 @@ async function mount(initial = seededDirectory(), { home = false, observations =
   flushSync(() => root?.render(<Surface />));
   await settled();
   return { queries, opened, created, removed, added, get directory() { return directory; }, get refreshes() { return refreshes; },
-    get workspaceReads() { return workspaceReads; },
+    get workspaceReads() { return workspaceReads; }, issueEtags,
+    watchWorkspace() { workspaces = [{ id: 'workspace-1', monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto]; },
     failRefresh() { failRefresh = true; }, delayRefresh() { delayRefresh = true; }, finishRefresh() { finishRefresh(); },
     failCreate(message: string | null) { createFailure = message; },
     async switchAccount(next: TeamDirectory) {
@@ -397,6 +405,12 @@ async function needsYou() {
   await settled();
   assert(f.workspaceReads > reads, 'Attention updates must reread watched issue snapshots as well as PR rows');
   assert(f.queries.length > activityReads && f.refreshes === 0, 'The automatic attention broadcast must reread cached Circle activity without starting another remote refresh');
+  f.watchWorkspace();
+  window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [alicePr()] }));
+  await settled();
+  window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [alicePr()] }));
+  await settled();
+  assert(f.issueEtags.join() === ',issues-1', 'A later attention update must send the issue snapshot’s ETag, so an unchanged workspace answers without its issues');
 }
 
 async function refreshFailure() {

@@ -1580,16 +1580,6 @@
   stroke-linecap: round;
 }
 
-/* Each ground line sets its own duration and dash period inline. */
-.agt-critter.is-moving .agt-critter__ground {
-  animation: agt-critter-ground linear infinite;
-}
-
-@keyframes agt-critter-ground {
-  from { stroke-dashoffset: 0; }
-  to { stroke-dashoffset: var(--critter-run); }
-}
-
 .agt-text,
 .agt-answer {
   font-size: 13.5px;
@@ -3788,10 +3778,6 @@ button:is(.agt-type-chip, .agt-type-tile) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agt-critter.is-moving .agt-critter__ground {
-    animation: none;
-  }
-
   .agt-compose__streamer::after,
   .agt-state__dot,
   .agt-skeleton__bar,

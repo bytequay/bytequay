@@ -152,7 +152,11 @@ export function Critter({ kind, moving }: { kind: CritterKind; moving: boolean }
       y: Number(element.dataset.y ?? 0),
       pivot: `${element.dataset.cx ?? 0} ${element.dataset.cy ?? 0}`,
     }));
+    const ground = host.current.querySelector<SVGLineElement>('.agt-critter__ground');
+    const run = Number(ground?.dataset.run ?? 0);
+    const period = Number(ground?.dataset.period ?? 1);
     const draw = (): void => {
+      ground?.setAttribute('stroke-dashoffset', (run * ((elapsed.current / period) % 1)).toFixed(2));
       const pose = critterPose(kind, elapsed.current);
       for (const joint of joints) {
         const value = pose[joint.name] ?? {};
@@ -170,17 +174,18 @@ export function Critter({ kind, moving }: { kind: CritterKind; moving: boolean }
     let shown = true;
     const watch = typeof IntersectionObserver === 'function' ? new IntersectionObserver(([entry]) => { shown = entry.isIntersecting; }) : null;
     watch?.observe(host.current);
-    let drawn = 0;
+    let timer = 0;
     let frame = requestAnimationFrame(function step(now) {
-      frame = requestAnimationFrame(step);
-      // A kept conversation that is not on screen draws nothing; behind another window, ten frames a second still show
-      // the agent working.
-      if (!shown || (!document.hasFocus() && now - drawn < 100)) return;
-      drawn = now;
-      elapsed.current = (now - start) / 1000;
-      draw();
+      // A kept conversation that is not on screen draws nothing. Every drawn frame repaints the page on the main thread,
+      // so thirty a second keep the stride smooth for a quarter of a 120 Hz display's cost; behind another window, ten
+      // a second still show the agent working.
+      if (shown) {
+        elapsed.current = (now - start) / 1000;
+        draw();
+      }
+      timer = window.setTimeout(() => { frame = requestAnimationFrame(step); }, document.hasFocus() ? 33 : 100);
     });
-    return () => { cancelAnimationFrame(frame); watch?.disconnect(); };
+    return () => { cancelAnimationFrame(frame); clearTimeout(timer); watch?.disconnect(); };
   }, [kind, moving]);
   return <span ref={host} className={`agt-critter${moving ? ' is-moving' : ''}`} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art }} />;
 }

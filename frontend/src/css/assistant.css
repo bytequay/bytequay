@@ -71,6 +71,9 @@
 
 @keyframes assistant-light { to { --assistant-light: 360deg; } }
 
+/* An animated gradient angle repaints on the main thread every frame. */
+.is-app-blurred .assistant-float .agt-compose__streamer { animation-play-state: paused; }
+
 @media (prefers-reduced-motion: reduce) {
   .assistant-float .agt-compose__streamer { animation: none; }
 }

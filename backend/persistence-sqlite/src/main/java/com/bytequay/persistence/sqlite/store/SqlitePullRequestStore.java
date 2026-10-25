@@ -189,23 +189,15 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker)
+    public List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests)
     {
         requireNonNull(pullRequests, "pullRequests is null");
-        requireNonNull(syncMarker, "syncMarker is null");
         Instant now = Instant.now();
         ImmutableList.Builder<PullRequest> saved = ImmutableList.builder();
         for (FetchedPullRequest pullRequest : pullRequests) {
             saved.add(upsert(pullRequest, now, (entity, previous) -> {
                 entity.setDashboardVisible(true);
                 entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
-                entity.setDashboardSyncMarker(syncMarker);
-                entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
-                if (previous != null
-                        && syncMarker.equals(previous.getDashboardSyncMarker())
-                        && PullRequest.Origin.AUTHORED.name().equals(previous.getOrigin())) {
-                    entity.setOrigin(PullRequest.Origin.AUTHORED.name());
-                }
             }));
         }
         return saved.build();
@@ -213,19 +205,16 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests, String syncMarker)
+    public List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests)
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(pullRequests, "pullRequests is null");
-        requireNonNull(syncMarker, "syncMarker is null");
         Instant now = Instant.now();
         ImmutableList.Builder<PullRequest> saved = ImmutableList.builder();
         for (FetchedPullRequest pullRequest : pullRequests) {
             saved.add(upsert(pullRequest, now, (entity, previous) -> {
                 entity.setDashboardVisible(previous != null && dashboardVisible(previous));
                 entity.setWorkspaceVisible(true);
-                entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
-                entity.setWorkspaceSyncMarker(syncMarker);
             }));
         }
         return saved.build();
@@ -239,15 +228,13 @@ public class SqlitePullRequestStore
         return upsert(pullRequest, Instant.now(), (entity, previous) -> {
             entity.setDashboardVisible(true);
             entity.setWorkspaceVisible(previous != null && workspaceVisible(previous));
-            entity.setDashboardSyncMarker(previous == null ? null : previous.getDashboardSyncMarker());
-            entity.setWorkspaceSyncMarker(previous == null ? null : previous.getWorkspaceSyncMarker());
         });
     }
 
     /**
      * Shared save skeleton for every path that persists a fetched pull
      * request: looks up the stored row, carries its id forward, applies the
-     * caller's visibility and sync-marker choices, and preserves enrichment
+     * caller's visibility choices, and preserves enrichment
      * so a resync cannot silently drop it. {@code mark} receives the
      * previous row, which is null for a first sighting.
      */
@@ -264,6 +251,8 @@ public class SqlitePullRequestStore
         entity.setId(previous == null ? null : previous.getId());
         mark.accept(entity, previous);
         if (previous != null) {
+            // Syncs see the same rows again and again; a fresh time on each would make every one of them an UPDATE.
+            entity.setSyncedAt(previous.getSyncedAt());
             // Search has no reviewer list or head ref; only exact detail can remove a known pending request.
             if (pullRequest.headRef() == null && pullRequest.origin() == PullRequest.Origin.OTHER
                     && PullRequest.Origin.REVIEW_REQUESTED.name().equals(previous.getOrigin())) {

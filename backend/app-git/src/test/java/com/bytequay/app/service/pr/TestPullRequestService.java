@@ -536,7 +536,7 @@ class TestPullRequestService
         service.syncRepositoryBranch(repository, "contributor", "feature");
 
         verify(gitHub, times(2)).fetchPullRequestsByHead("pat", repository, "contributor:feature");
-        verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(found.withViewerOrigin("me"))), anyString());
+        verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(found.withViewerOrigin("me"))));
         verifyNoInteractions(detailStore, diffStore);
     }
 
@@ -720,7 +720,7 @@ class TestPullRequestService
 
         service.syncFromGitHub();
 
-        verify(store).saveDashboardSyncPage(eq(rows), anyString());
+        verify(store).saveDashboardSyncPage(eq(rows));
         verify(store, times(120)).saveObserved(any());
         ArgumentCaptor<List<PullRequestRef>> summarized = ArgumentCaptor.forClass(List.class);
         verify(summaries, times(24)).fetchSummaries(eq("pat"), summarized.capture(), eq("me"));
@@ -743,7 +743,7 @@ class TestPullRequestService
 
         verify(gitHub, times(10)).searchPullRequestsPaged(eq("pat"), eq("is:pr is:open author:@me"), anyInt(), eq(100));
         verify(store).saveObserved(pullRequest());
-        verify(store, never()).saveDashboardSyncPage(anyList(), anyString());
+        verify(store, never()).saveDashboardSyncPage(anyList());
         verifyNoInteractions(summaries, detailStore, diffStore, actions, accounts);
     }
 
@@ -767,7 +767,7 @@ class TestPullRequestService
 
         service.syncFromGitHub();
 
-        verify(store).saveDashboardSyncPage(eq(rows), anyString());
+        verify(store).saveDashboardSyncPage(eq(rows));
         ArgumentCaptor<FetchedPullRequest> saved = ArgumentCaptor.forClass(FetchedPullRequest.class);
         verify(store, times(57)).saveObserved(saved.capture());
         assertThat(saved.getAllValues().subList(0, 31)).containsExactlyElementsOf(rows);
@@ -794,7 +794,7 @@ class TestPullRequestService
 
         assertThatThrownBy(service::syncFromGitHub).isSameAs(failure);
 
-        verify(store).saveDashboardSyncPage(eq(rows), anyString());
+        verify(store).saveDashboardSyncPage(eq(rows));
         ArgumentCaptor<FetchedPullRequest> saved = ArgumentCaptor.forClass(FetchedPullRequest.class);
         verify(store, times(6)).saveObserved(saved.capture());
         assertThat(saved.getAllValues()).containsExactlyElementsOf(rows);
@@ -1389,7 +1389,7 @@ class TestPullRequestService
                 new PullRequestHistoryPage(invocation.<String>getArgument(1).contains("updated:") ? ImmutableList.of(pullRequest()) : ImmutableList.of(), false));
         when(notifications.reviewRequests("me")).thenReturn(notified ? ImmutableSet.of(ref) : ImmutableSet.of());
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
-        when(store.saveRepositorySyncPage(eq("owner/repo"), anyList(), anyString())).thenAnswer(invocation ->
+        when(store.saveRepositorySyncPage(eq("owner/repo"), anyList())).thenAnswer(invocation ->
                 invocation.<List<FetchedPullRequest>>getArgument(1).stream().map(TestPullRequestService::storedPullRequest).toList());
 
         when(store.saveObserved(any())).thenAnswer(invocation -> storedPullRequest(invocation.getArgument(0)));
@@ -1399,10 +1399,10 @@ class TestPullRequestService
         verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100));
         verifyNoMoreInteractions(gitHub);
         ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
-        verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
+        verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), saved.capture());
         assertThat(saved.getAllValues().getFirst()).containsExactly(fetched);
         verify(store).saveObserved(fetched.withOrigin(notified ? PullRequest.Origin.REVIEW_REQUESTED : PullRequest.Origin.OTHER));
-        verify(store, never()).saveDashboardSyncPage(anyList(), anyString());
+        verify(store, never()).saveDashboardSyncPage(anyList());
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 
@@ -1423,7 +1423,7 @@ class TestPullRequestService
         service.syncRepository(RepoRef.of("owner", "repo"));
 
         ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
-        verify(store, times(3)).saveRepositorySyncPage(eq("owner/repo"), saved.capture(), anyString());
+        verify(store, times(3)).saveRepositorySyncPage(eq("owner/repo"), saved.capture());
         assertThat(saved.getAllValues().stream().flatMap(List::stream)).hasSize(121);
         ArgumentCaptor<List<PullRequestRef>> summarized = ArgumentCaptor.forClass(List.class);
         verify(summaries, times(25)).fetchSummaries(eq("pat"), summarized.capture(), eq("me"));
@@ -1502,7 +1502,7 @@ class TestPullRequestService
 
         service.observeWorkspacePullRequest(repository, 7);
 
-        verify(store).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(fetched.withViewerOrigin("me"))), anyString());
+        verify(store).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(fetched.withViewerOrigin("me"))));
         verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt());
     }
 

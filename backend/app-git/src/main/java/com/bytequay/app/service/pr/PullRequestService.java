@@ -97,7 +97,6 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -408,7 +407,7 @@ public class PullRequestService
         PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), number);
         FetchedPullRequest pullRequest = gitHub.getPullRequest(credential.token(), ref)
                 .withViewerOrigin(credential.profile().login());
-        store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest), UUID.randomUUID().toString());
+        store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest));
     }
 
     /**
@@ -421,11 +420,10 @@ public class PullRequestService
         requireNonNull(repository, "repository is null");
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         baselineSummaries(credential.token());
-        String syncMarker = UUID.randomUUID().toString();
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         Consumer<List<FetchedPullRequest>> save = page -> {
             List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(credential.profile().login())).collect(toImmutableList());
-            store.saveRepositorySyncPage(repository.fullName(), rows, syncMarker);
+            store.saveRepositorySyncPage(repository.fullName(), rows);
             rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
         };
         String query = "is:pr repo:" + repository.fullName();
@@ -461,7 +459,7 @@ public class PullRequestService
                 .map(pullRequest -> pullRequest.withViewerOrigin(credential.profile().login()))
                 .collect(toImmutableList());
         if (!fresh.isEmpty()) {
-            store.saveRepositorySyncPage(repository.fullName(), fresh, UUID.randomUUID().toString());
+            store.saveRepositorySyncPage(repository.fullName(), fresh);
         }
     }
 
@@ -590,7 +588,7 @@ public class PullRequestService
                     .map(row -> origin == REVIEW_REQUESTED && row.origin() != AUTHORED ? row.withOrigin(REVIEW_REQUESTED) : row)
                     .collect(toImmutableList());
             if (query.startsWith("is:pr repo:")) {
-                store.saveRepositorySyncPage(query.substring("is:pr repo:".length()), rows, UUID.randomUUID().toString());
+                store.saveRepositorySyncPage(query.substring("is:pr repo:".length()), rows);
                 rows.forEach(row -> seen.putIfAbsent(row.repo() + "#" + row.number(), row));
             }
             else {
@@ -675,7 +673,7 @@ public class PullRequestService
         syncAttentionQuery(pat, seen, "is:pr is:open reviewed-by:@me", OTHER);
         syncAttentionQuery(pat, seen, "is:pr involves:@me updated:>=" + sinceDate, OTHER);
         List<FetchedPullRequest> fresh = ImmutableList.copyOf(seen.values());
-        store.saveDashboardSyncPage(fresh, UUID.randomUUID().toString());
+        store.saveDashboardSyncPage(fresh);
         enrichCards(credential, fresh.stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
     }
 

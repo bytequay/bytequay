@@ -253,7 +253,7 @@ class TestAgentTaskHttpApi
         String path = "/agent/tasks/" + taskId + "/pull-requests?workspaceId=";
         assertThat(get(path + workspaceId).getBody()).isEmpty();
 
-        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")), "seed");
+        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")));
 
         JsonNode listed = get(path + workspaceId).getBody();
         assertThat(listed).hasSize(1);
@@ -275,8 +275,7 @@ class TestAgentTaskHttpApi
                 REPOSITORY,
                 ImmutableList.of(fetchedPullRequest(484, worktree.generatedBranch()), fetchedPullRequest(485, branch), fetchedPullRequest(486, "unrelated"),
                         // Another author's fork on the same renamed branch name is not the task's pull request.
-                        fetchedPullRequest(487, branch).withOrigin(PullRequest.Origin.OTHER)),
-                "renamed-task");
+                        fetchedPullRequest(487, branch).withOrigin(PullRequest.Origin.OTHER)));
 
         JsonNode listed = get("/agent/tasks/" + taskId + "/pull-requests?workspaceId=" + workspaceId).getBody();
         assertThat(listed).hasSize(2);
@@ -297,7 +296,7 @@ class TestAgentTaskHttpApi
         TaskWorktree worktree = tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow();
         String branch = "new-pr-" + taskId;
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)), "search-without-head");
+        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
         assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).isEmpty();
         when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("alice", "Alice", "", "", 0, 0, 0, "", "", "", "")));
@@ -340,8 +339,8 @@ class TestAgentTaskHttpApi
         assertThat(worktree.physicalRepository()).isEqualTo(task.repository());
         String branch = "cache-table-stats";
         run("git", "-C", worktree.canonicalWorktree().toString(), "branch", "-m", branch);
-        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)), "upstream-pr");
-        pullRequests.saveRepositorySyncPage(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)), "unrelated-fork-pr");
+        pullRequests.saveRepositorySyncPage(upstream.fullName(), ImmutableList.of(fetchedPullRequest(upstream.fullName(), 41, branch)));
+        pullRequests.saveRepositorySyncPage(fork.fullName(), ImmutableList.of(fetchedPullRequest(fork.fullName(), 123, branch)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
 
         JsonNode cached = get(path + "?workspaceId=" + workspaceId).getBody();

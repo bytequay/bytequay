@@ -56,9 +56,9 @@ public interface PullRequestStore
     List<PullRequest> findMergedRepositoryPullRequests(String repository, String search, int limit);
 
     /** Stores a page of fetched pull requests and returns them as stored rows. */
-    List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests, String syncMarker);
+    List<PullRequest> saveDashboardSyncPage(List<FetchedPullRequest> pullRequests);
 
-    List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests, String syncMarker);
+    List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests);
 
     /** Stores the pull request and returns the stored row, creating one if needed. */
     PullRequest saveObserved(FetchedPullRequest pullRequest);

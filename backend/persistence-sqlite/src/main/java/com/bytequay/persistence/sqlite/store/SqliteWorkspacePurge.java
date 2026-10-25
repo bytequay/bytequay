@@ -188,7 +188,7 @@ final class SqliteWorkspacePurge
             update("DELETE FROM " + table + " WHERE pr_id IN (" + pullRequests + ")", parameters);
         }
         update("DELETE FROM pull_requests WHERE id IN (" + pullRequests + ")", parameters);
-        update("UPDATE pull_requests SET workspace_visible = 0, workspace_sync_marker = NULL WHERE lower(repo) = :repo", parameters);
+        update("UPDATE pull_requests SET workspace_visible = 0 WHERE lower(repo) = :repo", parameters);
     }
 
     private boolean exists(String statement, Map<String, Object> parameters)

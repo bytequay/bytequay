@@ -196,6 +196,30 @@ describe('projecting the transcript', () => {
     expect(activityRunning(turns[0].blocks[2] as ActivityBlock)).toBe(true);
   });
 
+  it('settles interleaved activity groups independently without changing an earlier projection', () => {
+    const events = [
+      command('STARTED', { argv: ['first'] }, { itemId: 'exec-1' }),
+      command('STARTED', { argv: ['second'] }, { itemId: 'exec-2' }),
+      event('assistant_message', { messageKind: 'COMMENTARY', phase: 'FINAL', text: 'Still running.' }),
+      command('STARTED', { argv: ['third'] }, { itemId: 'exec-3' }),
+      command('COMPLETED', { output: 'second done', exitCode: 0 }, { itemId: 'exec-2' }),
+      command('COMPLETED', { output: 'third done', exitCode: 0 }, { itemId: 'exec-3' }),
+    ];
+    const earlier = projectTranscript(events);
+    expect(earlier[0].blocks[0]).toMatchObject({ endedAt: null, members: [
+      { command: 'first', state: 'STARTED' }, { command: 'second', state: 'COMPLETED', output: 'second done' },
+    ] });
+    expect(earlier[0].blocks[2]).toMatchObject({ endedAt: events[5].occurredAt });
+
+    const complete = command('FAILED', { output: 'first failed', exitCode: 1 }, { itemId: 'exec-1' });
+    const later = projectTranscript([...events, complete]);
+    expect(later[0].blocks[0]).toMatchObject({ endedAt: complete.occurredAt, members: [
+      { command: 'first', state: 'FAILED', output: 'first failed' }, { command: 'second', state: 'COMPLETED', output: 'second done' },
+    ] });
+    expect(later[0].blocks[2]).toEqual(earlier[0].blocks[2]);
+    expect(earlier).toEqual(projectTranscript(events));
+  });
+
   it('shows repeated action metadata once per command throughout streaming and replay', () => {
     const read: CommandAction = { kind: 'READ', name: 'DEVELOPMENT.md', path: 'DEVELOPMENT.md', query: null };
     const search: CommandAction = { kind: 'SEARCH', name: null, path: 'src', query: 'TODO' };

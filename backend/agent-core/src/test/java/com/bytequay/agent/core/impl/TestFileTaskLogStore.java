@@ -15,6 +15,7 @@ package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.core.AgentAttachmentReference;
 import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventJson;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentHistoryPage;
@@ -241,6 +242,35 @@ class TestFileTaskLogStore
     }
 
     @Test
+    void validatesRecordsAndUtf8AcrossRecoveryReadBoundaries()
+            throws IOException
+    {
+        store = new FileTaskLogStore(resources);
+        int overhead = AgentEventJson.write(envelope(1, message(""))).length;
+        for (int recordBytes : new int[] {8191, 8192, 8193}) {
+            AgentEventEnvelope first = envelope(1, message("x".repeat(recordBytes - overhead)));
+            AgentEventEnvelope second = envelope(2, message("你好".repeat(6000)));
+            AgentEventEnvelope third = envelope(3, message("tail"));
+            Path file = resources.require(taskId).eventsFile();
+            Files.write(file, AgentEventJson.write(first), StandardOpenOption.TRUNCATE_EXISTING);
+            Files.writeString(file, "\n", StandardOpenOption.APPEND);
+            Files.write(file, AgentEventJson.write(second), StandardOpenOption.APPEND);
+            Files.writeString(file, "\n", StandardOpenOption.APPEND);
+            Files.write(file, AgentEventJson.write(third), StandardOpenOption.APPEND);
+            Files.writeString(file, "\n", StandardOpenOption.APPEND);
+            long completeSize = Files.size(file);
+            Files.writeString(file, "{partial".repeat(2000), StandardOpenOption.APPEND);
+
+            assertThat(store.lastSequence(taskId)).isEqualTo(3);
+            assertThat(Files.size(file)).isEqualTo(completeSize);
+            assertThat(store.readAfter(taskId, 0, 10)).containsExactly(first, second, third);
+            assertThatThrownBy(() -> new FileTaskLogStore(resources, recordBytes - 1, 8).lastSequence(taskId))
+                    .isInstanceOf(AgentStorageException.class)
+                    .hasMessageContaining("size limit");
+        }
+    }
+
+    @Test
     void rejectsUnsupportedSchemaVersion()
             throws IOException
     {
@@ -286,6 +316,9 @@ class TestFileTaskLogStore
         Files.writeString(eventsFile, "\n", StandardOpenOption.APPEND);
 
         assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("size limit");
+        assertThatThrownBy(() -> store.lastSequence(taskId))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("size limit");
     }
@@ -373,6 +406,7 @@ class TestFileTaskLogStore
         assertThat(store.readHistory(taskId, OptionalLong.empty(), oldest.afterCursor()).events()).containsExactly(large);
         assertThat(store.readHistory(taskId, OptionalLong.empty(), middle.afterCursor()).events()).containsExactly(last);
         assertThat(store.readAfter(taskId, 1, 1)).containsExactly(large);
+        assertThat(store.lastSequence(taskId)).isEqualTo(3);
     }
 
     @Test
@@ -452,6 +486,9 @@ class TestFileTaskLogStore
         assertThatThrownBy(() -> store.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("corrupt record");
+        assertThatThrownBy(() -> store.lastSequence(taskId))
+                .isInstanceOf(AgentStorageException.class)
+                .hasMessageContaining("sequence is corrupt");
     }
 
     @Test

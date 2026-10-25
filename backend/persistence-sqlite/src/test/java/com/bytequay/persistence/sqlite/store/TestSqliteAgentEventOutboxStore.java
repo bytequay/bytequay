@@ -41,6 +41,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
@@ -49,6 +50,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
@@ -75,6 +77,9 @@ class TestSqliteAgentEventOutboxStore
 
     @Autowired
     private AgentEventOutboxJpaRepository repository;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -223,6 +228,42 @@ class TestSqliteAgentEventOutboxStore
     }
 
     @Test
+    void findsPendingEntriesWithoutScanningAcknowledgedHistory()
+    {
+        TaskId task = TaskId.random();
+        AgentEventOutboxEntry first = inlineEntry(EventId.random(), task);
+        AgentEventOutboxEntry unrelated = inlineEntry(EventId.random());
+        AgentEventOutboxEntry acknowledged = inlineEntry(EventId.random(), task);
+        AgentEventOutboxEntry last = inlineEntry(EventId.random(), task);
+        for (AgentEventOutboxEntry entry : ImmutableList.of(first, unrelated, acknowledged, last)) {
+            store.insert(entry);
+        }
+        store.markAppended(acknowledged.eventId(), 1);
+
+        assertThat(store.listPending(2)).extracting(AgentEventOutboxEntry::eventId).containsExactly(first.eventId(), unrelated.eventId());
+        assertThat(store.listPending(task, 10)).extracting(AgentEventOutboxEntry::eventId).containsExactly(first.eventId(), last.eventId());
+        assertThat(store.hasPending(task)).isTrue();
+        assertIndexed("SELECT * FROM agent_event_outbox WHERE event_sequence IS NULL ORDER BY id LIMIT 100", "idx_agent_outbox_pending");
+        assertIndexed("SELECT * FROM agent_event_outbox WHERE task_id = ? AND event_sequence IS NULL ORDER BY id LIMIT 100",
+                "idx_agent_outbox_task_pending", task.toString());
+        assertIndexed("SELECT id FROM agent_event_outbox WHERE task_id = ? AND event_sequence IS NULL LIMIT 1", "idx_agent_outbox_task_pending", task.toString());
+        assertIndexed("DELETE FROM agent_event_outbox WHERE task_id = ?", "idx_agent_outbox_task_pending", task.toString());
+
+        store.markAppended(first.eventId(), 2);
+        store.markAppended(last.eventId(), 3);
+        assertThat(store.listPending(task, 10)).isEmpty();
+        assertThat(store.hasPending(task)).isFalse();
+        assertThat(store.listPending(10)).extracting(AgentEventOutboxEntry::eventId).containsExactly(unrelated.eventId());
+    }
+
+    private void assertIndexed(String sql, String index, Object... parameters)
+    {
+        List<String> plan = jdbc.query("EXPLAIN QUERY PLAN " + sql, (result, row) -> result.getString("detail"), parameters);
+        assertThat(plan).anyMatch(step -> step.contains(index));
+        assertThat(plan).noneMatch(step -> step.contains("SCAN agent_event_outbox") || step.contains("TEMP B-TREE"));
+    }
+
+    @Test
     void rejectsDuplicateEventIdentity()
     {
         EventId eventId = EventId.random();
@@ -294,9 +335,14 @@ class TestSqliteAgentEventOutboxStore
 
     private static AgentEventOutboxEntry inlineEntry(EventId eventId)
     {
+        return inlineEntry(eventId, TaskId.random());
+    }
+
+    private static AgentEventOutboxEntry inlineEntry(EventId eventId, TaskId taskId)
+    {
         return new AgentEventOutboxEntry(
                 eventId,
-                TaskId.random(),
+                taskId,
                 Optional.of(TurnId.random()),
                 AgentEventSource.root(),
                 new AgentEventOutboxPayload.Inline(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_STARTED, "Turn started")),

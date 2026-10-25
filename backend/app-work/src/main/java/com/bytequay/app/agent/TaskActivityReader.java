@@ -37,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
@@ -66,12 +67,13 @@ public class TaskActivityReader
     public Map<TaskId, TaskActivity> read(List<AgentTask> tasks)
     {
         ImmutableListMultimap<TaskId, ApprovalRequest> pending = Multimaps.index(approvals.listPending().stream().map(AgentApproval::request).iterator(), ApprovalRequest::taskId);
+        Map<TaskId, AgentTurn> latestTurns = turns.findLatest(tasks.stream().map(AgentTask::id).collect(toImmutableSet()));
         ImmutableMap.Builder<TaskId, TaskActivity> activity = ImmutableMap.builder();
         for (AgentTask task : tasks) {
             activity.put(task.id(), new TaskActivity(
                     lastMessage(task),
                     pending.get(task.id()).stream().max(comparing(ApprovalRequest::requestedAt)),
-                    turns.list(task.id()).stream().max(comparing(AgentTurn::createdAt))));
+                    Optional.ofNullable(latestTurns.get(task.id()))));
         }
         return activity.buildOrThrow();
     }

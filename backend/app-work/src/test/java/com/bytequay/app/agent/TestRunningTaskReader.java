@@ -57,6 +57,7 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -64,13 +65,17 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestRunningTaskReader
@@ -110,13 +115,15 @@ class TestRunningTaskReader
         AgentTurn oldTurn = turn(old, NOW.minusSeconds(300));
         AgentTurn newerTurn = turn(newer, NOW.minusSeconds(10));
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(old, idle, newer));
-        when(turns.list(old.id())).thenReturn(ImmutableList.of(oldTurn));
-        when(turns.list(newer.id())).thenReturn(ImmutableList.of(newerTurn));
-        assertThat(reader.current()).extracting(RunningTask::id).containsExactly(newer.id().toString(), old.id().toString());
-        assertThat(reader.current()).allSatisfy(item -> {
+        when(turns.findLatest(ImmutableSet.of(old.id(), idle.id(), newer.id()))).thenReturn(ImmutableMap.of(old.id(), oldTurn, newer.id(), newerTurn));
+        List<RunningTask> current = reader.current();
+        assertThat(current).extracting(RunningTask::id).containsExactly(newer.id().toString(), old.id().toString());
+        assertThat(current).allSatisfy(item -> {
             assertThat(item.status()).isEqualTo(Status.RUNNING);
             assertThat(item.expiresAt()).isEmpty();
         });
+        verify(turns).findLatest(ImmutableSet.of(old.id(), idle.id(), newer.id()));
+        verify(turns, never()).list(any());
     }
 
     @Test
@@ -277,7 +284,7 @@ class TestRunningTaskReader
     private void show(AgentTask task, AgentTurn turn)
     {
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(task));
-        when(turns.list(task.id())).thenReturn(ImmutableList.of(turn));
+        when(turns.findLatest(ImmutableSet.of(task.id()))).thenReturn(ImmutableMap.of(task.id(), turn));
     }
 
     private static AgentTask task(boolean interactive)

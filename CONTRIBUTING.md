@@ -97,6 +97,21 @@ minutes, with at most four idle processes. Set
 retention. The `codex.session.retained` and `turn.session.reused` timing phases
 distinguish actual reuse from a conservative restart.
 
+Local agent-task benchmarks use synthetic data and do not start providers or
+read the app's database. Run them while other builds are idle:
+
+- From the repository root, `python3 scripts/agent-task-query-benchmark.py`
+  compares full-history and latest-turn queries, and pending-event queries
+  before and after indexing.
+- From `frontend/`, `npx vitest bench --run src/agents/transcript.bench.ts`
+  measures transcript projection for 300, 1,500, and 3,000 tool events.
+- From `backend/`, after the test-free install described below, run
+  `mvn -pl :agent-core -Dtest=TestFileTaskLogStoreBenchmark -Dbytequay.agent.log-benchmark=true test`
+  to measure validation, history paging, and replay of a 10,000-event log.
+
+The benchmarks check their results but impose no timing thresholds on CI.
+They measure local processing only, excluding model and network latency.
+
 ## Claude accounts
 
 Settings → Models shows CLI status and the default Claude account, with Sign

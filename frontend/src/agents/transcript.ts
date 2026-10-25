@@ -300,7 +300,7 @@ function uniqueCommandActions(actions: CommandAction[]): CommandAction[] {
 
 class TurnBuilder {
   readonly turn: TranscriptTurn;
-  private readonly members = new Map<string, { block: ActivityBlock; member: ActivityMember }>();
+  private readonly members = new Map<string, { block: ActivityBlock; index: number }>();
   private readonly texts = new Map<string, TextBlock>();
   private readonly approvals = new Map<string, ApprovalBlock>();
   private plan: PlanBlock | null = null;
@@ -485,10 +485,8 @@ class TurnBuilder {
   ): void {
     const known = this.members.get(key);
     if (known !== undefined) {
-      const replacement = build(known.member);
-      known.block.members = known.block.members.map((member) => (member === known.member ? replacement : member));
-      known.member = replacement;
-      this.settle(known.block, event.occurredAt);
+      known.block.members[known.index] = build(known.block.members[known.index]);
+      known.block.endedAt = event.occurredAt;
       return;
     }
     const last = this.turn.blocks[this.turn.blocks.length - 1];
@@ -498,13 +496,9 @@ class TurnBuilder {
       : { kind: 'activity', anchorId: itemAnchor(event), id: event.eventId, members: [], startedAt: event.occurredAt, endedAt: null };
     if (block !== last) this.turn.blocks.push(block);
     const member = build(null);
-    block.members = [...block.members, member];
-    this.members.set(key, { block, member });
-    this.settle(block, event.occurredAt);
-  }
-
-  private settle(block: ActivityBlock, at: string): void {
-    block.endedAt = activityRunning(block) ? null : at;
+    const index = block.members.push(member) - 1;
+    this.members.set(key, { block, index });
+    block.endedAt = event.occurredAt;
   }
 
   private lifecycle(event: AgentEventEnvelope & { type: 'lifecycle' }): void {
@@ -592,6 +586,10 @@ export function projectTranscript(
   }
   return order.map((builder) => {
     const turn = builder.turn;
+    // The builder is private to this projection; settle groups once instead of rescanning them for every event.
+    for (const block of turn.blocks) {
+      if (block.kind === 'activity' && activityRunning(block)) block.endedAt = null;
+    }
     const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
     if (!completeHistory) turn.ordinal = 0;
     if (durable !== undefined && agentThread === null) {

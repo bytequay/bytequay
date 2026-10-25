@@ -27,6 +27,7 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 import lombok.Getter;
 
@@ -37,7 +38,9 @@ import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 @Entity
-@Table(name = "agent_event_outbox")
+@Table(name = "agent_event_outbox", indexes = {
+        @Index(name = "idx_agent_outbox_task_pending", columnList = "task_id,event_sequence,id"),
+        @Index(name = "idx_agent_outbox_pending", columnList = "event_sequence,id")})
 public class AgentEventOutboxEntity
 {
     private static final int ENVELOPE_HEADROOM_BYTES = 4096;

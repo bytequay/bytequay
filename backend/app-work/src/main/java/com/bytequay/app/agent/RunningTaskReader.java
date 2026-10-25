@@ -16,6 +16,7 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.QueuedAgentInput;
+import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -42,6 +43,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -88,19 +90,22 @@ public class RunningTaskReader
     {
         Instant now = clock.instant();
         Set<String> waitingTurns = approvals.listPending().stream().map(approval -> approval.request().turnId().toString()).collect(toImmutableSet());
-        ImmutableList.Builder<RunningTask> result = ImmutableList.builder();
         // Workspace history has no recent-page limit that could hide an older running task.
-        workspaces.findAllRetained().forEach(workspace -> tasks.listByWorkspace(workspace.id()).stream()
+        List<AgentTask> visibleTasks = workspaces.findAllRetained().stream()
+                .flatMap(workspace -> tasks.listByWorkspace(workspace.id()).stream())
                 .filter(task -> task.archivedAt().isEmpty())
                 .filter(task -> !task.state().terminal() || task.updatedAt().plus(COMPLETION_RETENTION).isAfter(now))
-                .forEach(task -> read(task, waitingTurns).filter(item -> item.expiresAt().map(at -> at.isAfter(now)).orElse(true)).ifPresent(result::add)));
-        return result.build().stream()
+                .collect(ImmutableList.toImmutableList());
+        Map<TaskId, AgentTurn> latestTurns = turns.findLatest(visibleTasks.stream().map(AgentTask::id).collect(toImmutableSet()));
+        return visibleTasks.stream()
+                .flatMap(task -> read(task, waitingTurns, Optional.ofNullable(latestTurns.get(task.id()))).stream())
+                .filter(item -> item.expiresAt().map(at -> at.isAfter(now)).orElse(true))
                 .sorted(comparing((RunningTask task) -> task.expiresAt().isPresent()).thenComparing(RunningTask::startedAt, reverseOrder())
                         .thenComparing(RunningTask::id))
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private Optional<RunningTask> read(AgentTask task, Set<String> waitingTurns)
+    private Optional<RunningTask> read(AgentTask task, Set<String> waitingTurns, Optional<AgentTurn> latest)
     {
         Kind kind = Kind.TASK;
         String targetId = task.id().toString();
@@ -130,7 +135,6 @@ public class RunningTaskReader
                 return ci.map(value -> ciFix(task, value));
             }
         }
-        Optional<AgentTurn> latest = turns.list(task.id()).stream().max(comparing(AgentTurn::createdAt));
         Instant startedAt = latest.map(AgentTurn::createdAt).orElse(task.createdAt());
         Optional<Instant> endedAt = latest.flatMap(AgentTurn::endedAt);
         Status status = latest.map(turn -> switch (turn.state()) {

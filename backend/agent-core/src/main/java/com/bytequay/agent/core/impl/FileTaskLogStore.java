@@ -26,7 +26,6 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.google.common.collect.ImmutableList;
 
-import java.io.BufferedInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -367,10 +366,21 @@ public final class FileTaskLogStore
     {
         Path eventsFile = resourceService.require(taskId).eventsFile();
         long sequence = 0;
-        try (InputStream input = new BufferedInputStream(Files.newInputStream(eventsFile))) {
-            byte[] line;
-            while ((line = readCompleteLine(input)) != null) {
-                validateSequence(taskId, deserialize(line), ++sequence);
+        try (InputStream input = Files.newInputStream(eventsFile)) {
+            byte[] block = new byte[READ_BLOCK_BYTES];
+            ByteArrayOutputStream line = new ByteArrayOutputStream();
+            int length;
+            while ((length = input.read(block)) != -1) {
+                int start = 0;
+                for (int index = 0; index < length; index++) {
+                    if (block[index] == '\n') {
+                        appendLineBytes(line, block, start, index - start);
+                        validateSequence(taskId, deserialize(line.toByteArray()), ++sequence);
+                        line.reset();
+                        start = index + 1;
+                    }
+                }
+                appendLineBytes(line, block, start, length - start);
             }
             return sequence;
         }
@@ -595,21 +605,12 @@ public final class FileTaskLogStore
         }
     }
 
-    private byte[] readCompleteLine(InputStream input)
-            throws IOException
+    private void appendLineBytes(ByteArrayOutputStream line, byte[] block, int start, int length)
     {
-        ByteArrayOutputStream line = new ByteArrayOutputStream();
-        int next;
-        while ((next = input.read()) != -1) {
-            if (next == '\n') {
-                return line.toByteArray();
-            }
-            if (line.size() == maxEventBytes) {
-                throw new AgentStorageException("Task log record exceeds the configured size limit");
-            }
-            line.write(next);
+        if (length > maxEventBytes - line.size()) {
+            throw new AgentStorageException("Task log record exceeds the configured size limit");
         }
-        return null;
+        line.write(block, start, length);
     }
 
     private static byte[] serialize(AgentEventEnvelope envelope)

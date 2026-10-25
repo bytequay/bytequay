@@ -20,6 +20,8 @@ import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CleanupState;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -34,9 +36,12 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
@@ -78,12 +83,32 @@ class TestTaskActivityReader
         AgentTask task = task();
         when(logs.findLatest(eq(task.id()), any(), anyInt())).thenReturn(Optional.of(answer));
         when(approvals.listPending()).thenReturn(ImmutableList.of());
-        when(turns.list(task.id())).thenReturn(ImmutableList.of());
 
         TaskActivity activity = reader.read(ImmutableList.of(task)).get(task.id());
         assertThat(activity.lastMessage()).contains(new TaskMessage(TaskMessage.Author.AGENT, "Fixed the checkpoint.", NOW, Optional.of(turn)));
         assertThat(activity.pendingApproval()).isEmpty();
         assertThat(activity.latestTurn()).isEmpty();
+    }
+
+    @Test
+    void loadsOnlyTheLatestTurnsInOneBatchIncludingTasksWithoutHistory()
+    {
+        AgentTask first = task();
+        AgentTask second = task();
+        AgentTask empty = task();
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ZERO,
+                ImmutableList.of(), Optional.empty(), Optional.empty());
+        AgentTurn firstTurn = AgentTurn.accepted(TurnId.random(), first.id(), "first", settings, NOW);
+        AgentTurn secondTurn = AgentTurn.accepted(TurnId.random(), second.id(), "second", settings, NOW.plusSeconds(1));
+        when(turns.findLatest(ImmutableSet.of(first.id(), second.id(), empty.id()))).thenReturn(ImmutableMap.of(first.id(), firstTurn, second.id(), secondTurn));
+
+        Map<TaskId, TaskActivity> activity = reader.read(ImmutableList.of(first, second, empty));
+
+        assertThat(activity.get(first.id()).latestTurn()).contains(firstTurn);
+        assertThat(activity.get(second.id()).latestTurn()).contains(secondTurn);
+        assertThat(activity.get(empty.id()).latestTurn()).isEmpty();
+        verify(turns).findLatest(ImmutableSet.of(first.id(), second.id(), empty.id()));
+        verify(turns, never()).list(any());
     }
 
     @Test

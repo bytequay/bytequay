@@ -281,6 +281,13 @@ describe('projecting the transcript', () => {
     expect(turns[0].blocks.some(block => block.kind === 'plan')).toBe(true);
   });
 
+  it('stops presenting a finished turn plan step as running', () => {
+    const planned = event('plan_updated', { items: [{ text: 'Reproduce', state: 'IN_PROGRESS' }] });
+    expect(projectTranscript([planned])[0].blocks[0]).not.toHaveProperty('historical');
+    const ended = projectTranscript([planned, event('lifecycle', { phase: 'INTERRUPTED', message: 'stopped' })]);
+    expect(ended[0].blocks[0]).toMatchObject({ kind: 'plan', historical: true });
+  });
+
   it('runs the live clock only until the turn ends', () => {
     const running = projectTranscript([
       event('lifecycle', { phase: 'TURN_STARTED', message: 'started' }, { at: '2026-08-20T10:00:00Z' }),

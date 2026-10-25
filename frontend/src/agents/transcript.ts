@@ -76,7 +76,13 @@ type TextBlock = {
 
 export type PlanStep = { text: string; state: 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' };
 
-type PlanBlock = { kind: 'plan'; id: string; steps: PlanStep[] };
+type PlanBlock = {
+  kind: 'plan';
+  id: string;
+  steps: PlanStep[];
+  /** A finished turn's plan is not evidence that its in-progress step is still running. */
+  historical?: boolean;
+};
 
 export type ActivityBlock = {
   anchorId?: string;
@@ -282,6 +288,7 @@ export function activityRunning(block: ActivityBlock): boolean {
 function withHistoricalActivity(turn: TranscriptTurn): TranscriptTurn {
   return { ...turn, answer: turn.answer === null || turn.answer.complete ? turn.answer : { ...turn.answer, historical: true }, blocks: turn.blocks.map((block) => {
     if (block.kind === 'text' && !block.complete) return { ...block, historical: true };
+    if (block.kind === 'plan') return { ...block, historical: true };
     if (block.kind !== 'activity' || !activityRunning(block)) return block;
     return { ...block, members: block.members.map((member) => memberRunning(member) ? { ...member, state: 'UNKNOWN' } : member) };
   }) };

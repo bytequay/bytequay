@@ -955,6 +955,9 @@ describe('agent task detail', () => {
     expect(markup).toContain('lucide-loader-circle');
     expect(markup).toContain('lucide-circle-dashed');
     expect(markup).not.toMatch(/lucide-circle[\s"]/);
+    const stopped = renderToStaticMarkup(<PlanSteps historical steps={[{ text: 'Run', state: 'IN_PROGRESS' }]} />);
+    expect(stopped).toContain('lucide-circle-ellipsis');
+    expect(stopped).not.toContain('lucide-loader-circle');
   });
 
   it('links structured plan references using the task repository', () => {
@@ -1014,7 +1017,9 @@ describe('agent task detail', () => {
       payload: { ...event.payload, state, exitCode },
     }));
 
-    const running = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: commandState('STARTED', null), connection: 'open' }, openActivity);
+    // Without the plan, only the command itself can draw the spinner.
+    const liveTurn = commandState('STARTED', null).filter((event) => event.type !== 'plan_updated' && (event.type !== 'lifecycle' || event.payload.phase !== 'TURN_COMPLETED'));
+    const running = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: liveTurn, connection: 'open' }, openActivity);
     expect(running).toContain('lucide-loader-circle');
 
     const failed = body({ task: task('t-1', 'OPEN', 'Rename the widget'), events: commandState('FAILED', 1), connection: 'open' }, openActivity);

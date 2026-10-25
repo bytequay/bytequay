@@ -75,11 +75,14 @@ class TestApplicationContextSmoke
         transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("SELECT COUNT(*) FROM app_settings").getSingleResult());
         assertThat(writeVersion.current()).isEqualTo(before);
         transaction.executeWithoutResult(status -> {
-            entityManager.createNativeQuery("DELETE FROM app_settings WHERE 1 = 0").executeUpdate();
+            entityManager.createNativeQuery("DELETE FROM pull_requests WHERE 1 = 0").executeUpdate();
             status.setRollbackOnly();
         });
         assertThat(writeVersion.current()).isEqualTo(before);
+        // Sync checkpoints feed no versioned read.
         transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("DELETE FROM app_settings WHERE 1 = 0").executeUpdate());
+        assertThat(writeVersion.current()).isEqualTo(before);
+        transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("DELETE FROM pull_requests WHERE 1 = 0").executeUpdate());
         assertThat(writeVersion.current()).isNotEqualTo(before);
     }
 }

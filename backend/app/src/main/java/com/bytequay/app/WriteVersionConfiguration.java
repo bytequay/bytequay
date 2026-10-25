@@ -31,12 +31,15 @@ class WriteVersionConfiguration
 {
     private static final Pattern WRITE = Pattern.compile("\\s*(?:/\\*.*?\\*/\\s*)*(?:insert|update|delete|replace|merge|create|alter|drop)\\b",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
+    // Sync checkpoints in app_settings change on every background tick, and no read answered by version reads that table;
+    // counting them would rebuild the attention list after every tick.
+    private static final Pattern SETTINGS = Pattern.compile("\\b(?:into|update|from)\\s+app_settings\\b", Pattern.CASE_INSENSITIVE);
 
     @Bean
     HibernatePropertiesCustomizer writeVersionStatements(WriteVersion writes)
     {
         StatementInspector inspector = sql -> {
-            if (WRITE.matcher(sql).lookingAt()) {
+            if (WRITE.matcher(sql).lookingAt() && !SETTINGS.matcher(sql).find()) {
                 writes.written();
             }
             return sql;

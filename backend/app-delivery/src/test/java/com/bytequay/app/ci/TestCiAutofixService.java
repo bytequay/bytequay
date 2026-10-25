@@ -570,6 +570,7 @@ class TestCiAutofixService
         assertThat(run.expectedRemoteHead()).isEqualTo(FIXED_HEAD);
         ArgumentCaptor<PushCiHeadCommand> push = ArgumentCaptor.forClass(PushCiHeadCommand.class);
         verify(gitService).push(push.capture());
+        assertThat(push.getValue().workspaceId()).isEqualTo("workspace-1");
         assertThat(push.getValue().remote()).isEqualTo(forkHead ? "origin" : "upstream");
         assertThat(push.getValue().remoteRepository()).isEqualTo(forkHead ? new RepositoryIdentity(FORK.owner(), FORK.repo()) : REPOSITORY);
         assertThat(push.getValue().physicalRepository()).isEqualTo(new RepositoryIdentity(FORK.owner(), FORK.repo()));
@@ -578,6 +579,7 @@ class TestCiAutofixService
         ArgumentCaptor<SynchronizeCiBaseCommand> synchronize = ArgumentCaptor.forClass(SynchronizeCiBaseCommand.class);
         verify(gitService, times(2)).synchronizeBase(synchronize.capture());
         assertThat(synchronize.getAllValues()).allSatisfy(command -> {
+            assertThat(command.workspaceId()).isEqualTo("workspace-1");
             assertThat(command.sourceRemote()).isEqualTo("upstream");
             assertThat(command.remoteRepository()).isEqualTo(REPOSITORY);
         });

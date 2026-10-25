@@ -23,6 +23,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 public record PushCiHeadCommand(
+        String workspaceId,
         Path worktree,
         RepositoryIdentity physicalRepository,
         String localBranch,
@@ -33,6 +34,7 @@ public record PushCiHeadCommand(
 {
     public PushCiHeadCommand
     {
+        checkText(workspaceId, "workspaceId");
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         requireNonNull(physicalRepository, "physicalRepository is null");

@@ -1060,6 +1060,7 @@ public class CiAutofixService
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
         ownership.require(run);
         CiPushResult result = gitService.push(new PushCiHeadCommand(
+                workspace.workspaceId(),
                 worktree.worktree().canonicalWorktree(),
                 worktree.worktree().physicalRepository(),
                 worktree.worktree().generatedBranch(),
@@ -1373,6 +1374,7 @@ public class CiAutofixService
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
         return new SynchronizeCiBaseCommand(
+                workspace.workspaceId(),
                 worktree.worktree().canonicalWorktree(),
                 worktree.worktree().physicalRepository(),
                 worktree.worktree().generatedBranch(),

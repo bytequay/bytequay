@@ -24,6 +24,7 @@ import static java.util.Objects.requireNonNull;
 
 /** Exact remote base object and private local branch required by one CI run. */
 public record SynchronizeCiBaseCommand(
+        String workspaceId,
         Path worktree,
         RepositoryIdentity physicalRepository,
         String localBranch,
@@ -35,6 +36,7 @@ public record SynchronizeCiBaseCommand(
 {
     public SynchronizeCiBaseCommand
     {
+        checkText(workspaceId, "workspaceId");
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         requireNonNull(physicalRepository, "physicalRepository is null");

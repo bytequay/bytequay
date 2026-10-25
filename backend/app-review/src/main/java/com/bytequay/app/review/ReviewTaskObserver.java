@@ -62,6 +62,13 @@ public class ReviewTaskObserver
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED,
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
             AgentEventPayload.LifecyclePhase.QUEUE_CHANGED);
+    // What frees a developer's working copy: its turn, its delivery automation, or its queue settling.
+    private static final Set<AgentEventPayload.LifecyclePhase> DEVELOPER_SETTLING = EnumSet.of(
+            AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
+            AgentEventPayload.LifecyclePhase.INTERRUPTED,
+            AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED,
+            AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
+            AgentEventPayload.LifecyclePhase.QUEUE_CHANGED);
     private static final Set<ActivityState> MIRRORED_STATES = EnumSet.of(ActivityState.STARTED, ActivityState.COMPLETED, ActivityState.FAILED);
 
     private final TaskEventWatcher watcher;
@@ -167,11 +174,23 @@ public class ReviewTaskObserver
                 reconcileLater(review.id());
             }
         }, () -> reconcileLater(review.id()));
+        // A development review's first run waits for its developer to leave the shared working copy.
+        review.sourceTaskId().ifPresent(source -> watcher.watch(developerKey(review.id()), TaskId.valueOf(source), item -> {
+            if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && DEVELOPER_SETTLING.contains(lifecycle.phase())) {
+                reconcileLater(review.id());
+            }
+        }, () -> {}));
     }
 
     public void unwatch(String reviewId)
     {
         watcher.unwatch(reviewId);
+        watcher.unwatch(developerKey(reviewId));
+    }
+
+    private static String developerKey(String reviewId)
+    {
+        return reviewId + "/developer";
     }
 
     public void reconcileLater(String reviewId)

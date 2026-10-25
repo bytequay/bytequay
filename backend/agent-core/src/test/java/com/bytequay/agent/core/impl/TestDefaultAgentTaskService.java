@@ -33,6 +33,7 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
@@ -108,6 +109,20 @@ class TestDefaultAgentTaskService
         assertThatThrownBy(() -> service.createShared(command(), source.id())).isInstanceOf(AgentStorageException.class);
         assertThat(managedWorktrees.cleaned).isEmpty();
         assertThat(stores.find(source.id())).contains(source);
+    }
+
+    @Test
+    void sharedReviewerWaitsOutARunningDeveloperButNotACompletion()
+    {
+        AgentTask idle = service.createInteractive(interactiveCommand(TaskId.random()));
+        assertThat(service.createShared(command(), idle.id()).taskWorktree()).isEqualTo(idle.taskWorktree());
+
+        AgentTask running = stores.update(idle.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
+        assertThat(service.createShared(command(), running.id()).ownsWorktree()).isFalse();
+
+        AgentTask completing = stores.update(running.releaseWorktreeMutation(running.worktreeMutationClaim().orElseThrow(), NOW)
+                .claimWorktreeMutation(new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "complete", NOW), NOW));
+        assertThatThrownBy(() -> service.createShared(command(), completing.id())).isInstanceOf(AgentConflictException.class);
     }
 
     @ParameterizedTest

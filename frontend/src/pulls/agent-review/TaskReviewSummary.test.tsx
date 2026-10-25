@@ -81,4 +81,12 @@ describe('the agent review on a development task Summary', () => {
     expect(html).toContain('head is <strong>bbbbbbb</strong>.');
     expect(html).toContain('Review latest</button>');
   });
+
+  it('shows a reviewer that waits for the running developer, with no Start review', () => {
+    const review: AgentReviewDto = { ...reviewFixture(), sourceTaskId: 'task-1', number: null, runs: [], findings: [], followUpPaused: false, activeTurn: null };
+    const html = section(state(review));
+    expect(html).toMatch(/<span class="pull-detail__review-chip is-neutral"[^>]*>Waiting for developer<\/span>/);
+    expect(html).not.toContain('Start review</button>');
+    expect(html).toContain('>End review</button>');
+  });
 });

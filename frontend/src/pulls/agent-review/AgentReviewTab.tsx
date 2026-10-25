@@ -788,7 +788,7 @@ export default function AgentReviewTab({
                   {resuming ? 'Starting…' : status.status === 'failed' ? 'Resume review' : 'Resume'}
                 </button>
               )}
-              {!running && review.state === 'OPEN' && (
+              {!running && review.state === 'OPEN' && status?.status !== 'waiting' && (
                 <button type="button" className="agr-action" disabled={busy || recovery || localRun} aria-busy={pendingAction === 'update'}
                   title={localRunReason ?? 'Review the latest changes'} onClick={() => { void update(); }}>
                   {pendingAction === 'update' ? 'Checking…' : review.runs.length === 0 ? 'Start review' : 'Review again'}</button>
@@ -797,7 +797,7 @@ export default function AgentReviewTab({
                 <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
                   title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
                   onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>
-                  {review.runs.length === 0 ? 'Remove worktree' : 'End review'}</button>
+                  {review.runs.length === 0 && review.sourceTaskId == null ? 'Remove worktree' : 'End review'}</button>
               )}
               {onOpenWorkspace !== undefined && (
                 <button type="button" className="agr-review__icon" aria-label="View in workspace" title="View in workspace" onClick={onOpenWorkspace}>

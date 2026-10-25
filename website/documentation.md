@@ -143,7 +143,7 @@ On your own PR, **Development task** opens or creates its agent task.
 Watch the repository and pick a ready Review model first.
 
 1. Choose **WorkBench → Summary → Start review**, or **Review changes** in a
-   task.
+   task. If the task's agent is working, the review starts when it finishes.
 2. Read **What changed** and the findings. **Ask reviewer** opens a private
    discussion.
 3. **Add to my review** turns a finding into a comment you publish with **Submit

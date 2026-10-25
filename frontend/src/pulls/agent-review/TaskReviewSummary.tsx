@@ -45,6 +45,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
   const [loading, setLoading] = useState(workspaceId !== undefined);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startFailed, setStartFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [source, setSource] = useState<WorktreeChangesDto | null>(null);
   const changeReview = useCallback((value: AgentReviewDto) => {
@@ -56,6 +57,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
     let live = true;
     setLoading(true);
     setError(null);
+    setStartFailed(false);
     void Promise.resolve().then(() => window.bridge.findTaskAgentReview(workspaceId, task.id))
       .then(value => { if (live) { setReview(current => value === null ? null : mergeReviewFindings(current, value)); if (value !== null) onReviewChange?.(value); } })
       .catch(cause => { if (live) setError(remoteErrorMessage(cause)); })
@@ -74,19 +76,21 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
     const timer = window.setInterval(read, 5000);
     return () => { live = false; window.clearInterval(timer); };
   }, [active, task.id, task.version, task.checkoutRemovedAt, workspaceId]);
+  const start = async () => {
+    if (starting || workspaceId === undefined) return;
+    setStarting(true);
+    setError(null);
+    setStartFailed(false);
+    try { changeReview(await window.bridge.startTaskAgentReview(workspaceId, task.id)); }
+    catch (cause) { setError(remoteErrorMessage(cause)); setStartFailed(true); }
+    finally { setStarting(false); }
+  };
   return {
-    review, loading, error, source, starting, changeReview,
+    review, loading, error, source, starting, changeReview, start,
     unavailable: task.checkoutRemovedAt !== null ? 'The development working copy was removed'
       : task.state !== 'OPEN' ? 'The development task is closed' : null,
-    retry: () => setRetry(value => value + 1),
-    start: async () => {
-      if (starting || workspaceId === undefined) return;
-      setStarting(true);
-      setError(null);
-      try { changeReview(await window.bridge.startTaskAgentReview(workspaceId, task.id)); }
-      catch (cause) { setError(remoteErrorMessage(cause)); }
-      finally { setStarting(false); }
-    },
+    // Retry repeats what failed: a failed start starts again rather than only reloading.
+    retry: () => { if (startFailed) void start(); else setRetry(value => value + 1); },
   };
 }
 

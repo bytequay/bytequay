@@ -241,6 +241,27 @@ class TestAgentReviewService
     }
 
     @Test
+    void developmentReviewWaitsForTheRunningDeveloperAndStartsWhenItSettles()
+    {
+        AgentTask source = developmentSource();
+        localSource(fixture, source.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW), HEAD);
+
+        AgentReviewProjection waiting = fixture.service.startForTask(WORKSPACE, source.id().toString());
+        assertThat(waiting.runs()).isEmpty();
+        assertThat(waiting.review().followUpPaused()).isFalse();
+        assertThat(waiting.review().observedHeadSha()).contains(HEAD);
+        verify(fixture.tasks).createShared(any(CreateAgentTaskCommand.class), eq(source.id()));
+        verify(fixture.turns, never()).synchronizeWorktree(eq(source.id()), anyLong(), any());
+        fixture.service.reconcile(waiting.review().id());
+        verify(fixture.turns, never()).start(any());
+
+        localSource(fixture, source, HEAD);
+        fixture.service.reconcile(waiting.review().id());
+        verify(fixture.turns).start(argThat(command -> command.taskId().equals(TASK_ID) && command.message().contains("includes uncommitted and new files")));
+        assertThat(fixture.service.get(waiting.review().id()).runs()).singleElement().extracting(ReviewRun::headSha).isEqualTo(HEAD);
+    }
+
+    @Test
     void localReviewIncludesUncommittedFilesWithoutAnyCommits()
     {
         AgentTask source = developmentSource();
@@ -462,6 +483,10 @@ class TestAgentReviewService
             invocation.<Consumer<AgentTask>>getArgument(2).accept(source);
             return null;
         }).when(fixture.turns).synchronizeWorktree(eq(source.id()), anyLong(), any());
+        doAnswer(invocation -> {
+            invocation.<Consumer<AgentTask>>getArgument(1).accept(source);
+            return null;
+        }).when(fixture.turns).shareWorktree(eq(source.id()), any());
         when(fixture.browse.snapshotTree(source.worktree())).thenReturn(head);
         when(fixture.browse.require(source.worktree(), "rev-parse", "HEAD^{tree}")).thenReturn(head);
         when(fixture.worktrees.ownedCheckout(source.taskWorktree().orElseThrow())).thenReturn(source.worktree());

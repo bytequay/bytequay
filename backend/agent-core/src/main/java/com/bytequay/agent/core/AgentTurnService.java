@@ -47,6 +47,9 @@ public interface AgentTurnService
     /** Holds the task's mutation ownership throughout a synchronous worktree update, excluding turns and queued input. */
     void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action);
 
+    /** Holds the task's worktree lock, without excluding its running turn, while the action adds a reader of that worktree. */
+    void shareWorktree(TaskId taskId, Consumer<AgentTask> action);
+
     /**
      * Holds the idle task's worktree for one user-requested local run, excluding turns, queued input and other writers.
      *

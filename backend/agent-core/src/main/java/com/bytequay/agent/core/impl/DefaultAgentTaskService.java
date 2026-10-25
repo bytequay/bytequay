@@ -32,6 +32,7 @@ import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
+import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentDriver;
@@ -154,9 +155,10 @@ public final class DefaultAgentTaskService
         if (source.state() != TaskState.OPEN || source.worktreeRemovedAt().isPresent() || !source.ownsWorktree()) {
             throw new AgentConflictException("The development working copy is unavailable");
         }
-        if (source.worktreeMutationClaim().isEmpty()) {
-            throw new AgentConflictException("Claim the source working copy before creating a shared reviewer");
-        }
+        // A completion claim means the checkout is being removed; a turn or local run only delays the reviewer's first run.
+        source.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.COMPLETION).ifPresent(claim -> {
+            throw new AgentConflictException(claim.conflictMessage());
+        });
         if (!source.repository().equals(command.physicalRepository())) {
             throw new InvalidAgentRequestException("Shared task belongs to another repository");
         }

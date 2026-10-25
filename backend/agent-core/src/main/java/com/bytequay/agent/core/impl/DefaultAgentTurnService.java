@@ -333,6 +333,16 @@ public final class DefaultAgentTurnService
     }
 
     @Override
+    public void shareWorktree(TaskId taskId, Consumer<AgentTask> action)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(action, "action is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            action.accept(taskStore.require(taskId));
+        }
+    }
+
+    @Override
     public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
     {
         requireNonNull(taskId, "taskId is null");

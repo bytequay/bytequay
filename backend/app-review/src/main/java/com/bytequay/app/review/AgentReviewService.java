@@ -255,8 +255,19 @@ public class AgentReviewService
             OptionalInt number = sourcePullRequest(source, repository);
             ModelSelection selection = selectModel(workspaceId);
             WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
+            String title = "Review: " + source.title();
+            if (developerBusy(tasks.get(source.id()))) {
+                // Its snapshot waits too: the developer may be writing files. The developer settling starts the first run.
+                String head = browse.require(sourceCheckout(source), "rev-parse", "--verify", "HEAD^{commit}").strip();
+                OptionalLong pullRequestId = sourceDetail(workspace, number).stream().mapToLong(PullRequestDetail::id).findFirst();
+                AgentReviewProjection waiting = createReview(workspace, selection, head, pullRequestId, title, number, Optional.of(sourceTaskId), Optional.empty(), false,
+                        Optional.empty());
+                // The developer may have settled before the watch began, leaving no event to start it.
+                observer.reconcileLater(waiting.review().id());
+                return waiting;
+            }
             Snapshot snapshot = localSnapshot(source, workspace, number);
-            return createReview(workspace, selection, snapshot, "Review: " + source.title(), number, Optional.of(sourceTaskId), Optional.empty(), true);
+            return createReview(workspace, selection, snapshot, title, number, Optional.of(sourceTaskId), Optional.empty(), true);
         });
     }
 
@@ -346,22 +357,28 @@ public class AgentReviewService
     private AgentReviewProjection createReview(WorkspaceRepositoryContext workspace, ModelSelection selection, Snapshot snapshot, String title,
             OptionalInt number, Optional<String> sourceTaskId, Optional<AgentReview.Replay> replay, boolean startReview)
     {
+        return createReview(workspace, selection, snapshot.headSha(), snapshot.pullRequestId(), title, number, sourceTaskId, replay, !startReview,
+                startReview ? Optional.of(snapshot) : Optional.empty());
+    }
+
+    /** A paused review only prepares its working copy; an unpaused one without a first run waits for its developer. */
+    private AgentReviewProjection createReview(WorkspaceRepositoryContext workspace, ModelSelection selection, String headSha, OptionalLong pullRequestId, String title,
+            OptionalInt number, Optional<String> sourceTaskId, Optional<AgentReview.Replay> replay, boolean paused, Optional<Snapshot> firstRun)
+    {
         TaskId taskId = TaskId.random();
         String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
         CreateAgentTaskCommand command = new CreateAgentTaskCommand(taskId, workspace.workspaceId(), selection.laneId(),
-                WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), snapshot.headSha(), branch, title, selection.defaults());
+                WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), headSha, branch, title, selection.defaults());
         AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> sourceTaskId.map(id -> createSharedReviewer(command, TaskId.valueOf(id)))
-                .orElseGet(() -> startReview ? tasks.create(command) : tasks.prepare(command)));
+                .orElseGet(() -> paused ? tasks.prepare(command) : tasks.create(command)));
         Instant now = Instant.now(clock);
         String reviewId = UUID.randomUUID().toString();
         return withLock(locks.lock(reviewId), () -> {
             AgentReview review = insertReview(new AgentReview(reviewId, workspace.workspaceId(), normalize(workspace.monitoredRepository().fullName()), number,
-                    snapshot.pullRequestId(), task.id().toString(), sourceTaskId, AgentReview.State.OPEN, !startReview, Optional.empty(), Optional.of(snapshot.headSha()),
-                    Optional.of(snapshot.headSha()), 0, now, now, Optional.empty(), replay));
+                    pullRequestId, task.id().toString(), sourceTaskId, AgentReview.State.OPEN, paused, Optional.empty(), Optional.of(headSha),
+                    Optional.of(headSha), 0, now, now, Optional.empty(), replay));
             observer.watch(review);
-            if (startReview) {
-                startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
-            }
+            firstRun.ifPresent(snapshot -> startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of()));
             return projection(review.id());
         });
     }
@@ -369,8 +386,7 @@ public class AgentReviewService
     private AgentTask createSharedReviewer(CreateAgentTaskCommand command, TaskId sourceTaskId)
     {
         AtomicReference<AgentTask> reviewer = new AtomicReference<>();
-        AgentTask source = tasks.get(sourceTaskId);
-        turns.synchronizeWorktree(sourceTaskId, source.version(), claimed -> reviewer.set(tasks.createShared(command, sourceTaskId)));
+        turns.shareWorktree(sourceTaskId, source -> reviewer.set(tasks.createShared(command, sourceTaskId)));
         return reviewer.get();
     }
 
@@ -441,6 +457,12 @@ public class AgentReviewService
         OptionalLong pullRequestId;
         if (review.sourceTaskId().isPresent()) {
             AgentTask source = sourceTask(review);
+            if (store.listRuns(reviewId).isEmpty() && developerBusy(source)) {
+                return withLock(locks.lock(reviewId), () -> {
+                    store.updateReview(requireOpen(reviewId).withFollowUpPaused(false, Instant.now(clock)));
+                    return projection(reviewId);
+                });
+            }
             number = review.number().isPresent() ? review.number() : sourcePullRequest(source, review.repo());
             Snapshot snapshot = localSnapshot(source, workspaces.requireReadyRepository(review.workspaceId()), number);
             head = snapshot.headSha();
@@ -901,6 +923,43 @@ public class AgentReviewService
         });
         catchUpWorkingCopy(reviewId);
         endFinishedReplay(reviewId);
+        startAfterDeveloper(reviewId);
+    }
+
+    /** Starts a development review's first run once its developer has left the shared working copy; a no-op otherwise. */
+    private void startAfterDeveloper(String reviewId)
+    {
+        withLock(locks.lock(reviewId), () -> {
+            Optional<AgentReview> stored = store.findReview(reviewId).filter(this::waitingForDeveloper);
+            if (stored.isEmpty() || developerBusy(sourceTask(stored.orElseThrow()))) {
+                return null;
+            }
+            try {
+                followHead(stored.orElseThrow(), true);
+            }
+            catch (RuntimeException failure) {
+                // The developer started again first; its next settling retries. Anything else waits for the user's Start review.
+                AgentReview current = requireReview(reviewId);
+                if (waitingForDeveloper(current) && !developerBusy(sourceTask(current))) {
+                    store.updateReview(current.withFollowUpPaused(true, Instant.now(clock)));
+                }
+                log.warn("Review {} could not start after its developer: {}", reviewId, failure.toString());
+            }
+            return null;
+        });
+    }
+
+    private boolean waitingForDeveloper(AgentReview review)
+    {
+        return review.state() == AgentReview.State.OPEN && review.sourceTaskId().isPresent() && !review.followUpPaused() && store.listRuns(review.id()).isEmpty();
+    }
+
+    /** The developer holds the shared working copy: a turn, its delivery automation, or a message waiting to start. */
+    private boolean developerBusy(AgentTask source)
+    {
+        return source.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN).isPresent()
+                || source.developmentContinuationUnfinished()
+                || !turns.queued(source.id()).isEmpty();
     }
 
     /** A replay ends once its run does, which removes its worktree; one with leftover edits stays open for the user to look at. */
@@ -1708,9 +1767,9 @@ public class AgentReviewService
         String baseRef = worktree.startCommit();
         String base = worktree.startCommit();
         OptionalLong pullRequestId = OptionalLong.empty();
-        if (number.isPresent()) {
-            PullRequestDetail detail = pullRequests.findPullRequestDetail(workspace.monitoredRepository().fullName(), number.getAsInt())
-                    .orElseThrow(() -> new ReviewConflictException("Refresh the associated pull request before reviewing its local branch"));
+        Optional<PullRequestDetail> associated = sourceDetail(workspace, number);
+        if (associated.isPresent()) {
+            PullRequestDetail detail = associated.orElseThrow();
             baseRef = Optional.ofNullable(detail.baseRef()).orElseThrow(() -> new ReviewConflictException("The pull request base branch is unknown"));
             String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
             base = browse.require(checkout, "rev-parse", "--verify", "refs/remotes/" + remote + "/" + baseRef + "^{commit}").strip();
@@ -1727,6 +1786,15 @@ public class AgentReviewService
         List<ReviewCommit> commits = history.commits().reversed().stream()
                 .map(commit -> new ReviewCommit(commit.sha(), commit.message(), commit.author())).collect(toImmutableList());
         return new Snapshot(pullRequestId, head, localTree, baseRef, base, mergeBase, commits, diff.files());
+    }
+
+    private Optional<PullRequestDetail> sourceDetail(WorkspaceRepositoryContext workspace, OptionalInt number)
+    {
+        if (number.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(pullRequests.findPullRequestDetail(workspace.monitoredRepository().fullName(), number.getAsInt())
+                .orElseThrow(() -> new ReviewConflictException("Refresh the associated pull request before reviewing its local branch")));
     }
 
     /** A replay's scope, read from the workspace repository: the commits and diff from where its pull request branched to the past head. */

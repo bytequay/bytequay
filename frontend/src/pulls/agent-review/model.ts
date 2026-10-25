@@ -31,6 +31,7 @@ import type {
  */
 type ReviewStatus =
   | 'prepared'
+  | 'waiting'
   | 'running'
   | 'approval'
   | 'queued'
@@ -95,6 +96,11 @@ export function explanationRun(review: AgentReviewDto): ReviewRunDto | null {
     .reduce<ReviewRunDto | null>((latest, run) => latest === null || run.ordinal > latest.ordinal ? run : latest, null)
     ?? complete.filter(run => !isExplanationRun(run))
     .reduce<ReviewRunDto | null>((first, run) => first === null || run.ordinal < first.ordinal ? run : first, null);
+}
+
+/** A development task's reviewer whose first run starts once the developer leaves the shared working copy. */
+export function reviewWaiting(review: AgentReviewDto): boolean {
+  return review.state === 'OPEN' && review.sourceTaskId != null && !review.followUpPaused && review.runs.length === 0 && review.activeTurn === null;
 }
 
 export function reviewRunning(review: AgentReviewDto): boolean {
@@ -190,6 +196,9 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
     return queued > 0
       ? { status: 'queued', label, tone: 'running', detail: `${queued} ${queued === 1 ? 'question' : 'questions'} queued`, chip: `${label} · ${queued} queued`, busy: true }
       : { status: 'running', label, tone: 'running', detail, chip: label, busy: true };
+  }
+  if (reviewWaiting(review)) {
+    return { status: 'waiting', label: 'Waiting for developer', tone: 'neutral', detail: 'starts when the developer’s turn ends', chip: 'Waiting for developer', busy: false };
   }
   if (run === null) {
     return { status: 'prepared', label: 'Ready to explore', tone: 'neutral', detail: 'working copy ready · agent review not started', chip: null, busy: false };

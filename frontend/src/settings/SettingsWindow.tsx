@@ -29,6 +29,7 @@ import UnwatchWorkspaceDialog from '../workspaces/UnwatchWorkspaceDialog';
 import ModelsPage, { type ModelChoice } from './ModelsPage';
 import ProviderSignInDialog from '../agents/ProviderSignInDialog';
 import SkillsPage from './SkillsPage';
+import ShortcutsPage from './ShortcutsPage';
 import WorkflowPage from './WorkflowPage';
 import FeaturesPage from './FeaturesPage';
 import GitHubPage from './GitHubPage';
@@ -313,6 +314,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             <AppearancePage preferences={preferences} error={error} onChange={savePreferences} />
           )}
           {section === 'browser' && <BrowserPage />}
+          {section === 'shortcuts' && <ShortcutsPage />}
           {section === 'models' && (models === null || modelsScope !== modelWorkspaceId) && (
             <div className="setw-page">
               <h1>Models</h1>

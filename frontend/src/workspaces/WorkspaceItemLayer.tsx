@@ -36,7 +36,7 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
   const actions = <ZoomActions {...zoom} label={target.kind === 'work' ? 'work item' : 'task'} className={target.kind === 'task' ? 'agt-headbtn' : 'pull-detail__icon-action'} />;
   return <>
     {!zoom.full && <ZoomScrim onClose={zoom.close} />}
-    <section className={zoom.cardClass} role="dialog" aria-modal="true" aria-label={target.kind === 'work' ? 'Local work item' : 'Task'}>
+    <section className={zoom.cardClass} role="dialog" aria-modal="true" data-navigation-layer aria-label={target.kind === 'work' ? 'Local work item' : 'Task'}>
       {workspace === null ? <>
         {target.kind === 'task' ? <TaskHeader actions={actions} />
           : <header className="pull-detail__header"><div className="pull-detail__toolbar"><div className="pull-detail__header-actions">{actions}</div></div></header>}

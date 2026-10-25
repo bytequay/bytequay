@@ -508,6 +508,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
       ref={overlayRef}
       role={overlay ? 'dialog' : undefined}
       aria-modal={overlay ? true : undefined}
+      data-navigation-layer={overlay ? true : undefined}
       aria-label={overlay ? `Issue ${repository} #${initialIssueNumber}` : undefined}
       tabIndex={overlay ? -1 : undefined}>
       {!overlay && <section className="pulls-list issues-list">

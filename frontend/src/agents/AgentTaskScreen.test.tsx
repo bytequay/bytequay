@@ -1934,8 +1934,8 @@ describe('task list tabs, today cards, older rows and row actions', () => {
   it('draws today as cards, busiest first, and older tasks as rows under Yesterday and Earlier this week', () => {
     const markup = renderList(rows, { now: noon });
 
-    expect(markup).toMatch(/role="tab" aria-selected="true" class="agt-tab is-active">Active<span class="agt-tab__count">4</);
-    expect(markup).toMatch(/role="tab" aria-selected="false" title="Completed tasks archive automatically after 7 days"[^>]*>Archived<span class="agt-tab__count">1</);
+    expect(markup).toMatch(/role="tab" aria-selected="true"[^>]* class="agt-tab is-active">Active<span class="agt-tab__count">4</);
+    expect(markup).toMatch(/role="tab" aria-selected="false"[^>]* title="Completed tasks archive automatically after 7 days"[^>]*>Archived<span class="agt-tab__count">1</);
     const today = section(markup, 'Today');
     expect(today).toContain('class="agt-day__date">Sun, Sep 6<');
     expect(today.match(/class="card agt-item-card"/g)).toHaveLength(2);

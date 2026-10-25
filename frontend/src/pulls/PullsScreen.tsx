@@ -1044,6 +1044,7 @@ export default function PullsScreen({
       ref={overlayRef}
       role={overlay ? 'dialog' : undefined}
       aria-modal={overlay ? true : undefined}
+      data-navigation-layer={overlay ? true : undefined}
       aria-label={overlay ? `Pull request ${initialPr?.repo} #${initialPr?.number}` : undefined}
       tabIndex={overlay ? -1 : undefined}>
       {!singlePullRequest && <section className="pulls-list">

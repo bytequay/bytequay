@@ -55,6 +55,7 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 const invoke = (channel: string) => (...args: unknown[]) => ipcRenderer.invoke(channel, ...args);
 
 const bridge: Bridge = {
+  onAppNavigation: callback => subscribe('app:navigate', callback),
   onAppNoticeOpen: callback => subscribe('notices:open-task', callback),
   setNoticeSource: invoke('notices:source'),
   readAppNotices: invoke('notices:read'),

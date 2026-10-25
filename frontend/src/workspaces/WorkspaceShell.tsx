@@ -103,6 +103,9 @@ export default function WorkspaceShell({ workspace, taskAttention, tab, relatedW
     : initialAgentReviewId !== null ? { kind: 'review', id: initialAgentReviewId }
     : initialAgentTaskId !== null ? { kind: 'task', id: initialAgentTaskId } : null;
   const openTaskKey = openTaskPage === null ? null : `${openTaskPage.kind}:${openTaskPage.id}`;
+  const [composerOpened, setComposerOpened] = useState(false);
+  const keepComposer = tab === 'tasks' && sourceIssueNumber === null && startWork === undefined && (openTaskPage === null || composerOpened);
+  if (keepComposer !== composerOpened) setComposerOpened(keepComposer);
   const [keptTaskPages, setKeptTaskPages] = useState<TaskPage[]>([]);
   if (openTaskPage !== null && (keptTaskPages[0] === undefined || `${keptTaskPages[0].kind}:${keptTaskPages[0].id}` !== openTaskKey)) {
     setKeptTaskPages(pages => [openTaskPage, ...pages.filter(page => page.kind !== openTaskPage.kind || page.id !== openTaskPage.id)].slice(0, KEPT_TASK_PAGES));
@@ -308,7 +311,8 @@ export default function WorkspaceShell({ workspace, taskAttention, tab, relatedW
       return stage(
         <>
           {taskPages}
-          {openTaskPage === null && <>
+          {/* Activity disconnects effects, which would discard the composer's unsent image attachments. */}
+          {(openTaskPage === null || keepComposer) && <div style={{ display: openTaskPage === null ? 'contents' : 'none' }}>
           <AgentTasksView
             key={sourceIssueNumber ?? startWork?.key ?? 'new-task'}
             workspaceId={workspace.id}
@@ -345,7 +349,7 @@ export default function WorkspaceShell({ workspace, taskAttention, tab, relatedW
                 headerAction={<ZoomActions {...zoom} label="cherry-pick" className="agt-headbtn" />} onOpenPullRequest={zoomPullRequest} />
             </div>
           )}
-          </>}
+          </div>}
         </>,
       );
     }

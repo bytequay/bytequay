@@ -1152,6 +1152,7 @@ export function AgentTaskList({
                 type="button"
                 role="tab"
                 aria-selected={tab === id}
+                data-task-list={id}
                 title={hint}
                 className={`agt-tab${tab === id ? ' is-active' : ''}`}
                 onClick={() => switchTab(id)}

@@ -35,6 +35,13 @@ describe('settings routes', () => {
     expect(matchesSearch(entryFor('browser'), 'full screen behavior')).toBe(true);
   });
 
+  it('finds the keyboard reference under Personal by shortcut or navigation', () => {
+    expect(settingsRoute('shortcuts')).toBe('#/settings/personal/shortcuts');
+    expect(entryFor('shortcuts').group).toBe('Personal');
+    expect(matchesSearch(entryFor('shortcuts'), 'shortcut')).toBe(true);
+    expect(matchesSearch(entryFor('shortcuts'), 'navigation')).toBe(true);
+  });
+
   it('keeps Today and Assistant together on one Agents page', () => {
     expect(settingsRoute('features')).toBe('#/settings/agents/features');
     for (const row of ['daily agenda', 'working days', 'enable assistant', 'assistant can start tasks']) {

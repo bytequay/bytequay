@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { taskArchived } from './taskStatus';
 import { TaskWindows } from './TaskCard';
@@ -46,11 +46,6 @@ export default function TaskOverview({
       .then((catalog) => setProviders(catalog.providers))
       .catch(() => {});
   }, [live, workspaceId]);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') onDismiss(); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onDismiss]);
   const [closing, setClosing] = useState<AgentTaskDto | null>(null);
   const close = useCallback((task: AgentTaskDto) => {
     setClosing(null);
@@ -92,31 +87,78 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
   onNewTask: () => void;
   onDismiss: () => void;
 }): React.JSX.Element {
+  const root = useRef<HTMLDivElement>(null);
+  const focusedTask = useRef(false);
+  const restoreFocus = useRef(false);
+  useLayoutEffect(() => {
+    const previous = document.activeElement;
+    return () => {
+      if (restoreFocus.current && previous instanceof HTMLElement && previous.isConnected && !previous.closest('[inert]') && previous.getClientRects().length > 0) previous.focus();
+    };
+  }, []);
+  useLayoutEffect(() => {
+    const host = root.current;
+    if (!host || focusedTask.current || host.closest('[inert]') || document.querySelector('dialog[open]')) return;
+    const focusedDialog = document.activeElement?.closest('[role="dialog"]');
+    if (focusedDialog && focusedDialog !== host) return;
+    // The first render can precede the task list; move from New task to the active task once it arrives.
+    const active = host.querySelector<HTMLButtonElement>('.agt-card.is-active .agt-card__open') ?? host.querySelector<HTMLButtonElement>('.agt-card__open');
+    (active ?? host.querySelector<HTMLButtonElement>('.agt-card-new'))?.focus();
+    focusedTask.current = active !== null;
+  }, [tasks]);
+  const dismiss = () => { restoreFocus.current = true; onDismiss(); };
+  const onKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const host = root.current;
+    if (!host || event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey
+      || host.closest('[inert]') || document.querySelector('dialog[open]')) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest('[role="dialog"]') !== host) return;
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopPropagation(); dismiss();
+      return;
+    }
+    if (target?.closest('input, textarea, select, [contenteditable]')) return;
+    if (event.key === 'Tab') {
+      const controls = [...host.querySelectorAll<HTMLButtonElement>('.agt-overview__head button, .agt-card__open, .agt-card__close:not(:disabled), .agt-card-new')];
+      const index = controls.indexOf(document.activeElement as HTMLButtonElement);
+      if (event.shiftKey && index <= 0) { event.preventDefault(); controls.at(-1)?.focus(); }
+      else if (!event.shiftKey && index === controls.length - 1) { event.preventDefault(); controls[0]?.focus(); }
+      return;
+    }
+    if (event.shiftKey || !['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return;
+    const cards = [...host.querySelectorAll<HTMLButtonElement>('.agt-card__open, .agt-card-new')];
+    const current = target?.closest('.agt-card')?.querySelector<HTMLButtonElement>('.agt-card__open') ?? target;
+    const index = cards.indexOf(current as HTMLButtonElement);
+    const step = event.key === 'ArrowLeft' || event.key === 'ArrowUp' ? -1 : 1;
+    const next = index < 0 ? 0 : (index + step + cards.length) % cards.length;
+    event.preventDefault(); event.stopPropagation(); cards[next]?.focus();
+  };
   const running = tasks.filter((task) => task.mutationClaim?.kind === 'TURN').length;
   // A click past the windows leaves the overlay, the same as Escape.
-  const dismissOnEmpty = (event: React.MouseEvent): void => { if (event.target === event.currentTarget) onDismiss(); };
+  const dismissOnEmpty = (event: React.MouseEvent): void => { if (event.target === event.currentTarget) dismiss(); };
   return (
-    <div className="agt-overview" role="dialog" aria-label="All tasks" onClick={dismissOnEmpty}>
+    <div ref={root} className="agt-overview" role="dialog" aria-label="All tasks" onClick={dismissOnEmpty} onKeyDown={onKeyDown}>
       <div className="agt-overview__head">
         <h1>Tasks</h1>
         <span className="agt-muted agt-overview__summary">
           {tasks.length} open{running === 0 ? '' : ` · ${running} running`}
         </span>
         <span className="agt-spacer" />
-        <button type="button" className="agt-action" onClick={onNewTask}><span aria-hidden="true">+ </span>New task</button>
+        <button type="button" className="agt-action" title="New task (⇧⌘N)" onClick={onNewTask}><span aria-hidden="true">+ </span>New task</button>
+        <button type="button" className="agt-headbtn" aria-label="Close task switcher" title="Close task switcher (Escape)" onClick={dismiss}>×</button>
       </div>
       {notice !== null && <div className="agt-notice agt-overview__notice" role="alert">{notice}</div>}
       <div className="agt-overview__grid" onClick={dismissOnEmpty}>
         <TaskWindows tasks={tasks} providers={providers} width={294} bridge={bridge} activeTaskId={activeTaskId} onOpen={onOpenTask} onClose={onCloseTask} />
-        <button type="button" className="agt-card-new" aria-label="New task" onClick={onNewTask}>
+        <button type="button" className="agt-card-new" aria-label="New task" title="New task (⇧⌘N)" onClick={onNewTask}>
           <span className="agt-card-new__plus" aria-hidden="true">+</span>
           <span>New task</span>
         </button>
       </div>
       <div className="agt-overview__foot">
-        <span><kbd className="agt-kbd">{'⇧⌘\\'}</kbd> toggle overview</span>
+        <span><kbd className="agt-kbd">⌃⌘T</kbd> toggle overview</span>
         <span><kbd className="agt-kbd">esc</kbd> or a click outside · back to the current task</span>
-        <span>Click a window to open it · ✕ closes the task</span>
+        <span><kbd className="agt-kbd">← ↑ ↓ →</kbd> select · <kbd className="agt-kbd">Enter</kbd> open · ✕ closes the task</span>
       </div>
     </div>
   );

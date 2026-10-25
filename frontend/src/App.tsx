@@ -35,6 +35,7 @@ import SetupFlow from './onboarding/SetupFlow';
 import { OPEN_SETUP, SETUP_CHANGED } from './onboarding/setup';
 import { AgentAvailabilityProvider, useAgentAvailability } from './agents/availability';
 import { useTaskAttention } from './agents/attention';
+import TaskOverview from './agents/TaskOverview';
 import PullsScreen from './pulls/PullsScreen';
 import RecentPage from './recent/RecentPage';
 import RecentPalette, { scrollToWrittenText } from './recent/RecentPalette';
@@ -82,6 +83,11 @@ function pageFromRoute(hash: string): AppPage {
   if (settingsLocationFromRoute(hash) !== null) return 'settings';
   const match = /^#\/(home|work|recent|pulls|workspaces|teams|google)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
+}
+
+function taskComposer(): HTMLTextAreaElement | undefined {
+  return [...document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]')]
+    .find(input => input.checkVisibility() && !input.disabled && !input.closest('[inert]:not(.app-surfaces)'));
 }
 
 export default function App() {
@@ -143,6 +149,8 @@ function AppContent() {
   /** Issues, pull requests and Jira tickets shown over the page, the one opened last on top. */
   const [layers, setLayers] = useState<ZoomedReference[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [taskSwitcher, setTaskSwitcher] = useState<{ workspaceId: string; activeTaskId: string | null } | null>(null);
+  const [composerFocus, setComposerFocus] = useState<{ route: string; workspaceId?: string } | null>(null);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
   const [navigation, setNavigation] = useState({ canGoBack: false, canGoForward: false });
@@ -204,6 +212,7 @@ function AppContent() {
       setBrowser(next);
       if (next.activeTabId !== null) {
         setPaletteOpen(false);
+        setTaskSwitcher(null);
       }
     });
     void window.bridge.getInAppBrowserState().then(next => {
@@ -383,6 +392,7 @@ function AppContent() {
       // Navigating leaves every open layer; the first route of the session must not, or it
       // races the pull request a notification asked to show while the app was still starting.
       setLayers([]);
+      setTaskSwitcher(null);
       applyRoute();
     };
     applyRoute();
@@ -491,6 +501,92 @@ function AppContent() {
     );
   }, [settingsWorkspace, settingsWorkspaceId]);
 
+  const navigatePage = useCallback((next: AppPage) => {
+    // Settings inside a workspace edits that workspace, from either the sidebar or the menu.
+    if (next === 'settings' && workspace !== null) {
+      setSettingsWorkspaceId(workspace.id);
+      updateWorkspace(null);
+      navigateTo(settingsRoute('ws-repository', workspace.id), 'push');
+      return;
+    }
+    if (next === page && workspace === null) return;
+    setPage(next);
+    updateWorkspace(null);
+    navigateTo(`#/${next}`, 'push');
+  }, [navigateTo, page, updateWorkspace, workspace]);
+
+  const openTaskComposer = useCallback((workspaceId: string | null) => {
+    const activeTasks = [...document.querySelectorAll<HTMLButtonElement>('[data-task-list="active"]')]
+      .find(button => button.checkVisibility() && !button.closest('[inert]:not(.app-surfaces)'));
+    if (taskComposer() || activeTasks?.getAttribute('aria-selected') === 'false') {
+      document.querySelector<HTMLButtonElement>('.agt-overview [aria-label="Close task switcher"]')?.click();
+      if (activeTasks?.getAttribute('aria-selected') === 'false') activeTasks.click();
+      setTaskSwitcher(null);
+      setComposerFocus({ route: window.location.hash });
+      return;
+    }
+    const overview = document.querySelector<HTMLButtonElement>('.agt-overview button[aria-label="New task"]');
+    if (overview && taskSwitcher === null) {
+      overview.click();
+      setComposerFocus({ route: workspaceId === null ? window.location.hash : workspaceRoute(workspaceId, 'tasks') });
+      return;
+    }
+    setTaskSwitcher(null);
+    if (workspaceId === null) { navigatePage('workspaces'); return; }
+    const route = workspaceRoute(workspaceId, 'tasks');
+    setLayers([]);
+    navigateTo(route, 'push');
+    setComposerFocus({ route, workspaceId });
+  }, [navigatePage, navigateTo, taskSwitcher]);
+
+  useEffect(() => {
+    if (composerFocus === null) return;
+    const focus = () => {
+      if (composerFocus.workspaceId !== undefined && workspace?.id !== composerFocus.workspaceId) return;
+      const input = taskComposer();
+      if (window.location.hash !== composerFocus.route || !input) return;
+      input.focus();
+      if (document.activeElement === input) setComposerFocus(null);
+    };
+    const changed = () => {
+      if (window.location.hash !== composerFocus.route) setComposerFocus(null);
+      else focus();
+    };
+    focus();
+    const observer = new MutationObserver(focus);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'inert', 'style'] });
+    window.addEventListener('hashchange', changed);
+    return () => { observer.disconnect(); window.removeEventListener('hashchange', changed); };
+  }, [composerFocus, workspace?.id]);
+
+  useEffect(() => window.bridge.onAppNavigation?.(target => {
+    if (status !== 'ready') return;
+    // Native accelerators bypass dialog handlers; reference layers allow navigation, but their form dialogs do not.
+    if ([...document.querySelectorAll('dialog[open], [aria-modal="true"]:not([data-navigation-layer])')].some(dialog => dialog.checkVisibility())) return;
+    backToApp();
+    setPaletteOpen(false);
+    setAssistantOpen(false);
+    if (target === 'new-task' || target === 'switch-task') {
+      const layer = layers.at(-1);
+      const workspaceId = layer ? ('workspaceId' in layer ? layer.workspaceId ?? null : null) : workspace?.id ?? null;
+      if (target === 'new-task') openTaskComposer(workspaceId);
+      else if (workspaceId === null) navigatePage('workspaces');
+      else {
+        const close = document.querySelector<HTMLButtonElement>('.agt-overview [aria-label="Close task switcher"]');
+        if (close) close.click();
+        else if (taskSwitcher !== null) setTaskSwitcher(null);
+        else setTaskSwitcher({ workspaceId, activeTaskId: layer?.kind === 'task' ? layer.taskId : initialAgentTaskId });
+      }
+      return;
+    }
+    setLayers([]);
+    setTaskSwitcher(null);
+    if (target === 'shortcuts') {
+      navigateTo(settingsRoute('shortcuts'), 'push');
+    }
+    else navigatePage(target);
+  }), [backToApp, initialAgentTaskId, layers, navigatePage, navigateTo, openTaskComposer, status, taskSwitcher, workspace]);
+
   const inWorkspace = page === 'workspaces' && workspace !== null;
   const taskAttention = useTaskAttention(status === 'ready' && inWorkspace
     ? [{ id: workspace.id, name: '', repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}` }] : []);
@@ -574,20 +670,7 @@ function AppContent() {
           canGoForward={navigation.canGoForward}
           onBack={() => window.history.back()}
           onForward={() => window.history.forward()}
-          onNavigate={next => {
-            // Settings from inside a workspace opens that workspace's own pages, which is
-            // what the tab it replaced used to do.
-            if (next === 'settings' && workspace !== null) {
-              setSettingsWorkspaceId(workspace.id);
-              updateWorkspace(null);
-              window.location.hash = settingsRoute('ws-repository', workspace.id);
-              return;
-            }
-            if (next === page && workspace === null) return;
-            setPage(next);
-            updateWorkspace(null);
-            window.location.hash = `#/${next}`;
-          }}
+          onNavigate={navigatePage}
           settings={settingsPage === null ? undefined : {
             section: settingsPage,
             workspaces: settingsWorkspaces,
@@ -699,6 +782,13 @@ function AppContent() {
         />
       )}
       {!browserOpen && <FindBar />}
+      {taskSwitcher !== null && !browserOpen && <TaskOverview workspaceId={taskSwitcher.workspaceId} activeTaskId={taskSwitcher.activeTaskId}
+        onOpenTask={taskId => {
+          setTaskSwitcher(null);
+          setLayers([]);
+          navigateTo(workspaceAgentTaskRoute(taskSwitcher.workspaceId, taskId), 'push');
+        }}
+        onNewTask={() => openTaskComposer(taskSwitcher.workspaceId)} onDismiss={() => setTaskSwitcher(null)} />}
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}

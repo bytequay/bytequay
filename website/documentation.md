@@ -3,6 +3,7 @@
 Set up a workspace, review a change, and build with an agent.
 
 - [Get started](#getting-started)
+- [Keyboard shortcuts](#keyboard-shortcuts)
 - [Use the Assistant](#assistant)
 - [Review pull requests](#pull-requests)
 - [Browse web pages](#web-pages)
@@ -48,6 +49,40 @@ release notes.
 
 You can skip the agent and still work with GitHub and PRs. To revisit setup,
 choose **Settings → General → Setup guide → Open setup**.
+
+<a id="keyboard-shortcuts"></a>
+
+## Keyboard shortcuts
+
+Use the **Go** menu to move between the main pages, including from a web page
+or the code editor. Finish or dismiss an open dialog before navigating.
+
+| Shortcut | Open |
+| --- | --- |
+| **⌘H** or **⌥⌘1** | Home |
+| **⌥⌘2** | Workspaces |
+| **⌥⌘3** | Circles |
+| **⌥⌘4** | Recent |
+| **⌥⌘5** | Pull requests |
+| **⌘,** | Settings; repository settings from a workspace |
+| **⇧⌘N** | Focus or open the current workspace's task composer |
+| **⌃⌘T** | Switch between open tasks in the current workspace |
+
+**⌘H** opens Home; use **ByteQuay → Hide ByteQuay** to hide the app.
+
+**New task** preserves a composer already on screen; **Send** creates the task.
+In the task switcher, use arrow keys to choose, **Enter** to open, and **Escape**
+to return. Task commands open **Workspaces** when no workspace is selected;
+choose a workspace, then press the shortcut again. **⇧⌘J** jumps directly to
+the next task waiting on you.
+
+On app pages, **⌘K** opens Recent search and **⌘[ / ⌘]** goes back or
+forward. **⌘1–6** selects PR list filters; **⌘1–4** selects Circle tabs.
+In a task workspace, **⇧⌘\\** opens the task overview.
+
+Choose **Help → Keyboard shortcuts** or **Settings → Personal → Keyboard
+shortcuts** for the full reference, including search, composers, and the
+editor. **⌘** means Command, **⌥** Option, **⇧** Shift, and **⌃** Control.
 
 <a id="workspaces"></a>
 

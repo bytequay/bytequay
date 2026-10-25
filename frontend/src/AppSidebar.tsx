@@ -14,7 +14,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, FlaskConical, GitBranch, Globe, History, House, KeyRound,
-  LayoutDashboard, LayoutGrid, ListChecks, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  Keyboard, LayoutDashboard, LayoutGrid, ListChecks, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, ToggleRight, TriangleAlert, Users,
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
@@ -36,6 +36,7 @@ import { openPinned, usePinnedItems } from './home/pinned';
 import { useLabLaunch, useLabLink } from '@bytequay/lab/renderer';
 import { openLab } from './lab';
 import RunningTasks from './agents/RunningTasks';
+import { APP_NAVIGATION_SHORTCUTS } from './appNavigation';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
 export type SettingsNav = {
@@ -51,6 +52,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   general: <Settings size={16} strokeWidth={1.7} aria-hidden="true" />,
   appearance: <Sun size={16} strokeWidth={1.7} aria-hidden="true" />,
   browser: <Globe size={16} strokeWidth={1.7} aria-hidden="true" />,
+  shortcuts: <Keyboard size={16} strokeWidth={1.7} aria-hidden="true" />,
   models: <Sparkles size={16} strokeWidth={1.7} aria-hidden="true" />,
   workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
   features: <ToggleRight size={16} strokeWidth={1.7} aria-hidden="true" />,
@@ -206,8 +208,11 @@ export default function AppSidebar({
     </button>
   );
 
-  const navItem = ({ page: destination, label, icon }: NavItem) =>
-    row({ key: destination, label, icon, active: (page === 'work' ? 'home' : page) === destination && workspace === null, onClick: () => onNavigate(destination) });
+  const navItem = ({ page: destination, label, icon }: NavItem) => {
+    const shortcut = APP_NAVIGATION_SHORTCUTS.find(item => item.page === destination);
+    return row({ key: destination, label, icon, title: shortcut ? `${label} (${shortcut.hint})` : label,
+      active: (page === 'work' ? 'home' : page) === destination && workspace === null, onClick: () => onNavigate(destination) });
+  };
 
   const disabledReason = (tab: WorkspaceTab): string | null => {
     if (!workspace) return null;

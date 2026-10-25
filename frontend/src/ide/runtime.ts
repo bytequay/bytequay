@@ -54,10 +54,11 @@ import github from './githubLight.json';
 import githubDark from './githubDark.json';
 import type { IdeConnection } from './contracts';
 
-// Main takes ⌘J and ⇧⌘J for the Assistant before the editor sees them; unbinding their commands keeps menus and tooltips from offering them.
+// App shortcuts own these keys; unbinding editor commands keeps menus and tooltips from offering them.
 const assistantKeys = [
     { key: 'cmd+j', command: '-workbench.action.togglePanel' },
     { key: 'cmd+shift+j', command: '-workbench.action.search.toggleQueryDetails' },
+    { key: 'cmd+shift+n', command: '-workbench.action.newWindow' },
 ];
 
 const ideaKeys = [

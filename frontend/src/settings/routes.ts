@@ -17,6 +17,7 @@ export type SettingsSection =
   | 'general'
   | 'appearance'
   | 'browser'
+  | 'shortcuts'
   | 'models'
   | 'skills'
   | 'workflow'
@@ -63,6 +64,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
   },
   { section: 'appearance', group: 'Personal', label: 'Appearance', slug: 'appearance', rows: ['Theme'] },
   { section: 'browser', group: 'Personal', label: 'Browser', slug: 'browser', rows: ['Full screen behavior', 'Zoom'] },
+  { section: 'shortcuts', group: 'Personal', label: 'Keyboard shortcuts', slug: 'shortcuts', rows: ['Navigation', 'Home', 'Workspaces', 'Circles', 'Recent', 'Pull requests', 'Assistant', 'Find', 'Task overview', 'Editor', 'Jira', 'Mail'] },
   {
     section: 'models',
     group: 'Agents',

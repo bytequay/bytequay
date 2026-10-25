@@ -27,6 +27,7 @@ import { parseArtifactPage, parseArtifactRows, parseArtifactView } from './artif
 import { repositoryAvatar } from './repositoryAvatars';
 import { NoticeHost } from './notices/host';
 import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
+import { APP_NAVIGATION_SHORTCUTS, type AppNavigationTarget } from './appNavigation';
 import { registerGoogleIpc } from '@bytequay/google/main';
 import { BrowserTabs, limitBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
@@ -388,15 +389,29 @@ function configureApplication(): void {
   if (icon) about.iconPath = icon;
   app.setAboutPanelOptions(about);
   if (process.platform === 'darwin') {
+    const navigate = (target: AppNavigationTarget) => {
+      if (!mainWindow || mainWindow.isDestroyed()) return;
+      mainWindow.webContents.focus();
+      mainWindow.webContents.send('app:navigate', target);
+    };
+    const navigationItems = APP_NAVIGATION_SHORTCUTS.map(shortcut => ({
+      id: shortcut.page,
+      label: shortcut.label,
+      accelerator: shortcut.accelerator,
+      click: () => navigate(shortcut.page),
+    }));
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       {
         label: 'ByteQuay',
         submenu: [
           { role: 'about' },
           { type: 'separator' },
+          ...navigationItems.filter(item => item.id === 'settings'),
+          { type: 'separator' },
           { role: 'services' },
           { type: 'separator' },
-          { role: 'hide' },
+          // ⌘H belongs to Home; Hide remains available from this menu.
+          { role: 'hide', accelerator: '' },
           { role: 'hideOthers' },
           { role: 'unhide' },
           { type: 'separator' },
@@ -405,7 +420,12 @@ function configureApplication(): void {
       },
       { role: 'editMenu' },
       { role: 'viewMenu' },
+      { label: 'Go', submenu: [
+        ...navigationItems.filter(item => item.id !== 'settings'),
+        { label: 'Home', accelerator: 'Alt+Command+1', visible: false, acceleratorWorksWhenHidden: true, click: () => navigate('home') },
+      ] },
       { role: 'windowMenu' },
+      { role: 'help', submenu: [{ label: 'Keyboard shortcuts', click: () => navigate('shortcuts') }] },
     ]));
   }
 }

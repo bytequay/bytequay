@@ -17,6 +17,7 @@ import ReferenceCard, { type HoverCard, type ReferenceCardItem } from '../Refere
 import MarkdownBody from '../pulls/MarkdownBody';
 import type { GitHubIssuePreviewDto } from '../types';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
+import { prDetail } from '../pulls/fixtures/pullRequest';
 import { assert, settle, element, until } from './harness';
 import '../css/reference-card.css';
 import '../css/pulls.css';
@@ -104,6 +105,27 @@ export async function run(): Promise<boolean> {
     }
     finally { window.removeEventListener(ZOOM_REFERENCE, zoomed); }
 
+    for (const showTitle of [false, true]) {
+      const number = showTitle ? 5101 : 5100;
+      const url = `https://github.com/owner/fresh/pull/${number}`;
+      let detail = prDetail({ repo: 'owner/fresh', number, title: 'Before merge' });
+      let reads = 0;
+      Object.assign(window, { bridge: {
+        fetchPullRequestDetailByRef: async () => { reads++; return detail; },
+      } });
+      flushSync(() => root.render(<MarkdownBody body={showTitle ? url : `[related](${url})`} />));
+      if (showTitle) await until(() => host.textContent?.includes('Before merge') === true, 'The reference title did not preload');
+      const beforeOpen = reads;
+      focusReference();
+      await until(() => reads > beforeOpen && document.querySelector('.ref-card')?.textContent?.includes('Before merge') === true, 'Opening must read the current preview');
+      await closeCard();
+      detail = { ...detail, title: 'After merge', state: 'closed', mergedAt: '2026-09-22T00:00:00Z' };
+      const beforeReopen = reads;
+      focusReference();
+      await until(() => reads > beforeReopen && document.querySelector('.ref-card')?.textContent?.includes('Merged') === true, 'Reopening must refresh the merged state');
+      assert(document.querySelector('.ref-card')?.textContent?.includes('After merge'), 'Reopening must refresh the title');
+      await closeCard();
+    }
     return true;
   }
   finally {

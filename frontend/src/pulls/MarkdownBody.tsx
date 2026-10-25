@@ -14,7 +14,7 @@
 import { shortSha } from '@bytequay/ui/displayText';
 import hljs from './highlight';
 import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
-import { Fragment, useEffect, useId, useMemo, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useId, useMemo, useState, type ChangeEvent, type MouseEvent, type ReactNode } from 'react';
 import { once } from '../dataCache';
 import {
   openGitHubReference,
@@ -784,10 +784,12 @@ function referenceKey(reference: GitHubReference): string {
   return `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
 }
 
-/** Hovering the same reference twice, anywhere, makes one request. */
+/** Share concurrent reads, but let the next hover see changes made since the last one. */
 function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
   const key = referenceKey(reference);
-  return once(previewRequests, key, () => resolveGitHubReference(reference));
+  const request = once(previewRequests, key, () => resolveGitHubReference(reference));
+  void request.then(() => { if (previewRequests.get(key) === request) previewRequests.delete(key); });
+  return request;
 }
 
 /** The card's fields, whichever half of the union GitHub answered a reference with. */
@@ -809,19 +811,20 @@ export function referenceCardItem(reference: GitHubReference, preview: Reference
   };
 }
 
-/** A reference's preview once `load` turns true: undefined while it loads, null when GitHub has none. */
-export function useReferencePreview(reference: GitHubReference, load: boolean): ReferencePreview | null | undefined {
+/** `refresh` also reads on card opening when `load` stays true to show the reference's title. */
+export function useReferencePreview(reference: GitHubReference, load: boolean, refresh = false): ReferencePreview | null | undefined {
   const [preview, setPreview] = useState<{ key: string; value: ReferencePreview | null }>();
   const { href, kind, number, owner, repo } = reference;
   const key = referenceKey(reference);
-  useEffect(() => {
-    if (!load) return;
+  const read = useCallback(() => {
     let current = true;
     void loadPreview({ href, kind, number, owner, repo }).then(value => {
       if (current) setPreview({ key, value });
     });
     return () => { current = false; };
-  }, [href, key, kind, load, number, owner, repo]);
+  }, [href, key, kind, number, owner, repo]);
+  useEffect(() => load ? read() : undefined, [load, read]);
+  useEffect(() => refresh ? read() : undefined, [read, refresh]);
   return preview?.key === key ? preview.value : undefined;
 }
 
@@ -862,7 +865,7 @@ export function ReferenceLink({ reference, showTitle = false, icon = true, child
   const hover = useHoverCard();
   const open = hover.anchor !== null;
   // A reference the reader passed over is never fetched; the hover delay and the shown title are the two reasons to.
-  const preview = useReferencePreview(reference, open || showTitle);
+  const preview = useReferencePreview(reference, open || showTitle, open);
 
   const kind = preview?.kind ?? reference.kind;
   const href = referenceHref(reference, kind);

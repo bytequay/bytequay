@@ -88,7 +88,7 @@ describe('previewMarkdown', () => {
   });
 });
 
-it('positions reference cards and follows changed links in Chromium', async () => {
+it('positions reference cards, follows changed links, and refreshes reopened previews in Chromium', async () => {
   await runBrowserFixture({
     prefix: 'bytequay-reference-card-',
     entry: 'src/fixtures/referenceCardBrowser.tsx',

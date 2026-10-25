@@ -132,6 +132,20 @@ public class PullRequestSnapshotService
         return storedDiff(prId, baseSha, headSha).files();
     }
 
+    /** Freezing a review needs the bytes and their validation from the same cached artifact. */
+    List<DiffFile> getValidatedDiffFiles(long prId, String baseSha, String headSha)
+    {
+        checkText(baseSha, "base");
+        checkText(headSha, "head");
+        return diffs.find(prId, null, null)
+                .filter(diff -> diff.baseSha().filter(baseSha::equals).isPresent()
+                        && diff.headSha().filter(headSha::equals).isPresent()
+                        && diff.validatedAt().isPresent())
+                .map(StoredPrDiff::files)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT,
+                        "Pull request diff is not validated for the requested commits; refresh the pull request and try again"));
+    }
+
     List<DiffCommit> getDiffCommits(long prId)
     {
         return storedDiff(prId, null, null).commits();

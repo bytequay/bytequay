@@ -37,6 +37,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -132,6 +133,55 @@ class TestPullRequestSnapshotService
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(409));
 
         verify(diffs, never()).saveDefault(anyLong(), any(), any());
+    }
+
+    @Test
+    void validatedDiffReturnsTheSameArtifactItChecked()
+    {
+        StoredPrDiff matching = diff();
+        StoredPrDiff replacement = new StoredPrDiff(ImmutableList.of(new DiffFile("other.txt", "added", 1, 0, "+other")), ImmutableList.of());
+        when(diffs.find(1L, null, null)).thenReturn(Optional.of(matching), Optional.of(replacement));
+
+        assertThat(snapshots.getValidatedDiffFiles(1L, BASE, HEAD)).isSameAs(matching.files());
+
+        verify(diffs).find(1L, null, null);
+        verifyNoMoreInteractions(diffs);
+        verifyNoInteractions(gitHub, details);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"base", "head", "missing-base", "missing-head", "unvalidated", "absent"})
+    void validatedDiffRejectsMissingOrDifferentCoordinates(String mismatch)
+    {
+        List<DiffFile> files = diff().files();
+        StoredPrDiff cached = new StoredPrDiff(files, ImmutableList.of(), ImmutableMap.of(),
+                mismatch.equals("missing-base") ? Optional.empty() : Optional.of(mismatch.equals("base") ? "c".repeat(40) : BASE),
+                mismatch.equals("missing-head") ? Optional.empty() : Optional.of(mismatch.equals("head") ? "c".repeat(40) : HEAD),
+                mismatch.equals("unvalidated") ? Optional.empty() : Optional.of(UPDATED));
+        when(diffs.find(1L, null, null)).thenReturn(mismatch.equals("absent") ? Optional.empty() : Optional.of(cached));
+
+        assertThatThrownBy(() -> snapshots.getValidatedDiffFiles(1L, BASE, HEAD))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
+                    assertThat(failure.getStatusCode().value()).isEqualTo(409);
+                    assertThat(failure.getReason()).contains("refresh the pull request");
+                });
+
+        verify(diffs).find(1L, null, null);
+        verifyNoMoreInteractions(diffs);
+        verifyNoInteractions(gitHub, details);
+        if (!mismatch.equals("absent")) {
+            assertThat(snapshots.getDiffFiles(1L, null, null)).isSameAs(files);
+        }
+    }
+
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = " ")
+    void validatedDiffRequiresBothExpectedCoordinates(String invalid)
+    {
+        assertThatThrownBy(() -> snapshots.getValidatedDiffFiles(1L, invalid, HEAD)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> snapshots.getValidatedDiffFiles(1L, BASE, invalid)).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(diffs, gitHub, details);
     }
 
     @Test

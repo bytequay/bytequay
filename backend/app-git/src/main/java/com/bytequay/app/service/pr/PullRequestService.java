@@ -1178,6 +1178,13 @@ public class PullRequestService
         return snapshots.getDiffFiles(storedPullRequestId(repo, number), baseSha, headSha);
     }
 
+    /** Rejects a cached diff from another head before a review freezes it as evidence. */
+    public List<DiffFile> getValidatedPullRequestDiffFiles(String repo, int number, String baseSha, String headSha)
+    {
+        parseRef(repo, number);
+        return snapshots.getValidatedDiffFiles(storedPullRequestId(repo, number), baseSha, headSha);
+    }
+
     public List<DiffCommit> getPullRequestDiffCommits(String repo, int number)
     {
         parseRef(repo, number);

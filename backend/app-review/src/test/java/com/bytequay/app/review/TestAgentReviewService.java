@@ -108,6 +108,8 @@ import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -188,6 +190,56 @@ class TestAgentReviewService
             Duration.ofMinutes(30), ImmutableList.of(), Optional.empty(), Optional.empty());
 
     private final Fixture fixture = new Fixture();
+
+    @Test
+    void mismatchedPullRequestDiffCannotStartAReview()
+    {
+        ResponseStatusException conflict = new ResponseStatusException(HttpStatus.CONFLICT, "Refresh the pull request before reviewing its changed files");
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, HEAD)).thenThrow(conflict);
+
+        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isSameAs(conflict);
+
+        verify(fixture.pullRequests).getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, HEAD);
+        assertThat(fixture.store.listOpenReviews()).isEmpty();
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, never()).start(any());
+    }
+
+    @Test
+    void truncatedPullRequestCommitLogCannotStartAReview()
+    {
+        when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + HEAD))
+                .thenReturn(new GitCommandRunner.Result(0, HEAD + FIELD + "Alice" + FIELD + "Fix the parser\n", true));
+
+        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
+                .isInstanceOf(ReviewConflictException.class).hasMessage("Cannot list the pull request commits: Git output was truncated");
+
+        assertThat(fixture.store.listOpenReviews()).isEmpty();
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, never()).start(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"head", "base", "mergeBase"})
+    void truncatedPullRequestRevisionCannotStartAReview(String revision)
+    {
+        switch (revision) {
+            case "head" -> when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}"))
+                    .thenReturn(new GitCommandRunner.Result(0, HEAD, true));
+            case "base" -> when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
+                    .thenReturn(new GitCommandRunner.Result(0, BASE_SHA, true));
+            case "mergeBase" -> when(fixture.git.run(REPOSITORY, "merge-base", HEAD, BASE_SHA))
+                    .thenReturn(new GitCommandRunner.Result(0, MERGE_BASE, true));
+            default -> throw new AssertionError("Unexpected revision: " + revision);
+        }
+
+        assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("Cannot resolve");
+
+        assertThat(fixture.store.listOpenReviews()).isEmpty();
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, never()).start(any());
+    }
 
     @Test
     void composerSelectionUpdatesOnlyTheReviewTaskAndChecksWorkspaceAccess()
@@ -2217,7 +2269,7 @@ class TestAgentReviewService
                 .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Address review\n"));
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
-        when(fixture.pullRequests.getPullRequestDiffFiles(REPO, NUMBER, null, null))
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, NEW_HEAD))
                 .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         TurnId updateTurn = TurnId.valueOf("55555555-5555-4555-8555-555555555555");
         when(fixture.turns.start(any(StartAgentTurnCommand.class))).thenReturn(AgentTurn.accepted(updateTurn, TASK_ID, "review-update", SETTINGS, NOW));
@@ -3333,7 +3385,7 @@ class TestAgentReviewService
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
-        when(fixture.pullRequests.getPullRequestDiffFiles(REPO, NUMBER, null, null))
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, NEW_HEAD))
                 .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         when(fixture.git.runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {
             List<String> arguments = invocation.getArgument(3);
@@ -3709,7 +3761,7 @@ class TestAgentReviewService
             when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("octocat", "Octo Cat", "", "", 0, 0, 0, "", "", "", "")));
             when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
             when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(HEAD));
-            when(pullRequests.getPullRequestDiffFiles(REPO, NUMBER, null, null))
+            when(pullRequests.getValidatedPullRequestDiffFiles(eq(REPO), eq(NUMBER), anyString(), anyString()))
                     .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +1,3 @@\n context\n+added\n")));
             when(tasks.create(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
             when(tasks.get(TASK_ID)).thenReturn(idleTask());

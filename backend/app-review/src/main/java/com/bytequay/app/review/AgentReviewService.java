@@ -1698,6 +1698,9 @@ public class AgentReviewService
         String baseSha = revParse(repositoryPath, "refs/remotes/" + remote + "/" + baseRef);
         String mergeBase = revParse(repositoryPath, headSha, baseSha);
         GitCommandRunner.Result log = git.run(repositoryPath, "log", "--reverse", "--format=%H%x1f%an%x1f%s", mergeBase + ".." + headSha);
+        if (log.truncated()) {
+            throw new ReviewConflictException("Cannot list the pull request commits: Git output was truncated");
+        }
         if (!log.successful()) {
             throw new ReviewConflictException("Cannot list the pull request commits: " + log.output().strip());
         }
@@ -1706,7 +1709,7 @@ public class AgentReviewService
                 .map(line -> line.split("\\u001f", 3))
                 .map(parts -> new ReviewCommit(parts[0], parts.length > 2 ? parts[2] : "", parts.length > 1 ? parts[1] : ""))
                 .collect(toImmutableList());
-        List<DiffFile> diff = pullRequests.getPullRequestDiffFiles(repository, number, null, null);
+        List<DiffFile> diff = pullRequests.getValidatedPullRequestDiffFiles(repository, number, baseSha, headSha);
         return new Snapshot(OptionalLong.of(detail.id()), headSha, Optional.empty(), baseRef, baseSha, mergeBase, commits, diff);
     }
 
@@ -1821,7 +1824,7 @@ public class AgentReviewService
         GitCommandRunner.Result result = arguments.length == 1
                 ? git.run(repository, "rev-parse", "--verify", arguments[0] + "^{commit}")
                 : git.run(repository, "merge-base", arguments[0], arguments[1]);
-        if (!result.successful() || result.output().isBlank()) {
+        if (!result.successful() || result.truncated() || result.output().isBlank()) {
             throw new ReviewConflictException("Cannot resolve " + String.join(" ", arguments) + " in the workspace repository");
         }
         return result.output().strip();
@@ -1973,7 +1976,20 @@ public class AgentReviewService
     private record ModelSelection(AgentLaneId laneId, AgentTaskDefaults defaults) {}
 
     private record Snapshot(OptionalLong pullRequestId, String headSha, Optional<String> worktreeTreeSha, String baseRef, String baseSha, String mergeBaseSha,
-            List<ReviewCommit> commits, List<DiffFile> diff) {}
+            List<ReviewCommit> commits, List<DiffFile> diff)
+    {
+        Snapshot
+        {
+            requireNonNull(pullRequestId, "pullRequestId is null");
+            requireNonNull(headSha, "headSha is null");
+            requireNonNull(worktreeTreeSha, "worktreeTreeSha is null");
+            requireNonNull(baseRef, "baseRef is null");
+            requireNonNull(baseSha, "baseSha is null");
+            requireNonNull(mergeBaseSha, "mergeBaseSha is null");
+            commits = ImmutableList.copyOf(commits);
+            diff = ImmutableList.copyOf(diff);
+        }
+    }
 
     /**
      * Where a replay reviews: the past head, and the commit its pull request branched from.

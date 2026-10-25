@@ -62,6 +62,10 @@ export async function run(): Promise<string> {
     rejectClose = false;
     await click('Close pull request');
     assert(Number(closes) === 2 && Number(posted.length) === 2 && alert() === undefined, 'Retrying close must not post the comment again');
+    changeInput(editor(), 'Sent from the keyboard'); await settle();
+    editor().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+    await settle();
+    assert(posted.at(-1) === 'Sent from the keyboard' && editor().value === '', 'Cmd+Enter must post the comment');
     await settle();
     assert(unhandled.length === 0, 'Handled action failures must not leak rejected promises');
     const timers = controlTimers(1200);

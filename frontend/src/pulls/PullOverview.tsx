@@ -1801,6 +1801,7 @@ export function DiscussionComposer({
     }
     finally { setPosting(false); }
   };
+  const post = () => { void submit().catch(failure => setError(remoteErrorMessage(failure))); };
   const close = async () => {
     if (!onClose) return;
     setClosing(true);
@@ -1837,6 +1838,12 @@ export function DiscussionComposer({
               setMentionIndex(0);
             }}
             onKeyDown={event => {
+              // Ahead of the mention list, whose plain Enter would otherwise take Cmd+Enter as a pick.
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault();
+                post();
+                return;
+              }
               if (command.keyDown(event)) return;
               if (!mention) return;
               if (event.key === 'Escape') {
@@ -1881,7 +1888,7 @@ export function DiscussionComposer({
         {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing || command.loading}
           onClick={() => { void close(); }}>{closing ? 'Closing…' : body.trim() ? 'Close with comment' : closeLabel}</button>}
         <button type="button" disabled={posting || closing || command.loading || !body.trim()}
-          onClick={() => { void submit().catch(failure => setError(remoteErrorMessage(failure))); }}>
+          onClick={post}>
           {posting ? 'Posting…' : 'Comment'}
         </button>
       </footer>

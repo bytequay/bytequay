@@ -15,7 +15,7 @@ import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { expect, it } from 'vitest';
-import { buildBrowserFixture, deadline } from './browserFixture';
+import { buildBrowserFixture, deadline, runBrowserFixture } from './browserFixture';
 
 it('reuses a bundle while isolating browser state and cleaning up successful and failed runs', async () => {
   const source = await mkdtemp(join(tmpdir(), 'bytequay-fixture-source-'));
@@ -60,3 +60,13 @@ it('removes an incomplete bundle when compilation fails', async () => {
   }
   finally { await rm(source, { recursive: true, force: true }); }
 });
+
+it('returns complete results larger than the stdout pipe buffer', async () => {
+  const source = await mkdtemp(join(tmpdir(), 'bytequay-fixture-output-'));
+  try {
+    const entry = join(source, 'renderer.js');
+    await writeFile(entry, 'export function run() { return "result".repeat(100_000); }');
+    expect(await runBrowserFixture<string>({ prefix: 'bytequay-fixture-output-app-', entry, global: 'Fixture' })).toBe('result'.repeat(100_000));
+  }
+  finally { await rm(source, { recursive: true, force: true }); }
+}, deadline(20_000));

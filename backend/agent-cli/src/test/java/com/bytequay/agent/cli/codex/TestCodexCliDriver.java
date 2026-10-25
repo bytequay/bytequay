@@ -2112,21 +2112,23 @@ class TestCodexCliDriver
     void waitsPastTheSettleBoundForASubagentStillWorking()
             throws Exception
     {
-        AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
-        RunningTurn turn = session.start(command("long child"));
-        AppServerProcess server = supervisor.server();
-        server.inventoryChildren.put("thread-1", ImmutableList.of("busy-child"));
-        server.threadStatuses.put("busy-child", "active");
-        server.completeTurn();
+        try (AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            RunningTurn turn = session.start(command("long child"));
+            AppServerProcess server = supervisor.server();
+            server.inventoryChildren.put("thread-1", ImmutableList.of("busy-child"));
+            server.threadStatuses.put("busy-child", "active");
+            server.completeTurn();
 
-        // A subagent still building is work the root left running, not a check that cannot settle.
-        Thread.sleep(800);
-        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            // Working-child polls are one second apart; a third proves the bound was renewed twice.
+            awaitCondition(() -> server.historyRequests.stream().filter(request -> request.path("threadId").asText().equals("busy-child")).count() >= 3);
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            assertThat(server.finishedWorkStops).hasValue(0);
 
-        server.threadStatuses.put("busy-child", "idle");
-        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        assertThat(result.providerQuiescent()).isTrue();
+            server.threadStatuses.put("busy-child", "idle");
+            AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            assertThat(result.providerQuiescent()).isTrue();
+        }
     }
 
     @Test
@@ -2227,23 +2229,23 @@ class TestCodexCliDriver
             throws Exception
     {
         CodexCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
-        RunningTurn turn = session.start(command("yield"));
-        supervisor.reportBackgroundTerminal();
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            RunningTurn turn = session.start(command("yield"));
+            supervisor.reportBackgroundTerminal();
+            AppServerProcess server = supervisor.server();
+            server.completeTurn();
 
-        supervisor.server().completeTurn();
+            // Quiet work completes after two passes, so a third proves the command prevented completion.
+            awaitCondition(() -> server.backgroundTerminalThreads.size() >= 3);
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            assertThat(server.finishedWorkStops).hasValue(0);
 
-        // A yielded command outlives the item that started it, so the root reporting completion is
-        // not proof that anything stopped touching the worktree.
-        Thread.sleep(400);
-        assertThat(turn.completion().toCompletableFuture()).isNotDone();
-
-        supervisor.reportNoBackgroundTerminals();
-        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
-                .isEqualTo(AgentTurnResult.State.COMPLETED);
-        // A command that ends within the bound finishes its own work instead of being stopped.
-        assertThat(supervisor.server().terminated).isEmpty();
-        session.close();
+            supervisor.reportNoBackgroundTerminals();
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                    .isEqualTo(AgentTurnResult.State.COMPLETED);
+            // A command that ends within the bound finishes its own work instead of being stopped.
+            assertThat(server.terminated).isEmpty();
+        }
     }
 
     @Test
@@ -2251,22 +2253,23 @@ class TestCodexCliDriver
             throws Exception
     {
         CodexCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
-        RunningTurn turn = session.start(command("closure"));
-        supervisor.server().threadStatuses.put("thread-1", "active");
-        supervisor.server().turnStatuses.put("thread-1", "inProgress");
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            RunningTurn turn = session.start(command("closure"));
+            AppServerProcess server = supervisor.server();
+            server.threadStatuses.put("thread-1", "active");
+            server.turnStatuses.put("thread-1", "inProgress");
+            server.completeTurn();
 
-        supervisor.server().completeTurn();
+            // Quiet work completes after two passes, so a third proves active status prevented completion.
+            awaitCondition(() -> server.historyRequests.size() >= 3);
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            assertThat(server.finishedWorkStops).hasValue(0);
 
-        // A terminal notification cannot override a provider status that still reports work.
-        Thread.sleep(400);
-        assertThat(turn.completion().toCompletableFuture()).isNotDone();
-
-        supervisor.server().threadStatuses.put("thread-1", "idle");
-        supervisor.server().turnStatuses.put("thread-1", "completed");
-        assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
-                .isEqualTo(AgentTurnResult.State.COMPLETED);
-        session.close();
+            server.threadStatuses.put("thread-1", "idle");
+            server.turnStatuses.put("thread-1", "completed");
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state())
+                    .isEqualTo(AgentTurnResult.State.COMPLETED);
+        }
     }
 
     @Test

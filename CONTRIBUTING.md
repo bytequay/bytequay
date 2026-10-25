@@ -332,6 +332,9 @@ tests across three runners. Those runners take two to four times as long as a
 developer Mac, so a browser suite sets its test and hook limits for a Mac and
 wraps them in `deadline()` from `src/fixtures/browserFixture.ts`, which triples
 them on CI.
+CI retains backend Surefire reports and each frontend shard's JUnit report for
+seven days, including failed runs, so failures and per-test timings can be
+inspected from the run's artifacts.
 
 Packaging uses JDK 25's `jlink` to create `frontend/vendor/jre` and includes it
 in the app's resources with its license notices. Build on a Mac of the target

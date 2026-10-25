@@ -62,7 +62,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -70,6 +69,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.TimeZone;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -78,6 +78,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -415,18 +416,18 @@ class TestAgendaService
 
     private void waitForRuns(int runs)
     {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (store.runs.size() < runs || agenda.today(Optional.empty()).state().equals("RUNNING")) {
-            assertThat(System.nanoTime()).isLessThan(deadline);
-            Thread.onSpinWait();
-        }
+        await().alias("completed agenda runs").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> {
+                    assertThat(store.runs).hasSizeGreaterThanOrEqualTo(runs);
+                    assertThat(agenda.today(Optional.empty()).state()).isNotEqualTo("RUNNING");
+                });
     }
 
     private static final class MemoryStore
             implements AgendaStore
     {
         private final Map<LocalDate, AgendaDay> days = new HashMap<>();
-        private final List<AgendaRun> runs = new ArrayList<>();
+        private final List<AgendaRun> runs = new CopyOnWriteArrayList<>();
 
         @Override
         public synchronized Optional<AgendaDay> find(LocalDate day)

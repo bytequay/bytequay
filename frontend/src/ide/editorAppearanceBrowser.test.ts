@@ -19,9 +19,11 @@ import { promisify } from 'node:util';
 import electron from 'electron';
 import { createServer } from 'vite';
 import { expect, it } from 'vitest';
+import { deadline } from '../fixtures/browserFixture';
 import { electronFixtureLifecycle } from '../fixtures/electronFixtureLifecycle';
 
 it('renders native syntax, folding, type icons, test colors, usages, search, private line comments, and change markers', async () => {
+  const timeout = deadline(90_000);
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
   const server = await createServer({ configFile: resolve('vite.ide.config.ts'), logLevel: 'error',
     cacheDir: join(directory, 'node_modules/.vite'), server: { host: '127.0.0.1', port: 0 },
@@ -40,7 +42,7 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
     const script = join(directory, 'main.cjs');
     await writeFile(script, `
       const { app, BrowserWindow } = require('electron');
-      ${electronFixtureLifecycle(90_000)}
+      ${electronFixtureLifecycle(timeout)}
       app.setPath('userData', ${JSON.stringify(join(directory, 'profile'))});
       app.whenReady().then(async () => {
         const window = new BrowserWindow({ show: false, width: 1050, height: 720, webPreferences: { backgroundThrottling: false } });
@@ -52,26 +54,27 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
           const modifier = process.platform === 'darwin' ? 'meta' : 'control';
           // Stay hidden: a shown window loses page focus whenever another app becomes active, and the user's clicks land in it.
           window.webContents.focus();
-          const waitFor = async (expression, attempts = 100) => {
-            for (let attempt = 0; attempt < attempts; attempt++) {
+          const waitFor = async expression => {
+            const expires = Date.now() + ${deadline(30_000)};
+            do {
               if (failure) throw failure;
               if (await window.webContents.executeJavaScript(expression)) return;
               await new Promise(resolve => setTimeout(resolve, 50));
-            }
+            } while (Date.now() < expires);
             throw new Error('Shortcut did not reach the editor: ' + expression);
           };
-          await waitFor('Boolean(window.usageClickPoint)', 600);
+          await waitFor('Boolean(window.usageClickPoint)');
           const point = await window.webContents.executeJavaScript('window.usageClickPoint');
           window.webContents.sendInputEvent({ type: 'mouseMove', ...point, modifiers: [modifier] });
           window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
           window.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
           for (const mode of ['dark', 'light', 'github', 'github-dark']) {
-            await waitFor('window.searchCapture === ' + JSON.stringify(mode), 600);
+            await waitFor('window.searchCapture === ' + JSON.stringify(mode));
             if (process.env.BYTEQUAY_SEARCH_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_SEARCH_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
             await window.webContents.executeJavaScript('window.searchCaptured = ' + JSON.stringify(mode));
           }
           for (const gesture of ['doubleShift', 'file', 'project']) {
-            await waitFor('window.searchShortcut === ' + JSON.stringify(gesture), 600);
+            await waitFor('window.searchShortcut === ' + JSON.stringify(gesture));
             const modifiers = gesture === 'project' ? [modifier, 'shift'] : gesture === 'file' ? [modifier] : [];
             for (let tap = 0; tap < (gesture === 'doubleShift' ? 2 : 1); tap++) {
               const keyCode = gesture === 'doubleShift' ? 'Shift' : 'F';
@@ -80,12 +83,12 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
             }
           }
           for (const mode of ['dark', 'light']) {
-            await waitFor('window.reviewCapture === ' + JSON.stringify(mode), 600);
+            await waitFor('window.reviewCapture === ' + JSON.stringify(mode));
             if (process.env.BYTEQUAY_REVIEW_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_REVIEW_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
             await window.webContents.executeJavaScript('window.reviewCaptured = ' + JSON.stringify(mode));
           }
           for (const mode of ['dark', 'light']) {
-            await waitFor('window.lineChangesCapture === ' + JSON.stringify(mode), 600);
+            await waitFor('window.lineChangesCapture === ' + JSON.stringify(mode));
             if (process.env.BYTEQUAY_LINE_CHANGES_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_LINE_CHANGES_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
             await window.webContents.executeJavaScript('window.lineChangesCaptured = ' + JSON.stringify(mode));
           }
@@ -99,9 +102,9 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
     const executable = electron as unknown as string;
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
     const args = command === executable ? [script] : ['-a', executable, script];
-    const result = await promisify(execFile)(command, args, { env: environment, timeout: 90_000, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024 });
+    const result = await promisify(execFile)(command, args, { env: environment, timeout, killSignal: 'SIGKILL', maxBuffer: 2 * 1024 * 1024 });
     const colors = JSON.parse(result.stdout.trim()) as Record<string, number>;
     expect(Object.keys(colors)).toHaveLength(12);
     expect(Object.values(colors).every(count => count >= 4)).toBe(true);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
-}, 120_000);
+}, deadline(120_000));

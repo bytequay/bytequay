@@ -88,6 +88,7 @@ import static com.bytequay.core.domain.AssistantItem.Kind.USER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
@@ -489,11 +490,8 @@ class TestAssistantConversation
         doAnswer(call -> slow.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("Claude turn was cancelled"),
                 Duration.ofSeconds(2), true))).when(turn).cancel();
         assistant.send("what's waiting on me?", ImmutableList.of(), Optional.empty(), "key-1");
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (prompts.isEmpty()) {
-            assertThat(System.nanoTime()).isLessThan(deadline);
-            Thread.onSpinWait();
-        }
+        await().alias("assistant turn start").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(prompts).isNotEmpty());
 
         assistant.stop();
         waitForReply();
@@ -526,11 +524,8 @@ class TestAssistantConversation
 
     private void waitForReply()
     {
-        long deadline = System.nanoTime() + Duration.ofSeconds(10).toNanos();
-        while (assistant.today().running()) {
-            assertThat(System.nanoTime()).isLessThan(deadline);
-            Thread.onSpinWait();
-        }
+        await().alias("assistant reply").pollInSameThread().pollDelay(Duration.ZERO).pollInterval(Duration.ofMillis(10)).atMost(Duration.ofSeconds(10))
+                .untilAsserted(() -> assertThat(assistant.today().running()).isFalse());
     }
 
     private static AgentTurnResult completed(String reply)

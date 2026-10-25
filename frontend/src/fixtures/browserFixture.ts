@@ -114,7 +114,7 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
         try {
           await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
           ${fixture.body ?? `const results = await window.webContents.executeJavaScript('${fixture.global}.run()');`}
-          process.stdout.write(JSON.stringify(results) + '\\n');
+          await new Promise((resolve, reject) => process.stdout.write(JSON.stringify(results) + '\\n', error => error ? reject(error) : resolve()));
           app.exit(0);
         } catch (error) { console.error(error); app.exit(1); }
       });

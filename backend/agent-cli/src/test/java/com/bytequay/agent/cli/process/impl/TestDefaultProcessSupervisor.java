@@ -871,7 +871,14 @@ class TestDefaultProcessSupervisor
                 Thread.sleep(10);
             }
             long payloadPid = Long.parseLong(Files.readString(identity).trim());
-            assertThat(ProcessHandle.of(payloadPid).orElseThrow().children()).isEmpty();
+            ProcessHandle payload = ProcessHandle.of(payloadPid).orElseThrow();
+            // The identity appears when mv renames it, before that publisher exits and the shell waits on stdin.
+            while (payload.children().findAny().isPresent() && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertThat(payload.isAlive()).isTrue();
+            assertThat(payload.children()).isEmpty();
+            assertThat(sentinel).doesNotExist();
             launcher.getOutputStream().close();
 
             assertThat(launcher.waitFor(5, TimeUnit.SECONDS)).isTrue();

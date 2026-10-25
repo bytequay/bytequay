@@ -88,7 +88,7 @@ describe('previewMarkdown', () => {
   });
 });
 
-it('shows a short hover card beside its link and resolves a pull-shaped issue link in Chromium', async () => {
+it('positions reference cards and follows changed links in Chromium', async () => {
   await runBrowserFixture({
     prefix: 'bytequay-reference-card-',
     entry: 'src/fixtures/referenceCardBrowser.tsx',

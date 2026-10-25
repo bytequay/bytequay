@@ -780,9 +780,13 @@ export function GitHubReferenceLink({ href, children }: { href: string | null; c
     : <span className="md-link">{children}</span>;
 }
 
+function referenceKey(reference: GitHubReference): string {
+  return `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
+}
+
 /** Hovering the same reference twice, anywhere, makes one request. */
 function loadPreview(reference: GitHubReference): Promise<ReferencePreview | null> {
-  const key = `${reference.kind}:${reference.owner}/${reference.repo}#${reference.number}`.toLowerCase();
+  const key = referenceKey(reference);
   return once(previewRequests, key, () => resolveGitHubReference(reference));
 }
 
@@ -807,17 +811,18 @@ export function referenceCardItem(reference: GitHubReference, preview: Reference
 
 /** A reference's preview once `load` turns true: undefined while it loads, null when GitHub has none. */
 export function useReferencePreview(reference: GitHubReference, load: boolean): ReferencePreview | null | undefined {
-  const [preview, setPreview] = useState<ReferencePreview | null | undefined>();
+  const [preview, setPreview] = useState<{ key: string; value: ReferencePreview | null }>();
   const { href, kind, number, owner, repo } = reference;
+  const key = referenceKey(reference);
   useEffect(() => {
     if (!load) return;
     let current = true;
     void loadPreview({ href, kind, number, owner, repo }).then(value => {
-      if (current) setPreview(value);
+      if (current) setPreview({ key, value });
     });
     return () => { current = false; };
-  }, [href, kind, load, number, owner, repo]);
-  return preview;
+  }, [href, key, kind, load, number, owner, repo]);
+  return preview?.key === key ? preview.value : undefined;
 }
 
 /** The hover card of one issue or pull request reference, whatever shows the reference itself. */

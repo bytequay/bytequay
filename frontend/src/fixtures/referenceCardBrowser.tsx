@@ -16,7 +16,8 @@ import { createFixtureRoot } from './reactFixture';
 import ReferenceCard, { type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import MarkdownBody from '../pulls/MarkdownBody';
 import type { GitHubIssuePreviewDto } from '../types';
-import { assert, settle, element } from './harness';
+import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
+import { assert, settle, element, until } from './harness';
 import '../css/reference-card.css';
 import '../css/pulls.css';
 
@@ -59,6 +60,50 @@ export async function run(): Promise<boolean> {
     link.click();
     await settle();
     assert(opened === link.href, 'Opening the reference must use the issue URL');
+
+    const zooms: ZoomedReference[] = [];
+    const zoomed = (event: Event) => { zooms.push((event as CustomEvent<ZoomedReference>).detail); };
+    window.addEventListener(ZOOM_REFERENCE, zoomed);
+    const issue = (title: string): GitHubIssuePreviewDto => ({
+      title, body: 'Issue details', author: 'octocat', labels: [], updatedAt: '2026-09-21T00:00:00Z', state: 'open', pullRequest: false,
+    });
+    Object.assign(window, { bridge: {
+      listWorkspaces: async () => ['A', 'B'].map(repo => ({ id: `workspace-${repo}`, monitoredOwner: 'owner', monitoredRepo: repo })),
+      fetchWorkspaceIssue: async (workspaceId: string) => issue(`Issue in ${workspaceId}`),
+    } });
+    const focusReference = () => element<HTMLAnchorElement>('.md-reference', host).dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    const closeCard = async () => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await until(() => document.querySelector('.ref-card') === null, 'The reference card did not close');
+    };
+    try {
+      flushSync(() => root.render(<MarkdownBody body="[related](https://github.com/owner/A/issues/1)" />));
+      focusReference();
+      await until(() => document.querySelector('.ref-card')?.textContent?.includes('Issue in workspace-A') === true, 'The first issue preview did not load');
+      await closeCard();
+      flushSync(() => root.render(<MarkdownBody body="[related](https://github.com/owner/B/issues/2)" />));
+      element<HTMLAnchorElement>('.md-reference', host).click();
+      await until(() => zooms.length > 0, 'The changed reference did not open');
+      const target = zooms.at(-1);
+      assert(target?.kind === 'issue' && target.repo === 'owner/B' && target.number === 2 && target.workspaceId === 'workspace-B',
+        'A changed reference must resolve its own workspace before opening');
+
+      let finishOld: ((value: GitHubIssuePreviewDto) => void) | undefined;
+      Object.assign(window.bridge, {
+        fetchWorkspaceIssue: (workspaceId: string) => workspaceId === 'workspace-A'
+          ? new Promise<GitHubIssuePreviewDto>(resolve => { finishOld = resolve; })
+          : Promise.resolve(issue('Current issue B')),
+      });
+      flushSync(() => root.render(<MarkdownBody body="https://github.com/owner/A/issues/3" />));
+      await until(() => finishOld !== undefined, 'The older reference read did not start');
+      flushSync(() => root.render(<MarkdownBody body="https://github.com/owner/B/issues/4" />));
+      await until(() => host.textContent?.includes('Current issue B') === true, 'The current reference did not load');
+      finishOld?.(issue('Obsolete issue A'));
+      await settle();
+      assert(host.textContent?.includes('Current issue B') && !host.textContent?.includes('Obsolete issue A'), 'A late preview must not replace the current reference');
+    }
+    finally { window.removeEventListener(ZOOM_REFERENCE, zoomed); }
+
     return true;
   }
   finally {

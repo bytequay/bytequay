@@ -90,6 +90,8 @@ public final class DefaultProcessSupervisor
     private static final Duration IDENTITY_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration LAUNCHER_EXIT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration TREE_VERIFICATION_TIMEOUT = Duration.ofSeconds(2);
+    private static final long MIN_DESCENDANT_PAUSE_MILLIS = 10;
+    private static final long MAX_DESCENDANT_PAUSE_MILLIS = 100;
     private static final Optional<String> BOOT_SESSION_ID = readBootSessionId();
 
     private final LaunchMarkerStore store;
@@ -950,48 +952,64 @@ public final class DefaultProcessSupervisor
         private void observeDescendants()
         {
             long nextSessionScan = 0;
+            long pause = MIN_DESCENDANT_PAUSE_MILLIS;
             while (observingDescendants.get()) {
-                sampleDescendants();
+                boolean found = sampleDescendants();
                 if (System.nanoTime() >= nextSessionScan) {
-                    sampleSession();
+                    found |= sampleSession();
                     nextSessionScan = System.nanoTime() + Duration.ofMillis(250).toNanos();
                 }
-                if (!sleep(10)) {
+                // Each scan walks every process on the machine. A tree that stopped changing is scanned less often, up to
+                // MAX_DESCENDANT_PAUSE_MILLIS; the session scan still finds a child that leaves the group, so the longer
+                // pause only widens the window for one that also leaves the session.
+                pause = found ? MIN_DESCENDANT_PAUSE_MILLIS : Math.min(pause * 2, MAX_DESCENDANT_PAUSE_MILLIS);
+                if (!sleep(pause)) {
                     return;
                 }
             }
         }
 
-        private void sampleDescendants()
+        /** Returns whether a descendant not seen before was recorded. */
+        private boolean sampleDescendants()
         {
             try {
-                launcher.descendants().forEach(this::rememberDescendant);
+                boolean found = false;
+                for (ProcessHandle descendant : launcher.descendants().toList()) {
+                    found |= rememberDescendant(descendant);
+                }
+                return found;
             }
             catch (RuntimeException failure) {
                 markDescendantTrackingIncomplete("Unable to enumerate descendants: " + failure.getClass().getSimpleName());
+                return false;
             }
         }
 
-        private void sampleSession()
+        private boolean sampleSession()
         {
             try {
                 Optional<List<Long>> members = sessionMembers.apply(processSession);
                 if (members.isEmpty()) {
                     markDescendantTrackingIncomplete("Unable to enumerate the process session");
-                    return;
+                    return false;
                 }
-                members.orElseThrow().stream().map(ProcessHandle::of).flatMap(Optional::stream)
-                        .forEach(this::rememberDescendant);
+                boolean found = false;
+                for (ProcessHandle member : members.orElseThrow().stream().map(ProcessHandle::of).flatMap(Optional::stream).toList()) {
+                    found |= rememberDescendant(member);
+                }
+                return found;
             }
             catch (RuntimeException failure) {
                 markDescendantTrackingIncomplete("Unable to enumerate the process session: " + failure.getClass().getSimpleName());
+                return false;
             }
         }
 
-        private void rememberDescendant(ProcessHandle descendant)
+        /** Returns whether the descendant was new to the launch marker. */
+        private boolean rememberDescendant(ProcessHandle descendant)
         {
             if (descendant.pid() == payloadPid) {
-                return;
+                return false;
             }
             Optional<Instant> startToken = descendant.info().startInstant();
             if (startToken.isEmpty()) {
@@ -1000,15 +1018,16 @@ public final class DefaultProcessSupervisor
                 if (descendant.isAlive()) {
                     markDescendantTrackingIncomplete("Unable to read the start token for descendant " + descendant.pid());
                 }
-                return;
+                return false;
             }
             ProcessIdentity identity = new ProcessIdentity(descendant.pid(), startToken.orElseThrow());
             synchronized (markerLock) {
                 if (identity.startToken().toString().equals(marker.descendantStartTokens().get(identity.pid()))) {
-                    return;
+                    return false;
                 }
                 marker = marker.withDescendant(identity);
                 store.write(marker);
+                return true;
             }
         }
 

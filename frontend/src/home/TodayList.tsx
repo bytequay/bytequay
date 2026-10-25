@@ -70,6 +70,8 @@ export function openTarget(target: AgendaTargetDto): void {
   if ((kind === 'PULL' || kind === 'ISSUE') && repo !== null && number !== null) {
     if (kind === 'PULL') zoomReference({ kind: 'pull', repo, number, workspaceId: workspaceId ?? undefined });
     else if (workspaceId !== null) zoomReference({ kind: 'issue', repo, number, workspaceId });
+    // Only watched repositories have an issue view; another repository's issue is its GitHub page.
+    else void window.bridge.openInAppBrowser(`https://github.com/${repo}/issues/${number}`);
     return;
   }
   if (kind === 'JIRA' && id !== null && target.connectionId !== null && target.cloudId !== null) {

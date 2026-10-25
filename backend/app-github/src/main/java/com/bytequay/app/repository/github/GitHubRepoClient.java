@@ -34,12 +34,14 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
@@ -56,6 +58,8 @@ import static java.util.stream.Collectors.joining;
 public class GitHubRepoClient
 {
     private static final String ISSUE_TYPES_API_VERSION = "2026-03-10";
+    // A login goes into a search query, so nothing but GitHub's login characters may reach it.
+    private static final Pattern GITHUB_LOGIN = Pattern.compile("[A-Za-z0-9-]+");
 
     private final RestClient gitHubRestClient;
     private final GitHubPaginator paginator;
@@ -324,6 +328,19 @@ public class GitHubRepoClient
         String query = "repo:" + repo.fullName() + " in:title,body" + (words.isEmpty() ? "" : " " + words);
         return translating(() -> requireBody(get(gitHubRestClient, pat, uri -> uri.path("/search/issues").queryParam("q", "{query}")
                         .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", 10).queryParam("page", 1).build(query))
+                .retrieve().body(GitHubSearchResponse.class), "Missing search response from GitHub"));
+    }
+
+    /** Open issues {@code login} opened in any repository and updated since {@code since}, newest update first. */
+    public GitHubSearchResponse searchAuthoredIssues(String pat, String login, LocalDate since)
+    {
+        checkArgument(pat != null && !pat.isBlank(), "GitHub credential is required");
+        checkArgument(login != null && GITHUB_LOGIN.matcher(login).matches(), "Invalid GitHub login");
+        requireNonNull(since, "since is null");
+        String query = "is:issue is:open archived:false author:" + login + " updated:>=" + since;
+        // ponytail: one page of a hundred; page further if someone keeps more than that open within the window.
+        return translating(() -> requireBody(get(gitHubRestClient, pat, uri -> uri.path("/search/issues").queryParam("q", "{query}")
+                        .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", 100).build(query))
                 .retrieve().body(GitHubSearchResponse.class), "Missing search response from GitHub"));
     }
 

@@ -38,7 +38,9 @@ public record GitHubSearchResponse(
             boolean draft,
             @JsonProperty("pull_request") PullRequestLink pullRequest,
             String body,
-            @JsonProperty("state_reason") String stateReason) {}
+            @JsonProperty("state_reason") String stateReason,
+            List<GitHubUser> assignees,
+            Integer comments) {}
 
     /** Search reports a merged PR as {@code state=closed}; {@code merged_at}
      *  lives only in this nested object, and is null for a plain close. */

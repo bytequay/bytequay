@@ -89,7 +89,7 @@ class TestGitHubClientAggregation
                 Instant.parse("2026-08-03T00:00:00Z"), Instant.parse("2026-08-03T03:37:02Z"),
                 Instant.parse("2026-08-03T03:37:02Z"), "closed",
                 "https://api.github.com/repos/owner/repo", null, null, false,
-                mergedAt == null ? null : new GitHubSearchResponse.PullRequestLink(mergedAt), null, null);
+                mergedAt == null ? null : new GitHubSearchResponse.PullRequestLink(mergedAt), null, null, null, null);
     }
 
     @Test

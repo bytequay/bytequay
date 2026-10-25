@@ -238,7 +238,8 @@ function WorkCard({ item, onToday, commits }: { item: WorkItem; onToday: boolean
           </div>
         )}
         {item.prs.length === 0 && (
-          <div className="mw-nopr">{item.ended ?? ['No PR yet', item.branch, commits === 0 ? null : plural(commits, 'local commit')].filter(Boolean).join(' · ')}</div>
+          <div className="mw-nopr">{item.ended
+            ?? [item.authored ? 'Opened by you' : 'No PR yet', item.branch, commits === 0 ? null : plural(commits, 'local commit')].filter(Boolean).join(' · ')}</div>
         )}
         {item.prs.length > 0 && <div className="mw-prs">{item.prs.map(pr => <PrLine key={`${pr.repo}#${pr.number}`} pr={pr} />)}</div>}
         {item.next !== null && <div className="mw-next"><ArrowRight size={12} aria-hidden="true" /><span>{item.next}</span></div>}

@@ -18,8 +18,8 @@ import { jiraIssue } from '../jira/fixtures/jira';
 import { pr } from '../pulls/fixtures/pullRequest';
 import { laneLabel } from '../settings/model';
 import type { JiraTaskSource } from '../jira/contracts';
-import type { PullRequestDto } from '../types';
-import { pullRequestItem, type AttentionItem } from './attention';
+import type { AuthoredIssueDto, PullRequestDto } from '../types';
+import { issueAttentionItem, pullRequestItem, type AttentionItem } from './attention';
 import { isOwnWork, myWorkItems } from './work';
 
 const workspace = { id: 'ws1', name: 'Repository', repository: 'owner/repository' };
@@ -63,6 +63,16 @@ describe('My work', () => {
     expect(isOwnWork(pullRequestItem(pr({ number: 8, author: 'ana' })), 'me')).toBe(false);
   });
 
+  it('puts issues the viewer opened under In review, and lists one assigned to them only once', () => {
+    const assigned = { ...issueAttentionItem(issue(11), 'owner/repository', 'ws1'), kind: 'assigned' as const };
+    const items = myWorkItems({ candidates: [assigned], tasks: [], activity: {}, work: [], viewerLogin: 'me',
+      authored: [authoredIssue('owner/repository', 11), authoredIssue('other/project', 12)] });
+    expect(items.map(item => [item.label, item.lane, item.authored ?? false, item.target.workspaceId])).toEqual([
+      ['repository#11', 'progress', false, 'ws1'],
+      ['project#12', 'review', true, null],
+    ]);
+  });
+
   it('lists ended work only for All my work, with how it ended and who worked on it', () => {
     const done = { ...previewTask('ws1', 'task-1'), state: 'COMPLETED', updatedAt: '2026-08-15T00:01:00Z' };
     const input: Parameters<typeof myWorkItems>[0] = { candidates: [mine(9, { state: 'merged', updatedAt: '2026-08-15T00:02:00Z' })], tasks: [{ task: done, workspace }],
@@ -74,6 +84,16 @@ describe('My work', () => {
     ]);
   });
 });
+
+function issue(number: number) {
+  return { id: number, number, title: `Issue ${number}`, body: '', author: 'ana', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: ['me'],
+    commentCount: 0, createdAt: '2026-08-15T00:00:00Z', updatedAt: '2026-08-15T00:02:00Z' };
+}
+
+function authoredIssue(repo: string, number: number): AuthoredIssueDto {
+  return { repo, number, title: `Issue ${number}`, htmlUrl: `https://github.com/${repo}/issues/${number}`, labels: [], assignees: [], commentCount: 0,
+    createdAt: '2026-08-15T00:00:00Z', updatedAt: '2026-08-15T00:01:00Z' };
+}
 
 function jiraSource(): JiraTaskSource {
   return { connectionId: jiraIssue.connectionId, cloudId: jiraIssue.cloudId, issueId: jiraIssue.id, key: jiraIssue.key, title: jiraIssue.title,

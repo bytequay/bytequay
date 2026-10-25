@@ -406,6 +406,19 @@ export type AgentIssueSourceDto = IssueTaskSourceRequest & {
   body: string;
 };
 
+/** An open issue the viewer opened, in any repository. */
+export type AuthoredIssueDto = {
+  repo: string;
+  number: number;
+  title: string;
+  htmlUrl: string;
+  labels: string[];
+  assignees: string[];
+  commentCount: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** A workspace's open issues, or a null snapshot when they are unchanged since the read whose etag the caller passed. */
 export type IssueAttentionRead = { etag: string | null; snapshot: RepositoryIssueSnapshotDto | null };
 
@@ -1615,6 +1628,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
   fetchAttentionPrs: () => Promise<PullRequestDto[]>;
   findStoredPullRequest: (repo: string, number: number) => Promise<PullRequestDto | null>;
+  /** Open issues the viewer opened anywhere on GitHub and that changed in the last thirty days. */
+  fetchAuthoredIssues: () => Promise<AuthoredIssueDto[]>;
   lookupPullRequest: (repo: string, number: number) => Promise<PullRequestDto>;
   /** The description a detail read cached, without reaching GitHub or marking the PR viewed; null until one did. */
   findStoredPullRequestDescription: (repo: string, number: number) => Promise<{ body: string | null }>;

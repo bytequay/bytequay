@@ -16,7 +16,7 @@ import { linkTasks, useTaskAttention } from '../agents/attention';
 import { jiraIssueLocation } from '../jira/contracts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, X } from 'lucide-react';
-import type { PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
+import type { AuthoredIssueDto, PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
@@ -56,6 +56,8 @@ type Props = {
 };
 
 const ACTIVITY_TTL_MS = 5 * 60 * 1000;
+// The backend searches GitHub for the viewer's issues at most this often; asking sooner only rereads its answer.
+const AUTHORED_ISSUES_REFRESH_MS = 5 * 60 * 1000;
 
 // Home unmounts on every tab switch, so returning to it re-runs the same local
 // reads from an empty screen. These hold the last rows purely to paint the
@@ -67,6 +69,7 @@ const SEED = {
   prs: 'home:prs',
   attention: ATTENTION_SEED.prs,
   issues: ATTENTION_SEED.issues,
+  authoredIssues: 'home:authored-issues',
 };
 
 /** Activity titles may reuse stored PRs, but must never import followed people's work into attention. */
@@ -116,6 +119,7 @@ function HomePage({
   const today = useTodayAgenda();
   const onToday = useMemo(() => todayKeys(today.agenda), [today.agenda]);
   const [issueItems, setIssueItems] = useState<AttentionItem[]>(() => getCached<AttentionItem[]>(SEED.issues) ?? []);
+  const [authoredIssues, setAuthoredIssues] = useState<AuthoredIssueDto[]>(() => getCached<AuthoredIssueDto[]>(SEED.authoredIssues) ?? []);
 
   useEffect(() => {
     void load();
@@ -284,6 +288,26 @@ function HomePage({
     };
   }, [login, workspaceKey]);
 
+  // A failed read keeps the last list: My Work's background refreshes stay quiet.
+  useEffect(() => {
+    if (!login) return;
+    let cancelled = false;
+    const refresh = () => {
+      window.bridge.fetchAuthoredIssues()
+        .then(issues => {
+          setCached(SEED.authoredIssues, issues);
+          if (!cancelled) setAuthoredIssues(issues);
+        })
+        .catch(() => {});
+    };
+    refresh();
+    const timer = window.setInterval(() => { if (!document.hidden) refresh(); }, AUTHORED_ISSUES_REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [login]);
+
   const taskWorkspaces = useMemo(() => workspaces.map(workspace => ({
     id: workspace.id, name: workspace.name, repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
   })), [workspaces]);
@@ -296,11 +320,13 @@ function HomePage({
     [attentionPrs, issueItems, jira.items, login, tasks.items, tasks.tasks, workspaces]);
 
   const localWork = useLocalWork(workspaceKey);
-  const work = useMemo(() => myWorkItems({ candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null }),
-    [candidates, localWork, login, tasks.activity, tasks.tasks]);
+  const work = useMemo(() => myWorkItems({
+    candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null, authored: authoredIssues,
+  }), [authoredIssues, candidates, localWork, login, tasks.activity, tasks.tasks]);
   const everything = useMemo(() => allWork
-    ? myWorkItems({ candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null, ended: true }) : [],
-  [allWork, candidates, localWork, login, tasks.activity, tasks.tasks]);
+    ? myWorkItems({ candidates, tasks: tasks.tasks, activity: tasks.activity, work: localWork, viewerLogin: login ?? null, authored: authoredIssues, ended: true })
+    : [],
+  [allWork, authoredIssues, candidates, localWork, login, tasks.activity, tasks.tasks]);
   // Needs attention keeps what others ask of you; your own work, and anything My work already lists, stays there.
   const skipOwn = useMemo(() => {
     const listed = new Set(work.flatMap(item => item.keys));

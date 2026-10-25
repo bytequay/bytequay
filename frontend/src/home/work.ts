@@ -16,7 +16,7 @@ import { taskCardState, taskLastMessage, type WorkspaceTask } from '../agents/at
 import { taskArchived, taskStatePill } from '../agents/taskStatus';
 import { pullRequestIsMine } from '../pulls/model';
 import { laneLabel } from '../settings/model';
-import type { AgendaTargetDto, AgentTaskActivityDto, AgentTaskDto, PullRequestDto } from '../types';
+import type { AgendaTargetDto, AgentTaskActivityDto, AgentTaskDto, AuthoredIssueDto, PullRequestDto } from '../types';
 import type { WorkItemDto } from '../workitems/contracts';
 import type { AttentionItem, AttentionTone } from './attention';
 import { attentionKey } from './today';
@@ -75,6 +75,8 @@ export type WorkItem = {
   repos: string[];
   /** Every agent that worked on it. */
   agents: string[];
+  /** An issue the viewer opened and nobody assigned to them: it waits on others. */
+  authored?: true;
 };
 
 function target(kind: AgendaTargetDto['kind'], fields: Partial<AgendaTargetDto>): AgendaTargetDto {
@@ -194,16 +196,19 @@ export function isOwnWork(item: AttentionItem, viewerLogin: string | null): bool
 }
 
 /**
- * Everything the viewer is working on: open Jira tickets and GitHub issues assigned to them, local work in progress, open tasks of
- * their own, and their open pull requests that none of those already deliver. Each task and pull request belongs to one piece of work.
+ * Everything the viewer is working on: open Jira tickets and GitHub issues assigned to them, issues they opened anywhere, local work in
+ * progress, open tasks of their own, and their open pull requests that none of those already deliver. Each task and pull request belongs
+ * to one piece of work.
  */
-export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, ended = false }: {
+export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, authored = [], ended = false }: {
   candidates: AttentionItem[];
   tasks: WorkspaceTask[];
   activity: Record<string, AgentTaskActivityDto>;
   /** Local work items of every watched repository. */
   work: WorkItemDto[];
   viewerLogin: string | null;
+  /** Open issues the viewer opened in any repository and that changed in the last thirty days. */
+  authored?: AuthoredIssueDto[];
   /** Also lists done tickets, closed issues and pull requests, finished local work, and ended or archived tasks, as All my work does. */
   ended?: boolean;
 }): WorkItem[] {
@@ -235,6 +240,21 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, en
       ended: item.issueState === 'closed' ? 'Closed' : null,
       target: target('ISSUE', { workspaceId: item.workspaceId, repo: item.repo, number: item.number }),
     }, linked, [], rows, activity));
+  }
+
+  // An issue assigned to the viewer is their work and is already listed; one they only opened waits on others.
+  const listedIssues = new Set(items.flatMap(item => item.source === 'issue' ? [item.key.toLowerCase()] : []));
+  for (const issue of authored) {
+    const key = `${issue.repo}#${issue.number}`;
+    if (listedIssues.has(key.toLowerCase())) continue;
+    const workspaceId = candidates.find(item => item.type === 'issue' && item.key.toLowerCase() === key.toLowerCase())?.workspaceId ?? null;
+    const linked = claim(live.filter(({ task, workspace }) => task.issueSource?.number === issue.number
+      && workspace.repository.toLowerCase() === issue.repo.toLowerCase()));
+    const card = workItem({
+      key, source: 'issue', label: `${repoName(issue.repo)}#${issue.number}`, title: issue.title, updatedAt: issue.updatedAt, ended: null,
+      target: target('ISSUE', { workspaceId, repo: issue.repo, number: issue.number }),
+    }, linked, [], rows, activity);
+    items.push({ ...card, lane: card.lane === 'progress' ? 'review' : card.lane, authored: true });
   }
 
   for (const entry of work) {

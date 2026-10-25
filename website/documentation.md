@@ -58,8 +58,9 @@ follow. A workspace holds a repository’s tasks, PRs, work items, commits, and
 memory.
 
 - **My work** sorts your issues, tickets, tasks, and PRs into **In progress**,
-  **In review**, **Needs you**, and **Ready to merge**. **All my work** lists
-  everything, including finished work.
+  **In review**, **Needs you**, and **Ready to merge**. Open issues you opened
+  anywhere on GitHub, updated in the last 30 days, wait in **In review**.
+  **All my work** lists everything, including finished work.
 - **Needs attention** shows up to five review requests, re-reviews, and
   mentions. **Snooze** hides one until the time you pick.
 - **Approved by me** shows up to five open PRs you approved. A new review

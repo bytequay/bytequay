@@ -25,6 +25,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -346,6 +347,26 @@ class TestGitHubRepoClient
             assertThat(item.closedAt()).isEqualTo(Instant.parse("2026-08-20T00:00:00Z"));
             assertThat(item.pullRequest()).isNull();
         });
+    }
+
+    @Test
+    void authoredIssueSearchAsksForOpenIssuesUpdatedInTheWindowAndReadsAssigneesAndComments()
+    {
+        server.expect(request -> assertThat(request.getURI().getQuery())
+                        .isEqualTo("q=is:issue is:open archived:false author:viewer updated:>=2026-09-25&sort=updated&order=desc&per_page=100"))
+                .andRespond(withSuccess("""
+                        {"total_count":1,"items":[{"id":10,"number":42,"title":"Document a limit","state":"open",
+                        "repository_url":"https://api.github.com/repos/owner/repo","html_url":"https://github.com/owner/repo/issues/42",
+                        "created_at":"2026-10-20T00:00:00Z","updated_at":"2026-10-21T00:00:00Z",
+                        "assignees":[{"login":"maintainer"}],"comments":3}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(client.searchAuthoredIssues("pat", "viewer", LocalDate.parse("2026-09-25")).items()).singleElement().satisfies(item -> {
+            assertThat(item.assignees()).extracting(GitHubUser::login).containsExactly("maintainer");
+            assertThat(item.comments()).isEqualTo(3);
+        });
+        assertThatThrownBy(() -> client.searchAuthoredIssues("pat", "viewer is:pr", LocalDate.parse("2026-09-25")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Invalid GitHub login");
     }
 
     @Test

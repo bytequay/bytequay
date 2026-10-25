@@ -3560,13 +3560,18 @@ button:is(.agt-type-chip, .agt-type-tile) {
   margin: 0 auto;
 }
 
+/* Beside Today, the page's own padding is a fixed gap to it, and spare width collects on the sidebar side. */
+.agt-home:has(> .agt-today) > .agt-page {
+  margin-right: 0;
+}
+
 /* Today as a card in the corner, level with Needs attention and in view while the page scrolls; no rail of its own. */
 .agt-today {
   position: sticky;
   top: 0;
   flex: none;
   box-sizing: border-box;
-  width: 380px;
+  width: 320px;
   padding: 78px 16px 22px 0;
 }
 

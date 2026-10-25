@@ -326,6 +326,11 @@
   padding: 0 6px;
 }
 
+/* A shorter bar keeps the date and every fact on one line in the narrow corner card. */
+.today--card .today-progress {
+  width: 48px;
+}
+
 .today-head__name {
   font-size: 13.5px;
   color: var(--text-1);

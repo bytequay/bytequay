@@ -319,6 +319,11 @@
   color: var(--text-4);
 }
 
+.mw-head {
+  cursor: pointer;
+  user-select: none;
+}
+
 /* After Collapse, or alone at the header's end when there is no open work to collapse. */
 .mw-all {
   display: inline-flex;

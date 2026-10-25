@@ -104,7 +104,10 @@ export default function MyWork({ items, todayKeys }: { items: WorkItem[]; todayK
 
   return (
     <section className="mw" aria-label="My work">
-      <div className="atn-head">
+      {/* The Collapse button stays the keyboard control; the bar's empty space and label are a larger mouse target for it. */}
+      <div className={`atn-head${items.length > 0 ? ' mw-head' : ''}`} onClick={event => {
+        if (items.length > 0 && event.target instanceof Element && !event.target.closest('button, a, .atn-filters')) collapse(!collapsed);
+      }}>
         <span className="atn-head__label">My work</span>
         {items.length > 0 && <span className="atn-count">{items.length}</span>}
         <SourceTabs source={source} onSource={setSource} />

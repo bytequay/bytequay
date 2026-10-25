@@ -680,9 +680,10 @@ public class PullRequestService
     }
 
     /**
-     * A restart forgets every stamp. Closed cards then keep what is stored, because discovery and
-     * notifications report whatever changes them later; summarizing all of them again is minutes of
-     * back-to-back GraphQL. Another account still summarizes everything.
+     * A restart forgets every stamp. Cards summarized again only when activity is reported, closed ones and other people's open
+     * ones, then keep what is stored, because discovery and notifications, whose checkpoints survive a restart, report whatever
+     * changes them later; summarizing a thousand of them again is twenty minutes of back-to-back GraphQL, and each saved summary
+     * rebuilds the attention list. Another account still summarizes everything.
      */
     private void baselineSummaries(String pat)
     {
@@ -695,7 +696,7 @@ public class PullRequestService
             if (summaryCredential == null) {
                 // ponytail: a change saved but not summarized before the last shutdown stays stale until the next one; persist the stamp if that shows.
                 Instant now = clock.instant();
-                store.findAttentionCandidates().stream().filter(PullRequestService::settled)
+                store.findAttentionCandidates().stream().filter(row -> !timed(row))
                         .forEach(row -> summaryStamps.put(parseRef(row.repo(), row.number()), new SummaryStamp(pat, discussionSourceUpdatedAt(row), now)));
             }
             summaryCredential = pat;

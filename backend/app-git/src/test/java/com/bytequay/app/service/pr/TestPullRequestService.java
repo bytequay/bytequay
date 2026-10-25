@@ -685,10 +685,12 @@ class TestPullRequestService
     }
 
     @Test
-    void aRestartSummarizesClosedCardsOnlyAfterNewActivity()
+    void aRestartSummarizesClosedAndOtherPeoplesCardsOnlyAfterNewActivity()
     {
         PullRequest open = storedPullRequest(pullRequestNumber(91));
-        List<PullRequest> candidates = new ArrayList<>(ImmutableList.of(open, storedPullRequest("merged", REVIEWED_AT, REVIEWED_AT)));
+        // Someone else's open card is summarized again when discovery or the inbox reports activity, so a restart keeps it too.
+        PullRequest others = storedPullRequest(pullRequestNumber(92).withOrigin(PullRequest.Origin.OTHER));
+        List<PullRequest> candidates = new ArrayList<>(ImmutableList.of(open, storedPullRequest("merged", REVIEWED_AT, REVIEWED_AT), others));
         when(store.findAttentionCandidates()).thenAnswer(ignored -> ImmutableList.copyOf(candidates));
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
@@ -699,6 +701,7 @@ class TestPullRequestService
         candidates.set(1, storedPullRequest("merged", REVIEWED_AT.plusSeconds(60), REVIEWED_AT));
         service.syncAttentionSummaries();
         verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 91), PullRequestRef.of("owner", "repo", 7)), "me");
+        verify(summaries, never()).fetchSummaries(eq("pat"), org.mockito.ArgumentMatchers.argThat(refs -> refs.contains(PullRequestRef.of("owner", "repo", 92))), eq("me"));
     }
 
     @Test
@@ -1055,7 +1058,8 @@ class TestPullRequestService
     @ValueSource(booleans = {false, true})
     void failedAuthorReplyCheckRemainsEligibleForTheNextFastPass(boolean rateLimited)
     {
-        FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null).withViewerOrigin("me");
+        // A requested review is summarized on its own clock, also right after a restart.
+        FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null).withOrigin(PullRequest.Origin.REVIEW_REQUESTED);
         PullRequest row = storedPullRequest(fetched);
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))

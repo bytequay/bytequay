@@ -291,10 +291,17 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     const pane = host.querySelector<HTMLElement>('.pull-detail');
     assert(conversation?.textContent?.includes('I found one authentication regression.') === true,
       'The left workspace conversation must replay the review agent response');
+    assert(pane !== null, 'The review workspace must show its side pane');
+    if (!local) {
+      assert(pane.querySelector('.pull-detail__pr-tab')?.getAttribute('aria-pressed') === 'true'
+        && pane.querySelector('[aria-label="WorkBench views"]') === null,
+      'A linked review must open its PR page beside the response by default');
+      [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('WorkBench'))?.click(); await settle();
+    }
     const firstView = pane?.querySelector('[aria-label="WorkBench views"] button');
     assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true'
       && pane?.querySelector('.pull-diff-file') !== null && pane?.querySelector('.pull-file-tree') === null,
-    'Review WorkBench must start on leftmost Changes with its file tree closed');
+    'Local reviews and an explicitly opened WorkBench must start on Changes with the file tree closed');
     [...pane.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Summary')?.click(); await settle();
     assert(pane?.textContent?.includes('Change intention') === true && pane.querySelector('[data-finding-id="finding-1"]') !== null,
       'The right PR pane must show independent learning and finding cards');
@@ -420,6 +427,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     for (let attempt = 0; attempt < 20 && !(conversation().includes('I found one authentication regression.') && streams.length > 0); attempt++) await settle();
     await settle();
     const pane = host.querySelector<HTMLElement>('.pull-detail');
+    [...pane?.querySelectorAll<HTMLButtonElement>('button') ?? []].find(button => button.textContent?.includes('WorkBench'))?.click(); await settle();
     [...pane?.querySelectorAll<HTMLButtonElement>('button') ?? []].find(button => button.textContent?.trim() === 'Summary')?.click(); await settle();
     assert(pane?.textContent?.includes('Change intention') === true, 'The open review must show its learning cards beside the conversation');
     // Leaving and returning to Summary remounts its cards while the conversation stays mounted.
@@ -484,8 +492,12 @@ export async function runOverlayChangesStream(): Promise<string> {
   try {
     flushSync(() => root.render(<PullsScreen initialPr={{ repo: review.repo, number: review.number ?? 0 }} initialReviewId={review.id}
       repositoryScope={{ workspaceId: review.workspaceId, repository: review.repo }} onClose={() => {}} />));
+    for (let attempt = 0; attempt < 30 && !busy(); attempt++) await settle();
+    assert(host.querySelector('.pull-detail__pr-tab')?.getAttribute('aria-pressed') === 'true',
+      'A review opened from the task list must start on its PR page');
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('WorkBench'))?.click();
     for (let attempt = 0; attempt < 30 && !(busy() && host.querySelector('.pull-diff-file') !== null && live().length === 1); attempt++) await settle();
-    assert(busy() && host.querySelector('.pull-diff-file') !== null, 'A review opened from the task list must start on Changes and show its running reviewer');
+    assert(busy() && host.querySelector('.pull-diff-file') !== null, 'Opening WorkBench must show Changes and its running reviewer');
     assert(live().length === 1, `Changes must follow the review it draws findings from, found ${live().length} live streams`);
     review = { ...asked, version: asked.version + 1 };
     for (const stream of live()) stream.listener({ subscriptionId: 'review-stream', taskId: review.task.id, kind: 'changed', sequence: 1, turnId: 'turn-ask' });

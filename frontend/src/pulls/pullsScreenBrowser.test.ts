@@ -49,7 +49,7 @@ it.each([
   expect(result).toContain(expected);
 }, deadline(30_000));
 
-it('opens Changes in local and linked review workspaces while keeping Summary independent', async () => {
+it('defaults linked reviews to PR and local reviews to Changes while keeping Summary independent', async () => {
   const results = await fixture.run<string[]>({
     width: 1450, height: 950,
     body: `const results = await window.webContents.executeJavaScript('(async () => [await PullScreenTests.runReviewWorkspace(), await PullScreenTests.runReviewWorkspace(true), await PullScreenTests.runOpenReviewWorkspaceStream()])()');`,

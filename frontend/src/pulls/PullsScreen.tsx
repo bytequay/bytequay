@@ -386,11 +386,11 @@ export default function PullsScreen({
   const [reviewCardFocus, setReviewCardFocus] = useState<ReviewCardFocus | null>(null);
   const [tab, setTab] = useState<PullTab>(PULL_TABS[0].key);
   const [selected, setSelected] = useState<number | null>(null);
-  // A review opens on Changes, or on the tab an agent switch carried here. Its Changes is the pull request's.
+  // A review opens on the PR, or on the tab an agent switch carried here. Its Changes is the pull request's.
   const [initialDetailTab] = useState<DetailTab>(() => {
     if (initialReviewId === undefined) return 'overview';
     const carried = carriedPanelTab();
-    return carried === null || carried === 'changes' ? 'files' : carried;
+    return carried === 'changes' ? 'files' : carried ?? 'overview';
   });
   const [detailTab, setDetailTab] = useState<DetailTab | 'agents' | 'discussions'>(initialDetailTab);
   const coveredAgentTab = useRef<DetailTab>(initialDetailTab);

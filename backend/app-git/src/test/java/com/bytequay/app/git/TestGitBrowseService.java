@@ -18,11 +18,15 @@ import com.bytequay.app.git.GitBrowseService.DiffFile;
 import com.bytequay.app.git.GitBrowseService.FileContent;
 import com.bytequay.app.git.GitBrowseService.WorktreeStatus;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 
@@ -117,6 +121,90 @@ class TestGitBrowseService
     }
 
     @Test
+    void diffUsesLiteralPathsForQuotedNamesAndRenames()
+    {
+        gitOutput(repository, "config", "core.quotePath", "true");
+        String oldPath = "old{ => }\t你好.txt";
+        String renamedPath = "new\n\"name\"\\你好.txt";
+        String base = commitFile(repository, oldPath, "kept\n", "Base");
+        gitOutput(repository, "mv", oldPath, renamedPath);
+        List<String> addedPaths = ImmutableList.of("你好.txt", "tab\tname.txt", "line\nname.txt", "quoted\"name.txt", "back\\slash.txt", " spaced.txt ");
+        addedPaths.forEach(path -> write(repository, path, "++added\n"));
+        commit(repository, "Quoted paths");
+
+        List<DiffFile> files = service.diff(repository, base, head(repository));
+
+        assertThat(files).extracting(DiffFile::path).containsExactlyInAnyOrderElementsOf(
+                ImmutableList.<String>builder().add(renamedPath).addAll(addedPaths).build());
+        assertThat(files).filteredOn(file -> file.path().equals(renamedPath)).singleElement().satisfies(file -> {
+            assertThat(file.status()).isEqualTo("R");
+            assertThat(file.additions()).isZero();
+            assertThat(file.deletions()).isZero();
+        });
+        assertThat(files).filteredOn(file -> addedPaths.contains(file.path())).allSatisfy(file -> {
+            assertThat(file.status()).isEqualTo("A");
+            assertThat(file.additions()).isEqualTo(1);
+            assertThat(file.patch()).hasValueSatisfying(patch -> assertThat(patch).contains("+++added"));
+            assertThat(service.diffFileContent(repository, base, head(repository), file.path()).newContent()).contains("++added\n");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void typeChangesKeepBothPatchesAndFollowingFilesAligned(boolean startsAsSymlink)
+            throws IOException
+    {
+        Path changed = repository.resolve("a-kind");
+        if (startsAsSymlink) {
+            Files.createSymbolicLink(changed, Path.of("target"));
+        }
+        else {
+            write(repository, "a-kind", "++content\nsecond\n");
+        }
+        String base = commitFile(repository, "z-after.txt", "before\n", "Base");
+        Files.delete(changed);
+        if (startsAsSymlink) {
+            write(repository, "a-kind", "++content\nsecond\n");
+        }
+        else {
+            Files.createSymbolicLink(changed, Path.of("target"));
+        }
+        write(repository, "z-after.txt", "after\nextra\n");
+        List<DiffFile> working = service.status(repository).files();
+        commit(repository, "Change file type");
+
+        for (List<DiffFile> files : ImmutableList.of(working, service.diff(repository, base, head(repository)))) {
+            assertThat(files).extracting(DiffFile::path).containsExactly("a-kind", "z-after.txt");
+            DiffFile typeChange = files.getFirst();
+            assertThat(typeChange.status()).isEqualTo("M");
+            assertThat(typeChange.additions()).isEqualTo(startsAsSymlink ? 2 : 1);
+            assertThat(typeChange.deletions()).isEqualTo(startsAsSymlink ? 1 : 2);
+            assertThat(typeChange.patch()).hasValueSatisfying(patch -> assertThat(patch).contains("deleted file mode", "new file mode", "target", "content"));
+            DiffFile following = files.getLast();
+            assertThat(following.additions()).isEqualTo(2);
+            assertThat(following.deletions()).isEqualTo(1);
+            assertThat(following.patch()).hasValueSatisfying(patch -> assertThat(patch).contains("-before", "+after", "+extra").doesNotContain("target", "content"));
+        }
+    }
+
+    @Test
+    void largeDiffsFailInsteadOfHidingLaterFiles()
+    {
+        String base = commitFile(repository, "seed.txt", "seed\n", "Base");
+        write(repository, "a-large.txt", ("x".repeat(1000) + "\n").repeat(6000));
+        write(repository, "z-important.txt", "must not disappear\n");
+        gitOutput(repository, "add", "-A");
+
+        assertThatThrownBy(() -> service.status(repository)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("truncated");
+
+        commit(repository, "Large change");
+        String head = head(repository);
+        assertThatThrownBy(() -> service.diff(repository, base, head)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("truncated");
+        assertThatThrownBy(() -> service.diffFileContent(repository, base, head, "a-large.txt"))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("truncated");
+    }
+
+    @Test
     void diffFileContentReturnsBothRevisions()
     {
         String base = commitFile(repository, "folder/file.txt", "before\n", "Base");
@@ -149,6 +237,24 @@ class TestGitBrowseService
         assertThat(untracked.status()).isEqualTo("A");
         assertThat(untracked.additions()).isEqualTo(1);
         assertThat(untracked.patch().orElseThrow()).contains("+new");
+    }
+
+    @Test
+    void statusListsIndividualUntrackedFilesWithLiteralNames()
+    {
+        commitFile(repository, "seed.txt", "seed\n", "Base");
+        gitOutput(repository, "config", "core.quotePath", "true");
+        List<String> paths = ImmutableList.of("newfolder/first.txt", "newfolder/nested/second.txt", "你好.txt", "quoted\"\t\n\\name.txt", " spaced.txt ");
+        paths.forEach(path -> write(repository, path, "++new\n"));
+
+        WorktreeStatus status = service.status(repository);
+
+        assertThat(status.files()).extracting(DiffFile::path).containsExactlyInAnyOrderElementsOf(paths);
+        assertThat(status.files()).allSatisfy(file -> {
+            assertThat(file.status()).isEqualTo("A");
+            assertThat(file.additions()).isEqualTo(1);
+            assertThat(file.patch()).hasValueSatisfying(patch -> assertThat(patch).contains("+++new"));
+        });
     }
 
     @Test

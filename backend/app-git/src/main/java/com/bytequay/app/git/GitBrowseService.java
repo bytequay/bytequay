@@ -15,7 +15,7 @@ package com.bytequay.app.git;
 
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.google.common.base.CharMatcher;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
@@ -131,9 +131,15 @@ public class GitBrowseService
     {
         checkArgument(!base.isBlank(), "base is blank");
         checkArgument(!head.isBlank(), "head is blank");
-        Map<String, int[]> numstat = numstat(require(repository, "diff", "--numstat", "-M", base, head, "--"));
-        String patch = require(repository, "diff", "-M", base, head, "--");
-        return splitPatch(patch, numstat);
+        return readDiff(repository, base, head);
+    }
+
+    private List<DiffFile> readDiff(Path repository, String... revisions)
+    {
+        String output = require(repository, ImmutableList.<String>builder()
+                .add("diff", "--no-color", "--no-ext-diff", "--no-textconv", "--submodule=short", "-M", "--raw", "-z", "--patch")
+                .addAll(ImmutableList.copyOf(revisions)).add("--").build().toArray(String[]::new));
+        return splitPatch(output);
     }
 
     public FileContent diffFileContent(Path repository, String base, String head, String path)
@@ -147,41 +153,33 @@ public class GitBrowseService
 
     private Optional<String> fileAtRevision(Path repository, String revision, String path)
     {
-        Result result = git.run(repository, "show", revision + ":" + path);
-        if (!result.successful() || result.truncated()) {
+        Result result = git.runStdout(repository, "show", revision + ":" + path);
+        if (!result.successful()) {
             return Optional.empty();
         }
-        return Optional.of(result.output());
+        return Optional.of(result.requireOutput(message -> new IllegalArgumentException("Git failed: " + message)));
     }
 
     public WorktreeStatus status(Path repository)
     {
         String branch = require(repository, "rev-parse", "--abbrev-ref", "HEAD").strip();
-        List<String> porcelain = lines(require(repository, "status", "--porcelain"));
-
-        Map<String, int[]> numstat = numstat(require(repository, "diff", "--numstat", "HEAD", "--"));
-        List<DiffFile> tracked = splitPatch(require(repository, "diff", "HEAD", "--"), numstat);
+        Iterable<String> untracked = Splitter.on('\0').omitEmptyStrings().split(require(repository, "ls-files", "--others", "--exclude-standard", "-z"));
+        List<DiffFile> tracked = readDiff(repository, "HEAD");
 
         ImmutableList.Builder<DiffFile> files = ImmutableList.builder();
         files.addAll(tracked);
         int untrackedPatches = 0;
-        for (String line : porcelain) {
-            if (!line.startsWith("??")) {
-                continue;
-            }
-            String path = line.substring(3);
-            Optional<String> patch = Optional.empty();
-            int additions = 0;
+        for (String path : untracked) {
+            String patch = "";
             if (untrackedPatches < MAXIMUM_UNTRACKED_PATCHES) {
                 untrackedPatches++;
                 // Exit code 1 means "differences found"; that is success here.
-                Result diff = git.run(repository, "diff", "--no-index", "--", "/dev/null", path);
-                if (diff.exitCode() == 1 && !diff.truncated()) {
-                    patch = Optional.of(diff.output());
-                    additions = (int) diff.output().lines().filter(row -> row.startsWith("+") && !row.startsWith("+++")).count();
+                Result diff = git.runStdout(repository, 1, "diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-index", "--", "/dev/null", path);
+                if (diff.exitCode() == 1 && !diff.truncated() && diff.output().startsWith("diff --git ")) {
+                    patch = diff.output();
                 }
             }
-            files.add(new DiffFile(path, "A", additions, 0, patch));
+            files.add(diffFile(path, "A", patch));
         }
         return new WorktreeStatus(branch, files.build());
     }
@@ -266,11 +264,7 @@ public class GitBrowseService
 
     private String require(Path repository, String... arguments)
     {
-        Result result = git.run(repository, arguments);
-        if (!result.successful()) {
-            throw new IllegalArgumentException("Git failed: " + result.output().strip());
-        }
-        return result.output();
+        return git.runStdout(repository, arguments).requireOutput(message -> new IllegalArgumentException("Git failed: " + message));
     }
 
     private static List<String> lines(String output)
@@ -281,91 +275,64 @@ public class GitBrowseService
                 .collect(toImmutableList());
     }
 
-    private static Map<String, int[]> numstat(String output)
+    private static List<DiffFile> splitPatch(String output)
     {
-        ImmutableMap.Builder<String, int[]> stats = ImmutableMap.builder();
-        for (String line : output.lines().collect(toImmutableList())) {
-            String[] fields = line.split("\t");
-            if (fields.length < 3) {
-                continue;
-            }
-            int additions = fields[0].equals("-") ? 0 : Integer.parseInt(fields[0]);
-            int deletions = fields[1].equals("-") ? 0 : Integer.parseInt(fields[1]);
-            // Renames appear as "old => new" or "prefix{old => new}suffix"; key by the new path.
-            stats.put(renameTarget(fields[2]), new int[] {additions, deletions});
+        if (output.isEmpty()) {
+            return ImmutableList.of();
         }
-        return stats.buildKeepingLast();
-    }
-
-    /** Git pads +++/--- header paths containing spaces with a trailing tab. */
-    private static String headerPath(String value)
-    {
-        return CharMatcher.is('\t').trimTrailingFrom(value);
-    }
-
-    private static String renameTarget(String path)
-    {
-        int brace = path.indexOf('{');
-        int arrow = path.indexOf(" => ");
-        if (arrow < 0) {
-            return path;
-        }
-        if (brace < 0) {
-            return path.substring(arrow + 4);
-        }
-        int close = path.indexOf('}', brace);
-        String middle = path.substring(brace + 1, close);
-        int middleArrow = middle.indexOf(" => ");
-        String replaced = middleArrow < 0 ? middle : middle.substring(middleArrow + 4);
-        return (path.substring(0, brace) + replaced + path.substring(close + 1)).replace("//", "/");
-    }
-
-    private static List<DiffFile> splitPatch(String patch, Map<String, int[]> numstat)
-    {
+        // One Git read pairs literal NUL-delimited filenames with patches, regardless of header quoting or concurrent edits.
+        int boundary = output.indexOf("\0\0");
+        checkArgument(boundary >= 0, "Git returned incomplete diff metadata");
+        List<String> entries = Splitter.on('\0').splitToList(output.substring(0, boundary));
+        List<String> patches = Splitter.on("\ndiff --git ").splitToList(output.substring(boundary + 2));
         ImmutableList.Builder<DiffFile> files = ImmutableList.builder();
-        List<String> lines = patch.lines().collect(toImmutableList());
-        int index = 0;
-        while (index < lines.size()) {
-            if (!lines.get(index).startsWith("diff --git ")) {
-                index++;
-                continue;
+        int patchIndex = 0;
+        for (int index = 0; index < entries.size(); ) {
+            String metadata = entries.get(index++);
+            String status = metadata.substring(metadata.lastIndexOf(' ') + 1);
+            checkArgument(index < entries.size(), "Git returned incomplete diff paths");
+            String path = entries.get(index++);
+            if (status.startsWith("R") || status.startsWith("C")) {
+                checkArgument(index < entries.size(), "Git returned incomplete rename paths");
+                path = entries.get(index++);
             }
-            int start = index;
-            index++;
-            while (index < lines.size() && !lines.get(index).startsWith("diff --git ")) {
-                index++;
+            checkArgument(patchIndex < patches.size(), "Git returned incomplete file patches");
+            String patch = (patchIndex == 0 ? "" : "diff --git ") + patches.get(patchIndex++);
+            if (status.equals("T")) {
+                // Git represents a type change as deletion and addition patches for one raw record.
+                checkArgument(patchIndex < patches.size(), "Git returned an incomplete type-change patch");
+                patch += "\ndiff --git " + patches.get(patchIndex++);
             }
-            List<String> segment = lines.subList(start, index);
-            String status = "M";
-            String path = null;
-            for (String line : segment) {
-                if (line.startsWith("new file mode")) {
-                    status = "A";
-                }
-                else if (line.startsWith("deleted file mode")) {
-                    status = "D";
-                }
-                else if (line.startsWith("rename to ")) {
-                    status = "R";
-                    path = headerPath(line.substring("rename to ".length()));
-                }
-                else if (line.startsWith("+++ b/")) {
-                    path = headerPath(line.substring("+++ b/".length()));
-                }
-                else if (path == null && line.startsWith("--- a/")) {
-                    path = headerPath(line.substring("--- a/".length()));
-                }
-            }
-            if (path == null) {
-                // Binary or mode-only entry: fall back to the header's b-side path.
-                String header = segment.getFirst();
-                int bSide = header.indexOf(" b/");
-                path = bSide < 0 ? header : header.substring(bSide + 3);
-            }
-            int[] stats = numstat.getOrDefault(path, new int[] {0, 0});
-            files.add(new DiffFile(path, status, stats[0], stats[1], Optional.of(String.join("\n", segment))));
+            files.add(diffFile(path, status, patch));
         }
+        checkArgument(patchIndex == patches.size(), "Git returned unmatched file patches");
         return files.build();
+    }
+
+    private static DiffFile diffFile(String path, String status, String patch)
+    {
+        String kind = switch (status.charAt(0)) {
+            case 'A', 'C' -> "A";
+            case 'D' -> "D";
+            case 'R' -> "R";
+            default -> "M";
+        };
+        int additions = 0;
+        int deletions = 0;
+        boolean hunk = false;
+        for (String line : Splitter.on('\n').split(patch)) {
+            if (line.startsWith("diff --git ")) {
+                hunk = false;
+            }
+            else if (line.startsWith("@@ ")) {
+                hunk = true;
+            }
+            else if (hunk) {
+                additions += line.startsWith("+") ? 1 : 0;
+                deletions += line.startsWith("-") ? 1 : 0;
+            }
+        }
+        return new DiffFile(path, kind, additions, deletions, patch.isEmpty() ? Optional.empty() : Optional.of(patch));
     }
 
     public record Remote(String name, String url, Optional<String> headBranch) {}

@@ -19,6 +19,7 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewRunOverview;
 import com.bytequay.persistence.sqlite.entity.AgentReviewEntity;
 import com.bytequay.persistence.sqlite.entity.AgentReviewFindingEntity;
 import com.bytequay.persistence.sqlite.entity.AgentReviewMessageEntity;
@@ -27,13 +28,16 @@ import com.bytequay.persistence.sqlite.repository.AgentReviewFindingJpaRepositor
 import com.bytequay.persistence.sqlite.repository.AgentReviewJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentReviewMessageJpaRepository;
 import com.bytequay.persistence.sqlite.repository.AgentReviewRunJpaRepository;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.function.Supplier;
@@ -41,6 +45,7 @@ import java.util.function.ToLongFunction;
 
 import static com.bytequay.persistence.sqlite.store.StoreWrites.REVIEW;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -178,6 +183,17 @@ public class SqliteAgentReviewStore
     public List<ReviewRun> listRuns(String reviewId)
     {
         return runs.findByReviewIdOrderByOrdinalAsc(reviewId).stream().map(AgentReviewRunEntity::toDomain).collect(toImmutableList());
+    }
+
+    @Override
+    public Map<String, ReviewRunOverview> summarizeRuns(Set<String> reviewIds)
+    {
+        if (reviewIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return runs.summarizeRuns(reviewIds).stream().collect(toImmutableMap(AgentReviewRunJpaRepository.RunOverview::getReviewId,
+                run -> new ReviewRunOverview(run.getActive() != 0, ReviewRun.Scope.valueOf(run.getScope()),
+                        run.getCommits(), run.getFiles(), run.getAdditions(), run.getDeletions())));
     }
 
     @Override

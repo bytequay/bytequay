@@ -53,11 +53,13 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewRunOverview;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.store.PullRequestStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -67,8 +69,13 @@ import java.util.Optional;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
+import static java.util.Comparator.comparing;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestAppNoticeService
@@ -234,9 +241,10 @@ class TestAppNoticeService
     @Test
     void readsLiveTasksOutsideTheRecentPageAndExcludesInternalWork()
     {
-        show(task, turn());
+        AgentTurn active = turn();
+        show(task, active);
         when(tasks.listRecent(200)).thenReturn(ImmutableList.of());
-        approval(turns.list(task.id()).getFirst(), ImmutableList.of("AskUserQuestion"), "");
+        approval(active, ImmutableList.of("AskUserQuestion"), "");
         assertThat(service.current()).hasSize(1);
         AgentTask internal = created(TaskId.random(), Optional.of("workspace"), false, "Internal", new AgentLaneId("codex"),
                 task.repository(), task.worktree(), task.defaults(), NOW);
@@ -297,14 +305,14 @@ class TestAppNoticeService
                 ImmutableList.of(new DiffFile("a.java", "modified", 30, 8, null), new DiffFile("b.java", "modified", 12, 4, null)),
                 ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
-        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(full));
+        showRuns(review, full);
         assertThat(service.current()).singleElement().extracting(AppNotice::changes).isEqualTo(Optional.of(new AppNotice.Changes(false, 2, 2, 42, 12)));
 
         ReviewRun update = new ReviewRun("update", review.id(), 2, ReviewRun.Scope.INCREMENTAL, "main", "base", "base", "head", Optional.empty(), Optional.of("prior"),
                 ImmutableList.of(new ReviewCommit("c", "Rename image", "author")), ImmutableList.of(new DiffFile("image.png", "renamed", 0, 0, null)),
                 ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
-        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(update, full));
+        showRuns(review, update, full);
         assertThat(service.current()).singleElement().extracting(AppNotice::changes).isEqualTo(Optional.of(new AppNotice.Changes(true, 1, 1, 0, 0)));
     }
 
@@ -318,12 +326,12 @@ class TestAppNoticeService
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(investigation.id().toString()), ReviewRun.State.RUNNING,
                 Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
-        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(run));
+        showRuns(review, run);
         show(task, investigation);
         assertThat(service.current()).isEmpty();
 
         run = run.withStep(ReviewStep.initial().next(ReviewStep.Kind.VALIDATE), NOW.plusSeconds(11));
-        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(run));
+        showRuns(review, run);
         assertThat(service.current()).isEmpty();
         AgentTurn validation = turnAt(NOW.plusSeconds(12));
         show(task, investigation, validation);
@@ -337,8 +345,8 @@ class TestAppNoticeService
 
         show(task, investigation, validation.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(20)));
         assertThat(service.current()).isEmpty();
-        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(run.withTurn(validation.id().toString(), NOW.plusSeconds(12))
-                .ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW.plusSeconds(21))));
+        showRuns(review, run.withTurn(validation.id().toString(), NOW.plusSeconds(12))
+                .ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW.plusSeconds(21)));
         assertThat(service.current()).singleElement().satisfies(notice -> {
             assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
             assertThat(notice.turnId()).contains(validation.id().toString());
@@ -346,11 +354,44 @@ class TestAppNoticeService
         });
     }
 
+    @Test
+    void readsLatestTurnsInBatchesWithoutLoadingHistories()
+    {
+        AgentTask other = created(TaskId.random(), task.workspaceId(), true, "Second task", task.laneId(), task.repository(), task.worktree(), task.defaults(), NOW);
+        AgentTurn done = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
+        AgentTurn active = AgentTurn.accepted(TurnId.random(), other.id(), "other-input", SETTINGS, NOW);
+        when(tasks.listRecent(200)).thenReturn(ImmutableList.of(task, other));
+        when(tasks.listLive()).thenReturn(ImmutableList.of(other));
+        when(turns.findLatest(ImmutableSet.of(task.id(), other.id()))).thenReturn(ImmutableMap.of(task.id(), done, other.id(), active));
+        when(turns.findLatestDevelopmentResults(ImmutableSet.of(task.id(), other.id()))).thenReturn(ImmutableMap.of());
+
+        assertThat(service.current()).singleElement().extracting(AppNotice::taskId).isEqualTo(task.id().toString());
+
+        verify(turns).findLatest(ImmutableSet.of(task.id(), other.id()));
+        verify(turns).findLatestDevelopmentResults(ImmutableSet.of(task.id(), other.id()));
+        verify(turns, never()).list(any());
+        verify(reviews, never()).listRuns(any());
+    }
+
     private void show(AgentTask current, AgentTurn... history)
     {
         when(tasks.listRecent(200)).thenReturn(ImmutableList.of(current));
         when(tasks.listLive()).thenReturn(ImmutableList.of(current));
-        when(turns.list(current.id())).thenReturn(ImmutableList.copyOf(history));
+        when(turns.findLatest(anySet())).thenReturn(ImmutableList.copyOf(history).stream().max(comparing(AgentTurn::createdAt))
+                .map(turn -> ImmutableMap.of(current.id(), turn)).orElse(ImmutableMap.of()));
+        when(turns.findLatestDevelopmentResults(anySet())).thenReturn(ImmutableList.copyOf(history).stream()
+                .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
+                .filter(turn -> turn.developmentResult().isPresent()).max(comparing(AgentTurn::createdAt))
+                .map(turn -> ImmutableMap.of(current.id(), turn)).orElse(ImmutableMap.of()));
+    }
+
+    private void showRuns(AgentReview review, ReviewRun... history)
+    {
+        var runs = ImmutableList.copyOf(history);
+        ReviewRun latest = runs.stream().max(comparing(ReviewRun::ordinal)).orElseThrow();
+        when(reviews.summarizeRuns(anySet())).thenReturn(ImmutableMap.of(review.id(), new ReviewRunOverview(
+                runs.stream().anyMatch(ReviewRun::active), latest.scope(), latest.commits().size(), latest.diff().size(),
+                latest.diff().stream().mapToLong(DiffFile::additions).sum(), latest.diff().stream().mapToLong(DiffFile::deletions).sum())));
     }
 
     private AgentTurn turn()

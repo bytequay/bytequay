@@ -36,6 +36,7 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.ForeignKey;
 import jakarta.persistence.Id;
+import jakarta.persistence.Index;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
@@ -50,7 +51,8 @@ import java.util.Optional;
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.AGENT;
 
 @Entity
-@Table(name = "agent_turn", uniqueConstraints = @UniqueConstraint(columnNames = {"task_id", "idempotency_key"}))
+@Table(name = "agent_turn", uniqueConstraints = @UniqueConstraint(columnNames = {"task_id", "idempotency_key"}),
+        indexes = @Index(name = "idx_agent_turn_task_created", columnList = "task_id,created_at,id"))
 public class AgentTurnEntity
         extends AssignedIdEntity<String>
 {

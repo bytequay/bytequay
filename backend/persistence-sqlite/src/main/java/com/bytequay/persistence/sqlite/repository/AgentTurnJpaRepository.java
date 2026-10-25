@@ -21,6 +21,7 @@ import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface AgentTurnJpaRepository
         extends JpaRepository<AgentTurnEntity, String>
@@ -30,6 +31,23 @@ public interface AgentTurnJpaRepository
     Optional<AgentTurnEntity> findByActiveTaskId(String taskId);
 
     List<AgentTurnEntity> findByTaskIdOrderByCreatedAtAsc(String taskId);
+
+    @Query(value = """
+            SELECT turn.* FROM agent_task task JOIN agent_turn turn ON turn.id = (
+                SELECT latest.id FROM agent_turn latest WHERE latest.task_id = task.id
+                ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)
+            WHERE task.id IN :ids
+            """, nativeQuery = true)
+    List<AgentTurnEntity> findLatest(@Param("ids") Set<String> taskIds);
+
+    @Query(value = """
+            SELECT turn.* FROM agent_task task JOIN agent_turn turn ON turn.id = (
+                SELECT latest.id FROM agent_turn latest WHERE latest.task_id = task.id
+                    AND latest.development_result IS NOT NULL AND latest.refinement_parent_user_turn_id IS NULL
+                ORDER BY latest.created_at DESC, latest.id DESC LIMIT 1)
+            WHERE task.id IN :ids
+            """, nativeQuery = true)
+    List<AgentTurnEntity> findLatestDevelopmentResults(@Param("ids") Set<String> taskIds);
 
     List<AgentTurnEntity> findByActiveTaskIdIsNotNullOrderByCreatedAtAsc();
 

@@ -20,16 +20,22 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.persistence.sqlite.entity.AgentTurnEntity;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
+import static java.util.function.Function.identity;
 
 @Repository
 @Transactional(readOnly = true)
@@ -92,6 +98,28 @@ public class SqliteAgentTurnStore
         return repository.findByTaskIdOrderByCreatedAtAsc(taskId.toString()).stream()
                 .map(AgentTurnEntity::toDomain)
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public Map<TaskId, AgentTurn> findLatest(Set<TaskId> taskIds)
+    {
+        requireNonNull(taskIds, "taskIds is null");
+        if (taskIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return repository.findLatest(taskIds.stream().map(TaskId::toString).collect(toImmutableSet())).stream()
+                .map(AgentTurnEntity::toDomain).collect(toImmutableMap(AgentTurn::taskId, identity()));
+    }
+
+    @Override
+    public Map<TaskId, AgentTurn> findLatestDevelopmentResults(Set<TaskId> taskIds)
+    {
+        requireNonNull(taskIds, "taskIds is null");
+        if (taskIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return repository.findLatestDevelopmentResults(taskIds.stream().map(TaskId::toString).collect(toImmutableSet())).stream()
+                .map(AgentTurnEntity::toDomain).collect(toImmutableMap(AgentTurn::taskId, identity()));
     }
 
     @Override

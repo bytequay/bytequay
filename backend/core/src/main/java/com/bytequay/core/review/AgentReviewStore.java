@@ -14,7 +14,9 @@
 package com.bytequay.core.review;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /** Durable storage for reviews and everything they own; product data, independent of task runtime logs. */
 public interface AgentReviewStore
@@ -57,6 +59,9 @@ public interface AgentReviewStore
     Optional<ReviewRun> findRun(String runId);
 
     List<ReviewRun> listRuns(String reviewId);
+
+    /** Latest-run counts and whether any run is active, without loading retained diffs or conversation data. Reviews without runs are omitted. */
+    Map<String, ReviewRunOverview> summarizeRuns(Set<String> reviewIds);
 
     ReviewFinding insertFinding(ReviewFinding finding);
 

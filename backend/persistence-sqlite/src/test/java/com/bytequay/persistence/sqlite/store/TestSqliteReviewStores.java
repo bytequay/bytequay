@@ -33,6 +33,7 @@ import com.bytequay.core.review.ReviewOperation;
 import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewRunOverview;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewTestCheck;
@@ -44,7 +45,9 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
+import org.hibernate.Session;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -159,6 +162,30 @@ class TestSqliteReviewStores
         entityManager.clear();
         assertThat(store.findReview(review.id()).orElseThrow().worktreeHeadSha()).contains(NEXT_HEAD_SHA);
         assertThat(store.findRun(run.id())).contains(run);
+    }
+
+    @Test
+    void summarizesLatestRunsWithoutLoadingRetainedPatchesOrHistory()
+    {
+        String patch = "+retained source line\n".repeat(25_000);
+        store.insertRun(newRun("latest", "review-one", 2, ReviewRun.Scope.INCREMENTAL,
+                ImmutableList.of(new ReviewCommit(HEAD_SHA, "Latest change", "octocat")),
+                ImmutableList.of(new DiffFile("one.java", "modified", Integer.MAX_VALUE, 3, patch),
+                        new DiffFile("two.java", "modified", Integer.MAX_VALUE, 7, patch)))
+                .ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        // An earlier run can remain active and be updated after the latest ordinal.
+        store.insertRun(newRun("earlier", "review-one").withTurn("late-turn", NOW.plusSeconds(100)));
+        store.insertRun(newRun("empty", "review-two", 1, ReviewRun.Scope.FULL, ImmutableList.of(), ImmutableList.of())
+                .ended(ReviewRun.State.STOPPED, Optional.empty(), NOW));
+        store.insertRun(newRun("excluded", "review-three"));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.summarizeRuns(ImmutableSet.of("review-one", "review-two", "no-runs"))).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
+                "review-one", new ReviewRunOverview(true, ReviewRun.Scope.INCREMENTAL, 1, 2, 2L * Integer.MAX_VALUE, 10),
+                "review-two", new ReviewRunOverview(false, ReviewRun.Scope.FULL, 0, 0, 0, 0)));
+        assertThat(entityManager.unwrap(Session.class).getStatistics().getEntityCount()).isZero();
+        assertThat(store.summarizeRuns(ImmutableSet.of())).isEmpty();
     }
 
     @Test
@@ -648,20 +675,27 @@ class TestSqliteReviewStores
 
     private static ReviewRun newRun(String id, String reviewId)
     {
+        return newRun(id, reviewId, 1, ReviewRun.Scope.INCREMENTAL,
+                ImmutableList.of(new ReviewCommit(PRIOR_HEAD_SHA, "Add the review tool surface", "octocat"), new ReviewCommit(HEAD_SHA, "Freeze the publication diff", "octocat")),
+                ImmutableList.of(
+                        new DiffFile(REVIEW_TOOLS, "modified", 41, 3, "@@ -115,4 +115,6 @@\n-int published;\n+int published = 0;\n"),
+                        new DiffFile("docs/design/review.png", "added", 0, 0, null)));
+    }
+
+    private static ReviewRun newRun(String id, String reviewId, int ordinal, ReviewRun.Scope scope, List<ReviewCommit> commits, List<DiffFile> diff)
+    {
         return new ReviewRun(
                 id,
                 reviewId,
-                1,
-                ReviewRun.Scope.INCREMENTAL,
+                ordinal,
+                scope,
                 "main",
                 BASE_SHA,
                 MERGE_BASE_SHA,
                 HEAD_SHA, Optional.of("d".repeat(40)),
                 Optional.of(PRIOR_HEAD_SHA),
-                ImmutableList.of(new ReviewCommit(PRIOR_HEAD_SHA, "Add the review tool surface", "octocat"), new ReviewCommit(HEAD_SHA, "Freeze the publication diff", "octocat")),
-                ImmutableList.of(
-                        new DiffFile(REVIEW_TOOLS, "modified", 41, 3, "@@ -115,4 +115,6 @@\n-int published;\n+int published = 0;\n"),
-                        new DiffFile("docs/design/review.png", "added", 0, 0, null)),
+                commits,
+                diff,
                 ImmutableList.of("turn-1"),
                 ReviewRun.State.RUNNING,
                 Optional.empty(),

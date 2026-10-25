@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
@@ -20,6 +21,8 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewRunOverview;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -27,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -165,6 +169,21 @@ class InMemoryReviewStore
                 .filter(run -> run.reviewId().equals(reviewId))
                 .sorted(Comparator.comparingInt(ReviewRun::ordinal))
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public Map<String, ReviewRunOverview> summarizeRuns(Set<String> reviewIds)
+    {
+        ImmutableMap.Builder<String, ReviewRunOverview> result = ImmutableMap.builder();
+        for (String reviewId : reviewIds) {
+            List<ReviewRun> reviewRuns = listRuns(reviewId);
+            if (!reviewRuns.isEmpty()) {
+                ReviewRun latest = reviewRuns.getLast();
+                result.put(reviewId, new ReviewRunOverview(reviewRuns.stream().anyMatch(ReviewRun::active), latest.scope(), latest.commits().size(), latest.diff().size(),
+                        latest.diff().stream().mapToLong(DiffFile::additions).sum(), latest.diff().stream().mapToLong(DiffFile::deletions).sum()));
+            }
+        }
+        return result.buildOrThrow();
     }
 
     @Override

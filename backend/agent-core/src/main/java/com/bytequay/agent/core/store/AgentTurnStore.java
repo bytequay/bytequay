@@ -19,7 +19,9 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Persistence port for durable per-turn state and idempotency records.
@@ -84,6 +86,12 @@ public interface AgentTurnStore
      * @return ordered turns used for metrics and completion summaries
      */
     List<AgentTurn> list(TaskId taskId);
+
+    /** Returns the latest turn of each requested task without loading its history. */
+    Map<TaskId, AgentTurn> findLatest(Set<TaskId> taskIds);
+
+    /** Returns each task's latest development result, excluding summary refinement turns. */
+    Map<TaskId, AgentTurn> findLatestDevelopmentResults(Set<TaskId> taskIds);
 
     /**
      * Returns accepted and running turns that require interruption during startup

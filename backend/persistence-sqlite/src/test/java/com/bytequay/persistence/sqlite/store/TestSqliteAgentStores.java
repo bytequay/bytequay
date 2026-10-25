@@ -77,6 +77,7 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.core.domain.PullRequestTask;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -778,6 +779,45 @@ class TestSqliteAgentStores
         assertThat(turnStore.list(task.id())).containsExactly(terminal, second);
         assertThatThrownBy(() -> turnStore.update(first.withMetrics(AgentMetrics.empty())))
                 .isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void batchesLatestTurnsAndDevelopmentResultsWithoutSummaryRefinements()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        AgentTask other = newTask(now);
+        AgentTask excluded = newTask(now);
+        taskStore.insert(task);
+        taskStore.insert(other);
+        taskStore.insert(excluded);
+        AgentTurn asked = AgentTurn.accepted(TurnId.random(), task.id(), "question", turnSettings(), now)
+                .markDeliveryStarted(now).running(new ProviderTurnRef("question"), Optional.empty())
+                .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Continue?")))
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now);
+        AgentTurn ready = AgentTurn.accepted(TurnId.random(), task.id(), "ready", turnSettings(), now.plusMillis(123))
+                .markDeliveryStarted(now.plusMillis(123)).running(new ProviderTurnRef("ready"), Optional.empty())
+                .withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty()))
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusMillis(123));
+        AgentTurn refinement = AgentTurn.accepted(TurnId.random(), task.id(), "summary", turnSettings(), now.plusNanos(123001000))
+                .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, ready.id()))
+                .markDeliveryStarted(now.plusNanos(123001000)).running(new ProviderTurnRef("summary"), Optional.empty())
+                .withDevelopmentResult(new DevelopmentResultReport(false, Optional.of("Summary only")))
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusNanos(123001000));
+        AgentTurn latest = AgentTurn.accepted(TurnId.random(), task.id(), "latest", turnSettings(), now.plusMillis(200));
+        AgentTurn otherTurn = AgentTurn.accepted(TurnId.random(), other.id(), "other", turnSettings(), now);
+        AgentTurn excludedTurn = AgentTurn.accepted(TurnId.random(), excluded.id(), "excluded", turnSettings(), now);
+        for (AgentTurn turn : ImmutableList.of(asked, ready, refinement, latest, otherTurn, excludedTurn)) {
+            turnStore.insert(turn);
+        }
+        entityManager.clear();
+
+        Set<TaskId> ids = ImmutableSet.of(task.id(), other.id(), TaskId.random());
+        assertThat(turnStore.findLatest(ids)).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(task.id(), latest, other.id(), otherTurn));
+        assertThat(turnStore.findLatestDevelopmentResults(ids)).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(task.id(), ready));
+        assertThat(turnStore.list(task.id())).containsExactly(asked, ready, refinement, latest);
+        assertThat(turnStore.findLatest(ImmutableSet.of())).isEmpty();
+        assertThat(turnStore.findLatestDevelopmentResults(ImmutableSet.of())).isEmpty();
     }
 
     @Test

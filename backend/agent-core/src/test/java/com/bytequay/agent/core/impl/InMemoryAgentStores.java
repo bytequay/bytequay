@@ -25,6 +25,7 @@ import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.CleanupState;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -50,8 +51,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
 
 final class InMemoryAgentStores
@@ -325,6 +328,26 @@ final class InMemoryAgentStores
                 .filter(turn -> turn.taskId().equals(taskId))
                 .sorted(Comparator.comparing(AgentTurn::createdAt))
                 .collect(toImmutableList());
+    }
+
+    @Override
+    public synchronized Map<TaskId, AgentTurn> findLatest(Set<TaskId> taskIds)
+    {
+        return turns.values().stream()
+                .filter(turn -> taskIds.contains(turn.taskId()))
+                .sorted(Comparator.comparing(AgentTurn::createdAt).thenComparing(turn -> turn.id().toString()))
+                .collect(toImmutableMap(AgentTurn::taskId, turn -> turn, (previous, latest) -> latest));
+    }
+
+    @Override
+    public synchronized Map<TaskId, AgentTurn> findLatestDevelopmentResults(Set<TaskId> taskIds)
+    {
+        return turns.values().stream()
+                .filter(turn -> taskIds.contains(turn.taskId()))
+                .filter(turn -> turn.developmentResult().isPresent())
+                .filter(turn -> turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isEmpty())
+                .sorted(Comparator.comparing(AgentTurn::createdAt).thenComparing(turn -> turn.id().toString()))
+                .collect(toImmutableMap(AgentTurn::taskId, turn -> turn, (previous, latest) -> latest));
     }
 
     @Override

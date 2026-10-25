@@ -39,7 +39,9 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -66,6 +68,8 @@ public class WorkflowMonitorJob
     private final AgentServingGate servingGate;
     private final Clock clock;
     private volatile Instant cherryPicksRetriedAt = Instant.MIN;
+    // By workflow id, the last failure message: a workflow that keeps failing the same way logs its stack once.
+    private final Map<Object, String> failures = new ConcurrentHashMap<>();
 
     public WorkflowMonitorJob(
             CherryPickExecutionStore cherryPicks, CherryPickExecutionService cherryPickService,
@@ -158,14 +162,21 @@ public class WorkflowMonitorJob
     }
 
     /** One failed transition must not prevent another selected workflow from advancing. */
-    private static <I> void advanceEach(String what, List<I> ids, Consumer<I> advance)
+    private <I> void advanceEach(String what, List<I> ids, Consumer<I> advance)
     {
         for (I id : ids) {
             try {
                 advance.accept(id);
+                failures.remove(id);
             }
             catch (RuntimeException failure) {
-                log.warn("Cannot advance {} {}", what, id, failure);
+                String message = String.valueOf(failure.getMessage());
+                if (message.equals(failures.put(id, message))) {
+                    log.debug("Cannot advance {} {}: {}", what, id, message);
+                }
+                else {
+                    log.warn("Cannot advance {} {}", what, id, failure);
+                }
             }
         }
     }

@@ -73,7 +73,7 @@ export default function WorktreeChanges({ host, active = true, selection, review
   }, [active, key, reload]);
   useEffect(() => {
     if (!active || request.scope === 'COMMIT' || request.head !== undefined) return;
-    const timer = window.setInterval(() => setReload(value => value + 1), 5000);
+    const timer = window.setInterval(() => { if (!document.hidden) setReload(value => value + 1); }, 5000);
     return () => window.clearInterval(timer);
   }, [active, request.head, request.scope]);
   const data = result?.key === key ? result.value : null;

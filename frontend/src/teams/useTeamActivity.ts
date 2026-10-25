@@ -61,7 +61,7 @@ export function useTeamActivity(accountLogin: string | undefined, { circleId, me
     if (accountLogin) void load();
     const reload = () => { if (!refreshInFlight.current) void load(); };
     const invalidate = () => { generation.current++; };
-    const timer = window.setInterval(reload, 30_000);
+    const timer = window.setInterval(() => { if (!document.hidden) reload(); }, 30_000);
     window.addEventListener(TEAMS_CHANGED, reload);
     window.addEventListener('bytequay:pr-attention-updated', reload);
     const stopSync = window.bridge.onPullRequestsSynced(reload);

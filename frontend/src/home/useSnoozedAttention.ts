@@ -137,7 +137,8 @@ export function useSnoozedAttention(candidates: AttentionItem[], handled: Handle
         });
     };
     refresh();
-    const timer = window.setInterval(refresh, 30_000);
+    // A hidden window reads nothing; focus catches it up.
+    const timer = window.setInterval(() => { if (!document.hidden) refresh(); }, 30_000);
     window.addEventListener('focus', refresh);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('focus', refresh); };
   }, [reminders]);

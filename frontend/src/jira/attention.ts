@@ -56,7 +56,7 @@ export function useJiraAttention(): { items: AttentionItem[]; error: string | nu
     reload();
     window.addEventListener(JIRA_CHANGED, reload);
     window.addEventListener('focus', reload);
-    const timer = window.setInterval(reload, 60_000);
+    const timer = window.setInterval(() => { if (!document.hidden) reload(); }, 60_000);
     return () => { active = false; window.removeEventListener(JIRA_CHANGED, reload); window.removeEventListener('focus', reload); window.clearInterval(timer); };
   }, []);
   return { items, error, connected };

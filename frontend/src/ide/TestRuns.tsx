@@ -44,7 +44,8 @@ export default function TestRuns({ context, files, runtime, mode }: {
         if (!Array.isArray(value)) throw new Error('Invalid run history');
         if (live) {
           const next = value.map(parseLocalRun);
-          setRuns(next);
+          // Polled every 1.5 seconds; an unchanged history keeps the shown runs and skips the hidden panels' render.
+          setRuns(shown => JSON.stringify(shown) === JSON.stringify(next) ? shown : next);
           setLoadError(null);
           for (const panel of ['run', 'debug'] as const) {
             const id = next.find(run => testRunPanel(run) === panel)?.id ?? null;

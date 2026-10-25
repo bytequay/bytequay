@@ -21,8 +21,8 @@ import { useTaskDiscussions } from '../../agents/discussions/useTaskDiscussions'
 import { reviewThreadBridge } from '../PrivateThread';
 import SubagentsPanel from '../../agents/SubagentsPanel';
 import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
-import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ApprovalDecider, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
-import { projectAgents, projectTranscript, withApprovalAuthority } from '../../agents/transcript';
+import { AgentConversation, ConversationComposer, ConversationQueue, PlanCard, useConversationHistory, type ApprovalDecider, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
+import { currentPlan, projectAgents, projectTranscript, withApprovalAuthority } from '../../agents/transcript';
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { PendingMessage } from '../../agents/model';
 import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto, ModelProviderDto } from '../../types';
@@ -128,6 +128,8 @@ export default function ReviewActivity({
   };
   const toggleActivity = (id: string, open: boolean): void => setActivityChoice(choices => ({ ...choices, [id]: open }));
   const running = reviewRunning(review);
+  const [planOpen, setPlanOpen] = useState(true);
+  const plan = running && history.after === null ? currentPlan(projected) : null;
   const recovery = reviewRecoveryRequired(review);
   const waiting = review.pendingApprovals > 0 || pendingApprovals.length > 0;
   const ready = composer.trim() !== '' && !busy && !recovery && review.state !== 'CLOSED' && connection === 'open';
@@ -174,6 +176,7 @@ export default function ReviewActivity({
       agentLabels={agentLabels} onOpenAgent={conversationPanel !== undefined && review.task.nestedAgents ? openSubagent : undefined}
       onToggleActivity={toggleActivity}
       onDecide={onDecide}>
+      {plan !== null && plan.steps.length > 0 && <PlanCard steps={plan.steps} open={planOpen} onToggle={() => setPlanOpen(open => !open)} repository={review.repo} />}
       <ConversationQueue
         queue={review.queuedInputIds.map((id): ConversationQueuedInput => {
           const message = review.messages.find(message => message.queuedInputId === id);

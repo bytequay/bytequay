@@ -45,6 +45,13 @@ describe('the unified review conversation', () => {
       .toMatch(/aria-label="Model and effort for the next message"[^>]*disabled/);
   });
 
+  it('keeps the running turn’s plan above the composer', () => {
+    const html = render({ events: events.slice(0, 4) });
+    expect(html).toContain('class="agt-todos"');
+    expect(html).toContain('1 completed · 1 in progress · 1 pending');
+    expect(render({ events: events.slice(0, 4), review: reviewFixture() })).not.toContain('class="agt-todos"');
+  });
+
   it('enables steering for a Claude review whose provider supports it', () => {
     const review = { ...props.review, task: { ...props.review.task, laneId: 'claude-cli', laneLabel: 'Claude', steering: true } };
     const html = render({ review, composer: 'Docker started now' });

@@ -47,7 +47,7 @@ import ComposerModelControls from './ComposerModelControls';
 import { IssueRequestCard } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { agentDisplayName,activitySummary,formatDuration,itemKey,planChip,projectTranscript,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+import { agentDisplayName,activitySummary,formatDuration,itemKey,planChip,planSummary,projectTranscript,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** Answers accompany a question tool's allow; every other approval sends the decision alone. */
 export type ApprovalDecider = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => void;
@@ -451,6 +451,22 @@ export function PlanSteps({ steps, compact = false, historical = false, reposito
           <span className="agt-plan__text">{linkIssueNumbers(step.text, repository)}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+/** The plan the running turn is following, kept in view above the composer while it runs. */
+export function PlanCard({ steps, open, onToggle, repository }: { steps: PlanStep[]; open: boolean; onToggle: () => void; repository?: string | null }): React.JSX.Element {
+  return (
+    <div className="agt-todos">
+      <button type="button" className="agt-todos__head" aria-expanded={open} aria-label="Show or hide the plan" onClick={onToggle}>
+        <ListChecks className="agt-todos__icon" aria-hidden="true" />
+        <span className="agt-todos__title">Plan</span>
+        <span className="agt-todos__summary agt-ellipsis">{planSummary(steps)}</span>
+        <span className="agt-spacer" />
+        <Chevron open={open} />
+      </button>
+      {open && <PlanSteps steps={steps} compact repository={repository} />}
     </div>
   );
 }

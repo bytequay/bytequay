@@ -16,12 +16,10 @@ import {
   Archive,
   ArchiveRestore,
   CircleCheck,
-  ListChecks,
   PanelRight,
   TriangleAlert
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { Chevron } from '../Chevron';
 import { ConfirmDialog } from '../ConfirmDialog';
 import '../css/agents.css';
 import PinButton from '../home/PinButton';
@@ -80,7 +78,7 @@ import type {
 } from '../types';
 import { useNow } from '../useNow';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
-import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanSteps, serviceTierName, Spinner, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
+import { AgentConversation, ConversationComposer, ConversationQueue, modelName, PlanCard, serviceTierName, Spinner, useConversationHistory, useOutputWheel, type ApprovalDecider, type AttachmentPreview } from './AgentConversation';
 import { taskArchived } from './taskStatus';
 import { AutomationControl, AutomationPill } from './AutomationControl';
 import { BackportChainCard, useBackportChains } from './BackportChains';
@@ -146,14 +144,12 @@ import {
   agentDisplayName,
   currentPlan,
   formatDuration,
-  planSummary,
   projectAgents,
   projectTranscript,
   settleFinalTurn,
   turnElapsedMs,
   withApprovalAuthority,
   type AgentNode,
-  type PlanStep,
   type TranscriptTurn
 } from './transcript';
 export { TurnView,type AttachmentPreview } from './AgentConversation';
@@ -474,22 +470,6 @@ function TerminalSummary({ task, repository, onCleanup }: { task: AgentTaskDto; 
         <button type="button" className="agt-action" onClick={onCleanup}>Retry checkout cleanup</button>
       )}
     </section>
-  );
-}
-
-/** The plan the running turn is following, kept in view above the composer while it runs. */
-function PlanCard({ steps, open, onToggle, repository }: { steps: PlanStep[]; open: boolean; onToggle: () => void; repository?: string | null }): React.JSX.Element {
-  return (
-    <div className="agt-todos">
-      <button type="button" className="agt-todos__head" aria-expanded={open} aria-label="Show or hide the plan" onClick={onToggle}>
-        <ListChecks className="agt-todos__icon" aria-hidden="true" />
-        <span className="agt-todos__title">Plan</span>
-        <span className="agt-todos__summary agt-ellipsis">{planSummary(steps)}</span>
-        <span className="agt-spacer" />
-        <Chevron open={open} />
-      </button>
-      {open && <PlanSteps steps={steps} compact repository={repository} />}
-    </div>
   );
 }
 

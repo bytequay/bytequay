@@ -33,6 +33,7 @@ import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -43,6 +44,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
@@ -141,8 +143,25 @@ class TestWorkspaceIssueRefresh
         when(issueStore.findPage(300, UPSTREAM, 0, 50)).thenReturn(persisted);
 
         assertThat(service.refreshIssues("fork")).isSameAs(persisted);
-        verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))), anyString());
-        verify(issueStore).completeSync(org.mockito.ArgumentMatchers.eq(300L), anyString(), org.mockito.ArgumentMatchers.eq(NOW));
+        verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))));
+        verify(issueStore).completeSync(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(NOW));
+    }
+
+    @Test
+    void runsAFullSyncOnlyWhenTheStoredIssuesAreOlderThanAsked()
+    {
+        workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
+        when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1)).thenReturn(new GitHubRepoClient.IssuePage(ImmutableList.of(issue(1), issue(2)), false));
+        when(issueStore.findPage(100, DIRECT, 0, 1))
+                .thenReturn(new RepositoryIssuePage(100, DIRECT, ImmutableList.of(), 0, 1, 0, false, Optional.of(NOW.minus(Duration.ofHours(3)))));
+
+        service.refreshIssuesOlderThan("direct", Duration.ofHours(4));
+        verifyNoInteractions(gitHub);
+
+        when(issueStore.findPage(100, DIRECT, 0, 1))
+                .thenReturn(new RepositoryIssuePage(100, DIRECT, ImmutableList.of(), 0, 1, 0, false, Optional.of(NOW.minus(Duration.ofHours(5)))));
+        service.refreshIssuesOlderThan("direct", Duration.ofHours(4));
+        verify(issueStore).completeSync(100L, ImmutableSet.of(issue(1).id(), issue(2).id()), NOW);
     }
 
     @Test

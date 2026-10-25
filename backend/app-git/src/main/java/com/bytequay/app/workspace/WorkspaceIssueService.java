@@ -326,6 +326,19 @@ public class WorkspaceIssueService
         }
     }
 
+    /**
+     * Runs the full open-issue sync only when the last one is older than {@code age}. The one-minute recent refresh keeps
+     * changed and closed issues current in between; a full sync also catches issues that left the repository.
+     */
+    public void refreshIssuesOlderThan(String workspaceId, Duration age)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Optional<Instant> synced = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 1).syncedAt();
+        if (synced.filter(at -> at.plus(age).isAfter(clock.instant())).isEmpty()) {
+            refreshIssues(workspaceId);
+        }
+    }
+
     public RepositoryIssuePage refreshIssues(String workspaceId)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {

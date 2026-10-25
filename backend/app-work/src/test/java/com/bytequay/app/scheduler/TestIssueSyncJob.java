@@ -23,6 +23,7 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 
@@ -45,10 +46,12 @@ class TestIssueSyncJob
 
         new IssueSyncJob(issues, workspaces, credentials, mock(AppSettingsService.class)).tick();
 
-        verify(issues).refreshIssues("first");
-        verify(issues, never()).refreshIssues("second");
-        verify(issues).refreshIssues("third");
-        verify(issues, times(2)).refreshIssues(org.mockito.ArgumentMatchers.anyString());
+        // A full sync is due only after a few hours; the recent refresh keeps the stored issues current in between.
+        verify(issues).refreshIssuesOlderThan("first", Duration.ofHours(4));
+        verify(issues, never()).refreshIssuesOlderThan("second", Duration.ofHours(4));
+        verify(issues).refreshIssuesOlderThan("third", Duration.ofHours(4));
+        verify(issues, times(2)).refreshIssuesOlderThan(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        verify(issues, never()).refreshIssues(org.mockito.ArgumentMatchers.anyString());
     }
 
     private static Workspace workspace(String id, long repositoryId)

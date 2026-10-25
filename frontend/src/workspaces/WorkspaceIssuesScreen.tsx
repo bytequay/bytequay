@@ -75,6 +75,8 @@ const DETAIL_MAX = 1600;
 const DETAIL_DEFAULT = 1120;
 const PAGE_SIZE = 50;
 const ISSUES_REREAD_MS = 30_000;
+// The backend syncs every open issue only every few hours; opening the tab syncs a copy older than this.
+const ISSUES_SYNC_ON_OPEN_MS = 10 * 60_000;
 const HIDDEN_EVENTS = new Set(['comment_deleted', 'mentioned', 'subscribed', 'unsubscribed']);
 
 type IssueDetailBridge = Pick<Bridge, 'fetchWorkspaceIssueDetail' | 'refreshWorkspaceIssueDetail'>;
@@ -320,7 +322,17 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     // ponytail: the overlay reads the same stored page as the list and keeps only its own issue;
     // give it a single-issue load if that page ever stops being a local read.
     window.bridge.fetchWorkspaceIssues(workspaceId, 0, PAGE_SIZE)
-      .then(value => { if (!cancelled) apply(value); })
+      .then(value => {
+        if (cancelled) return;
+        apply(value);
+        if (value.syncedAt !== null && Date.now() - Date.parse(value.syncedAt) < ISSUES_SYNC_ON_OPEN_MS) return;
+        // Quiet, like other background refreshes: the stored list stays on screen and a failure says nothing.
+        void window.bridge.refreshWorkspaceIssues(workspaceId).then(fresh => {
+          if (cancelled) return;
+          if ((live.current.snapshot?.page ?? 0) === 0) apply(fresh);
+          notifyIssueDevelopmentChanged();
+        }).catch(() => {});
+      })
       .catch(failure => {
         if (!cancelled) setError(failure instanceof Error ? failure.message : String(failure));
       })

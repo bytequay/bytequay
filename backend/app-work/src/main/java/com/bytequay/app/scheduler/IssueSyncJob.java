@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -34,6 +35,9 @@ import static java.util.Objects.requireNonNull;
 public class IssueSyncJob
 {
     private static final Logger log = LoggerFactory.getLogger(IssueSyncJob.class);
+    // A full sync reads every open issue, about 30 pages for a large repository; the one-minute recent refresh keeps Home
+    // current in between, and opening a workspace's Issues tab syncs it sooner.
+    private static final Duration FULL_SYNC_AGE = Duration.ofHours(4);
 
     private final WorkspaceIssueService issues;
     private final WorkspaceStore workspaces;
@@ -62,7 +66,7 @@ public class IssueSyncJob
             if (!synchronizedRepositories.add(workspace.monitoredRepositoryId())) {
                 continue;
             }
-            refreshQuietly(log, "Issue sync for " + workspace.monitoredRepository(), () -> issues.refreshIssues(workspace.id()));
+            refreshQuietly(log, "Issue sync for " + workspace.monitoredRepository(), () -> issues.refreshIssuesOlderThan(workspace.id(), FULL_SYNC_AGE));
         }
     }
 }

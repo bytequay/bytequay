@@ -26,6 +26,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.core.review.ReviewConflictException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -250,7 +251,8 @@ class TestIdeRuntimeService
         when(clock.instant()).thenReturn(Instant.EPOCH.plusSeconds(171));
         runtime.stopAbandoned();
         verify(process).stopAndVerify();
-        assertThatThrownBy(() -> runtime.touch(connection.taskId(), connection.sessionId())).hasMessageContaining("session has ended");
+        assertThatThrownBy(() -> runtime.touch(connection.taskId(), connection.sessionId())).isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("session has ended");
     }
 
     @Test

@@ -163,11 +163,19 @@ public class IdeRuntimeService
     public void touch(String taskId, String sessionId)
     {
         sessions.compute(taskId, (ignored, live) -> {
-            checkState(live != null && live.sessionId.equals(sessionId), "The IDE session has ended");
+            requireSession(live, sessionId);
             checkState(live.process.isPresent() && !live.process.orElseThrow().exit().toCompletableFuture().isDone(), "The IDE process stopped unexpectedly");
             live.lastSeen = clock.instant();
             return live;
         });
+    }
+
+    /** An editor left open across a restart or a stop keeps calling; that is a conflict to answer, not a failure to log. */
+    private static void requireSession(Live live, String sessionId)
+    {
+        if (live == null || !live.sessionId.equals(sessionId)) {
+            throw new ReviewConflictException("The IDE session has ended");
+        }
     }
 
     /** Takes the process baseline before a claimed execution is allowed to start. */
@@ -175,7 +183,7 @@ public class IdeRuntimeService
     {
         touch(taskId, sessionId);
         Live live = sessions.get(taskId);
-        checkState(live != null && live.sessionId.equals(sessionId), "The IDE session has ended");
+        requireSession(live, sessionId);
         ManagedProcess process = live.process.orElseThrow();
         List<ProcessIdentity> baseline = process.observedDescendants()
                 .orElseThrow(() -> new ReviewConflictException("IDE process ownership is uncertain; close the editor before running code"));

@@ -4,17 +4,29 @@
   box-sizing: border-box;
 }
 
-/* One thin scrollbar everywhere: macOS's own overlay bar widens into a tracked bar on hover. */
+/* One thin scrollbar everywhere: macOS's own overlay bar widens into a tracked bar on hover.
+   scrollbarFade.ts animates the scroller's value; hovering the resting thumb still finds it. */
+@property --scrollbar-thumb-shown {
+  syntax: '<number>';
+  inherits: false;
+  initial-value: 0;
+}
+
 ::-webkit-scrollbar {
   width: 9px;
   height: 9px;
 }
 
 ::-webkit-scrollbar-thumb {
+  --scrollbar-thumb-shown: inherit;
   border: 2px solid transparent;
   border-radius: 5px;
-  background: light-dark(rgb(0 0 0 / 25%), rgb(255 255 255 / 30%));
+  background: color-mix(in srgb, light-dark(rgb(0 0 0 / 25%), rgb(255 255 255 / 30%)) calc(var(--scrollbar-thumb-shown) * 100%), transparent);
   background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  --scrollbar-thumb-shown: 1;
 }
 
 ::-webkit-scrollbar-corner {

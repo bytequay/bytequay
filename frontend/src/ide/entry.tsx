@@ -41,6 +41,7 @@ import { installGitHistory } from './gitHistory';
 import { codeHostKey } from '../pulls/code-tests/contracts';
 import { pollVisible } from './pollVisible';
 import '../css/base.css';
+import '../scrollbarFade';
 import '../css/markdown-editor.css';
 import '../css/pulls.css';
 import '../css/agent-review.css';

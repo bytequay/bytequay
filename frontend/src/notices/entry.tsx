@@ -14,6 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import NoticeStack from './NoticeStack';
 import '../css/base.css';
+import '../scrollbarFade';
 import './notices.css';
 
 const root = document.getElementById('root');

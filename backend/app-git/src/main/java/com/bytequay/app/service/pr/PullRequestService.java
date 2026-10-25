@@ -135,6 +135,7 @@ public class PullRequestService
     private String summaryCredential;
     private String lastDiscovery = "";
     private final Map<PullRequestRef, DetailWork> detailRefreshes = new ConcurrentHashMap<>();
+    private volatile TimelineActivities timelineActivities;
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubPullRequestWriteClient pullRequestWrites;
@@ -308,7 +309,7 @@ public class PullRequestService
     public Map<Long, PrActivitySummary> findCachedLatestActivities(List<PullRequest> pullRequests)
     {
         Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
-        Map<Long, PrActivitySummary> activities = new HashMap<>(details.findLatestActivities(ids));
+        Map<Long, PrActivitySummary> activities = new HashMap<>(timelineActivities(ids));
         store.findActivities(ids).forEach((id, activity) -> activities.merge(id, activity, (cached, card) -> cached.timestamp().isAfter(card.timestamp()) ? cached : card));
         ImmutableMap.Builder<Long, PrActivitySummary> latest = ImmutableMap.builder();
         for (PullRequest pullRequest : pullRequests) {
@@ -319,6 +320,24 @@ public class PullRequestService
         }
         return latest.buildOrThrow();
     }
+
+    /**
+     * The latest timeline activity of each pull request, kept until a timeline is written: reading it parses every review thread,
+     * most of an attention rebuild, while most rebuilds follow writes elsewhere.
+     */
+    private Map<Long, PrActivitySummary> timelineActivities(Set<Long> ids)
+    {
+        String version = writes.current("pr_timeline");
+        TimelineActivities cached = timelineActivities;
+        if (cached != null && cached.version().equals(version) && cached.ids().equals(ids)) {
+            return cached.activities();
+        }
+        Map<Long, PrActivitySummary> activities = details.findLatestActivities(ids);
+        timelineActivities = new TimelineActivities(version, ImmutableSet.copyOf(ids), activities);
+        return activities;
+    }
+
+    private record TimelineActivities(String version, Set<Long> ids, Map<Long, PrActivitySummary> activities) {}
 
     /**
      * Reads the cached commits each PR received after the viewer's last review, or after the review

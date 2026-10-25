@@ -158,6 +158,7 @@ class TestPullRequestService
     @Mock private PullRequestStore store;
     @Mock private PrDetailStore detailStore;
     @Mock private PrDiffStore diffStore;
+    private final WriteVersion writeVersion = new WriteVersion();
     @Mock private PrViewStateStore viewStateStore;
     @Mock private CredentialService credentialService;
     @Mock private WorkspaceMetadataService metadata;
@@ -213,6 +214,21 @@ class TestPullRequestService
     }
 
     @Test
+    @Test
+    void attentionReusesTimelineActivityUntilATimelineIsWritten()
+    {
+        PullRequest row = storedPullRequest(pullRequestNumber(91));
+        when(detailStore.findLatestActivities(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of());
+
+        service.findCachedLatestActivities(ImmutableList.of(row));
+        writeVersion.written("pull_requests");
+        service.findCachedLatestActivities(ImmutableList.of(row));
+        verify(detailStore).findLatestActivities(ImmutableSet.of(row.id()));
+        writeVersion.written("pr_timeline");
+        service.findCachedLatestActivities(ImmutableList.of(row));
+        verify(detailStore, times(2)).findLatestActivities(ImmutableSet.of(row.id()));
+    }
+
     void attentionVersionChangesWithInMemoryInputsTheStoreCannotSee()
     {
         when(credentialService.cachedLogin()).thenReturn(Optional.of("me"));
@@ -460,7 +476,8 @@ class TestPullRequestService
                 .containsExactlyEntriesOf(ImmutableMap.of(12L, activity));
         assertThat(service.findCachedLatestActivities(ImmutableList.of(storedPullRequest("open", REVIEWED_AT.plusSeconds(1), null)))).isEmpty();
 
-        verify(detailStore, times(3)).findLatestActivities(ImmutableSet.of(12L));
+        // No timeline was written in between, so the three reads share one load.
+        verify(detailStore).findLatestActivities(ImmutableSet.of(12L));
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
@@ -2927,7 +2944,7 @@ class TestPullRequestService
         return new PullRequestService(gitHub, writes, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
                 gitHub,
                 Runnable::run), viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext, notifications, syncSettings, issues,
-                new WriteVersion(), clock);
+                writeVersion, clock);
     }
 
     private PullRequestService serviceAt(AtomicReference<Instant> now)

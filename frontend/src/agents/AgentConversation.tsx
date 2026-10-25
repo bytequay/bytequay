@@ -16,7 +16,7 @@ import { clock } from '@bytequay/ui/displayText';
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Hand,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,CircleAlert,CircleCheck,CircleDashed,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Hand,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -447,7 +447,7 @@ export function PlanSteps({ steps, compact = false, repository }: { steps: PlanS
         <div className={`agt-plan__step is-${step.state.toLowerCase().replace('_', '-')}`} key={index}>
           {step.state === 'IN_PROGRESS'
             ? <span className="agt-icon is-running"><Spinner /></span>
-            : <Glyph icon={step.state === 'COMPLETED' ? Check : Circle} className={step.state === 'COMPLETED' ? 'is-ok' : 'is-pending'} />}
+            : <Glyph icon={step.state === 'COMPLETED' ? Check : CircleDashed} className={step.state === 'COMPLETED' ? 'is-ok' : 'is-pending'} />}
           <span className="agt-plan__text">{linkIssueNumbers(step.text, repository)}</span>
         </div>
       ))}

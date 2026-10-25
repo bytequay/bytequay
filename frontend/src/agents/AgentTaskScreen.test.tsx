@@ -950,6 +950,13 @@ describe('agent task detail', () => {
     expect(body({ ...state, capabilities: { ...CAPABILITIES, structuredPlans: false } })).not.toContain('class="agt-todos"');
   });
 
+  it('draws a not-started plan step unlike the running one', () => {
+    const markup = renderToStaticMarkup(<PlanSteps steps={[{ text: 'Run', state: 'IN_PROGRESS' }, { text: 'Next', state: 'PENDING' }]} />);
+    expect(markup).toContain('lucide-loader-circle');
+    expect(markup).toContain('lucide-circle-dashed');
+    expect(markup).not.toMatch(/lucide-circle[\s"]/);
+  });
+
   it('links structured plan references using the task repository', () => {
     const markup = renderToStaticMarkup(<PlanSteps repository="owner/repo" steps={[{ text: 'Resolve #42 then other/project#42', state: 'PENDING' }]} />);
     expect(markup).toContain('href="https://github.com/owner/repo/issues/42"><svg');

@@ -17,6 +17,8 @@ import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 
 import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
 /**
  * Stores {@link Instant} values as ISO-8601 text in SQLite.
  *
@@ -30,10 +32,18 @@ import java.time.Instant;
 public class InstantToTextConverter
         implements AttributeConverter<Instant, String>
 {
+    private static final DateTimeFormatter FORMAT = new DateTimeFormatterBuilder().appendInstant(9).toFormatter();
+
     @Override
     public String convertToDatabaseColumn(Instant attribute)
     {
-        return attribute == null ? null : attribute.toString();
+        return attribute == null ? null : format(attribute);
+    }
+
+    /** SQLite orders these columns as text, so fractional seconds must have the same width. */
+    public static String format(Instant value)
+    {
+        return FORMAT.format(value);
     }
 
     @Override

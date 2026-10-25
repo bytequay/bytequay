@@ -26,6 +26,7 @@ import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import com.bytequay.persistence.sqlite.entity.PrCheckRunEntity;
 import com.bytequay.persistence.sqlite.entity.PrDetailEntity;
 import com.bytequay.persistence.sqlite.entity.PrReviewEntity;
@@ -362,7 +363,7 @@ public class SqlitePrDetailStore
         long prId = pullRequestRepo.findByRepoIgnoreCaseAndNumber(pullRequest.repoFullName(), pullRequest.number())
                 .map(PullRequestEntity::getId)
                 .orElseThrow(() -> new IllegalArgumentException("Pull request is not stored: " + pullRequest.fullName()));
-        timelineRepo.insertLocalEvent(prId, event.event(), event.actor(), event.timestamp().toString(), event.body(), eventKey);
+        timelineRepo.insertLocalEvent(prId, event.event(), event.actor(), InstantToTextConverter.format(event.timestamp()), event.body(), eventKey);
         return timelineRepo.findByPrIdAndLocalEventKey(prId, eventKey)
                 .map(PrTimelineEntity::toDomain)
                 .orElseThrow(() -> new IllegalStateException("Local timeline event was not stored"));

@@ -340,6 +340,21 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void ordersNativeLocalAndJpaRemoteEventsWithinTheSameSecond()
+    {
+        PrTimelineEvent remoteNanos = remote(1, NOW.plusNanos(1));
+        PrTimelineEvent remoteMicros = remote(2, NOW.plusNanos(123_001_000));
+        store.save(prId, detail(ImmutableList.of(remoteMicros, remoteNanos)));
+        PrTimelineEvent localSecond = new PrTimelineEvent(null, "ci_autofix", "author", NOW, "started", Optional.of("ci-autofix:precision:second"));
+        PrTimelineEvent localMillis = new PrTimelineEvent(
+                null, "ci_autofix", "author", NOW.plusMillis(123), "finished", Optional.of("ci-autofix:precision:millis"));
+        store.recordLocalTimelineEvent(PULL_REQUEST, localMillis);
+        store.recordLocalTimelineEvent(PULL_REQUEST, localSecond);
+
+        assertThat(store.find(prId).orElseThrow().timeline()).containsExactly(localSecond, remoteNanos, localMillis, remoteMicros);
+    }
+
+    @Test
     void savesPatchedCachedTimelineWithoutReinsertingLocalEvents()
     {
         PrTimelineEvent first = remote(1, NOW);

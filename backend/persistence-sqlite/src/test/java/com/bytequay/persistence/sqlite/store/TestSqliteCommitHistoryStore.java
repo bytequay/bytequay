@@ -61,7 +61,7 @@ class TestSqliteCommitHistoryStore
 
         assertThat(store.findEnrichment(100, ImmutableList.of(SHA, negative.sha())).commits())
                 .containsExactlyInAnyOrder(positive, negative);
-        assertThat(jdbc.queryForList("SELECT last_seen_at FROM commit_enrichment", String.class)).containsOnly(NOW.toString());
+        assertThat(jdbc.queryForList("SELECT last_seen_at FROM commit_enrichment", String.class)).containsOnly("2026-08-23T00:00:00.000000000Z");
     }
 
     @Test

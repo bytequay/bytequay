@@ -76,18 +76,15 @@ public class RepositoryIssueEntity
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
 
-    @Column(name = "sync_marker")
-    private String syncMarker;
-
     protected RepositoryIssueEntity() {}
 
-    public RepositoryIssueEntity(long repositoryId, RepositoryIssue issue, String syncMarker)
+    public RepositoryIssueEntity(long repositoryId, RepositoryIssue issue)
     {
         this.id = issue.id();
-        update(repositoryId, issue, syncMarker);
+        update(repositoryId, issue);
     }
 
-    public void update(long repositoryId, RepositoryIssue issue, String syncMarker)
+    public void update(long repositoryId, RepositoryIssue issue)
     {
         this.repositoryId = repositoryId;
         this.number = issue.number();
@@ -101,7 +98,6 @@ public class RepositoryIssueEntity
         this.commentCount = issue.commentCount();
         this.createdAt = issue.createdAt();
         this.updatedAt = issue.updatedAt();
-        this.syncMarker = syncMarker;
     }
 
     public RepositoryIssue toDomain()

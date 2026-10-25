@@ -24,6 +24,7 @@ import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,7 +75,7 @@ class TestSqliteIssueDevelopmentStore
     void retainsClassificationAndAcceptedContextAfterIssueDeletion()
     {
         RepositoryIssue issue = issue(42, "alice");
-        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-1");
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue));
         IssueEpic epic = new IssueEpic("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), true, NOW);
         GitHubIssueSource source = source(issue);
         IssueTask task = new IssueTask("task-1", "workspace-1", source, Optional.of("Accepted instructions"), NOW);
@@ -93,8 +94,8 @@ class TestSqliteIssueDevelopmentStore
 
         IssueEpic ordinary = new IssueEpic(epic.host(), epic.issueId(), epic.repo(), epic.number(), false, NOW.plusSeconds(1));
         store.saveEpic(ordinary);
-        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-2");
-        issues.completeSync(REPOSITORY_ID, "sync-3", NOW.plusSeconds(2));
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue));
+        issues.completeSync(REPOSITORY_ID, ImmutableSet.of(), NOW.plusSeconds(2));
         entityManager.flush();
         entityManager.clear();
 
@@ -107,17 +108,17 @@ class TestSqliteIssueDevelopmentStore
     void attentionIncludesEveryCachedRepositoryIssueRegardlessOfAssignmentEpicOrLinkedTask()
     {
         List<RepositoryIssue> firstPage = IntStream.rangeClosed(1, 100).mapToObj(number -> issue(number, "bob")).collect(ImmutableList.toImmutableList());
-        issues.saveSyncPage(REPOSITORY_ID, firstPage, "sync-1");
+        issues.saveSyncPage(REPOSITORY_ID, firstPage);
         RepositoryIssue epic = issue(101, "alice");
         RepositoryIssue linked = issue(102, "alice");
         RepositoryIssue eligible = issue(103, "ALICE");
         RepositoryIssue unrelated = issue(104, "alice-other");
         RepositoryIssue next = issue(105, "alice");
-        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(epic, linked, eligible, unrelated, next), "sync-1");
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(epic, linked, eligible, unrelated, next));
         store.saveEpic(new IssueEpic("github.com", epic.id(), "owner/repo", epic.number(), true, NOW));
         store.saveEpic(new IssueEpic("github.com", next.id(), "owner/repo", next.number(), false, NOW));
         store.insertTask(new IssueTask("linked-task", "another-workspace", source(linked), Optional.of("Accepted context"), NOW));
-        issues.saveSyncPage(200, ImmutableList.of(issue(106, "alice")), "sync-1");
+        issues.saveSyncPage(200, ImmutableList.of(issue(106, "alice")));
         entityManager.flush();
         entityManager.clear();
 
@@ -209,13 +210,13 @@ class TestSqliteIssueDevelopmentStore
     }
 
     @Test
-    void refreshesContentWithoutRemovingOtherCachedFactsOrTheSyncMarker()
+    void refreshesContentWithoutRemovingOtherCachedFacts()
     {
         RepositoryIssue issue = issue(42, "alice");
-        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-1");
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue));
         issues.updateContent(REPOSITORY_ID, issue.number(), "Fresh title", "Fresh body", NOW.plusSeconds(1));
         issues.updateContent(REPOSITORY_ID, 99, "Missing title", "Missing body", NOW);
-        issues.completeSync(REPOSITORY_ID, "sync-1", NOW.plusSeconds(2));
+        issues.completeSync(REPOSITORY_ID, ImmutableSet.of(issue.id()), NOW.plusSeconds(2));
         entityManager.flush();
         entityManager.clear();
 
@@ -231,14 +232,14 @@ class TestSqliteIssueDevelopmentStore
     }
 
     @Test
-    void keepsNewerActivityAndTheSyncMarkerAfterAnIssueWrite()
+    void keepsNewerActivityAfterAnIssueWrite()
     {
         RepositoryIssue issue = issue(42, "alice");
-        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-1");
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue));
         issues.updateActivity(REPOSITORY_ID, issue.number(), 4, NOW);
         issues.updateActivity(REPOSITORY_ID, issue.number(), 1, NOW.minusSeconds(1));
         issues.updateActivity(REPOSITORY_ID, 99, 1, NOW);
-        issues.completeSync(REPOSITORY_ID, "sync-1", NOW.plusSeconds(1));
+        issues.completeSync(REPOSITORY_ID, ImmutableSet.of(issue.id()), NOW.plusSeconds(1));
         entityManager.flush();
         entityManager.clear();
 

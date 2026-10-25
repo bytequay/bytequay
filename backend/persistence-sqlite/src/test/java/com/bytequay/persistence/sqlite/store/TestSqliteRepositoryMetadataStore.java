@@ -21,13 +21,17 @@ import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.persistence.sqlite.repository.RepositoryMetadataJpaRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import java.time.Instant;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSqliteRepositoryMetadataStore
@@ -44,6 +48,12 @@ class TestSqliteRepositoryMetadataStore
 
     @Autowired
     private RepositoryMetadataJpaRepository repository;
+
+    @Autowired
+    private EntityManager entityManager;
+
+    @Autowired
+    private JdbcTemplate jdbc;
 
     @Test
     void upsertsProviderIdsWithoutDuplicatingTheRepositoryProjection()
@@ -102,10 +112,10 @@ class TestSqliteRepositoryMetadataStore
                 "https://github.com/owner/project/issues/7",
                 ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
 
-        issueStore.saveSyncPage(100, ImmutableList.of(issue), "first");
-        issueStore.completeSync(100, "first", NOW.minusSeconds(1));
-        issueStore.saveSyncPage(100, ImmutableList.of(issue), "second");
-        issueStore.completeSync(100, "second", NOW);
+        issueStore.saveSyncPage(100, ImmutableList.of(issue));
+        issueStore.completeSync(100, ImmutableSet.of(issue.id()), NOW.minusSeconds(1));
+        issueStore.saveSyncPage(100, ImmutableList.of(issue));
+        issueStore.completeSync(100, ImmutableSet.of(issue.id()), NOW);
 
         var page = issueStore.findPage(100, REPOSITORY, 0, 50);
         assertThat(page.issues()).containsExactly(issue);
@@ -116,13 +126,45 @@ class TestSqliteRepositoryMetadataStore
     }
 
     @Test
+    void writesOnlyTheIssuesThatChangedAndRemovesThoseAFullSyncDidNotSee()
+    {
+        RepositoryIssue kept = new RepositoryIssue(50, 7, "Issue", "body", "alice", "avatar", "https://github.com/owner/project/issues/7",
+                ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
+        RepositoryIssue gone = new RepositoryIssue(51, 8, "Closed elsewhere", "body", "alice", "avatar", "https://github.com/owner/project/issues/8",
+                ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW);
+        issueStore.saveSyncPage(100, ImmutableList.of(kept, gone));
+        entityManager.flush();
+        entityManager.clear();
+        long written = changes();
+
+        issueStore.saveSyncPage(100, ImmutableList.of(kept));
+        entityManager.flush();
+        assertThat(changes()).isEqualTo(written);
+        issueStore.saveSyncPage(100, ImmutableList.of(new RepositoryIssue(50, 7, "Renamed", "body", "alice", "avatar", "https://github.com/owner/project/issues/7",
+                ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW.plusSeconds(1))));
+        entityManager.flush();
+        assertThat(changes()).isEqualTo(written + 1);
+
+        issueStore.completeSync(100, ImmutableSet.of(kept.id()), NOW.plusSeconds(2));
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(issueStore.find(100, 7)).map(RepositoryIssue::title).contains("Renamed");
+        assertThat(issueStore.find(100, 8)).isEmpty();
+    }
+
+    private long changes()
+    {
+        return jdbc.queryForObject("SELECT total_changes()", Long.class);
+    }
+
+    @Test
     void deletesIssueFromTheOpenProjection()
     {
         RepositoryIssue issue = new RepositoryIssue(
                 50, 7, "Issue", "body", "alice", "avatar",
                 "https://github.com/owner/project/issues/7",
                 ImmutableList.of("bug"), ImmutableList.of("bob"), 2, NOW, NOW);
-        issueStore.saveSyncPage(100, ImmutableList.of(issue), "sync");
+        issueStore.saveSyncPage(100, ImmutableList.of(issue));
 
         issueStore.delete(100, 7);
 
@@ -148,9 +190,9 @@ class TestSqliteRepositoryMetadataStore
                         NOW,
                         NOW.plusSeconds(number)))
                 .toList();
-        issueStore.saveSyncPage(100, issues.subList(0, 30), "sync");
-        issueStore.saveSyncPage(100, issues.subList(30, 55), "sync");
-        issueStore.completeSync(100, "sync", NOW);
+        issueStore.saveSyncPage(100, issues.subList(0, 30));
+        issueStore.saveSyncPage(100, issues.subList(30, 55));
+        issueStore.completeSync(100, issues.stream().map(RepositoryIssue::id).collect(toImmutableSet()), NOW);
 
         var first = issueStore.findPage(100, REPOSITORY, 0, 50);
         var second = issueStore.findPage(100, REPOSITORY, 1, 50);

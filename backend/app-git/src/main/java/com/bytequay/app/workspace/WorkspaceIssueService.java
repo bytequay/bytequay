@@ -249,7 +249,7 @@ public class WorkspaceIssueService
                     Optional<RepositoryIssue> issue = issueReads.fetchIssue(credential.token(), workspace.monitoredRepository(), issueNumber);
                     requireSameAccount(credential);
                     if (issue.isPresent()) {
-                        issues.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(issue.orElseThrow()), UUID.randomUUID().toString());
+                        issues.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(issue.orElseThrow()));
                     }
                     else {
                         issues.delete(workspace.monitoredRepositoryId(), issueNumber);
@@ -295,11 +295,10 @@ public class WorkspaceIssueService
                 return null;
             }
             Instant since = checkpoint.map(at -> at.minus(Duration.ofMinutes(5))).orElse(startedAt.minus(Duration.ofHours(1)));
-            String marker = UUID.randomUUID().toString();
             for (int page = 1; ; page++) {
                 GitHubRepoClient.ChangedIssuePage fetched = issueReads.fetchChangedIssuesPage(credential.token(), workspace.monitoredRepository(), since, page);
                 requireSameAccount(credential);
-                issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.openIssues(), marker);
+                issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.openIssues());
                 fetched.closedNumbers().forEach(number -> issues.delete(workspace.monitoredRepositoryId(), number));
                 if (!fetched.hasNext()) {
                     break;
@@ -375,16 +374,17 @@ public class WorkspaceIssueService
     private void refreshIssueRows(Workspace workspace)
     {
         String token = credentials.resolveGitHubToken();
-        String syncMarker = UUID.randomUUID().toString();
+        Set<Long> open = new HashSet<>();
         for (int page = 1; ; page++) {
             GitHubRepoClient.IssuePage fetched = issueReads.fetchOpenIssuesPage(token, workspace.monitoredRepository(), page);
-            issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.issues(), syncMarker);
+            issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.issues());
+            fetched.issues().forEach(issue -> open.add(issue.id()));
             if (!fetched.hasNext()) {
                 break;
             }
             checkState(page != MAX_SYNC_PAGES, "GitHub issue refresh exceeded 5000 rows");
         }
-        issues.completeSync(workspace.monitoredRepositoryId(), syncMarker, clock.instant());
+        issues.completeSync(workspace.monitoredRepositoryId(), open, clock.instant());
     }
 
     private List<PrTimelineEvent> fetchTimeline(String token, PullRequestRef issue)

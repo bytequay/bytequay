@@ -135,7 +135,7 @@ class TestAgentTaskHttpApi
         GitHubIssueSource source = new GitHubIssueSource("github.com", issueId, workspace.monitoredRepository().fullName(), 7,
                 "https://github.com/" + workspace.monitoredRepository().fullName() + "/issues/7", "Fix issue selection", "Long source description kept in local metadata", updated);
         issueRows.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(new RepositoryIssue(issueId, 7, source.title(), source.body(),
-                "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)), "issue-test");
+                "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)));
         when(credentials.resolveGitHubToken()).thenReturn("pat");
         when(issueClient.fetchOpenIssueSource("pat", workspace.monitoredRepository(), 7)).thenReturn(source);
         String instruction = "Implement issue selection";
@@ -675,7 +675,7 @@ class TestAgentTaskHttpApi
         GitHubIssueSource source = new GitHubIssueSource("github.com", issueId, repo, number, "https://github.com/" + repo + "/issues/" + number,
                 "Fix issue " + number, "Issue body", updated);
         issueRows.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(new RepositoryIssue(issueId, number, source.title(), source.body(),
-                "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)), "issue-test-" + number);
+                "alice", "", source.url(), ImmutableList.of(), ImmutableList.of(), 0, updated, updated)));
         when(issueClient.fetchOpenIssueSource("pat", workspace.monitoredRepository(), number)).thenReturn(source);
         return source;
     }

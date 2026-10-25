@@ -20,6 +20,7 @@ import com.bytequay.core.domain.RepositoryIssuePage;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 public interface RepositoryIssueStore
 {
@@ -27,9 +28,11 @@ public interface RepositoryIssueStore
 
     Optional<RepositoryIssue> find(long repositoryId, int issueNumber);
 
-    void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker);
+    /** Stores fetched open issues; a row that already holds the same issue is not written again. */
+    void saveSyncPage(long repositoryId, List<RepositoryIssue> issues);
 
-    void completeSync(long repositoryId, String syncMarker, Instant syncedAt);
+    /** Ends a full sync: removes the repository's stored issues a full sync did not see open, and records when it ran. */
+    void completeSync(long repositoryId, Set<Long> openIssueIds, Instant syncedAt);
 
     void updateMetadata(long repositoryId, int issueNumber, List<String> assignees, List<String> labels, Instant updatedAt);
 

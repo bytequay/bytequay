@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -72,19 +73,19 @@ public class SqliteRepositoryIssueStore
 
     @Override
     @Transactional
-    public void saveSyncPage(long repositoryId, List<RepositoryIssue> issues, String syncMarker)
+    public void saveSyncPage(long repositoryId, List<RepositoryIssue> issues)
     {
         List<RepositoryIssue> fresh = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
-        requireNonNull(syncMarker, "syncMarker is null");
+        // An unchanged issue leaves its loaded row clean, so Hibernate writes only the rows that changed.
         Map<Long, RepositoryIssueEntity> stored = issueRows.findAllById(fresh.stream().map(RepositoryIssue::id).toList()).stream()
                 .collect(toMap(RepositoryIssueEntity::getId, identity()));
         issueRows.saveAll(fresh.stream()
                 .map(issue -> {
                     RepositoryIssueEntity entity = stored.get(issue.id());
                     if (entity == null) {
-                        return new RepositoryIssueEntity(repositoryId, issue, syncMarker);
+                        return new RepositoryIssueEntity(repositoryId, issue);
                     }
-                    entity.update(repositoryId, issue, syncMarker);
+                    entity.update(repositoryId, issue);
                     return entity;
                 })
                 .collect(ImmutableList.toImmutableList()));
@@ -92,10 +93,13 @@ public class SqliteRepositoryIssueStore
 
     @Override
     @Transactional
-    public void completeSync(long repositoryId, String syncMarker, Instant syncedAt)
+    public void completeSync(long repositoryId, Set<Long> openIssueIds, Instant syncedAt)
     {
-        requireNonNull(syncMarker, "syncMarker is null");
-        issueRows.deleteStale(repositoryId, syncMarker);
+        requireNonNull(openIssueIds, "openIssueIds is null");
+        List<Long> stale = issueRows.findIdsByRepositoryId(repositoryId).stream().filter(id -> !openIssueIds.contains(id)).collect(ImmutableList.toImmutableList());
+        if (!stale.isEmpty()) {
+            issueRows.deleteAllByIdInBatch(stale);
+        }
         RepositoryIssueSyncEntity entity = repository.findById(repositoryId)
                 .orElseGet(RepositoryIssueSyncEntity::new);
         entity.setRepositoryId(repositoryId);

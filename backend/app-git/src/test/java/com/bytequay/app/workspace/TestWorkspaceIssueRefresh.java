@@ -127,7 +127,7 @@ class TestWorkspaceIssueRefresh
             }
             refresh.get(5, TimeUnit.SECONDS);
         }
-        verify(issueStore).completeSync(org.mockito.ArgumentMatchers.eq(300L), anyString(), org.mockito.ArgumentMatchers.eq(NOW));
+        verify(issueStore).completeSync(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(NOW));
     }
 
     @Test
@@ -158,9 +158,9 @@ class TestWorkspaceIssueRefresh
 
         var order = inOrder(gitHub, issueStore);
         order.verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 1);
-        order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))), anyString());
+        order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))));
         order.verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 2);
-        order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))), anyString());
+        order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))));
     }
 
     @ParameterizedTest
@@ -182,7 +182,7 @@ class TestWorkspaceIssueRefresh
             }
         })
                 .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("ISSUE_SYNC_FAILED"));
-        verify(issueStore, never()).completeSync(org.mockito.ArgumentMatchers.anyLong(), anyString(), org.mockito.ArgumentMatchers.any());
+        verify(issueStore, never()).completeSync(org.mockito.ArgumentMatchers.anyLong(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
         verify(detailStore, never()).save(any());
     }
 
@@ -238,8 +238,8 @@ class TestWorkspaceIssueRefresh
         service.refreshNotifiedIssue(UPSTREAM, 7);
 
         verify(gitHub, times(1)).fetchIssue("token", UPSTREAM, 7);
-        verify(issueStore).saveSyncPage(eq(300L), eq(ImmutableList.of(issue(7))), anyString());
-        verify(issueStore, never()).saveSyncPage(eq(100L), any(), anyString());
+        verify(issueStore).saveSyncPage(eq(300L), eq(ImmutableList.of(issue(7))));
+        verify(issueStore, never()).saveSyncPage(eq(100L), any());
         verifyNoInteractions(issueReads, detailStore, settings);
     }
 
@@ -254,7 +254,7 @@ class TestWorkspaceIssueRefresh
         service.refreshNotifiedIssue(DIRECT, 7);
 
         verify(issueStore).delete(100, 7);
-        verify(issueStore, never()).completeSync(anyLong(), anyString(), any());
+        verify(issueStore, never()).completeSync(anyLong(), any(), any());
         verifyNoInteractions(issueReads, detailStore);
     }
 
@@ -276,12 +276,12 @@ class TestWorkspaceIssueRefresh
         var order = inOrder(gitHub, issueStore, settings);
         order.verify(settings).get(key);
         order.verify(gitHub).fetchChangedIssuesPage("token", DIRECT, since, 1);
-        order.verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))), anyString());
+        order.verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))));
         order.verify(issueStore).delete(100, 8);
         order.verify(gitHub).fetchChangedIssuesPage("token", DIRECT, since, 2);
-        order.verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(9))), anyString());
+        order.verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(9))));
         order.verify(settings).put(key, NOW.toString());
-        verify(issueStore, never()).completeSync(anyLong(), anyString(), any());
+        verify(issueStore, never()).completeSync(anyLong(), any(), any());
         verifyNoInteractions(issueReads, detailStore);
     }
 
@@ -302,7 +302,7 @@ class TestWorkspaceIssueRefresh
 
         service.refreshRecentIssues();
 
-        verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))), anyString());
+        verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))));
         verify(settings, never()).put(eq("github.issues.checkpoint.alice.owner/project"), anyString());
         verify(settings).put("github.issues.checkpoint.alice.upstream/project", NOW.toString());
     }

@@ -112,6 +112,7 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
@@ -2063,6 +2064,35 @@ class TestPullRequestService
         verify(diffStore, never()).deleteByPrIds(any());
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void keepsTheReactionResultWhenLocalInvalidationFails(boolean reacted)
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false)).thenReturn(reacted);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        doThrow(new IllegalStateException("database is locked")).when(detailStore).updateEtag(12L, Optional.empty());
+
+        assertThat(service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", false)).isEqualTo(reacted);
+
+        verify(writes).toggleIssueCommentReaction("pat", ref, 41, "heart", false);
+        verify(detailStore).updateEtag(12L, Optional.empty());
+    }
+
+    @Test
+    void keepsTheGitHubReactionFailureWhenLocalInvalidationAlsoFails()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        ResponseStatusException failure = new ResponseStatusException(HttpStatus.FORBIDDEN, "Reaction was refused");
+        when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false)).thenThrow(failure);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        doThrow(new IllegalStateException("database is locked")).when(detailStore).updateEtag(12L, Optional.empty());
+
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", false)).isSameAs(failure);
+
+        verify(detailStore).updateEtag(12L, Optional.empty());
+    }
+
     @Test
     void keepsDetailReadableWhenAReactionOverlapsAConditionalRefresh()
     {
@@ -2203,10 +2233,51 @@ class TestPullRequestService
     {
         ResponseStatusException failure = new ResponseStatusException(HttpStatus.FORBIDDEN, "Must be the comment author");
         doThrow(failure).when(writes).updateReviewComment("pat", PullRequestRef.of("owner", "repo", 7), 41L, "edited");
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
 
         assertThatThrownBy(() -> service.editComment("owner/repo", 7, "review_comment", 41L, "edited")).isSameAs(failure);
 
-        verifyNoInteractions(store, detailStore, diffStore, recent);
+        verify(detailStore, never()).saveCached(anyLong(), any());
+        verifyNoInteractions(diffStore, recent);
+    }
+
+    @Test
+    void keepsAnEditedCommentWhenTheLocalDetailBecomesUnavailableAfterTheWrite()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        StoredPrDetail cached = editableDetail("old comment", "old reply", "old review");
+        AtomicBoolean written = new AtomicBoolean();
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenAnswer(invocation -> {
+            if (written.get()) {
+                throw new IllegalStateException("database is locked");
+            }
+            return Optional.of(cached);
+        });
+        doAnswer(invocation -> {
+            written.set(true);
+            return null;
+        }).when(writes).updateReviewComment("pat", ref, 41L, "edited");
+
+        PullRequestDetail detail = service.editComment("owner/repo", 7, "review_comment", 41L, "edited");
+
+        assertThat(detail).isEqualTo(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, cached, true));
+        verify(writes).updateReviewComment("pat", ref, 41L, "edited");
+        verify(recent).wroteOnPullRequest("owner/repo", 7, RecentTextKind.COMMENT, "review-comment:41", "edited");
+        verifyNoInteractions(gitHub);
+    }
+
+    @Test
+    void readsTheFallbackDetailBeforeEditingSoAFailedReadSendsNothing()
+    {
+        IllegalStateException failure = new IllegalStateException("database is locked");
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.editComment("owner/repo", 7, "review_comment", 41L, "edited")).isSameAs(failure);
+
+        verifyNoInteractions(writes, recent);
     }
 
     @Test

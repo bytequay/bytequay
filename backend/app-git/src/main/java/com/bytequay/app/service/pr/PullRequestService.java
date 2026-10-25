@@ -1298,7 +1298,7 @@ public class PullRequestService
             };
         }
         finally {
-            invalidatePullRequestDetail(repo, number);
+            afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
         }
     }
 
@@ -1405,6 +1405,7 @@ public class PullRequestService
 
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
+        PullRequestDetail before = getPullRequestDetail(repo, number);
         switch (normalizedTarget) {
             case "issue_comment" -> pullRequestWrites.updateIssueComment(pat, ref, commentId, body);
             case "review_comment" -> pullRequestWrites.updateReviewComment(pat, ref, commentId, body);
@@ -1420,7 +1421,7 @@ public class PullRequestService
             recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
             recent.wroteOnPullRequest(repo, number, "review".equals(normalizedTarget) ? RecentTextKind.REVIEW_BODY : RecentTextKind.COMMENT, textKey, body);
         });
-        return patched.orElseGet(() -> getPullRequestDetail(repo, number));
+        return patched.orElse(before);
     }
 
     /** GitHub ids are unique only within one resource type, so each target patches only its own kind of copy. */

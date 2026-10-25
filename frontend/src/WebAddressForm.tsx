@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { normalizeWebAddress } from './webAddress';
+import { typedWebAddress } from './webAddress';
 
 type Props = {
   url?: string;
@@ -36,7 +36,7 @@ export default function WebAddressForm({ url = '', onNavigate }: Props) {
     if (opening) return;
     setError(null);
     try {
-      const target = normalizeWebAddress(draft ?? url);
+      const target = typedWebAddress(draft ?? url);
       setDraft(target);
       input.current?.blur();
       setOpening(true);
@@ -63,7 +63,7 @@ export default function WebAddressForm({ url = '', onNavigate }: Props) {
           aria-describedby={error ? errorId : undefined}
           type="text"
           inputMode="url"
-          placeholder="Enter a web address"
+          placeholder="Search Google or enter a web address"
           autoComplete="off"
           spellCheck={false}
           value={draft ?? url}

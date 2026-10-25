@@ -140,11 +140,16 @@ async function blankPage() {
     await until(() => browser.navigated.length === 1, 'Submitting the address opens this tab');
     assert(JSON.stringify(browser.navigated[0]) === JSON.stringify(['new', 'https://example.com/docs']), 'Navigation keeps the new tab and normalizes its address');
     assert(!button('Reload').disabled && !button('Pin page').disabled, 'Page controls become available after navigation');
+    changeInput(element<HTMLInputElement>('[aria-label="Web address"]'), 'release notes');
+    await settle();
+    element<HTMLFormElement>('[aria-label="Open web page"]').requestSubmit();
+    await until(() => browser.navigated.length === 2, 'Submitting plain words opens a search');
+    assert(browser.navigated[1][1] === 'https://www.google.com/search?q=release%20notes', 'Plain words search Google');
   }
   finally { browser.dispose(); }
 }
 
 export const run = () => runScenarios([
   ['Browser Find targets its page, stays above the native surface, and handles Escape and tab changes', browserFind],
-  ['New pages focus the address field and enable page controls after navigation', blankPage],
+  ['New pages focus the address field, search plain words, and enable page controls after navigation', blankPage],
 ]);

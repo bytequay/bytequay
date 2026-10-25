@@ -171,9 +171,9 @@ card to keep it open; **Escape** closes it.
 
 ## Browse web pages
 
-Choose **New page** in the Web pages column and enter an address. **Pin** keeps
-a page after restart, and **⌘F** finds text on it. **Back to app** keeps the
-page open.
+Choose **New page** in the Web pages column and enter an address, or type
+words to search Google. **Pin** keeps a page after restart, and **⌘F** finds
+text on it. **Back to app** keeps the page open.
 
 <a id="models"></a>
 

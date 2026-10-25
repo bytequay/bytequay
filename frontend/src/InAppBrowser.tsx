@@ -111,7 +111,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
       {error && <div className="inapp-browser__error" role="alert">{error}</div>}
       <div className="inapp-browser__slot" ref={slotRef}>
         {!tab.url && <div className="inapp-browser__start">
-          <Globe size={30} aria-hidden="true" /><h1>New page</h1><p>Enter a web address above to get started.</p>
+          <Globe size={30} aria-hidden="true" /><h1>New page</h1><p>Search Google or enter a web address above.</p>
         </div>}
         {tab.error && <div className="inapp-browser__start" role="alert">
           <Globe size={30} /><h1>Unable to display this page</h1><p>{tab.error}</p>

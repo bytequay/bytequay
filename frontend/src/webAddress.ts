@@ -28,3 +28,12 @@ export function normalizeWebAddress(value: unknown): string {
   }
   return url.href;
 }
+
+/** Address-bar text: spaced words or a bare word search Google, like a browser's address bar; anything else must be an address. */
+export function typedWebAddress(value: string): string {
+  const text = value.trim();
+  const words = /\s/.test(text) && !/^https?:\/\//i.test(text);
+  const bareWord = !/[.:]/.test(text) && text.toLowerCase() !== 'localhost';
+  if (text && (words || bareWord)) return `https://www.google.com/search?q=${encodeURIComponent(text)}`;
+  return normalizeWebAddress(text);
+}

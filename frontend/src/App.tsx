@@ -507,7 +507,7 @@ function AppContent() {
       <div className="app-shell">
         <main className="app-content">
           {startupError !== null ? <div role="alert">{startupError}<button type="button" onClick={() => { void initialize(); }}>Try again</button></div>
-            : status === 'checking' ? <LogoLoading /> : <OnboardingScreen onSaved={() => { setGithubConnected(true); setStatus('ready'); }} />}
+            : status === 'checking' ? <div className="app-startup"><LogoLoading /></div> : <OnboardingScreen onSaved={() => { setGithubConnected(true); setStatus('ready'); }} />}
         </main>
       </div>
     );

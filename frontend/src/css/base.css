@@ -772,6 +772,14 @@ samp {
   overflow: hidden;
 }
 
+.app-startup {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .app-sidebar {
   position: relative;
   display: flex;

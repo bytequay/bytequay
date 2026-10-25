@@ -46,6 +46,9 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.mockito.MockMakers;
@@ -65,6 +68,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.TimeZone;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -225,6 +229,42 @@ class TestAgendaService
 
         agenda.runIfDue(Optional.of(FRIDAY_MORNING));
         assertThat(store.runs).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"2026-03-08", "2026-11-01"})
+    @ResourceLock("java.util.TimeZone.default")
+    void keepsTheScheduledWallClockTimeAcrossDaylightSavingChanges(String date)
+            throws Exception
+    {
+        TimeZone original = TimeZone.getDefault();
+        ZoneId zone = ZoneId.of("America/New_York");
+        LocalDate day = LocalDate.parse(date);
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone(zone));
+            AppSettingsStore settings = mock(AppSettingsStore.class);
+            AgendaSchedule schedule = new AgendaSchedule(true, 9 * 60, ImmutableList.of(day.getDayOfWeek()), Optional.empty());
+            when(settings.get(any())).thenReturn(Optional.of(AgendaFixtures.mapper().writeValueAsString(schedule)));
+            now.set(day.atTime(8, 59).atZone(zone).toInstant());
+            Clock clock = mock(Clock.class);
+            when(clock.instant()).thenAnswer(call -> now.get());
+            AgendaService scheduled = new AgendaService(store, reader, calendars, teams, done,
+                    new AgendaSettings(settings, AgendaFixtures.mapper(), mock(SetupSettingsService.class)), appSettings,
+                    models, drivers, resources, starts, AgendaFixtures.mapper(), clock, executor);
+
+            scheduled.runIfDue(Optional.of(now.get()));
+            assertThat(store.days).isEmpty();
+            verify(driver, never()).open(any(), any());
+
+            now.set(day.atTime(9, 0).atZone(zone).toInstant());
+            scheduled.runIfDue(Optional.of(now.get()));
+            assertThat(store.days).containsKey(day);
+            assertThat(store.days.get(day).state()).isEqualTo(AgendaDay.State.READY);
+            verify(driver).open(any(), any());
+        }
+        finally {
+            TimeZone.setDefault(original);
+        }
     }
 
     @Test

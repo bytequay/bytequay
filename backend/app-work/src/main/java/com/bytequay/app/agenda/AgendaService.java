@@ -244,7 +244,7 @@ public class AgendaService
         if (!schedule.enabled() || !schedule.workingDay(today.getDayOfWeek())) {
             return;
         }
-        Instant due = today.atStartOfDay(ZoneId.systemDefault()).plusMinutes(schedule.minute()).toInstant();
+        Instant due = today.atStartOfDay().plusMinutes(schedule.minute()).atZone(ZoneId.systemDefault()).toInstant();
         Instant fresh = due.isAfter(started) ? due : started;
         if (clock.instant().isBefore(due) || lastSync.filter(at -> !at.isBefore(fresh)).isEmpty() || appSettings.inQuietHours() || store.find(today).isPresent()) {
             return;

@@ -252,9 +252,9 @@ those working copies, execution lifetimes, approvals, and queued input. Provider
 completion and process cleanup are separate facts: an uncertain cleanup must not
 erase a known result or permit another writer to take over prematurely. An
 interactive task completes by itself once every pull request it owns is merged
-or closed on GitHub, as read from the stored pull requests at startup and after
-each list refresh; an open review of the task's own changes ends first, as End
-does. Completion keeps its refusals, so a running turn, queued input,
+or closed on GitHub, as read from the stored pull requests at startup, after
+each list refresh, and when one pull request's refresh finds it merged or
+closed; an open review of the task's own changes ends first, as End does. Completion keeps its refusals, so a running turn, queued input,
 uncommitted changes or a review that cannot end yet keep the task open until a
 later refresh.
 

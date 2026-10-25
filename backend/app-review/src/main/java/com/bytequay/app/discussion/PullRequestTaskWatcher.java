@@ -19,9 +19,11 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.review.AgentReviewService;
+import com.bytequay.app.service.pr.PullRequestDetailRefreshed;
 import com.bytequay.app.service.pr.PullRequestsRefreshed;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableSet;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -43,7 +45,8 @@ import static java.util.Objects.requireNonNull;
  * Completes an interactive task once every pull request it owns is merged or closed on GitHub, as Complete does, and says
  * why on the task.
  *
- * <p>It reads only stored pull requests, which each list refresh keeps current, so it asks GitHub nothing. Completion
+ * <p>It reads only stored pull requests, which each list refresh keeps current, so it asks GitHub nothing; a single pull
+ * request's refresh that finds it merged or closed runs the same check without waiting for the next list refresh. Completion
  * keeps its own refusals: a task with a turn running, input queued or changes not committed stays open and is tried
  * again after the next refresh. A review of the task's own changes borrows its working copy, so it ends first, as End
  * does; one that cannot end yet keeps the task open too. Pull request reviews end on their own in the review service. A
@@ -61,6 +64,7 @@ public class PullRequestTaskWatcher
     private final AgentServingGate gate;
     private final ReviewFixService reviewFixes;
     private final AgentReviewService reviews;
+    private final PullRequestStore pullRequests;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("pull-request-followup-", 0).factory());
 
     public PullRequestTaskWatcher(
@@ -69,7 +73,8 @@ public class PullRequestTaskWatcher
             AgentCompletionService completions,
             AgentServingGate gate,
             ReviewFixService reviewFixes,
-            AgentReviewService reviews)
+            AgentReviewService reviews,
+            PullRequestStore pullRequests)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
@@ -77,6 +82,7 @@ public class PullRequestTaskWatcher
         this.gate = requireNonNull(gate, "gate is null");
         this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
     /**
@@ -94,6 +100,21 @@ public class PullRequestTaskWatcher
     public void onPullRequestsRefreshed(PullRequestsRefreshed event)
     {
         executor.execute(() -> pass(true));
+    }
+
+    /** One pull request's refresh usually sees a merge minutes before the half-hourly list refresh does. */
+    @EventListener
+    public void onDetailRefreshed(PullRequestDetailRefreshed event)
+    {
+        executor.execute(() -> afterDetailRefresh(event.repo(), event.number()));
+    }
+
+    void afterDetailRefresh(String repo, int number)
+    {
+        // ponytail: a whole completion pass for each ended refresh; narrow it to the tasks owning that pull request if passes show up in profiles.
+        if (pullRequests.findIdByRepoAndNumber(repo, number).flatMap(pullRequests::findById).filter(pullRequest -> ENDED.contains(state(pullRequest))).isPresent()) {
+            pass(false);
+        }
     }
 
     void pass(boolean commentsRefreshed)

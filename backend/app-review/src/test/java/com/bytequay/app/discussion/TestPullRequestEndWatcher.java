@@ -30,6 +30,7 @@ import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -63,13 +64,15 @@ class TestPullRequestEndWatcher
     private final AgentServingGate gate = mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AgentReviewService reviews = mock(AgentReviewService.class);
     private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PullRequestTaskWatcher watcher = new PullRequestTaskWatcher(
             tasks,
             ownership,
             completions,
             gate,
             reviewFixes,
-            reviews);
+            reviews,
+            pullRequests);
 
     @BeforeEach
     void setUp()
@@ -171,6 +174,27 @@ class TestPullRequestEndWatcher
         watcher.pass(true);
 
         verify(reviewFixes).request(open);
+    }
+
+    @Test
+    void aPullRequestRefreshThatFindsItMergedCompletesTasksWithoutWaitingForTheListRefresh()
+    {
+        AgentTask merged = task(true);
+        when(pullRequests.findIdByRepoAndNumber(REPO, 50)).thenReturn(Optional.of(50L));
+        when(pullRequests.findIdByRepoAndNumber(REPO, 51)).thenReturn(Optional.of(51L));
+        when(pullRequests.findById(51L)).thenReturn(Optional.of(pullRequest(51, "open")));
+
+        watcher.afterDetailRefresh(REPO, 51);
+        verifyNoInteractions(tasks, completions);
+
+        when(pullRequests.findById(50L)).thenReturn(Optional.of(pullRequest(50, "merged")));
+        when(tasks.listLive()).thenReturn(ImmutableList.of(merged));
+        when(ownership.pullRequests(merged)).thenReturn(ImmutableList.of(pullRequest(50, "merged")));
+
+        watcher.afterDetailRefresh(REPO, 50);
+
+        verify(completions).complete(new CompleteAgentTaskCommand(merged.id(), Optional.of("Completed: pull request #50 was merged on GitHub")));
+        verifyNoInteractions(reviewFixes);
     }
 
     @Test

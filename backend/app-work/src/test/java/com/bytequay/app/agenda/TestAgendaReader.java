@@ -18,6 +18,7 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.localreview.LocalReviewService;
+import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
@@ -89,6 +90,8 @@ class TestAgendaReader
     private final EpicStore epics = mock(EpicStore.class);
     private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
     private final AttentionMarkService marks = mock(AttentionMarkService.class);
+    private final AppNoticeService notices = mock(AppNoticeService.class);
+    private final LocalReviewService localReviews = mock(LocalReviewService.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
 
     @Test
@@ -170,6 +173,20 @@ class TestAgendaReader
     }
 
     @Test
+    void leavesFindingsOutForTasksTheReviewToolsAreClosedTo()
+    {
+        // A completed task keeps its finished notice; reading its findings through the closed tools would only fail on every refresh.
+        when(notices.current()).thenReturn(ImmutableList.of(new AppNotice("finished:turn", AppNotice.Kind.TURN_FINISHED, "00000000-0000-0000-0000-000000000001", "workspace",
+                Optional.empty(), Optional.empty(), "Finished task", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), "The response is ready.",
+                "owner/repository", "lane", Optional.empty(), NOW)));
+
+        AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
+
+        assertThat(snapshot.tasks()).singleElement().satisfies(task -> assertThat(task.findings()).isEmpty());
+        verify(localReviews, never()).findingsForAgent(any());
+    }
+
+    @Test
     void localEpicsOpenTheirWorkItemAndDoNotHideRemoteEpics()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
@@ -198,8 +215,8 @@ class TestAgendaReader
     {
         @SuppressWarnings("unchecked")
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
-        return new AgendaReader(pullRequests, details, credentials, workspaces, mock(AppNoticeService.class), mock(AgentTaskStore.class),
-                mock(TaskPullRequestOwnership.class), mock(LocalReviewService.class), items, work, epics,
+        return new AgendaReader(pullRequests, details, credentials, workspaces, notices, mock(AgentTaskStore.class),
+                mock(TaskPullRequestOwnership.class), localReviews, items, work, epics,
                 markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityReader.class),
                 new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), marks, mock(AgendaDone.class));
     }

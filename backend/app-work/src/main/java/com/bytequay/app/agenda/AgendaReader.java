@@ -438,7 +438,9 @@ public class AgendaReader
 
     private Optional<Findings> findings(String taskId)
     {
-        List<LocalReviewService.AgentFinding> found = read("findings of " + taskId, () -> localReviews.findingsForAgent(taskId), ImmutableList.of());
+        // A finished task keeps its notice, but its agent can no longer read or answer findings.
+        List<LocalReviewService.AgentFinding> found = read("findings of " + taskId,
+                () -> localReviews.availableForAgent(taskId) ? localReviews.findingsForAgent(taskId) : ImmutableList.of(), ImmutableList.of());
         List<ReviewFinding> open = found.stream().map(LocalReviewService.AgentFinding::finding).filter(finding -> finding.state() == ReviewFinding.State.OPEN)
                 .collect(toImmutableList());
         if (open.isEmpty()) {

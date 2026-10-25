@@ -139,6 +139,8 @@ export function spawnBackend(): void {
     // restricted-method warning on every start (and will fail outright later).
     '--enable-native-access=ALL-UNNAMED',
     '-Xmx2000m',
+    // The JDK otherwise starts the heap at 1/64 of RAM, 2 GB on a 128 GB Mac, and startup fills it before G1 shrinks it.
+    '-Xms64m',
     '-XX:MaxMetaspaceSize=256m',
     '-XX:ReservedCodeCacheSize=128m',
     '-XX:+ExitOnOutOfMemoryError',

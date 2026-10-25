@@ -236,7 +236,7 @@ function TodayRow({ item, reference, chips, open, onToggle, onMark, onStart, onO
         <div className="today-row__body">
           <div className="today-row__line">
             <span className="today-row__title" title={item.title}>{item.title}</span>
-            <span className="today-row__ref">{reference}</span>
+            <span className="today-row__ref" title={reference}>{reference}</span>
           </div>
           <div className="today-row__chips">
             {chips.map(chip => <span key={chip.text} className={`today-reason is-${chip.tone}`}>{chip.text}</span>)}

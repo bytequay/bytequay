@@ -144,7 +144,7 @@ describe('the Today section', () => {
     const global = render(value);
     expect(global).not.toContain('Your conflict-retry fix merged last night.');
     expect(global).toContain('1/2');
-    expect(global).toContain('<span class="today-row__ref">repository#31377</span>');
+    expect(global).toContain('<span class="today-row__ref" title="repository#31377">repository#31377</span>');
     // The reason waits for the row to open; a done row says what closed it.
     expect(global).not.toContain('today-row__why');
     expect(global).toContain('<span class="today-reason is-green">Checks passed</span>');
@@ -152,7 +152,7 @@ describe('the Today section', () => {
     expect(global).not.toContain('<b>');
     const workspace = render(value, 'workspace');
     expect(workspace).not.toContain('This week');
-    expect(workspace).toContain('<span class="today-row__ref">#31377</span>');
+    expect(workspace).toContain('<span class="today-row__ref" title="#31377">#31377</span>');
   });
 
   it('makes at most three chips from what the page holds, the blocking ones first', () => {

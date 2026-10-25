@@ -238,11 +238,15 @@
   text-decoration: line-through;
 }
 
+/* An Epic's name can run long; capped, it leaves the title most of the line. */
 .today-row__ref {
   flex: none;
+  max-width: 45%;
+  overflow: hidden;
   font-family: var(--mono);
   font-size: 11.5px;
   color: var(--fg-dim);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 

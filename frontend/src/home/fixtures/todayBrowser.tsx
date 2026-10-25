@@ -136,6 +136,11 @@ async function opensWork(): Promise<void> {
     assert(JSON.stringify(done) === JSON.stringify([{ kind: 'pull', repo: 'owner/repository', number: 31390, workspaceId: 'ws1' }]) && !rows[4].classList.contains('is-open'),
       `A click on a done row opens its item: ${JSON.stringify(done)}`);
     assert(view.marks.length === 0, 'Opening must not mark anything');
+
+    view.render({ ...AGENDA, items: ITEMS.map(item => item.ref === 'work:w22' ? { ...item, where: `${'Migrate every connector to a shared context '.repeat(4)}· 0/8` } : item) });
+    const line = element<HTMLElement>('.today-row__line', row(view.host, 'Start “Expose snapshot id in metadata”'), 'Missing the first row\'s line');
+    const title = element<HTMLElement>('.today-row__title', line, 'Missing the first row\'s title');
+    assert(title.offsetWidth > 0 && title.scrollWidth <= title.clientWidth, `A long reference must leave the title its line: ${title.clientWidth} of ${title.scrollWidth}`);
   }
   finally { view.dispose(); }
 }

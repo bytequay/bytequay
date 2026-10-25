@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.config;
 
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.scheduler.PullRequestSyncJob;
+import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppPreferences;
@@ -21,12 +23,17 @@ import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 
+import java.lang.reflect.Method;
 import java.time.Clock;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.doAnswer;
@@ -35,6 +42,55 @@ import static org.mockito.Mockito.when;
 
 class TestSchedulingConfig
 {
+    @ParameterizedTest
+    @MethodSource("blockingJobs")
+    void blockingJobsLeaveLocalWorkResponsiveAndStaySerialized(Method method)
+            throws Exception
+    {
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        CountDownLatch localFinished = new CountDownLatch(1);
+        CountDownLatch nextFinished = new CountDownLatch(1);
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.register(SchedulingConfig.class);
+            context.registerBean(LocalWork.class, () -> new LocalWork(running, localFinished));
+            try {
+                context.refresh();
+                // Use the job's actual scheduler without waiting for its production initial delay.
+                String schedulerName = method.getAnnotation(Scheduled.class).scheduler();
+                ThreadPoolTaskScheduler scheduler = context.getBean(schedulerName.isEmpty() ? "taskScheduler" : schedulerName, ThreadPoolTaskScheduler.class);
+                scheduler.execute(() -> {
+                    running.countDown();
+                    try {
+                        release.await(30, TimeUnit.SECONDS);
+                    }
+                    catch (InterruptedException interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                assertThat(running.await(5, TimeUnit.SECONDS)).isTrue();
+                scheduler.execute(nextFinished::countDown);
+                assertThat(localFinished.await(5, TimeUnit.SECONDS)).isTrue();
+                assertThat(nextFinished.await(100, TimeUnit.MILLISECONDS)).isFalse();
+                release.countDown();
+                assertThat(nextFinished.await(5, TimeUnit.SECONDS)).isTrue();
+            }
+            finally {
+                release.countDown();
+            }
+        }
+    }
+
+    static Stream<Method> blockingJobs()
+            throws NoSuchMethodException
+    {
+        return Stream.of(
+                WorkflowMonitorJob.class.getMethod("monitorCherryPicks"),
+                WorkflowMonitorJob.class.getMethod("monitorRebases"),
+                WorkflowMonitorJob.class.getMethod("monitorBackports"),
+                JiraService.class.getMethod("poll"));
+    }
+
     @Test
     void localWorkContinuesWhileARepositoryRefreshWaits()
             throws Exception

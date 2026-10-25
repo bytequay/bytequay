@@ -91,7 +91,7 @@ public class WorkflowMonitorJob
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S")
+    @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S", scheduler = "workflowScheduler")
     public void monitorCherryPicks()
     {
         if (!servingGate.isReady()) {
@@ -122,7 +122,7 @@ public class WorkflowMonitorJob
                         .filter(run -> run.status() == CiAutofixRun.Status.FINISHED).map(CiAutofixRun::id), ciService::advance);
     }
 
-    @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S")
+    @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S", scheduler = "workflowScheduler")
     public void monitorRebases()
     {
         if (servingGate.isReady()) {
@@ -130,7 +130,7 @@ public class WorkflowMonitorJob
         }
     }
 
-    @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S")
+    @Scheduled(initialDelayString = "PT10S", fixedDelayString = "PT5S", scheduler = "workflowScheduler")
     public void monitorBackports()
     {
         if (servingGate.isReady()) {

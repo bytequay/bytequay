@@ -40,7 +40,16 @@ class SchedulingConfig
         return scheduler;
     }
 
-    /** CI checks download logs and push, which must not hold up the thread that also times out agent approvals. */
+    /** Git and network operations must not delay local execution reconciliation and timeouts. */
+    @Bean
+    ThreadPoolTaskScheduler workflowScheduler()
+    {
+        ThreadPoolTaskScheduler scheduler = new ThreadPoolTaskScheduler();
+        scheduler.setThreadNamePrefix("workflow-monitor-");
+        return scheduler;
+    }
+
+    /** CI checks download logs and push independently of other workflow monitoring. */
     @Bean
     ThreadPoolTaskScheduler ciAutofixScheduler()
     {

@@ -82,7 +82,7 @@ public class JiraService
         context.recordRead(issue(connectionId, cloudId, issueId), dwellSeconds);
     }
 
-    @Scheduled(fixedDelay = 600000, initialDelay = 60000)
+    @Scheduled(fixedDelay = 600000, initialDelay = 60000, scheduler = "repositorySyncScheduler")
     public void poll()
     {
         if (!appSettings.getObject().inQuietHours()) {

@@ -66,7 +66,8 @@ export default function WorktreeChanges({ host, active = true, selection, review
     setLoading(true);
     setError(null);
     void window.bridge.readWorktreeChanges(currentHost.current, currentRequest.current)
-      .then(value => { if (live) setResult({ key, value }); })
+      // The working copy is re-read every few seconds; an unchanged read keeps the diff view as it is.
+      .then(value => { if (live) setResult(shown => shown?.key === key && JSON.stringify(shown.value) === JSON.stringify(value) ? shown : { key, value }); })
       .catch(cause => { if (live) setError(remoteErrorMessage(cause)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };

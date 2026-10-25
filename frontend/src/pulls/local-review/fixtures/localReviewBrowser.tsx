@@ -1019,6 +1019,34 @@ async function threadSnapshotRaces(): Promise<void> {
   finally { dispose(); }
 }
 
+async function threadSnapshotIdenticalPoll(): Promise<void> {
+  type Row = { id: string; version: number; createdAt: string; pending: boolean };
+  let current: ReturnType<typeof useThreadSnapshot<{ taskId: string }, Row>> | undefined;
+  let renders = 0;
+  let rows: Row[] = [{ id: 'thread', version: 1, createdAt: '2026-01-01', pending: true }];
+  function Harness(): null {
+    renders++;
+    current = useThreadSnapshot({ taskId: 'a' }, false, async () => rows.map(row => ({ ...row })));
+    return null;
+  }
+  const read = () => { assert(current !== undefined, 'The hook must mount'); return current; };
+  const { root, dispose } = createFixtureRoot();
+  try {
+    flushSync(() => root.render(<Harness />));
+    await read().refresh(); await settle();
+    const shown = read().items;
+    // React may call the component once for the equal error state that follows a commit, without rendering its children.
+    await read().refresh(); await settle();
+    const before = renders;
+    await read().refresh(); await settle();
+    assert(read().items === shown && renders === before, 'A poll that changed nothing must neither re-render nor replace the shown threads');
+    rows = [{ ...rows[0], pending: false }];
+    await read().refresh(); await settle();
+    assert(renders > before && read().items[0]?.pending === false, 'A field the server derives on read must still reach the thread at the same version');
+  }
+  finally { dispose(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
@@ -1026,6 +1054,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   } });
   const cases: Array<[string, () => Promise<void>]> = [
     ['Thread snapshots reject stale reads and writes across task changes', threadSnapshotRaces],
+    ['Thread snapshots keep the shown threads when a poll changed nothing', threadSnapshotIdenticalPoll],
     ['GitHub, local and pending comments share card layout and folding', sharedCardLayout],
     ['Local discussion reply, resolution and remount', replyAndResolve],
     ['Saved unsent message retry', savedRetry],

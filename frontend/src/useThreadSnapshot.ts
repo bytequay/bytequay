@@ -34,8 +34,12 @@ export function useThreadSnapshot<Q, T extends Thread>(query: Q | null, active: 
     try {
       const items = await current.load(current.query);
       if (latest.current.key === current.key && epoch.current === version) {
-        latest.current.items = items;
-        setSnapshot({ key: current.key, items });
+        // Most polls return what is shown, and a new array would re-render the whole task screen every three seconds.
+        // Versions alone miss fields the server derives on read, such as a question still in flight.
+        if (JSON.stringify(items) !== JSON.stringify(latest.current.items)) {
+          latest.current.items = items;
+          setSnapshot({ key: current.key, items });
+        }
         setError(null);
       }
     }

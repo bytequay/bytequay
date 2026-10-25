@@ -45,7 +45,7 @@ testBrowserScenarios([
   },
   {
     name: 'renders persistent private review cards and safe diff anchors in Chromium',
-    expected: 15, timeout: 30_000,
+    expected: 16, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-local-review-cards-',
       entry: 'src/pulls/local-review/fixtures/localReviewBrowser.tsx',

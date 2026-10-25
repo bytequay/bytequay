@@ -1783,7 +1783,8 @@ describe('agent task detail', () => {
     });
     expect(panel).toContain('aria-label="Subagents"');
     expect(panel).toContain('Active · 2');
-    expect(panel).toContain('run the persistence tests');
+    // The name says what each agent does; its prompt's opening words would not tell rows apart.
+    expect(panel).not.toContain('run the persistence tests');
 
     const opened = renderBody(state, {
       panelOpen: true,

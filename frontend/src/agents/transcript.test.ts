@@ -342,12 +342,12 @@ describe('projecting the transcript', () => {
 
     // Opening the child reads the same events, filtered; it is not a second transcript.
     const child = projectTranscript(events, 'child-1');
-    // Its prompt is the agent's purpose, not a line in its log.
+    // Its prompt is its parent's message, not a line in its log.
     expect(child[0].blocks.map((block) => block.kind)).toEqual(['activity']);
     expect(child[0].answer?.text).toBe('3 tests failed');
   });
 
-  it('builds the agent tree with lineage, purpose, outcome and result', () => {
+  it('builds the agent tree with lineage, outcome and result', () => {
     const events = [
       childEvent('lifecycle', { phase: 'AGENT_STARTED', message: 'History tests' }, 'child-1'),
       childEvent('assistant_message', { messageKind: 'PROMPT', phase: 'FINAL', text: 'run the persistence tests' }, 'child-1'),
@@ -365,7 +365,6 @@ describe('projecting the transcript', () => {
       ['child-2', 'thread-root', 'Renderer range', 'running'],
       ['child-3', 'child-2', 'Range probe', 'running'],
     ]);
-    expect(agents[0].purpose).toBe('run the persistence tests');
     expect(agents[0].result).toBe('3 tests failed');
     // What is still working is what the completion barrier waits for.
     expect(activeAgents(agents).map((agent) => agent.threadId)).toEqual(['child-2', 'child-3']);

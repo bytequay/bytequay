@@ -125,8 +125,6 @@ export type AgentNode = {
   threadId: string;
   parentThreadId: string | null;
   label: string;
-  /** What its parent asked it to do, when the provider recorded the prompt it was spawned with. */
-  purpose: string | null;
   status: 'running' | 'completed' | 'failed' | 'unknown';
   result: string | null;
   startedAt: string | null;
@@ -203,7 +201,6 @@ export function projectAgents(events: AgentEventEnvelope[], activeTurnId?: strin
         threadId,
         parentThreadId: event.source.parentProviderThreadId,
         label: event.source.logicalAgentPath ?? 'Agent',
-        purpose: null,
         status: activeTurnId === undefined || (atLatest && event.turnId === activeTurnId) ? 'running' : 'unknown',
         result: null,
         startedAt: null,
@@ -243,9 +240,8 @@ export function projectAgents(events: AgentEventEnvelope[], activeTurnId?: strin
       }
       continue;
     }
-    if (event.type === 'assistant_message' && event.payload.phase === 'FINAL') {
-      if (event.payload.messageKind === 'PROMPT') node.purpose = event.payload.text;
-      else if (event.payload.messageKind === 'ANSWER') node.result = event.payload.text;
+    if (event.type === 'assistant_message' && event.payload.phase === 'FINAL' && event.payload.messageKind === 'ANSWER') {
+      node.result = event.payload.text;
     }
   }
   return [...agents.values()];
@@ -461,7 +457,7 @@ class TurnBuilder {
       this.turn.answer = { id: streamed?.id ?? event.eventId, anchorId: itemAnchor(event), text: event.payload.text, complete: true };
       return;
     }
-    // A subagent's prompt is kept as its purpose, not shown in its log.
+    // A subagent's prompt is its parent's message, not a line in its own log.
     if (event.payload.messageKind === 'PROMPT') return;
     const role = event.payload.messageKind === 'REASONING_SUMMARY'
       ? 'reasoning'

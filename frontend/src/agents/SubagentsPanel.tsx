@@ -32,10 +32,7 @@ function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpe
   return (
     <button type="button" className="agt-panel__row" onClick={onOpen} title="Open this agent">
       <AgentMark name={agent.label} />
-      <span className="agt-panel__name">
-        <span className="agt-panel__label">{agentDisplayName(agent.label)}</span>
-        {agent.purpose !== null && <span className="agt-panel__purpose">{agent.purpose}</span>}
-      </span>
+      <span className="agt-panel__name"><span className="agt-panel__label">{agentDisplayName(agent.label)}</span></span>
       {agent.status === 'running' ? <Spinner /> : <span className="agt-spacer" />}
       {agent.status === 'unknown' && <span className="agt-chip">historical activity</span>}
       {agent.status === 'failed' && <span className="agt-chip is-warn">failed</span>}

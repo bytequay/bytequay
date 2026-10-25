@@ -2692,15 +2692,6 @@
   color: var(--fg-muted);
 }
 
-.agt-panel__purpose {
-  display: block;
-  font-size: 11px;
-  color: var(--fg-dim);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .agt-panel__worked {
   display: flex;
   align-items: center;

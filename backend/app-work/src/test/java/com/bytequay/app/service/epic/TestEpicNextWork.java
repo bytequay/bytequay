@@ -80,8 +80,10 @@ class TestEpicNextWork
                 work("working", "epic", WorkItem.State.WORKING, ImmutableList.of()),
                 work("other-epic", "other", WorkItem.State.PLANNED, ImmutableList.of())));
 
+        assertThat(next.revision()).isZero();
         next.merged(merged, "#31550");
 
+        assertThat(next.revision()).isEqualTo(1);
         assertThat(next.find("task")).contains(new EpicNextWork.Pick("waits-on-merged", "waits-on-merged title",
                 "#31550 merged. It is the only work in this Epic ready to start.", NOW));
         assertThat(next.find("old-task")).isEmpty();

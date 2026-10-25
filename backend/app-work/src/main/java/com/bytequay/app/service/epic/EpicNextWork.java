@@ -48,6 +48,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static com.bytequay.app.utils.ContextText.unfence;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -90,6 +91,7 @@ public class EpicNextWork
     private final Executor executor;
     // By the merged work's latest task, whose notice shows the pick.
     private final Map<String, Pick> picks = new ConcurrentHashMap<>();
+    private final AtomicLong revision = new AtomicLong();
 
     @Autowired
     public EpicNextWork(WorkItemService work, ModelSettingsService models, AgentDriverRegistry drivers, TextOnlyHelper helper, Clock clock)
@@ -136,6 +138,12 @@ public class EpicNextWork
         });
     }
 
+    /** Moves with every pick, which lives in memory where the database write version cannot see it. */
+    public long revision()
+    {
+        return revision.get();
+    }
+
     /** The pick shown on this task, the latest of the merged work. */
     public Optional<Pick> find(String taskId)
     {
@@ -159,6 +167,7 @@ public class EpicNextWork
         Choice choice = ready.size() == 1 ? new Choice(ready.getFirst().id(), ONLY) : choose(merged, epic, ready);
         WorkItemView next = ready.stream().filter(item -> item.id().equals(choice.itemId())).findFirst().orElseThrow();
         picks.put(task.orElseThrow(), new Pick(next.id(), next.title(), pullRequest + " merged. " + choice.reason(), clock.instant()));
+        revision.incrementAndGet();
     }
 
     /** The model's choice, or the first ready work when the model is not ready or answers with anything else. */

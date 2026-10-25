@@ -313,8 +313,13 @@ function imageMediaType(filePath: string): string {
   if (extension === '.gif') return 'image/gif';
   return 'image/jpeg';
 }
+let heldNotices: { etag: string | null; value: unknown } | null = null;
 const appNotices = new NoticeHost(() => mainWindow,
-  () => backendJson(`${backendBase()}/agent/notices`),
+  async () => {
+    const read = await backendJsonIfChanged<unknown>(`${backendBase()}/agent/notices`, heldNotices?.etag ?? null);
+    if (read.changed) heldNotices = { etag: read.etag, value: read.value };
+    return heldNotices?.value;
+  },
   async notice => {
     if (notice.reviewId !== null) {
       const review = parseAgentReview(await backendJson(`${backendBase()}/api/agent-review/${encodeURIComponent(notice.reviewId)}`));

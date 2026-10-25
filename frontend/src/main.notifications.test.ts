@@ -176,6 +176,18 @@ it('reads only task notices and opens the matching task', async () => {
   expect(desktop.send).toHaveBeenLastCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: null, reviewId: null, workItemId: 'work-2' });
 });
 
+it('keeps the held notices while the backend answers that nothing changed', async () => {
+  const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null,
+    repository: 'owner/repo', laneId: 'codex', title: 'A question', pullRequest: null, pullRequestTitle: null, changes: null, message: 'Please answer', occurredAt: '2026-10-12T00:00:00Z' };
+  const fetcher = vi.fn(async (_url: string, init?: RequestInit) => new Headers(init?.headers).get('If-None-Match') === '"v1"'
+    ? new Response(null, { status: 304 }) : new Response(JSON.stringify([task]), { headers: { ETag: '"v1"' } }));
+  vi.stubGlobal('fetch', fetcher);
+  await start();
+  expect(await desktop.readNotices()).toEqual([task]);
+  expect(await desktop.readNotices()).toEqual([task]);
+  expect(new Headers(fetcher.mock.lastCall?.[1]?.headers).get('If-None-Match')).toBe('"v1"');
+});
+
 it('opens completed reviews through their review route and checks their task and workspace', async () => {
   const review = reviewFixture();
   const notice: AppNotice = { id: 'review-finished', kind: 'TURN_FINISHED', taskId: review.task.id, workspaceId: review.workspaceId,

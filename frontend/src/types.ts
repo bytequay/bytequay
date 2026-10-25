@@ -2224,7 +2224,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   readAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<AgentAttachmentBytesDto>;
   removeAgentAttachment: (taskId: string, workspaceId: string, attachmentId: string) => Promise<void>;
   findPullRequestTask: (workspaceId: string, repo: string, number: number) => Promise<PullRequestTaskLink | null>;
-  assignPullRequestAgent: (workspaceId: string, repo: string, number: number) => Promise<PullRequestTaskLink>;
+  /** Someone else's PR needs confirmedOtherAuthor, which the user gives in a confirm dialog. */
+  assignPullRequestAgent: (workspaceId: string, repo: string, number: number, confirmedOtherAuthor: boolean) => Promise<PullRequestTaskLink>;
   /** Private reviews belonging to this workspace, including ended reviews. */
   listAgentReviews: (workspaceId: string) => Promise<AgentReviewDto[]>;
   /** The same list, or null reviews when nothing changed since the read whose etag the caller passed. */

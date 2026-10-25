@@ -364,8 +364,9 @@ Unsaved edits, running tests, pending operations, and open terminal sessions
 keep the runtime alive. A silent terminal is still protected; use `exit` when
 you are finished with its shell.
 
-On your own PR, **Development** opens or creates its agent task. **Review** opens
-or starts a review task. Both use a robot icon; an assigned Development task has
+On any PR, **Development** opens or creates its agent task. On someone else’s
+PR, ByteQuay asks first; the agent works on its own local branch and pushes
+nothing unless you ask. **Review** opens or starts a review task. Both use a robot icon; an assigned Development task has
 a green background, and an assigned Review task has a blue background.
 
 <a id="private-review"></a>

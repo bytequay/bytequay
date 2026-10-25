@@ -700,7 +700,7 @@ class AssistantActions
                     .flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId())).filter(found -> workspaces.isWatched(found.id()))
                     .orElseThrow(() -> new IllegalArgumentException("That pull request's repository is not watched"));
             boolean had = pullRequestTasks.find(workspace.id(), pr.repo(), pr.number()).filter(found -> found.state() != TaskState.COMPLETED).isPresent();
-            AgentTask task = pullRequestTasks.assign(workspace.id(), pr.repo(), pr.number());
+            AgentTask task = pullRequestTasks.assign(workspace.id(), pr.repo(), pr.number(), false);
             String key = key(request);
             // A task at work takes the words after its current turn, as a reply to it does.
             boolean working = task.worktreeMutationClaim().isPresent();

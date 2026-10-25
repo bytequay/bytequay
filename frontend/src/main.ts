@@ -723,9 +723,9 @@ function registerIpc(): void {
     const value = await backendJson(`${backendBase()}/agent/pull-request-task?${query}`);
     return value === null ? null : parsePullRequestTaskLink(value);
   });
-  ipcMain.handle('agent:pr-task:assign', async (_event, workspaceId: string, repo: string, number: number) =>
+  ipcMain.handle('agent:pr-task:assign', async (_event, workspaceId: string, repo: string, number: number, confirmedOtherAuthor: boolean) =>
     parsePullRequestTaskLink(await backendJson(`${backendBase()}/agent/pull-request-task`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId, repo, number, confirmedOtherAuthor: confirmedOtherAuthor === true }), signal: AbortSignal.timeout(15 * 60_000),
     })));
 
   ipcMain.handle('agent:tasks:running', () => backendJson(`${backendBase()}/agent/tasks/running`).then(parseRunningTasks));

@@ -45,7 +45,7 @@ public class PullRequestTaskController
     @PostMapping
     public TaskLink assign(@RequestBody AssignmentRequest request)
     {
-        return link(tasks.assign(request.workspaceId(), request.repo(), request.number()));
+        return link(tasks.assign(request.workspaceId(), request.repo(), request.number(), request.confirmedOtherAuthor()));
     }
 
     private static TaskLink link(AgentTask task)
@@ -53,7 +53,7 @@ public class PullRequestTaskController
         return new TaskLink(task.workspaceId().orElseThrow(), task.id().toString());
     }
 
-    record AssignmentRequest(String workspaceId, String repo, int number) {}
+    record AssignmentRequest(String workspaceId, String repo, int number, boolean confirmedOtherAuthor) {}
 
     record TaskLink(String workspaceId, String taskId) {}
 }

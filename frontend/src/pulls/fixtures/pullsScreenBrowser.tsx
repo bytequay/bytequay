@@ -1351,6 +1351,7 @@ export async function runAssignedPrActions(): Promise<string> {
   const { host, root, dispose } = createFixtureRoot();
   host.className = 'pr-overview__branches';
   let assigned = 0;
+  const confirmations: boolean[] = [];
   let reviewed = 0;
   let linkedReviewReads = 0;
   let route = '';
@@ -1366,7 +1367,11 @@ export async function runAssignedPrActions(): Promise<string> {
       linkedReviewReads++;
       return taskReview;
     },
-    assignPullRequestAgent: async () => { assigned++; return new Promise(resolve => { resolveAssignment = resolve; }); },
+    assignPullRequestAgent: async (_workspaceId, _repo, _number, confirmedOtherAuthor) => {
+      assigned++;
+      confirmations.push(confirmedOtherAuthor);
+      return new Promise(resolve => { resolveAssignment = resolve; });
+    },
     startAgentReview: async () => { reviewed++; return review; },
   };
   const render = (authored: boolean, workspaceId?: string, existing: AgentReviewDto | null = null, key = 'pr', existingTask = false) => {
@@ -1377,6 +1382,11 @@ export async function runAssignedPrActions(): Promise<string> {
   const button = (name: string): HTMLButtonElement => {
     const element = host.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`);
     assert(element !== null, `Missing ${name}`);
+    return element;
+  };
+  const dialogButton = (name: string): HTMLButtonElement => {
+    const element = [...host.querySelectorAll<HTMLButtonElement>('dialog button')].find(candidate => candidate.textContent === name);
+    assert(element !== undefined, `Missing dialog button ${name}`);
     return element;
   };
   try {
@@ -1393,6 +1403,7 @@ export async function runAssignedPrActions(): Promise<string> {
     button('Development').click();
     await settle();
     assert(assigned === 1 && reviewed === 0, 'Own PR assignment must use one development task request, never a review');
+    assert(host.querySelector('dialog') === null && confirmations[0] === false, 'Own PRs create the task without a confirm step');
     assert(button('Development').disabled && button('Review').disabled, 'Do not start duplicate tasks while assigning');
     resolveAssignment?.({ workspaceId: 'workspace', taskId: 'assigned-task' });
     await settle();
@@ -1438,8 +1449,29 @@ export async function runAssignedPrActions(): Promise<string> {
     assert(Number(reviewed) === 1 && assigned === 1, 'Starting a review on an own PR must not assign a developer');
     render(false, 'workspace', review, 'other');
     await settle();
-    assert(host.querySelector('[aria-label="Development"]') === null, 'Other authors do not offer development assignment');
     assert(button('Review').classList.contains('is-assigned'), 'A review is highlighted without a development task');
+    button('Development').click();
+    await settle();
+    assert(host.querySelector('dialog')?.textContent?.includes('belongs to someone else') === true && assigned === 1,
+      'Ask before creating a development task on someone else\'s PR');
+    dialogButton('Cancel').click();
+    await settle();
+    assert(host.querySelector('dialog') === null && assigned === 1 && !button('Development').disabled, 'Cancel creates nothing');
+    button('Development').click();
+    await settle();
+    dialogButton('Create task').click();
+    await settle();
+    assert(host.querySelector('dialog') === null && Number(assigned) === 2 && confirmations[1] === true, 'Confirm creates the task with the confirmation');
+    resolveAssignment?.({ workspaceId: 'workspace', taskId: 'other-task' });
+    await settle();
+    assert(String(route) === '#/workspaces/workspace/tasks/agent/other-task', `Open the confirmed task: ${route}`);
+    window.bridge.findPullRequestTask = async () => ({ workspaceId: 'workspace', taskId: 'other-linked-task' });
+    render(false, 'workspace', review, 'other-linked');
+    button('Development').click();
+    await settle();
+    assert(host.querySelector('dialog') === null && String(route) === '#/workspaces/workspace/tasks/agent/other-linked-task' && Number(assigned) === 2,
+      'A linked task on someone else\'s PR opens without asking again');
+    window.bridge.findPullRequestTask = async () => null;
     button('Review').click();
     await settle();
     assert(route.endsWith(`/tasks/review/${review.id}`) && Number(reviewed) === 1, 'Open an existing review without restarting it');

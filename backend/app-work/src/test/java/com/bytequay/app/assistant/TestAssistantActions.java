@@ -564,7 +564,7 @@ class TestAssistantActions
         String pr = "pr:owner/repository#31402";
         AgentTask assigned = task("Retry snapshot commits on conflict");
         when(tasks.find(assigned.id())).thenReturn(Optional.of(assigned));
-        when(pullRequestTasks.assign("ws1", "owner/repository", 31402)).thenReturn(assigned);
+        when(pullRequestTasks.assign("ws1", "owner/repository", 31402, false)).thenReturn(assigned);
         doReturn(Optional.empty()).when(turns).findTurnByIdempotencyKey(any(), any());
         String start = "{\"op\":\"start_task\",\"from\":\"" + pr + "\",\"words\":\"read it and tell me how to proceed\"}";
 
@@ -593,7 +593,7 @@ class TestAssistantActions
     {
         String pr = "pr:owner/repository#31402";
         when(pullRequestTasks.find("ws1", "owner/repository", 31402)).thenReturn(Optional.of(task));
-        when(pullRequestTasks.assign("ws1", "owner/repository", 31402)).thenReturn(task);
+        when(pullRequestTasks.assign("ws1", "owner/repository", 31402, false)).thenReturn(task);
         doReturn(Optional.empty()).when(turns).findTurnByIdempotencyKey(any(), any());
         AssistantItem message = message("on #31402, rebase it with codex", ImmutableList.of(), Optional.of(pr));
 

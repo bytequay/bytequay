@@ -17,6 +17,7 @@ import { Bot, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { errorMessage } from '../errorMessage';
 import { findConversationReview } from '../agents/agentConversations';
+import { ConfirmDialog } from '../ConfirmDialog';
 import type { AgentReviewDto } from './agent-review/contracts';
 
 export default function PullRequestTaskActions({ repo, number, authored, workspaceId, loading, contextError, existingTask, review, onNavigate, onRetryContext }: {
@@ -34,6 +35,7 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   const availability = useAgentAvailability(workspaceId);
   const [busy, setBusy] = useState<'development' | 'review' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
   const operation = useRef(false);
   const generation = useRef(0);
   useEffect(() => {
@@ -41,10 +43,11 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
     operation.current = false;
     setBusy(null);
     setError(null);
+    setConfirming(false);
     return () => { generation.current = current + 1; };
   }, [authored, workspaceId, repo, number]);
 
-  const open = async (kind: 'development' | 'review') => {
+  const open = async (kind: 'development' | 'review', confirmedOtherAuthor = false) => {
     if (workspaceId === undefined || operation.current) return;
     operation.current = true;
     setBusy(kind);
@@ -56,7 +59,11 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       const link = await window.bridge.findPullRequestTask(workspaceId, repo, number);
       if (kind === 'development') {
         if (link === null && !availability.development) return;
-        const task = link ?? await window.bridge.assignPullRequestAgent(workspaceId, repo, number);
+        if (link === null && !authored && !confirmedOtherAuthor) {
+          if (current === generation.current) setConfirming(true);
+          return;
+        }
+        const task = link ?? await window.bridge.assignPullRequestAgent(workspaceId, repo, number, confirmedOtherAuthor);
         route = workspaceAgentTaskRoute(task.workspaceId, task.taskId);
       }
       else {
@@ -81,7 +88,7 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   const blocked = loading ? 'Loading workspace…' : contextError !== null ? `Workspace unavailable: ${contextError}`
     : workspaceId === undefined ? 'Add a workspace for this repository to use agent tasks' : null;
   return <>
-    {authored && (availability.development || existingTask) && <button type="button" className={`pr-task-action pr-task-action--development${existingTask ? ' is-assigned' : ''}`} aria-label="Development"
+    {(availability.development || existingTask) && <button type="button" className={`pr-task-action pr-task-action--development${existingTask ? ' is-assigned' : ''}`} aria-label="Development"
       aria-description={existingTask ? 'Task assigned' : undefined} title={blocked ?? (existingTask ? 'Open assigned development task' : 'Create development task')}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('development'); }}>
       {busy === 'development' ? <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /></span> : <Bot size={16} aria-hidden="true" />}
@@ -100,5 +107,9 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       </button>
     </span>}
     {error !== null && <span className="pr-task-message" role="alert">{error}</span>}
+    {confirming && <ConfirmDialog title="Work on someone else's PR?" confirmLabel="Create task"
+      onConfirm={() => { setConfirming(false); void open('development', true); }} onCancel={() => setConfirming(false)}>
+      <p>This pull request belongs to someone else. The agent works on a local branch of its own. Nothing is pushed unless you ask.</p>
+    </ConfirmDialog>}
   </>;
 }

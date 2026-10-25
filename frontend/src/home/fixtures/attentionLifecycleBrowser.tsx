@@ -224,11 +224,11 @@ async function approvedPullRequests(): Promise<void> {
     assert(rows('Needs attention').length === 1 && rows('Approved by me').length === 0, 'An explicit re-review request returns to Needs attention');
     const many = Array.from({ length: 6 }, (_, index) => item(index + 70)).concat(Array.from({ length: 6 }, (_, index) => approvedItem(index + 80)));
     await f.items(many);
-    assert(rows('Needs attention').length === 5 && rows('Approved by me').length === 3, 'Needs attention keeps five rows while Approved by me starts with three');
+    assert(rows('Needs attention').length === 5 && rows('Approved by me').length === 5, 'Needs attention and Approved by me each start with five rows');
     button(f.host, 'Show all (6)').click(); await settle();
     assert(rows('Approved by me').length === 6 && rows('Needs attention').length === 5, 'Show all reveals the remaining approved PRs without expanding Needs attention');
     button(f.host, 'Show less').click(); await settle();
-    assert(rows('Approved by me').length === 3, 'Show less returns Approved by me to three rows');
+    assert(rows('Approved by me').length === 5, 'Show less returns Approved by me to five rows');
   }
   finally { await f.dispose(); }
 }

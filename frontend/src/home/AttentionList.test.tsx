@@ -326,15 +326,15 @@ describe('AttentionList', () => {
     expect(returned.split('aria-label="Approved by me"')[1]).toContain('Change 42');
   });
 
-  it('shows three approved PRs by default and offers the rest in either Home', () => {
+  it('shows five approved PRs by default and offers the rest in either Home', () => {
     const items = [1, 2, 3, 4, 5, 6].map<AttentionItem>(number => ({ ...prItem(number, 'updated'), pr: {
       ...pullRequest(number), origin: 'OTHER', requestedReviewers: [], handledAction: 'APPROVED', reviewedAt: '2026-08-27T00:00:00Z',
     } }));
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
-      expect(html.match(/class="card-row item-row is-compact"/g)).toHaveLength(3);
+      expect(html.match(/class="card-row item-row is-compact"/g)).toHaveLength(5);
       expect(html).toContain('aria-expanded="false">Show all (6)</button>');
-      expect(list(items.slice(0, 3), {}, variant)).not.toContain('Show all');
+      expect(list(items.slice(0, 5), {}, variant)).not.toContain('Show all');
     }
   });
 

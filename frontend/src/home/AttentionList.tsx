@@ -22,6 +22,7 @@ import { useSnoozedAttention } from './useSnoozedAttention';
 import { useTeams } from '../teams/useTeams';
 import { teamAttentionMatch } from '../teams/priority';
 import {
+  ATTENTION_CARD_LIMIT,
   ATTENTION_SOURCES,
   approvedPullRequestCards,
   attentionCards,
@@ -250,14 +251,14 @@ export default function AttentionList({
       <section className={`atn-section is-${variant}`} aria-label="Approved by me">
         <div className="atn-head">
           <span className="atn-head__label">Approved by me</span>
-          {approved.length > 3 && (
+          {approved.length > ATTENTION_CARD_LIMIT && (
             <button type="button" className="atn-approved__toggle" aria-expanded={showAllApproved} onClick={() => setShowAllApproved(value => !value)}>
               {showAllApproved ? 'Show less' : `Show all (${approved.length})`}
             </button>
           )}
         </div>
         <div className="item-list" role="list">
-          {(showAllApproved ? approved : approved.slice(0, 3)).map(item => {
+          {(showAllApproved ? approved : approved.slice(0, ATTENTION_CARD_LIMIT)).map(item => {
             const match = teamAttentionMatch(item, circles, viewerLogin);
             return (
               <AttentionRow key={item.key} item={item} viewerLogin={viewerLogin} showRepo={variant === 'home'} compact

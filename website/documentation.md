@@ -62,8 +62,8 @@ memory.
   everything, including finished work.
 - **Needs attention** shows up to five review requests, re-reviews, and
   mentions. **Snooze** hides one until the time you pick.
-- **Approved by me** lists open PRs you approved. A new review request brings
-  one back for review.
+- **Approved by me** shows up to five open PRs you approved. A new review
+  request brings one back for review.
 - Add a workspace as a **Direct clone** or **Personal fork**. **Unwatch** keeps
   local history; **Delete local data** removes it.
 

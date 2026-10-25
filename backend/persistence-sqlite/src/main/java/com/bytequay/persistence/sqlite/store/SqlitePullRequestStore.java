@@ -415,6 +415,12 @@ public class SqlitePullRequestStore
             // Summary rollups and detailed checks can disagree; replaying an unchanged source must not overwrite newer enrichment.
             if (!activityFingerprints.isEmpty() && activityFingerprints.entrySet().stream()
                     .allMatch(entry -> Objects.equals(previousFingerprints.get(entry.getKey()), entry.getValue()))) {
+                // Both sources read the same mergeability, which moves without activity, so another source's brief answer
+                // must not outlive this fresh read. An unknown one is GitHub still computing and keeps the stored answer.
+                if (mergeable != null) {
+                    entity.setMergeable(mergeable);
+                    entity.setMergeableState(mergeableState);
+                }
                 return;
             }
             // Review decisions use different summary/detail semantics; their source fingerprints detect actual review changes.

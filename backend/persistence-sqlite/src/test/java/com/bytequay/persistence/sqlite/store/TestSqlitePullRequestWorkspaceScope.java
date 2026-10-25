@@ -231,6 +231,30 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
+    void anUnchangedSummaryStillCorrectsMergeabilityThatDetailBrieflyReportedBlocked()
+    {
+        PullRequest row = store.saveObserved(pullRequest(1, "owner/project", 1, "open", RETENTION_CUTOFF, RETENTION_CUTOFF));
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v1"));
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "blocked", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("raw", "raw-v1"));
+        PullRequest blocked = store.findById(row.id()).orElseThrow();
+        assertThat(blocked.mergeableState()).isEqualTo("blocked");
+
+        // GitHub still computing reads as unknown, which keeps the stored answer.
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("raw", "raw-v1"));
+        assertThat(store.findById(row.id()).orElseThrow().mergeableState()).isEqualTo("blocked");
+
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v1"));
+        PullRequest corrected = store.findById(row.id()).orElseThrow();
+        assertThat(corrected.mergeableState()).isEqualTo("clean");
+        assertThat(corrected.mergeable()).isTrue();
+        assertThat(corrected.activityAt()).isEqualTo(blocked.activityAt());
+    }
+
+    @Test
     void mergedRepositoryPullRequestsAreNewestMergeFirstAndSearchable()
     {
         workspaceStore.createOrGet(workspace("current", 100, RepoRef.of("owner", "project")));

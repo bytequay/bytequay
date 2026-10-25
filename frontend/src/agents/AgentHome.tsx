@@ -270,7 +270,7 @@ export function AgentHomeView({
         />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">
-            <span className="agt-label">Open tasks · {items.length}</span>
+            <span className="atn-head__label">Open tasks · {items.length}</span>
             <span className="agt-spacer" />
             <button type="button" className="agt-link" onClick={onShowAll}>
               Show all <kbd className="agt-kbd">{'⇧⌘\\'}</kbd>

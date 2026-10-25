@@ -20,11 +20,13 @@ import org.springframework.boot.autoconfigure.orm.jpa.HibernatePropertiesCustomi
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import java.util.Locale;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Moves the write version for each statement that changes the database. Counting statements rather than read-write transactions
- * keeps a read that happens to open one from making every poll rebuild.
+ * Moves the write version, and the written table's own version, for each statement that changes the database. Counting statements
+ * rather than read-write transactions keeps a read that happens to open one from making every poll rebuild.
  */
 @Configuration
 class WriteVersionConfiguration
@@ -34,6 +36,8 @@ class WriteVersionConfiguration
     // Sync checkpoints in app_settings change on every background tick, and no read answered by version reads that table;
     // counting them would rebuild the attention list after every tick.
     private static final Pattern SETTINGS = Pattern.compile("\\b(?:into|update|from)\\s+app_settings\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TABLE = Pattern.compile("\\s*(?:/\\*.*?\\*/\\s*)*(?:insert\\s+(?:or\\s+\\w+\\s+)?into|replace\\s+into|update|delete\\s+from)\\s+[\"`]?(\\w+)",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     @Bean
     HibernatePropertiesCustomizer writeVersionStatements(WriteVersion writes)
@@ -41,6 +45,10 @@ class WriteVersionConfiguration
         StatementInspector inspector = sql -> {
             if (WRITE.matcher(sql).lookingAt() && !SETTINGS.matcher(sql).find()) {
                 writes.written();
+            }
+            Matcher table = TABLE.matcher(sql);
+            if (table.lookingAt()) {
+                writes.written(table.group(1).toLowerCase(Locale.ROOT));
             }
             return sql;
         };

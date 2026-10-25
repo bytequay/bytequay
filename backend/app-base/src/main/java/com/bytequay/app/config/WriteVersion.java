@@ -17,13 +17,15 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * Changes after every committed transaction that wrote to the database, so a read built only from stored rows can answer "not
- * modified" until something writes again. Read the version before reading the rows: a write that lands in between then makes the
- * next request rebuild.
+ * modified" until something writes again; each table also keeps its own version. Read a version before reading the rows: a
+ * write that lands in between then makes the next request rebuild.
  */
 @Component
 public class WriteVersion
@@ -31,6 +33,7 @@ public class WriteVersion
     // A restarted backend counts from zero again; the boot part keeps its versions from matching the old process's.
     private final String boot = UUID.randomUUID().toString();
     private final AtomicLong writes = new AtomicLong();
+    private final Map<String, AtomicLong> tables = new ConcurrentHashMap<>();
     private final TransactionSynchronization committed = new TransactionSynchronization()
     {
         @Override
@@ -39,21 +42,46 @@ public class WriteVersion
             writes.incrementAndGet();
         }
     };
+    private final Map<String, TransactionSynchronization> tableCommits = new ConcurrentHashMap<>();
 
     /** Marks the current transaction as one that writes; the version moves once it commits. */
     public void written()
     {
-        if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            // Each transaction keeps a set, so one that sends many statements moves the version once.
-            TransactionSynchronizationManager.registerSynchronization(committed);
-        }
-        else {
-            writes.incrementAndGet();
-        }
+        register(committed, writes);
+    }
+
+    /** Marks the current transaction as one that writes {@code table}; that table's version moves once it commits. */
+    public void written(String table)
+    {
+        AtomicLong counter = tables.computeIfAbsent(table, ignored -> new AtomicLong());
+        register(tableCommits.computeIfAbsent(table, ignored -> new TransactionSynchronization()
+        {
+            @Override
+            public void afterCommit()
+            {
+                counter.incrementAndGet();
+            }
+        }), counter);
     }
 
     public String current()
     {
         return boot + "-" + writes.get();
+    }
+
+    public String current(String table)
+    {
+        return boot + "-" + tables.computeIfAbsent(table, ignored -> new AtomicLong()).get();
+    }
+
+    private static void register(TransactionSynchronization synchronization, AtomicLong counter)
+    {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            // Each transaction keeps a set, so one that sends many statements moves the version once.
+            TransactionSynchronizationManager.registerSynchronization(synchronization);
+        }
+        else {
+            counter.incrementAndGet();
+        }
     }
 }

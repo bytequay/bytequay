@@ -82,7 +82,12 @@ class TestApplicationContextSmoke
         // Sync checkpoints feed no versioned read.
         transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("DELETE FROM app_settings WHERE 1 = 0").executeUpdate());
         assertThat(writeVersion.current()).isEqualTo(before);
+        String timeline = writeVersion.current("pr_timeline");
+        String pullRequests = writeVersion.current("pull_requests");
         transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("DELETE FROM pull_requests WHERE 1 = 0").executeUpdate());
         assertThat(writeVersion.current()).isNotEqualTo(before);
+        // Each table keeps its own version as well.
+        assertThat(writeVersion.current("pull_requests")).isNotEqualTo(pullRequests);
+        assertThat(writeVersion.current("pr_timeline")).isEqualTo(timeline);
     }
 }

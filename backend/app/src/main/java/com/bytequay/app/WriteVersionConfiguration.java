@@ -43,12 +43,12 @@ class WriteVersionConfiguration
     HibernatePropertiesCustomizer writeVersionStatements(WriteVersion writes)
     {
         StatementInspector inspector = sql -> {
-            if (WRITE.matcher(sql).lookingAt() && !SETTINGS.matcher(sql).find()) {
-                writes.written();
-            }
-            Matcher table = TABLE.matcher(sql);
-            if (table.lookingAt()) {
-                writes.written(table.group(1).toLowerCase(Locale.ROOT));
+            if (WRITE.matcher(sql).lookingAt()) {
+                if (!SETTINGS.matcher(sql).find()) {
+                    writes.written();
+                }
+                Matcher table = TABLE.matcher(sql);
+                writes.written(table.lookingAt() ? table.group(1).toLowerCase(Locale.ROOT) : WriteVersion.UNNAMED);
             }
             return sql;
         };

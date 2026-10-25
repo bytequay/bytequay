@@ -244,6 +244,23 @@ class TestPullRequestService
         assertThat(service.attentionVersion()).isNotEqualTo(unchanged);
     }
 
+    @Test
+    void attentionVersionMovesOnlyWithTheTablesAttentionReads()
+    {
+        String unchanged = service.attentionVersion();
+
+        // A running agent writes its event log and turns many times a minute.
+        writeVersion.written("agent_event_outbox");
+        writeVersion.written("agent_turn");
+        writeVersion.written();
+        assertThat(service.attentionVersion()).isEqualTo(unchanged);
+        writeVersion.written("pr_view_state");
+        String viewed = service.attentionVersion();
+        assertThat(viewed).isNotEqualTo(unchanged);
+        writeVersion.written(WriteVersion.UNNAMED);
+        assertThat(service.attentionVersion()).isNotEqualTo(viewed);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"different-viewer", "ambiguous-viewer", "ambiguous-viewer-comment", "different-head", "different-time", "unknown-time"})
     void attentionDoesNotGuessAnApprovalFromUnmatchedReviewEvidence(String mismatch)

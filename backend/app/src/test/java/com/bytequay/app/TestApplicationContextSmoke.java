@@ -25,6 +25,8 @@ import org.springframework.test.context.support.DependencyInjectionTestExecution
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
@@ -89,5 +91,9 @@ class TestApplicationContextSmoke
         // Each table keeps its own version as well.
         assertThat(writeVersion.current("pull_requests")).isNotEqualTo(pullRequests);
         assertThat(writeVersion.current("pr_timeline")).isEqualTo(timeline);
+        // A write that names no table moves every set of tables.
+        String tables = writeVersion.current(List.of("pull_requests", "pr_timeline"));
+        transaction.executeWithoutResult(ignored -> entityManager.createNativeQuery("CREATE TEMP TABLE IF NOT EXISTS write_probe (id INTEGER)").executeUpdate());
+        assertThat(writeVersion.current(List.of("pull_requests", "pr_timeline"))).isNotEqualTo(tables);
     }
 }

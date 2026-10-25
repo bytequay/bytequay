@@ -125,6 +125,9 @@ public class PullRequestService
     private static final int CLOSED_RETENTION_DAYS = 30;
     private static final int SEARCH_PAGE_SIZE = 100;
     private static final Duration NOTIFICATION_SETTLE = Duration.ofMinutes(2);
+    // Every table the attention list reads, so agent and other unrelated writes leave its version alone. A new read needs its table here.
+    private static final List<String> ATTENTION_TABLES =
+            ImmutableList.of("pull_requests", "pr_view_state", "watched_repo_workspaces", "pr_detail", "pr_timeline", "pr_reviews", "pr_check_runs");
     private static final Set<String> REACTION_CONTENTS = ImmutableSet.of("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
     // Timeline events that stay in the pull request's history without bringing an acknowledged card back to Needs attention.
     private static final Set<String> QUIET_EVENTS = ImmutableSet.of(
@@ -220,7 +223,7 @@ public class PullRequestService
     {
         Optional<String> login = credentialService.cachedLogin();
         Set<PullRequestRef> mentions = login.map(notifications::mentions).orElse(ImmutableSet.of());
-        return writes.current() + "-" + Objects.hash(login, mentions, summaryStamps.keySet());
+        return writes.current(ATTENTION_TABLES) + "-" + Objects.hash(login, mentions, summaryStamps.keySet());
     }
 
     public List<PullRequest> listAttentionCandidates()

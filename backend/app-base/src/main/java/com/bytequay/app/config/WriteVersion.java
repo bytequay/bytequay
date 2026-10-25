@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.util.Collection;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +31,9 @@ import java.util.concurrent.atomic.AtomicLong;
 @Component
 public class WriteVersion
 {
+    /** Where a write whose statement names no table is counted; every set of tables moves with it. */
+    public static final String UNNAMED = "?";
+
     // A restarted backend counts from zero again; the boot part keeps its versions from matching the old process's.
     private final String boot = UUID.randomUUID().toString();
     private final AtomicLong writes = new AtomicLong();
@@ -53,7 +57,7 @@ public class WriteVersion
     /** Marks the current transaction as one that writes {@code table}; that table's version moves once it commits. */
     public void written(String table)
     {
-        AtomicLong counter = tables.computeIfAbsent(table, ignored -> new AtomicLong());
+        AtomicLong counter = counter(table);
         register(tableCommits.computeIfAbsent(table, ignored -> new TransactionSynchronization()
         {
             @Override
@@ -71,7 +75,20 @@ public class WriteVersion
 
     public String current(String table)
     {
-        return boot + "-" + tables.computeIfAbsent(table, ignored -> new AtomicLong()).get();
+        return boot + "-" + counter(table).get();
+    }
+
+    /** Moves with a write to any of {@code tables}, or to a table a statement did not name. */
+    public String current(Collection<String> tables)
+    {
+        StringBuilder version = new StringBuilder(boot);
+        tables.forEach(table -> version.append('-').append(counter(table).get()));
+        return version.append('-').append(counter(UNNAMED).get()).toString();
+    }
+
+    private AtomicLong counter(String table)
+    {
+        return tables.computeIfAbsent(table, ignored -> new AtomicLong());
     }
 
     private static void register(TransactionSynchronization synchronization, AtomicLong counter)

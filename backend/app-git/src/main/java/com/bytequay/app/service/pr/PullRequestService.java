@@ -327,11 +327,9 @@ public class PullRequestService
     public Map<Long, List<PrCommitLine>> findCachedCommitsSinceReview(List<PullRequest> pullRequests)
     {
         ImmutableMap.Builder<Long, Instant> since = ImmutableMap.builder();
-        for (PullRequest pullRequest : pullRequests) {
-            Instant anchor = pullRequest.reviewedAt() != null ? pullRequest.reviewedAt() : pullRequest.reviewRequestedAt();
-            if (anchor != null && pullRequest.headPushedAt() != null && pullRequest.headPushedAt().isAfter(anchor)
-                    && (pullRequest.activityAt() == null || activityIsCurrent(pullRequest, snapshots.findFreshness(pullRequest.id()).discussionAt()))) {
-                since.put(pullRequest.id(), anchor);
+        for (PullRequest pullRequest : moved) {
+            if (pullRequest.activityAt() == null || activityIsCurrent(pullRequest, freshness.getOrDefault(pullRequest.id(), PrDetailFreshness.unknown()).discussionAt())) {
+                since.put(pullRequest.id(), reviewAnchor(pullRequest));
             }
         }
         return details.findCommitsAfter(since.buildOrThrow());
@@ -345,17 +343,36 @@ public class PullRequestService
                 .map(PullRequest::id).collect(toImmutableSet());
     }
 
+        List<PullRequest> moved = pullRequests.stream().filter(pullRequest -> {
+            Instant anchor = reviewAnchor(pullRequest);
+            return anchor != null && pullRequest.headPushedAt() != null && pullRequest.headPushedAt().isAfter(anchor);
+        }).collect(toImmutableList());
+        Map<Long, PrDetailFreshness> freshness = freshness(moved);
     /** Reads the names of the cached checks failing on each PR whose CI is failing. */
     public Map<Long, List<String>> findCachedFailingChecks(List<PullRequest> pullRequests)
     {
-        Set<Long> failing = pullRequests.stream()
-                .filter(pullRequest -> pullRequest.ciStatus() == PullRequestDetail.CiStatus.FAILING)
-                .filter(pullRequest -> pullRequest.activityAt() == null || activityIsCurrent(pullRequest, snapshots.findFreshness(pullRequest.id()).checksAt()))
+        List<PullRequest> red = pullRequests.stream().filter(pullRequest -> pullRequest.ciStatus() == PullRequestDetail.CiStatus.FAILING).collect(toImmutableList());
+        Map<Long, PrDetailFreshness> freshness = freshness(red);
+        Set<Long> failing = red.stream()
+                .filter(pullRequest -> pullRequest.activityAt() == null
+                        || activityIsCurrent(pullRequest, freshness.getOrDefault(pullRequest.id(), PrDetailFreshness.unknown()).checksAt()))
                 .map(PullRequest::id)
                 .collect(toImmutableSet());
         return details.findCheckRuns(failing).entrySet().stream()
                 .collect(toImmutableMap(Map.Entry::getKey, entry -> PullRequestDetailMapper.failingCheckNames(entry.getValue())));
     }
+    private static Instant reviewAnchor(PullRequest pullRequest)
+    {
+        return pullRequest.reviewedAt() != null ? pullRequest.reviewedAt() : pullRequest.reviewRequestedAt();
+    }
+
+    /** One read for every pull request whose extras must be validated against its activity, instead of one per pull request. */
+    private Map<Long, PrDetailFreshness> freshness(List<PullRequest> pullRequests)
+    {
+        Set<Long> ids = pullRequests.stream().filter(pullRequest -> pullRequest.activityAt() != null).map(PullRequest::id).collect(toImmutableSet());
+        return ids.isEmpty() ? ImmutableMap.of() : details.findFreshness(ids);
+    }
+
 
     private static boolean activityIsCurrent(PullRequest pullRequest, Optional<Instant> checkedAt)
     {

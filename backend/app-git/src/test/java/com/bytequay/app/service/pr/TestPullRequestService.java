@@ -474,14 +474,15 @@ class TestPullRequestService
         PullRequest untouchedSinceReview = attentionPullRequest(14, REVIEWED_AT, requested, REVIEWED_AT.minusSeconds(60), null);
         PullRequest neverAsked = attentionPullRequest(15, null, null, REVIEWED_AT, null);
         List<PrCommitLine> commits = ImmutableList.of(new PrCommitLine("abc", "Fix it", Optional.of("alice"), REVIEWED_AT.plusSeconds(60)));
-        when(detailStore.findFreshness(12L)).thenReturn(new PrDetailFreshness(Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(60)), Optional.empty(), Optional.empty()));
+        when(detailStore.findFreshness(ImmutableSet.of(12L)))
+                .thenReturn(ImmutableMap.of(12L, new PrDetailFreshness(Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(60)), Optional.empty(), Optional.empty())));
         when(detailStore.findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested))).thenReturn(ImmutableMap.of(12L, commits));
 
         assertThat(service.findCachedCommitsSinceReview(ImmutableList.of(reviewedThenPushed, requestedThenPushed, untouchedSinceReview, neverAsked)))
                 .containsExactlyEntriesOf(ImmutableMap.of(12L, commits));
 
         verify(detailStore).findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested));
-        verify(detailStore).findFreshness(12L);
+        verify(detailStore).findFreshness(ImmutableSet.of(12L));
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
@@ -491,7 +492,8 @@ class TestPullRequestService
     {
         PullRequest failing = attentionPullRequest(12, null, null, null, PullRequestDetail.CiStatus.FAILING, REVIEWED_AT);
         PullRequest passing = attentionPullRequest(13, null, null, null, PullRequestDetail.CiStatus.PASSING);
-        when(detailStore.findFreshness(12L)).thenReturn(new PrDetailFreshness(Optional.empty(), Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(1)), Optional.empty()));
+        when(detailStore.findFreshness(ImmutableSet.of(12L)))
+                .thenReturn(ImmutableMap.of(12L, new PrDetailFreshness(Optional.empty(), Optional.empty(), Optional.of(REVIEWED_AT.plusSeconds(1)), Optional.empty())));
         when(detailStore.findCheckRuns(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of(12L, ImmutableList.of(
                 new PrCheckRunState(1L, "ci / test", "completed", "failure", null, "check_run", REVIEWED_AT, REVIEWED_AT),
                 new PrCheckRunState(2L, "ci / lint", "completed", "failure", null, "check_run", REVIEWED_AT, REVIEWED_AT),
@@ -501,7 +503,7 @@ class TestPullRequestService
                 .containsExactlyEntriesOf(ImmutableMap.of(12L, ImmutableList.of("ci / test")));
 
         verify(detailStore).findCheckRuns(ImmutableSet.of(12L));
-        verify(detailStore).findFreshness(12L);
+        verify(detailStore).findFreshness(ImmutableSet.of(12L));
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
@@ -512,13 +514,13 @@ class TestPullRequestService
     {
         Instant activityAt = REVIEWED_AT.plusSeconds(60);
         PullRequest changed = attentionPullRequest(12, REVIEWED_AT, null, activityAt, PullRequestDetail.CiStatus.FAILING, activityAt);
-        when(detailStore.findFreshness(12L)).thenReturn(new PrDetailFreshness(Optional.of(REVIEWED_AT.plusSeconds(120)),
-                detailExists ? Optional.of(REVIEWED_AT) : Optional.empty(), detailExists ? Optional.of(REVIEWED_AT) : Optional.empty(), Optional.empty()));
+        when(detailStore.findFreshness(ImmutableSet.of(12L))).thenReturn(ImmutableMap.of(12L, new PrDetailFreshness(Optional.of(REVIEWED_AT.plusSeconds(120)),
+                detailExists ? Optional.of(REVIEWED_AT) : Optional.empty(), detailExists ? Optional.of(REVIEWED_AT) : Optional.empty(), Optional.empty())));
 
         assertThat(service.findCachedCommitsSinceReview(ImmutableList.of(changed))).isEmpty();
         assertThat(service.findCachedFailingChecks(ImmutableList.of(changed))).isEmpty();
 
-        verify(detailStore, times(2)).findFreshness(12L);
+        verify(detailStore, times(2)).findFreshness(ImmutableSet.of(12L));
         verify(detailStore).findCommitsAfter(ImmutableMap.of());
         verify(detailStore).findCheckRuns(ImmutableSet.of());
         verifyNoMoreInteractions(detailStore);

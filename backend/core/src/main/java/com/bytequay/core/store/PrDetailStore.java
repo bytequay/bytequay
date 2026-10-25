@@ -43,6 +43,9 @@ public interface PrDetailStore
 
     PrDetailFreshness findFreshness(long prId);
 
+    /** The freshness of each stored detail among {@code prIds}; a pull request with no stored detail is absent. */
+    Map<Long, PrDetailFreshness> findFreshness(Set<Long> prIds);
+
     /** Saves only metadata and its successful validation time. */
     void saveMetadata(long prId, StoredPrDetail detail);
 

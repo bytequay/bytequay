@@ -107,10 +107,24 @@ public class SqlitePrDetailStore
     public PrDetailFreshness findFreshness(long prId)
     {
         // Four timestamps, not the whole row: attention reads this once per failing pull request.
-        return detailRepo.findFreshness(prId)
-                .map(row -> new PrDetailFreshness(Optional.ofNullable(row.getMetadataValidatedAt()), Optional.ofNullable(row.getDiscussionValidatedAt()),
-                        Optional.ofNullable(row.getChecksValidatedAt()), Optional.ofNullable(row.getDiscussionSourceUpdatedAt())))
-                .orElseGet(PrDetailFreshness::unknown);
+        return detailRepo.findFreshness(prId).map(SqlitePrDetailStore::freshness).orElseGet(PrDetailFreshness::unknown);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, PrDetailFreshness> findFreshness(Set<Long> prIds)
+    {
+        requireNonNull(prIds, "prIds is null");
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return detailRepo.findFreshness(prIds).stream().collect(toImmutableMap(PrDetailJpaRepository.PrFreshness::getPrId, SqlitePrDetailStore::freshness));
+    }
+
+    private static PrDetailFreshness freshness(PrDetailJpaRepository.Freshness row)
+    {
+        return new PrDetailFreshness(Optional.ofNullable(row.getMetadataValidatedAt()), Optional.ofNullable(row.getDiscussionValidatedAt()),
+                Optional.ofNullable(row.getChecksValidatedAt()), Optional.ofNullable(row.getDiscussionSourceUpdatedAt()));
     }
 
     // Four queries across four tables: without a transaction each borrows the single

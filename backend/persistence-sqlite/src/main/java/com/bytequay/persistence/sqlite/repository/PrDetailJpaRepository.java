@@ -38,6 +38,10 @@ public interface PrDetailJpaRepository
             + "e.discussionSourceUpdatedAt AS discussionSourceUpdatedAt FROM PrDetailEntity e WHERE e.prId = :prId")
     Optional<Freshness> findFreshness(@Param("prId") long prId);
 
+    @Query("SELECT e.prId AS prId, e.metadataValidatedAt AS metadataValidatedAt, e.discussionValidatedAt AS discussionValidatedAt, "
+            + "e.checksValidatedAt AS checksValidatedAt, e.discussionSourceUpdatedAt AS discussionSourceUpdatedAt FROM PrDetailEntity e WHERE e.prId IN :ids")
+    List<PrFreshness> findFreshness(@Param("ids") Set<Long> ids);
+
     @Query("SELECT e.prId AS prId, e.authorAvatarUrl AS authorAvatarUrl FROM PrDetailEntity e "
             + "WHERE e.prId IN :ids AND e.authorAvatarUrl IS NOT NULL AND TRIM(e.authorAvatarUrl) <> ''")
     List<AuthorAvatar> findAuthorAvatarUrls(@Param("ids") Set<Long> ids);
@@ -57,6 +61,12 @@ public interface PrDetailJpaRepository
         Instant getChecksValidatedAt();
 
         Instant getDiscussionSourceUpdatedAt();
+    }
+
+    interface PrFreshness
+            extends Freshness
+    {
+        long getPrId();
     }
 
     interface RequestedReviewers

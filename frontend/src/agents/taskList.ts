@@ -18,7 +18,6 @@ import { reviewStatus } from '../pulls/agent-review/model';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import { laneLabel } from '../settings/model';
 import type { AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, CherryPickExecution, CiAutofixRunDto, ModelProviderDto } from '../types';
-import { changesLabel } from './AgentTasksView';
 import { taskCardState, taskLastMessage, taskLinks, type TaskCardState } from './attention';
 
 /** Every kind of work the Tasks page lists, each with its own colour and icon. */
@@ -68,6 +67,13 @@ function pullRequestLink(number: number, title: string, state: string | null, dr
       : draft ? { status: 'Draft', tone: 'neutral' as AttentionTone }
         : state === null ? { status: null, tone: 'neutral' as AttentionTone } : { status: 'Open', tone: 'green' as AttentionTone };
   return { source: 'pr', key: `#${number}`, title, ...status };
+}
+
+/** Commits first, since they are the result a pull request would carry; uncommitted files are work still in the checkout. */
+function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): string {
+  const committed = commits === 0 ? null : `${commits} ${commits === 1 ? 'commit' : 'commits'}`;
+  if (committed === null) return uncommitted ? 'Uncommitted changes' : 'No changes';
+  return uncommitted ? `${committed} · uncommitted changes` : committed;
 }
 
 export function developmentItem(

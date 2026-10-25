@@ -981,13 +981,6 @@ export function useTaskChanges(workspaceId: string, tasks: AgentTaskDto[], bridg
   return changes;
 }
 
-/** Commits first, since they are the result a pull request would carry; uncommitted files are work still in the checkout. */
-export function changesLabel({ uncommitted, commits }: AgentTaskChangesDto): string {
-  const committed = commits === 0 ? null : `${commits} ${commits === 1 ? 'commit' : 'commits'}`;
-  if (committed === null) return uncommitted ? 'Uncommitted changes' : 'No changes';
-  return uncommitted ? `${committed} · uncommitted changes` : committed;
-}
-
 type ToastState = { id: number; text: string; undo?: () => void };
 
 /** The type tabs across the Tasks page, each filtering the whole page. */

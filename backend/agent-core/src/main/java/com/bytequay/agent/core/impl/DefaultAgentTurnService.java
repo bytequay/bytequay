@@ -42,7 +42,6 @@ import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
-import com.bytequay.agent.core.ProviderAgentEventAdapter;
 import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
@@ -57,7 +56,6 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
-import com.bytequay.agent.core.UnsequencedAgentEvent;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -83,7 +81,6 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.CodeQuery;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -165,6 +162,7 @@ public final class DefaultAgentTurnService
     private final AgentEventService eventService;
     private final AgentEventCommitter eventCommitter;
     private final AgentMetricsService metricsService;
+    private final AgentTurnEventRouter eventRouter;
     private final AgentApprovalService approvalService;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final CodeQueryService codeQueries;
@@ -258,6 +256,7 @@ public final class DefaultAgentTurnService
         this.developmentCompletion = requireNonNull(developmentCompletion, "developmentCompletion is null");
         this.stopChildren = requireNonNull(stopChildren, "stopChildren is null");
         this.idleWorktreePreparation = requireNonNull(idleWorktreePreparation, "idleWorktreePreparation is null");
+        this.eventRouter = new AgentTurnEventRouter(turnStore, eventService, eventCommitter, metricsService, runtimeRegistry, launchedTurns::containsKey, clock);
     }
 
     @Override
@@ -1889,7 +1888,7 @@ public final class DefaultAgentTurnService
         if (existing.isPresent()) {
             try {
                 if (turn.developmentOrigin().isEmpty() && runtimeRegistry.sameWorktree(task)
-                        && existing.orElseThrow().prepareTurn(context, event -> routeEvent(task.id(), turn.id(), event))) {
+                        && existing.orElseThrow().prepareTurn(context, event -> eventRouter.route(task.id(), turn.id(), event))) {
                     sendTiming.log(System.Logger.Level.DEBUG,
                             () -> "send-timing phase=turn.session.reused epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turn.id());
                     return existing;
@@ -1938,7 +1937,7 @@ public final class DefaultAgentTurnService
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.session_open.begin epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         AgentSession opened = requireNonNull(driver.open(context,
-                event -> routeEvent(task.id(), turnId, event)), "opened session is null");
+                event -> eventRouter.route(task.id(), turnId, event)), "opened session is null");
         sendTiming.log(System.Logger.Level.DEBUG,
                 () -> "send-timing phase=turn.session_open.end epochMs=" + System.currentTimeMillis() + " taskId=" + task.id() + " turnId=" + turnId);
         if (runtimeRegistry.processReuse() && task.taskWorktree().isPresent() && turnStore.require(turnId).developmentOrigin().isEmpty()) {
@@ -1974,55 +1973,6 @@ public final class DefaultAgentTurnService
         }
     }
 
-    private void routeEvent(TaskId taskId, TurnId boundTurnId, ProviderAgentEvent event)
-    {
-        requireNonNull(event, "event is null");
-        if (event instanceof ProviderAgentEvent.Lifecycle lifecycle && stateCoupled(lifecycle.phase())) {
-            return;
-        }
-        if (event instanceof ProviderAgentEvent.Usage usage) {
-            synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTurn turn = requireActiveTurn(taskId);
-                if (!turn.id().equals(boundTurnId)) {
-                    throw new AgentConflictException("Usage belongs to a stopped or replaced turn: " + boundTurnId);
-                }
-                recordUsage(taskId, turn, usage);
-            }
-            return;
-        }
-        if (event instanceof ProviderAgentEvent.Plan plan
-                && plan.source().parentProviderThreadId().isEmpty()
-                && plan.source().logicalAgentPath().map(path -> path.equals("/") || path.equals("root")).orElse(true)) {
-            synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTurn turn = requireActiveTurn(taskId);
-                checkArgument(turn.id().equals(boundTurnId), "Plan belongs to another turn");
-                checkArgument(turn.providerTurnReference().isEmpty() || plan.source().providerTurnId().isEmpty()
-                                || plan.source().providerTurnId().equals(turn.providerTurnReference().map(ProviderTurnRef::value)),
-                        "Plan belongs to another provider turn");
-                ProviderAgentEventAdapter.CanonicalEvent update = ProviderAgentEventAdapter.adapt(plan);
-                eventCommitter.commitIfAbsent(
-                        pendingInline(EventId.random(), taskId, Optional.of(turn.id()), update.source(), update.payload(), Instant.now(clock)),
-                        () -> turnStore.update(turn.withPlan(plan.items())));
-            }
-            return;
-        }
-        if (event instanceof ProviderAgentEvent.DevelopmentResult result) {
-            synchronized (runtimeRegistry.taskLock(taskId)) {
-                AgentTurn turn = requireActiveTurn(taskId);
-                if (!turn.id().equals(boundTurnId) || turn.cancellationRequestedAt().isPresent()) {
-                    throw new AgentConflictException("Development report belongs to a stopped or replaced turn");
-                }
-                recordDevelopmentResult(taskId, turn, result);
-            }
-            return;
-        }
-        // Streamed display events check the in-memory launch record, not the database, once per event.
-        if (!launchedTurns.containsKey(boundTurnId)) {
-            throw new AgentConflictException("Task has no active turn: " + taskId);
-        }
-        eventService.append(new UnsequencedAgentEvent(taskId, Optional.of(boundTurnId), event));
-    }
-
     private static String developmentInstructions(AgentTurnSettings settings)
     {
         return settings.developmentAutomation().map(automation -> {
@@ -2054,50 +2004,6 @@ public final class DefaultAgentTurnService
                     A generated request to create a draft is one step, not a user instruction to skip later enabled steps.
                     """.formatted(automation.autoCommit(), automation.autoDraftPr(), automation.autoCiFix(), automation.reviewFix(), automation.autoMerge());
         }).orElse("");
-    }
-
-    private void recordDevelopmentResult(TaskId taskId, AgentTurn turn, ProviderAgentEvent.DevelopmentResult result)
-    {
-        checkArgument(turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
-                        || turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
-                "Development reporting is not enabled for this turn");
-        checkArgument(result.report().learningSummary().isEmpty()
-                        || turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
-                "Learning summaries require a generated refinement turn");
-        checkArgument(result.source().parentProviderThreadId().isEmpty()
-                        && result.source().logicalAgentPath().map(path -> path.equals("/") || path.equals("root")).orElse(true),
-                "Development report is not from the root agent");
-        checkArgument(turn.providerTurnReference().isEmpty()
-                        || result.source().providerTurnId().equals(turn.providerTurnReference().map(ProviderTurnRef::value)),
-                "Development report belongs to another provider turn");
-        String itemId = result.source().providerItemId().orElseThrow(() -> new IllegalArgumentException("Development report has no native tool identity"));
-        EventId eventId = EventId.developmentResult(taskId, turn.id(), itemId);
-        ProviderAgentEventAdapter.CanonicalEvent event = ProviderAgentEventAdapter.adapt(result);
-        eventCommitter.commitIfAbsent(
-                pendingInline(eventId, taskId, Optional.of(turn.id()), event.source(), event.payload(), Instant.now(clock)),
-                () -> turnStore.update(turn.withDevelopmentResult(result.report())));
-    }
-
-    private void recordUsage(TaskId taskId, AgentTurn turn, ProviderAgentEvent.Usage usage)
-    {
-        EventId eventId = usage.providerEventId()
-                .map(providerEventId -> EventId.providerUsage(taskId, turn.id(), providerEventId))
-                // Without provider identity, distinct callbacks cannot be durably deduplicated.
-                .orElseGet(EventId::random);
-        ProviderAgentEventAdapter.CanonicalEvent event = ProviderAgentEventAdapter.adapt(usage);
-        Instant occurredAt = Instant.now(clock);
-        eventCommitter.commitIfAbsent(
-                pendingInline(eventId, taskId, Optional.of(turn.id()), event.source(), event.payload(), occurredAt),
-                () -> metricsService.record(taskId, turn.id(), usage.sample()));
-    }
-
-    private static boolean stateCoupled(ProviderAgentEvent.LifecyclePhase phase)
-    {
-        return switch (phase) {
-            case SESSION_OPENED, TURN_STARTED, TURN_COMPLETED, INTERRUPTED -> true;
-            // Subagent and backfill phases are display-only; they change no task or turn state.
-            case RETRYING, RATE_LIMITED, AGENT_STARTED, AGENT_COMPLETED, AGENT_FAILED, BACKFILL_STARTED, BACKFILL_COMPLETED -> false;
-        };
     }
 
     private CompletionStage<ProviderApprovalDecision> requestApproval(TaskId taskId, TurnId boundTurnId, ProviderApprovalRequest request, Duration timeout)

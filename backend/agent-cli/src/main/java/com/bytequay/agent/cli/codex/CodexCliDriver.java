@@ -872,9 +872,6 @@ public final class CodexCliDriver
         }
     }
 
-    /** A subagent's place in the task: the thread that spawned it and the name it is shown under. */
-    private record ChildFacts(String parent, String label, Optional<String> purpose) {}
-
     private final class CodexSession
             implements AgentSession, CodexMessageDispatcher.Listener
     {
@@ -898,37 +895,9 @@ public final class CodexCliDriver
         private final String setup;
         /** Current instructions a resumed thread has not seen; this session's turn carries them. */
         private Optional<String> instructionUpdate = Optional.empty();
-        /** Every thread this task's process has shown us, root and subagents alike. */
-        private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
         /** Approvals awaiting ByteQuay, by App Server request id, so one App Server settles itself can be withdrawn. */
         private final Map<String, CompletableFuture<ProviderApprovalDecision>> pendingApprovals = new ConcurrentHashMap<>();
-        /** Every subagent this process has named, by thread, with its parent and label. */
-        private final Map<String, ChildFacts> children = new ConcurrentHashMap<>();
-        /** Canonical V2 paths, separate from labels a preceding thread/started may carry. */
-        private final Map<String, String> v2AgentPaths = new ConcurrentHashMap<>();
-        private final Set<String> announcedChildren = ConcurrentHashMap.newKeySet();
-        private final Set<String> promptedChildren = ConcurrentHashMap.newKeySet();
-        private final CodexEventMapper.ThreadLineage lineage = new CodexEventMapper.ThreadLineage()
-        {
-            @Override
-            public Optional<String> parentOf(String threadId)
-            {
-                return Optional.ofNullable(children.get(threadId)).map(ChildFacts::parent);
-            }
-
-            @Override
-            public Optional<String> labelOf(String threadId)
-            {
-                if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
-                    // Provider identity uses /root; the shared event contract uses / for the root.
-                    if (threadId.equals(reference.providerValue())) {
-                        return Optional.of("/");
-                    }
-                    return Optional.ofNullable(v2AgentPaths.get(threadId));
-                }
-                return Optional.ofNullable(children.get(threadId)).map(ChildFacts::label);
-            }
-        };
+        private final CodexAgentGraph agentGraph;
         /** Out-of-order child activity awaiting an explicit route to the root. Guarded by this session. */
         private final Map<String, List<CodexProtocol.Notification>> pendingNotifications = new HashMap<>();
         private int pendingNotificationCount;
@@ -1001,10 +970,7 @@ public final class CodexCliDriver
             // A resumed thread keeps the contract it started with: root tools exist only from thread/start.
             this.reference = new AgentSessionRef(laneId, context.sessionReference().map(AgentSessionRef::contractVersion)
                     .orElse(guardedReviewTools.isPresent() ? REVIEW_DYNAMIC_CONTRACT_VERSION : CONTRACT_VERSION), threadId);
-            observedThreads.add(reference.providerValue());
-            if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
-                v2AgentPaths.put(reference.providerValue(), "/root");
-            }
+            this.agentGraph = new CodexAgentGraph(reference.providerValue(), childProfile, sessionRedactor);
             if (context.sessionReference().isPresent() && childProfile != CodexLaunchProfile.ChildProfile.NONE) {
                 restoreChildren();
             }
@@ -1023,11 +989,7 @@ public final class CodexCliDriver
                 while (!parents.isEmpty()) {
                     String parent = parents.removeFirst();
                     for (CodexProtocol.HistoryThread child : childThreadsOf(parent)) {
-                        if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
-                            child.agentPath().ifPresent(path -> rememberV2AgentPath(child.id(), validateV2AgentPath(child.id(), parent, path, true)));
-                        }
-                        register(child.id(), parent, child.agentNickname().or(child::agentRole));
-                        announcedChildren.add(child.id());
+                        agentGraph.restoreChild(parent, child);
                         parents.addLast(child.id());
                     }
                 }
@@ -1412,17 +1374,17 @@ public final class CodexCliDriver
             }
             try {
                 if (!rootThread
-                        && !routableThread(notification.threadId())
-                        && !readyThreadStarted(notification)) {
+                        && !agentGraph.routableThread(notification.threadId())
+                        && !agentGraph.readyThreadStarted(notification)) {
                     bufferNotification(notification);
                     return;
                 }
-                observe(notification);
+                agentGraph.observe(notification);
                 // Routing is in place before a discovery event is published: the child is already
                 // in the lineage and the thread set when anything about it reaches the log.
-                announceChildren();
+                agentGraph.discoveryEvents().forEach(this::emitRecorded);
                 flushPendingNotifications();
-                if (!rootThread && !routableThread(notification.threadId())) {
+                if (!rootThread && !agentGraph.routableThread(notification.threadId())) {
                     if (!(notification instanceof CodexProtocol.ThreadStartedNotification)) {
                         bufferNotification(notification);
                     }
@@ -1437,7 +1399,7 @@ public final class CodexCliDriver
                     // Only the root thread speaks for the turn; a subagent's message is activity.
                     running.observeMessage(message.phase(), sessionRedactor.redact(message.text()));
                 }
-                eventMapper.map(notification, rootThread, lineage).forEach(this::emitRecorded);
+                eventMapper.map(notification, rootThread, agentGraph).forEach(this::emitRecorded);
                 eventMapper.developmentResult(notification, rootThread, running.reference().value(), development).ifPresent(this::emitRecorded);
                 if (rootThread && notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
                     // The root saying it is done is necessary but not sufficient: an item or a
@@ -1506,7 +1468,7 @@ public final class CodexCliDriver
         /** Holds a small amount of child activity until its explicit lineage arrives. */
         private void bufferNotification(CodexProtocol.Notification notification)
         {
-            observedThreads.add(notification.threadId());
+            agentGraph.observeThread(notification.threadId());
             if (pendingNotificationCount >= MAX_PENDING_CHILD_NOTIFICATIONS) {
                 throw new AgentUnavailableException("Codex child activity exceeded the pending-lineage bound");
             }
@@ -1523,10 +1485,10 @@ public final class CodexCliDriver
             do {
                 flushed = false;
                 for (String threadId : ImmutableList.copyOf(pendingNotifications.keySet())) {
-                    if (!routableThread(threadId)) {
+                    if (!agentGraph.routableThread(threadId)) {
                         List<CodexProtocol.Notification> waiting = pendingNotifications.get(threadId);
                         Optional<CodexProtocol.Notification> lineageSignal = waiting.stream()
-                                .filter(this::readyThreadStarted)
+                                .filter(agentGraph::readyThreadStarted)
                                 .findFirst();
                         if (lineageSignal.isEmpty()) {
                             continue;
@@ -1551,16 +1513,6 @@ public final class CodexCliDriver
             while (flushed && running != null);
         }
 
-        private boolean readyThreadStarted(CodexProtocol.Notification notification)
-        {
-            if (!(notification instanceof CodexProtocol.ThreadStartedNotification started)) {
-                return false;
-            }
-            return started.params().thread().parentThreadId()
-                    .filter(parent -> parent.equals(reference.providerValue()) || confirmedLineage(parent))
-                    .isPresent();
-        }
-
         /** Only a real file inside this task's runtime may be named to the App Server. */
         private Path taskOwnedAttachment(AgentAttachment attachment)
         {
@@ -1579,244 +1531,6 @@ public final class CodexCliDriver
             catch (IOException failure) {
                 throw new AgentUnavailableException("Unable to read task-owned attachment " + attachment.name(), failure);
             }
-        }
-
-        /** Records what this process has shown us, so quiescence can be answered from it. */
-        private void observe(CodexProtocol.Notification notification)
-        {
-            observedThreads.add(notification.threadId());
-            if (notification instanceof CodexProtocol.ThreadStartedNotification started) {
-                CodexProtocol.HistoryThread thread = started.params().thread();
-                // A missing parent is not evidence that this is a direct child of the root. Keep
-                // observing the thread, but do not publish it until an explicit edge arrives.
-                thread.parentThreadId().ifPresent(parent -> register(thread.id(), parent, thread.agentNickname().or(thread::agentRole)));
-                return;
-            }
-            if (notification instanceof CodexProtocol.ItemStartedNotification started) {
-                registerSpawned(started.params().item(), started.threadId());
-            }
-            else if (notification instanceof CodexProtocol.ItemCompletedNotification completed) {
-                registerSpawned(completed.params().item(), completed.threadId());
-            }
-        }
-
-        /** Applies the one edge format selected for this model process. */
-        private void registerSpawned(CodexProtocol.ThreadItem item, String namingThread)
-        {
-            if (item instanceof CodexProtocol.CollabAgentToolCallItem collab) {
-                if (!collab.senderThreadId().equals(namingThread)) {
-                    throw new AgentUnavailableException("Codex collaboration sender does not match its owning thread");
-                }
-                if (!collab.tool().equals("spawnAgent")) {
-                    collab.receiverThreadIds().forEach(this::requireKnownGraphIdentity);
-                    collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
-                    return;
-                }
-                if (childProfile != CodexLaunchProfile.ChildProfile.V1) {
-                    collab.receiverThreadIds().forEach(receiver -> {
-                        requireKnownGraphIdentity(receiver);
-                        enrichKnown(receiver, Optional.empty(), collab.prompt());
-                    });
-                    collab.agentsStates().keySet().forEach(this::requireKnownGraphIdentity);
-                    return;
-                }
-                collab.agentsStates().keySet().stream()
-                        .filter(threadId -> !collab.receiverThreadIds().contains(threadId))
-                        .forEach(this::requireKnownGraphIdentity);
-                // The spawn carries what the parent asked for; the child never repeats it as a
-                // message of its own, so this is the only record of its purpose.
-                collab.receiverThreadIds().forEach(receiver -> register(receiver, namingThread, Optional.empty(), collab.prompt()));
-                return;
-            }
-            if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
-                boolean edge = childProfile == CodexLaunchProfile.ChildProfile.V2
-                        && activity.kind() == CodexProtocol.SubAgentActivityKind.STARTED;
-                String agentPath = validateV2AgentPath(activity.agentThreadId(), namingThread, activity.agentPath(), edge);
-                Optional<String> label = Optional.of(agentPath);
-                if (!edge) {
-                    requireKnownGraphIdentity(activity.agentThreadId());
-                    if (childProfile == CodexLaunchProfile.ChildProfile.V2
-                            && !v2AgentPaths.containsKey(activity.agentThreadId())) {
-                        throw new AgentUnavailableException("Codex supplementary V2 activity has no canonical STARTED path");
-                    }
-                    rememberV2AgentPath(activity.agentThreadId(), agentPath);
-                    enrichKnown(activity.agentThreadId(), label, Optional.empty());
-                    return;
-                }
-                register(activity.agentThreadId(), namingThread, label);
-                rememberV2AgentPath(activity.agentThreadId(), agentPath);
-            }
-        }
-
-        private void requireKnownGraphIdentity(String threadId)
-        {
-            if (!threadId.equals(reference.providerValue()) && !routableThread(threadId)) {
-                throw new AgentUnavailableException("Codex supplementary child activity has no confirmed graph identity");
-            }
-        }
-
-        /** V2 paths are absolute and stable; a STARTED edge is nested below its direct parent. */
-        private String validateV2AgentPath(String threadId, String parentThreadId, String rawPath, boolean edge)
-        {
-            Path path;
-            try {
-                path = Path.of(rawPath);
-            }
-            catch (RuntimeException invalid) {
-                throw new AgentUnavailableException("Codex V2 agent path is invalid", invalid);
-            }
-            if (!path.isAbsolute() || !path.normalize().equals(path)) {
-                throw new AgentUnavailableException("Codex V2 agent path is not absolute and normalized");
-            }
-            String existing = v2AgentPaths.get(threadId);
-            if (existing != null && !existing.equals(rawPath)) {
-                throw new AgentUnavailableException("Codex V2 agent path changed for an existing agent");
-            }
-            if (edge) {
-                String parentPath = v2AgentPaths.get(parentThreadId);
-                if (parentPath == null) {
-                    throw new AgentUnavailableException("Codex V2 child path has no canonical parent path");
-                }
-                Path parent = Path.of(parentPath);
-                if (path.equals(parent) || !path.startsWith(parent)) {
-                    throw new AgentUnavailableException("Codex V2 child path is not nested below its direct parent");
-                }
-            }
-            return rawPath;
-        }
-
-        private void rememberV2AgentPath(String threadId, String agentPath)
-        {
-            String existing = v2AgentPaths.putIfAbsent(threadId, agentPath);
-            if (existing != null && !existing.equals(agentPath)) {
-                throw new AgentUnavailableException("Codex V2 agent path changed for an existing agent");
-            }
-        }
-
-        /** The nonselected item form may add metadata, but it cannot create a graph edge. */
-        private void enrichKnown(String threadId, Optional<String> label, Optional<String> purpose)
-        {
-            if (threadId.equals(reference.providerValue())) {
-                return;
-            }
-            if (!routableThread(threadId)) {
-                throw new AgentUnavailableException("Codex supplementary child activity has no confirmed graph identity");
-            }
-            children.computeIfPresent(threadId, (thread, existing) -> new ChildFacts(
-                    existing.parent(),
-                    resolvedChildLabel(threadId, label, existing.label()),
-                    purpose.or(existing::purpose)));
-        }
-
-        private void register(String threadId, String parentThreadId, Optional<String> label)
-        {
-            register(threadId, parentThreadId, label, Optional.empty());
-        }
-
-        private void register(String threadId, String parentThreadId, Optional<String> label, Optional<String> purpose)
-        {
-            if (threadId.equals(reference.providerValue())) {
-                throw new AgentUnavailableException("Codex reported the root thread as its own child");
-            }
-            if (threadId.equals(parentThreadId)) {
-                throw new AgentUnavailableException("Codex reported a subagent as its own parent");
-            }
-            if (!parentThreadId.equals(reference.providerValue()) && !observedThreads.contains(parentThreadId)) {
-                throw new AgentUnavailableException("Codex reported a subagent whose parent is not in this process");
-            }
-            String ancestor = parentThreadId;
-            while (!ancestor.equals(reference.providerValue())) {
-                if (ancestor.equals(threadId)) {
-                    throw new AgentUnavailableException("Codex reported a cycle in its subagent lineage");
-                }
-                ChildFacts facts = children.get(ancestor);
-                if (facts == null) {
-                    break;
-                }
-                ancestor = facts.parent();
-            }
-            observedThreads.add(threadId);
-            children.compute(threadId, (thread, existing) -> {
-                if (existing == null) {
-                    return new ChildFacts(parentThreadId, resolvedChildLabel(threadId, label, "Agent " + (children.size() + 1)), purpose);
-                }
-                if (!existing.parent().equals(parentThreadId)) {
-                    throw new AgentUnavailableException("Codex reported contradictory parents for a subagent");
-                }
-                // A nickname or prompt that arrives after discovery fills it in; a parent never changes.
-                return new ChildFacts(existing.parent(), resolvedChildLabel(threadId, label, existing.label()), purpose.or(existing::purpose));
-            });
-        }
-
-        /** A canonical V2 path, once known, cannot be replaced by thread metadata. */
-        private String resolvedChildLabel(String threadId, Optional<String> reported, String fallback)
-        {
-            if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
-                String canonical = v2AgentPaths.get(threadId);
-                if (canonical != null) {
-                    return canonical;
-                }
-            }
-            return reported.orElse(fallback);
-        }
-
-        /** Publishes one discovery event per child, after its lineage is in place. */
-        private void announceChildren()
-        {
-            for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
-                if (!routableThread(child.getKey())) {
-                    continue;
-                }
-                String label = lineage.labelOf(child.getKey()).orElse(child.getValue().label());
-                if (announcedChildren.add(child.getKey())) {
-                    emitRecorded(new ProviderAgentEvent.Lifecycle(
-                            Optional.of(child.getKey() + ":agent-started"),
-                            ProviderAgentEvent.LifecyclePhase.AGENT_STARTED,
-                            label,
-                            childSource(child.getKey())));
-                }
-                // The spawn that carries the prompt can arrive before or after the thread it
-                // creates, so the purpose is published when it is known rather than at discovery.
-                if (child.getValue().purpose().isPresent() && promptedChildren.add(child.getKey())) {
-                    emitRecorded(new ProviderAgentEvent.Message(
-                            Optional.of(child.getKey() + ":agent-prompt"),
-                            ProviderAgentEvent.MessageKind.PROMPT,
-                            ProviderAgentEvent.MessagePhase.FINAL,
-                            sessionRedactor.redact(child.getValue().purpose().orElseThrow()),
-                            childSource(child.getKey())));
-                }
-            }
-        }
-
-        /** Whether every parent edge from this child reaches the task's root. */
-        private boolean confirmedLineage(String threadId)
-        {
-            Set<String> visited = new HashSet<>();
-            String current = threadId;
-            while (!current.equals(reference.providerValue())) {
-                if (!visited.add(current)) {
-                    return false;
-                }
-                ChildFacts facts = children.get(current);
-                if (facts == null) {
-                    return false;
-                }
-                current = facts.parent();
-            }
-            return true;
-        }
-
-        /** A V2 child is routable only after its authoritative STARTED path is known. */
-        private boolean routableThread(String threadId)
-        {
-            return confirmedLineage(threadId)
-                    && (childProfile != CodexLaunchProfile.ChildProfile.V2
-                            || v2AgentPaths.containsKey(threadId));
-        }
-
-        private ProviderAgentEventSource childSource(String threadId)
-        {
-            return new ProviderAgentEventSource(Optional.of(threadId), lineage.parentOf(threadId), lineage.labelOf(threadId), Optional.empty(), Optional.empty());
         }
 
         /**
@@ -1868,7 +1582,7 @@ public final class CodexCliDriver
                     return;
                 }
                 retain = !failed && reported.status() == CodexProtocol.TurnStatus.COMPLETED && unsettled.isEmpty() && reuseAllowed && !reuseBlocked
-                        && !closing && !turn.cancellationRequested() && children.isEmpty() && pendingApprovals.isEmpty() && pendingNotifications.isEmpty()
+                        && !closing && !turn.cancellationRequested() && !agentGraph.hasChildren() && pendingApprovals.isEmpty() && pendingNotifications.isEmpty()
                         && turn.toolCalls.isTerminated();
                 running = null;
                 if (!toolsStopped) {
@@ -1976,7 +1690,7 @@ public final class CodexCliDriver
                     stopTerminals = true;
                     deadline = Instant.now().plus(quiescenceTimeout);
                 }
-                Set<String> threads = ImmutableSet.copyOf(observedThreads);
+                Set<String> threads = agentGraph.observedThreads();
                 Set<String> visited = new HashSet<>();
                 Set<String> working = new HashSet<>();
                 Set<String> terminals = new HashSet<>();
@@ -1993,16 +1707,16 @@ public final class CodexCliDriver
                     }
                     continue;
                 }
-                if (!visited.containsAll(observedThreads)) {
+                if (!visited.containsAll(agentGraph.observedThreads())) {
                     // Missing display metadata does not keep an idle agent running. An observed
                     // thread outside the reconciled tree, however, still has unknown ownership.
-                    lastSeen = "thread " + observedThreads.stream().filter(thread -> !visited.contains(thread)).findFirst().orElseThrow()
+                    lastSeen = "thread " + agentGraph.observedThreads().stream().filter(thread -> !visited.contains(thread)).findFirst().orElseThrow()
                             + " is absent from the task's agent inventory";
                     stablePasses = 0;
                     sleep(QUIESCENCE_POLL);
                     continue;
                 }
-                if (!observedThreads.equals(threads)) {
+                if (!agentGraph.observedThreads().equals(threads)) {
                     // A thread appeared while we were reading, so this pass proved nothing.
                     stablePasses = 0;
                     continue;
@@ -2085,12 +1799,7 @@ public final class CodexCliDriver
                 }
             }
             // A child this process saw is the likeliest to still be working, so it is read before older, settled ones.
-            Set<String> childIds = new LinkedHashSet<>();
-            for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
-                if (child.getValue().parent().equals(threadId)) {
-                    childIds.add(child.getKey());
-                }
-            }
+            Set<String> childIds = new LinkedHashSet<>(agentGraph.childrenOf(threadId));
             childIds.addAll(childThreads(threadId));
             for (String childId : childIds) {
                 Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, interruptAgents, stopTerminals, visited, working, terminals);
@@ -2275,7 +1984,7 @@ public final class CodexCliDriver
                     return CompletableFuture.failedFuture(new AgentUnavailableException("Codex request does not belong to the active turn"));
                 }
                 if (!serverRequest.threadId().equals(reference.providerValue())
-                        && !routableThread(serverRequest.threadId())) {
+                        && !agentGraph.routableThread(serverRequest.threadId())) {
                     return CompletableFuture.failedFuture(new AgentUnavailableException("Codex approval thread is not in the active agent graph"));
                 }
                 expectedTurn = running;
@@ -2512,8 +2221,8 @@ public final class CodexCliDriver
         {
             return new ProviderAgentEventSource(
                     Optional.of(serverRequest.threadId()),
-                    lineage.parentOf(serverRequest.threadId()),
-                    lineage.labelOf(serverRequest.threadId()),
+                    agentGraph.parentOf(serverRequest.threadId()),
+                    agentGraph.labelOf(serverRequest.threadId()),
                     serverRequest.turnId(),
                     Optional.of(itemId));
         }

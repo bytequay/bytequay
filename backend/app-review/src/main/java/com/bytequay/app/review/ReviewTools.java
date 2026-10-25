@@ -147,8 +147,6 @@ public class ReviewTools
     /** How many of a run's selected findings may be questions; the others say what should change. */
     static final int MAX_SELECTED_QUESTIONS = 2;
     private static final int MAX_EXCERPT = 4000;
-    private static final int SOURCE_WINDOW = 200;
-    private static final int DIFF_PAGE_LINES = 300;
     private static final int RELATED_DIFF_FILES_PAGE = 20;
     private static final int RELATED_DIFF_CODE_POINTS_PAGE = 2000;
     private static final int MAX_RELATED_DIFF_GAPS = 10;
@@ -179,6 +177,7 @@ public class ReviewTools
     private final MemoryStore memoryStore;
     private final LocalRunStore localRuns;
     private final CredentialService credentials;
+    private final ReviewCodeContext codeContext;
 
     public ReviewTools(
             AgentReviewStore store,
@@ -222,6 +221,7 @@ public class ReviewTools
         this.locks = requireNonNull(locks, "locks is null");
         this.sourceAssignments = requireNonNull(sourceAssignments, "sourceAssignments is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
+        this.codeContext = new ReviewCodeContext(git, workspaces, objectMapper);
     }
 
     /** The bridge for one review-owned task, or empty for any other task. */
@@ -2000,7 +2000,7 @@ public class ReviewTools
             if (refresh) {
                 throw new ReviewInvalidRequestException("refresh: the current review's frozen diff cannot be refreshed");
             }
-            return diff(call, Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page);
+            return codeContext.diff(call.run(), Optional.ofNullable(arguments.get("path")).filter(JsonNode::isTextual).map(JsonNode::asText), page);
         }
         if (arguments.has("revision")) {
             throw new ReviewInvalidRequestException("revision: related diffs use the selected PR's default artifact and diffVersion");
@@ -2091,86 +2091,23 @@ public class ReviewTools
         return node;
     }
 
-    private JsonNode diff(Call call, Optional<String> path, int page)
-    {
-        ReviewDiffAnchors anchors = ReviewDiffAnchors.of(call.run().diff());
-        if (path.isEmpty()) {
-            ObjectNode node = objectMapper.createObjectNode().put("anchors", anchors.size()).put("note", "call again with a path to read its hunks with anchor ids");
-            node.putPOJO("files", call.run().diff().stream().map(file -> ImmutableMap.of(
-                    "path", file.filename(), "status", file.status(), "additions", file.additions(), "deletions", file.deletions(),
-                    "hunks", anchors.hunks(file.filename()).size(), "textual", file.patch() != null)).collect(toImmutableList()));
-            return node;
-        }
-        DiffFile file = call.run().diff().stream().filter(candidate -> candidate.filename().equals(path.orElseThrow())).findFirst()
-                .orElseThrow(() -> new ReviewInvalidRequestException("path: " + path.orElseThrow() + " is not in this pull request's diff"));
-        List<String> lines = new ArrayList<>();
-        if (file.patch() == null) {
-            lines.add("(binary file or diff unavailable; no inline anchors)");
-        }
-        for (ReviewDiffAnchors.Hunk hunk : anchors.hunks(file.filename())) {
-            lines.add(hunk.header());
-            hunk.lines().forEach(line -> lines.add(line.id() + " " + line.kind() + (line.side().equals("LEFT") ? "L" : "R") + line.line() + " " + line.text()));
-        }
-        int pages = (int) Math.max(1, (lines.size() + (long) DIFF_PAGE_LINES - 1) / DIFF_PAGE_LINES);
-        int from = (int) Math.min(lines.size(), (long) (page - 1) * DIFF_PAGE_LINES);
-        int to = (int) Math.min(lines.size(), (long) from + DIFF_PAGE_LINES);
-        return objectMapper.createObjectNode()
-                .put("path", file.filename())
-                .put("status", file.status())
-                .put("page", page)
-                .put("pages", pages)
-                .put("format", "anchorId kind side+line text; cite anchors as startAnchor/endAnchor in review_save_finding")
-                .put("hunks", String.join("\n", lines.subList(from, to)));
-    }
-
     private JsonNode source(Call call, String path, int startLine, Optional<Integer> endLine)
     {
         String revision = text(call.arguments(), "revision", 20, false);
-        if (path.startsWith("/") || path.contains("..") || path.isBlank()) {
-            throw new ReviewInvalidRequestException("path: use a repository-relative path");
-        }
-        int maximumEnd = (int) Math.min(Integer.MAX_VALUE, (long) startLine + SOURCE_WINDOW - 1);
-        int end = endLine.orElse(maximumEnd);
-        if (end < startLine) {
-            throw new ReviewInvalidRequestException("endLine: must not precede startLine");
-        }
-        end = Math.min(end, maximumEnd);
-        String sha = switch (revision) {
-            case "", "head" -> call.run().sourceRevision();
-            case "base" -> call.run().mergeBaseSha();
-            case "previous" -> call.run().priorHeadSha().orElseThrow(() -> new ReviewInvalidRequestException("revision: no previously reviewed head"));
-            default -> throw new ReviewInvalidRequestException("revision: use head, base (merge base), or previous");
-        };
-        GitCommandRunner.Result shown = git.run(workspaces.requireReadyRepository(call.review().workspaceId()).repository(), "show", sha + ":" + path);
-        if (!shown.successful()) {
-            throw new ReviewInvalidRequestException("path: " + path + " does not exist at the selected frozen revision");
-        }
-        if (shown.truncated()) {
-            throw new ReviewInvalidRequestException("path: the frozen source exceeds the Git output limit; no source evidence was retained");
-        }
-        List<String> all = shown.output().lines().toList();
-        if (startLine > all.size()) {
-            throw new ReviewInvalidRequestException("startLine: the file has " + all.size() + " lines");
-        }
-        end = Math.min(end, all.size());
-        StringBuilder window = new StringBuilder();
-        for (int index = startLine - 1; index < end; index++) {
-            window.append(index + 1).append("  ").append(all.get(index)).append('\n');
-        }
-        String excerpt = bounded(window.toString(), MAX_EXCERPT);
+        ReviewCodeContext.Source source = codeContext.source(call.review().workspaceId(), call.run(), path, revision, startLine, endLine);
         String ref = registerEvidence(
                 call,
-                path + " L" + startLine + "–L" + end + " (frozen " + (revision.isEmpty() ? "head" : revision) + " " + ReviewPrompts.shortSha(sha) + ")",
-                FROZEN_SOURCE_PROVENANCE + sha + ", not the working files",
-                excerpt);
+                path + " L" + startLine + "–L" + source.endLine() + " (frozen " + (revision.isEmpty() ? "head" : revision) + " " + ReviewPrompts.shortSha(source.commit()) + ")",
+                FROZEN_SOURCE_PROVENANCE + source.commit() + ", not the working files",
+                source.excerpt());
         return objectMapper.createObjectNode()
                 .put("path", path)
-                .put("commit", sha)
+                .put("commit", source.commit())
                 .put("startLine", startLine)
-                .put("endLine", end)
-                .put("totalLines", all.size())
+                .put("endLine", source.endLine())
+                .put("totalLines", source.totalLines())
                 .put("evidenceRef", ref)
-                .put("source", excerpt);
+                .put("source", source.excerpt());
     }
 
     private JsonNode commandOutput(Call call)

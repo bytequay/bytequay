@@ -61,7 +61,7 @@ describe('agent home on a return visit', () => {
     expect(seeded).toContain('Reviewer named by login');
     expect(seeded).toContain('Assigned in this workspace');
     expect(seeded).toContain('Start development for #3');
-    expect(seeded.match(/class="card-row item-row is-compact"/g)).toHaveLength(3);
+    expect(seeded.match(/class="card-row item-row atn-row is-compact"/g)).toHaveLength(3);
     expect(seeded).not.toContain('All issues');
     expect(seeded).not.toContain('All pull requests');
     expect(seeded).not.toContain('Elsewhere');
@@ -80,7 +80,7 @@ describe('agent home on a return visit', () => {
     const mine = markup.split('aria-label="My PRs"')[1].split('</section>')[0];
     expect(attention).not.toContain('My change');
     expect(attention).toContain('Someone else needs review');
-    expect(mine.match(/class="card-row item-row is-compact"/g)).toHaveLength(2);
+    expect(mine.match(/class="card-row item-row atn-row is-compact"/g)).toHaveLength(2);
     expect(mine).not.toContain('Acknowledge');
     expect(mine).toContain('Snooze #1');
     expect(mine).toContain('Open #1');

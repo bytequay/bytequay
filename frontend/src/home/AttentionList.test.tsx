@@ -164,7 +164,7 @@ describe('AttentionList', () => {
     })]);
 
     // The row, its keyboard behaviour and its hover actions come from the shared card base, one row in one list box.
-    expect(html).toContain('<div class="item-list" role="list"><div role="listitem"><div class="card-row item-row is-compact" role="button" tabindex="0"');
+    expect(html).toContain('<div class="item-list" role="list"><div role="listitem"><div class="card-row item-row atn-row is-compact" role="button" tabindex="0"');
     expect(html).toContain('<span class="item-row__icon"><span class="card-src is-pr">');
     expect(html).toContain('lucide-git-pull-request');
     // The row names no type, and where a pull request stands sits beside its title and key.
@@ -234,7 +234,7 @@ describe('AttentionList', () => {
     const items = [30920, 30921, 30922, 30923, 30924].map(number => prItem(number)).concat(issueItem(7));
     const html = list(items, {}, 'workspace');
 
-    expect(html.match(/class="card-row item-row is-compact"/g)).toHaveLength(5);
+    expect(html.match(/class="card-row item-row atn-row is-compact"/g)).toHaveLength(5);
     // Every watched update is eligible, so a total would count the repositories, not what needs the user.
     expect(html).toMatch(/Needs attention<\/span><button[^>]*aria-pressed="false"[^>]*>Open only<\/button><div class="atn-filters"/);
     expect(html).toMatch(/>PRs<\/button><button[^>]*>Issues<\/button><button[^>]*>Jira<\/button>/);
@@ -295,7 +295,7 @@ describe('AttentionList', () => {
     expect(shown(acknowledged)).toEqual([30920, 30922, 30923, 30924, 30925]);
     const snoozed = { ...acknowledged, [items[0].key]: handledEntry(items[0], 'snooze', now + 3_600_000, '1 hour') };
     expect(shown(snoozed)).toEqual([30922, 30923, 30924, 30925, 30926]);
-    expect(list(items, snoozed).match(/class="card-row item-row is-compact"/g)).toHaveLength(5);
+    expect(list(items, snoozed).match(/class="card-row item-row atn-row is-compact"/g)).toHaveLength(5);
   });
 
   it('keeps approved PRs available after reading or acknowledging them without triage actions', () => {
@@ -332,7 +332,7 @@ describe('AttentionList', () => {
     } }));
     for (const variant of ['home', 'workspace'] as const) {
       const html = list(items, {}, variant);
-      expect(html.match(/class="card-row item-row is-compact"/g)).toHaveLength(5);
+      expect(html.match(/class="card-row item-row atn-row is-compact"/g)).toHaveLength(5);
       expect(html).toContain('aria-expanded="false">Show all (6)</button>');
       expect(list(items.slice(0, 5), {}, variant)).not.toContain('Show all');
     }

@@ -281,6 +281,39 @@
   color: var(--fg-dim);
 }
 
+/* The unfolded detail also takes the actions' column, so commit messages and comments get the row's width.
+   The body's parts join the row's grid, and the actions span all three lines so showing them never makes one taller. */
+.item-row.atn-row {
+  row-gap: 0;
+}
+
+.atn-row > .item-row__body {
+  display: contents;
+}
+
+.atn-row > .item-row__body > * {
+  grid-column: 2;
+}
+
+.atn-row > :is(.card-actions, .card-age) {
+  grid-area: 1 / 3 / 4;
+}
+
+.atn-row > .item-row__body > .item-row__latest {
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-area: 3 / 2 / auto / -1;
+}
+
+.atn-row .item-row__latest > * {
+  grid-column: 1;
+  min-width: 0;
+}
+
+.atn-row .item-row__latest > .item-row__detail {
+  grid-column: 1 / -1;
+}
+
 .atn-detail {
   display: flex;
   flex-direction: column;

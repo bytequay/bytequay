@@ -527,9 +527,12 @@ export async function hoverTarget(): Promise<{ x: number; y: number }> {
   return { x: Math.round(line.left + 40), y: Math.round(line.top + line.height / 2) };
 }
 
+/** Unfolded, and running under the row's actions rather than stopping at their column. */
 export function commentShown(): boolean {
   const box = document.querySelector('.item-row__detail');
-  return box !== null && getComputedStyle(box).display !== 'none';
+  const actions = box?.closest('.item-row')?.querySelector('.card-actions');
+  return box !== null && getComputedStyle(box).display !== 'none' && actions != null
+    && box.getBoundingClientRect().right > actions.getBoundingClientRect().left;
 }
 
 export async function showPreview(view: 'needs' | 'activity' | 'members' | 'insights' | 'person' | 'create' | 'edit' | 'empty' | 'remove' | 'switcher' = 'needs') {

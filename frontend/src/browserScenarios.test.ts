@@ -114,7 +114,7 @@ testBrowserScenarios([
       window.webContents.sendInputEvent({ type: 'mouseMove', x: hover.x, y: hover.y });
       await new Promise(resolve => setTimeout(resolve, 200));
       const unfolded = await window.webContents.executeJavaScript('TeamsBrowserTests.commentShown()');
-      results.push(unfolded ? { name: 'commentOnHover' } : { name: 'commentOnHover', error: 'Hovering the latest line must unfold the comment' });
+      results.push(unfolded ? { name: 'commentOnHover' } : { name: 'commentOnHover', error: 'Hovering the latest line must unfold the comment under the row’s actions too' });
       const screenshots = process.env.BYTEQUAY_TEAMS_SCREENSHOTS;
       if (screenshots) {
         const { mkdir, writeFile } = require('node:fs/promises');

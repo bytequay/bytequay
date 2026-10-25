@@ -170,7 +170,7 @@ export default function AttentionRow({
 
   return <>
     <div role="listitem" onMouseEnter={event => hover.show(event.currentTarget)} onMouseLeave={() => hover.hide()}>
-      <ItemRow className={compact ? 'is-compact' : ''} label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`} onOpen={open}
+      <ItemRow className={compact ? 'atn-row is-compact' : 'atn-row'} label={`${ATTENTION_SOURCES[source].label} ${reference}: ${item.title}`} onOpen={open}
         icon={<SourceIcon source={source} size={16} tinted ended={attentionEnded(item)} />}
         title={item.title}
         marks={<>

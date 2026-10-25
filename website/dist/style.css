@@ -210,9 +210,6 @@ p {
 }
 .app-stage img {
   width: 100%;
-  aspect-ratio: 8/5;
-  object-fit: cover;
-  object-position: top;
 }
 .docs-content > .app-stage {
   margin: 26px 0 36px;
@@ -264,6 +261,9 @@ p {
 .shot {
   margin: 0;
   padding: clamp(16px, 4.5vw, 64px) clamp(16px, 4.5vw, 64px) 0;
+}
+.shot picture {
+  display: block;
 }
 .shot img {
   width: 100%;

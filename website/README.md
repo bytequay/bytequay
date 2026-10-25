@@ -7,7 +7,8 @@ Mona Sans and Geist Mono from Google Fonts with system fallbacks. No analytics,
 account system, or application data is embedded.
 
 The landing page stays short: a headline with one line, one app screenshot,
-three feature rows, and link cards, each with a sentence or less. Framed bands
+four feature rows led by the Assistant and Today, and link cards, each with a
+sentence or less. Framed bands
 separate the sections, and screenshots sit on light gradient panels. Put
 details in the guides, not on the landing page.
 
@@ -55,11 +56,21 @@ intent and architecture separate from user-facing feature descriptions. Do not
 publish internal specifications, implementation notes, or unverified release
 claims.
 
-The seven `dist/assets/app-*.jpg` images show development tasks, PR review,
-cherry-pick, the Assistant, Epics, private review discussions, and link previews using
-the app's actual React components and dark palette. Each is captured at 2880 ×
-1800, rendering a 1440 × 900 workspace at 2× scale. The landing page shows
-development, review, private discussion, and the Assistant.
+The `dist/assets/app-*.jpg` images show development tasks, PR review,
+cherry-pick, the Assistant, Today, Epics, private review discussions, and link
+previews using the app's actual React components and dark palette. Most are
+captured at 2880 × 1800, rendering a 1440 × 900 workspace at 2× scale. The
+landing page shows development, the Assistant, Today, review, and private
+discussion.
+
+`app-assistant.jpg`, its animated `app-assistant.webp`, and `app-today.jpg`
+come from the browser tests' screenshot modes, cropped from the dark captures:
+from `frontend/`, run `src/assistant/assistantBrowser.test.ts` with
+`BYTEQUAY_ASSISTANT_SCREENSHOTS=<folder>` or `src/home/todayBrowser.test.ts`
+with `BYTEQUAY_TODAY_SCREENSHOTS=<folder>` through `npx vitest run`. The
+animation cycles the default, cards, and timeline views; the landing page
+shows the still image when reduced motion is preferred. Leave out views whose
+sample text names a real repository.
 
 Capture through an isolated browser fixture with sample bridge data, blocked
 external images and connections, and no live provider or backend. Development

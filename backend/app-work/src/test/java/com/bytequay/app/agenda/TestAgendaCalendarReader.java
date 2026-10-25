@@ -61,6 +61,28 @@ class TestAgendaCalendarReader
     }
 
     @Test
+    void meetingsOutsideWorkingHoursLeaveTheWorkdayFree()
+    {
+        AgendaCalendar calendar = AgendaCalendarReader.summarize(ImmutableList.of(
+                busy("2026-10-16T07:00:00+08:00", "2026-10-16T08:00:00+08:00"),
+                busy("2026-10-16T19:00:00+08:00", "2026-10-16T20:00:00+08:00")), FRIDAY, ZONE);
+
+        assertThat(calendar.busyHours()).isEqualTo(2);
+        assertThat(calendar.free()).containsExactly(block("09:00", "18:00"));
+    }
+
+    @Test
+    void eveningMeetingsPreserveTheLastAfternoonGap()
+    {
+        AgendaCalendar calendar = AgendaCalendarReader.summarize(ImmutableList.of(
+                busy("2026-10-16T10:00:00+08:00", "2026-10-16T11:00:00+08:00"),
+                busy("2026-10-16T19:00:00+08:00", "2026-10-16T20:00:00+08:00"),
+                busy("2026-10-16T20:00:00+08:00", "2026-10-16T21:00:00+08:00")), FRIDAY, ZONE);
+
+        assertThat(calendar.free()).containsExactly(block("09:00", "10:00"), block("11:00", "18:00"));
+    }
+
+    @Test
     void anAllDayEventTodayIsSaidNotCounted()
     {
         AgendaCalendar calendar = AgendaCalendarReader.summarize(ImmutableList.of(new GoogleBusyTime("2026-10-16", "2026-10-17", true)), FRIDAY, ZONE);

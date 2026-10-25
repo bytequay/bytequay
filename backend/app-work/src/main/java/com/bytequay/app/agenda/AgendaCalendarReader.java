@@ -111,8 +111,11 @@ class AgendaCalendarReader
         ImmutableList.Builder<AgendaCalendar.Block> free = ImmutableList.builder();
         int cursor = WORK_START;
         for (int[] stretch : merged) {
-            if (stretch[0] - cursor >= SHORTEST_FREE && stretch[0] <= WORK_END) {
-                free.add(block(cursor, Math.min(stretch[0], WORK_END)));
+            if (stretch[0] >= WORK_END) {
+                break;
+            }
+            if (stretch[0] - cursor >= SHORTEST_FREE) {
+                free.add(block(cursor, stretch[0]));
             }
             cursor = Math.max(cursor, stretch[1]);
         }

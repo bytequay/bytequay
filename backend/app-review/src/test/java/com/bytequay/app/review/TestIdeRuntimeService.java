@@ -139,6 +139,21 @@ class TestIdeRuntimeService
     }
 
     @Test
+    void forgettingARemovedWorktreeDeletesItsProfileButNotTheBundle()
+    {
+        IdeConnection connection = runtime.open(worktree);
+        Path profile = directory.resolve("runtime/ide").resolve(worktree.taskId().toString());
+        assertThat(Path.of(connection.cacheRoot())).startsWith(profile);
+        runtime.stopWorktree(worktree);
+
+        runtime.forgetWorktree(worktree);
+        runtime.forgetWorktree(worktree);
+
+        assertThat(profile).doesNotExist();
+        assertThat(Path.of(connection.bundleRoot(), "extensions/redhat.java-1.56.0")).isDirectory();
+    }
+
+    @Test
     void relinksExtensionsFromAnotherBundle()
             throws IOException
     {

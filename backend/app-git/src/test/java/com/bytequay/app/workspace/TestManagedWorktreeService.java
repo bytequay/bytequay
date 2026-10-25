@@ -51,6 +51,9 @@ import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.CONCURRENT)
@@ -101,6 +104,18 @@ class TestManagedWorktreeService
         assertThatThrownBy(() -> service.delete(worktree)).hasMessage("IDE processes remain");
         assertThat(worktree.canonicalWorktree()).exists();
         assertThat(service.inspect(worktree).head()).isEqualTo(startCommit);
+        verify(ide, never()).forgetWorktree(worktree);
+    }
+
+    @Test
+    void deleteForgetsTheEditorStateOfTheRemovedWorktree()
+    {
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+
+        service.delete(worktree);
+
+        assertThat(worktree.canonicalWorktree()).doesNotExist();
+        verify(ide).forgetWorktree(worktree);
     }
 
     @Test
@@ -201,6 +216,8 @@ class TestManagedWorktreeService
         assertThat(git.arguments()).noneMatch(arguments -> arguments.contains("--force")
                 || arguments.equals(List.of("worktree", "prune"))
                 || arguments.equals(List.of("branch", "-D", worktree.generatedBranch())));
+        // The second cleanup finds the worktree already gone and still forgets its editor state.
+        verify(ide, times(2)).forgetWorktree(worktree);
     }
 
     @Test
@@ -250,6 +267,7 @@ class TestManagedWorktreeService
         assertThat(untracked).hasContent("keep me\n");
         assertThat(run(repository, "show-ref", "--verify", "refs/heads/" + worktree.generatedBranch()).successful())
                 .isTrue();
+        verify(ide, never()).forgetWorktree(worktree);
     }
 
     @Test

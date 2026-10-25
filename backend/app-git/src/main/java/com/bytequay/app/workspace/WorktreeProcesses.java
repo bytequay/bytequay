@@ -19,4 +19,7 @@ import com.bytequay.agent.core.TaskWorktree;
 public interface WorktreeProcesses
 {
     void stopWorktree(TaskWorktree worktree);
+
+    /** Called once the worktree is gone, so what the editor kept for it, such as its Java index, can go too. */
+    void forgetWorktree(TaskWorktree worktree);
 }

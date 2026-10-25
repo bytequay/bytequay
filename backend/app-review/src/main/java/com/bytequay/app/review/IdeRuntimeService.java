@@ -238,6 +238,23 @@ public class IdeRuntimeService
         });
     }
 
+    /** The profile indexes the removed checkout, often gigabytes for a large Java project, and nothing reads it again. */
+    @Override
+    public void forgetWorktree(TaskWorktree worktree)
+    {
+        Path profile = profiles.resolve(worktree.taskId().toString());
+        if (!Files.exists(profile, LinkOption.NOFOLLOW_LINKS)) {
+            return;
+        }
+        try {
+            // Its extensions are links into the bundle; a recursive delete removes the links, never their targets.
+            MoreFiles.deleteRecursively(profile, RecursiveDeleteOption.ALLOW_INSECURE);
+        }
+        catch (IOException failure) {
+            log.warn("The IDE profile of task {} could not be deleted: {}", worktree.taskId(), failure.toString());
+        }
+    }
+
     @Scheduled(fixedDelay = 30_000)
     public void stopAbandoned()
     {

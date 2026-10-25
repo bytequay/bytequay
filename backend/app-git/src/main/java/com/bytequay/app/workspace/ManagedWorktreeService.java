@@ -251,6 +251,7 @@ public final class ManagedWorktreeService
                 if (registeredWorktreePaths(repository).contains(worktree.canonicalWorktree())) {
                     throw conflict("Git still registers the missing task worktree");
                 }
+                processes.forgetWorktree(worktree);
                 requireBranch(repository, worktree.generatedBranch());
                 return;
             }
@@ -277,6 +278,7 @@ public final class ManagedWorktreeService
                     || !Files.notExists(worktree.canonicalWorktree(), LinkOption.NOFOLLOW_LINKS)) {
                 throw new AgentStorageException("Git did not fully remove the task worktree");
             }
+            processes.forgetWorktree(worktree);
             requireBranch(repository, worktree.generatedBranch());
         });
     }
@@ -309,6 +311,7 @@ public final class ManagedWorktreeService
             if (registeredWorktreePaths(repository).contains(path) || Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
                 throw new AgentStorageException("Git did not fully remove the task worktree");
             }
+            processes.forgetWorktree(worktree);
             if (branchExists(repository, worktree.generatedBranch())) {
                 log.info("Deleting generated branch {} of task {}", worktree.generatedBranch(), worktree.taskId());
                 Result deleted = git.run(repository, ImmutableList.of("branch", "-D", worktree.generatedBranch()));

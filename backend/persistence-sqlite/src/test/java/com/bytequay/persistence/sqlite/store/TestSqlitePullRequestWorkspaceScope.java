@@ -71,6 +71,7 @@ class TestSqlitePullRequestWorkspaceScope
         store.observeActivity(row.id(), Optional.empty(), fetched.updatedAt());
 
         assertThat(store.findDiscussionActivityAt(row.id())).contains(replyAt);
+        assertThat(store.findDiscussionActivities(Set.of(row.id(), row.id() + 1))).containsExactly(Map.entry(row.id(), replyAt));
         assertThat(store.findActivities(Set.of(row.id()))).containsEntry(row.id(), reply);
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(replyAt);
     }

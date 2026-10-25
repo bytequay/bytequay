@@ -89,6 +89,16 @@ public interface PullRequestJpaRepository
     @Query("SELECT e.id AS id, e.attentionActivityAt AS attentionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids AND e.attentionActivityAt IS NOT NULL")
     List<AttentionActivity> findAttentionActivities(@Param("ids") Set<Long> ids);
 
+    @Query("SELECT e.id AS id, e.discussionActivityAt AS discussionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids AND e.discussionActivityAt IS NOT NULL")
+    List<DiscussionActivity> findDiscussionActivities(@Param("ids") Set<Long> ids);
+
+    interface DiscussionActivity
+    {
+        long getId();
+
+        Instant getDiscussionActivityAt();
+    }
+
     interface CardActivity
     {
         long getId();

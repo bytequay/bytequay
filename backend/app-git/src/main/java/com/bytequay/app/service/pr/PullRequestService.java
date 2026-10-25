@@ -345,6 +345,11 @@ public class PullRequestService
      */
     public Map<Long, List<PrCommitLine>> findCachedCommitsSinceReview(List<PullRequest> pullRequests)
     {
+        List<PullRequest> moved = pullRequests.stream().filter(pullRequest -> {
+            Instant anchor = reviewAnchor(pullRequest);
+            return anchor != null && pullRequest.headPushedAt() != null && pullRequest.headPushedAt().isAfter(anchor);
+        }).collect(toImmutableList());
+        Map<Long, PrDetailFreshness> freshness = freshness(moved);
         ImmutableMap.Builder<Long, Instant> since = ImmutableMap.builder();
         for (PullRequest pullRequest : moved) {
             if (pullRequest.activityAt() == null || activityIsCurrent(pullRequest, freshness.getOrDefault(pullRequest.id(), PrDetailFreshness.unknown()).discussionAt())) {
@@ -352,6 +357,18 @@ public class PullRequestService
             }
         }
         return details.findCommitsAfter(since.buildOrThrow());
+    }
+
+    private static Instant reviewAnchor(PullRequest pullRequest)
+    {
+        return pullRequest.reviewedAt() != null ? pullRequest.reviewedAt() : pullRequest.reviewRequestedAt();
+    }
+
+    /** One read for every pull request whose extras must be validated against its activity, instead of one per pull request. */
+    private Map<Long, PrDetailFreshness> freshness(List<PullRequest> pullRequests)
+    {
+        Set<Long> ids = pullRequests.stream().filter(pullRequest -> pullRequest.activityAt() != null).map(PullRequest::id).collect(toImmutableSet());
+        return ids.isEmpty() ? ImmutableMap.of() : details.findFreshness(ids);
     }
 
     /** Reads the last polled GitHub inbox, never GitHub itself. */
@@ -362,11 +379,6 @@ public class PullRequestService
                 .map(PullRequest::id).collect(toImmutableSet());
     }
 
-        List<PullRequest> moved = pullRequests.stream().filter(pullRequest -> {
-            Instant anchor = reviewAnchor(pullRequest);
-            return anchor != null && pullRequest.headPushedAt() != null && pullRequest.headPushedAt().isAfter(anchor);
-        }).collect(toImmutableList());
-        Map<Long, PrDetailFreshness> freshness = freshness(moved);
     /** Reads the names of the cached checks failing on each PR whose CI is failing. */
     public Map<Long, List<String>> findCachedFailingChecks(List<PullRequest> pullRequests)
     {
@@ -380,18 +392,6 @@ public class PullRequestService
         return details.findCheckRuns(failing).entrySet().stream()
                 .collect(toImmutableMap(Map.Entry::getKey, entry -> PullRequestDetailMapper.failingCheckNames(entry.getValue())));
     }
-    private static Instant reviewAnchor(PullRequest pullRequest)
-    {
-        return pullRequest.reviewedAt() != null ? pullRequest.reviewedAt() : pullRequest.reviewRequestedAt();
-    }
-
-    /** One read for every pull request whose extras must be validated against its activity, instead of one per pull request. */
-    private Map<Long, PrDetailFreshness> freshness(List<PullRequest> pullRequests)
-    {
-        Set<Long> ids = pullRequests.stream().filter(pullRequest -> pullRequest.activityAt() != null).map(PullRequest::id).collect(toImmutableSet());
-        return ids.isEmpty() ? ImmutableMap.of() : details.findFreshness(ids);
-    }
-
 
     private static boolean activityIsCurrent(PullRequest pullRequest, Optional<Instant> checkedAt)
     {
@@ -555,9 +555,13 @@ public class PullRequestService
     /** Notification ingestion and incremental discovery never wait for full detail warming. */
     public synchronized void syncAttentionSummaries()
     {
-        store.findAttentionCandidates().stream()
+        // One load a tick: rows that discovery or the inbox touch during the tick join the changed set on their own.
+        List<PullRequest> candidates = store.findAttentionCandidates();
+        Set<Long> unmonitored = candidates.stream()
                 .filter(row -> row.monitoredAt() != null && "merged".equalsIgnoreCase(row.state()))
-                .forEach(row -> store.setMonitored(row.id(), false));
+                .map(PullRequest::id)
+                .collect(toImmutableSet());
+        unmonitored.forEach(id -> store.setMonitored(id, false));
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
         String login = credential.profile().login();
@@ -599,11 +603,13 @@ public class PullRequestService
             }
         }
         seen.values().stream().map(row -> parseRef(row.repo(), row.number())).forEach(changed::add);
-        store.findAttentionCandidates().stream()
+        Map<Long, Instant> discussed = store.findDiscussionActivities(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
+        candidates.stream()
                 .filter(row -> {
                     SummaryStamp stamp = summaryStamps.get(parseRef(row.repo(), row.number()));
-                    return stamp == null || !stamp.credential().equals(pat) || row.monitoredAt() != null || row.ciStatus() == PullRequestDetail.CiStatus.PENDING
-                            || discussionSourceUpdatedAt(row).isAfter(stamp.sourceAt());
+                    boolean monitored = row.monitoredAt() != null && !unmonitored.contains(row.id());
+                    return stamp == null || !stamp.credential().equals(pat) || monitored || row.ciStatus() == PullRequestDetail.CiStatus.PENDING
+                            || discussionSource(row, discussed).isAfter(stamp.sourceAt());
                 })
                 .map(row -> parseRef(row.repo(), row.number())).forEach(changed::add);
         enrichCards(credential, ImmutableList.copyOf(changed));
@@ -730,8 +736,9 @@ public class PullRequestService
             if (summaryCredential == null) {
                 // ponytail: a change saved but not summarized before the last shutdown stays stale until the next one; persist the stamp if that shows.
                 Instant now = clock.instant();
-                store.findAttentionCandidates().stream().filter(row -> !timed(row))
-                        .forEach(row -> summaryStamps.put(parseRef(row.repo(), row.number()), new SummaryStamp(pat, discussionSourceUpdatedAt(row), now)));
+                List<PullRequest> rows = store.findAttentionCandidates().stream().filter(row -> !timed(row)).collect(toImmutableList());
+                Map<Long, Instant> discussed = store.findDiscussionActivities(rows.stream().map(PullRequest::id).collect(toImmutableSet()));
+                rows.forEach(row -> summaryStamps.put(parseRef(row.repo(), row.number()), new SummaryStamp(pat, discussionSource(row, discussed), now)));
             }
             summaryCredential = pat;
         }
@@ -1074,6 +1081,12 @@ public class PullRequestService
     Instant discussionSourceUpdatedAt(PullRequest row)
     {
         return store.findDiscussionActivityAt(row.id()).filter(at -> at.isAfter(row.updatedAt())).orElse(row.updatedAt());
+    }
+
+    /** {@link #discussionSourceUpdatedAt} from discussion times read in bulk. */
+    private static Instant discussionSource(PullRequest row, Map<Long, Instant> discussed)
+    {
+        return Optional.ofNullable(discussed.get(row.id())).filter(at -> at.isAfter(row.updatedAt())).orElse(row.updatedAt());
     }
 
     private static boolean expired(Optional<Instant> validatedAt, Duration freshness, Instant now)

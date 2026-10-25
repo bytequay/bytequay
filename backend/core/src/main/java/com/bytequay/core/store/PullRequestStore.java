@@ -45,6 +45,9 @@ public interface PullRequestStore
     /** When each pull request last had activity that ends an acknowledgment in Needs attention; absent until a refresh finds some. */
     Map<Long, Instant> findAttentionActivities(Set<Long> prIds);
 
+    /** The latest discussion activity recorded for each of {@code prIds}; a pull request without one is absent. */
+    Map<Long, Instant> findDiscussionActivities(Set<Long> prIds);
+
     /** Keeps the later of the stored and the observed attention activity. */
     void observeAttentionActivity(long prId, Instant at);
 

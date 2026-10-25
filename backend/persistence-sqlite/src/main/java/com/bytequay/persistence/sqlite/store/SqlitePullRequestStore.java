@@ -26,6 +26,7 @@ import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository.AttentionActivity;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository.CardActivity;
+import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository.DiscussionActivity;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -135,6 +136,17 @@ public class SqlitePullRequestStore
         }
         return jpaRepository.findAttentionActivities(prIds).stream()
                 .collect(toImmutableMap(AttentionActivity::getId, AttentionActivity::getAttentionActivityAt));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, Instant> findDiscussionActivities(Set<Long> prIds)
+    {
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return jpaRepository.findDiscussionActivities(prIds).stream()
+                .collect(toImmutableMap(DiscussionActivity::getId, DiscussionActivity::getDiscussionActivityAt));
     }
 
     @Override

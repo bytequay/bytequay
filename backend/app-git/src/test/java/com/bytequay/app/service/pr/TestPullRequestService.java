@@ -125,6 +125,7 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -157,8 +158,8 @@ class TestPullRequestService
     @Mock private GitHubAccountClient accounts;
     @Mock private PullRequestStore store;
     @Mock private PrDetailStore detailStore;
-    @Mock private PrDiffStore diffStore;
     private final WriteVersion writeVersion = new WriteVersion();
+    @Mock private PrDiffStore diffStore;
     @Mock private PrViewStateStore viewStateStore;
     @Mock private CredentialService credentialService;
     @Mock private WorkspaceMetadataService metadata;
@@ -214,7 +215,6 @@ class TestPullRequestService
     }
 
     @Test
-    @Test
     void attentionReusesTimelineActivityUntilATimelineIsWritten()
     {
         PullRequest row = storedPullRequest(pullRequestNumber(91));
@@ -229,6 +229,7 @@ class TestPullRequestService
         verify(detailStore, times(2)).findLatestActivities(ImmutableSet.of(row.id()));
     }
 
+    @Test
     void attentionVersionChangesWithInMemoryInputsTheStoreCannotSee()
     {
         when(credentialService.cachedLogin()).thenReturn(Optional.of("me"));
@@ -1034,6 +1035,7 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(row.id()));
         when(store.findById(row.id())).thenReturn(Optional.of(row));
         when(store.findDiscussionActivityAt(row.id())).thenReturn(Optional.of(notificationAt));
+        when(store.findDiscussionActivities(anySet())).thenReturn(ImmutableMap.of(row.id(), notificationAt));
         when(store.saveObserved(fetched)).thenReturn(row);
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(stale), ImmutableList.of(caughtUp));
 
@@ -1062,6 +1064,7 @@ class TestPullRequestService
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(row.id()));
         when(store.findById(row.id())).thenReturn(Optional.of(row));
         when(store.findDiscussionActivityAt(row.id())).thenReturn(Optional.of(notificationAt));
+        when(store.findDiscussionActivities(anySet())).thenReturn(ImmutableMap.of(row.id(), notificationAt));
         when(store.saveObserved(fetched)).thenReturn(row);
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1")));
 

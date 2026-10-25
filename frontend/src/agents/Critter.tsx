@@ -167,12 +167,20 @@ export function Critter({ kind, moving }: { kind: CritterKind; moving: boolean }
     draw();
     if (!moving || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
     const start = performance.now() - elapsed.current * 1000;
+    let shown = true;
+    const watch = typeof IntersectionObserver === 'function' ? new IntersectionObserver(([entry]) => { shown = entry.isIntersecting; }) : null;
+    watch?.observe(host.current);
+    let drawn = 0;
     let frame = requestAnimationFrame(function step(now) {
       frame = requestAnimationFrame(step);
+      // A kept conversation that is not on screen draws nothing; behind another window, ten frames a second still show
+      // the agent working.
+      if (!shown || (!document.hasFocus() && now - drawn < 100)) return;
+      drawn = now;
       elapsed.current = (now - start) / 1000;
       draw();
     });
-    return () => cancelAnimationFrame(frame);
+    return () => { cancelAnimationFrame(frame); watch?.disconnect(); };
   }, [kind, moving]);
   return <span ref={host} className={`agt-critter${moving ? ' is-moving' : ''}`} aria-hidden="true" dangerouslySetInnerHTML={{ __html: art }} />;
 }

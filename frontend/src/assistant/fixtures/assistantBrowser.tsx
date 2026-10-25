@@ -991,7 +991,7 @@ const receiptsView = (): AssistantViewDto => {
   });
   return { ...VIEW, items: [VIEW.items[0],
     receipt('e1', 'Acknowledged “Use remote splits generation for large manifests”', { operation: 'ACKNOWLEDGE', detail: 'Back when something new happens',
-      words: 'Clear the cork PR from Needs attention' }),
+      words: 'Clear the downstream PR from Needs attention' }),
     receipt('e2', 'Queued your words for “Retry Iceberg commit on conflict”', { operation: 'REPLY_TO_TASK', detail: 'After its current turn',
       words: 'Tell the retry task to keep the old key too' }),
     receipt('e3', 'Changing Epics and work items is off', { operation: 'MARK_EPIC', outcome: 'REFUSED', target: null, fix: 'SETTINGS', words: 'make ICE-7 an Epic' }),

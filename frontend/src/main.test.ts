@@ -118,7 +118,7 @@ it.each([
   { kind: 'task', taskId: 'work-task', workspaceId: 'work-repo' },
 ])('starts a $kind terminal with the backend-selected Claude profile', async host => {
   await startMain();
-  const fetch = vi.fn(async () => new Response(JSON.stringify({ workingDirectory: '/managed/cork', claudeConfigDirectory: '/profiles/work' })));
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ workingDirectory: '/managed/downstream', claudeConfigDirectory: '/profiles/work' })));
   vi.stubGlobal('fetch', fetch);
   desktop.spawnPty.mockReturnValue({ onData: vi.fn(), onExit: vi.fn(), kill: vi.fn(), resize: vi.fn(), write: vi.fn() });
   const sender = { isDestroyed: () => false, on: vi.fn(), once: vi.fn(), send: vi.fn() };
@@ -127,7 +127,7 @@ it.each([
 
   expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/code/terminal'), expect.objectContaining({ headers: withHeaders({ 'X-ByteQuay-Session': 'test-session' }) }));
   expect(desktop.spawnPty).toHaveBeenCalledWith(expect.any(String), ['-l'], expect.objectContaining({
-    cwd: '/managed/cork', cols: 100, rows: 30, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: '/profiles/work' }),
+    cwd: '/managed/downstream', cols: 100, rows: 30, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: '/profiles/work' }),
   }));
   expect(result).toEqual({ terminalId: expect.any(String), scrollback: '' });
 });

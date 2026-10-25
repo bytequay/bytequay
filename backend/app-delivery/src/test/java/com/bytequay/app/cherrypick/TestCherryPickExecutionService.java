@@ -137,9 +137,9 @@ class TestCherryPickExecutionService
         // GitHub-shaped remote URLs mapped to the local fixtures, so repository
         // identity parses the way it will in production.
         git(clone, "remote", "add", "origin", "https://github.com/owner/repository.git");
-        git(clone, "remote", "add", "cork", "https://github.com/cork/repository.git");
+        git(clone, "remote", "add", "downstream", "https://github.com/downstream/repository.git");
         git(clone, "config", "url." + upstream.toUri() + ".insteadOf", "https://github.com/owner/repository.git");
-        git(clone, "config", "url." + fork.toUri() + ".insteadOf", "https://github.com/cork/repository.git");
+        git(clone, "config", "url." + fork.toUri() + ".insteadOf", "https://github.com/downstream/repository.git");
         worktreeParent = Files.createDirectories(temporaryDirectory.resolve(WORKSPACE_ID).resolve("worktrees"));
 
         store = new InMemoryCherryPickExecutionStore();
@@ -151,7 +151,7 @@ class TestCherryPickExecutionService
         WorkspaceRemoteSourceService remoteSources = mock(WorkspaceRemoteSourceService.class);
         when(remoteSources.list(WORKSPACE_ID)).thenReturn(ImmutableList.of(
                 new WorkspaceRemote("origin", "https://github.com/owner/repository.git", Role.ORIGIN),
-                new WorkspaceRemote("cork", "https://github.com/cork/repository.git", Role.CUSTOM)));
+                new WorkspaceRemote("downstream", "https://github.com/downstream/repository.git", Role.CUSTOM)));
         previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class), credentials, remoteSources, CLOCK, relationships);
         agent = new ScriptedCherryPickAgent(new TestWorktreeService(clone, worktreeParent));
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK), ImmutableSet.of());
@@ -1297,7 +1297,7 @@ class TestCherryPickExecutionService
 
     private CherryPickPreview preview(String baseRef)
     {
-        return previews.preview(new PreviewCherryPickRangeCommand(clone, WORKSPACE_ID, OptionalLong.empty(), "origin", baseRef, "origin/main", "cork", "main"));
+        return previews.preview(new PreviewCherryPickRangeCommand(clone, WORKSPACE_ID, OptionalLong.empty(), "origin", baseRef, "origin/main", "downstream", "main"));
     }
 
     private static StartCherryPickExecutionCommand command(CherryPickPreview preview, List<String> skipped, String key)

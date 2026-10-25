@@ -103,15 +103,15 @@ class TestSettingsController
             throws Exception
     {
         when(models.addClaudeAccount(any(), any(), any())).thenReturn(WORK);
-        when(workspaces.findById("cork")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
+        when(workspaces.findById("downstream")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
         mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"label\":\"Work\",\"email\":\"work@example.com\",\"workspaceId\":\"cork\"}"))
+                        .content("{\"label\":\"Work\",\"email\":\"work@example.com\",\"workspaceId\":\"downstream\"}"))
                 .andExpect(status().isOk());
-        verify(models).addClaudeAccount("Work", "work@example.com", Optional.of("cork"));
+        verify(models).addClaudeAccount("Work", "work@example.com", Optional.of("downstream"));
         mvc().perform(put("/api/settings/claude-accounts/account-id/workspace").contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"workspaceId\":\"cork\"}"))
+                        .content("{\"workspaceId\":\"downstream\"}"))
                 .andExpect(status().isOk());
-        verify(models).restrictClaudeAccount("claude-account-account-id", "cork");
+        verify(models).restrictClaudeAccount("claude-account-account-id", "downstream");
     }
 
     @Test

@@ -101,14 +101,14 @@ class TestModelSettingsService
         when(named.label()).thenReturn("Claude · Work");
         when(drivers.require(any())).thenReturn(named);
         service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "opus", Optional.of("Max"));
-        ClaudeAccount account = service.addClaudeAccount("Work", "work@example.com", Optional.of("cork"));
+        ClaudeAccount account = service.addClaudeAccount("Work", "work@example.com", Optional.of("downstream"));
         service.refreshMissingCatalogs(ImmutableList.of(new AgentProviderStatus(account.laneId(), Readiness.AUTHENTICATION_REQUIRED,
                 Optional.empty(), "Sign in", AgentCapabilities.none())));
-        assertThat(service.get(Optional.of("cork")).agents()).allSatisfy(agent -> {
+        assertThat(service.get(Optional.of("downstream")).agents()).allSatisfy(agent -> {
             assertThat(agent.configId()).isEqualTo(account.laneId().value());
             assertThat(agent.effort()).contains("Max");
         });
-        assertThat(service.get(Optional.of("cork")).providers()).extracting(ModelSettingsService.Provider::id).containsExactly(account.laneId().value());
+        assertThat(service.get(Optional.of("downstream")).providers()).extracting(ModelSettingsService.Provider::id).containsExactly(account.laneId().value());
         assertThat(service.get(Optional.of("other")).providers()).isEmpty();
         assertThat(service.get().providers()).isEmpty();
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("other")).configId()).isEqualTo("claude");

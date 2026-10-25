@@ -43,16 +43,16 @@ class TestClaudeAccountDriverRegistry
     void rejectsRepositoryAccountsOutsideTheirWorkspaceIncludingAfterRestriction()
     {
         ClaudeAccounts accounts = new ClaudeAccounts(new InMemoryAppSettingsStore(), new ObjectMapper());
-        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.of("cork"));
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.of("downstream"));
         ClaudeAccount global = accounts.add("Personal", "personal@example.com", Optional.empty());
         try (ClaudeAccountDriverRegistry registry = new ClaudeAccountDriverRegistry(mock(AgentDriverRegistry.class), accounts, true,
                 ignored -> mock(ClaudeCliDriver.class, withSettings().mockMaker(MockMakers.INLINE)))) {
-            registry.checkWorkspaceAccess(work.laneId(), Optional.of("cork"));
+            registry.checkWorkspaceAccess(work.laneId(), Optional.of("downstream"));
             registry.checkWorkspaceAccess(global.laneId(), Optional.of("other"));
             assertThatThrownBy(() -> registry.checkWorkspaceAccess(work.laneId(), Optional.of("other"))).isInstanceOf(AgentUnavailableException.class);
             assertThatThrownBy(() -> registry.checkWorkspaceAccess(work.laneId(), Optional.empty())).isInstanceOf(AgentUnavailableException.class);
             registry.require(global.laneId());
-            accounts.restrictToWorkspace(global.laneId().value(), "cork");
+            accounts.restrictToWorkspace(global.laneId().value(), "downstream");
             assertThatThrownBy(() -> registry.checkWorkspaceAccess(global.laneId(), Optional.of("other"))).isInstanceOf(AgentUnavailableException.class);
         }
     }

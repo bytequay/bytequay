@@ -33,11 +33,11 @@ class TestClaudeAccounts
         ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
         ClaudeAccount account = accounts.list().getFirst();
         assertThat(account.workspaceId()).isEmpty();
-        accounts.restrictToWorkspace(account.laneId().value(), "cork");
+        accounts.restrictToWorkspace(account.laneId().value(), "downstream");
         ClaudeAccount restricted = accounts.list().getFirst();
         assertThat(restricted.id()).isEqualTo(id);
         assertThat(restricted.email()).isEqualTo(account.email());
-        assertThat(restricted.workspaceId()).contains("cork");
+        assertThat(restricted.workspaceId()).contains("downstream");
     }
 
     @Test
@@ -45,14 +45,14 @@ class TestClaudeAccounts
     {
         InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
         ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
-        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.of("cork"));
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.of("downstream"));
         ClaudeAccount global = accounts.add("Personal", "personal@example.com", Optional.empty());
         ClaudeAccounts restarted = new ClaudeAccounts(store, new ObjectMapper());
-        assertThat(restarted.availableIn(work.laneId().value(), Optional.of("cork"))).isTrue();
+        assertThat(restarted.availableIn(work.laneId().value(), Optional.of("downstream"))).isTrue();
         assertThat(restarted.availableIn(work.laneId().value(), Optional.of("other"))).isFalse();
         assertThat(restarted.availableIn(work.laneId().value(), Optional.empty())).isFalse();
         assertThat(restarted.availableIn(global.laneId().value(), Optional.of("other"))).isTrue();
-        restarted.restrictToWorkspace(global.laneId().value(), "cork");
+        restarted.restrictToWorkspace(global.laneId().value(), "downstream");
         assertThat(restarted.find(global.laneId().value()).orElseThrow().id()).isEqualTo(global.id());
         assertThat(restarted.availableIn(global.laneId().value(), Optional.of("other"))).isFalse();
         assertThatThrownBy(() -> restarted.restrictToWorkspace(work.laneId().value(), "other")).isInstanceOf(IllegalArgumentException.class);

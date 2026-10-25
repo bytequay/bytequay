@@ -24,6 +24,7 @@ import com.bytequay.persistence.sqlite.repository.CommitRefreshMetadataJpaReposi
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,8 @@ import static java.util.Objects.requireNonNull;
 public class SqliteCommitHistoryStore
         implements CommitHistoryStore
 {
+    private static final Duration LAST_SEEN_RESOLUTION = Duration.ofDays(1);
+
     private final CommitEnrichmentJpaRepository enrichment;
     private final CommitRefreshMetadataJpaRepository refreshMetadata;
 
@@ -112,7 +115,10 @@ public class SqliteCommitHistoryStore
         entity.setPullRequestMergedAt(value.pullRequestMergedAt().orElse(entity.getPullRequestMergedAt()));
         entity.setAvatarCheckedAt(value.avatarCheckedAt().orElse(entity.getAvatarCheckedAt()));
         entity.setAssociationCheckedAt(value.associationCheckedAt().orElse(entity.getAssociationCheckedAt()));
-        entity.setLastSeenAt(value.lastSeenAt());
+        // Each refresh sees every listed commit again; moving the time on each would rewrite them all, so it moves daily.
+        if (entity.getLastSeenAt() == null || value.lastSeenAt().isAfter(entity.getLastSeenAt().plus(LAST_SEEN_RESOLUTION))) {
+            entity.setLastSeenAt(value.lastSeenAt());
+        }
         return entity;
     }
 }

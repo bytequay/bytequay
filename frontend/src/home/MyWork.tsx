@@ -16,6 +16,7 @@ import { ArrowRight, Check, Circle, GitPullRequest, LoaderCircle, X } from 'luci
 import { plural } from '@bytequay/ui/displayText';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import Avatar from '../Avatar';
+import RepoAvatar from '../RepoAvatar';
 import { Card, CardAge } from '../cards/Card';
 import { ProviderIcon } from '../agents/ProviderIcon';
 import { getCached, setCached } from '../dataCache';
@@ -217,11 +218,13 @@ function SourceTabs({ source, onSource }: { source: 'all' | WorkSource; onSource
 function WorkCard({ item, onToday, commits }: { item: WorkItem; onToday: boolean; commits: number }) {
   const source = WORK_SOURCES[item.source];
   const { running } = item;
+  const [owner, repo] = item.repos[0]?.split('/') ?? [];
   return (
     <div role="listitem">
       <Card compact className="mw-card" label={`${[source.label, item.label].filter(Boolean).join(' ')}: ${item.title}`} onOpen={() => openTarget(item.target)}>
         <div className="mw-card__head">
           <span className={`mw-src is-${item.source}`} aria-hidden="true" />
+          {owner && <RepoAvatar owner={owner} repo={repo ?? ''} size={16} radius={4} />}
           {item.label !== '' && <span className="mw-card__key">{item.label}</span>}
           <span className="mw-card__source">{source.label}</span>
           <span className="mw-spacer" />

@@ -72,6 +72,9 @@ public class GitHubPullRequestSummaryClient
 {
     // Thirty nested summaries approach GitHub's ten-second execution deadline.
     public static final int BATCH_SIZE = 5;
+    // GitHub computes mergeStateStatus only when one query asks for at most two pull requests; with more, it answers BLOCKED
+    // or UNKNOWN for every one of them, which would keep approved pull requests out of Ready to merge.
+    private static final int QUERY_SIZE = 2;
 
     private static final ObjectMapper MAPPER = JsonMapper.builder().addModule(new Jdk8Module()).addModule(new JavaTimeModule())
             .defaultSetterInfo(JsonSetter.Value.forContentNulls(Nulls.FAIL))
@@ -131,8 +134,8 @@ public class GitHubPullRequestSummaryClient
         checkArgument(!login.isBlank(), "login is blank");
         List<PullRequestRef> unique = ImmutableSet.copyOf(refs).asList();
         ImmutableList.Builder<GitHubPullRequestSummary> summaries = ImmutableList.builder();
-        for (int offset = 0; offset < unique.size(); offset += BATCH_SIZE) {
-            List<PullRequestRef> batch = unique.subList(offset, Math.min(unique.size(), offset + BATCH_SIZE));
+        for (int offset = 0; offset < unique.size(); offset += QUERY_SIZE) {
+            List<PullRequestRef> batch = unique.subList(offset, Math.min(unique.size(), offset + QUERY_SIZE));
             Map<String, Object> variables = new LinkedHashMap<>();
             variables.put("login", login);
             StringBuilder query = new StringBuilder("query($login:String!");

@@ -119,13 +119,14 @@ class TestGitHubPullRequestSummaryClient
     }
 
     @Test
-    void batchesFiveDistinctReferencesAndDoesNotFetchEmptySelections()
+    void asksForAtMostTwoDistinctReferencesPerQueryAndDoesNotFetchEmptySelections()
             throws Exception
     {
+        // With three or more pull requests in one query, GitHub answers BLOCKED or UNKNOWN for every mergeStateStatus.
         List<PullRequestRef> refs = IntStream.rangeClosed(1, 31).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
-        for (int offset = 0; offset < refs.size(); offset += 5) {
+        for (int offset = 0; offset < refs.size(); offset += 2) {
             int firstNumber = offset + 1;
-            int batchSize = Math.min(5, refs.size() - offset);
+            int batchSize = Math.min(2, refs.size() - offset);
             ObjectNode response = MAPPER.createObjectNode();
             ObjectNode data = response.putObject("data");
             for (int index = 0; index < batchSize; index++) {
@@ -138,7 +139,7 @@ class TestGitHubPullRequestSummaryClient
                 assertThat(variables.path("number0").intValue()).isEqualTo(firstNumber);
                 assertThat(variables.path("number" + (batchSize - 1)).intValue()).isEqualTo(firstNumber + batchSize - 1);
                 assertThat(variables.has("number" + batchSize)).isFalse();
-                assertThat(payload.path("query").asText()).doesNotContain("$number5");
+                assertThat(payload.path("query").asText()).doesNotContain("$number2");
             }).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
         }
 
@@ -151,21 +152,24 @@ class TestGitHubPullRequestSummaryClient
     void refusesPartialOrUnknownFactsInsteadOfOverwritingGoodLocalState()
             throws Exception
     {
-        ObjectNode response = MAPPER.createObjectNode();
-        ObjectNode data = response.putObject("data");
+        ObjectNode first = MAPPER.createObjectNode();
         ObjectNode partialLabels = row(1);
         partialLabels.withObject("/labels/pageInfo").put("hasNextPage", true);
-        data.putObject("r0").set("pullRequest", partialLabels);
+        first.putObject("data").set("r0", MAPPER.createObjectNode().set("pullRequest", partialLabels));
         ObjectNode missingChecks = row(2);
         missingChecks.remove("statusCheckRollup");
-        data.putObject("r1").set("pullRequest", missingChecks);
+        first.withObject("/data").set("r1", MAPPER.createObjectNode().set("pullRequest", missingChecks));
+        ObjectNode second = MAPPER.createObjectNode();
         ObjectNode unknownChecks = row(3);
         unknownChecks.withObject("/statusCheckRollup").put("state", "UNRECOGNIZED");
-        data.putObject("r2").set("pullRequest", unknownChecks);
-        data.putObject("r3").set("pullRequest", row(4));
-        data.putObject("r4").set("pullRequest", row(5));
-        response.putArray("errors").addObject().put("message", "Unavailable").putArray("path").add("r3").add("pullRequest").add("statusCheckRollup");
-        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
+        second.putObject("data").set("r0", MAPPER.createObjectNode().set("pullRequest", unknownChecks));
+        second.withObject("/data").set("r1", MAPPER.createObjectNode().set("pullRequest", row(4)));
+        second.putArray("errors").addObject().put("message", "Unavailable").putArray("path").add("r1").add("pullRequest").add("statusCheckRollup");
+        ObjectNode third = MAPPER.createObjectNode();
+        third.putObject("data").set("r0", MAPPER.createObjectNode().set("pullRequest", row(5)));
+        for (ObjectNode response : ImmutableList.of(first, second, third)) {
+            graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
+        }
 
         List<PullRequestRef> refs = IntStream.rangeClosed(1, 5).mapToObj(number -> PullRequestRef.of("owner", "repo", number)).toList();
         assertThat(client.fetchSummaries("pat", refs, "viewer")).extracting(summary -> summary.pullRequest().number()).containsExactly(5);

@@ -1231,7 +1231,7 @@ class TestClaudeCliDriver
             CompletableFuture<Void> delivery = CompletableFuture.runAsync(() ->
                     assertThatThrownBy(() -> session.start(new AgentTurnCommand("blocked-input", "Review the change", ImmutableList.of(), Duration.ZERO)))
                             .isInstanceOf(AgentDeliveryUncertainException.class)
-                            .hasRootCauseInstanceOf(TimeoutException.class));
+                            .hasRootCauseInstanceOf(TimeoutException.class), Thread::startVirtualThread);
             try {
                 delivery.get(2, TimeUnit.SECONDS);
                 assertThat(stalled).isNotDone();
@@ -1263,7 +1263,7 @@ class TestClaudeCliDriver
                     finally {
                         assertThat(Thread.interrupted()).isTrue();
                     }
-                }).get(2, TimeUnit.SECONDS);
+                }, Thread::startVirtualThread).get(2, TimeUnit.SECONDS);
                 assertThat(supervisor.turns).singleElement().satisfies(turn -> assertThat(turn.cancelled).isTrue());
             }
             finally {
@@ -1327,7 +1327,8 @@ class TestClaudeCliDriver
             RunningTurn turn = session.start(command("Review"));
             ScriptedTurn process = supervisor.turns.getFirst();
             process.acknowledgeInput = false;
-            CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> turn.steer(new AgentTurnInput("Docker started", ImmutableList.of())));
+            // A ForkJoin test worker must not execute the blocked sender while awaiting its input.
+            CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> turn.steer(new AgentTurnInput("Docker started", ImmutableList.of())), Thread::startVirtualThread);
             process.steeringInput.get(5, TimeUnit.SECONDS);
             process.inputLifecycle(0, "queued");
             assertThat(delivery).isNotDone();

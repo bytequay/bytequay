@@ -65,6 +65,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -106,6 +108,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
+@Execution(ExecutionMode.CONCURRENT)
 class TestCodexCliDriver
 {
     private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
@@ -3599,7 +3602,7 @@ class TestCodexCliDriver
             try {
                 server.emitUsage("thread-1", server.activeTurn, AppServerProcess.tokens(10, 8, 0, 2), AppServerProcess.tokens(10, 8, 0, 2));
                 assertThat(recording.await(5, TimeUnit.SECONDS)).isTrue();
-                assertThat(CompletableFuture.supplyAsync(session::retained).get(5, TimeUnit.SECONDS)).isFalse();
+                assertThat(CompletableFuture.supplyAsync(session::retained, Thread::startVirtualThread).get(5, TimeUnit.SECONDS)).isFalse();
             }
             finally {
                 taskLock.unlock();

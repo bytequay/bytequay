@@ -29,6 +29,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
@@ -58,6 +60,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+@Execution(ExecutionMode.CONCURRENT)
 class TestDefaultProcessSupervisor
 {
     private static final ProcessOwner PROBE = new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "test-probe");
@@ -298,7 +301,7 @@ class TestDefaultProcessSupervisor
                 assertThat(process.stopAndVerify().toCompletableFuture().get(5, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
             }
             else {
-                CompletableFuture.runAsync(process::cancel).get(2, TimeUnit.SECONDS);
+                CompletableFuture.runAsync(process::cancel, Thread::startVirtualThread).get(2, TimeUnit.SECONDS);
                 assertThat(awaitDead(process.pid(), Duration.ofSeconds(5))).isTrue();
             }
             assertThatThrownBy(() -> blockedInput.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentUnavailableException.class);

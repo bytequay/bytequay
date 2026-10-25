@@ -199,8 +199,9 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     let runs = [run('debug-new', 4, true), run('run-new', 3), run('debug-old', 2, true), run('run-old', 1)];
     runs.unshift({ ...run('configuration', 5), scope: 'DEBUG', command: 'Launch configuration' });
     const outputs: string[] = [];
+    let historyReads = 0;
     window.ideWorkbench = { request: async (method: string, ...args: unknown[]) => {
-      if (method === 'listCodeRuns') return runs;
+      if (method === 'listCodeRuns') { historyReads++; return runs; }
       if (method === 'readCodeRunOutput') {
         outputs.push(String(args[1]));
         return { text: `Output for ${args[1]}`, nextOffset: 10, skippedBytes: 0, complete: true };
@@ -229,10 +230,12 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     render('debug'); await settle();
     assert(getComputedStyle(panel('Run')).display === 'none' && getComputedStyle(panel('Debug')).display !== 'none', 'Debug shows only its own results');
     history('Debug'); await settle(); panel('Debug').querySelector<HTMLButtonElement>('.ct-history__row')?.click(); await settle();
-    render(null); render('run'); await new Promise(resolve => setTimeout(resolve, 1600));
+    const readsBeforeRefresh = historyReads;
+    render(null); render('run'); document.dispatchEvent(new Event('visibilitychange')); await settle();
+    assert(historyReads > readsBeforeRefresh, 'Returning to the app must refresh its run history');
     assert(selected('Run')?.includes('#1') && selected('Debug')?.includes('#2'), 'Switching panels and refreshing history preserves both selections');
     assert(outputs.includes('run-old') && outputs.includes('debug-old'), 'Selecting either history reads its retained log');
-    runs = [run('run-latest', 6), ...runs]; await new Promise(resolve => setTimeout(resolve, 1600));
+    runs = [run('run-latest', 6), ...runs]; document.dispatchEvent(new Event('visibilitychange')); await settle();
     assert(selected('Run')?.includes('#6') && selected('Debug')?.includes('#2'), 'A new run selects its result without changing the Debug selection');
     results.push({ name: 'Run and Debug retain separate test results, logs and history selections' });
   } catch (error) { results.push({ name: 'Run and Debug result panels', error: String(error) }); }

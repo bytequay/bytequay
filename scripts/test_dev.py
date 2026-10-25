@@ -68,8 +68,13 @@ exec sleep 120
             process.communicate(timeout=15)
 
     def test_build_longer_than_readiness_timeout(self):
-        process = self.start(BYTEQUAY_TEST_BUILD_DELAY="61")
-        output, _ = process.communicate(timeout=90)
+        launcher = self.root / "dev.sh"
+        source = launcher.read_text()
+        self.assertEqual(source.count("SECONDS + 60"), 1)
+        # Keep the build longer than readiness allows without waiting a minute.
+        launcher.write_text(source.replace("SECONDS + 60", "SECONDS + 2"))
+        process = self.start(BYTEQUAY_TEST_BUILD_DELAY="3")
+        output, _ = process.communicate(timeout=15)
         self.assertEqual(process.returncode, 0, output)
         self.assertIn("[dev] backend ready at http://127.0.0.1:19527", output)
         self.assertIn("test frontend started", output)

@@ -394,12 +394,11 @@ async function retainedReminder(): Promise<void> {
   finally { await f.dispose(); }
 }
 
-const pause = (ms: number) => new Promise<void>(resolve => window.setTimeout(resolve, ms));
-
 async function hoverCards(): Promise<void> {
   const pull = item(52);
   const task = taskAttentionItem(previewTask('ws-1', 'task-52'), null, { id: 'ws-1', name: 'octo/app', repository: 'octo/app' });
   const f = mount([pull, jiraAttentionItem(jiraIssue), task]);
+  let timers = controlTimers(2000);
   const reads: string[] = [];
   window.bridge.findStoredPullRequestDescription = async (repo, number) => {
     reads.push(`${repo}#${number}`);
@@ -411,9 +410,10 @@ async function hoverCards(): Promise<void> {
     assert(rows.length === 3, 'Every item must list as a row');
     // React reads enter and leave from mouseover and mouseout; a real pointer is not needed to rest on a row.
     rows.forEach(row => row.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
-    await pause(1500); await settle();
+    await settle();
     assert(document.querySelector('.ref-card') === null, 'A hover card must wait for the pointer to rest two seconds');
-    await pause(700); await settle();
+    assert(timers.tick() === 3, 'Each hover card must open after its 2000ms delay');
+    await settle();
     const cards = [...document.querySelectorAll('.ref-card')];
     const card = (label: string) => cards.find(candidate => candidate.getAttribute('aria-label') === label);
     assert(card('Pull request preview')?.textContent?.includes(pull.title) === true
@@ -423,14 +423,17 @@ async function hoverCards(): Promise<void> {
       && card('Jira ticket preview')?.textContent?.includes('Keep partition filters in the remote query.') === true,
     'Resting on a ticket must show its description');
     assert(card('Agent task preview')?.textContent?.includes('No messages yet.') === true, 'Resting on a task must show its last message');
+    timers.restore();
+    timers = controlTimers(1500);
     rows.forEach(row => row.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })));
-    await pause(1000); await settle();
+    await settle();
     assert(document.querySelectorAll('.ref-card').length === 3, 'A hover card must stay open for a second and a half after the pointer leaves');
-    await pause(700); await settle();
+    assert(timers.tick() === 3, 'Each hover card must close after its 1500ms delay');
+    await settle();
     assert(document.querySelector('.ref-card') === null, 'Leaving a row must close its hover card');
     assert(f.opens === 0 && Object.keys(loadHandled()).length === 0, 'Hovering must neither open nor handle an item');
   }
-  finally { await f.dispose(); }
+  finally { await f.dispose(); timers.restore(); }
 }
 
 async function latestSummary(): Promise<void> {

@@ -18,7 +18,7 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { execFileSync, execSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync } from 'node:fs';
+import { chmodSync, cpSync } from 'node:fs';
 import { join } from 'node:path';
 
 // Path to the Spring Boot uber-jar produced by `mvn package`. Bundled
@@ -60,18 +60,15 @@ const config: ForgeConfig = {
       }
       chmodSync(join(target, prebuild, 'spawn-helper'), 0o755);
     },
-    // Prepare the IDE and backend before extraResource copies them. Reuse an existing JAR; CI runs the full
-    // backend gates separately, so a missing JAR is built here without tests, Checkstyle or license checks.
+    // Clean first: another branch may have left an old JAR or deleted classes/resources in target.
+    // CI runs the full backend gates separately, so packaging skips tests, Checkstyle and license checks.
     generateAssets: async (_config, platform, arch) => {
       const root = join(__dirname, '..');
       execFileSync(process.execPath, ['scripts/ide-bundle.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
       execFileSync(process.execPath, ['scripts/lab-runtime.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
-      if (existsSync(BACKEND_JAR)) {
-        return;
-      }
       // eslint-disable-next-line no-console
-      console.log('[forge] backend JAR missing — running mvn package…');
-      execSync('mvn -B -q -Dmaven.test.skip=true -Dcheckstyle.skip=true -Dlicense.skip=true package', {
+      console.log('[forge] building backend JAR…');
+      execSync('mvn -B -q -Dmaven.test.skip=true -Dcheckstyle.skip=true -Dlicense.skip=true clean package', {
         cwd: join(__dirname, '..', 'backend'),
         stdio: 'inherit',
       });

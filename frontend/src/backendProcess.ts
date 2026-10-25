@@ -148,6 +148,8 @@ export function spawnBackend(): void {
     // to itself never returns it while the app idles. A GC after a quiet minute, tighter free-space bounds and a higher GC
     // time allowance hand that memory back; a few GC threads suffice for a heap this small.
     '-XX:G1PeriodicGCInterval=60000',
+    // A full periodic GC returns free regions; a concurrent cycle settles about 100 MB higher.
+    '-XX:-G1PeriodicGCInvokesConcurrent',
     '-XX:MinHeapFreeRatio=10',
     '-XX:MaxHeapFreeRatio=30',
     '-XX:GCTimeRatio=4',

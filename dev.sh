@@ -180,7 +180,7 @@ echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-as
 # control does; such a child also starts with INT and QUIT ignored, which perl
 # restores. The session makes the JVM a group leader for cleanup().
 JVM_ARGS=(--enable-native-access=ALL-UNNAMED -Xmx2000m -Xms64m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError
-    -XX:G1PeriodicGCInterval=60000 -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 -XX:GCTimeRatio=4 -XX:ParallelGCThreads=4 -XX:ConcGCThreads=1)
+    -XX:G1PeriodicGCInterval=60000 -XX:-G1PeriodicGCInvokesConcurrent -XX:MinHeapFreeRatio=10 -XX:MaxHeapFreeRatio=30 -XX:GCTimeRatio=4 -XX:ParallelGCThreads=4 -XX:ConcGCThreads=1)
 # Maven replaces the target JAR during later builds. Keep the running JVM's
 # lazy-loaded classes on an unchanged copy until this dev session exits.
 backend_runtime_dir="$(mktemp -d "${TMPDIR:-/tmp}/bytequay-backend.XXXXXX")" || exit 1

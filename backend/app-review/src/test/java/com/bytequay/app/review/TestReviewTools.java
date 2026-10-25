@@ -1749,6 +1749,43 @@ class TestReviewTools
     }
 
     @Test
+    void frozenDiffPagesBeyondTheEndStayEmptyWithoutOverflow()
+    {
+        for (int page : ImmutableList.of(2, Integer.MAX_VALUE)) {
+            JsonNode result = call("review_get_context", ImmutableMap.of("kind", "diff", "path", DIFF_PATH, "page", page));
+            assertThat(result.path("page").asInt()).isEqualTo(page);
+            assertThat(result.path("pages").asInt()).isEqualTo(1);
+            assertThat(result.path("hunks").asText()).isEmpty();
+            assertThat(result.has("error")).isFalse();
+        }
+    }
+
+    @Test
+    void frozenSourceRejectsTruncatedGitOutputWithoutRetainingEvidence()
+    {
+        when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta", true));
+
+        JsonNode result = call("review_get_context", ImmutableMap.of("kind", "source", "path", DIFF_PATH));
+
+        assertThat(result.at("/error/field").asText()).isEqualTo("path");
+        assertThat(result.at("/error/message").asText()).contains("Git output limit");
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).isEmpty();
+    }
+
+    @Test
+    void frozenSourceLineWindowDoesNotOverflow()
+    {
+        for (Map<String, Object> arguments : ImmutableList.<Map<String, Object>>of(
+                ImmutableMap.of("kind", "source", "path", DIFF_PATH, "startLine", Integer.MAX_VALUE),
+                ImmutableMap.of("kind", "source", "path", DIFF_PATH, "startLine", Integer.MAX_VALUE, "endLine", Integer.MAX_VALUE))) {
+            JsonNode result = call("review_get_context", arguments);
+            assertThat(result.at("/error/field").asText()).isEqualTo("startLine");
+            assertThat(result.at("/error/message").asText()).isEqualTo("the file has 3 lines");
+        }
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).isEmpty();
+    }
+
+    @Test
     void relatedDiffIndexIsBoundedAndExplicitlyUnverified()
     {
         List<DiffFile> files = IntStream.range(0, 22)

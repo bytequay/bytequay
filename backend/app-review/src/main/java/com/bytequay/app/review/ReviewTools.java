@@ -2111,9 +2111,9 @@ public class ReviewTools
             lines.add(hunk.header());
             hunk.lines().forEach(line -> lines.add(line.id() + " " + line.kind() + (line.side().equals("LEFT") ? "L" : "R") + line.line() + " " + line.text()));
         }
-        int pages = Math.max(1, (lines.size() + DIFF_PAGE_LINES - 1) / DIFF_PAGE_LINES);
-        int from = Math.min(lines.size(), (page - 1) * DIFF_PAGE_LINES);
-        int to = Math.min(lines.size(), from + DIFF_PAGE_LINES);
+        int pages = (int) Math.max(1, (lines.size() + (long) DIFF_PAGE_LINES - 1) / DIFF_PAGE_LINES);
+        int from = (int) Math.min(lines.size(), (long) (page - 1) * DIFF_PAGE_LINES);
+        int to = (int) Math.min(lines.size(), (long) from + DIFF_PAGE_LINES);
         return objectMapper.createObjectNode()
                 .put("path", file.filename())
                 .put("status", file.status())
@@ -2129,40 +2129,45 @@ public class ReviewTools
         if (path.startsWith("/") || path.contains("..") || path.isBlank()) {
             throw new ReviewInvalidRequestException("path: use a repository-relative path");
         }
-        int end = endLine.orElse(startLine + SOURCE_WINDOW - 1);
+        int maximumEnd = (int) Math.min(Integer.MAX_VALUE, (long) startLine + SOURCE_WINDOW - 1);
+        int end = endLine.orElse(maximumEnd);
         if (end < startLine) {
             throw new ReviewInvalidRequestException("endLine: must not precede startLine");
         }
-        end = Math.min(end, startLine + SOURCE_WINDOW - 1);
+        end = Math.min(end, maximumEnd);
         String sha = switch (revision) {
             case "", "head" -> call.run().sourceRevision();
             case "base" -> call.run().mergeBaseSha();
             case "previous" -> call.run().priorHeadSha().orElseThrow(() -> new ReviewInvalidRequestException("revision: no previously reviewed head"));
-            default -> throw new ReviewInvalidRequestException("revision: use head, base (merge base), previous, or baseline");
+            default -> throw new ReviewInvalidRequestException("revision: use head, base (merge base), or previous");
         };
         GitCommandRunner.Result shown = git.run(workspaces.requireReadyRepository(call.review().workspaceId()).repository(), "show", sha + ":" + path);
         if (!shown.successful()) {
             throw new ReviewInvalidRequestException("path: " + path + " does not exist at the selected frozen revision");
         }
+        if (shown.truncated()) {
+            throw new ReviewInvalidRequestException("path: the frozen source exceeds the Git output limit; no source evidence was retained");
+        }
         List<String> all = shown.output().lines().toList();
         if (startLine > all.size()) {
             throw new ReviewInvalidRequestException("startLine: the file has " + all.size() + " lines");
         }
+        end = Math.min(end, all.size());
         StringBuilder window = new StringBuilder();
-        for (int line = startLine; line <= Math.min(end, all.size()); line++) {
-            window.append(line).append("  ").append(all.get(line - 1)).append('\n');
+        for (int index = startLine - 1; index < end; index++) {
+            window.append(index + 1).append("  ").append(all.get(index)).append('\n');
         }
         String excerpt = bounded(window.toString(), MAX_EXCERPT);
         String ref = registerEvidence(
                 call,
-                path + " L" + startLine + "–L" + Math.min(end, all.size()) + " (frozen " + (revision.isEmpty() ? "head" : revision) + " " + ReviewPrompts.shortSha(sha) + ")",
+                path + " L" + startLine + "–L" + end + " (frozen " + (revision.isEmpty() ? "head" : revision) + " " + ReviewPrompts.shortSha(sha) + ")",
                 FROZEN_SOURCE_PROVENANCE + sha + ", not the working files",
                 excerpt);
         return objectMapper.createObjectNode()
                 .put("path", path)
                 .put("commit", sha)
                 .put("startLine", startLine)
-                .put("endLine", Math.min(end, all.size()))
+                .put("endLine", end)
                 .put("totalLines", all.size())
                 .put("evidenceRef", ref)
                 .put("source", excerpt);

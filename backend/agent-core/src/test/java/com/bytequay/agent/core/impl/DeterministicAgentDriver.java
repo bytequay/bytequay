@@ -242,6 +242,11 @@ final class DeterministicAgentDriver
         requireCurrentTurn().emit(event);
     }
 
+    synchronized AgentEventSink currentEvents()
+    {
+        return currentSession.events;
+    }
+
     synchronized void emitUsage(ProviderUsageSample sample)
     {
         emit(new ProviderAgentEvent.Usage(sample));

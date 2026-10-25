@@ -1982,7 +1982,11 @@ public final class DefaultAgentTurnService
         }
         if (event instanceof ProviderAgentEvent.Usage usage) {
             synchronized (runtimeRegistry.taskLock(taskId)) {
-                recordUsage(taskId, requireActiveTurn(taskId), usage);
+                AgentTurn turn = requireActiveTurn(taskId);
+                if (!turn.id().equals(boundTurnId)) {
+                    throw new AgentConflictException("Usage belongs to a stopped or replaced turn: " + boundTurnId);
+                }
+                recordUsage(taskId, turn, usage);
             }
             return;
         }

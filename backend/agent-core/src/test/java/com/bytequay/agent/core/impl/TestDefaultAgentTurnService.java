@@ -74,6 +74,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -1148,6 +1149,33 @@ class TestDefaultAgentTurnService
                 .filteredOn(event -> event.type() == AgentEventPayload.Kind.USAGE)
                 .hasSize(1);
         driver.complete("done");
+    }
+
+    @Test
+    void aStoppedSessionsUsageCannotChangeTheReplacementTurn()
+    {
+        AgentTurn first = service.start(command("First request", "usage-first"));
+        AgentEventSink oldEvents = driver.currentEvents();
+        driver.emitUsage(usage("first-usage", 4, 1, 2));
+        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
+        AgentTurn next = service.start(command("Next request", "usage-next"));
+        AgentTask taskBefore = stores.find(task.id()).orElseThrow();
+        AgentTurn firstBefore = stores.find(first.id()).orElseThrow();
+        var eventsBefore = events.readAfter(task.id(), 0, 100);
+
+        assertThatThrownBy(() -> oldEvents.emit(new ProviderAgentEvent.Usage(usage("late-usage", 10, 3, 6))))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("stopped or replaced turn");
+
+        assertThat(stores.find(task.id())).contains(taskBefore);
+        assertThat(stores.find(first.id())).contains(firstBefore);
+        assertThat(stores.find(next.id())).contains(next);
+        assertThat(events.readAfter(task.id(), 0, 100)).isEqualTo(eventsBefore);
+        assertThat(stores.outboxEntries()).noneMatch(entry -> entry.eventId().equals(EventId.providerUsage(task.id(), next.id(), "late-usage")));
+
+        driver.emitUsage(usage("next-usage", 7, 2, 3));
+        assertThat(metrics.taskTotals(task.id()).inputTokens()).isEqualTo(11);
+        assertThat(stores.find(next.id()).orElseThrow().metrics().inputTokens()).isEqualTo(7);
+        driver.complete("Current request finished");
     }
 
     @Test

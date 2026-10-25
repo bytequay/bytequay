@@ -32,7 +32,8 @@ declare const IDE_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
 // A forgotten shell would otherwise keep a hidden editor's language server, which can hold gigabytes, alive indefinitely.
 const IDLE_TERMINAL_MS = 60 * 60_000;
 
-protocol.registerSchemesAsPrivileged([{ scheme: 'bytequay-ide', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
+// Electron caches compiled code only for http(s) unless a scheme asks; without it every editor recompiles the whole workbench.
+protocol.registerSchemesAsPrivileged([{ scheme: 'bytequay-ide', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true, codeCache: true } }]);
 
 type Editor = {
   id: string;

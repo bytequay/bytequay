@@ -42,6 +42,7 @@ export class ArtifactView {
   private wanted: string | null = null;
   private page: { url: string; html: string } | null = null;
   private proxied: Promise<void> = Promise.resolve();
+  private idle: ReturnType<typeof setTimeout> | undefined;
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly readPage: (target: ArtifactTarget) => Promise<string>,
     private readonly onPresent: () => void = () => {}) {}
@@ -56,8 +57,11 @@ export class ArtifactView {
 
   async show(target: ArtifactTarget | null, bounds: unknown): Promise<void> {
     const window = this.window();
+    clearTimeout(this.idle);
     if (target === null || bounds === null || !window || window.isDestroyed()) {
       this.view?.setVisible(false);
+      // A hidden page keeps its renderer process and its timers; one hidden for a minute closes and loads again when shown.
+      if (this.view) this.idle = setTimeout(() => this.closeHidden(), 60_000).unref();
       return;
     }
     const url = artifactUrl(target);
@@ -116,8 +120,15 @@ export class ArtifactView {
     return new Response(this.page.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': POLICY, 'X-DNS-Prefetch-Control': 'off' } });
   }
 
+  private closeHidden(): void {
+    const window = this.window();
+    if (this.view && window && !window.isDestroyed()) window.contentView.removeChildView(this.view);
+    this.releaseWindow();
+  }
+
   /** The page belongs to the window; a new window opens it again. */
   releaseWindow(): void {
+    clearTimeout(this.idle);
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
     this.view = null;
     this.wanted = null;

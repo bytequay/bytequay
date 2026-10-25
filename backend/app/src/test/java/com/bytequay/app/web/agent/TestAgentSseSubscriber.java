@@ -32,12 +32,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestAgentSseSubscriber
 {
     @Test
-    void requestsOneEventAtATimeAndRejectsDuplicateSubscriptions()
+    void keepsAReplayPageOfDemandAndRejectsDuplicateSubscriptions()
     {
         AgentSseSubscriber subscriber = new AgentSseSubscriber(new SseEmitter());
         RecordingSubscription subscription = new RecordingSubscription();
         subscriber.onSubscribe(subscription);
-        assertThat(subscription.requested).isEqualTo(1);
+        assertThat(subscription.requested).isEqualTo(8);
 
         subscriber.onNext(new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
@@ -48,7 +48,8 @@ class TestAgentSseSubscriber
                 root(),
                 Instant.parse("2026-08-16T00:00:00Z"),
                 new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "done")));
-        assertThat(subscription.requested).isEqualTo(2);
+        // Each delivered event is asked for again, so eight stay outstanding.
+        assertThat(subscription.requested).isEqualTo(9);
 
         RecordingSubscription duplicate = new RecordingSubscription();
         subscriber.onSubscribe(duplicate);

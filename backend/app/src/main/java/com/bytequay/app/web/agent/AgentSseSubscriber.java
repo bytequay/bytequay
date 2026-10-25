@@ -27,6 +27,10 @@ import static java.util.Objects.requireNonNull;
 final class AgentSseSubscriber
         implements Flow.Subscriber<AgentEventEnvelope>
 {
+    // The publisher reads a replay page no larger than the outstanding demand; asking for one event at a time made a replay
+    // one store query per event.
+    private static final int DEMAND = 8;
+
     private final SseEmitter emitter;
     private final AtomicReference<Flow.Subscription> subscription = new AtomicReference<>();
     private final AtomicBoolean stopped = new AtomicBoolean();
@@ -47,7 +51,7 @@ final class AgentSseSubscriber
             newSubscription.cancel();
             return;
         }
-        newSubscription.request(1);
+        newSubscription.request(DEMAND);
     }
 
     @Override

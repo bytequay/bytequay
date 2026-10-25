@@ -290,7 +290,7 @@ export default function WorkspaceShell({ workspace, taskAttention, tab, relatedW
         onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
       />} />;
     }
-    if (tab === 'artifacts') return <ArtifactsPage workspaceId={workspace.id} />;
+    if (tab === 'artifacts') return <ArtifactsPage key={workspace.id} workspaceId={workspace.id} />;
     if (tab === 'context') {
       return <MemoryPage workspace={workspace} />;
     }

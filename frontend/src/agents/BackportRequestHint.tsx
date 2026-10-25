@@ -13,7 +13,7 @@
  */
 import { GitBranch } from 'lucide-react';
 
-export function backportDraft(draft: string): string {
+function backportDraft(draft: string): string {
   const mention = /^\s*@(\S*)/.exec(draft);
   const rest = mention !== null && 'backport'.startsWith(mention[1].toLowerCase()) ? draft.slice(mention[0].length).trimStart() : draft;
   return `@backport ${rest}`;

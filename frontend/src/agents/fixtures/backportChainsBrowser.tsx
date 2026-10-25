@@ -134,12 +134,13 @@ export async function run() {
 
 export function mountComposer(surface: 'Home' | 'Tasks' | 'Other' = 'Home') {
   const sends: string[] = [];
+  const asks: string[] = [];
   function Composer() {
     const [draft, setDraft] = useState('');
     const props: Omit<ComponentProps<typeof AgentTaskList>, 'inGoal'> & { repository: string } = { draft, onDraftChange: setDraft, onCreate: () => sends.push(draft), tasks: [], loading: false, error: null,
       laneId: 'codex', providers: [], models: [], selection: { model: 'test', effort: null }, blocker: null,
       repository: 'acme/private', onSelectProvider: () => {}, onSelectModel: () => {}, onOpenTask: () => {} };
-    if (surface === 'Home') return <AgentHomeView {...props} onOpenReview={() => {}} onShowAll={() => {}} />;
+    if (surface === 'Home') return <AgentHomeView {...props} onAskArtifacts={async question => { asks.push(question); }} onOpenReview={() => {}} onShowAll={() => {}} />;
     if (surface === 'Tasks') return <AgentTaskList {...props} />;
     return <TaskComposer {...props} />;
   }
@@ -148,7 +149,7 @@ export function mountComposer(surface: 'Home' | 'Tasks' | 'Other' = 'Home') {
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<Composer />));
-  return { host, sends, close: () => { flushSync(() => root.unmount()); host.remove(); } };
+  return { host, sends, asks, close: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
 export async function runComposer() {
@@ -158,6 +159,7 @@ export async function runComposer() {
       await settle();
       const input = element<HTMLTextAreaElement>('textarea', view.host, `${surface}: composer exists`);
       const value = () => input.value;
+      const caret = () => input.selectionStart;
       const type = async (text: string) => {
         input.focus(); input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
         changeInput(input, text); await settle();
@@ -210,6 +212,19 @@ export async function runComposer() {
       assert(value() === '@backport #1234' && view.sends.length === 0, 'Pill completes existing prefix without sending');
       await key('Enter');
       assert(view.sends.join() === '@backport #1234', 'Normal Enter sends the final request once');
+      if (surface !== 'Home') continue;
+      await type('@');
+      assert(view.host.querySelectorAll('[role="option"]').length === 2, 'Bare @ lists backport and artifacts on Home');
+      await key('ArrowDown');
+      assert(input.getAttribute('aria-activedescendant')?.endsWith('-artifacts') === true, 'ArrowDown moves to artifacts');
+      await key('Enter');
+      assert(value() === '@artifacts ' && caret() === 11, 'Enter completes the chosen suggestion');
+      await type('@Arti');
+      assert(option()?.textContent?.includes('@artifacts') === true, 'Prefix suggests artifacts');
+      option()?.click(); await settle();
+      assert(value() === '@artifacts ', 'Click completes artifacts');
+      await type('@artifacts What is a checkpoint?'); await key('Enter');
+      assert(view.asks.join() === 'What is a checkpoint?' && view.sends.join() === '@backport #1234' && value() === '', 'Enter asks Artifacts instead of creating a task');
     } finally { view.close(); }
   }
   return [{ name: 'Backport discovery, completion and shortcuts on Home and Tasks only' }];

@@ -15,7 +15,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { AgentHomeView } from './AgentHome';
-import { AgentTaskList } from './AgentTasksView';
+import { AgentTaskList, artifactsQuestion } from './AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { previewTask } from './fixtures/previewBridge';
 import type { AgentTaskStartupPhase, ModelOptionDto, ModelProviderDto } from '../types';
@@ -49,6 +49,27 @@ const props = {
   onAttach: () => {},
   onRemoveImage: () => {},
 };
+
+describe('asking Artifacts from Home', () => {
+  const render = (draft: string, onAskArtifacts?: (question: string) => Promise<unknown>) => renderToStaticMarkup(
+    <AgentHomeView {...props} draft={draft} images={[]} onAskArtifacts={onAskArtifacts} repository="bytequay/bytequay" onOpenReview={() => {}} onShowAll={() => {}} />);
+  const ask = () => Promise.resolve();
+
+  it('reads only a leading @artifacts as the question', () => {
+    expect(artifactsQuestion('  @Artifacts What is a checkpoint? ')).toBe('What is a checkpoint?');
+    expect(artifactsQuestion('@artifacts')).toBe('');
+    for (const draft of ['Explain @artifacts', '@artifactsx why', 'user@artifacts.example']) expect(artifactsQuestion(draft)).toBeNull();
+  });
+
+  it('sends the question to Artifacts instead of creating a task', () => {
+    const markup = render('@artifacts What is a checkpoint?', ask);
+    expect(markup).toContain('aria-label="Ask in Artifacts"');
+    expect(markup).toContain('Asks in a new Artifacts conversation');
+    expect(markup).not.toContain('aria-label="Send — creates the task"');
+    expect(render('@artifacts ', ask)).toMatch(/aria-label="Ask in Artifacts"[^>]*disabled/);
+    expect(render('@artifacts What is a checkpoint?')).toContain('aria-label="Send — creates the task"');
+  });
+});
 
 describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
   const render = (overrides: Partial<typeof props>) => renderToStaticMarkup(surface === 'Home'

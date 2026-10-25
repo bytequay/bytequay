@@ -27,6 +27,8 @@ import { zoomReference } from '../githubReference';
 import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useRenameDraft } from '../renameDraft';
+import { remoteErrorMessage } from '../remoteError';
+import { openStartedArtifact } from '../artifacts/ArtifactsPage';
 import { displayModelName, laneLabel } from '../settings/model';
 import { BackportButton } from './BackportRequestHint';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -138,6 +140,14 @@ export default function AgentHome({
     void live().renameAgentTask(task.id, task.workspaceId, task.version, title).then(refresh).catch(() => {});
   }, [live, refresh]);
   const today = useTodayAgenda(workspaceId);
+  const [askError, setAskError] = useState<string | null>(null);
+  const askArtifacts = useCallback((question: string) => {
+    setAskError(null);
+    return window.bridge.startArtifact(workspaceId, question).then(view => openStartedArtifact(workspaceId, view), failure => {
+      setAskError(remoteErrorMessage(failure));
+      throw failure;
+    });
+  }, [workspaceId]);
   const openAttention = useCallback((item: AttentionItem) => {
     if (item.task) onOpenTask(item.task.dto.id);
     else if (item.jira) zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) });
@@ -148,6 +158,7 @@ export default function AgentHome({
     <AgentHomeView
       headerAction={headerAction}
       {...creation.composer}
+      onAskArtifacts={askArtifacts}
       repository={repository}
       workspaceId={workspaceId}
       tasks={openTasks}
@@ -168,7 +179,7 @@ export default function AgentHome({
         else onStartIssue(item.number);
       } : undefined}
       attentionError={attention.error}
-      error={creation.error ?? (work.failed.includes('reviews') ? 'Could not read reviews; trying again.' : null)}
+      error={askError ?? creation.error ?? (work.failed.includes('reviews') ? 'Could not read reviews; trying again.' : null)}
       startup={creation.startup}
       onOpenTask={onOpenTask}
       onOpenReview={onOpenReview}

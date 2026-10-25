@@ -13,7 +13,7 @@
  */
 
 import { AgentSetupNotice, useAgentAvailability } from './availability';
-import { BackportButton, BackportRequestHint, backportDraft } from './BackportRequestHint';
+import { BackportButton, BackportRequestHint } from './BackportRequestHint';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -815,42 +815,71 @@ export type TaskComposerProps = {
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
+  /** Asks a leading-@artifacts draft in a new Artifacts conversation instead of creating a task; without it @artifacts is not offered. */
+  onAskArtifacts?: (question: string) => Promise<unknown>;
 };
+
+/** The @ commands the new-task composer completes, in the order it lists them. */
+const MENTIONS = [
+  { name: 'backport', detail: 'Backport a PR through related workspaces' },
+  { name: 'artifacts', detail: 'Ask about this repository in Artifacts' },
+];
+
+/** What follows a leading @artifacts, or null when the draft does not start with it. */
+export function artifactsQuestion(draft: string): string | null {
+  const match = /^\s*@artifacts(?:\s|$)/i.exec(draft);
+  return match === null ? null : draft.slice(match[0].length).trim();
+}
 
 /** The card that creates a task: the first message above its provider, automation and model controls. */
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings, workspaceId,
-  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
+  images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment, onAskArtifacts,
   backport = false,
 }: TaskComposerProps & { backport?: boolean }): React.JSX.Element {
   const availability = useAgentAvailability(workspaceId);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const composing = useRef(false);
-  const nextCaret = useRef(false);
+  const nextCaret = useRef<number | null>(null);
   const dismissed = useRef<{ value: string; caret: number } | null>(null);
-  const [mention, setMention] = useState<string | null>(null);
+  // `chosen` is the option the arrow keys moved to; a change to the text resets it to the first.
+  const [mention, setMention] = useState<{ value: string; names: string[]; chosen: string | null } | null>(null);
+  const [asking, setAsking] = useState(false);
   const mentionId = useId();
   const disabled = busy && !attaching;
-  const showMention = backport && !disabled && mention === draft;
+  const offered = MENTIONS.filter(entry => entry.name === 'artifacts' ? onAskArtifacts !== undefined : backport);
+  const options = !disabled && mention?.value === draft ? offered.filter(entry => mention.names.includes(entry.name)) : [];
+  const active = options.find(entry => entry.name === mention?.chosen) ?? options[0];
+  const question = onAskArtifacts === undefined ? null : artifactsQuestion(draft);
   const updateMention = (input: HTMLTextAreaElement): void => {
     const caret = input.selectionStart;
     if (dismissed.current?.value === input.value && dismissed.current.caret === caret) return;
     dismissed.current = null;
     const match = /^\s*@([^\s@]*)$/.exec(input.value.slice(0, caret));
     const suffix = input.value.slice(caret).match(/^\S*/)?.[0] ?? '';
-    setMention(backport && !composing.current && caret === input.selectionEnd && match !== null
-      && 'backport'.startsWith((match[1] + suffix).toLowerCase()) ? input.value : null);
+    const typed = match === null || composing.current || caret !== input.selectionEnd ? null : (match[1] + suffix).toLowerCase();
+    const names = typed === null ? [] : offered.filter(entry => entry.name.startsWith(typed)).map(entry => entry.name);
+    const value = input.value;
+    setMention(current => names.length === 0 ? null : { value, names, chosen: current?.value === value ? current.chosen : null });
   };
-  const selectBackport = (): void => {
-    nextCaret.current = true;
-    onDraftChange(backportDraft(draft));
+  const selectMention = (name: string): void => {
+    nextCaret.current = name.length + 2;
+    // The list only opens on a leading partial of the name, so the leading token is what it replaces.
+    onDraftChange(`@${name} ${draft.replace(/^\s*@\S*\s*/, '')}`);
     setMention(null);
   };
+  const submit = (): void => {
+    if (question === null) onCreate();
+    else if (question !== '' && !asking && onAskArtifacts !== undefined) {
+      setAsking(true);
+      onAskArtifacts(question).then(() => onDraftChange(''), () => {}).finally(() => setAsking(false));
+    }
+  };
   useLayoutEffect(() => {
-    if (!nextCaret.current || inputRef.current === null) return;
+    if (nextCaret.current === null || inputRef.current === null) return;
     inputRef.current.focus();
-    inputRef.current.setSelectionRange('@backport '.length, '@backport '.length);
-    nextCaret.current = false;
+    inputRef.current.setSelectionRange(nextCaret.current, nextCaret.current);
+    nextCaret.current = null;
   });
   if (!availability.any && !busy) return <AgentSetupNotice workspaceId={workspaceId} />;
   const imagesAccepted = !isDeepSeekKeyLane(laneId)
@@ -876,23 +905,27 @@ export function TaskComposer({
       )}
       {issueAttachment}
       <Composer className="is-new-task" inputRef={inputRef} aria-label="Describe a task" placeholder="Let's ship something"
-        value={draft} disabled={disabled} busy={busy} onSubmit={onCreate}
-        submitEnabled={!busy && blocker === null && selection !== null && draft.trim() !== ''}
-        submitLabel="Send — creates the task" submitTitle="Sends the first message, which creates the task"
+        value={draft} disabled={disabled} busy={busy || asking} onSubmit={submit}
+        submitEnabled={question !== null ? question !== '' && !busy && !asking : !busy && blocker === null && selection !== null && draft.trim() !== ''}
+        submitLabel={question !== null ? 'Ask in Artifacts' : 'Send — creates the task'}
+        submitTitle={question !== null ? 'Starts an Artifacts conversation with this question' : 'Sends the first message, which creates the task'}
         header={<>
           <ComposerAttachments items={images.map(image => ({ ...image, preview: <ImageAttachment url={image.url} name={image.name} compact /> }))}
             disabled={busy} onRemove={onRemoveImage} />
           <BackportRequestHint text={draft} />
-          {showMention && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
-            <button type="button" id={`${mentionId}-backport`} role="option" aria-selected="true" tabIndex={-1}
-              onMouseDown={event => event.preventDefault()} onClick={selectBackport}>
-              <strong>@backport</strong><span>Backport a PR through related workspaces</span>
-            </button>
+          {question !== null && <div className="agt-backport-hint" role="status">
+            <strong>Artifacts</strong> · Asks in a new Artifacts conversation, which reads this repository and cannot change it.
+          </div>}
+          {active !== undefined && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
+            {options.map(entry => <button key={entry.name} type="button" id={`${mentionId}-${entry.name}`} role="option" aria-selected={entry === active}
+              tabIndex={-1} onMouseDown={event => event.preventDefault()} onClick={() => selectMention(entry.name)}>
+              <strong>@{entry.name}</strong><span>{entry.detail}</span>
+            </button>)}
           </div>}
         </>}
-        aria-autocomplete={backport ? 'list' : undefined}
-        aria-controls={showMention ? mentionId : undefined}
-        aria-activedescendant={showMention ? `${mentionId}-backport` : undefined}
+        aria-autocomplete={offered.length > 0 ? 'list' : undefined}
+        aria-controls={active !== undefined ? mentionId : undefined}
+        aria-activedescendant={active !== undefined ? `${mentionId}-${active.name}` : undefined}
         onChange={event => { onDraftChange(event.target.value); updateMention(event.currentTarget); }}
         onFocus={event => updateMention(event.currentTarget)} onSelect={event => updateMention(event.currentTarget)}
         onBlur={() => setMention(null)}
@@ -900,16 +933,20 @@ export function TaskComposer({
         onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
         onPaste={event => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
         onKeyDown={event => {
-          if (!showMention) return;
+          if (active === undefined) return;
           if (event.key === 'Escape') {
             event.preventDefault();
             dismissed.current = { value: draft, caret: event.currentTarget.selectionStart };
             setMention(null);
           }
           else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
-            event.preventDefault(); selectBackport();
+            event.preventDefault(); selectMention(active.name);
           }
-          else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') event.preventDefault();
+          else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            const step = event.key === 'ArrowDown' ? 1 : options.length - 1;
+            setMention(current => current && { ...current, chosen: options[(options.indexOf(active) + step) % options.length].name });
+          }
         }}>
         <ComposerModelControls models={models} model={selection?.model ?? null} effort={selection?.effort} serviceTier={selection?.serviceTier}
           providers={providers} laneId={laneId} onSelectProvider={onSelectProvider} onSelectModel={onSelectModel}

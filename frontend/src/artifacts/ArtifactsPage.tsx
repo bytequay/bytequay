@@ -24,6 +24,7 @@ import { remoteErrorMessage } from '../remoteError';
 import { useNow } from '../useNow';
 import { useResizablePane } from '../useResizablePane';
 import { LayerCovered } from '../Zoom';
+import { workspaceRoute } from '../workspaces/model';
 import type { ArtifactOfferDto, ArtifactPageDto, ArtifactRowDto, ArtifactViewDto } from './contracts';
 import '../css/artifacts.css';
 
@@ -34,10 +35,20 @@ const MAXIMUM_MESSAGE = 4_000;
 const BUSY = 'Wait for';
 const MAX_EVENTS = 1000;
 
-/** Artifacts: the conversations of a workspace, then one conversation with its pages beside it. */
+// A conversation another page started, which Artifacts opens the next time it shows that workspace.
+let started: { workspaceId: string; view: ArtifactViewDto } | null = null;
+
+/** Shows a conversation another page started, in its workspace's Artifacts. */
+export function openStartedArtifact(workspaceId: string, view: ArtifactViewDto): void {
+  started = { workspaceId, view };
+  window.location.hash = workspaceRoute(workspaceId, 'artifacts');
+}
+
+/** Artifacts: the conversations of a workspace, then one conversation with its pages beside it. Keyed by workspace. */
 export default function ArtifactsPage({ workspaceId }: { workspaceId: string }) {
-  const [open, setOpen] = useState<{ id: string; view: ArtifactViewDto | null } | null>(null);
-  useEffect(() => { setOpen(null); }, [workspaceId]);
+  const [open, setOpen] = useState<{ id: string; view: ArtifactViewDto | null } | null>(
+    () => started?.workspaceId === workspaceId ? { id: started.view.artifact.id, view: started.view } : null);
+  useEffect(() => { started = null; }, []);
   return open === null
     ? <ConversationList workspaceId={workspaceId} onOpen={(id, view) => setOpen({ id, view })} />
     : <Conversation key={open.id} workspaceId={workspaceId} artifactId={open.id} initial={open.view} onBack={() => setOpen(null)} />;

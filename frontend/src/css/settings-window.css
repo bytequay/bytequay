@@ -216,6 +216,8 @@
 
 .setw-foot-row button { width: auto; padding: 4px 10px; }
 .setw-foot-row button:hover { background: light-dark(#f2f2f4, var(--dark-subtle)); }
+.setw-foot-row progress { width: 96px; }
+.setw-foot-row > .setw-foot-percent { flex: none; font-variant-numeric: tabular-nums; }
 
 /* ── Controls ─────────────────────────────────────────────────────────────── */
 

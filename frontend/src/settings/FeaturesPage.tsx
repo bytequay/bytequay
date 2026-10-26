@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GoogleStatus } from '@bytequay/google/contracts';
 import { useAgentAvailability } from '../agents/availability';
+import type { VoiceSettings, VoiceState, VoiceSupport } from '../dictation/contracts';
 import { SETUP_CHANGED } from '../onboarding/setup';
 import { remoteErrorMessage } from '../remoteError';
 import type { AgendaDay, AgendaScheduleDto, AssistantPermissionsDto, QuietHoursDto, SetupPreferencesDto } from '../types';
@@ -196,11 +197,111 @@ function AssistantPermissionRows({ onError }: { onError: (failure: unknown) => v
   </>;
 }
 
-/** Today and Assistant: the two features that need both the user's opt-in and a usable Development agent. */
+/** What the Voice card says under its switch: the first check this Mac fails, and the one thing the user can do about it. */
+export function voiceFooter({ support, on, fraction, onCheck, onPrivacy, onDownload }: {
+  support: VoiceSupport | null;
+  on: boolean;
+  /** Download progress while ByteQuay fetches the speech model. */
+  fraction: number | null;
+  onCheck: () => void;
+  onPrivacy: () => void;
+  onDownload: () => void;
+}): ReactNode {
+  const row = (text: string, action?: [string, () => void]) => <div className="setw-foot-row">
+    <span>{text}</span>
+    {action !== undefined && <button type="button" onClick={action[1]}>{action[0]}</button>}
+  </div>;
+  if (support === null) return row('Checking this Mac…');
+  const language = support.language ?? 'this Mac’s language';
+  if (fraction !== null || support.state === 'downloading') {
+    const percent = fraction === null ? null : Math.round(fraction * 100);
+    return <div className="setw-foot-row">
+      <span>Downloading the {language} speech model</span>
+      <progress max={100} value={percent ?? undefined} aria-label="Speech model download" />
+      {percent !== null && <span className="setw-foot-percent">{percent}%</span>}
+    </div>;
+  }
+  switch (support.state) {
+    case 'macos-too-old': return row(`Needs macOS 26 or later. This Mac has ${support.macos}. Update macOS first.`);
+    case 'unavailable': return row('This Mac can’t run on-device dictation.');
+    case 'language-unsupported': return row(`Dictation doesn’t support ${language} yet.`);
+    case 'no-microphone': return row('No microphone found. Connect one, then check again.', ['Check again', onCheck]);
+    case 'microphone-denied': return row('ByteQuay can’t use the microphone.', ['Open Privacy settings', onPrivacy]);
+    case 'needs-model': return row(`${language} speech model needed.`, ['Download', onDownload]);
+    case 'ready': return on ? row('Hold right ⌥ in any composer to talk.') : undefined;
+  }
+}
+
+/** The switch always turns off; it turns on only on a Mac that passes every check. */
+export function voiceSwitchDisabled(on: boolean, state: VoiceState | undefined, busy: boolean): boolean {
+  return busy || state === undefined || !on && state !== 'ready';
+}
+
+function VoiceFeature() {
+  const [settings, setSettings] = useState<VoiceSettings | null>(null);
+  const [support, setSupport] = useState<VoiceSupport | null>(null);
+  const [fraction, setFraction] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const { error, fail, clear } = useFeatureError();
+  const check = useCallback(() => {
+    void window.bridge.checkVoice().then(setSupport).catch(fail);
+  }, [fail]);
+
+  useEffect(() => {
+    let current = true;
+    void window.bridge.getVoiceSettings().then(value => { if (current) setSettings(value); }).catch(fail);
+    check();
+    const offChanged = window.bridge.onVoiceChanged(setSettings);
+    const offProgress = window.bridge.onVoiceInstallProgress(progress => setFraction(progress.fraction));
+    // Coming back from System Settings, where the microphone may just have been allowed.
+    window.addEventListener('focus', check);
+    return () => {
+      current = false;
+      offChanged();
+      offProgress();
+      window.removeEventListener('focus', check);
+    };
+  }, [check, fail]);
+
+  const on = settings?.enabled === true;
+  const toggle = (enabled: boolean) => {
+    setBusy(true);
+    clear();
+    window.bridge.setVoiceEnabled(enabled).then(result => {
+      setSettings({ enabled: result.enabled });
+      setSupport(result.support);
+    }).catch(fail).finally(() => setBusy(false));
+  };
+  const download = () => {
+    setFraction(0);
+    clear();
+    window.bridge.installVoiceModel().catch(fail).finally(() => {
+      setFraction(null);
+      check();
+    });
+  };
+  const footer = voiceFooter({ support, on, fraction, onCheck: check, onPrivacy: () => void window.bridge.openMicrophonePrivacy().catch(fail), onDownload: download });
+
+  return <>
+    <div className="setw-section">
+      <span className="setw-section-title">Voice</span>
+    </div>
+    {error !== null && <div className="setw-error" role="alert">{error}</div>}
+    <SettingsCard footer={footer ?? undefined}>
+      <SettingsRow title="Enable dictation" subtitle="Speech stays on this Mac.">
+        <Toggle label="Enable dictation" on={on}
+          disabled={voiceSwitchDisabled(on, fraction === null ? support?.state : 'downloading', busy || settings === null)} onChange={toggle} />
+      </SettingsRow>
+    </SettingsCard>
+  </>;
+}
+
+/** Today and Assistant need the user's opt-in and a usable Development agent; Voice needs the opt-in and a Mac that supports it. */
 export default function FeaturesPage({ quietHours }: { quietHours: QuietHoursDto | null }) {
   return <div className="setw-page">
     <h1>Features</h1>
     <TodayFeature quietHours={quietHours} />
     <AssistantFeature />
+    <VoiceFeature />
   </div>;
 }

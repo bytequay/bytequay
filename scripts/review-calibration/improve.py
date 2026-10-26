@@ -13,6 +13,8 @@ import os
 from pathlib import Path
 import shutil
 import signal
+import subprocess
+import sys
 import time
 
 import agent
@@ -23,6 +25,7 @@ import report
 import saved
 import writer
 
+SCRIPT = Path(__file__).resolve()
 STATE = "improvement.json"
 STAGES = ("base", "work", "expert", "tried", "merge", "checked", "compared")
 
@@ -34,6 +37,28 @@ def place(folder):
 def numbered(folder):
     """Every improvement kept, the latest last."""
     return sorted((int(path.name), path) for path in place(folder).glob("*") if path.name.isdigit() and (path / STATE).is_file())
+
+
+def improvements(folder):
+    """Every improvement kept, the latest first."""
+    return [saved.read(path, STATE) for _, path in reversed(numbered(folder))]
+
+
+def start(folder, arguments, tuning):
+    """Make or carry on an improvement apart from the page, as `uv run improve.py ARGUMENTS` would, and wait until it holds
+    the tuning experiment or has ended. What it says goes to improve.log in the improvements folder. It takes the DeepSeek key
+    from where it starts, or from the Keychain: nobody is there to be asked for one."""
+    own = place(folder)
+    own.mkdir(parents=True, exist_ok=True)
+    with (own / "improve.log").open("a") as log:
+        process = subprocess.Popen([sys.executable, str(SCRIPT), *arguments, "--folder", str(folder)], stdin=subprocess.DEVNULL,
+                                   stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+    plan = batch.load(folder, tuning)
+    for _ in range(100):
+        if batch.runner(plan) is not None or process.poll() is not None:
+            break
+        time.sleep(0.05)
+    return process
 
 
 def add_setting(experiment, name, chosen):
@@ -198,8 +223,7 @@ def main():
     signal.signal(signal.SIGTERM, batch.stopped)
     try:
         if args.again:
-            kept = [saved.read(path, STATE) for _, path in numbered(args.folder)]
-            made = next((one for one in reversed(kept) if one["state"] != "done"), None)
+            made = next((one for one in improvements(args.folder) if one["state"] != "done"), None)
             if made is None:
                 parser.exit(1, "No improvement is left to carry on.\n")
         else:

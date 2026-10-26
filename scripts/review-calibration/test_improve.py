@@ -167,6 +167,40 @@ class TestImprove(Lab):
             improve.add_setting(self.experiment("tune"), "base-work-1", {**chosen, "effort": "high"})
 
 
+# A stand-in for improve.py started from the page: it holds the tuning experiment as an improvement does, until it is stopped.
+IMPROVING = """import pathlib, signal, sys, time
+sys.path.insert(0, {lab!r})
+import batch
+given = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+plan = batch.load(pathlib.Path(given["--folder"]), given["--tuning"])
+held = batch.claim(plan)
+signal.signal(signal.SIGTERM, batch.stopped)
+print("improving", flush=True)
+try:
+    time.sleep(60)
+finally:
+    (plan["folder"] / "running.pid").unlink(missing_ok=True)
+    held.close()
+"""
+
+
+class TestStart(Lab):
+    def test_the_page_starts_an_improvement_apart_from_itself_and_stops_it(self):
+        script = self.folder.parent / "improving.py"
+        script.write_text(IMPROVING.format(lab=str(SCRIPT.parent)))
+        arguments = ["--tuning", "tune", "--unseen", "hold", "--setting", "base"]
+        with mock.patch.object(improve, "SCRIPT", script):
+            started = improve.start(self.folder, arguments, "tune")
+        self.addCleanup(started.wait)
+        self.addCleanup(started.kill)
+        plan = batch.load(self.folder, "tune")
+        self.assertEqual((batch.runner(plan), os.getsid(started.pid)), (started.pid, started.pid))  # held when start returns, in a session of its own
+        self.assertEqual(started.args[2:], [*arguments, "--folder", str(self.folder)])
+        batch.stop(plan)
+        self.assertEqual((batch.runner(plan), started.wait(timeout=5)), (None, 143))
+        self.assertEqual((self.folder / "improvements" / "improve.log").read_text(), "improving\n")
+
+
 class TestCommandLine(Lab):
     def test_a_second_improvement_waits_for_none_and_is_refused_while_one_runs(self):
         held = batch.claim(batch.load(self.folder, "tune"))

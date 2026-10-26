@@ -283,6 +283,15 @@ improvement of a small setting takes about 36 Codex runs, some three hours two
 at a time, and about $1.50 of DeepSeek for three writings and the judge. Making
 a version the rules ByteQuay ships is a person's step.
 
+The dashboard's Improve page does the same with buttons. It starts an
+improvement from an experiment of tuning cases, one of unseen cases and a
+setting both name, carries on the last one that did not end, or stops the one
+that runs; an improvement started there runs apart from the page and says what
+it does in `improvements/improve.log`. While one runs the page shows its stages
+and the end of that log; below, every improvement with its verdict, the totals
+and the change on the unseen cases, and what each version changed and why, with
+the merge's whole diff.
+
 ## Scoring
 
 `case.py`, `judge.py` and `report.py` score runs against a human reviewer's
@@ -614,8 +623,8 @@ again. How the last clean-up went is kept in `cleanup/cleanup.json` in the
 lab's folder; only one runs at a time.
 
 The dashboard's Processes page lists every program the lab's own Python runs
-now (its pages, the monitor, experiments and their review runs, tests) with
-when it started and its memory, looked at again every three seconds. Stop ends
+now (its pages, the monitor, experiments and their review runs, improvements,
+the rules writer, tests) with when it started and its memory, looked at again every three seconds. Stop ends
 one as Ctrl+C would; for the monitor it also removes the LaunchAgent, which
 would otherwise start it again. Below, the monitor is started or stopped as
 `--start` and `--stop` do. A stopped page cannot start itself: start it again

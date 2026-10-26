@@ -28,7 +28,7 @@ def what(arguments):
         return f"Page on port {rest[rest.index('--port') + 1] if '--port' in rest[:-1] else dashboard.PORT}"
     if name == "batch.py":
         return "Nightly rounds" if "--due" in rest else "Experiment " + next((word for word in rest if not word.startswith("-")), "")
-    return {"monitor.py": "Monitor", "run.py": "Review run", "desktop.py": "Refresh data"}.get(name, name)
+    return {"monitor.py": "Monitor", "run.py": "Review run", "desktop.py": "Refresh data", "improve.py": "Improvement", "writer.py": "Rules writer"}.get(name, name)
 
 
 def running():

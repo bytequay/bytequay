@@ -786,7 +786,8 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   onDecide?: ApprovalDecider;
   onOpenAgent?: (threadId: string) => void;
 }): React.JSX.Element {
-  const waiting = turn.blocks.some((block) => block.kind === 'approval' && block.actionable && block.outcome === null);
+  const asking = (block: TurnBlock): boolean => block.kind === 'approval' && block.actionable && block.outcome === null;
+  const waiting = turn.blocks.some(asking);
   const running = turn.startedAt !== null && turn.endedAt === null;
   const live = running && !waiting;
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
@@ -917,7 +918,8 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
           <Chevron open={open} />
         </button>
       )}
-      {open && turn.blocks.map((block) => (
+      {/* Folding hides the log, never a question the turn waits on: the pending card at the top skips any approval a turn holds. */}
+      {turn.blocks.filter(block => open || asking(block)).map((block) => (
         <div key={block.id} data-history-anchor={'anchorId' in block ? block.anchorId : block.id}><BlockView
           block={block}
           repository={repository}

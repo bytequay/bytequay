@@ -29,7 +29,7 @@ import { NO_AGENT_CAPABILITIES } from './capabilities';
 import { CI_PROJECTION, CI_RUN } from './fixtures/ciAutofix';
 import contracts from './fixtures/agent-contracts-v1.json';
 import fixture from './fixtures/agent-events-v2.json';
-import type { CommandAction, TranscriptTurn } from './transcript';
+import { projectTranscript, type CommandAction, type TranscriptTurn } from './transcript';
 import type { LocalReviewMessageDto, LocalReviewThreadDto } from '../pulls/local-review/types';
 
 describe('the queue behind a running turn', () => {
@@ -452,6 +452,15 @@ describe('generated development request presentation', () => {
       activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
     expect(ciHtml(true)).not.toContain('Verified current CI context');
     expect(ciHtml(false)).toContain('Verified current CI context');
+  });
+
+  it('keeps the open approval of a folded turn and hides the rest of its log', () => {
+    const [turn] = projectTranscript(parseAgentEventSequence(fixture.events));
+    const html = renderToStaticMarkup(<TurnView turn={turn} first={false} open={false} now={0} models={[]} durableTurns={{}}
+      activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
+    expect(html).toContain('aria-label="Approval: Run a command in this workspace"');
+    expect(html).not.toContain('Approval: Run the test suite');
+    expect(html).not.toContain('agt-plan');
   });
 
   it('shows a review-thread reply as its card before a thread read links it to the turn', () => {

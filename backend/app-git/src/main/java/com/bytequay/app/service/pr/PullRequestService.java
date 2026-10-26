@@ -1463,7 +1463,9 @@ public class PullRequestService
         if (review == null) {
             return;
         }
-        if (existing != null && existing.handledAction() != null
+        // A review already recorded stays cleared once the PR needs review again; re-applying it made every refresh write the action and
+        // clear it again, and each write rebuilt the attention list. Only a newer review counts.
+        if (existing != null && (existing.handledAction() != null || existing.reviewedAt() != null)
                 && (review.submittedAt() == null || existing.reviewedAt() == null || !review.submittedAt().isAfter(existing.reviewedAt()))) {
             return;
         }

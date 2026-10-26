@@ -1020,6 +1020,29 @@ class TestPullRequestService
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
     }
 
+    @Test
+    void backgroundSummaryLeavesARecordedReviewClearedOnceItNeedsReviewAgain()
+    {
+        service = spy(service);
+        PullRequest row = storedPullRequest();
+        GitHubPullRequestSummary summary = new GitHubPullRequestSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
+                Optional.of(REVIEWED_AT), Optional.empty(),
+                Optional.of(new PrReviewState(1L, "me", null, false, "COMMENTED", REVIEWED_AT, null, null, "previous-head")), Optional.empty(), "review-v2", REVIEWED_AT,
+                Optional.empty());
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(pullRequest())).thenReturn(row);
+        PrViewState cleared = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, null, "previous-head");
+        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), cleared));
+
+        service.syncFromGitHub();
+
+        // Re-applying the recorded review would be cleared again at once, two writes a refresh that each rebuild the attention list.
+        verify(viewStateStore, never()).markReviewed(anyLong(), any(), any(), any());
+        verify(viewStateStore, never()).markNeedsReview(row.id());
+    }
+
     @ParameterizedTest
     @CsvSource({"APPROVED,true", "APPROVED,false", "COMMENTED,true", "COMMENTED,false", "CHANGES_REQUESTED,true", "CHANGES_REQUESTED,false"})
     void backgroundSummaryKeepsApprovalWhenTheAuthorReplies(HandledAction action, boolean authorReplied)

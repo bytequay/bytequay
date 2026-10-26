@@ -3,14 +3,24 @@
 The product landing page, user documentation, design overview, and Lab pages are
 static HTML and CSS in `dist/`. They need no dependency installation or build
 step. The logo comes from the repository's `assets/logo.svg`; typography uses
-Mona Sans and Geist Mono from Google Fonts with system fallbacks. No analytics,
-account system, or application data is embedded.
+Geist and Geist Mono from Google Fonts with system fallbacks. Icons are inline
+[Phosphor](https://phosphoricons.com) paths (MIT). No analytics, account
+system, or application data is embedded.
 
 The landing page stays short: a headline with one line, one app screenshot,
 four feature rows led by the Assistant and Today, and link cards, each with a
-sentence or less. Framed bands
-separate the sections, and screenshots sit on light gradient panels. Put
-details in the guides, not on the landing page.
+sentence or less. Framed bands separate the sections, feature rows alternate
+sides, and screenshots sit on flat gray panels. Put details in the guides, not
+on the landing page.
+
+Keep the visual system closed. Backgrounds are flat and come from the dark
+values at the top of `style.css`; hero headings carry the only gradient, on
+their text. The logo's violet is the one accent. Font sizes use the Tailwind
+type scale with its paired line heights, and spacing uses 0, 2, 4, 8, 12, 16,
+24, 32, 40, 48, 64, 80, or 96 pixels. Motion uses the shared `--ease` curve,
+300 ms for color and 700 ms for the one-time section rise in `reveal.js`,
+which keeps the fade and drops the movement under reduced motion. Labels use
+sentence case.
 
 ## Publish with GitHub Pages
 
@@ -32,9 +42,10 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist
 ```
 
 Open `http://127.0.0.1:4173/`. Check the landing page, Docs index, seven topic
-guides, design page, and both Lab pages; also check navigation, topic links,
-disclosures, the still cursor under reduced motion, and narrow layouts after
-edits. The user guide lives in [`documentation.md`](documentation.md) and
+guides, design page, both Lab pages, and `404.html`; also check navigation,
+topic links, section reveals, the still cursor under reduced motion, and
+narrow layouts after edits. GitHub Pages serves `404.html` for missing pages;
+its relative links resolve for missing top-level pages only. The user guide lives in [`documentation.md`](documentation.md) and
 is presented in the Docs index (`dist/documentation.html`) and seven focused
 `dist/guide-*.html` pages. Keep their instructions consistent with the Markdown
 guide and current app controls. Keep the repository README headline and summary

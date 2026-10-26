@@ -7,26 +7,31 @@
       name="description"
       content="The high-level design of ByteQuay: a local-first macOS app with explicit GitHub actions and worktree-scoped agent tasks."
     />
-    <meta name="theme-color" content="#101017" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Design — ByteQuay" />
+    <meta property="og:description" content="The high-level design of ByteQuay: a local-first macOS app with explicit GitHub actions and worktree-scoped agent tasks." />
+    <meta property="og:image" content="https://bytequay.github.io/bytequay/assets/app-development.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
     <title>Design — ByteQuay</title>
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="style.css?v=today" />
+    <link rel="stylesheet" href="style.css?v=geist" />
   </head>
   <body class="doc-page">
     <a class="skip" href="#main">Skip to content</a>
-    <header class="header wrap">
+    <header class="header">
       <a class="brand" href="index.html" aria-label="ByteQuay home"
         ><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a
       >
       <nav aria-label="Main navigation">
         <a href="lab.html">Lab</a><a href="documentation.html">Docs</a
         ><a href="design.html" aria-current="page">Design</a
-        ><a href="https://github.com/bytequay/bytequay">GitHub</a>
+        ><a class="nav-source" href="https://github.com/bytequay/bytequay">GitHub</a>
       </nav>
     </header>
     <main id="main" class="wrap">
       <div class="design-hero">
-        <p class="eyebrow">THE DESIGN</p>
+        <p class="eyebrow">The design</p>
         <h1>Local foundations. Clear boundaries.</h1>
         <p class="lede">
           How ByteQuay connects GitHub review and local agent work without
@@ -36,7 +41,7 @@
       <div class="docs-layout">
         <aside>
           <nav class="contents" aria-label="On this page">
-            <span class="mini-label">ON THIS PAGE</span>
+            <span class="mini-label">On this page</span>
             <a href="#product">Product intent</a
             ><a href="#architecture">Architecture</a
             ><a href="#boundaries">Trust &amp; data</a
@@ -45,7 +50,7 @@
         </aside>
         <div class="docs-content">
           <section id="product">
-            <p class="eyebrow">01 / PRODUCT INTENT</p>
+            <p class="eyebrow">01 / Product intent</p>
             <h2>Keep the work and its purpose together.</h2>
             <p>
               ByteQuay connects repository context, development, review, and
@@ -70,7 +75,7 @@
             </p>
           </section>
           <section id="architecture">
-            <p class="eyebrow">02 / ARCHITECTURE</p>
+            <p class="eyebrow">02 / Architecture</p>
             <h2>A desktop shell and one local backend.</h2>
             <p>
               React and TypeScript render the interface inside Electron.
@@ -107,7 +112,7 @@
             </p>
           </section>
           <section id="boundaries">
-            <p class="eyebrow">03 / TRUST &amp; DATA</p>
+            <p class="eyebrow">03 / Trust &amp; data</p>
             <h2>Local work. Deliberate actions.</h2>
             <ul class="boundary-list">
               <li>
@@ -133,7 +138,7 @@
             </ul>
           </section>
           <section id="principles">
-            <p class="eyebrow">04 / PRINCIPLES</p>
+            <p class="eyebrow">04 / Principles</p>
             <h2>Make the change understandable.</h2>
             <p>
               Keep intent, code, evidence, and discussion close. Distinguish an

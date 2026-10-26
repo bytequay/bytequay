@@ -4,23 +4,29 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content="ByteQuay Lab measures resources, agent work, review quality, and context costs so product changes can be judged by evidence." />
-    <meta name="theme-color" content="#101017" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ByteQuay Lab — Know what helps." />
+    <meta property="og:description" content="ByteQuay Lab measures resources, agent work, review quality, and context costs so product changes can be judged by evidence." />
+    <meta property="og:image" content="https://bytequay.github.io/bytequay/assets/app-development.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
     <title>ByteQuay Lab — Know what helps.</title>
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="style.css?v=today" />
+    <link rel="stylesheet" href="style.css?v=geist" />
+    <script src="reveal.js" defer></script>
   </head>
   <body class="landing lab-page">
     <a class="skip" href="#main">Skip to content</a>
-    <header class="header wrap">
+    <header class="header">
       <a class="brand" href="index.html" aria-label="ByteQuay home"><img src="assets/logo.svg" width="34" height="34" alt="" />ByteQuay</a>
       <nav aria-label="Main navigation">
-        <a href="lab.html" aria-current="page">Lab</a><a href="documentation.html">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">GitHub</a>
+        <a href="lab.html" aria-current="page">Lab</a><a href="documentation.html">Docs</a><a href="design.html">Design</a><a class="nav-source" href="https://github.com/bytequay/bytequay">GitHub</a>
       </nav>
     </header>
     <main id="main">
       <section class="lab-hero wrap">
-        <p class="eyebrow">BYTEQUAY LAB</p>
-        <h1>Build it. Measure it.<br /><span>Know what helps.</span></h1>
+        <p class="eyebrow">ByteQuay Lab</p>
+        <h1>Build it. Measure it.<br />Know what helps.</h1>
         <p class="lab-lede">See what your agents use, test what guides them, and find out which changes earn their place.</p>
         <div class="actions"><a class="button primary" href="lab-guide.html">Start with the Lab</a><a class="text-link" href="#experiments">Explore the Lab ↓</a></div>
         <nav class="lab-tour" aria-label="Explore Lab features"><a href="#resources">Resources</a><a href="#experiments">Review experiments</a><a href="#context">Context</a><a href="#follow-up">Follow-up</a></nav>
@@ -30,29 +36,30 @@
           <a href="assets/lab-resources.svg" target="_blank" rel="noopener" aria-label="Open the resource dashboard illustration at full size"><img src="assets/lab-resources.svg" width="1440" height="900" fetchpriority="high" alt="Illustrated resource dashboard with memory history aligned to review and development activity." /></a>
           <figcaption>Illustrated Lab views with sample data. Select any image to explore it.</figcaption>
         </figure>
-        <div class="lab-caption"><div><p class="eyebrow">01 / RESOURCES</p><h2 id="resources-heading">See the cost of the work.</h2></div><div><p>Memory, CPU, and agent activity on one timeline. Find the spike. See what was running.</p><a href="lab-guide.html#resources">Resource guide →</a></div></div>
+        <div class="lab-caption"><div><p class="eyebrow">01 / Resources</p><h2 id="resources-heading">See the cost of the work.</h2></div><div><p>Memory, CPU, and agent activity on one timeline. Find the spike. See what was running.</p><a href="lab-guide.html#resources">Resource guide →</a></div></div>
       </section>
       <section class="lab-showcase wrap" id="experiments" aria-labelledby="experiments-heading">
-        <div class="lab-caption"><div><p class="eyebrow">02 / SKILLS &amp; REVIEW GUIDANCE</p><h2 id="experiments-heading">Does the guidance<br />make a difference?</h2></div><div><p>Compare review rules on the same frozen cases. Inspect what was found, missed, and worth another look.</p><a href="lab-guide.html#experiments">Experiment guide →</a></div></div>
-        <figure class="lab-visual lab-visual-blue"><a href="assets/lab-experiments.svg" target="_blank" rel="noopener" aria-label="Open the review experiment illustration at full size"><img src="assets/lab-experiments.svg" width="1440" height="900" loading="lazy" alt="Illustrated baseline and candidate review comparison with Found, Partly, and Missed results, plus individual concerns." /></a></figure>
+        <div class="lab-caption"><div><p class="eyebrow">02 / Skills &amp; review guidance</p><h2 id="experiments-heading">Does the guidance<br />make a difference?</h2></div><div><p>Compare review rules on the same frozen cases. Inspect what was found, missed, and worth another look.</p><a href="lab-guide.html#experiments">Experiment guide →</a></div></div>
+        <figure class="lab-visual"><a href="assets/lab-experiments.svg" target="_blank" rel="noopener" aria-label="Open the review experiment illustration at full size"><img src="assets/lab-experiments.svg" width="1440" height="900" loading="lazy" alt="Illustrated baseline and candidate review comparison with Found, Partly, and Missed results, plus individual concerns." /></a></figure>
       </section>
       <section class="lab-showcase wrap" id="context" aria-labelledby="context-heading">
-        <div class="lab-caption"><div><p class="eyebrow">03 / CONTEXT &amp; MEMORY</p><h2 id="context-heading">Every token<br />should have a reason.</h2></div><div><p>Follow context growth across calls. Find the outputs that keep getting sent, and the memories that findings cite.</p><a href="lab-guide.html#context">Context guide →</a></div></div>
+        <div class="lab-caption"><div><p class="eyebrow">03 / Context &amp; memory</p><h2 id="context-heading">Every token<br />should have a reason.</h2></div><div><p>Follow context growth across calls. Find the outputs that keep getting sent, and the memories that findings cite.</p><a href="lab-guide.html#context">Context guide →</a></div></div>
         <figure class="lab-visual"><a href="assets/lab-context.svg" target="_blank" rel="noopener" aria-label="Open the context dashboard illustration at full size"><img src="assets/lab-context.svg" width="1440" height="900" loading="lazy" alt="Illustrated context growth chart and bar chart showing test output, source files, and search results contributing tokens." /></a></figure>
       </section>
       <section class="lab-showcase wrap" id="follow-up" aria-labelledby="follow-up-heading">
-        <div class="lab-caption"><div><p class="eyebrow">04 / GUIDANCE &amp; FOLLOW-UP</p><h2 id="follow-up-heading">Make a change.<br />See what follows.</h2></div><div><p>Record the decision. Compare similar work before and after. Keep “not clear yet” as an honest answer.</p><a href="lab-guide.html#follow-up">Follow-up guide →</a></div></div>
-        <figure class="lab-visual lab-visual-green"><a href="assets/lab-follow-up.svg" target="_blank" rel="noopener" aria-label="Open the change follow-up illustration at full size"><img src="assets/lab-follow-up.svg" width="1440" height="900" loading="lazy" alt="Illustrated change follow-up showing before and after token use, overlapping outcomes, and a Not clear yet verdict." /></a></figure>
+        <div class="lab-caption"><div><p class="eyebrow">04 / Guidance &amp; follow-up</p><h2 id="follow-up-heading">Make a change.<br />See what follows.</h2></div><div><p>Record the decision. Compare similar work before and after. Keep “not clear yet” as an honest answer.</p><a href="lab-guide.html#follow-up">Follow-up guide →</a></div></div>
+        <figure class="lab-visual"><a href="assets/lab-follow-up.svg" target="_blank" rel="noopener" aria-label="Open the change follow-up illustration at full size"><img src="assets/lab-follow-up.svg" width="1440" height="900" loading="lazy" alt="Illustrated change follow-up showing before and after token use, overlapping outcomes, and a Not clear yet verdict." /></a></figure>
       </section>
       <section class="lab-close wrap">
-        <p class="eyebrow">PYTHON TOOLKIT. LOCAL DASHBOARD.</p>
+        <p class="eyebrow">Python toolkit. Local dashboard.</p>
         <h2>Your work.<br />Your evidence.</h2>
         <p>Analysis and saved results stay on your Mac. Optional model experiments use your configured providers.</p>
         <div class="actions"><a class="button primary" href="lab-guide.html">Open the Lab guide</a><a class="text-link" href="lab-guide.html#reading-results">How to read the results →</a></div>
       </section>
-    </main>    <footer class="footer wrap">
+    </main>
+    <footer class="footer wrap">
       <a class="brand" href="index.html"><img src="assets/logo.svg" width="26" height="26" alt="" />ByteQuay</a><p>Review is all you need.</p>
-      <nav aria-label="Footer navigation"><a href="lab.html">Lab</a><a href="lab-guide.html">Lab guide</a><a href="documentation.html">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">Source</a></nav>
+      <nav aria-label="Footer navigation"><a href="lab.html">Lab</a><a href="lab-guide.html">Lab guide</a><a href="documentation.html">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">Source</a><a href="https://github.com/bytequay/bytequay/blob/main/LICENSE">Apache 2.0</a></nav>
     </footer>
   </body>
 </html>

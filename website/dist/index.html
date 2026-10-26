@@ -7,14 +7,20 @@
       name="description"
       content="As your agents do more, your confidence should grow. ByteQuay brings GitHub reviews and local coding agents into one Mac app."
     />
-    <meta name="theme-color" content="#050507" />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="ByteQuay — Don’t lose your understanding." />
+    <meta property="og:description" content="As your agents do more, your confidence should grow. ByteQuay brings GitHub reviews and local coding agents into one Mac app." />
+    <meta property="og:image" content="https://bytequay.github.io/bytequay/assets/app-development.jpg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
     <title>ByteQuay — Don’t lose your understanding.</title>
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="style.css?v=today" />
+    <link rel="stylesheet" href="style.css?v=geist" />
+    <script src="reveal.js" defer></script>
   </head>
   <body class="landing">
     <a class="skip" href="#main">Skip to content</a>
-    <header class="header wrap">
+    <header class="header">
       <a class="brand" href="index.html" aria-label="ByteQuay home"
         ><img src="assets/logo.svg" width="30" height="30" alt="" />ByteQuay</a
       >
@@ -28,7 +34,7 @@
       <section class="band">
         <div class="wrap frame hero">
           <div>
-            <p class="eyebrow">BYTEQUAY<span class="cursor" aria-hidden="true"></span></p>
+            <p class="eyebrow">ByteQuay<span class="cursor" aria-hidden="true"></span></p>
             <h1>Don’t lose your understanding.</h1>
           </div>
           <div class="hero-side">
@@ -36,15 +42,15 @@
             <div class="actions">
               <a class="button primary" href="https://github.com/bytequay/bytequay/releases"
                 >Download for macOS</a
-              ><a class="button secondary" href="guide-get-started.html#getting-started">Get started</a>
+              ><a class="text-link" href="guide-get-started.html#getting-started">Get started →</a>
             </div>
-            <p class="fine">Open source · Apache 2.0 · Pre-1.0</p>
+            <p class="fine">Open source · Apache 2.0 · Early release</p>
           </div>
         </div>
       </section>
       <section class="band" aria-label="ByteQuay app">
-        <div class="wrap frame shot-frame">
-          <figure class="shot tint-violet">
+        <div class="wrap frame">
+          <figure class="shot">
             <img
               src="assets/app-development.jpg"
               width="2880"
@@ -57,7 +63,7 @@
       </section>
       <section class="band" aria-label="Works with">
         <div class="wrap frame works">
-          <p class="eyebrow">WORKS WITH</p>
+          <p class="eyebrow">Works with</p>
           <ul>
             <li>Codex</li>
             <li>Claude Code</li>
@@ -66,40 +72,43 @@
           </ul>
         </div>
       </section>
-      <section class="band" aria-label="Why ByteQuay">
+      <section class="band" aria-labelledby="why-title">
         <div class="wrap frame pillars">
+          <h2 id="why-title">Agents help.<br />You decide.</h2>
           <div>
-            <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M10 2v4M14 2v4M10 18v4M14 18v4M2 10h4M2 14h4M18 10h4M18 14h4" /></svg
-            ></span>
-            <h3>Your models</h3>
-            <p>Codex, Claude Code, or your own API key.</p>
-          </div>
-          <div>
-            <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="11" rx="2" /><path d="M2 19h20" /></svg
-            ></span>
-            <h3>Local first</h3>
-            <p>Conversations and working copies stay on your Mac.</p>
-          </div>
-          <div>
-            <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" /><path d="m9 12 2 2 4-4" /></svg
-            ></span>
-            <h3>Your call</h3>
-            <p>You choose what reaches GitHub.</p>
+            <div class="pillar">
+              <span class="icon" aria-hidden="true"
+                ><svg viewBox="0 0 256 256"><path d="M152,96H104a8,8,0,0,0-8,8v48a8,8,0,0,0,8,8h48a8,8,0,0,0,8-8V104A8,8,0,0,0,152,96Zm-8,48H112V112h32Zm88,0H216V112h16a8,8,0,0,0,0-16H216V56a16,16,0,0,0-16-16H160V24a8,8,0,0,0-16,0V40H112V24a8,8,0,0,0-16,0V40H56A16,16,0,0,0,40,56V96H24a8,8,0,0,0,0,16H40v32H24a8,8,0,0,0,0,16H40v40a16,16,0,0,0,16,16H96v16a8,8,0,0,0,16,0V216h32v16a8,8,0,0,0,16,0V216h40a16,16,0,0,0,16-16V160h16a8,8,0,0,0,0-16Zm-32,56H56V56H200v95.87s0,.09,0,.13,0,.09,0,.13V200Z" /></svg
+              ></span>
+              <h3>Your models</h3>
+              <p>Codex, Claude Code, or your own API key.</p>
+            </div>
+            <div class="pillar">
+              <span class="icon" aria-hidden="true"
+                ><svg viewBox="0 0 256 256"><path d="M232,168h-8V72a24,24,0,0,0-24-24H56A24,24,0,0,0,32,72v96H24a8,8,0,0,0-8,8v16a24,24,0,0,0,24,24H216a24,24,0,0,0,24-24V176A8,8,0,0,0,232,168ZM48,72a8,8,0,0,1,8-8H200a8,8,0,0,1,8,8v96H48ZM224,192a8,8,0,0,1-8,8H40a8,8,0,0,1-8-8v-8H224ZM152,88a8,8,0,0,1-8,8H112a8,8,0,0,1,0-16h32A8,8,0,0,1,152,88Z" /></svg
+              ></span>
+              <h3>Local first</h3>
+              <p>Conversations and working copies stay on your Mac.</p>
+            </div>
+            <div class="pillar">
+              <span class="icon" aria-hidden="true"
+                ><svg viewBox="0 0 256 256"><path d="M72,128a134.63,134.63,0,0,1-14.16,60.47,8,8,0,1,1-14.32-7.12A118.8,118.8,0,0,0,56,128,71.73,71.73,0,0,1,83,71.8,8,8,0,1,1,93,84.29,55.76,55.76,0,0,0,72,128Zm56-8a8,8,0,0,0-8,8,184.12,184.12,0,0,1-23,89.1,8,8,0,0,0,14,7.76A200.19,200.19,0,0,0,136,128,8,8,0,0,0,128,120Zm0-32a40,40,0,0,0-40,40,8,8,0,0,0,16,0,24,24,0,0,1,48,0,214.09,214.09,0,0,1-20.51,92A8,8,0,1,0,146,226.83,230,230,0,0,0,168,128,40,40,0,0,0,128,88Zm0-64A104.11,104.11,0,0,0,24,128a87.76,87.76,0,0,1-5,29.33,8,8,0,0,0,15.09,5.33A103.9,103.9,0,0,0,40,128a88,88,0,0,1,176,0,282.24,282.24,0,0,1-5.29,54.45,8,8,0,0,0,6.3,9.4,8.22,8.22,0,0,0,1.55.15,8,8,0,0,0,7.84-6.45A298.37,298.37,0,0,0,232,128,104.12,104.12,0,0,0,128,24ZM94.4,152.17A8,8,0,0,0,85,158.42a151,151,0,0,1-17.21,45.44,8,8,0,0,0,13.86,8,166.67,166.67,0,0,0,19-50.25A8,8,0,0,0,94.4,152.17ZM128,56a72.85,72.85,0,0,0-9,.56,8,8,0,0,0,2,15.87A56.08,56.08,0,0,1,184,128a252.12,252.12,0,0,1-1.92,31A8,8,0,0,0,189,168a8.39,8.39,0,0,0,1,.06,8,8,0,0,0,7.92-7,266.48,266.48,0,0,0,2-33A72.08,72.08,0,0,0,128,56Zm57.93,128.25a8,8,0,0,0-9.75,5.75c-1.46,5.69-3.15,11.4-5,17a8,8,0,0,0,5,10.13,7.88,7.88,0,0,0,2.55.42,8,8,0,0,0,7.58-5.46c2-5.92,3.79-12,5.35-18.05A8,8,0,0,0,185.94,184.26Z" /></svg
+              ></span>
+              <h3>Your call</h3>
+              <p>You choose what reaches GitHub.</p>
+            </div>
           </div>
         </div>
       </section>
       <section class="band" id="features" aria-labelledby="assistant-title">
         <div class="wrap frame feature">
           <div class="feature-copy">
-            <p class="eyebrow">ASSISTANT · ⌘J</p>
+            <p class="eyebrow">Assistant · ⌘J</p>
             <h2 id="assistant-title">Your next step,<br />one shortcut away.</h2>
             <p>See what needs you. Approve, merge, or answer a task right on its card.</p>
             <a class="more" href="guide-assistant.html">Explore the Assistant <span aria-hidden="true">›</span></a>
           </div>
-          <figure class="shot tint-violet">
+          <figure class="shot">
             <picture>
               <source srcset="assets/app-assistant.jpg" media="(prefers-reduced-motion: reduce)" />
               <img src="assets/app-assistant.webp" width="1340" height="1380" loading="lazy"
@@ -109,14 +118,14 @@
         </div>
       </section>
       <section class="band" aria-labelledby="today-title">
-        <div class="wrap frame feature">
+        <div class="wrap frame feature flip">
           <div class="feature-copy">
-            <p class="eyebrow">TODAY</p>
+            <p class="eyebrow">Today</p>
             <h2 id="today-title">Start the day<br />with what matters.</h2>
             <p>Up to five things worth doing first, each with a reason. It never acts on its own.</p>
             <a class="more" href="guide-get-started.html#workspaces">Explore Today <span aria-hidden="true">›</span></a>
           </div>
-          <figure class="shot tint-sky">
+          <figure class="shot">
             <img src="assets/app-today.jpg" width="1860" height="1400" loading="lazy"
               alt="Today with five suggested steps and their reasons, a This week summary, and Needs attention below." />
           </figure>
@@ -125,26 +134,26 @@
       <section class="band" aria-labelledby="review-title">
         <div class="wrap frame feature">
           <div class="feature-copy">
-            <p class="eyebrow">PR REVIEW</p>
+            <p class="eyebrow">PR review</p>
             <h2 id="review-title">See beyond<br />the diff.</h2>
             <p>Follow the intent and each commit. Discuss findings privately, then publish.</p>
             <a class="more" href="guide-reviews.html#private-review">Explore reviews <span aria-hidden="true">›</span></a>
           </div>
-          <figure class="shot tint-rose">
+          <figure class="shot">
             <img src="assets/app-review.jpg" width="2880" height="1800" loading="lazy"
               alt="A pull request review with its intent, commit explanations, and a private finding." />
           </figure>
         </div>
       </section>
       <section class="band" aria-labelledby="ask-title">
-        <div class="wrap frame feature">
+        <div class="wrap frame feature flip">
           <div class="feature-copy">
-            <p class="eyebrow">ASK AGENT</p>
+            <p class="eyebrow">Ask agent</p>
             <h2 id="ask-title">Ask before<br />you reply.</h2>
             <p>Talk through a review comment with your agent. You choose what gets posted.</p>
             <a class="more" href="guide-reviews.html#ask-from-review">Explore Ask agent <span aria-hidden="true">›</span></a>
           </div>
-          <figure class="shot tint-violet">
+          <figure class="shot">
             <img src="assets/app-ask-agent.jpg" width="2880" height="1800" loading="lazy"
               alt="Review cards with Ask agent and a private conversation with Draft with agent and Resolve locally." />
           </figure>
@@ -154,7 +163,7 @@
         <div class="wrap frame cards">
           <a href="guide-agents.html#commits-and-backports">
             <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="8" r="2" /><path d="M6 7v10M18 10c0 4-6 3-11.5 7" /></svg
+              ><svg viewBox="0 0 256 256"><path d="M232,64a32,32,0,1,0-40,31v17a8,8,0,0,1-8,8H96a23.84,23.84,0,0,0-8,1.38V95a32,32,0,1,0-16,0v66a32,32,0,1,0,16,0V144a8,8,0,0,1,8-8h88a24,24,0,0,0,24-24V95A32.06,32.06,0,0,0,232,64ZM64,64A16,16,0,1,1,80,80,16,16,0,0,1,64,64ZM96,192a16,16,0,1,1-16-16A16,16,0,0,1,96,192ZM200,80a16,16,0,1,1,16-16A16,16,0,0,1,200,80Z" /></svg
             ></span>
             <h3>Cherry-pick</h3>
             <p>Carry the right commits to the right branch.</p>
@@ -162,7 +171,7 @@
           </a>
           <a href="guide-planning.html#epics">
             <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5Z" /><path d="m3 13 9 5 9-5" /></svg
+              ><svg viewBox="0 0 256 256"><path d="M230.91,172A8,8,0,0,1,228,182.91l-96,56a8,8,0,0,1-8.06,0l-96-56A8,8,0,0,1,36,169.09l92,53.65,92-53.65A8,8,0,0,1,230.91,172ZM220,121.09l-92,53.65L36,121.09A8,8,0,0,0,28,134.91l96,56a8,8,0,0,0,8.06,0l96-56A8,8,0,1,0,220,121.09ZM24,80a8,8,0,0,1,4-6.91l96-56a8,8,0,0,1,8.06,0l96,56a8,8,0,0,1,0,13.82l-96,56a8,8,0,0,1-8.06,0l-96-56A8,8,0,0,1,24,80Zm23.88,0L128,126.74,208.12,80,128,33.26Z" /></svg
             ></span>
             <h3>Epics</h3>
             <p>Big changes and next steps in one view.</p>
@@ -170,7 +179,7 @@
           </a>
           <a href="guide-reviews.html#link-previews">
             <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></svg
+              ><svg viewBox="0 0 256 256"><path d="M165.66,90.34a8,8,0,0,1,0,11.32l-64,64a8,8,0,0,1-11.32-11.32l64-64A8,8,0,0,1,165.66,90.34ZM215.6,40.4a56,56,0,0,0-79.2,0L106.34,70.45a8,8,0,0,0,11.32,11.32l30.06-30a40,40,0,0,1,56.57,56.56l-30.07,30.06a8,8,0,0,0,11.31,11.32L215.6,119.6a56,56,0,0,0,0-79.2ZM138.34,174.22l-30.06,30.06a40,40,0,1,1-56.56-56.57l30.05-30.05a8,8,0,0,0-11.32-11.32L40.4,136.4a56,56,0,0,0,79.2,79.2l30.06-30.07a8,8,0,0,0-11.32-11.31Z" /></svg
             ></span>
             <h3>Link previews</h3>
             <p>Hover a PR or issue. Keep your place.</p>
@@ -178,7 +187,7 @@
           </a>
           <a href="lab.html">
             <span class="icon" aria-hidden="true"
-              ><svg viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4" /></svg
+              ><svg viewBox="0 0 256 256"><path d="M240,128a8,8,0,0,1-8,8H204.94l-37.78,75.58A8,8,0,0,1,160,216h-.4a8,8,0,0,1-7.08-5.14L95.35,60.76,63.28,131.31A8,8,0,0,1,56,136H24a8,8,0,0,1,0-16H50.85L88.72,36.69a8,8,0,0,1,14.76.46l57.51,151,31.85-63.71A8,8,0,0,1,200,120h32A8,8,0,0,1,240,128Z" /></svg
             ></span>
             <h3>Lab</h3>
             <p>Every feature should earn its place.</p>
@@ -188,13 +197,15 @@
       </section>
       <section class="band" id="get-started" aria-labelledby="start-title">
         <div class="wrap frame cta">
-          <p class="eyebrow">OPEN SOURCE<span class="cursor" aria-hidden="true"></span></p>
-          <h2 id="start-title">Start with one repository.</h2>
+          <div>
+            <p class="eyebrow">Open source<span class="cursor" aria-hidden="true"></span></p>
+            <h2 id="start-title">Start with one repository.</h2>
+          </div>
           <div class="actions">
             <a class="button primary" href="https://github.com/bytequay/bytequay/releases"
               >Download for macOS</a
-            ><a class="button secondary" href="https://github.com/bytequay/bytequay/blob/main/CONTRIBUTING.md"
-              >Contribute on GitHub</a
+            ><a class="text-link" href="https://github.com/bytequay/bytequay/blob/main/CONTRIBUTING.md"
+              >Contribute on GitHub →</a
             >
           </div>
         </div>

@@ -28,6 +28,7 @@ import { ReferencesModel, type OneReference } from '@codingame/monaco-vscode-api
 import { fileName, isTestFile } from '../pulls/code-tests/codeModel';
 import { serviceLanguages } from './languages';
 import { progressOf, useBusyStatus, waitForLanguageService } from './statusEntries';
+import LanguageProgress from './LanguageProgress';
 
 type Request = { id: number; editor: ICodeEditor; model: ITextModel; position: Position; name: string; x: number; y: number };
 type Usage = { reference: OneReference; code?: string; start?: number; end?: number; unavailable?: boolean };
@@ -240,7 +241,7 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
     {deciding && !waiting && slow && <p>Waiting for the language service. A call opens its declaration, and a declaration lists its usages, once it answers.</p>}
     {loading && !deciding && !waiting && slow && <p>Still searching. The first search after a project opens waits for indexing, which can take a few minutes.</p>}
     {stalled && <>
-      <progress max={100} value={progressOf(status)} aria-label="Language service progress" />
+      <LanguageProgress value={progressOf(status)} />
       {status && <p className="ide-usages__status">{status}</p>}
     </>}
     {!loading && !message && rows.length === 0 && <p>No usages found.</p>}

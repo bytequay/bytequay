@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { progressOf, useBusyStatus, useSearchWaiting } from './statusEntries';
+import LanguageProgress from './LanguageProgress';
 
 /** Background language service work, such as project import, and what a waiting search waits for. */
 export default function LanguageStatus() {
@@ -22,7 +23,7 @@ export default function LanguageStatus() {
   const task = status?.replace(/\s*\d{1,3}%\s*/, ' ').trim();
   const text = !waiting ? status : task ? `Waiting for "${task}" to complete…` : 'Waiting for the language service…';
   return <span className="ide-language-status" title={text}>
-    <span>{text}</span>
-    <progress max={100} value={progressOf(status)} aria-label="Language service progress" />
+    <span className="ide-language-status__text">{text}</span>
+    <LanguageProgress value={progressOf(status)} />
   </span>;
 }

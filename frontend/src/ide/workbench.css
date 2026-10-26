@@ -18,8 +18,16 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-tools { flex: 1; min-height: 0; }
 .ide-spacer { flex: 1; }
 .ide-language-status { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 50%; color: var(--vscode-descriptionForeground); }
-.ide-language-status > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ide-language-status > progress { flex: none; width: 120px; height: 6px; accent-color: var(--vscode-progressBar-background); }
+.ide-language-status__text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ide-language-status > .ide-language-progress { width: 120px; }
+.ide-language-progress { display: block; position: relative; flex: none; height: 4px; overflow: hidden; border-radius: 999px; color: var(--vscode-progressBar-background); background: color-mix(in srgb, currentColor 18%, transparent); }
+.ide-language-progress__fill { position: absolute; inset: 0; border-radius: inherit; background: currentColor; transform-origin: left; transition: transform 240ms ease-out; }
+.ide-language-progress:not([aria-valuenow]) > .ide-language-progress__fill { width: 40%; animation: ide-language-progress-sweep 1.4s linear infinite; transition: none; }
+@keyframes ide-language-progress-sweep { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) {
+  .ide-language-progress__fill { transition: none; }
+  .ide-language-progress:not([aria-valuenow]) > .ide-language-progress__fill { animation: none; transform: translateX(75%); }
+}
 .ide-notice { display: flex; gap: 10px; justify-content: space-between; padding: 7px 12px; background: light-dark(#fff1d8, var(--dark-orange-soft)); color: light-dark(#704100, var(--dark-orange)); }
 .ide-loading { padding: 24px; font: 13px -apple-system, sans-serif; }
 .ide-review-zone { box-sizing: border-box; max-width: 800px; }
@@ -100,7 +108,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-usages > header > span { margin-left: auto; white-space: nowrap; color: var(--vscode-descriptionForeground); }
 .ide-usages > header button { display: flex; align-items: center; padding: 4px; border: 0; background: transparent; color: inherit; cursor: pointer; }
 .ide-usages > p { padding: 6px 12px; }
-.ide-usages > progress { display: block; width: calc(100% - 24px); height: 6px; margin: 4px 12px; accent-color: var(--vscode-progressBar-background); }
+.ide-usages > .ide-language-progress { width: calc(100% - 24px); margin: 4px 12px; }
 .ide-usages > .ide-usages__status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-descriptionForeground); }
 .ide-usages__list { overflow: auto; min-height: 0; max-height: min(540px, 55vh); padding: 4px; }
 .ide-usages .ide-usages__row { display: grid; grid-template-columns: 16px minmax(160px, 34%) 44px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; min-height: 30px; border: 0; border-radius: 3px; padding: 5px 8px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }

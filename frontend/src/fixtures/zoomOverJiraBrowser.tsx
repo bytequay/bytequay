@@ -18,7 +18,7 @@ import { zoomReference } from '../githubReference';
 import { saveHandled } from '../home/attention';
 import type { WorkItemDto, UnifiedWorkItem } from '../workitems/contracts';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
-import { jiraRoute, notifyJiraChanged, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
+import { jiraRoute, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
 import { jiraDetail, jiraIssue } from '../jira/fixtures/jira';
 import type { Bridge, InAppBrowserState, RepositoryIssueSnapshotDto, WorkspaceDto } from '../types';
 import { assert, changeInput, settle, until, runScenarios } from './harness';

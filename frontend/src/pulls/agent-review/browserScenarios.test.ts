@@ -47,6 +47,12 @@ testBrowserScenarios([
       entry: 'src/pulls/agent-review/fixtures/summaryLayoutBrowser.tsx', global: 'SummaryLayout', styles: true, charset: true, width: 1200, height: 1000 },
   },
   {
+    name: 'polls a running review for new history events only in Chromium',
+    expected: 1, timeout: 30_000,
+    fixture: { prefix: 'bytequay-review-history-poll-',
+      entry: 'src/pulls/agent-review/fixtures/reviewHistoryPollBrowser.tsx', global: 'ReviewHistoryPoll' },
+  },
+  {
     name: 'refreshes explanations independently and preserves the prior text until success in Chromium',
     expected: 1, timeout: 30_000,
     fixture: { prefix: 'bytequay-summary-refresh-',

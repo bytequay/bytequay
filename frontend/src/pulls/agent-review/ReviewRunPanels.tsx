@@ -34,21 +34,35 @@ const VISIBLE_ACTIONS = 6;
 
 type ReviewHistory = { events: AgentEventEnvelope[]; complete: boolean };
 
-/** The newest pages of the review task's own history, read again while the review runs. */
+/** The newest pages of the review task's own history, then only the events after them while the review runs. */
 function useReviewHistory(reviewId: string | null, taskId: string | null, live: boolean): ReviewHistory {
   const [history, setHistory] = useState<ReviewHistory>({ events: [], complete: true });
   useEffect(() => {
     if (reviewId === null || taskId === null) return;
     let current = true;
     let reading = false;
+    let latest: number | null = null;
+    const readHistory = (id: string, before?: string, after?: string) => window.bridge.readAgentReviewHistory(reviewId, id, before, after);
     const read = () => {
       if (reading) return;
       reading = true;
       // Starting inside a promise turns a bridge without history into a rejection; a background read fails silently.
       void Promise.resolve()
-        .then(() => readRecentAgentHistory({ readAgentHistory: (id, before, after) => window.bridge.readAgentReviewHistory(reviewId, id, before, after) }, taskId))
-        .then(({ page, earlier }) => {
-          if (current) setHistory({ events: [...earlier, page].flatMap(item => item.events), complete: (earlier[0] ?? page).beforeCursor === null });
+        .then(async () => {
+          if (latest === null) {
+            const { page, earlier } = await readRecentAgentHistory({ readAgentHistory: readHistory }, taskId);
+            if (!current) return;
+            latest = page.events.at(-1)?.sequence ?? 0;
+            setHistory({ events: [...earlier, page].flatMap(item => item.events), complete: (earlier[0] ?? page).beforeCursor === null });
+            return;
+          }
+          // The newest page holds whole command and tool outputs, often megabytes; a poll reads only what came after it.
+          // ponytail: keeps every event since the first read; drop old ones if a single review's history outgrows memory.
+          const seen = latest;
+          const newer = (await readHistory(taskId, undefined, String(seen))).events.filter(event => event.sequence > seen);
+          if (!current || newer.length === 0) return;
+          latest = newer[newer.length - 1].sequence;
+          setHistory(shown => ({ ...shown, events: [...shown.events, ...newer] }));
         })
         .catch(() => {})
         .finally(() => { reading = false; });

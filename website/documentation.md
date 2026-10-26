@@ -296,6 +296,10 @@ the ones before it:
 - **Auto-merge:** merges after the delay in **Settings → Agents → Workflow**,
   once GitHub allows it and no review thread is open.
 
+When the agent rewrites pushed commits, for example by splitting or squashing
+them, the next push replaces them with a lease. It stops instead when the PR
+branch has commits the task never had.
+
 Every step after Auto-Commit writes to GitHub, and repairs use your model
 allowance. The stop square above the composer halts automation and keeps your
 draft. CI watching runs while ByteQuay is open and resumes after a restart.

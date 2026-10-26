@@ -257,11 +257,10 @@ public class DevelopmentFollowupCoordinator
                 checkState(currentPr.map(GitHubPullRequestIdentity::pullRequest).equals(originalPr.map(GitHubPullRequestIdentity::pullRequest)),
                         "The pull request changed during development");
                 if (publication.remoteHeadSha().isPresent()) {
-                    String remoteHead = publication.remoteHeadSha().orElseThrow();
-                    // A user turn may rewrite published commits that belonged to its starting history.
-                    checkState(git.isAncestor(baseline.worktree(), remoteHead, local.headSha())
-                            || git.isAncestor(baseline.worktree(), remoteHead, baseline.local().headSha()),
-                            "Remote history belongs to neither the current nor the starting task revision");
+                    // The lease replaces commits the task once held, even when a queued turn took over an earlier
+                    // turn's rewrite; commits it never held are someone else's work.
+                    checkState(git.branchHeld(baseline.worktree(), publication.remoteHeadSha().orElseThrow()),
+                            "The PR branch has commits this task never had; ask the agent to rebase onto it first");
                 }
                 action = "Create draft PR";
                 PendingPublication window = new PendingPublication(completion.turn().id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr);

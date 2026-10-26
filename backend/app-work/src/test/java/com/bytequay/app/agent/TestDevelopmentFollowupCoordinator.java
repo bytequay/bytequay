@@ -63,8 +63,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
@@ -110,6 +112,8 @@ class TestDevelopmentFollowupCoordinator
     private final Clock clock = mock(Clock.class);
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
+    // Heads the task branch has pointed at, as its reflog records them.
+    private final Set<String> held = new HashSet<>();
     private final DevelopmentBranchService branches = mock(DevelopmentBranchService.class);
     private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
     private List<ReviewThreadReply> reviewReplies = ImmutableList.of();
@@ -147,6 +151,7 @@ class TestDevelopmentFollowupCoordinator
             String descendant = call.getArgument(2);
             return ancestor.equals(descendant) || ancestor.equals(BASE) || (ancestor.equals(HEAD) && descendant.equals(NEXT));
         });
+        when(git.branchHeld(eq(worktree), anyString())).thenAnswer(call -> held.contains(call.<String>getArgument(1)));
         when(ci.startDevelopment(any(), any(), any(), any())).thenAnswer(ignored -> ciRun());
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
         doAnswer(call -> {
@@ -641,7 +646,7 @@ class TestDevelopmentFollowupCoordinator
         String startingHead = unpublishedCommit ? "d".repeat(40) : NEXT;
         GitHubPullRequestIdentity existing = pr(NEXT, true);
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(existing)));
-        when(git.isAncestor(worktree, NEXT, startingHead)).thenReturn(true);
+        held.add(NEXT);
         DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, HEAD + ":false", 0, 1, true, false);
         prepare(local(startingHead, false), rewritten, FULL, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(existing));
@@ -659,7 +664,29 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
-    void remoteHistoryAlreadyDivergentBeforeTheTurnCannotBeReplaced()
+    void queuedTurnPublishesTheRewriteItsPreviousTurnLeftUnpushed()
+    {
+        GitHubPullRequestIdentity existing = pr(NEXT, true);
+        AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(existing));
+        prepare(local(NEXT, false), local(HEAD, false), FULL, true);
+        TurnId rewrite = source.id();
+        when(turns.handoffDevelopmentContinuationToQueue(taskId, rewrite)).thenAnswer(ignored -> {
+            prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+            return true;
+        });
+        advance();
+        generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Split commits", "Body"));
+
+        advance();
+
+        verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.of(NEXT));
+        assertThat(remote.get().remoteHeadSha()).contains(HEAD);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void remoteCommitsTheTaskNeverHeldCannotBeReplaced()
     {
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(NEXT), Optional.of(pr(NEXT, true))));
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
@@ -669,7 +696,7 @@ class TestDevelopmentFollowupCoordinator
         noFollowup();
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verify(ci, never()).startDevelopment(any(), any(), any(), any());
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("neither the current nor the starting task revision"));
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("The PR branch has commits this task never had"));
     }
 
     @ParameterizedTest
@@ -1364,6 +1391,8 @@ class TestDevelopmentFollowupCoordinator
     {
         source = running(automation);
         history.add(source);
+        held.add(before.headSha());
+        held.add(after.headSha());
         when(git.capture(task)).thenAnswer(ignored -> {
             duringCapture.run();
             return new DevelopmentBaseline(worktree, route, before);

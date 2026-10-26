@@ -649,6 +649,23 @@ class TestDevelopmentGitInspector
     }
 
     @Test
+    void branchHeldCoversEarlierRewritesButNotCommitsFromElsewhere()
+            throws IOException
+    {
+        String published = commit("published");
+        run(worktree.canonicalWorktree(), "reset", "--hard", baseSha);
+        String split = commit("split");
+        String otherBranch = commitIn(ciCheckout(), "other checkout");
+        String remoteOnly = publishCi(ciRepository(), "remote only");
+
+        assertThat(inspector.isAncestor(worktree, published, split)).isFalse();
+        assertThat(inspector.branchHeld(worktree, published)).isTrue();
+        assertThat(inspector.branchHeld(worktree, split)).isTrue();
+        assertThat(inspector.branchHeld(worktree, otherBranch)).isFalse();
+        assertThat(inspector.branchHeld(worktree, remoteOnly)).isFalse();
+    }
+
+    @Test
     void synchronizesToARewrittenCiCommitFromAnotherCheckoutAndPreservesIgnoredBuildOutput()
             throws IOException
     {

@@ -334,6 +334,23 @@ public class DevelopmentGitInspector
         return result.exitCode() == 0;
     }
 
+    /**
+     * Whether the task branch contains the revision now or did at any point its reflog records, so a rewrite
+     * from any earlier turn still counts as the task's own. A revision missing from the repository was never held.
+     */
+    public boolean branchHeld(TaskWorktree worktree, String revision)
+    {
+        worktrees.inspect(worktree);
+        checkSha(revision, "sha");
+        if (!git.run(worktree.canonicalWorktree(), "cat-file", "-e", revision + "^{commit}").successful()) {
+            return false;
+        }
+        String branch = "refs/heads/" + worktree.generatedBranch();
+        ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add("rev-list", "-n", "1", revision, "--not", branch);
+        output(worktree, "reflog", "show", "--format=%H", branch).lines().distinct().forEach(arguments::add);
+        return output(worktree, arguments.build().toArray(String[]::new)).isBlank();
+    }
+
     private WorktreeSnapshot verify(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
         return verify(worktree, route, worktrees.inspect(worktree));

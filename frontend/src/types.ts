@@ -15,6 +15,7 @@
 import type * as agentContracts from './agents/contracts';
 import type { LabBridge } from '@bytequay/lab/contracts';
 import type { ArtifactBridge } from './artifacts/contracts';
+import type { VoiceBridge } from './dictation/contracts';
 import type { WorkItemBridge, CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalItemDto, GoalItemKind } from './workitems/contracts';
 import type { NoticeSnapshot } from './notices/contracts';
 import type { RunningTask } from './agents/runningTaskModel';
@@ -1611,7 +1612,7 @@ export type RecentDraftRequest = {
   body: string;
 };
 
-export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & ArtifactBridge & {
+export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & ArtifactBridge & VoiceBridge & {
   onAppNavigation: (callback: (target: import('./appNavigation').AppNavigationTarget) => void) => () => void;
   /** `workItemId` names the Epic work a notice suggests next; it opens instead of the task. With `artifact`, `taskId` is an Artifacts conversation. */
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null; workItemId: string | null;

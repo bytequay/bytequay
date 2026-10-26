@@ -17,7 +17,7 @@ import type { JiraLocation } from './jira/contracts';
 import { registerJiraIpc } from '@bytequay/jira/main';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
 import { parseUnifiedWorkItem, parseWorkItemContextLink, type Publication, parseConcludedEpics, parseEpicDraftReply, parseEpicJoin, parseEpicRecord, type EpicDraftMessage, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoalItem, parseList, type GoalItemKind } from './workitems/contracts';
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, screen, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, nativeTheme, Notification, screen, shell, systemPreferences } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
@@ -89,6 +89,7 @@ import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseL
 import { AgentSubscriptions } from './agents/subscriptions';
 import { parseRunningTasks } from './agents/runningTaskModel';
 import { CodeTerminals, parseTerminalLaunch, terminalEnvironment } from './terminals';
+import { Dictation } from './dictation/dictation';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
   AppPreferencesDto,
@@ -583,6 +584,25 @@ const codeTerminals = new CodeTerminals((launch, cols, rows, command) => spawnPt
   command === undefined ? ['-l'] : ['-lc', command],
   { name: 'xterm-256color', cwd: launch.workingDirectory, cols, rows, env: terminalEnvironment(process.env, launch.claudeConfigDirectory) },
 ));
+
+const dictationHelper = app.isPackaged
+  ? path.join(process.resourcesPath, 'dictation', 'bytequay-dictate')
+  : path.join(app.getAppPath(), 'vendor', 'dictation', 'bytequay-dictate');
+const dictation = new Dictation({
+  // A development build without the macOS 26 SDK has no helper; Voice then reports it unavailable.
+  helper: process.platform === 'darwin' && fs.existsSync(dictationHelper) ? dictationHelper : null,
+  macos: () => process.getSystemVersion(),
+  folder: path.join(app.getPath('userData'), 'dictation'),
+  settingsFile: path.join(app.getPath('userData'), 'voice.json'),
+  microphone: () => systemPreferences.getMediaAccessStatus('microphone'),
+  askMicrophone: () => systemPreferences.askForMediaAccess('microphone'),
+  broadcast: (channel, message) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send(channel, message);
+    }
+  },
+});
+dictation.clearRecordings();
 
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
   taskUrl(taskId, '/stream')
@@ -1086,6 +1106,23 @@ function registerIpc(): void {
     if (typeof command !== 'string' || command.trim() === '') throw new Error(`${laneId} reports no sign-in command`);
     return codeTerminals.open(event.sender, `provider:${laneId}`, cols, rows, async () => ({ workingDirectory: os.homedir(), claudeConfigDirectory: null }), command);
   });
+  ipcMain.handle('voice:get', () => dictation.settings());
+  ipcMain.handle('voice:check', () => dictation.check());
+  ipcMain.handle('voice:set-enabled', (_event, enabled: unknown) => {
+    if (typeof enabled !== 'boolean') throw new Error('Malformed Voice setting');
+    return dictation.setEnabled(enabled);
+  });
+  ipcMain.handle('voice:install', () => dictation.install());
+  ipcMain.handle('voice:privacy', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'));
+  const dictationId = (id: unknown): string => {
+    if (typeof id !== 'string' || id === '') throw new Error('Malformed dictation');
+    return id;
+  };
+  ipcMain.handle('dictation:start', event => dictation.start(event.sender));
+  ipcMain.handle('dictation:stop', (event, id: unknown) => dictation.stop(event.sender, dictationId(id)));
+  ipcMain.handle('dictation:cancel', (event, id: unknown) => dictation.cancel(event.sender, dictationId(id)));
+  ipcMain.handle('dictation:retry', (event, id: unknown) => dictation.retry(event.sender, dictationId(id)));
+  ipcMain.handle('dictation:discard', (event, id: unknown) => dictation.discard(event.sender, dictationId(id)));
   ipcMain.on('terminal:write', (event, terminalId: string, data: string) => codeTerminals.write(event.sender, terminalId, data));
   ipcMain.on('terminal:resize', (event, terminalId: string, cols: number, rows: number) => codeTerminals.resize(event.sender, terminalId, cols, rows));
   ipcMain.handle('code:changes', (_event, host: unknown, request: unknown) => {
@@ -2064,6 +2101,7 @@ app.on('before-quit', () => {
   // Streams read from the backend, so they stop before it does.
   agentSubscriptions.stopAll();
   codeTerminals.stopAll();
+  dictation.clearRecordings();
   ideViews.dispose();
   killBackend();
 });

@@ -47,8 +47,8 @@ export type ArtifactBridge = {
   /** Answers a question the agent asked with choices; `answers` is keyed by each question's text. */
   answerArtifactQuestion: (workspaceId: string, artifactId: string, approvalId: string, allow: boolean, answers: Record<string, string>) => Promise<ArtifactViewDto>;
   stopArtifact: (workspaceId: string, artifactId: string) => Promise<void>;
-  /** Lays the page over these bounds; null for either hides it. */
-  showArtifact: (target: ArtifactTarget | null, bounds: ArtifactBounds | null) => Promise<void>;
+  /** Null bounds cover a live page; a null target releases it. A new DOM focus choice cancels restoration. */
+  showArtifact: (target: ArtifactTarget | null, bounds: ArtifactBounds | null, allowFocusRestore?: boolean) => Promise<void>;
 };
 
 function parseArtifact(value: unknown): ArtifactDto {

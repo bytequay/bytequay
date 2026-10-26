@@ -25,7 +25,9 @@ afterAll(() => fixture?.dispose());
 
 it.each([false, true])('confirms IDE startup for an existing worktree (task: %s)', async taskHost => {
   const result = await fixture.run<string>({
-    body: `const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runStartup(${taskHost})');` });
+    body: `window.webContents.debugger.attach('1.3');
+      await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+      const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runStartup(${taskHost})');` });
   expect(result).toContain('Startup requires confirmation');
 }, deadline(30_000));
 

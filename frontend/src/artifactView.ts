@@ -40,25 +40,31 @@ export class ArtifactView {
   private view: WebContentsView | null = null;
   // The page and version this view shows; its HTML is read before loading so a failed read reports the backend's reason.
   private wanted: string | null = null;
+  private loading: Promise<void> | undefined;
   private page: { url: string; html: string } | null = null;
   private proxied: Promise<void> = Promise.resolve();
   private idle: ReturnType<typeof setTimeout> | undefined;
+  private covered: string | null = null;
+  private restoreFocus = false;
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly readPage: (target: ArtifactTarget) => Promise<string>,
     private readonly onPresent: () => void = () => {}) {}
 
   register(): void {
-    ipcMain.handle('artifacts:show', (event, target: unknown, bounds: unknown) => {
+    ipcMain.handle('artifacts:show', (event, target: unknown, bounds: unknown, allowFocusRestore: unknown = true) => {
       const window = this.window();
       if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown artifact owner');
-      return this.show(target === null ? null : parseArtifactTarget(target), bounds);
+      if (typeof allowFocusRestore !== 'boolean') throw new Error('Invalid artifact focus restoration');
+      return this.show(target === null ? null : parseArtifactTarget(target), bounds, allowFocusRestore);
     });
   }
 
-  async show(target: ArtifactTarget | null, bounds: unknown): Promise<void> {
+  async show(target: ArtifactTarget | null, bounds: unknown, allowFocusRestore = true): Promise<void> {
     const window = this.window();
     clearTimeout(this.idle);
-    if (target === null || bounds === null || !window || window.isDestroyed()) {
+    if (target === null || !window || window.isDestroyed()) {
+      this.covered = null;
+      this.restoreFocus = false;
       this.view?.setVisible(false);
       // A hidden page keeps its renderer process and its timers; one hidden for a minute closes and loads again when shown.
       if (this.view) this.idle = setTimeout(() => this.closeHidden(), 60_000).unref();
@@ -66,26 +72,41 @@ export class ArtifactView {
     }
     const url = artifactUrl(target);
     const wanted = `${url} ${target.pageId}`;
+    if (bounds === null) {
+      if (this.covered !== wanted) this.restoreFocus = this.wanted === wanted && this.view?.webContents.isFocused() === true;
+      if (!allowFocusRestore) this.restoreFocus = false;
+      this.covered = wanted;
+      // A modal covers the active page; keep its unsaved interactive state for the whole interruption.
+      this.view?.setVisible(false);
+      return;
+    }
+    const restoreFocus = allowFocusRestore && this.covered === wanted && this.restoreFocus;
+    this.covered = null;
+    this.restoreFocus = false;
     const view = this.view ?? this.create();
     view.setBounds(browserBounds(bounds, window));
     window.contentView.addChildView(view);
     view.setVisible(true);
     this.onPresent();
-    if (this.wanted === wanted) return;
+    if (restoreFocus && window.isFocused()) view.webContents.focus();
+    if (this.wanted === wanted) return this.loading;
     this.wanted = wanted;
-    try {
-      const html = await this.readPage(target);
-      // Another page, or a newer save of this one, replaced it while it was read or loaded.
-      await this.proxied;
-      if (this.wanted !== wanted || this.view !== view) return;
-      this.page = { url, html };
-      await view.webContents.loadURL(url);
-    }
-    catch (error) {
-      if (this.wanted !== wanted || this.view !== view) return;
-      this.wanted = null;
-      throw error;
-    }
+    this.loading = (async () => {
+      try {
+        const html = await this.readPage(target);
+        // Another page, or a newer save of this one, replaced it while it was read or loaded.
+        await this.proxied;
+        if (this.wanted !== wanted || this.view !== view) return;
+        this.page = { url, html };
+        await view.webContents.loadURL(url);
+      }
+      catch (error) {
+        if (this.wanted !== wanted || this.view !== view) return;
+        this.wanted = null;
+        throw error;
+      }
+    })();
+    return this.loading;
   }
 
   private create(): WebContentsView {
@@ -133,7 +154,10 @@ export class ArtifactView {
     const contents = this.view?.webContents;
     this.view = null;
     this.wanted = null;
+    this.loading = undefined;
     this.page = null;
+    this.covered = null;
+    this.restoreFocus = false;
     if (contents && !contents.isDestroyed()) contents.close();
   }
 }

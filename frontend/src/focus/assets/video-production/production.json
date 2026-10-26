@@ -1,0 +1,1014 @@
+{
+  "purpose": "Original continuous animal footage for ByteQuay focus breaks. This is an asset production brief, not a runtime configuration.",
+  "completion": "The user supplied the orange cat entrance/rest and wake-up/leave clips. Transparent WebM playback includes the breathing loop and natural exit. Husky video production remains pending; the husky uses its existing sprites.",
+  "generationTool": "Built-in image_gen created the reference PNGs and closed-eyelid reference crop. The user generated the orange cat source videos externally; Runway removed their backgrounds and upscaled them.",
+  "videoProvider": "Runway removed the background and upscaled the user-supplied orange cat footage. Local processing refines its alpha edge, repairs missing walking fur and pre-renders a stable breathing loop. A generated still supplies only the closed eyelids, composited into the existing footage.",
+  "delivery": {
+    "container": "WebM",
+    "codec": "VP9 with real alpha channel",
+    "audio": "none",
+    "targetFps": 30,
+    "acceptableSourceFps": [
+      24,
+      25,
+      30
+    ],
+    "note": "Preserve coherent source motion. Repeating or blending the current eight sprite poses is not an acceptable replacement.",
+    "canvas": "Same resolution, aspect ratio, animal scale, floor anchor, camera and illumination for all three clips of one animal; target 1024x1024 delivery if source supports it.",
+    "background": "Remove background with a temporally stable matte preserving fur and whiskers. Check over both light and dark app backgrounds. A checkerboard or black background baked into the video is not transparency.",
+    "framing": "Entire body, tail and paws remain inside the frame throughout; leave vertical space for the husky to stand.",
+    "horizontalMovement": "Walk on the spot facing left; the app moves the entire video from right edge to center in sync with video progress.",
+    "boundaries": "Walk ends in a stable four-paw standing pose. Settle starts at that exact pose. Settle ends at the loop's starting pose. Loop beginning and end must match without a pop."
+  },
+  "commonPrompt": "A continuous photorealistic studio animal shot using the supplied reference for exact character identity. Locked camera, fixed perspective and scale, soft stable neutral illumination, full animal visible, fixed virtual floor, consistent fur patterns and anatomy throughout. Single subject. Smooth physically plausible weight transfer, natural fur movement, exactly four legs and one tail. No cuts, zoom, pan, camera shake, motion trails, morphing, duplicate limbs, human hands, clothing, collar, text, logos or music. Use a plain removable background, not scenery. Preserve matching poses at clip boundaries.",
+  "characters": [
+    {
+      "id": "chubby-cat",
+      "reference": "chubby-cat-reference.png",
+      "referenceSource": "chubby-cat-walk.png",
+      "referencePrompt": "Use case: photorealistic-natural. Asset type: a single high-resolution character reference and first frame for an original continuous animal video in the ByteQuay break screen. The attached sprite sheet is ONLY a character identity reference. Create ONE SINGLE full-body fat orange tabby cat, not a grid, not multiple cats. Preserve the reference character: very round plush body, short sturdy legs, thick ginger tabby stripes, broad round face, amber eyes, white muzzle and small white paws, thick gently raised tail. It must look like a real photographic animal with detailed individual fur and convincing anatomy, not a toy or illustration. Pose: standing naturally on all four paws, body facing LEFT in side view with face gently angled toward the viewer, relaxed alert expression. Full body including all paws, both ears, whiskers and entire tail inside frame. Square canvas, cat centered horizontally, virtual ground at 86% image height, occupy approximately 75% canvas width, generous transparent space above to support later pose changes. Soft neutral studio illumination from upper left, no dramatic rim light, no cast backdrop, no accessories, no collar, no text or logos. Background genuinely transparent with clean fine fur edges and no white halo or colored fringe. This is a clean single character reference for later video generation, not an animation or sprite sheet.",
+      "clips": [
+        {
+          "output": "chubby-cat-walk.webm",
+          "targetSeconds": 3,
+          "prompt": "The same very chubby orange tabby cat walks calmly on the spot facing left for two complete natural gait cycles. Short paws lift and plant clearly, belly and shoulders shift with believable weight, tail sways gently. Body stays centered; never moves across the canvas. Finish all four paws planted in a relaxed standing pose and hold briefly."
+        },
+        {
+          "output": "chubby-cat-settle.webm",
+          "targetSeconds": 3,
+          "firstFrame": "Use the final decoded frame of chubby-cat-walk as the first-frame reference.",
+          "prompt": "From the exact standing pose of the preceding walking clip, the same cat smoothly bends its front legs, lowers its round belly, folds its hind legs, and settles into a comfortable lying pose facing left with head slightly toward the viewer. Natural continuous anatomy and weight, no teleporting. End relaxed with mouth closed, eyes open, paws settled and tail resting."
+        },
+        {
+          "output": "chubby-cat-loop.webm",
+          "targetSeconds": 8,
+          "firstFrame": "Use the final decoded frame of chubby-cat-settle as the first-frame reference.",
+          "prompt": "The same cat remains comfortably lying in the established pose. Gentle visible breathing and subtle ear movement, one slow blink, a small natural yawn, then returns smoothly to the exact initial resting pose, eye state, closed mouth and tail position. Keep body shape and fur stable. Make a calm seamless loop with matching initial and final pose and motion."
+        }
+      ]
+    },
+    {
+      "id": "dancing-husky",
+      "reference": "dancing-husky-reference.png",
+      "referenceSource": "dancing-husky-walk.png",
+      "referencePrompt": "Use case: photorealistic-natural. Asset type: a single high-resolution character reference and first frame for an original continuous animal video in the ByteQuay break screen. The attached sprite sheet is ONLY a character identity reference. Create ONE SINGLE full-body Siberian husky, not a grid, not multiple dogs. Preserve the reference character: fluffy charcoal-gray and white coat, symmetrical white facial mask and chest, bright blue eyes, pointed ears, big fluffy upward curled tail, friendly slightly open mouth. It must look like a real photographic animal with detailed individual fur and convincing canine anatomy, not a cartoon or plush toy. Pose: standing naturally on all four paws, body facing LEFT in side view with face gently angled toward the viewer, friendly relaxed expression. No human hands or human body proportions. Full body including all paws, ears, whiskers and entire tail inside frame. Square canvas, dog centered horizontally, virtual ground at 86% image height, occupy approximately 65% canvas width, generous transparent space above to support later standing on hind legs and dancing. Soft neutral studio illumination from upper left, no dramatic rim light, no cast backdrop, no accessories, no collar, no clothing, no text or logos. Background genuinely transparent with clean fine fur edges and no white halo or colored fringe. This is a clean single character reference for later video generation, not an animation or sprite sheet.",
+      "clips": [
+        {
+          "output": "dancing-husky-walk.webm",
+          "targetSeconds": 3,
+          "prompt": "The same fluffy gray-and-white blue-eyed husky walks calmly on the spot facing left on all four paws for two complete natural gait cycles. Natural alternating paw placements and weight transfer, curled tail softly sways. Body stays centered; never moves across the canvas. Finish all four paws planted in a relaxed standing pose and hold briefly."
+        },
+        {
+          "output": "dancing-husky-settle.webm",
+          "targetSeconds": 3,
+          "firstFrame": "Use the final decoded frame of dancing-husky-walk as the first-frame reference.",
+          "prompt": "Starting from the exact four-paw standing pose, the same husky turns gently toward the viewer and smoothly rises onto its hind paws. Keep canine anatomy, fur and proportions realistic; lift its two front paws loosely at chest height, with a friendly relaxed expression. Maintain balance with natural rear-leg and tail motion. End centered in a stable playful dance-ready pose, leaving full ears and tail within frame."
+        },
+        {
+          "output": "dancing-husky-loop.webm",
+          "targetSeconds": 4,
+          "firstFrame": "Use the final decoded frame of dancing-husky-settle as the first-frame reference.",
+          "prompt": "The same husky in the established upright pose performs a playful restrained side-to-side dance: shift weight left, then right, small alternate hind-paw steps, front paws gently swing together and apart, fluffy tail counterbalances. Clearly a photorealistic dog with canine paws and anatomy, never a human body. No abrupt hops or limb deformation. Return to the exact initial pose, foot positions and motion for a seamless repeating dance."
+        }
+      ]
+    }
+  ],
+  "integration": {
+    "target": "frontend/src/focus/BreakCompanion.tsx",
+    "sequence": [
+      "Preload the muted inline cat video.",
+      "Wait for a decoded walking frame, then synchronize entrance translation to actual media time.",
+      "At 5.2 seconds, signal arrival and hold the current frame until FocusBreakScreen acquires the modal lock.",
+      "After locked=true, resume the same clip through the original roll and yawn. At 15 seconds, continue into the appended breathing cycle; on media end seek back to 15 seconds and repeat until the break ends.",
+      "When a resting break ends, keep its last visible pose until the preloaded exit video decodes. Play the exit once, carrying its remaining tail past the viewport edge, then unlock and start a full focus interval. Allow Dismiss or Escape to skip an active exit.",
+      "Ask for confirmation before Dismiss or Escape ends a break; preserve focus restoration.",
+      "Use the resting poster for reduced motion or bounded media-load/playback failure.",
+      "Pause video playback while the document is hidden."
+    ],
+    "avoid": [
+      "Replacing artwork before approved usable footage exists.",
+      "Fixed entrance timeout that continues during video buffering.",
+      "Crossfading different silhouettes.",
+      "Changing timer/modal or native-view behavior without need."
+    ]
+  },
+  "acceptance": [
+    "Inspect the actual continuous footage for foot sliding, shape drift, doubled limbs and fur flicker.",
+    "Check beginning/end poses across all clip boundaries and the loop seam.",
+    "Verify true alpha by decoding pixels and compositing in Electron over light and dark backgrounds.",
+    "Measure actual playback frames and dropped frames in the packaged Electron version, not just container metadata.",
+    "Exercise delayed playback, rejection, errors, reduced motion, visibility changes and unmount cleanup.",
+    "Confirm ByteQuay stays usable during entrance and locks only after actual arrival.",
+    "Run repository-required frontend verification after the replacement is integrated."
+  ],
+  "catDelivery": {
+    "sourceFilename": "orange_tabby_walk_play_roll_yawn_silent.mp4",
+    "sourceSha256": "5330213af8522d10c0efda94790379b55400ac17f7898b00c1332f2f4ee1f0e2",
+    "video": "../chubby-cat.webm",
+    "poster": "../chubby-cat-poster.png",
+    "durationSeconds": 17.666666666666668,
+    "fps": 30,
+    "frames": 530,
+    "width": 2736,
+    "height": 1536,
+    "codec": "VP9",
+    "alpha": true,
+    "audio": false,
+    "arrivalSeconds": 5.2,
+    "playback": "The cat walks in from the right, holds at 5.2 seconds until the break locks, then continues through the roll and yawn. At 15 seconds it enters the repeating 2.667-second breathing cycle. When the resting break ends, the player switches to the supplied wake-up and walk-out clip.",
+    "loop": "All 80 frames at 30 fps use the fixed polished final pose with both eyes fully closed. A localized six-pixel torso rise and fall adds breathing, returning to zero displacement at both endpoints. The head, eyelids and paws stay fixed; the app loops only this section, never the entrance.",
+    "limitations": [
+      "The source crops the tail at its right edge in some walking and resting frames.",
+      "The generated source mildly changes paw shape while settling."
+    ],
+    "originalBrief": "The character prompts document the original asset brief. Current cat playback uses the two user-supplied clips, with a pre-rendered breathing cycle appended to the first.",
+    "videoSha256": "c6f4ca6893f7c02ff2db2dca569cd0cb5e861396435c85919de791745e25c1b5",
+    "posterSha256": "624756f8a5e53cc4fff815f6b4f025e261a82c1ea4d34ee97068da5e1ce38e2d",
+    "processing": "Runway AI video upscaling enhanced the original 1368\u00d7768 footage to 4096\u00d72300. A repair derived from source foreground colors recovers missing cheek, chin and neck pixels during walking, retaining the original upper-head outline and blending back over 8\u20139 seconds. The first 420 frames (0\u201314 seconds) retain identical decoded color and alpha to that repaired asset. Two feathered interior eye patches close the lids over 14.333\u201314.9 seconds and keep them closed throughout the 80-frame breathing loop. The transparent outline is untouched by this compositing. The reduced-motion poster uses the same closed eyelids, preserving its original alpha exactly. Audio removed.",
+    "encodeFilter": "Original merge: color and alpha scale to 2736\u00d71536 by Lanczos, align at 30 fps by frame index, alphamerge. Edge polish: decode RGBA, refine edge color/alpha, convert RGB full range to BT.709 limited-range yuva420p. Loop: warp Y/U/V/alpha consistently from the fixed polished pose; concatenate at 15 s with full BT.709 metadata.",
+    "encodeOptions": "libvpx-vp9, yuva420p, auto-alt-ref 0, row-mt 1; first 420 frames stream-copied; final 30 intro frames CRF 22/g30 and 80 rest frames CRF 18/g80; 530 frames at 30 fps; no audio; BT.709 matrix, transfer and primaries, limited range",
+    "validation": "All 530 main frames retain real alpha. The walking repair is preserved: decoded color and alpha of frames 0\u2013419 match the previous asset exactly. The final intro second closes both eyes; all 80 rest frames retain closed lids and stable head detail, with breathing confined to the torso. Native light/dark inspection confirms the transition and loop seam.",
+    "playbackValidation": {
+      "runtime": "Pinned Electron desktop renderer",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "scope": "Complete repaired entrance through arrival and break lock on light and dark pages. These measurements apply to the unchanged first 14 seconds.",
+      "measurements": [
+        {
+          "theme": "light",
+          "time": 5.40531,
+          "width": 2736,
+          "height": 1536,
+          "totalFrames": 168,
+          "droppedFrames": 0,
+          "phase": "performing",
+          "locked": true,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)"
+        },
+        {
+          "theme": "dark",
+          "time": 5.432276,
+          "width": 2736,
+          "height": 1536,
+          "totalFrames": 168,
+          "droppedFrames": 1,
+          "phase": "performing",
+          "locked": true,
+          "transform": "matrix(1, 0, 0, 1, 0, 0)"
+        }
+      ],
+      "note": "Native playback-quality counters report 168 frames for each entrance, with zero dropped frames on light and one on dark. Both reach the locked performing phase and centered actor position. These local measurements do not guarantee performance on every device."
+    },
+    "alphaSourceSha256": "2beef96824a82c4b15bdf529bc0efc984270bdafa0d68a73a93a199553284464",
+    "loopStartSeconds": 15,
+    "loopFrames": 80,
+    "edgePolish": {
+      "processing": "At 2736\u00d71536, apply a two-pixel square alpha erosion and a 0.7-pixel Gaussian feather. Estimate foreground edge color from an opaque core (alpha eroded eight pixels, threshold 250) using a normalized 25\u00d725 box average. Blend that estimate only within the four-pixel edge band, weighted by 1 minus the four-pixel-eroded original alpha divided by 255; preserve interior RGB. Apply the same correction to every intro/exit frame and the resting poster. Color extension into nearby transparent pixels prevents background color from bleeding through chroma subsampling.",
+      "reason": "The prior independently upscaled color and matte exposed background-colored fur edges. Reversing source frames in the old rest loop also produced a repeating alpha jump.",
+      "validation": {
+        "runtime": "Pinned Electron native VP9-alpha decoder",
+        "crop": {
+          "x": 850,
+          "y": 700,
+          "width": 1400,
+          "height": 260
+        },
+        "loopBoundary": {
+          "before": {
+            "pixels": 23308,
+            "alphaMean": 29.868714604427666,
+            "alphaP95": 127,
+            "alphaMax": 147,
+            "alphaDeltaOver16": 0.3260683027286769,
+            "rgbMean": 74.47884846404668,
+            "whiteCompositeMean": 12.036026397287644,
+            "darkCompositeMean": 15.046190934471937
+          },
+          "after": {
+            "pixels": 11855,
+            "alphaMean": 0.013918177983973008,
+            "alphaP95": 0,
+            "alphaMax": 3,
+            "alphaDeltaOver16": 0,
+            "rgbMean": 0.6361310276957683,
+            "whiteCompositeMean": 0.005323365392832222,
+            "darkCompositeMean": 0.010302594255753758
+          }
+        },
+        "introBoundary": {
+          "pixels": 13246,
+          "alphaMean": 1.3200211384568927,
+          "alphaP95": 4,
+          "alphaMax": 22,
+          "alphaDeltaOver16": 0.00015098897780462027,
+          "rgbMean": 25.765086315365647,
+          "whiteCompositeMean": 1.711779804780147,
+          "darkCompositeMean": 1.96874913033311
+        }
+      }
+    },
+    "alphaValidation": {
+      "frames": 530,
+      "restFrames": 80,
+      "restMinTransparentPixels": 3138171,
+      "restMinOpaquePixels": 1007613,
+      "loopAlphaSeamMean": 0.0003674007066276803,
+      "loopAlphaSeamMaximum": 5,
+      "headWorstRgbMeanChange": 0.006796875,
+      "headWorstAlphaMeanChange": 0.00121826171875,
+      "torsoPeakMeanAlphaChange": 1.4297346514047866
+    },
+    "walkingMatteRepair": {
+      "reason": "The original background-removal matte cut into the chin, cheek and white neck fur during walking. This defect is present before upscaling and edge polish; the original color footage contains the missing anatomy.",
+      "sourceSize": [
+        1368,
+        768
+      ],
+      "region": {
+        "x": 90,
+        "y": 220,
+        "width": 460,
+        "height": 290
+      },
+      "foregroundSupport": "At source resolution, quantize 255\u00d7max(clamp((meanRGB\u2212115)/35),clamp((R\u2212B\u22125)/20)); values above 96 form opaque support. Apply a square morphological opening with radius 3, gate by the original alpha dilated 20 pixels, and union into the existing alpha inside the head/neck region. This restores only source-colored fur near the existing cat and rejects isolated whisker/backdrop fragments. The alpha never decreases during this repair.",
+      "colorRecovery": "Recover missing pixels from untouched upscaled source RGB at 2736\u00d71536, with the corrected alpha scaled independently by Lanczos before the existing edge polish. Composite only the lower-face repair back onto the original RGBA; the original upper-head and body pixels are retained before encoding. This also replaces RGB that the prior edge cleanup altered around erroneous holes.",
+      "fullStrengthFrames": [
+        0,
+        239
+      ],
+      "transitionFrames": [
+        240,
+        269
+      ],
+      "transition": "Over frames 240\u2013269, smoothstep progress blends matching-frame premultiplied RGB and alpha back into the original clip. The local edge feather is retained through this transition. Preserve original encoded frames 270 onward; duration, 30 fps cadence and 15-second loop start remain unchanged. Native comparison finds the handoff change comparable to ordinary source motion.",
+      "preservedEnding": {
+        "firstPreservedFrame": 270,
+        "preservedFrames": 150,
+        "decodedColorAndAlphaMatch": true,
+        "videoSha256": "c6f4ca6893f7c02ff2db2dca569cd0cb5e861396435c85919de791745e25c1b5",
+        "note": "Frames270\u2013419 remain identical to the pre-repair source. The subsequent closed-eye edit affects the final intro second and breathing loop."
+      },
+      "chinRestorationCheck": {
+        "frame": 120,
+        "region": [
+          555,
+          745,
+          620,
+          805
+        ],
+        "oldAlphaBelow32Pixels": 408,
+        "nowAlphaAtLeast250Pixels": 399,
+        "minimumRestoredAlpha": 209
+      },
+      "supportRegion": {
+        "x": 90,
+        "y": 90,
+        "width": 460,
+        "height": 420
+      },
+      "spatialBlend": "At final resolution, restrict the repair to x180\u20131099/y440\u20131019 with smoothstep fades over 24 pixels at the sides, 60 pixels at the top and 32 pixels at the bottom. Apply a 1.2-pixel Gaussian blur to the corrected alpha only, then composite matching-frame premultiplied RGB/alpha onto the original. This smooths recovered edges without expanding intact ears or forehead.",
+      "nativeValidation": {
+        "checkedFrames": [
+          0,
+          50,
+          90,
+          110,
+          120,
+          140,
+          155,
+          200,
+          240,
+          255,
+          268,
+          269,
+          270,
+          271
+        ],
+        "transitionPairs": [
+          {
+            "from": 268,
+            "to": 269,
+            "alphaMean": 0.20799337423266376,
+            "edgeAlphaMean": 4.48964981181476,
+            "pixels": 527637
+          },
+          {
+            "from": 269,
+            "to": 270,
+            "alphaMean": 6.910920717747059,
+            "edgeAlphaMean": 91.70987775748209,
+            "pixels": 531998
+          },
+          {
+            "from": 270,
+            "to": 271,
+            "alphaMean": 6.83316548353025,
+            "edgeAlphaMean": 87.60113555713272,
+            "pixels": 529243
+          }
+        ],
+        "appearance": "Missing lower-face tissue restored, original upper contour retained, no visible gray floor fragments on light or dark backgrounds."
+      }
+    },
+    "sleepEyes": {
+      "source": "chubby-cat-sleep-eyes.png",
+      "sourceSha256": "1a2f63b3e79523e90c107eb272f900d17cf0bec78fe6ac21ff482ab74cd74de8",
+      "tool": "Built-in image_gen",
+      "inputPosterSha256": "8922ec8e2e0a36dfd9f871a1d84f038da7f2b64af408f2b4405b38ce4c3c6ffe",
+      "inputCrop": {
+        "x": 160,
+        "y": 740,
+        "width": 640,
+        "height": 640
+      },
+      "prompt": "Use case: precise-object-edit. Edit target: the attached square crop of the existing orange tabby cat's head lying sideways. This is a precise eyelid replacement for a video animation. Change ONLY the two eyes: close BOTH eyes completely into natural relaxed sleeping eyelids, with no visible iris, pupil, eyeball, white slit or eye highlight. Preserve the exact sideways head position, geometry, facial proportions, nose, mouth, ears, whiskers, fur markings, lighting and ALL other pixels as closely as possible. Preserve exact image framing and scale; do not rotate, zoom, reposition or recenter the head. The upper visible eye is currently open vertically because the head lies on its side; it must become a delicate fur-covered closed eyelid aligned with the existing eye. The lower visible eye also fully closes. Realistic photographed cat eyelids, no cartoon lines, no extra eyelashes, no stylization. Keep original transparency, with true transparent outside the cat. No background, text, marks or added objects. Output the same square composition.",
+      "processing": "Resize the generated 1280\u00d71280 crop to 640\u00d7640 with Lanczos and apply a 1.6-pixel Gaussian blur to match source detail. Composite only two interior eye regions into the original footage, preserving the source alpha. Upper mask: ellipse centered at (297,210), radii (40,68) within the crop. Lower mask: centered at (246,388), normal (.815,.58), tangent (-.58,.815), radii 29/70. Feather the outer 27% with smoothstep. Follow each eye separately at subpixel positions relative to main frame 449. Close by shrinking the original-eye aperture across the eyelid normal, with a 2-pixel feather; reopen by reversing that aperture. This avoids a semitransparent double pupil. Convert patch RGB to limited-range BT.709 YUV; retain the original alpha plane. The exit patch receives a four-level luma reduction to match its source exposure.",
+      "closeSeconds": [
+        14.333333333333334,
+        14.9
+      ],
+      "openSeconds": [
+        0,
+        0.4166666666666667
+      ],
+      "restLoopSeconds": [
+        15,
+        17.666666666666668
+      ],
+      "posterValidation": "Original alpha is byte-identical; RGB changes are limited to the two interior eyelid regions, bounding x361\u2013496/y884\u20131186.",
+      "visualValidation": "Pinned Electron native decoding on light and dark backgrounds shows both lids fully closed throughout rest and opening without a doubled pupil. Face RGB loop-seam mean is 0.0069/255; intro seam 1.825/255; exit handoff 8.325/255.",
+      "verification": {
+        "frontendLint": "passed",
+        "typescript": "passed",
+        "testFiles": 221,
+        "tests": 2174,
+        "package": "macOS arm64 passed; bundled main, exit and poster SHA-256 hashes match the delivered assets",
+        "nativeAppearance": "Checked both light and dark pages; both eyes stay closed during repeated breathing and reopen before standing."
+      },
+      "playbackValidation": {
+        "runtime": "Pinned Electron desktop renderer",
+        "viewport": {
+          "width": 1440,
+          "height": 900
+        },
+        "measurements": [
+          {
+            "theme": "light",
+            "rest": {
+              "loops": 2,
+              "startTime": 15.067635,
+              "time": 15.156047,
+              "frames": 162,
+              "dropped": 1,
+              "phase": "resting",
+              "locked": true,
+              "transform": "matrix(1, 0, 0, 1, 0, 0)",
+              "mainVisible": true,
+              "exitOpacity": "0"
+            },
+            "handoff": {
+              "time": 0.015548,
+              "mainHidden": true,
+              "exitOpacity": "1",
+              "locked": true
+            },
+            "exit": {
+              "time": 8.999,
+              "duration": 8.999,
+              "frames": 216,
+              "dropped": 0,
+              "dialogRemoved": true,
+              "focusRestored": true
+            }
+          },
+          {
+            "theme": "dark",
+            "rest": {
+              "loops": 2,
+              "startTime": 15.055856,
+              "time": 15.158078,
+              "frames": 163,
+              "dropped": 0,
+              "phase": "resting",
+              "locked": true,
+              "transform": "matrix(1, 0, 0, 1, 0, 0)",
+              "mainVisible": true,
+              "exitOpacity": "0"
+            },
+            "handoff": {
+              "time": 0.06473,
+              "mainHidden": true,
+              "exitOpacity": "1",
+              "locked": true
+            },
+            "exit": {
+              "time": 8.999,
+              "duration": 8.999,
+              "frames": 212,
+              "dropped": 1,
+              "dialogRemoved": true,
+              "focusRestored": true
+            }
+          }
+        ],
+        "note": "The natural-entry light run completed two rest loops with one dropped frame and the exit with none. The dark run completed two loops with none and the exit with one. An initial light run using an artificial 13.5-second seek recorded 21 dropped rest frames; this did not recur on the natural-entry rerun, and its cause was not established. Both themes retained the modal during playback and restored a full focus interval after exit. Local measurements do not guarantee performance on every device.",
+        "scope": "Eye-state validation before the localized exit matte repair. The main video, poster and opening two seconds of the exit remain unchanged."
+      }
+    }
+  },
+  "catExitDelivery": {
+    "sourceFilename": "Video 8.mp4",
+    "sourceSha256": "7b448d65908703f5bf36ed4b77a447af1f3c087a01ae30deab309686bfefaaf2",
+    "upscaledSha256": "e64be46a7b6c8a3c48d5b93c958ad5f9074d52fe57ec8414787325c2d771331f",
+    "matteSha256": "94f89455631b8073ab563f8d1f934187c0fa5837426fbcaea6413327b6b29e92",
+    "videoSha256": "fec17f59cc12d0b412ae01767c6baf45bf7bb446413479ea40f5f11941dec01f",
+    "width": 2736,
+    "height": 1536,
+    "fps": 24,
+    "frames": 216,
+    "durationSeconds": 9,
+    "audio": false,
+    "codec": "VP9",
+    "colorSpace": "bt709",
+    "colorTransfer": "bt709",
+    "colorPrimaries": "bt709",
+    "colorRange": "tv",
+    "cleanup": "The original matte cleanup removed small disconnected components in the leftmost 64 source pixels only in frames 97\u2013153, preserving the main cat, substantive components and a four-pixel feather margin. It cleared 284757 stray alpha pixels across 48 frames without cropping or translating the canvas. The subsequent edge polish applies to every frame and preserves the actual left-edge crossing and final disconnected paw.",
+    "encodeFilter": "Original merge: color and cleaned alpha scale to 2736\u00d71536 by Lanczos and align at 24 fps by frame index. Edge polish: decode RGBA, refine edge color/alpha, convert RGB full range to BT.709 limited-range yuva420p.",
+    "encodeOptions": "libvpx-vp9, yuva420p; first 48 and last 48 frames stream-copied; middle 120 frames CRF 22/g24, auto-alt-ref 0, row-mt 1; 24 fps, no audio, all 216 frames; BT.709 matrix, transfer and primaries, limited range",
+    "validation": {
+      "width": 2736,
+      "height": 1536,
+      "frames": 216,
+      "durationSeconds": 9,
+      "fps": 24,
+      "sha256": "fec17f59cc12d0b412ae01767c6baf45bf7bb446413479ea40f5f11941dec01f",
+      "alpha": true,
+      "audio": false,
+      "firstFrameTransparentPixels": 3157595,
+      "firstFrameOpaquePixels": 999237,
+      "preservedDecodedColorAndAlphaMatch": true,
+      "preservedFrameRanges": [
+        [
+          0,
+          47
+        ],
+        [
+          168,
+          215
+        ]
+      ],
+      "minTransparentPixels": 2296966,
+      "minOpaquePixels": 164452
+    },
+    "video": "../chubby-cat-leave.webm",
+    "alpha": true,
+    "processing": "Runway removed the backdrop and upscaled the supplied 1366\u00d7768 clip to 4096\u00d72302. Cleaned matte and upscaled color were aligned by frame index and exported at 2736\u00d71536 with narrow edge polish. Interior eye patches begin fully closed and reveal the source eyes over the first 10 frames (0.417 seconds). A localized matte repair restores source-colored chin, muzzle, neck and chest fur during standing and walking. It changes frames 48\u2013167 (2\u20137 seconds), preserving the first 48 and last 48 decoded frames exactly, including the eye-opening transition. Duration and 24 fps cadence remain unchanged.",
+    "playback": "Preloaded alongside the main cat clip. When a resting break ends, hold the current rest frame until the first exit frame is decoded, then play the wake-up and walk-out once. Unlock on media end; Dismiss or Escape can skip the exit. Early dismissal during the intro retains a short fade. Reduced motion and failed playback return without a long exit. The next focus interval starts after exit completion.",
+    "motionCues": {
+      "walkStartsSeconds": 5.5,
+      "sourceLeftBoundaryCrossingSeconds": 6.25,
+      "endsSeconds": 9,
+      "additionalTranslation": "Move the centered video margin outside the viewport between 5.5 and 6.25 seconds, plus 30% of its displayed width between 5.5 and 9 seconds, synchronized to decoded media time. This carries the remaining tail fully offscreen."
+    },
+    "limitations": [
+      "The supplied clip ends with part of its tail and a rear paw still in frame; synchronized renderer translation completes the departure."
+    ],
+    "playbackValidation": {
+      "runtime": "Pinned Electron desktop renderer",
+      "viewport": {
+        "width": 1440,
+        "height": 900
+      },
+      "measurements": [
+        {
+          "theme": "light",
+          "rest": {
+            "loops": 1,
+            "startTime": 15.053923,
+            "time": 15.152354,
+            "frames": 83,
+            "dropped": 0,
+            "phase": "resting",
+            "locked": true,
+            "transform": "matrix(1, 0, 0, 1, 0, 0)",
+            "mainVisible": true,
+            "exitOpacity": "0"
+          },
+          "handoff": {
+            "time": 0.057807,
+            "mainHidden": true,
+            "exitOpacity": "1",
+            "locked": true
+          },
+          "exit": {
+            "time": 8.999,
+            "duration": 8.999,
+            "frames": 212,
+            "dropped": 0,
+            "dialogRemoved": true,
+            "focusRestored": true
+          }
+        },
+        {
+          "theme": "dark",
+          "rest": {
+            "loops": 1,
+            "startTime": 15.05376,
+            "time": 15.150641,
+            "frames": 84,
+            "dropped": 0,
+            "phase": "resting",
+            "locked": true,
+            "transform": "matrix(1, 0, 0, 1, 0, 0)",
+            "mainVisible": true,
+            "exitOpacity": "0"
+          },
+          "handoff": {
+            "time": 0.057443,
+            "mainHidden": true,
+            "exitOpacity": "1",
+            "locked": true
+          },
+          "exit": {
+            "time": 8.999,
+            "duration": 8.999,
+            "frames": 212,
+            "dropped": 0,
+            "dialogRemoved": true,
+            "focusRestored": true
+          }
+        }
+      ],
+      "note": "Both light and dark runs completed the full 8.999-second exit with zero dropped frames in the measured interval, retained the modal until completion and restored a full focus interval. Playback-quality deltas exclude preloaded frames; container validation confirms 216 encoded frames. Local measurements do not guarantee performance on every device."
+    },
+    "edgePolish": "At 2736\u00d71536, apply a two-pixel square alpha erosion and a 0.7-pixel Gaussian feather. Estimate foreground edge color from an opaque core (alpha eroded eight pixels, threshold 250) using a normalized 25\u00d725 box average. Blend that estimate only within the four-pixel edge band, weighted by 1 minus the four-pixel-eroded original alpha divided by 255; preserve interior RGB. Apply the same correction to every intro/exit frame and the resting poster. Color extension into nearby transparent pixels prevents background color from bleeding through chroma subsampling.",
+    "matteRepair": {
+      "reason": "The original background-removal matte removes visible chin, muzzle and white neck fur as the cat rises, then intermittently punctures the white chest near the front leg. The original RGB footage contains that fur.",
+      "inputVideoSha256": "636b5901d1691cd3e6d5d15827cb0300017b84d793ff42cdb39b8c4512d375b5",
+      "videoSha256": "fec17f59cc12d0b412ae01767c6baf45bf7bb446413479ea40f5f11941dec01f",
+      "sourceSize": [
+        1366,
+        768
+      ],
+      "repairedFrameRange": [
+        48,
+        167
+      ],
+      "preservedFrameRanges": [
+        [
+          0,
+          47
+        ],
+        [
+          168,
+          215
+        ]
+      ],
+      "foregroundSupport": "At source resolution, mark pixels where (R\u2212G > \u22126, R\u2212B > \u221212 and mean RGB > 190) or R\u2212B > 18. Union with the existing alpha above 127. Close with a radius-3 square, then open with an exact radius-15 disk to suppress whisker/background fragments without forming a rectangular muzzle shelf. Apply a 1.3-pixel Gaussian feather, gate by the original alpha dilated 30 pixels, then union into the original alpha. This blue-background rejection and brightness gate distinguish missing white/ginger fur from the neutral leg gap.",
+      "chinTrack": {
+        "frames": [
+          48,
+          60,
+          72,
+          84,
+          96,
+          120,
+          144,
+          156,
+          168
+        ],
+        "sourceBounds": [
+          [
+            180,
+            460,
+            460,
+            640
+          ],
+          [
+            220,
+            500,
+            450,
+            615
+          ],
+          [
+            240,
+            500,
+            470,
+            605
+          ],
+          [
+            220,
+            495,
+            460,
+            605
+          ],
+          [
+            120,
+            520,
+            390,
+            625
+          ],
+          [
+            180,
+            460,
+            420,
+            610
+          ],
+          [
+            60,
+            340,
+            340,
+            465
+          ],
+          [
+            0,
+            340,
+            170,
+            465
+          ],
+          [
+            0,
+            340,
+            80,
+            465
+          ]
+        ]
+      },
+      "chestTrack": {
+        "activeFrames": [
+          144,
+          167
+        ],
+        "frames": [
+          144,
+          150,
+          155,
+          161,
+          164,
+          165,
+          168
+        ],
+        "sourceBounds": [
+          [
+            415,
+            500,
+            525,
+            555
+          ],
+          [
+            345,
+            500,
+            455,
+            555
+          ],
+          [
+            285,
+            485,
+            380,
+            545
+          ],
+          [
+            245,
+            505,
+            365,
+            550
+          ],
+          [
+            235,
+            495,
+            310,
+            550
+          ],
+          [
+            210,
+            495,
+            285,
+            550
+          ],
+          [
+            175,
+            495,
+            250,
+            550
+          ]
+        ]
+      },
+      "compositing": "Interpolate each tracked box, expand by 16 source pixels, and scale to the final canvas. Feather the local repair by 24 final pixels on the left, 40 on the right/top/bottom; do not fade at the actual left canvas edge. Apply the established narrow edge-color polish and two-pixel erosion to the recovered source RGBA within each box, followed by a 1.2-pixel alpha feather. Clamp candidate alpha to at least the current alpha, then blend premultiplied RGB and alpha into the current frame. Alpha never decreases before encoding. Ease in over frames 48\u201366 and out over 165\u2013168 with smoothstep.",
+      "preservedAppearance": "The sleep video and poster are unchanged. Exit eye opening, upper head, body and original departure timing remain intact; source recovery is confined to the tracked lower-face and chest regions.",
+      "validation": {
+        "preservedFirst48Frames": true,
+        "preservedLast48Frames": true,
+        "missingFurSamples": [
+          {
+            "frame": 72,
+            "xy": [
+              280,
+              540
+            ],
+            "source_rgb": [
+              210,
+              188,
+              171
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 84,
+            "xy": [
+              245,
+              540
+            ],
+            "source_rgb": [
+              204,
+              200,
+              205
+            ],
+            "old_alpha": 0,
+            "new_alpha": 222
+          },
+          {
+            "frame": 84,
+            "xy": [
+              270,
+              545
+            ],
+            "source_rgb": [
+              219,
+              215,
+              218
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 120,
+            "xy": [
+              230,
+              495
+            ],
+            "source_rgb": [
+              207,
+              197,
+              201
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 120,
+            "xy": [
+              250,
+              505
+            ],
+            "source_rgb": [
+              211,
+              198,
+              198
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 120,
+            "xy": [
+              275,
+              510
+            ],
+            "source_rgb": [
+              221,
+              214,
+              218
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 132,
+            "xy": [
+              210,
+              435
+            ],
+            "source_rgb": [
+              222,
+              204,
+              205
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 132,
+            "xy": [
+              220,
+              440
+            ],
+            "source_rgb": [
+              221,
+              204,
+              205
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 150,
+            "xy": [
+              380,
+              530
+            ],
+            "source_rgb": [
+              196,
+              189,
+              194
+            ],
+            "old_alpha": 0,
+            "new_alpha": 248
+          },
+          {
+            "frame": 155,
+            "xy": [
+              330,
+              510
+            ],
+            "source_rgb": [
+              205,
+              190,
+              179
+            ],
+            "old_alpha": 1,
+            "new_alpha": 255
+          },
+          {
+            "frame": 161,
+            "xy": [
+              300,
+              522
+            ],
+            "source_rgb": [
+              202,
+              178,
+              166
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 164,
+            "xy": [
+              260,
+              510
+            ],
+            "source_rgb": [
+              211,
+              182,
+              165
+            ],
+            "old_alpha": 0,
+            "new_alpha": 255
+          },
+          {
+            "frame": 165,
+            "xy": [
+              225,
+              510
+            ],
+            "source_rgb": [
+              208,
+              185,
+              167
+            ],
+            "old_alpha": 9,
+            "new_alpha": 255
+          }
+        ],
+        "legGapSamples": [
+          {
+            "frame": 150,
+            "xy": [
+              375,
+              550
+            ],
+            "source_rgb": [
+              157,
+              150,
+              154
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          },
+          {
+            "frame": 150,
+            "xy": [
+              400,
+              560
+            ],
+            "source_rgb": [
+              180,
+              181,
+              187
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          },
+          {
+            "frame": 155,
+            "xy": [
+              325,
+              530
+            ],
+            "source_rgb": [
+              173,
+              165,
+              166
+            ],
+            "old_alpha": 0,
+            "new_alpha": 1
+          },
+          {
+            "frame": 155,
+            "xy": [
+              350,
+              540
+            ],
+            "source_rgb": [
+              178,
+              176,
+              183
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          },
+          {
+            "frame": 161,
+            "xy": [
+              300,
+              540
+            ],
+            "source_rgb": [
+              178,
+              173,
+              179
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          },
+          {
+            "frame": 162,
+            "xy": [
+              300,
+              540
+            ],
+            "source_rgb": [
+              176,
+              175,
+              182
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          },
+          {
+            "frame": 163,
+            "xy": [
+              300,
+              540
+            ],
+            "source_rgb": [
+              181,
+              180,
+              187
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          },
+          {
+            "frame": 164,
+            "xy": [
+              280,
+              540
+            ],
+            "source_rgb": [
+              179,
+              178,
+              185
+            ],
+            "old_alpha": 0,
+            "new_alpha": 0
+          }
+        ],
+        "nativeInspection": "Quarter-second light/dark samples cover the rise and walk, including detailed chest checks through frame 167. The chin is continuous and rounded; the original transparent leg gap remains clear."
+      },
+      "verification": {
+        "frontendLint": "passed",
+        "typescript": "passed",
+        "testFiles": 221,
+        "tests": 2174,
+        "package": "macOS arm64 passed; bundled exit SHA-256 matches workspace",
+        "nativePlayback": "Full exit completed on light and dark pages with zero dropped frames, modal release and focus-timer restoration."
+      }
+    }
+  }
+}

@@ -17,6 +17,7 @@ import { flushSync } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import SettingsWindow from '../SettingsWindow';
 import AppSidebar from '../../AppSidebar';
+import { FocusBreakProvider } from '../../focus/FocusBreakProvider';
 import { JIRA_CHANGED, type JiraConnection, type JiraTokenRequest } from '../../jira/contracts';
 import type { AppPreferencesDto, Bridge, QuietHoursDto } from '../../types';
 import { settingsLocationFromRoute, settingsRoute, type SettingsSection } from '../routes';
@@ -99,7 +100,7 @@ export async function mountPreview(values: JiraConnection[] = [connected, { ...c
     useEffect(() => { const changed = () => setSection(settingsLocationFromRoute(window.location.hash)?.section ?? 'jira'); window.addEventListener('hashchange', changed); return () => window.removeEventListener('hashchange', changed); }, []);
     return <><AppSidebar page="settings" browserRailVisible={false} onToggleBrowserRail={() => {}} onNavigate={() => {}} canGoBack={false} canGoForward={false} onBack={() => {}} onForward={() => {}} workspace={null} workspaceTab="home" onWorkspaceTab={() => {}} settings={{ section, workspaces: [], workspaceId: null, onSection: value => { window.location.hash = settingsRoute(value); }, onWorkspace: () => {}, onExit: () => {} }} /><main className="app-content"><SettingsWindow section={section} workspace={null} onWorkspacesChanged={() => {}} /></main></>;
   }
-  const mounted = root; flushSync(() => mounted.render(<SettingsHarness />));
+  const mounted = root; flushSync(() => mounted.render(<FocusBreakProvider><SettingsHarness /></FocusBreakProvider>));
   await settled();
 }
 

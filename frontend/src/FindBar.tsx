@@ -80,6 +80,9 @@ export default function FindBar({ browserTabId }: { browserTabId?: string }) {
   // search back to the top.
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Browser Find listens in capture, before a modal can stop keys meant for its own controls.
+      if ((isFindShortcut(event) || event.key === 'Enter' || event.key === 'Escape')
+        && [...document.querySelectorAll('dialog:modal, [aria-modal="true"]:not(dialog):not([data-navigation-layer])')].some(dialog => dialog.checkVisibility())) return;
       // The code editor searches its own document, because find-in-page only sees the lines it has rendered.
       if (isFindShortcut(event) && !event.defaultPrevented) {
         event.preventDefault();

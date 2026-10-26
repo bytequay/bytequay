@@ -56,11 +56,26 @@ window.checks = (async () => ({
 // Main answers the page's bridge from these conversations, as the backend would: a view and an agent event log each, and records each call.
 const SETUP = `
 const html = { v1: ${JSON.stringify(PAGE)}, v2: '<!doctype html><link rel="stylesheet" href="theme.css"><main><h1>Deletes on read, simpler</h1></main>' };
+let delayedPageId = null;
+let releasePageRead;
 const artifactView = new ArtifactView(() => window, async target => {
   if (target.workspaceId !== 'w1' || !(target.pageId in html)) throw new Error('This page no longer exists');
+  if (target.pageId === delayedPageId) {
+    delayedPageId = null;
+    await new Promise(resolve => { releasePageRead = resolve; });
+  }
   return html[target.pageId];
 });
 artifactView.register();
+const backgroundCaptures = [];
+ipcMain.handle('fixture:background', async () => {
+  const view = artifactView.view;
+  if (!view?.getVisible()) return [];
+  const heading = await view.webContents.executeJavaScript("document.querySelector('h1')?.textContent");
+  const image = (await view.webContents.capturePage(undefined, { stayHidden: true })).toDataURL();
+  backgroundCaptures.push({ heading, image });
+  return [{ ...view.getBounds(), image }];
+});
 const at = minutes => new Date(Date.now() - minutes * 60_000).toISOString();
 const root = { providerThreadId: null, parentProviderThreadId: null, logicalAgentPath: null, providerTurnId: null, providerItemId: null, providerEventId: null };
 const QUESTION = JSON.stringify({ questions: [{ question: 'Which path?', header: 'Path', multiSelect: false,
@@ -164,6 +179,9 @@ const shown = (host, heading) => until(async () => {
   return contents && artifactView.view.getVisible() && await contents.executeJavaScript("document.querySelector('h1')?.textContent") === heading && contents;
 }, heading);
 const inApp = script => window.webContents.executeJavaScript(script);
+const artifactPresentations = [];
+const showArtifact = artifactView.show.bind(artifactView);
+artifactView.show = (...args) => { artifactPresentations.push(args); return showArtifact(...args); };
 const text = selector => inApp('[...document.querySelectorAll(' + JSON.stringify(selector) + ')].map(element => element.textContent)');
 const click = selector => until(() => inApp('(() => { const element = document.querySelector(' + JSON.stringify(selector) + '); element?.click(); return !!element; })()'), selector);
 const press = name => until(() => inApp('(() => { const button = [...document.querySelectorAll("button")].find(button => button.textContent.trim() === ' + JSON.stringify(name)
@@ -232,6 +250,20 @@ done('a1', 't3');
 const first = await shown('a1', 'Deletes on read');
 const checks = await first.executeJavaScript('window.checks');
 const tried = await first.executeJavaScript("document.getElementById('toggle').click(); !document.getElementById('answer').hidden");
+window.webContents.debugger.attach('1.3');
+await window.webContents.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled: true });
+await inApp('(() => { const entrance = document.createElement("dialog"); entrance.id = "companion-entrance"; entrance.open = true; entrance.textContent = "A companion is arriving"; const input = document.createElement("input"); input.id = "entrance-focus-choice"; document.body.append(entrance, input); })()');
+await inApp('document.getElementById("companion-entrance").setAttribute("data-focus-break-entrance", "")');
+await until(() => !artifactView.view.getVisible(), 'the companion to cover the native page');
+const beforeEntranceFocus = artifactPresentations.length;
+await inApp('document.getElementById("entrance-focus-choice").focus()');
+const entranceKeepsNewFocus = await until(() => artifactPresentations.slice(beforeEntranceFocus).some(([, bounds, allowFocusRestore]) => bounds === null && allowFocusRestore === false),
+  'the page to relinquish focus selected during entrance');
+await inApp('document.getElementById("companion-entrance").removeAttribute("data-focus-break-entrance")');
+const afterEntrance = await shown('a1', 'Deletes on read');
+const entranceRetainedPage = afterEntrance === first && await first.executeJavaScript('!document.getElementById("answer").hidden');
+await inApp('document.getElementById("companion-entrance").remove(); document.getElementById("entrance-focus-choice").remove()');
+window.webContents.debugger.detach();
 await first.executeJavaScript("location.href = 'https://example.com/'; true");
 await sleep(300);
 const stayed = first.getURL();
@@ -261,6 +293,28 @@ await press('v1');
 await shown('a1', 'Deletes on read');
 await capture('versions');
 
+await inApp('ArtifactTests.startBreak()');
+await until(() => inApp('!!document.querySelector("[data-focus-break-entrance] .focus-break__background")'), 'a break over the first page');
+const beforeReplacement = backgroundCaptures.length;
+delayedPageId = 'v2';
+await press('v2');
+await until(() => releasePageRead, 'the replacement page read to wait');
+const pendingPicture = await until(async () => {
+  const picture = backgroundCaptures.slice(beforeReplacement).find(capture => capture.heading === 'Deletes on read');
+  return picture && await inApp('document.querySelector(".focus-break__background")?.src === ' + JSON.stringify(picture.image)) && picture;
+}, 'the old document pixels while its replacement is loading');
+releasePageRead();
+const loadedPicture = await until(async () => {
+  const picture = backgroundCaptures.find(capture => capture.heading === 'Deletes on read, simpler');
+  return picture && await inApp('document.querySelector(".focus-break__background")?.src === ' + JSON.stringify(picture.image)) && picture;
+}, 'the completed page load to replace the old break image');
+const delayedBreakBackground = pendingPicture.image !== loadedPicture.image
+  && await inApp('!!document.querySelector("[data-focus-break-entrance]")');
+await inApp('ArtifactTests.stopBreak()');
+await shown('a1', 'Deletes on read, simpler');
+await press('v1');
+await shown('a1', 'Deletes on read');
+
 busy = true;
 await type('Message the agent', 'And the write path?');
 await send('Send message');
@@ -283,8 +337,8 @@ await click('[aria-label="Back to Artifacts"]');
 await type('Ask about this repository', 'Where are dynamic filters applied?');
 await send('Send');
 const started = await until(async () => { const bubbles = await text('.agt-user__bubble'); return bubbles.length === 1 && bubbles; }, 'the new conversation');
-const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), writingVersion, checks, tried, stayed, placed,
-  light, dark, panel, pageLine, keptVisible, versions, refused, kept, counted, hiddenOnList, missing, failure, started, calls };`;
+const results = { rows, turnCount, asked, answered, offered, questionClosed, making: making.replace(/\\d+:\\d\\d/, 'm:ss'), writingVersion, checks, tried, entranceRetainedPage, entranceKeepsNewFocus, stayed, placed,
+  light, dark, panel, pageLine, keptVisible, versions, delayedBreakBackground, refused, kept, counted, hiddenOnList, missing, failure, started, calls };`;
 
 it('renders a conversation as a task transcript, asks with the question card, then shows its page versions beside it, locked down', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-artifact-view-'));
@@ -305,7 +359,8 @@ contextBridge.exposeInMainWorld('bridge', {
   answerArtifactOffer: (id, artifactId, offerId, accept) => ipcRenderer.invoke('fixture:offer', id, artifactId, offerId, accept),
   answerArtifactQuestion: (id, artifactId, approvalId, allow, answers) => ipcRenderer.invoke('fixture:question', id, artifactId, approvalId, allow, answers),
   stopArtifact: (id, artifactId) => ipcRenderer.invoke('fixture:stop', id, artifactId),
-  showArtifact: (target, bounds) => ipcRenderer.invoke('artifacts:show', target, bounds),
+  showArtifact: (target, bounds, allowFocusRestore) => ipcRenderer.invoke('artifacts:show', target, bounds, allowFocusRestore),
+  captureFocusBreakBackground: () => ipcRenderer.invoke('fixture:background'),
 });`,
       setup: SETUP, body: BODY, timeoutMs: 90_000,
     });
@@ -320,6 +375,8 @@ contextBridge.exposeInMainWorld('bridge', {
       writingVersion: 'v1 writing…',
       checks: { ran: true, network: true, backend: true, webrtc: true, popup: true, evalBlocked: true, bridge: true },
       tried: true,
+      entranceRetainedPage: true,
+      entranceKeepsNewFocus: true,
       stayed: 'bytequay-artifact://a1/w1/',
       placed: true,
       light: 'rgb(31, 35, 40)',
@@ -328,6 +385,7 @@ contextBridge.exposeInMainWorld('bridge', {
       pageLine: 'Deletes on read· v1',
       keptVisible: true,
       versions: ['v1', 'v2'],
+      delayedBreakBackground: true,
       refused: 'Wait for “Help me learn how Iceberg position deletes work” to finish',
       kept: 'And the write path?',
       counted: ['Deletes on read112m ago', 'Snapshots and manifests11h ago', 'Explain manifests2d ago'],

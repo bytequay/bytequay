@@ -423,6 +423,37 @@ needed.
 
 [Explore the Lab](dist/lab.html) · [Start the Lab](dist/lab-guide.html)
 
+## Take a companion break
+
+Open **Settings → Personal → General → Focus breaks** and turn on **Break
+reminders**. Choose **Chubby orange cat** or **Dancing husky** under **Break
+companion**. Your companion walks into ByteQuay first. When it reaches the
+center, it blocks interaction with your work while your current page stays
+visible behind it. The orange cat plays a smooth video: it lies down, rolls onto its
+side, yawns, then sleeps with closed eyes and gentle breathing for the remainder of the break.
+When the break ends, the cat wakes up and walks offscreen. The husky stands up,
+steps, and sways its paws. Reduced motion skips the walk and shows a still
+companion. If the cat video cannot play, the break uses its resting image.
+
+Choose your focus and break times; the default is 25 minutes of focus followed
+by a 5-minute break. The break fills only the ByteQuay window, and your agents
+keep working.
+
+Use **Pause timer** or **Take a break now** in the same settings. The break
+shows only your companion and a small **Dismiss** button. Choose **Dismiss**
+or press **Esc** to see the remaining break time. Choose **End break** to return
+to work, or **Keep taking a break** to close the confirmation. During the cat's
+walk out, choose **Dismiss** or press
+**Esc** to return immediately. The next focus session starts when the companion leaves.
+
+Reminders are off by default. Settings stay on this Mac; reopening ByteQuay or
+changing the times starts a fresh session. Changing your companion keeps the
+current timer and pause state. Focus time pauses while the window is hidden
+or minimized. A due break waits until you finish an open form or confirmation.
+If you open one during the walk, your companion waits before locking the app.
+Switching native pages during the walk restarts the entrance over the new page
+and keeps the full break time.
+
 <a id="help"></a>
 
 ## Get help

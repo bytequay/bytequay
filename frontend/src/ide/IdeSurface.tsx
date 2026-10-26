@@ -23,6 +23,7 @@ import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { GitHubCodeSnippetRequest, AgentTaskDto, InlineReviewCommentDto, PullReactionContent, PullRequestDetailDto } from '../types';
 import type { IdeContext, IdeRequest } from './contracts';
+import { useFocusBreakSurface } from '../focus/background';
 
 export type IdeSurfaceProps = {
   host: CodeHostRef;
@@ -147,6 +148,7 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   const [error, setError] = useState<string | null>(null);
   const [startRequested, setStartRequested] = useState(props.startRequested ?? false);
   const [needsStart, setNeedsStart] = useState(false);
+  useFocusBreakSurface(props.active && error === null ? id : null);
 
   useEffect(() => {
     const stopRequest = window.ide.onRequest(request => {
@@ -190,21 +192,33 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   useEffect(() => {
     const target = element.current;
     if (!id || !target) return;
-    const layout = () => {
-      const obscured = [...document.querySelectorAll('[role="dialog"]')].some(dialog => !dialog.contains(target) && dialog.getClientRects().length > 0);
+    const present = (allowFocusRestore = true) => {
+      const obscured = [...document.querySelectorAll('[role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(target) && dialog.getClientRects().length > 0);
       const bounds = target.getBoundingClientRect();
-      const visible = current.current.active && !error && !obscured && bounds.width > 0 && bounds.height > 0;
-      void window.ide.present(id, visible ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null)
+      const active = current.current.active && !error && bounds.width > 0 && bounds.height > 0;
+      const visible = active && !obscured;
+      void window.ide.present(id, visible ? { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height } : null, active && obscured, allowFocusRestore)
         .catch(failure => setError(String(failure)));
+    };
+    const layout = () => present();
+    const focus = (event: FocusEvent) => {
+      const focused = event.target;
+      const entrance = document.querySelector('[data-focus-break-entrance]');
+      if (event.isTrusted && focused instanceof HTMLElement && focused !== document.body && focused !== document.documentElement
+        && entrance?.checkVisibility() && !entrance.contains(focused)) present(false);
     };
     const resize = new ResizeObserver(layout);
     resize.observe(target);
     const dialogs = new MutationObserver(layout);
-    dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'open'] });
+    dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'open', 'data-focus-break-entrance'] });
     window.addEventListener('resize', layout);
     window.addEventListener('scroll', layout, true);
+    document.addEventListener('focusin', focus);
     layout();
-    return () => { resize.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', layout); window.removeEventListener('scroll', layout, true); };
+    return () => {
+      resize.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', layout); window.removeEventListener('scroll', layout, true);
+      document.removeEventListener('focusin', focus);
+    };
   }, [id, props.active, error]);
 
   return <div className="ct-ide-surface" ref={element} style={{ flex: 1, minHeight: 0, position: 'relative' }}>

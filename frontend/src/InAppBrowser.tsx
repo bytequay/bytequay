@@ -18,6 +18,7 @@ import { readBrowserDisplayMode } from './browserPreferences';
 import type { InAppBrowserTab } from './types';
 import WebAddressForm from './WebAddressForm';
 import FindBar from './FindBar';
+import { useFocusBreakSurface } from './focus/background';
 
 type Props = {
   tab: InAppBrowserTab;
@@ -28,10 +29,18 @@ type Props = {
   onBack: () => void;
 };
 
+function coveredByModal(slot: HTMLElement | null): boolean {
+  const browser = slot?.closest('.inapp-browser');
+  return [...document.querySelectorAll('dialog:modal, [aria-modal="true"]:not(dialog):not([data-navigation-layer])')]
+    .some(dialog => !dialog.contains(slot) && !browser?.contains(dialog) && dialog.checkVisibility());
+}
+
 export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onError, onBack }: Props) {
+  useFocusBreakSurface(JSON.stringify([tab.id, tab.url, tab.loading]));
   const [displayMode, setDisplayMode] = useState(readBrowserDisplayMode);
   const zoomed = displayMode === 'zoom';
   const slotRef = useRef<HTMLDivElement>(null);
+  const keepDomFocus = useRef<string | null>(null);
   const tabId = tab.id;
   const pageError = tab.error;
   const run = useCallback((action: Promise<void>) => {
@@ -41,7 +50,7 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !event.defaultPrevented) {
+      if (event.key === 'Escape' && !event.defaultPrevented && !coveredByModal(slotRef.current)) {
         event.preventDefault();
         onBack();
       }
@@ -58,14 +67,48 @@ export default function InAppBrowser({ tab, fullScreen, railExpanded, error, onE
       return { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
     };
     const report = (cause: unknown) => onError(cause instanceof Error ? cause.message : 'Unable to display this page.');
-    void window.bridge.mountInAppBrowser(tabId, bounds()).catch(report);
-    const push = () => { void window.bridge.setInAppBrowserBounds(tabId, bounds()).catch(report); };
+    const entrance = () => [...document.querySelectorAll('[data-focus-break-entrance]')].find(entrance => entrance.checkVisibility());
+    const isObscured = () => coveredByModal(slot) || entrance() !== undefined;
+    let mounted = false;
+    let obscured = false;
+    let focusBeforeDetach: Element | null = null;
+    const isDomChoice = (focused: EventTarget | null, entering: Element) => focused instanceof HTMLElement
+      && focused !== document.body && focused !== document.documentElement && !entering.contains(focused);
+    const push = () => {
+      // Native pages sit above DOM content, including the companion's nonmodal entrance.
+      obscured = isObscured();
+      if (obscured) {
+        if (mounted) {
+          const entering = entrance();
+          focusBeforeDetach = document.activeElement;
+          if (entering && document.hasFocus() && isDomChoice(focusBeforeDetach, entering)) keepDomFocus.current = tabId;
+          void window.bridge.unmountInAppBrowser(tabId).catch(report);
+        }
+        mounted = false;
+        return;
+      }
+      void (mounted ? window.bridge.setInAppBrowserBounds(tabId, bounds()) : window.bridge.mountInAppBrowser(tabId, bounds(), keepDomFocus.current !== tabId)).catch(report);
+      keepDomFocus.current = null;
+      focusBeforeDetach = null;
+      mounted = true;
+    };
+    const focus = (event: FocusEvent) => {
+      const entering = entrance();
+      // Detaching native content itself reactivates the app's last DOM focus; only a new choice overrides it.
+      if (event.isTrusted && entering && event.target !== focusBeforeDetach && isDomChoice(event.target, entering)) keepDomFocus.current = tabId;
+    };
     const observer = new ResizeObserver(push);
     observer.observe(slot);
+    const dialogs = new MutationObserver(() => { if (isObscured() !== obscured) push(); });
+    dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'open', 'style', 'aria-modal', 'data-focus-break-entrance'] });
     window.addEventListener('resize', push);
+    document.addEventListener('focusin', focus);
+    push();
     return () => {
       observer.disconnect();
+      dialogs.disconnect();
       window.removeEventListener('resize', push);
+      document.removeEventListener('focusin', focus);
       // Detach the native surface; its live page belongs to the tab, not this component.
       void window.bridge.unmountInAppBrowser(tabId).catch(() => {});
     };

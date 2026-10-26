@@ -13,6 +13,7 @@
  */
 import { ArrowLeft, ArrowUp, Clock, FileText, Files, LoaderCircle, Lock, TriangleAlert } from 'lucide-react';
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useFocusBreakSurface } from '../focus/background';
 import Composer from '../Composer';
 import { AgentConversation, ConversationComposer, useConversationHistory, type ApprovalDecider, type ConversationHistory } from '../agents/AgentConversation';
 import type { AgentEventEnvelope } from '../agents/events';
@@ -419,6 +420,7 @@ function ArtifactFrame({ workspaceId, artifactId, pageId }: { workspaceId: strin
   const covered = useContext(LayerCovered);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const invalidateBackground = useFocusBreakSurface(!covered && error === null ? JSON.stringify([workspaceId, artifactId, pageId]) : null);
 
   useEffect(() => { setError(null); }, [pageId]);
 
@@ -426,30 +428,45 @@ function ArtifactFrame({ workspaceId, artifactId, pageId }: { workspaceId: strin
     const frame = element.current;
     if (frame === null) return;
     let live = true;
-    const layout = () => {
-      const obscured = covered || [...document.querySelectorAll('[role="dialog"]')].some(dialog => !dialog.contains(frame) && dialog.getClientRects().length > 0);
+    let awaitingPage = true;
+    const present = (allowFocusRestore = true) => {
+      const obscured = [...document.querySelectorAll('[role="dialog"], [data-focus-break-entrance]')].some(dialog => !dialog.contains(frame) && dialog.getClientRects().length > 0);
       const box = frame.getBoundingClientRect();
-      const visible = error === null && !obscured && box.width > 0 && box.height > 0;
-      const target = visible ? { workspaceId, artifactId, pageId } : null;
+      const active = error === null && !covered && box.width > 0 && box.height > 0;
+      const visible = active && !obscured;
+      const target = active ? { workspaceId, artifactId, pageId } : null;
       const bounds = visible ? { x: box.x, y: box.y, width: box.width, height: box.height } : null;
       // Every DOM change anywhere in the app lands here; only a real change reaches main.
-      const key = JSON.stringify([target, bounds, attempt]);
+      const key = JSON.stringify([target, bounds, attempt, allowFocusRestore]);
       if (key === sent.current) return;
       sent.current = key;
-      window.bridge.showArtifact(target, bounds).catch(failure => {
+      const loadingPage = visible && awaitingPage;
+      if (loadingPage) awaitingPage = false;
+      window.bridge.showArtifact(target, bounds, allowFocusRestore).then(() => {
+        // The reused native view may still show its old document until this first load finishes.
+        if (live && loadingPage) invalidateBackground?.();
+      }).catch(failure => {
         if (!live) return;
         sent.current = null;
         setError(remoteErrorMessage(failure));
       });
     };
+    const layout = () => present();
+    const focus = (event: FocusEvent) => {
+      const focused = event.target;
+      const entrance = document.querySelector('[data-focus-break-entrance]');
+      if (event.isTrusted && focused instanceof HTMLElement && focused !== document.body && focused !== document.documentElement
+        && entrance?.checkVisibility() && !entrance.contains(focused)) present(false);
+    };
     const resize = new ResizeObserver(layout);
     resize.observe(frame);
     const dialogs = new MutationObserver(layout);
-    dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'open'] });
+    dialogs.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'hidden', 'open', 'data-focus-break-entrance'] });
     window.addEventListener('resize', layout);
+    document.addEventListener('focusin', focus);
     layout();
-    return () => { live = false; resize.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', layout); };
-  }, [artifactId, attempt, covered, error, pageId, workspaceId]);
+    return () => { live = false; resize.disconnect(); dialogs.disconnect(); window.removeEventListener('resize', layout); document.removeEventListener('focusin', focus); };
+  }, [artifactId, attempt, covered, error, pageId, workspaceId, invalidateBackground]);
 
   useEffect(() => () => { void window.bridge.showArtifact(null, null).catch(() => {}); }, []);
 

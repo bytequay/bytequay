@@ -15,6 +15,7 @@
 import type * as agentContracts from './agents/contracts';
 import type { LabBridge } from '@bytequay/lab/contracts';
 import type { ArtifactBridge } from './artifacts/contracts';
+import type { FocusBreakBackground } from './focus/contracts';
 import type { VoiceBridge } from './dictation/contracts';
 import type { WorkItemBridge, CreateWorkItem, EpicDraftMessage, EpicDraftReply, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalItemDto, GoalItemKind } from './workitems/contracts';
 import type { NoticeSnapshot } from './notices/contracts';
@@ -1807,6 +1808,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   getGitHubCliAvailable: () => Promise<{ available: boolean }>;
   importGitHubCliToken: () => Promise<{ login: string }>;
 
+  captureFocusBreakBackground: () => Promise<FocusBreakBackground[]>;
   openInAppBrowser: (url: string) => Promise<void>;
   newInAppBrowserPage: () => Promise<void>;
   openExternal: (url: string) => Promise<void>;
@@ -1817,7 +1819,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   pinInAppBrowserTab: (id: string, pinned: boolean) => Promise<void>;
   closeInAppBrowserTab: (id: string) => Promise<void>;
   hideInAppBrowser: () => Promise<void>;
-  mountInAppBrowser: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  mountInAppBrowser: (id: string, bounds: { x: number; y: number; width: number; height: number }, allowFocusRestore?: boolean) => Promise<void>;
   renameInAppBrowserTab: (id: string, name: string) => Promise<void>;
   setInAppBrowserBounds: (id: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
   unmountInAppBrowser: (id: string) => Promise<void>;

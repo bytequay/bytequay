@@ -117,7 +117,7 @@ export class BrowserTabs {
   private tabs = new Map<string, Tab>();
   private restored = false;
   private activeTabId: string | null = null;
-  private surface: { id: string; bounds: Rectangle } | null = null;
+  private surface: { id: string; bounds: Rectangle; allowFocusRestore: boolean } | null = null;
   private attached: WebContentsView | null = null;
 
   /** `claim` takes a link a page opens before any tab does, for links that act in ByteQuay rather than load a page. */
@@ -204,17 +204,18 @@ export class BrowserTabs {
     this.emit();
   }
 
-  mount(id: string, target: unknown): void {
+  mount(id: string, target: unknown, allowFocusRestore: unknown = true): void {
+    if (typeof allowFocusRestore !== 'boolean') throw new Error('Invalid browser focus restoration');
     const window = this.window();
     if (!window || window.isDestroyed()) return;
     const bounds = browserBounds(target, window);
     if (this.activeTabId !== id || !this.tabs.has(id)) return;
-    this.surface = { id, bounds };
+    this.surface = { id, bounds, allowFocusRestore };
     this.present();
   }
 
   setBounds(id: string, target: unknown): void {
-    if (this.surface?.id === id) this.mount(id, target);
+    if (this.surface?.id === id) this.mount(id, target, this.surface.allowFocusRestore);
   }
 
   unmount(id: string): void {
@@ -365,7 +366,7 @@ export class BrowserTabs {
     tab.view.setVisible(true);
     this.onPresent();
     this.attached = tab.view;
-    tab.view.webContents.focus();
+    if (this.surface.allowFocusRestore) tab.view.webContents.focus();
   }
 
   private createView(tab: Tab): void {
@@ -527,7 +528,7 @@ export function registerBrowserTabIpc(tabs: BrowserTabs, window: () => BrowserWi
   ipcMain.handle('inapp:rename', (event, id: string, name: unknown) => { trusted(event); tabs.rename(id, name); });
   ipcMain.handle('inapp:close', (event, id: string) => { trusted(event); tabs.close(id); });
   ipcMain.handle('inapp:hide', event => { trusted(event); tabs.hide(); });
-  ipcMain.handle('inapp:mount', (event, id: string, target: unknown) => { trusted(event); tabs.mount(id, target); });
+  ipcMain.handle('inapp:mount', (event, id: string, target: unknown, allowFocusRestore: unknown = true) => { trusted(event); tabs.mount(id, target, allowFocusRestore); });
   ipcMain.handle('inapp:bounds', (event, id: string, target: unknown) => { trusted(event); tabs.setBounds(id, target); });
   ipcMain.handle('inapp:unmount', (event, id: string) => { trusted(event); tabs.unmount(id); });
   ipcMain.handle('inapp:back', (event, id: string) => { trusted(event); tabs.back(id); });

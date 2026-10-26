@@ -68,7 +68,7 @@ vi.mock('electron', async () => {
 type MockView = {
   webContents: EventEmitter & {
     url: string; title: string; formValue: string; scrollY: number; destroyed: boolean; preventUnload: boolean;
-    loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn>;
+    loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; reload: ReturnType<typeof vi.fn>; focus: ReturnType<typeof vi.fn>;
     findInPage: ReturnType<typeof vi.fn>; stopFindInPage: ReturnType<typeof vi.fn>;
     navigationHistory: { goBack: ReturnType<typeof vi.fn> };
     setWindowOpenHandler: ReturnType<typeof vi.fn>;
@@ -267,6 +267,24 @@ it('preserves each live page/history across switch, hide and renderer reload; ig
   expect(view(0).webContents.close).not.toHaveBeenCalled();
   expect(view(1).webContents.close).not.toHaveBeenCalled();
   expect(sender.focus).toHaveBeenCalled();
+});
+
+it('keeps a DOM focus choice when remounting after companion entrance', () => {
+  const id = open('https://example.com/draft');
+  tabs.mount(id, bounds);
+  const contents = view(0).webContents;
+  contents.formValue = 'unsent work';
+  expect(contents.focus).toHaveBeenCalledOnce();
+  tabs.unmount(id);
+  tabs.mount(id, bounds, false);
+  tabs.setBounds(id, { ...bounds, width: 800 });
+  expect(contents.focus).toHaveBeenCalledOnce();
+  expect(contents.formValue).toBe('unsent work');
+  expect(contents.loadURL).toHaveBeenCalledOnce();
+  expect(view(0).setVisible).toHaveBeenLastCalledWith(true);
+  tabs.unmount(id);
+  tabs.mount(id, bounds);
+  expect(contents.focus).toHaveBeenCalledTimes(2);
 });
 
 it('minimizes pinned pages and fully closes them only after unpinning', () => {
@@ -660,6 +678,7 @@ it('requires the app main frame for every browser IPC and validates/clamps nativ
   }
   const good = { sender, senderFrame: sender.mainFrame };
   electron.handlers.get('inapp:mount')?.(good, id, bounds);
+  expect(() => electron.handlers.get('inapp:mount')?.(good, id, bounds, 'false')).toThrow('Invalid browser focus restoration');
   expect(contentView.addChildView).toHaveBeenLastCalledWith(view(0));
   expect(electron.handlers.get('inapp:state')?.(good)).toEqual(tabs.getState());
   expect(() => browserBounds({ ...bounds, x: Infinity }, window)).toThrow('Invalid browser bounds');

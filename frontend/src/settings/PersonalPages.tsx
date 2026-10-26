@@ -15,6 +15,7 @@ import { useState } from 'react';
 import { OPEN_SETUP } from '../onboarding/setup';
 import { readBrowserDisplayMode, saveBrowserDisplayMode, type BrowserDisplayMode } from '../browserPreferences';
 import type { AppPreferencesDto, AppThemeDto, QuietHoursDto } from '../types';
+import { FocusBreakSettings } from '../focus/FocusBreakSettings';
 import { Segmented, SelectPill, SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 
 const RETENTION_DAYS = [3, 7, 14, 30, 90];
@@ -59,6 +60,8 @@ export function GeneralPage({ preferences, quietHours, quietHoursBusy, version, 
           <button type="button" className="setw-btn" onClick={() => window.dispatchEvent(new Event(OPEN_SETUP))}>Open setup</button>
         </SettingsRow>
       </SettingsCard>
+
+      <FocusBreakSettings />
 
       <div className="setw-section"><span className="setw-section-title">Background refresh</span></div>
       <SettingsCard>

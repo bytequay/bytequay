@@ -31,6 +31,7 @@ import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
 import { APP_NAVIGATION_SHORTCUTS, type AppNavigationTarget } from './appNavigation';
 import { registerGoogleIpc } from '@bytequay/google/main';
 import { BrowserTabs, limitBrowserPermissions, registerBrowserTabIpc } from './browserTabs';
+import { registerFocusBreakBackground } from './focusBreakBackground';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { notificationVersion, parsePrNotificationState, pendingPrNotifications, type PrNotificationState } from './prNotifications';
@@ -2033,6 +2034,7 @@ function registerIpc(): void {
     return restored;
   });
   registerBrowserTabIpc(browserTabs, () => mainWindow);
+  registerFocusBreakBackground(() => mainWindow);
   appNotices.register();
   ideViews.register();
   artifactView.register();

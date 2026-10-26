@@ -17,6 +17,7 @@ import AssistantPanel from './assistant/AssistantPanel';
 import { screenRef } from './assistant/model';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
+import { FocusBreakProvider } from './focus/FocusBreakProvider';
 import { GoogleScreen } from './integrations/google';
 import { useGoogle } from '@bytequay/google/renderer';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
@@ -643,6 +644,7 @@ function AppContent() {
   };
 
   return (
+    <FocusBreakProvider>
     <div className={`browser-workspace${railVisible ? '' : ' is-web-rail-hidden'}`} style={{
       '--browser-rail-width': railVisible ? (railExpanded ? '220px' : '40px') : '0px',
     } as CSSProperties}>
@@ -796,5 +798,6 @@ function AppContent() {
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
       <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)} />
     </div>
+    </FocusBreakProvider>
   );
 }

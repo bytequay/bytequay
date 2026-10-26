@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi, type Mock } from 'vitest';
 import { readFileSync } from 'node:fs';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { IdeViews } from './ideViews';
@@ -31,6 +31,7 @@ type MockView = {
   contents: {
     destroyed: boolean; mainFrame: object; isDestroyed: () => boolean;
     loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>;
+    isFocused: Mock<[], boolean>; focus: ReturnType<typeof vi.fn>;
     emit: (name: string, ...args: unknown[]) => void;
     session: { protocol: { handle: ReturnType<typeof vi.fn> }; fetch: ReturnType<typeof vi.fn>; webRequest: { onBeforeRequest: ReturnType<typeof vi.fn> } };
   };
@@ -55,6 +56,7 @@ vi.mock('electron', async () => {
       contents = Object.assign(new EventEmitter(), {
         destroyed: false, mainFrame: {},
         isDestroyed: () => this.contents.destroyed,
+        isFocused: vi.fn(() => false), focus: vi.fn(),
         close: vi.fn().mockImplementation(() => { this.contents.destroyed = true; }),
         loadURL: vi.fn().mockImplementation(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
         session: { fetch: vi.fn().mockImplementation(async () => new Response('avatar')), protocol: { handle: vi.fn().mockImplementation((scheme: string) => this.handled.add(scheme)),
@@ -73,7 +75,7 @@ const connection = { taskId: 'task', sessionId: 'session', authority: '127.0.0.1
   cacheRoot: '/cache', connectionToken: 'server-only-token', commit: 'a'.repeat(40) };
 const host = { kind: 'task', workspaceId: 'workspace', taskId: 'task' };
 const sender = { mainFrame: {}, send: vi.fn(), getZoomFactor: () => 1 };
-const window = { isDestroyed: () => false, webContents: sender, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+const window = { isDestroyed: () => false, isFocused: () => true, webContents: sender, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
   getContentBounds: () => ({ width: 1000, height: 800 }) } as unknown as BrowserWindow;
 const fetchMock = vi.fn();
 const parent = () => ({ sender, senderFrame: sender.mainFrame });
@@ -190,6 +192,52 @@ it('stops a hidden idle worktree even if the parent keeps reporting hidden bound
   expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
   expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/ide/task/session', expect.objectContaining({ method: 'DELETE' }));
   expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, closed: true }));
+});
+
+it('keeps a covered editor alive through a break and restores its keyboard focus', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const bounds = { x: 0, y: 0, width: 900, height: 700 };
+  invoke('ide:present', parent(), id, bounds);
+  const view = desktop.views[0];
+  expect(view.contents.focus).not.toHaveBeenCalled();
+  view.contents.isFocused.mockReturnValue(true);
+  invoke('ide:present', parent(), id, null, true);
+  view.contents.isFocused.mockReturnValue(false);
+  invoke('ide:present', parent(), id, null, true);
+  await vi.advanceTimersByTimeAsync(15 * 60_000);
+  expect(view.contents.close).not.toHaveBeenCalled();
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  invoke('ide:present', parent(), id, bounds);
+  expect(view.contents.focus).toHaveBeenCalledOnce();
+  invoke('ide:present', parent(), id, bounds);
+  expect(view.contents.focus).toHaveBeenCalledOnce();
+  invoke('ide:present', parent(), id, null);
+  await vi.advanceTimersByTimeAsync(135_000);
+  expect(view.contents.close).toHaveBeenCalledOnce();
+});
+
+it('releases a covered editor when its window closes', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:present', parent(), id, null, true);
+  views.releaseWindow();
+  await vi.advanceTimersByTimeAsync(135_000);
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
+});
+
+it('keeps a covered editor alive without reclaiming focus chosen during companion entrance', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const bounds = { x: 0, y: 0, width: 900, height: 700 };
+  invoke('ide:present', parent(), id, bounds);
+  const view = desktop.views[0];
+  view.contents.isFocused.mockReturnValue(true);
+  invoke('ide:present', parent(), id, null, true);
+  invoke('ide:present', parent(), id, null, true, false);
+  invoke('ide:present', parent(), id, null, true);
+  await vi.advanceTimersByTimeAsync(15 * 60_000);
+  expect(view.contents.close).not.toHaveBeenCalled();
+  invoke('ide:present', parent(), id, bounds);
+  expect(view.contents.focus).not.toHaveBeenCalled();
+  expect(() => invoke('ide:present', parent(), id, null, true, 'false')).toThrow('Invalid IDE focus restoration');
 });
 
 it('keeps unsaved drafts, running tests and paused debugging alive while hidden', async () => {

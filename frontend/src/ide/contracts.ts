@@ -56,7 +56,8 @@ export type IdeBounds = { x: number; y: number; width: number; height: number };
 export type IdeDesktopBridge = {
   resume: (host: CodeHostRef) => Promise<string | null>;
   open: (host: CodeHostRef) => Promise<string>;
-  present: (id: string, bounds: IdeBounds | null) => Promise<void>;
+  /** Covered editors retain their session; a new DOM focus choice can cancel restoration. */
+  present: (id: string, bounds: IdeBounds | null, covered?: boolean, allowFocusRestore?: boolean) => Promise<void>;
   update: (id: string, context: IdeContext) => Promise<void>;
   close: (id: string) => Promise<void>;
   reply: (reply: IdeReply) => void;

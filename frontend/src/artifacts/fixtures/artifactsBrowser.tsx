@@ -13,13 +13,29 @@
  */
 import { createRoot } from 'react-dom/client';
 import ArtifactsPage from '../ArtifactsPage';
+import { FocusBreakProvider, useFocusBreaks } from '../../focus/FocusBreakProvider';
+import { FOCUS_PREFERENCES_KEY } from '../../focus/model';
 import '../../css/base.css';
+
+let beginBreak = () => {};
+let endBreak = () => {};
+
+function BreakControls() {
+  const focus = useFocusBreaks();
+  beginBreak = focus.startBreak;
+  endBreak = () => focus.updatePreferences({ ...focus.preferences, enabled: false });
+  return null;
+}
+
+export function startBreak(): void { beginBreak(); }
+export function stopBreak(): void { endBreak(); }
 
 /** The real page over the preload's bridge; main answers the list and shows each page in the real native view. */
 export function render(): void {
+  localStorage.setItem(FOCUS_PREFERENCES_KEY, JSON.stringify({ enabled: true, workMinutes: 15, breakMinutes: 1, companion: 'chubby-cat' }));
   document.body.style.margin = '0';
   const host = document.createElement('div');
   host.style.height = '100vh';
   document.body.append(host);
-  createRoot(host).render(<ArtifactsPage workspaceId="w1" />);
+  createRoot(host).render(<FocusBreakProvider><BreakControls /><ArtifactsPage workspaceId="w1" /></FocusBreakProvider>);
 }

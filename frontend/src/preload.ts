@@ -211,6 +211,7 @@ const bridge: Bridge = {
   importGitHubCliToken: invoke('github:cli-import'),
 
   ...createLabBridge(channel => ipcRenderer.invoke(channel), subscribe),
+  captureFocusBreakBackground: invoke('focus:background'),
   openInAppBrowser: invoke('inapp:open'),
   newInAppBrowserPage: invoke('inapp:new'),
   openExternal: invoke('external:open'),

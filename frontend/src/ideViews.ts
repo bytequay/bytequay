@@ -43,6 +43,8 @@ type Editor = {
   contents: WebContents;
   context: IdeContext | null;
   visible: boolean;
+  covered: boolean;
+  restoreFocus: boolean;
   dirty: number;
   busy: boolean;
   /** The last report sent on to the window; the editor repeats its report every few seconds. */
@@ -137,14 +139,20 @@ export class IdeViews {
       return this.create(host, connection);
     });
     ipcMain.handle('ide:open', (event, host: unknown) => { parent(event); return this.open(parseCodeHost(host)); });
-    ipcMain.handle('ide:present', (event, id: string, bounds: unknown) => {
+    ipcMain.handle('ide:present', (event, id: string, bounds: unknown, covered: unknown = false, allowFocusRestore: unknown = true) => {
       parent(event);
+      if (typeof covered !== 'boolean') throw new Error('Invalid IDE visibility');
+      if (typeof allowFocusRestore !== 'boolean') throw new Error('Invalid IDE focus restoration');
       const retained = this.editors.get(id);
       if (bounds === null && (!retained || retained.closing || retained.contents.isDestroyed())) return;
       const editor = this.require(id);
       const window = this.window();
       if (!window) return;
-      if (bounds !== null || editor.visible) editor.lastUsed = Date.now();
+      if (bounds !== null || editor.visible || editor.covered) editor.lastUsed = Date.now();
+      if (bounds === null && covered && editor.visible) editor.restoreFocus = editor.contents.isFocused();
+      if (bounds === null && !covered) editor.restoreFocus = false;
+      if (!allowFocusRestore) editor.restoreFocus = false;
+      editor.covered = bounds === null && covered;
       editor.visible = bounds !== null;
       if (bounds === null) {
         editor.view.setVisible(false);
@@ -154,6 +162,8 @@ export class IdeViews {
       window.contentView.addChildView(editor.view);
       editor.view.setVisible(true);
       this.onPresent();
+      if (editor.restoreFocus && window.isFocused()) editor.contents.focus();
+      editor.restoreFocus = false;
     });
     ipcMain.handle('ide:update', (event, id: string, context: IdeContext) => {
       parent(event);
@@ -321,7 +331,7 @@ export class IdeViews {
     view.setBackgroundColor('#00000000');
     // Electron clears view.webContents on destruction; retain the handle for cleanup and isDestroyed().
     const contents = view.webContents;
-    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
+    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, covered: false, restoreFocus: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
     try {
       const resources = await Promise.all(['extensions', 'server'].map(name => realpath(path.join(connection.bundleRoot, name))));
@@ -466,7 +476,7 @@ export class IdeViews {
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.contents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && Date.now() - this.terminalUsed(editor.contents) > IDLE_TERMINAL_MS && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.contents.isDestroyed() || (!editor.visible && !editor.covered && editor.dirty === 0 && !editor.busy && Date.now() - this.terminalUsed(editor.contents) > IDLE_TERMINAL_MS && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
         await this.close(editor.id);
         return;
       }
@@ -510,6 +520,8 @@ export class IdeViews {
   releaseWindow(): void {
     for (const editor of this.editors.values()) {
       editor.visible = false;
+      editor.covered = false;
+      editor.restoreFocus = false;
       editor.lastUsed = Date.now();
       if (!editor.contents.isDestroyed()) {
         editor.view.setVisible(false);

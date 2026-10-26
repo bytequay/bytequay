@@ -64,7 +64,7 @@ export async function buildBrowserFixture(fixture: BrowserFixture) {
     await build({
       entryPoints: [resolve(fixture.entry)], bundle: true, format: 'iife', globalName: fixture.global, target: 'esnext',
       jsx: 'automatic', define: { 'process.env.NODE_ENV': '"production"' }, outfile: join(bundle, 'renderer.js'), logLevel: 'silent',
-      loader: { '.jpg': 'dataurl', '.png': 'dataurl', '.svg': 'dataurl', '.ttf': 'dataurl' },
+      loader: { '.jpg': 'dataurl', '.png': 'dataurl', '.svg': 'dataurl', '.ttf': 'dataurl', '.webm': 'file' }, publicPath: '..',
     });
     return {
       run: <T>(options: Partial<Omit<BrowserFixture, 'prefix' | 'entry' | 'global'>> = {}) => runBuiltFixture<T>({ ...fixture, ...options }, bundle),

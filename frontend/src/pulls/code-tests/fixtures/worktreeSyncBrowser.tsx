@@ -35,6 +35,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
   let available = false;
   let finish: (id: string) => void = () => {};
   let fail: (error: Error) => void = () => {};
+  const presentations: Parameters<typeof window.ide.present>[] = [];
   const oldIde = window.ide;
   window.ide = {
     resume: async () => { checks++; return available ? 'editor' : null; },
@@ -43,7 +44,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
         'Confirmation must start only the selected working copy');
       starts++; return new Promise((resolve, reject) => { finish = resolve; fail = reject; });
     },
-    present: async () => {}, update: async () => {}, reply: () => {}, close: async () => {},
+    present: async (...args) => { presentations.push(args); }, update: async () => {}, reply: () => {}, close: async () => {},
     onRequest: () => () => {}, onEvent: listener => { event = listener; return () => {}; },
   };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
@@ -53,7 +54,7 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     listAgentReviews: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: async () => task,
     prepareReviewWorktree: unused,
   };
-  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'height:820px;width:1050px';
+  const { host, root, dispose } = createFixtureRoot(); host.style.cssText = 'display:flex;flex-direction:column;height:820px;width:1050px';
   function Harness() {
     const [active, setActive] = useState(false); show = setActive;
     return <CodeTestsTab workspaceId="workspace-1" review={taskHost ? null : review} task={taskHost ? task : null}
@@ -76,6 +77,24 @@ export async function runStartup(taskHost: boolean): Promise<string> {
     assert(host.querySelector('[role="alert"]')?.textContent?.includes('Server failed'), 'Failed starts must expose the error');
     click('Reconnect editor'); await settle();
     finish('editor'); await settle();
+    const entrance = document.createElement('dialog');
+    entrance.open = true;
+    entrance.textContent = 'A companion is arriving';
+    const focusChoice = document.createElement('input');
+    document.body.append(entrance, focusChoice);
+    try {
+      await settle();
+      assert(presentations.at(-1)?.[1] !== null, 'An ordinary nonmodal dialog must leave the editor visible');
+      entrance.setAttribute('data-focus-break-entrance', ''); await settle();
+      assert(presentations.at(-1)?.[1] === null && presentations.at(-1)?.[2] === true, 'The arriving companion must cover and retain the active editor');
+      const beforeFocus = presentations.length;
+      focusChoice.focus(); await settle();
+      assert(presentations.slice(beforeFocus).some(([, bounds, covered, allowFocusRestore]) => bounds === null && covered && allowFocusRestore === false),
+        'Choosing another control during entrance must cancel the editor’s old focus restoration');
+      entrance.removeAttribute('data-focus-break-entrance'); await settle();
+      assert(presentations.at(-1)?.[1] !== null, 'Removing the entrance marker restores the same editor');
+    }
+    finally { entrance.remove(); focusChoice.remove(); }
     flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
     assert(Number(starts) === 2 && !host.textContent?.includes('Start IDE'), 'Tab switches must retain a successfully started editor');
     event({ id: 'editor', dirty: 0, busy: false, closed: true }); await settle();

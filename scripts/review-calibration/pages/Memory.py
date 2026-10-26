@@ -14,7 +14,6 @@ import dashboard
 import memory
 import saved
 
-SAVE = "uv run memory.py --save"
 DECIDED = 20  # decided findings on each side before their shares say anything
 
 dashboard.start_page()
@@ -24,15 +23,16 @@ arguments.add_argument("--database", type=Path, default=monitor.DATABASE)
 CHOSEN = arguments.parse_known_args()[0]
 FOLDER = CHOSEN.folder
 st.title("Memory")
+dashboard.refresh(*dashboard.arguments())
 st.caption("Whether the memories ByteQuay gives a turn are used. A turn of a repository with memories is given them at the start, and a review finding names "
            "the memories it relied on. A memory given many times and never cited costs every turn and helps none: rewrite it or remove it on the Memory page of ByteQuay.")
 try:
     MADE = saved.read(FOLDER, memory.FILE)
 except (OSError, ValueError):
-    st.warning(f"The saved memory table could not be read. Save it again with `{SAVE}`")
+    st.warning(f"The saved memory table could not be read. Save it again with {dashboard.SAVE}")
     st.stop()
 if MADE is None:
-    st.info(f"Nothing is saved yet. Save it with `{SAVE}`; the monitor saves it every hour while it runs.")
+    st.info(f"Nothing is saved yet. Save it with {dashboard.SAVE}; the monitor saves it every hour while it runs.")
     st.stop()
 st.caption(f"Saved {dashboard.when(MADE['savedAt'])}.")
 try:

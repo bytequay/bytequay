@@ -106,11 +106,11 @@ class TestPage(Experiment):
         (unseen / "plan.json").write_text(json.dumps({"version": 1, "unseen": True}))
         self.assertEqual(self.page().selectbox[0].options, ["trial"])
         shutil.rmtree(self.experiment)
-        self.assertEqual([note.value for note in self.page().info], ["No experiment has a judged run yet. Run and score one with `uv run batch.py NAME --judge`"])
+        self.assertEqual([note.value for note in self.page().info], ["No experiment has a judged run yet. Run and judge one in the Reviews tab of Agent activity first."])
 
     def test_without_a_judged_run_it_says_how_to_get_one(self):
         shutil.rmtree(self.experiment)
-        self.assertEqual([note.value for note in self.page().info], ["No experiment has a judged run yet. Run and score one with `uv run batch.py NAME --judge`"])
+        self.assertEqual([note.value for note in self.page().info], ["No experiment has a judged run yet. Run and judge one in the Reviews tab of Agent activity first."])
 
 
 if __name__ == "__main__":

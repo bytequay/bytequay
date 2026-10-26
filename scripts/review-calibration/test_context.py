@@ -165,7 +165,7 @@ class TestPage(unittest.TestCase):
         self.assertEqual(page.metric[0].value, "5")  # the turn of September too
 
     def test_nothing_saved_says_how_to_save_it(self):
-        self.assertEqual([note.value for note in self.page().info], ["Nothing is saved yet. Save it with `uv run context.py --save`; the monitor saves it every hour while it runs."])
+        self.assertEqual([note.value for note in self.page().info], ["Nothing is saved yet. Save it with Analyze now at the top of the page; the monitor saves it every hour while it runs."])
 
 
 if __name__ == "__main__":

@@ -85,7 +85,7 @@ class TestPage(Database):
                       "are decided, so the shares cannot tell yet whether memory helps.", [caption.value for caption in page.caption])
 
     def test_nothing_saved_says_how_to_save_it(self):
-        self.assertEqual([note.value for note in self.page().info], ["Nothing is saved yet. Save it with `uv run memory.py --save`; the monitor saves it every hour while it runs."])
+        self.assertEqual([note.value for note in self.page().info], ["Nothing is saved yet. Save it with Analyze now at the top of the page; the monitor saves it every hour while it runs."])
 
 
 if __name__ == "__main__":

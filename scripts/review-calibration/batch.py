@@ -335,6 +335,22 @@ def keep_schedule(folder, kept):
                                 "StandardOutPath": str(folder / "schedule.log"), "StandardErrorPath": str(folder / "schedule.log")})
 
 
+def every(folder, name, often, now=None):
+    """Give experiment `name` a new judged round every day or week from now on, or none with "never", and return what it was given.
+    A schedule unreadable as it stands is replaced. ValueError when the Mac's scheduler cannot be set."""
+    try:
+        kept = schedule(folder)
+    except ValueError:
+        kept = {}
+    if often == "never":
+        kept.pop(name, None)
+        keep_schedule(folder, kept)
+        return None
+    chosen = {"every": often, "last": (now or datetime.now(timezone.utc)).isoformat(timespec="seconds")}
+    keep_schedule(folder, {**kept, name: chosen})
+    return chosen
+
+
 def run_due(folder, now, say=tell):
     """Start a new round of every scheduled experiment whose time has come, one after another, each judged and scored."""
     kept = schedule(folder)
@@ -377,10 +393,8 @@ def main():
     if args.parallel < 1:
         parser.error("--parallel must be 1 or more")
     if args.every == "never":
-        kept = schedule(args.folder)
-        kept.pop(args.name, None)
         try:
-            keep_schedule(args.folder, kept)
+            every(args.folder, args.name, "never")
         except ValueError as problem:
             parser.exit(1, f"{problem}\n")
         print(f"{args.name} is not scheduled.")
@@ -393,9 +407,8 @@ def main():
         print("\n".join(listing(plan)))
         return
     if args.every:
-        chosen = {"every": args.every, "last": datetime.now(timezone.utc).isoformat(timespec="seconds")}
         try:
-            keep_schedule(args.folder, {**schedule(args.folder), args.name: chosen})
+            chosen = every(args.folder, args.name, args.every)
         except ValueError as problem:
             parser.exit(1, f"{problem}\n")
         print(f"{args.name} gets a new round every {args.every}, the first on {next_round(chosen).astimezone():%Y-%m-%d}, judged with the key in the Keychain.")

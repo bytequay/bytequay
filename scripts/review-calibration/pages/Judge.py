@@ -22,7 +22,7 @@ st.caption("How far to trust the review scores. Each pair is one reviewer commen
 # Labelling shows the reviewer's comment, which would make an unseen case seen.
 KEPT = sorted({path.parents[2].name for path in (FOLDER / "experiments").glob("*/*/*/judge-calls.json") if not batch.unseen(path.parents[2])})
 if not KEPT:
-    st.info("No experiment has a judged run yet. Run and score one with `uv run batch.py NAME --judge`")
+    st.info("No experiment has a judged run yet. Run and judge one in the Reviews tab of Agent activity first.")
     st.stop()
 NAME = st.selectbox("Experiment", KEPT, key="experiment")
 EXPERIMENT = FOLDER / "experiments" / NAME

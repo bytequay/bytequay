@@ -76,6 +76,8 @@ def found(folder, runtime, last, earlier):
     if last["state"] != "done":
         st.warning({"failed": f"The last look failed: {last['problem']}", "stopped": "The last look was stopped before it finished."}.get(
             last["state"], "The last look ended before it finished."))
+        if last["state"] == "failed" and advisor.UNWATCHED in (last["problem"] or ""):
+            st.button("Start the monitor", key="risk_monitor", on_click=batch.keep_agent, args=(monitor.AGENT, monitor.agent(folder)))
         return
     usage = last["usage"] or {}
     st.caption(f"Looked {dashboard.when(last['ended'])} with {last['model']}: {activity.count(last['steps'], 'model call')}, "
@@ -149,7 +151,7 @@ def risks(folder, runtime):
         st.rerun()
     st.caption("A look sends the monitor's counters and the titles of the last look's suggestions, each with how it stands, to DeepSeek's API, never "
                "a path, a command, a task's title or a reason you typed, and spends tokens on your key." if key
-               else "The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`")
+               else f"The agent needs a DeepSeek key. {dashboard.KEY}")
 NUMBERS = {"memory MB": "%,.0f", "typical MB": "%,.0f", "peak MB": "%,.0f", "CPU cores": "%.2f", "typical CPU": "%.2f", "peak CPU": "%.2f", "threads": "%,.0f", "open files": "%,.0f"}
 
 

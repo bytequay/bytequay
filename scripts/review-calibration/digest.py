@@ -240,7 +240,7 @@ def report(turn_table, review_table, noted, kind, ending=None, zone=None, commit
     first, earlier = last - timedelta(days=DAYS[kind] - 1), last - timedelta(days=DAYS[kind])
     notes, reviews = [], None
     if last >= saved_at.date():
-        notes.append(f"The tables were saved before {said(last)} had ended, so the last day is not whole. Save again with `{dashboard.SAVE}`")
+        notes.append(f"The tables were saved before {said(last)} had ended, so the last day is not whole. Save again with {dashboard.SAVE}")
     if turn_table["since"]:
         notes.append(f"Only turns that started on or after {turn_table['since']} were saved.")
     if turn_table["task"]:
@@ -248,14 +248,14 @@ def report(turn_table, review_table, noted, kind, ending=None, zone=None, commit
     if "problem" in turn_table["database"]:
         notes.append(f"Model, effort, tokens and cost were not saved: {turn_table['database']['problem']}.")
     if review_table is None:
-        notes.append(f"No reviews are saved yet. Save them with `{dashboard.SAVE}`")
+        notes.append(f"No reviews are saved yet. Save them with {dashboard.SAVE}")
     else:
         try:
             reviews = charts.review_frames(review_table, zone)
             if review_table["savedAt"] != turn_table["savedAt"]:
-                notes.append(f"The reviews were saved at another time than the turns. Save both again with `{dashboard.SAVE}`")
+                notes.append(f"The reviews were saved at another time than the turns. Save both again with {dashboard.SAVE}")
         except (KeyError, TypeError, ValueError):
-            notes.append(f"The saved reviews could not be read and are left out. Save them again with `{dashboard.SAVE}`")
+            notes.append(f"The saved reviews could not be read and are left out. Save them again with {dashboard.SAVE}")
 
     def stretch(start, end):
         shown = charts.within(made, start, end)
@@ -335,7 +335,7 @@ def main():
     except (OSError, ValueError):
         turn_table = {}  # in another shape: said below
     if turn_table is None:
-        parser.exit(1, f"Nothing saved yet. Save the turn table with `{dashboard.SAVE}`\n")
+        parser.exit(1, f"Nothing saved yet. Save the turn table with {dashboard.SAVE}\n")
     try:
         review_table = saved.read(args.folder, "reviews.json")
     except (OSError, ValueError):
@@ -343,7 +343,7 @@ def main():
     try:
         text, last = report(turn_table, review_table, noted, args.kind or "week", args.ending, commits=explain.commits)
     except (KeyError, TypeError, ValueError):
-        parser.exit(1, f"The saved turn table could not be read. Save it again with `{dashboard.SAVE}`\n")
+        parser.exit(1, f"The saved turn table could not be read. Save it again with {dashboard.SAVE}\n")
     print(text)
     print("Saved to", saved.write_text(args.folder / "reports", f"{args.kind or 'week'}-{last}.md", text))
 

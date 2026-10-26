@@ -242,7 +242,7 @@ class TestPage(Kept):
     def test_without_a_key_the_agent_cannot_look_and_the_page_says_how_to_give_it_one(self):
         page = self.page()
         self.assertTrue(page.button(key="advice_look").disabled)
-        self.assertIn("The agent needs a DeepSeek key. Store it once with `uv run batch.py --store-key`", [caption.value for caption in page.caption])
+        self.assertIn("The agent needs a DeepSeek key. Store it once in the Keychain from a terminal with `uv run batch.py --store-key`: the Mac asks for it there, so a page cannot.", [caption.value for caption in page.caption])
 
     def test_with_a_key_a_look_starts_on_the_button(self):
         with mock.patch.object(batch, "has_key", return_value=True), mock.patch.object(advisor, "start") as started:
@@ -340,7 +340,13 @@ class TestPage(Kept):
         self.assertIn(f"You noted this change on {suggest.said(day)}. No look since then yet.", [caption.value for caption in page.caption])
     def test_a_look_that_failed_says_why(self):
         self.found(state="failed", problem="RuntimeError: the API is down", suggestions=[], summary=None)
-        self.assertIn("The last look failed: RuntimeError: the API is down", [note.value for note in self.page().warning])
+        page = self.page()
+        self.assertIn("The last look failed: RuntimeError: the API is down", [note.value for note in page.warning])
+        self.assertNotIn("risk_monitor", [button.key for button in page.button])
+        self.found(state="failed", problem="ValueError: " + advisor.UNWATCHED, suggestions=[], summary=None)
+        with mock.patch.object(batch, "keep_agent") as kept:
+            self.page().button(key="risk_monitor").click().run()  # a look that failed for want of samples starts the monitor here
+        self.assertEqual(kept.call_args.args[0], monitor.AGENT)
 
     def test_a_clean_up_starts_only_once_you_confirm_it(self):
         page = self.page()

@@ -122,10 +122,10 @@ class TestPage(unittest.TestCase):
 
     def test_a_table_saved_before_results_says_to_save_again(self):
         old = {"version": 1, "savedAt": "2027-01-15T08:00:00Z", "turns": [{key: value for key, value in turn("a", 0, 10).items() if key != "result"}]}
-        self.assertEqual([note.value for note in self.page(old).info], ["This table was saved before development results were kept. Save it again with `uv run activity.py --save`"])
+        self.assertEqual([note.value for note in self.page(old).info], ["This table was saved before development results were kept. Save it again with Analyze now at the top of the page"])
 
     def test_nothing_saved_and_no_result_say_so(self):
-        self.assertEqual([note.value for note in self.page().info], ["Nothing saved yet. Save the turn table with `uv run activity.py --save`"])
+        self.assertEqual([note.value for note in self.page().info], ["Nothing saved yet. Save the turn table with Analyze now at the top of the page"])
         self.assertEqual([note.value for note in self.page({"version": 1, "savedAt": "2027-01-15T08:00:00Z", "turns": [turn("f", 5, 50)]}).info],
                          ["No development task reported a result in this stretch."])
 

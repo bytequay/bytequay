@@ -20,7 +20,7 @@ import explain
 SCRIPT = Path(__file__).with_name("digest.py")
 PAGE = Path(__file__).with_name("pages") / "Report.py"
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").addFilter(lambda record: "missing ScriptRunContext" not in record.getMessage())
-SAVE = "uv run activity.py --save"
+SAVE = "Analyze now at the top of the page"
 
 
 def turn(day, seconds, logged=True, task="aaaa-1111", model="gpt-6-astra", effort="max", tokens=None, cost=None, groups=None, after=None, programs=None, long_runs=(), approvals=(),
@@ -129,7 +129,7 @@ class TestReport(unittest.TestCase):
         self.assertEqual(digest.report(TABLE, REVIEWS, [], "week", zone=west)[1], date(2026, 1, 13))
         self.assertIn("From the tables saved 2026-01-14 22:00.", report(zone=west))
         running = report(ending=date(2026, 1, 15))
-        self.assertIn(f"\nThe tables were saved before 15 Jan had ended, so the last day is not whole. Save again with `{SAVE}`\n", running)
+        self.assertIn(f"\nThe tables were saved before 15 Jan had ended, so the last day is not whole. Save again with {SAVE}\n", running)
         self.assertNotIn("is not whole", report())
 
     def test_notes_say_what_the_saved_tables_leave_out(self):
@@ -140,13 +140,13 @@ class TestReport(unittest.TestCase):
         self.assertIn("\nModel, effort, tokens and cost were not saved: the database is not there.\n", text)
         self.assertEqual((rows(text, "## What changed")["Tokens in"], rows(text, "## What changed")["Recorded cost"]), (["-", "-", ""], ["-", "-", ""]))
         self.assertIn("ByteQuay's records hold no turn for these days.", text)
-        for reviews, said in [(None, f"No reviews are saved yet. Save them with `{SAVE}`"), ({}, f"The saved reviews could not be read and are left out. Save them again with `{SAVE}`"),
-                              ({**REVIEWS, "findings": [{"run": 7, "state": "open", "severity": None}]}, f"The saved reviews could not be read and are left out. Save them again with `{SAVE}`")]:
+        for reviews, said in [(None, f"No reviews are saved yet. Save them with {SAVE}"), ({}, f"The saved reviews could not be read and are left out. Save them again with {SAVE}"),
+                              ({**REVIEWS, "findings": [{"run": 7, "state": "open", "severity": None}]}, f"The saved reviews could not be read and are left out. Save them again with {SAVE}")]:
             text = report(reviews=reviews)
             self.assertIn(f"\n{said}\n", text)
             self.assertEqual((rows(text, "## What changed")["Review runs"], rows(text, "## What changed")["Turns"]), (["-", "-", ""], ["2", "3", "+50%"]))
         apart = report(reviews={**REVIEWS, "savedAt": "2026-01-10T00:00:00Z"})
-        self.assertIn(f"\nThe reviews were saved at another time than the turns. Save both again with `{SAVE}`\n", apart)
+        self.assertIn(f"\nThe reviews were saved at another time than the turns. Save both again with {SAVE}\n", apart)
         self.assertEqual(rows(apart, "## What changed")["Review runs"], ["1", "2", "+100%"])  # they are still listed
         self.assertNotIn("reviews", report().split("## What changed")[0])
 
@@ -345,11 +345,11 @@ class TestCommandLine(unittest.TestCase):
 
     def test_missing_or_unreadable_tables_are_named_and_nothing_is_written(self):
         nothing = self.script()
-        self.assertEqual((nothing.returncode, nothing.stdout, nothing.stderr), (1, "", f"Nothing saved yet. Save the turn table with `{SAVE}`\n"))
+        self.assertEqual((nothing.returncode, nothing.stdout, nothing.stderr), (1, "", f"Nothing saved yet. Save the turn table with {SAVE}\n"))
         for broken in ('{"version": 1, "turns": [', json.dumps({**TABLE, "version": 2}), json.dumps({"version": 1})):
             (self.folder / "turns.json").write_text(broken)
             refused = self.script()
-            self.assertEqual((refused.returncode, refused.stdout, refused.stderr), (1, "", f"The saved turn table could not be read. Save it again with `{SAVE}`\n"))
+            self.assertEqual((refused.returncode, refused.stdout, refused.stderr), (1, "", f"The saved turn table could not be read. Save it again with {SAVE}\n"))
         self.assertFalse((self.folder / "reports").exists())
         self.save(reviews=None)
         (self.folder / "reviews.json").write_text("{")
@@ -403,11 +403,11 @@ class TestPage(unittest.TestCase):
         self.assertIn("Against the day before.", self.page("Day").markdown[0].value)
 
     def test_page_says_how_to_save_and_names_a_table_it_cannot_read(self):
-        self.assertEqual([note.value for note in self.page().info], ["Nothing saved yet. Save the turn table with `uv run activity.py --save`"])
+        self.assertEqual([note.value for note in self.page().info], ["Nothing saved yet. Save the turn table with Analyze now at the top of the page"])
         for text in ('{"version": 1, "turns": [', json.dumps({**TABLE, "turns": [{"task": "a"}]})):
             with self.subTest(text=text[:30]):
                 self.save(text=text)
-                self.assertEqual([note.value for note in self.page().warning], ["The saved turn table could not be read. Save it again with `uv run activity.py --save`"])
+                self.assertEqual([note.value for note in self.page().warning], ["The saved turn table could not be read. Save it again with Analyze now at the top of the page"])
         self.save()
         self.save("changes.json", "{")
         self.assertIn("The noted changes in `changes.json` could not be read, so they are left out.", [caption.value for caption in self.page().caption])

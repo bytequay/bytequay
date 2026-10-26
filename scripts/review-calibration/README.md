@@ -10,8 +10,11 @@ its results in its own folder, and serves its dashboard to this machine only.
 The desktop app bundles its Python runtime and dependencies. **Settings →
 Integrations → Lab → Open Lab** refreshes the statistics and starts or reuses
 the dashboard automatically; **Show the Lab** adds the same action to the
-sidebar. Installed users need no terminal setup. The commands below remain
-available for development and controlled experiments.
+sidebar. Installed users need no terminal setup: where the dashboard asks for
+something to be run, it has a button that runs the same code with the lab's own
+Python, and only storing the DeepSeek key stays a step for a terminal, as the
+Mac asks for the key there. The commands below remain available for
+development and controlled experiments.
 
 ## App health
 
@@ -432,7 +435,10 @@ runs of the experiment you picked stand, and runs and judges what is missing,
 one run at a time, or stops the runs. It starts `batch.py NAME --judge` apart
 from the page, so closing the page does not stop the runs, and what it says
 goes to `batch.log` beside the plan. It judges only with the key in the
-Keychain or in `DEEPSEEK_API_KEY`, as nobody is there to be asked for it.
+Keychain or in `DEEPSEEK_API_KEY`, as nobody is there to be asked for it. The
+same tab sets how often the experiment gets a new judged round, as `--every`
+does, and saves the scores again from the runs when the saved ones cannot be
+read.
 
 ### Every week by itself
 

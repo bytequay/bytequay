@@ -215,13 +215,13 @@ class TestPage(Saved):
 
     def test_page_says_how_to_save_and_names_a_file_it_cannot_read(self):
         page = self.page()
-        self.assertEqual(([note.value for note in page.info], len(page.metric)), (["Nothing saved yet. Save the tuning table with `uv run tuning.py --save`"], 0))
+        self.assertEqual(([note.value for note in page.info], len(page.metric)), (["Nothing saved yet. Save the tuning table with Analyze now at the top of the page"], 0))
         for text in ('{"version": 1, "turns": [', json.dumps({"version": 2}), json.dumps({"version": 1, "turns": [{"task": "a"}], "tasks": []})):
             with self.subTest(text=text[:30]):
                 self.save(text)
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                                 (["The saved tuning table could not be read. Save it again with `uv run tuning.py --save`"], []))
+                                 (["The saved tuning table could not be read. Save it again with Analyze now at the top of the page"], []))
 
     def test_table_saved_before_tool_paths_were_counted_asks_for_a_new_save_and_shows_the_rest(self):
         made = self.made()
@@ -229,7 +229,7 @@ class TestPage(Saved):
         self.save(json.dumps(old))
         page = self.page()
         self.assertEqual((list(page.exception), [note.value for note in page.info]),
-                         ([], ["This table was saved before tool paths were counted. Save it again with `uv run tuning.py --save`"]))
+                         ([], ["This table was saved before tool paths were counted. Save it again with Analyze now at the top of the page"]))
         self.assertEqual(len(page.get("plotly_chart")), 3)  # the person in the loop and the endings are still drawn
 
     def test_page_started_another_way_shows_nothing(self):

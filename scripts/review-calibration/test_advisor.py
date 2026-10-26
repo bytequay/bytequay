@@ -260,7 +260,7 @@ class TestLook(Kept):
             with self.assertRaises(ValueError):
                 self.look(Script())
             kept = json.loads((self.folder / "advice" / advisor.STATE).read_text())
-            self.assertEqual((kept["state"], kept["problem"]), ("failed", "ValueError: the monitor has kept nothing yet: start it with `uv run monitor.py --start`"))
+            self.assertEqual((kept["state"], kept["problem"]), ("failed", "ValueError: " + advisor.UNWATCHED))
             (self.folder / "monitor.db").unlink(missing_ok=True)  # and then not even the file
 
 

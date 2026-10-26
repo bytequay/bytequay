@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -29,11 +29,14 @@ import labels
 import monitor
 import ranges
 import record
+import report
 import saved
 import suggest
 
 HOST, PORT = "127.0.0.1", 8517
-SAVE = "uv run activity.py --save"
+SAVE = "Analyze now at the top of the page"  # it saves every table the lab reads from ByteQuay
+KEY = "Store it once in the Keychain from a terminal with `uv run batch.py --store-key`: the Mac asks for it there, so a page cannot."
+OFTEN = {"never": "Never", "day": "Every day", "week": "Every week"}
 SHOW = {"width": "stretch", "config": {"displayModeBar": False}}
 TILE = 170
 LOOKS = {"7 days": 7, "14 days": suggest.DAYS, "28 days": 28, "every day": None}  # how far back the suggestions look
@@ -172,7 +175,7 @@ def tools(shown, table, mode):
         made = charts.calls_of(charts.call_frames(table), turns)
     except (KeyError, TypeError, ValueError):
         # A table from before the lab counted calls, or from before it read why they failed, is never drawn as one without them.
-        st.info(f"This table was saved before the lab counted what this tab shows. Save it again with `{SAVE}`")
+        st.info(f"This table was saved before the lab counted what this tab shows. Save it again with {SAVE}")
         return
     calls, reasons = made["calls"], made["reasons"]
     if calls.empty:
@@ -255,7 +258,7 @@ def merging(turns, hops, repeats, mode):
 def models(shown, table, mode):
     turns = shown["turns"]
     if "problem" in table["database"]:
-        st.info(f"Model, effort and tokens were not saved: {table['database']['problem']}. Save again with `{SAVE}`")
+        st.info(f"Model, effort and tokens were not saved: {table['database']['problem']}. Save again with {SAVE}")
         return
     rows = charts.settings_table(turns)
     if not rows:
@@ -283,7 +286,7 @@ def models(shown, table, mode):
 def cost(shown, table, folder, mode):
     turns = shown["turns"]
     if "problem" in table["database"]:
-        st.info(f"Tokens and cost were not saved: {table['database']['problem']}. Save again with `{SAVE}`")
+        st.info(f"Tokens and cost were not saved: {table['database']['problem']}. Save again with {SAVE}")
         return
     kinds = charts.tokens(turns)
     if kinds.empty:
@@ -335,14 +338,14 @@ def real_reviews(folder, choice, together, mode):
         made = None if table is None else charts.reviews_chosen(charts.review_frames(table), *choice)
         apart = None if table is None or table["savedAt"] == together else when(table["savedAt"])
     except (OSError, KeyError, TypeError, ValueError):
-        st.warning(f"The saved reviews could not be read. Save them again with `{SAVE}`")
+        st.warning(f"The saved reviews could not be read. Save them again with {SAVE}")
         return
     if made is None:
-        st.info(f"Nothing saved yet. Save the reviews with `{SAVE}`")
+        st.info(f"Nothing saved yet. Save the reviews with {SAVE}")
         return
     if apart:
         # One save writes the turns and the reviews with the same time. Another time means a later save could not read the reviews.
-        st.warning(f"These reviews were saved {apart}, at another time than the turns. Save both again with `{SAVE}`")
+        st.warning(f"These reviews were saved {apart}, at another time than the turns. Save both again with {SAVE}")
     runs, findings = made["runs"], made["findings"]
     if runs.empty:
         st.info("No review run matches this choice.")
@@ -373,6 +376,24 @@ def real_reviews(folder, choice, together, mode):
     st.dataframe(charts.review_settings_table(runs, findings), hide_index=True, column_config={"typical tokens in": st.column_config.NumberColumn(format="localized")})
 
 
+def scheduled(folder, name):
+    """Keep how often the experiment gets a new round, as just chosen; a problem is said on the next run of the page."""
+    often = st.session_state.get(f"every_{name}")
+    if often is None:  # the choice was cleared, which keeps the schedule as it was
+        return
+    try:
+        batch.every(folder, name, often)
+    except ValueError as problem:
+        st.session_state[f"every_problem_{name}"] = str(problem)
+
+
+def rescore(experiment):
+    """Save the scores again from what the runs and the judge left, as judging does at its end."""
+    rows = report.collect(experiment)
+    if rows:
+        saved.write(experiment, "scores.json", report.summary(rows, datetime.now(timezone.utc)))
+
+
 @st.fragment(run_every=5)
 def experiment_runs(plan):
     """How the runs of an experiment stand, with a button to run and judge what is missing or to stop the runs. It looks again
@@ -381,19 +402,24 @@ def experiment_runs(plan):
     unjudged = sum(stands == "completed" and not judged for _, _, stands, judged in made)
     waiting = unjudged or any(stands not in batch.ENDED for _, _, stands, _ in made)
     st.caption(f"Runs: {lines[-1]}" + (f", {unjudged} of them not judged yet." if unjudged else "."))
+    folder, name = plan["folder"].parents[1], plan["folder"].name
     try:
-        chosen = batch.schedule(plan["folder"].parents[1]).get(plan["folder"].name)
+        chosen = batch.schedule(folder).get(name)
         if chosen:
             st.caption(f"A new round every {chosen['every']}, the next on {batch.next_round(chosen).astimezone():%Y-%m-%d}.")
     except (OSError, AttributeError, KeyError, TypeError, ValueError):
-        st.caption("The schedule cannot be read. Set it again with `uv run batch.py NAME --every week`")
+        chosen = None
+        st.caption("The schedule cannot be read. Choosing how often below saves it again.")
+    st.segmented_control("A new judged round", list(OFTEN), default=(chosen or {}).get("every", "never"), key=f"every_{name}",
+                         on_change=scheduled, args=(folder, name), format_func=OFTEN.get)
+    if problem := st.session_state.pop(f"every_problem_{name}", None):
+        st.error(f"The schedule could not be set: {problem}")
     if batch.runner(plan) is not None:
         st.button("Stop", key="stop_runs", on_click=batch.stop, args=(plan,))
     elif waiting or not (plan["folder"] / "scores.json").exists():  # with nothing left to run or judge, a start only saves the scores
         st.button("Run and judge what is missing", key="start_runs", on_click=batch.start, args=(plan,))
         if waiting and not batch.has_key():
-            st.caption("Judging needs the DeepSeek key. Store it once in the Keychain with `uv run batch.py --store-key`, or judge in a "
-                       f"terminal with `uv run batch.py {plan['folder'].name} --judge`")
+            st.caption(f"Judging needs the DeepSeek key. {KEY}")
     with st.expander("Every run"):
         st.text("\n".join(lines[:-1]))
         log = plan["folder"] / "batch.log"
@@ -420,7 +446,7 @@ def scored_reviews(folder, mode):
     kept = sorted({path.parent for pattern in ("*/plan.json", "*/scores.json") for path in (folder / "experiments").glob(pattern)},
                   key=lambda experiment: (-experiment.stat().st_mtime, experiment.name))
     if not kept:
-        st.info("Nothing scored yet. Run and score an experiment with `uv run batch.py NAME --judge`")
+        st.info("No experiment yet. An experiment is a folder under experiments/ in the lab's folder with a plan.json; once there is one, it runs and is judged here.")
         return
     name = st.selectbox("Experiment", [experiment.name for experiment in kept], key="experiment")
     plan = None
@@ -432,7 +458,7 @@ def scored_reviews(folder, mode):
     if plan is not None:
         experiment_runs(plan)
     if not (folder / "experiments" / name / "scores.json").exists():
-        st.info(f"{name} is not scored yet." + ("" if plan else f" Score it with `uv run batch.py {name} --judge`"))
+        st.info(f"{name} is not scored yet." + ("" if plan else " It has no plan.json, so it cannot run here."))
         return
     try:
         scores = saved.read(folder / "experiments" / name, "scores.json")
@@ -441,7 +467,8 @@ def scored_reviews(folder, mode):
         scored = [setting["name"] for setting in scores["settings"] if setting["runs"]]
         pairs = {(first, second): charts.compared(scores, first, second) for first in scored for second in scored}
     except (OSError, AttributeError, KeyError, TypeError, ValueError):
-        st.warning(f"The saved scores of {name} could not be read. Save them again with `uv run report.py EXPERIMENT --save`")
+        st.warning(f"The saved scores of {name} could not be read.")
+        st.button("Save the scores again", key="rescore", on_click=rescore, args=(folder / "experiments" / name,))
         return
     if not settings:
         st.info(f"The saved scores of {name} hold no setting.")
@@ -541,7 +568,7 @@ def refresh(folder, runtime, database, logs=app_logs.LOGS):
     if problem:
         st.error(f"Analysis could not finish: {problem}. You can try Analyze now again.")
     else:
-        st.success("Analysis complete. App health and suggestions are updated below.")
+        st.success("Analysis complete. Every page of the Lab now shows what it found.")
 
 
 def invalidate_logs(folder):
@@ -577,7 +604,7 @@ def suggestions(made, table, folder, runtime):
         calls = charts.call_frames(table)
     except (KeyError, TypeError, ValueError):
         calls = None
-        st.caption(f"The turn table was saved before the lab counted calls, so command failures and tool hops are left out. Save it again with `{SAVE}`")
+        st.caption(f"The turn table was saved before the lab counted calls, so command failures and tool hops are left out. Save it again with {SAVE}")
     try:
         found = saved.read(folder, "reviews.json")
         reviews = None if found is None else charts.review_frames(found)
@@ -738,10 +765,10 @@ def page(folder, runtime, database, logs=app_logs.LOGS):
         made = None if table is None else charts.frames(table)
     except (OSError, KeyError, TypeError, ValueError):
         # A file in another shape is said to be unreadable. It is never drawn as zeros.
-        st.warning(f"The saved turn table could not be read. Save it again with `{SAVE}`")
+        st.warning(f"The saved turn table could not be read. Save it again with {SAVE}")
         return
     if made is None:
-        st.info(f"Nothing saved yet. Save the turn table with `{SAVE}`")
+        st.info(f"Nothing saved yet. Save the turn table with {SAVE}")
         return
     invalidate_logs(folder)
     if made["turns"].empty:
@@ -787,7 +814,7 @@ def stop_with_parent():
         threading.Thread(target=watch, daemon=True).start()
 
 
-def main():
+def options():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER, help="Folder with the saved results")
     parser.add_argument("--port", type=int, default=PORT, help="Port on this machine to show the page on")
@@ -795,7 +822,18 @@ def main():
     parser.add_argument("--runtime", type=Path, default=activity.RUNTIME, help="Folder with the task logs: read for the approvals, and by the button that saves again")
     parser.add_argument("--database", type=Path, help="ByteQuay's database, read only (default: beside the runtime folder)")
     parser.add_argument("--logs", type=Path, default=app_logs.LOGS, help="Folder containing backend.log and rotated logs, read only")
-    args = parser.parse_args()
+    return parser
+
+
+def arguments():
+    """The lab's folder, the task logs, ByteQuay's database and its logs, as the page was started with them: every page of
+    the lab is handed the main page's command line."""
+    args = options().parse_known_args()[0]
+    return args.folder, args.runtime, args.database or args.runtime.parent / monitor.DATABASE.name, args.logs
+
+
+def main():
+    args = options().parse_args()
     database = args.database or args.runtime.parent / monitor.DATABASE.name
     if get_script_run_ctx(suppress_warning=True) is None:
         # Started as a plain script: hand over to Streamlit, with the page shown to this machine only.

@@ -39,6 +39,7 @@ import resources
 import saved
 
 STATE = "advice.json"
+UNWATCHED = "the monitor has kept nothing yet: start it, and look again once it has samples"
 LOOKS = "looks"  # every look that finished, kept so a risk can be seen to go away after a fix
 DAILY = 86400  # seconds from one look to the next that the monitor starts by itself
 REACH = 7 * 86400  # seconds of samples the agent looks over
@@ -164,7 +165,7 @@ def seen(folder, now, data=monitor.APP_DATA, database=monitor.DATABASE):
     """Everything a look reads, read once. ValueError when the monitor has kept nothing to look at."""
     made = resources.read(folder, now - REACH)
     if made is None or made["parts"].empty:
-        raise ValueError("the monitor has kept nothing yet: start it with `uv run monitor.py --start`")
+        raise ValueError(UNWATCHED)
     everything, _ = cleanup.plan(data, monitor.holders(database, now), now, copies=True)
     disk = shutil.disk_usage(data)
     going, copies = ([item for item in everything if (item.owner == monitor.COPIES) == wanted] for wanted in (False, True))

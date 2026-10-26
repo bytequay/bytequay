@@ -69,7 +69,7 @@ class TestHealthPage(unittest.TestCase):
             self.assertFalse((self.folder / app_logs.FILE).exists())
             page.button(key="refresh").click().run()
             self.assertEqual(list(page.exception), [])
-            self.assertIn("Analysis complete. App health and suggestions are updated below.", [note.value for note in page.success])
+            self.assertIn("Analysis complete. Every page of the Lab now shows what it found.", [note.value for note in page.success])
             self.assertEqual(next(tile.value for tile in page.metric if tile.label == "Errors in analyzed 24 hours"), "1")
             self.assertTrue(any("Database contention" in heading.value for heading in page.markdown))
             with source.open("a") as stream:
@@ -93,7 +93,7 @@ class TestHealthPage(unittest.TestCase):
         self.assertEqual((self.folder / app_logs.FILE).read_bytes(), before)
         page.button(key="refresh").click().run()
         self.assertEqual((list(page.error), list(page.exception)), ([], []))
-        self.assertIn("Analysis complete. App health and suggestions are updated below.", [note.value for note in page.success])
+        self.assertIn("Analysis complete. Every page of the Lab now shows what it found.", [note.value for note in page.success])
 
     def test_findings_prepare_reviewable_task_briefs_without_sending(self):
         saved.write(self.folder, app_logs.FILE, {"version": 1, **logs([group("cleanup", 3)])})

@@ -14,7 +14,6 @@ import dashboard
 import saved
 
 SPANS = {"Last 7 days": 7, "Last 30 days": 30, "All": None}
-SAVE = "uv run context.py --save"
 CALLS = 30  # calls of a turn the growth chart follows
 SHOWN = 12  # names in the chart of what fills the context
 
@@ -49,15 +48,16 @@ arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Context")
+dashboard.refresh(*dashboard.arguments())
 st.caption("How the context of an agent turn grows from one model call to the next, and what fills it. Every call is sent the whole context again, so "
            "what a command or tool returns is paid for again until compaction. Only Codex logs its tokens call by call; Claude's turns are not here.")
 try:
     MADE = saved.read(FOLDER, context.FILE)
 except (OSError, ValueError):
-    st.warning(f"The saved context table could not be read. Save it again with `{SAVE}`")
+    st.warning(f"The saved context table could not be read. Save it again with {dashboard.SAVE}")
     st.stop()
 if MADE is None:
-    st.info(f"Nothing is saved yet. Save it with `{SAVE}`; the monitor saves it every hour while it runs.")
+    st.info(f"Nothing is saved yet. Save it with {dashboard.SAVE}; the monitor saves it every hour while it runs.")
     st.stop()
 REACH = SPANS[st.segmented_control("Show", list(SPANS), default="Last 30 days", key="span") or "All"]
 CALLS_MADE = pandas.DataFrame(MADE["calls"], columns=["task", "turn", "start", "call", "sent", "wrote", "added", "shrank", "between", "seconds", "model", "effort"])

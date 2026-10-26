@@ -315,6 +315,17 @@ class TestSchedule(Experiment):
             failed = self.command("first", "--every", "week")
         self.assertEqual((failed.returncode, failed.stderr), (1, f"launchctl could not load {self.agent}: Bootstrap failed: 5: Input/output error\n"))
 
+    def test_the_page_sets_how_often_an_experiment_gets_a_round_as_the_command_line_does(self):
+        moment = datetime(2026, 10, 27, 9, 0, tzinfo=timezone.utc)
+        chosen = {"every": "day", "last": "2026-10-27T09:00:00+00:00"}
+        self.assertEqual(batch.every(self.folder, "first", "day", moment), chosen)
+        self.assertEqual((batch.schedule(self.folder), self.agent.exists()), ({"first": chosen}, True))
+        self.assertIsNone(batch.every(self.folder, "first", "never"))
+        self.assertEqual((batch.schedule(self.folder), self.agent.exists()), ({}, False))
+        (self.folder / "schedule.json").write_text("{")
+        batch.every(self.folder, "first", "week", moment)  # a schedule that cannot be read is replaced, not kept broken
+        self.assertEqual(batch.schedule(self.folder), {"first": {**chosen, "every": "week"}})
+
     def test_due_rounds_start_one_after_another_and_are_marked_as_started(self):
         now = datetime(2026, 10, 21, 3, 0, 5, tzinfo=timezone.utc)
         ago = lambda length: (now - length).isoformat(timespec="seconds")

@@ -12,7 +12,6 @@ import saved
 import tuning
 
 SPANS = {"Last 7 days": 7 * 86400, "Last 30 days": 30 * 86400, "All": None}
-SAVE = "uv run tuning.py --save"
 HICCUPS = {"rateLimits": "rate limits", "retries": "retries", "interruptions": "interruptions"}
 
 
@@ -54,7 +53,7 @@ def endings(turns, mode):
 def paths(turns, mode):
     st.subheader("Tool paths")
     if "calls" not in turns:
-        st.info(f"This table was saved before tool paths were counted. Save it again with `{SAVE}`")
+        st.info(f"This table was saved before tool paths were counted. Save it again with {dashboard.SAVE}")
         return
     used, looked = turns[turns["calls"] > 0], turns[turns["lookups"] > 0]
     streak = max((made for made in turns["streak"] if made), key=lambda made: made[1], default=None)
@@ -76,7 +75,7 @@ def setups(turns):
     table = tuning.setups_table(turns)
     if table is None:
         st.info("No turn names its setup yet. ByteQuay names it for every turn it starts from a version that records it; "
-                f"save the table again with `{SAVE}` once such turns have run.")
+                f"save the table again with {dashboard.SAVE} once such turns have run.")
         return
     st.caption("A setup is named after ByteQuay's own instructions for a provider session and the tools it was given, so the turns of one setup "
                "can be set against the turns of the next. Changed says which half no earlier turn had.")
@@ -91,16 +90,17 @@ arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Tuning")
+dashboard.refresh(*dashboard.arguments())
 st.caption("How much a person had to step in to get the agent's work done, how its turns ended, and the paths its calls took. The counts come "
            "from the task logs; a task's state and a turn's ending from ByteQuay's database.")
-UNREADABLE = f"The saved tuning table could not be read. Save it again with `{SAVE}`"
+UNREADABLE = f"The saved tuning table could not be read. Save it again with {dashboard.SAVE}"
 try:
     MADE = saved.read(FOLDER, "tuning.json")
 except (OSError, ValueError):
     st.warning(UNREADABLE)
     st.stop()
 if MADE is None:
-    st.info(f"Nothing saved yet. Save the tuning table with `{SAVE}`")
+    st.info(f"Nothing saved yet. Save the tuning table with {dashboard.SAVE}")
     st.stop()
 REACH = SPANS[st.segmented_control("Show", list(SPANS), default="All", key="span") or "All"]
 try:

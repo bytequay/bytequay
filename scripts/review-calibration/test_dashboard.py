@@ -18,6 +18,7 @@ import activity
 import batch
 import charts
 import dashboard
+import saved
 import suggest
 from test_activity import command, in_order
 from test_approvals import CODEX, asked, ended
@@ -28,7 +29,7 @@ EXAMPLE = Path(__file__).with_name("fixture") / "saved-turns.json"
 # Outside a running page Streamlit warns on every start that there is no page, which is how these tests run it.
 # A filter and not a level, because Streamlit sets the levels again whenever an option changes.
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").addFilter(lambda record: "missing ScriptRunContext" not in record.getMessage())
-SAVED = "Save the turn table with `uv run activity.py --save`"
+SAVED = "Save the turn table with Analyze now at the top of the page"
 OVERVIEW = ["Where the time went", "How the turns ended", "Turn time per day"]
 TIME = ["Every part of the time", "Waiting for a tool to finish: what was running", "Shell time by program, summed over runs", "Model time by what just finished",
         "The tasks that took the most time", "Turn time by repository"]
@@ -37,7 +38,7 @@ TOOLS = ["Worth a tool?", "Every command and tool", "Why commands failed", "What
 MODELS = ["Typical turn, by model and effort", "How long a turn took", "How each split its time", "How the turns ended"]
 COST = ["Tokens by kind", "Tokens by model and effort", "Tokens per day", "The tasks that used the most tokens", "Cost in dollars"]
 REVIEWS = ["Reviews ByteQuay ran", "Scored against a human reviewer"]
-NO_REVIEWS = ["Nothing saved yet. Save the reviews with `uv run activity.py --save`", "Nothing scored yet. Run and score an experiment with `uv run batch.py NAME --judge`"]
+NO_REVIEWS = ["Nothing saved yet. Save the reviews with Analyze now at the top of the page", "No experiment yet. An experiment is a folder under experiments/ in the lab's folder with a plan.json; once there is one, it runs and is judged here."]
 FIXTURE = Path(__file__).with_name("fixture")
 
 
@@ -257,15 +258,15 @@ class Page(unittest.TestCase):
         self.save(json.dumps({**saved, "turns": earlier}))
         page = self.page()
         self.assertEqual((list(page.exception), [note.value for note in page.warning]), ([], []))
-        self.assertEqual([note.value for note in page.info], ["This table was saved before the lab counted what this tab shows. Save it again with `uv run activity.py --save`", *NO_REVIEWS])
+        self.assertEqual([note.value for note in page.info], ["This table was saved before the lab counted what this tab shows. Save it again with Analyze now at the top of the page", *NO_REVIEWS])
         # A table from before the lab read how much a command printed and why it failed, or how calls followed each other and which ran again, is treated the same.
         for missing in ("characters", "reasons"):
             between = [{**row, "calls": [{name: value for name, value in call.items() if name != missing} for call in row["calls"]]} for row in saved["turns"]]
             self.save(json.dumps({**saved, "turns": between}))
-            self.assertEqual([note.value for note in self.page().info][0], "This table was saved before the lab counted what this tab shows. Save it again with `uv run activity.py --save`", missing)
+            self.assertEqual([note.value for note in self.page().info][0], "This table was saved before the lab counted what this tab shows. Save it again with Analyze now at the top of the page", missing)
         for missing in ("hops", "repeats"):
             self.save(json.dumps({**saved, "turns": [{name: value for name, value in row.items() if name != missing} for row in saved["turns"]]}))
-            self.assertEqual([note.value for note in self.page().info][0], "This table was saved before the lab counted what this tab shows. Save it again with `uv run activity.py --save`", missing)
+            self.assertEqual([note.value for note in self.page().info][0], "This table was saved before the lab counted what this tab shows. Save it again with Analyze now at the top of the page", missing)
         self.assertEqual((headings(page), len(page.get("plotly_chart"))), (OVERVIEW + TIME + SLOW + COST + REVIEWS, 18))  # none of its tiles, tables or charts is drawn as empty
         self.assertEqual([tile.label for tile in page.metric][5:], ["Tokens in", "From the cache", "Tokens out", "Recorded cost"])
 
@@ -315,7 +316,7 @@ class Page(unittest.TestCase):
         self.save_reviews(json.dumps({**reviews, "savedAt": "2025-12-31T23:00:00Z"}))
         page = self.page()
         self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                         ([f"These reviews were saved {dashboard.when('2025-12-31T23:00:00Z')}, at another time than the turns. Save both again with `uv run activity.py --save`"], []))
+                         ([f"These reviews were saved {dashboard.when('2025-12-31T23:00:00Z')}, at another time than the turns. Save both again with Analyze now at the top of the page"], []))
         self.assertEqual([(tile.label, tile.value) for tile in page.metric][-5:][1], ("Runs", "3"))  # and they are still shown
 
     def test_reviews_tab_follows_the_days_the_model_and_the_repository_chosen_in_the_side_bar(self):
@@ -352,7 +353,7 @@ class Page(unittest.TestCase):
                 self.save_reviews(reviews=text)
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                                 (["The saved reviews could not be read. Save them again with `uv run activity.py --save`"], []))
+                                 (["The saved reviews could not be read. Save them again with Analyze now at the top of the page"], []))
                 self.assertEqual(([tile.label for tile in page.metric][-1], len(table(page, "scored runs"))), ("Recorded cost", 2))  # the scores below are still shown
         for name, text in [("cut off", '{"version": 1, "settings": ['), ("later version", json.dumps({**scores, "version": 3})),
                            ("a run without its counts", json.dumps({**scores, "settings": [{**scores["settings"][0], "runs": [{"run": "r", "case": "c"}]}]}))]:
@@ -360,7 +361,7 @@ class Page(unittest.TestCase):
                 self.save_reviews(scores=text)
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                                 (["The saved scores of first could not be read. Save them again with `uv run report.py EXPERIMENT --save`"], []))
+                                 (["The saved scores of first could not be read."], []))
                 self.assertEqual([tile.label for tile in page.metric][-1], "Still open")  # the real reviews above are still shown
         self.save_reviews(scores=json.dumps({**scores, "settings": []}))
         self.assertIn("The saved scores of first hold no setting.", [note.value for note in self.page().info])
@@ -398,11 +399,46 @@ class Page(unittest.TestCase):
         page.selectbox[0].set_value("first").run()
         self.assertEqual(([box.label for box in page.selectbox], list(page.exception)), (["Experiment"], []))  # one scored setting has nothing to be set against
 
+    def test_reviews_tab_sets_how_often_an_experiment_gets_a_round(self):
+        self.save()
+        self.save_plan("trial")
+        with mock.patch.object(batch, "every") as every:
+            page = self.page()
+            self.assertEqual(page.segmented_control(key="every_trial").value, "never")
+            page.segmented_control(key="every_trial").set_value("week").run()
+        every.assert_called_once_with(self.folder, "trial", "week")
+        with mock.patch.object(batch, "every", side_effect=ValueError("launchctl could not load it")):
+            page = self.page()
+            page.segmented_control(key="every_trial").set_value("day").run()
+            self.assertIn("The schedule could not be set: launchctl could not load it", [note.value for note in page.error])
+
+    def test_reviews_tab_saves_unreadable_scores_again_from_the_runs(self):
+        self.save()
+        self.save_reviews()
+        kept = self.folder / "experiments" / "first"
+        (kept / "scores.json").write_text("{")
+        run = kept / "before" / "pr1_rep1"
+        run.mkdir(parents=True)
+        (run / "runtime.json").write_text(json.dumps({"status": "completed", "policySha256": "a" * 64, "elapsedSeconds": 60, "model": "m", "effort": "e",
+                                                     "usage": {"inputTokens": 10, "cachedInputTokens": 0, "outputTokens": 1, "cost": None}}))
+        (run / "judgement.json").write_text(json.dumps({"case": "o/n#1", "leads": 1, "verdicts": [{"commentId": 1, "verdict": "FOUND", "leadIds": ["c1"]}], "errors": [],
+                                                       "usage": {"prompt_tokens": 1, "completion_tokens": 1}}))
+        page = self.page()
+        self.assertIn("The saved scores of first could not be read.", [note.value for note in page.warning])
+        page.button(key="rescore").click().run()
+        self.assertEqual([setting["name"] for setting in saved.read(kept, "scores.json")["settings"]], ["before"])
+
+    def test_every_page_that_asks_for_a_save_can_analyze_now(self):
+        for name in ("Delivery", "Report", "Context", "Memory", "Tuning"):
+            with self.subTest(page=name):
+                page = AppTest.from_file(str(Path(dashboard.__file__).with_name("pages") / f"{name}.py"), default_timeout=30).run()
+                self.assertEqual((list(page.exception), "Analyze now" in [button.label for button in page.button]), ([], True))
+                self.assertTrue(any(dashboard.SAVE in note.value for note in page.info))
+
     def test_reviews_tab_runs_the_picked_experiment_and_stops_it(self):
         self.save()
         kept = self.save_plan("trial")
-        hint = ("Judging needs the DeepSeek key. Store it once in the Keychain with `uv run batch.py --store-key`, or judge in a terminal with "
-                "`uv run batch.py trial --judge`")
+        hint = "Judging needs the DeepSeek key. " + dashboard.KEY
         keyed = self.enterContext(mock.patch.object(batch, "has_key", return_value=False))  # never the real Keychain
         with mock.patch.object(batch, "start") as started:
             page = self.page()
@@ -442,12 +478,12 @@ class Page(unittest.TestCase):
         (self.folder / "schedule.json").write_text(json.dumps({"version": 1, "experiments": {"trial": chosen}}))
         self.assertIn(f"A new round every week, the next on {batch.next_round(chosen).astimezone():%Y-%m-%d}.", captions(self.page()))
         (self.folder / "schedule.json").write_text("{")
-        self.assertIn("The schedule cannot be read. Set it again with `uv run batch.py NAME --every week`", captions(self.page()))
+        self.assertIn("The schedule cannot be read. Choosing how often below saves it again.", captions(self.page()))
         (kept / "scores.json").unlink()
         (kept / "plan.json").write_text("{")
         page = self.page()
         self.assertEqual((list(page.exception), run_buttons(page), [note.value for note in page.info][-1]),
-                         ([], [], "trial is not scored yet. Score it with `uv run batch.py trial --judge`"))  # the page cannot run it, so it says how
+                         ([], [], "trial is not scored yet. It has no plan.json, so it cannot run here."))  # the page cannot run it, and says why
         self.assertIn(f"It cannot run: {kept / 'plan.json'}: it is not JSON", captions(page))
 
     def test_models_tab_says_why_when_the_database_was_not_read(self):
@@ -456,8 +492,8 @@ class Page(unittest.TestCase):
         self.save(json.dumps({**table, "database": {"problem": "the database is not there"}, "turns": logged}))
         page = self.page()
         self.assertEqual(list(page.exception), [])
-        self.assertEqual([note.value for note in page.info], ["Model, effort and tokens were not saved: the database is not there. Save again with `uv run activity.py --save`",
-                                                              "Tokens and cost were not saved: the database is not there. Save again with `uv run activity.py --save`", *NO_REVIEWS])
+        self.assertEqual([note.value for note in page.info], ["Model, effort and tokens were not saved: the database is not there. Save again with Analyze now at the top of the page",
+                                                              "Tokens and cost were not saved: the database is not there. Save again with Analyze now at the top of the page", *NO_REVIEWS])
         self.assertEqual((len(page.metric), len(page.sidebar.multiselect)), (13, 0))  # the tabs read from the logs are whole, and there is no model to pick
 
     def test_cost_tab_adds_up_tokens_and_keeps_recorded_cost_apart_from_what_it_cannot_know(self):
@@ -546,7 +582,7 @@ class Page(unittest.TestCase):
                 self.save(text)
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)),
-                                 (["The saved turn table could not be read. Save it again with `uv run activity.py --save`"], []))
+                                 (["The saved turn table could not be read. Save it again with Analyze now at the top of the page"], []))
                 self.assertEqual((len(page.metric), len(page.get("plotly_chart")), len(page.info)), (0, 0, 0))
 
     def test_page_started_another_way_shows_nothing(self):

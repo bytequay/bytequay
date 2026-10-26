@@ -240,6 +240,46 @@ judge and compare it like any setting. Cases the writer learned from are
 tuning cases: a better score on them says the version runs, not that it
 reviews better.
 
+## Improving the rules
+
+```sh
+uv run improve.py --tuning TUNING --unseen UNSEEN --setting SETTING --parallel 2
+uv run improve.py --continue
+```
+
+`improve.py` makes one improvement from start to end, with an experiment of
+tuning cases and one of unseen cases (marked `"unseen": true`) that both name
+`SETTING` with the same rules, model and effort. It goes through these stages
+and keeps how far it got in `improvements/N/improvement.json` in the lab's
+folder:
+
+1. `base`: the setting's missing runs in both experiments, and the judge on the
+   unseen ones.
+2. `work` and `expert`: the writer's two versions, from the setting's runs on
+   the tuning cases.
+3. `tried`: a setting for each version in the tuning plan, such as
+   `SETTING-work-1`, and its runs. They are not judged: nothing reads their
+   scores.
+4. `merge`: the writer merges the two from what their runs did.
+5. `checked`: the merged version is copied into the unseen experiment, gets a
+   setting there, runs and is judged.
+6. `compared`: how many comments each of the two settings found or partly
+   found on the unseen cases, each with its range, and the change between them
+   with its range. Both ran the same pull requests, so the change is drawn with
+   the same cases on both sides, which a case's own difficulty cannot move.
+   `better` or `worse` when the change's whole range lies on one side of zero,
+   `not clear` otherwise.
+
+Nothing of one unseen case is shown, only these totals. The improvement holds
+the tuning experiment for as long as it runs, and the unseen one while it runs
+there, so no `batch.py` and no second improvement can change them meanwhile.
+Ctrl+C stops it; `--continue` carries on with the last improvement that did not
+end, and runs nothing twice. A writing that hands nothing in ends the
+improvement; carried on, that writing starts over under a new number. One
+improvement of a small setting takes about 36 Codex runs, some three hours two
+at a time, and about $1.50 of DeepSeek for three writings and the judge. Making
+a version the rules ByteQuay ships is a person's step.
+
 ## Scoring
 
 `case.py`, `judge.py` and `report.py` score runs against a human reviewer's

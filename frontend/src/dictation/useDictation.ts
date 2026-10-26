@@ -20,8 +20,9 @@ export const HOLD_MS = 250;
 
 export type DictationView =
   | { kind: 'idle' }
-  | { kind: 'listening'; id: string; hold: boolean; finished: string; partial: string; since: number }
-  | { kind: 'finishing'; id: string; finished: string; partial: string }
+  /** `finished` is in the written language; `originals` holds the spoken words it was translated from. */
+  | { kind: 'listening'; id: string; hold: boolean; finished: string; originals: string; partial: string; since: number }
+  | { kind: 'finishing'; id: string; finished: string; originals: string; partial: string }
   | { kind: 'failed'; id: string; seconds: number }
   | { kind: 'notice'; text: string; settings: boolean };
 
@@ -36,14 +37,37 @@ export function nextView(view: DictationView, event: DictationEvent): DictationV
     case 'partial':
       return view.kind === 'listening' || view.kind === 'finishing' ? { ...view, partial: event.text } : view;
     case 'final':
-      return view.kind === 'listening' || view.kind === 'finishing' ? { ...view, finished: view.finished + event.text, partial: '' } : view;
+      return view.kind === 'listening' || view.kind === 'finishing'
+        ? { ...view, finished: view.finished + event.text, originals: view.originals + (event.original ?? ''), partial: '' }
+        : view;
     case 'finishing':
-      return view.kind === 'listening' ? { kind: 'finishing', id: view.id, finished: view.finished, partial: view.partial } : view;
+      return view.kind === 'listening' ? { kind: 'finishing', id: view.id, finished: view.finished, originals: view.originals, partial: view.partial } : view;
     case 'done':
     case 'cancelled':
       return idle;
     case 'failed':
-      return event.seconds > 0 ? { kind: 'failed', id: event.id, seconds: event.seconds } : { kind: 'notice', text: 'Dictation couldn’t start.', settings: true };
+      return event.seconds > 0 ? { kind: 'failed', id: event.id, seconds: event.seconds } : { kind: 'notice', text: startFailure(event.code), settings: true };
+  }
+}
+
+/** Why a dictation stopped before any audio, in the user's words; each points at the Voice setting that fixes it. */
+export function startFailure(code: string): string {
+  switch (code) {
+    case 'microphone-denied': return 'ByteQuay can’t use the microphone.';
+    case 'no-microphone': return 'No microphone found.';
+    case 'model-missing': return 'The speech model isn’t downloaded yet.';
+    case 'translation-missing': return 'The translation isn’t downloaded yet.';
+    default: return 'Dictation couldn’t start.';
+  }
+}
+
+/** A language's name in the user's own language, from a helper id such as `zh_CN` or `en`. */
+export function languageName(id: string): string {
+  try {
+    return new Intl.DisplayNames([navigator.language], { type: 'language' }).of(id.replace('_', '-')) ?? id;
+  }
+  catch {
+    return id;
   }
 }
 
@@ -59,24 +83,25 @@ export function spaced(before: string, text: string, after = ''): string {
   return `${before === '' || /\s$/.test(before) ? '' : ' '}${words}${after === '' || /^\s/.test(after) ? '' : ' '}`;
 }
 
-// The Voice switch, read once and kept current for every composer in this window.
-let enabled = false;
+// The Voice setting, read once and kept current for every composer in this window.
+const OFF: VoiceSettings = { enabled: false, spoken: null, written: null };
+let voice = OFF;
 let watching = false;
-const enabledListeners = new Set<() => void>();
+const voiceListeners = new Set<() => void>();
 
-function subscribeEnabled(listener: () => void): () => void {
+function subscribeVoice(listener: () => void): () => void {
   // Fixtures and windows without the voice bridge simply have no mic.
   if (!watching && typeof window.bridge?.getVoiceSettings === 'function') {
     watching = true;
     const apply = (settings: VoiceSettings) => {
-      enabled = settings.enabled;
-      for (const notify of enabledListeners) notify();
+      voice = settings;
+      for (const notify of voiceListeners) notify();
     };
     void window.bridge.getVoiceSettings().then(apply).catch(() => {});
     window.bridge.onVoiceChanged(apply);
   }
-  enabledListeners.add(listener);
-  return () => { enabledListeners.delete(listener); };
+  voiceListeners.add(listener);
+  return () => { voiceListeners.delete(listener); };
 }
 
 // The composer dictating now; Electron main allows one dictation at a time.
@@ -97,7 +122,8 @@ function subscribeOwner(listener: () => void): () => void {
 export function useDictation(field: RefObject<HTMLTextAreaElement | null>, disabled: boolean) {
   const [me] = useState(() => ({}));
   // Server-rendered markup has no voice bridge, so no mic.
-  const on = useSyncExternalStore(subscribeEnabled, () => enabled, () => false);
+  const settings = useSyncExternalStore(subscribeVoice, () => voice, () => OFF);
+  const on = settings.enabled;
   const elsewhere = useSyncExternalStore(subscribeOwner, () => owner !== null && owner !== me, () => false);
   const [view, setView] = useState<DictationView>(idle);
   const [now, setNow] = useState(() => Date.now());
@@ -121,7 +147,7 @@ export function useDictation(field: RefObject<HTMLTextAreaElement | null>, disab
       }
       const since = Date.now();
       setNow(since);
-      setView({ kind: 'listening', id: result.id, hold: byHold, finished: '', partial: '', since });
+      setView({ kind: 'listening', id: result.id, hold: byHold, finished: '', originals: '', partial: '', since });
       // Right ⌥ came up while the helper was starting.
       if (byHold && !hold.current.held) void window.bridge.stopDictation(result.id);
     }
@@ -193,6 +219,8 @@ export function useDictation(field: RefObject<HTMLTextAreaElement | null>, disab
 
   return {
     available: on,
+    /** The written language's name while dictated words are translated before they reach the draft. */
+    into: settings.written === null ? null : languageName(settings.written),
     view,
     elapsed: view.kind === 'listening' ? Math.max(0, Math.floor((now - view.since) / 1000)) : 0,
     micDisabled: disabled || elsewhere || view.kind === 'finishing',
@@ -215,7 +243,7 @@ export function useDictation(field: RefObject<HTMLTextAreaElement | null>, disab
         release();
         setView(refusalNotice(result.refused));
       }
-      else setView({ kind: 'finishing', id: result.id, finished: '', partial: '' });
+      else setView({ kind: 'finishing', id: result.id, finished: '', originals: '', partial: '' });
     },
     discard: () => {
       if (view.kind !== 'failed') return;

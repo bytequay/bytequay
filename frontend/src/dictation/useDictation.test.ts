@@ -12,9 +12,9 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { nextView, refusalNotice, spaced, type DictationView } from './useDictation';
+import { languageName, nextView, refusalNotice, spaced, startFailure, type DictationView } from './useDictation';
 
-const listening: DictationView = { kind: 'listening', id: 'd1', hold: true, finished: '', partial: '', since: 0 };
+const listening: DictationView = { kind: 'listening', id: 'd1', hold: true, finished: '', originals: '', partial: '', since: 0 };
 
 describe('a composer dictation view', () => {
   it('replaces live words, appends finished ones, and ignores other dictations', () => {
@@ -25,8 +25,28 @@ describe('a composer dictation view', () => {
     view = nextView(view, { id: 'd1', type: 'partial', text: ' Again' });
     expect(nextView(view, { id: 'other', type: 'final', text: 'Not mine.' })).toBe(view);
     view = nextView(view, { id: 'd1', type: 'finishing' });
-    expect(view).toEqual({ kind: 'finishing', id: 'd1', finished: 'Hello.', partial: ' Again' });
+    expect(view).toEqual({ kind: 'finishing', id: 'd1', finished: 'Hello.', originals: '', partial: ' Again' });
     expect(nextView(view, { id: 'd1', type: 'done', text: 'Hello. Again.' })).toEqual({ kind: 'idle' });
+  });
+
+  it('keeps the spoken words beside their translation', () => {
+    let view = nextView(listening, { id: 'd1', type: 'final', text: 'Add a test.', original: '加一个测试。' });
+    view = nextView(view, { id: 'd1', type: 'final', text: ' Then run it.', original: '然后运行它。' });
+    expect(view).toMatchObject({ finished: 'Add a test. Then run it.', originals: '加一个测试。然后运行它。' });
+  });
+
+  it('says why a dictation stopped before any audio', () => {
+    expect(nextView(listening, { id: 'd1', type: 'failed', code: 'translation-missing', seconds: 0 })).toEqual({
+      kind: 'notice', text: 'The translation isn’t downloaded yet.', settings: true,
+    });
+    expect(startFailure('model-missing')).toBe('The speech model isn’t downloaded yet.');
+    expect(startFailure('microphone-denied')).toBe('ByteQuay can’t use the microphone.');
+    expect(startFailure('failed')).toBe('Dictation couldn’t start.');
+  });
+
+  it('names languages from the helper ids', () => {
+    expect(languageName('en')).toBe('English');
+    expect(languageName('zh_CN')).toContain('Chinese');
   });
 
   it('keeps a failure with audio for Retry, and explains one without', () => {

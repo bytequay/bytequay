@@ -35,11 +35,16 @@ function strip(dictation: Dictation): ReactNode {
       return <div className="agt-dictation">
         {view.kind === 'listening' && <span className="agt-dictation__dot" aria-hidden="true" />}
         <span className="agt-dictation__words">
-          <span aria-live="polite">{view.finished}</span>
-          <span className="agt-dictation__partial">{view.finished === '' && view.partial === '' ? 'Listening…' : view.partial}</span>
+          {/* Translated words keep what was said as their hover text, to check the translation. */}
+          <span aria-live="polite" title={view.originals === '' ? undefined : view.originals}>{view.finished}</span>
+          {/* While translating, live words are still in the spoken language; a space keeps them apart from the written ones. */}
+          <span className="agt-dictation__partial">{view.finished === '' && view.partial === '' ? 'Listening…'
+            : `${dictation.into !== null && view.finished !== '' && view.partial !== '' ? ' ' : ''}${view.partial}`}</span>
         </span>
         <span className="agt-dictation__meta">
-          {view.kind === 'finishing' ? 'Finishing up' : `${clock(dictation.elapsed)} · ${view.hold ? 'release to stop' : 'click the mic to stop'} · Esc cancels`}
+          {view.kind === 'finishing' ? 'Finishing up' : [
+            clock(dictation.elapsed), dictation.into === null ? null : `into ${dictation.into}`, view.hold ? 'release to stop' : 'click the mic to stop', 'Esc cancels',
+          ].filter(part => part !== null).join(' · ')}
         </span>
       </div>;
     case 'failed':

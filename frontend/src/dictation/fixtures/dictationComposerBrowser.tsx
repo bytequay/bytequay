@@ -168,6 +168,23 @@ export function run() {
       button('Discard', host).click();
       await until(() => calls.includes('discard d5') && strip() === '', 'Discard deletes the recording and closes the strip');
     }],
+    ['Shows finished words in the written language, with what was said on hover', async () => {
+      flushSync(() => voiceChanged({ enabled: true, spoken: 'zh_CN', written: 'en' }));
+      const input = await listening('d9');
+      assert(strip().includes('into English'), 'The strip says which language the words are written in');
+      await send({ id: 'd9', type: 'partial', text: '加一个' });
+      await send({ id: 'd9', type: 'final', text: 'Add a test.', original: '加一个测试。' });
+      const finished = host.querySelector('.agt-dictation__words [title]');
+      assert(finished?.textContent === 'Add a test.' && finished.getAttribute('title') === '加一个测试。', 'Translated words keep what was said as hover text');
+      await send({ id: 'd9', type: 'done', text: 'Add a test.' });
+      await until(() => input.value === `${DRAFT} Add a test.`, 'The translation lands in the draft');
+      nextStart = { id: 'd10' };
+      mic()?.click();
+      await until(() => strip().includes('Listening…'), 'Dictation starts again');
+      await send({ id: 'd10', type: 'failed', code: 'translation-missing', seconds: 0 });
+      assert(strip().includes('The translation isn’t downloaded yet.'), 'A missing translation says so');
+      flushSync(() => voiceChanged({ enabled: true, spoken: null, written: null }));
+    }],
     ['Says why a start was refused and when no speech was heard', async () => {
       nextStart = { refused: 'busy' };
       await mount();

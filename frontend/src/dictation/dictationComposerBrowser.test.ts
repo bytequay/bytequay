@@ -19,6 +19,6 @@ it('dictates into the shared composer in Chromium', async () => {
     prefix: 'bytequay-dictation-composer-', entry: 'src/dictation/fixtures/dictationComposerBrowser.tsx', global: 'DictationComposerTests',
     styles: true, charset: true, width: 760, height: 600,
   });
-  expect(result).toHaveLength(7);
+  expect(result).toHaveLength(8);
   expect(result.filter(value => value.error)).toEqual([]);
 }, deadline(30_000));

@@ -152,16 +152,6 @@
   font-size: 12.5px;
 }
 
-.assistant-mic {
-  display: inline-flex;
-  width: 28px;
-  height: 28px;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  color: var(--fg-muted);
-}
-
 /* The day's conversation, the agenda and View all: one card each, scrolling inside when the window is short. */
 .assistant-sheet {
   min-height: 0;

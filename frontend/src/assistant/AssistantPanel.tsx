@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Mic, Play, RotateCw, Send, ShieldCheck,
+  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Play, RotateCw, Send, ShieldCheck,
   SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
@@ -255,9 +255,6 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
           )}
           <span className="assistant-spacer" />
           {view?.model && <span className="assistant-model" title={`Answers with ${view.model}`}>{view.model}</span>}
-          <span className="assistant-mic" role="img" aria-label="Voice comes later" title="Voice comes later. macOS Dictation already types here.">
-            <Mic size={15} aria-hidden="true" />
-          </span>
           {latest !== undefined && (
             <IconButton label="Conversations" tone="active" pressed={history} onClick={() => setHistory(shown => !shown)}><History size={15} aria-hidden="true" /></IconButton>
           )}

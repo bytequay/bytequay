@@ -489,6 +489,49 @@
   padding: 8px 10px 10px;
 }
 
+/* Dictation's live words sit above the draft; only the finished text enters it. */
+.agt-dictation {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 10px 12px 0;
+  padding: 6px 10px;
+  border-radius: 8px;
+  background: var(--surface-inset);
+  font-size: 12.5px;
+  color: var(--text-1);
+}
+
+.agt-dictation__dot {
+  flex: none;
+  align-self: center;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fg-danger);
+}
+
+.agt-dictation__words { flex: 1; min-width: 0; }
+.agt-dictation__partial { color: var(--fg-muted); }
+.agt-dictation__meta { flex: none; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.agt-dictation.is-failed .agt-dictation__words { color: var(--fg-danger); }
+
+.agt-dictation button {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg-link);
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .agt-dictation__dot { animation: agt-dictation-pulse 1.2s ease-in-out infinite; }
+}
+
+@keyframes agt-dictation-pulse { 50% { opacity: 0.3; } }
+
 .agt-mentions {
   position: absolute;
   bottom: calc(100% + 8px);

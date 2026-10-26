@@ -14,11 +14,11 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { GoogleStatus } from '@bytequay/google/contracts';
 import { useAgentAvailability } from '../agents/availability';
-import type { VoiceSettings, VoiceState, VoiceSupport } from '../dictation/contracts';
+import type { VoiceLanguages, VoiceSettings, VoiceState, VoiceSupport, VoiceToggle } from '../dictation/contracts';
 import { SETUP_CHANGED } from '../onboarding/setup';
 import { remoteErrorMessage } from '../remoteError';
 import type { AgendaDay, AgendaScheduleDto, AssistantPermissionsDto, QuietHoursDto, SetupPreferencesDto } from '../types';
-import { SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
+import { SelectPill, SettingsCard, SettingsRow, TimePill, Toggle } from './primitives';
 import { settingsRoute } from './routes';
 
 const DAYS: { day: AgendaDay; letter: string; name: string }[] = [
@@ -198,20 +198,26 @@ function AssistantPermissionRows({ onError }: { onError: (failure: unknown) => v
 }
 
 /** What the Voice card says under its switch: the first check this Mac fails, and the one thing the user can do about it. */
-export function voiceFooter({ support, on, fraction, onCheck, onPrivacy, onDownload }: {
+export function voiceFooter({ support, on, fraction, written, translating, onCheck, onPrivacy, onDownload, onTranslate }: {
   support: VoiceSupport | null;
   on: boolean;
   /** Download progress while ByteQuay fetches the speech model. */
   fraction: number | null;
+  /** The name of the language the draft is written in, when it differs from the spoken one. */
+  written?: string;
+  /** Apple's translation download window is open. */
+  translating: boolean;
   onCheck: () => void;
   onPrivacy: () => void;
   onDownload: () => void;
+  onTranslate: () => void;
 }): ReactNode {
   const row = (text: string, action?: [string, () => void]) => <div className="setw-foot-row">
     <span>{text}</span>
     {action !== undefined && <button type="button" onClick={action[1]}>{action[0]}</button>}
   </div>;
   if (support === null) return row('Checking this Mac…');
+  if (translating) return row('Finish the download in the window Apple opened.');
   const language = support.language ?? 'this Mac’s language';
   if (fraction !== null || support.state === 'downloading') {
     const percent = fraction === null ? null : Math.round(fraction * 100);
@@ -228,6 +234,7 @@ export function voiceFooter({ support, on, fraction, onCheck, onPrivacy, onDownl
     case 'no-microphone': return row('No microphone found. Connect one, then check again.', ['Check again', onCheck]);
     case 'microphone-denied': return row('ByteQuay can’t use the microphone.', ['Open Privacy settings', onPrivacy]);
     case 'needs-model': return row(`${language} speech model needed.`, ['Download', onDownload]);
+    case 'needs-translation': return row(`${language} to ${written ?? 'the chosen language'} translation needed.`, ['Download', onTranslate]);
     case 'ready': return on ? row('Hold right ⌥ in any composer to talk.') : undefined;
   }
 }
@@ -241,8 +248,12 @@ function VoiceFeature() {
   const [settings, setSettings] = useState<VoiceSettings | null>(null);
   const [support, setSupport] = useState<VoiceSupport | null>(null);
   const [fraction, setFraction] = useState<number | null>(null);
+  const [languages, setLanguages] = useState<VoiceLanguages | null>(null);
+  const [translating, setTranslating] = useState(false);
   const [busy, setBusy] = useState(false);
   const { error, fail, clear } = useFeatureError();
+  const loaded = settings !== null;
+  const spoken = settings?.spoken ?? null;
   const check = useCallback(() => {
     void window.bridge.checkVoice().then(setSupport).catch(fail);
   }, [fail]);
@@ -263,14 +274,36 @@ function VoiceFeature() {
     };
   }, [check, fail]);
 
+  useEffect(() => {
+    if (!loaded) return;
+    let current = true;
+    void window.bridge.getVoiceLanguages(spoken).then(value => { if (current) setLanguages(value); }).catch(fail);
+    return () => { current = false; };
+  }, [loaded, spoken, fail]);
+
   const on = settings?.enabled === true;
+  const apply = (result: VoiceToggle) => {
+    setSettings({ enabled: result.enabled, spoken: result.spoken, written: result.written });
+    setSupport(result.support);
+  };
+  const choose = (next: { spoken: string | null; written: string | null }) => {
+    setBusy(true);
+    clear();
+    window.bridge.setVoiceLanguages(next).then(apply).catch(fail).finally(() => setBusy(false));
+  };
+  const translate = () => {
+    setTranslating(true);
+    clear();
+    // Closing Apple's window is the user's answer, not a failure.
+    window.bridge.downloadVoiceTranslation().catch(failure => { if (!remoteErrorMessage(failure).includes('cancelled')) fail(failure); }).finally(() => {
+      setTranslating(false);
+      check();
+    });
+  };
   const toggle = (enabled: boolean) => {
     setBusy(true);
     clear();
-    window.bridge.setVoiceEnabled(enabled).then(result => {
-      setSettings({ enabled: result.enabled, spoken: result.spoken, written: result.written });
-      setSupport(result.support);
-    }).catch(fail).finally(() => setBusy(false));
+    window.bridge.setVoiceEnabled(enabled).then(apply).catch(fail).finally(() => setBusy(false));
   };
   const download = () => {
     setFraction(0);
@@ -280,7 +313,15 @@ function VoiceFeature() {
       check();
     });
   };
-  const footer = voiceFooter({ support, on, fraction, onCheck: check, onPrivacy: () => void window.bridge.openMicrophonePrivacy().catch(fail), onDownload: download });
+  const written = settings?.written ?? null;
+  const writtenName = languages?.written.find(language => language.id === written)?.name;
+  const footer = voiceFooter({
+    support, on, fraction, written: writtenName, translating, onCheck: check,
+    onPrivacy: () => void window.bridge.openMicrophonePrivacy().catch(fail), onDownload: download, onTranslate: translate,
+  });
+  // Without on-device speech there is nothing to choose between.
+  const choosing = settings !== null && languages !== null && support !== null && support.state !== 'macos-too-old' && support.state !== 'unavailable';
+  const spokenName = languages?.spoken.find(language => language.id === spoken)?.name;
 
   return <>
     <div className="setw-section">
@@ -290,8 +331,20 @@ function VoiceFeature() {
     <SettingsCard footer={footer ?? undefined}>
       <SettingsRow title="Enable dictation" subtitle="Speech stays on this Mac.">
         <Toggle label="Enable dictation" on={on}
-          disabled={voiceSwitchDisabled(on, fraction === null ? support?.state : 'downloading', busy || settings === null)} onChange={toggle} />
+          disabled={voiceSwitchDisabled(on, fraction === null ? support?.state : 'downloading', busy || translating || settings === null)} onChange={toggle} />
       </SettingsRow>
+      {choosing && <>
+        <SettingsRow title="I speak">
+          <SelectPill quiet ariaLabel="Spoken language" value={spoken ?? ''} label={spokenName ?? 'This Mac’s language'} disabled={busy || translating}
+            options={[{ value: '', label: 'This Mac’s language' }, ...languages.spoken.map(language => ({ value: language.id, label: language.name }))]}
+            onSelect={value => choose({ spoken: value === '' ? null : value, written })} />
+        </SettingsRow>
+        <SettingsRow title="Write it in">
+          <SelectPill quiet ariaLabel="Written language" value={written ?? ''} label={writtenName ?? 'Same as I speak'} disabled={busy || translating}
+            options={[{ value: '', label: 'Same as I speak' }, ...languages.written.map(language => ({ value: language.id, label: language.name }))]}
+            onSelect={value => choose({ spoken, written: value === '' ? null : value })} />
+        </SettingsRow>
+      </>}
     </SettingsCard>
   </>;
 }

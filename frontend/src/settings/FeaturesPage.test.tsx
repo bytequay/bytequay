@@ -44,19 +44,20 @@ describe('FeatureCard', () => {
 });
 
 describe('Voice card', () => {
-  const footer = (state: VoiceState | null, on = false, fraction: number | null = null) => renderToStaticMarkup(<>{voiceFooter({
-    support: state === null ? null : { state, macos: '15.6', language: 'English (United States)' },
-    on, fraction, onCheck: () => {}, onPrivacy: () => {}, onDownload: () => {},
+  const footer = (state: VoiceState | null, on = false, fraction: number | null = null, translating = false) => renderToStaticMarkup(<>{voiceFooter({
+    support: state === null ? null : { state, macos: '15.6', language: 'Chinese (China mainland)' },
+    on, fraction, written: 'English', translating, onCheck: () => {}, onPrivacy: () => {}, onDownload: () => {}, onTranslate: () => {},
   })}</>);
 
   it.each([
     [null, 'Checking this Mac…', null],
     ['macos-too-old', 'Needs macOS 26 or later. This Mac has 15.6. Update macOS first.', null],
     ['unavailable', 'This Mac can’t run on-device dictation.', null],
-    ['language-unsupported', 'Dictation doesn’t support English (United States) yet.', null],
+    ['language-unsupported', 'Dictation doesn’t support Chinese (China mainland) yet.', null],
     ['no-microphone', 'No microphone found. Connect one, then check again.', 'Check again'],
     ['microphone-denied', 'ByteQuay can’t use the microphone.', 'Open Privacy settings'],
-    ['needs-model', 'English (United States) speech model needed.', 'Download'],
+    ['needs-model', 'Chinese (China mainland) speech model needed.', 'Download'],
+    ['needs-translation', 'Chinese (China mainland) to English translation needed.', 'Download'],
   ] as const)('says what %s needs', (state, text, action) => {
     const html = footer(state);
     expect(html).toContain(text);
@@ -67,9 +68,15 @@ describe('Voice card', () => {
   it('shows download progress, and the hold hint only once on', () => {
     expect(footer('needs-model', false, 0.38)).toContain('value="38"');
     expect(footer('needs-model', false, 0.38)).toContain('38%');
-    expect(footer('downloading')).toContain('Downloading the English (United States) speech model');
+    expect(footer('downloading')).toContain('Downloading the Chinese (China mainland) speech model');
     expect(footer('ready')).toBe('');
     expect(footer('ready', true)).toContain('Hold right ⌥ in any composer to talk.');
+  });
+
+  it('waits on Apple’s download window without offering another download', () => {
+    const html = footer('needs-translation', false, null, true);
+    expect(html).toContain('Finish the download in the window Apple opened.');
+    expect(html).not.toContain('<button');
   });
 
   it('turns on only when every check passes, and always turns off', () => {

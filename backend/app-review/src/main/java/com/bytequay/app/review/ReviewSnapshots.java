@@ -109,7 +109,7 @@ final class ReviewSnapshots
                 .map(line -> line.split("\\u001f", 3))
                 .map(parts -> new ReviewCommit(parts[0], parts.length > 2 ? parts[2] : "", parts.length > 1 ? parts[1] : ""))
                 .collect(toImmutableList());
-        List<DiffFile> diff = pullRequests.getValidatedPullRequestDiffFiles(repository, number, baseSha, headSha);
+        List<DiffFile> diff = pullRequests.getValidatedPullRequestDiffFiles(repository, number, headSha);
         return new Snapshot(OptionalLong.of(detail.id()), headSha, Optional.empty(), baseRef, baseSha, mergeBase, commits, diff);
     }
 

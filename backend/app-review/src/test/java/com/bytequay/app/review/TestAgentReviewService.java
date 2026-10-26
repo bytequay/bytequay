@@ -195,11 +195,11 @@ class TestAgentReviewService
     void mismatchedPullRequestDiffCannotStartAReview()
     {
         ResponseStatusException conflict = new ResponseStatusException(HttpStatus.CONFLICT, "Refresh the pull request before reviewing its changed files");
-        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, HEAD)).thenThrow(conflict);
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, HEAD)).thenThrow(conflict);
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isSameAs(conflict);
 
-        verify(fixture.pullRequests).getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, HEAD);
+        verify(fixture.pullRequests).getValidatedPullRequestDiffFiles(REPO, NUMBER, HEAD);
         assertThat(fixture.store.listOpenReviews()).isEmpty();
         verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
         verify(fixture.turns, never()).start(any());
@@ -2269,7 +2269,7 @@ class TestAgentReviewService
                 .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Address review\n"));
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
-        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, NEW_HEAD))
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, NEW_HEAD))
                 .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         TurnId updateTurn = TurnId.valueOf("55555555-5555-4555-8555-555555555555");
         when(fixture.turns.start(any(StartAgentTurnCommand.class))).thenReturn(AgentTurn.accepted(updateTurn, TASK_ID, "review-update", SETTINGS, NOW));
@@ -3385,7 +3385,7 @@ class TestAgentReviewService
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
-        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, BASE_SHA, NEW_HEAD))
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, NEW_HEAD))
                 .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         when(fixture.git.runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {
             List<String> arguments = invocation.getArgument(3);
@@ -3761,7 +3761,7 @@ class TestAgentReviewService
             when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("octocat", "Octo Cat", "", "", 0, 0, 0, "", "", "", "")));
             when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
             when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(HEAD));
-            when(pullRequests.getValidatedPullRequestDiffFiles(eq(REPO), eq(NUMBER), anyString(), anyString()))
+            when(pullRequests.getValidatedPullRequestDiffFiles(eq(REPO), eq(NUMBER), anyString()))
                     .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +1,3 @@\n context\n+added\n")));
             when(tasks.create(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
             when(tasks.get(TASK_ID)).thenReturn(idleTask());

@@ -133,12 +133,13 @@ public class PullRequestSnapshotService
     }
 
     /** Freezing a review needs the bytes and their validation from the same cached artifact. */
-    List<DiffFile> getValidatedDiffFiles(long prId, String baseSha, String headSha)
+    List<DiffFile> getValidatedDiffFiles(long prId, String headSha)
     {
-        checkText(baseSha, "base");
         checkText(headSha, "head");
+        // GitHub's recorded base trails the base branch tip, so only it, not a freshly fetched tip, identifies the cached diff.
+        Optional<String> baseSha = details.find(prId).map(StoredPrDetail::raw).map(PrRawDetail::baseSha);
         return diffs.find(prId, null, null)
-                .filter(diff -> diff.baseSha().filter(baseSha::equals).isPresent()
+                .filter(diff -> baseSha.isPresent() && diff.baseSha().equals(baseSha)
                         && diff.headSha().filter(headSha::equals).isPresent()
                         && diff.validatedAt().isPresent())
                 .map(StoredPrDiff::files)

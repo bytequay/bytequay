@@ -13,7 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import SettingsWindow from '../SettingsWindow';
-import type { AgentSkillInput, AppPreferencesDto } from '../../types';
+import type { AgentSkillInput, AppPreferencesDto, DevelopmentAutomationDto } from '../../types';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { assert, button, changeInput, element, runScenarios, settle, until } from '../../fixtures/harness';
 
@@ -82,6 +82,42 @@ export async function run() {
         assert(button('Dark', view.host).getAttribute('aria-checked') === 'true', 'Failed save restores the stored choice');
         fail = false; button('Light', view.host).click(); await settle();
         assert(saved.theme === 'LIGHT', 'A failed save does not poison subsequent saves');
+      }
+      finally { view.dispose(); }
+    }],
+    ['Keep the latest automation choice after an earlier queued save fails', async () => {
+      const first = Promise.withResolvers<DevelopmentAutomationDto>();
+      const writes: DevelopmentAutomationDto[] = [];
+      let saved: DevelopmentAutomationDto = { level: 'COMMIT', ciLaneId: null };
+      let fail = false;
+      Object.defineProperty(window, 'bridge', { configurable: true, value: {
+        getAppVersion: async () => ({ version: 'test' }), getAppPreferences: async () => preferences,
+        getModelSettings: async () => ({ agents: [], providers: [], apiKeys: [], keyProviders: [] }),
+        refreshModelSettings: async () => ({ agents: [], providers: [], apiKeys: [], keyProviders: [] }),
+        getDevelopmentAutomation: async () => saved,
+        saveDevelopmentAutomation: async (value: DevelopmentAutomationDto) => {
+          writes.push(value);
+          if (writes.length === 1) return first.promise;
+          if (fail) throw new Error('Automation unavailable');
+          saved = value; return saved;
+        },
+      } });
+      const view = createFixtureRoot();
+      const slider = () => element<HTMLInputElement>('input[aria-label="Automation"]', view.host);
+      try {
+        flushSync(() => view.root.render(<SettingsWindow section="workflow" workspace={null} onWorkspacesChanged={() => {}} />));
+        await settle(); changeInput(slider(), '1'); await settle();
+        changeInput(slider(), '2'); await settle();
+        assert(writes.length === 1, 'Automation saves run in order');
+        first.reject(new Error('Earlier automation save failed'));
+        await until(() => writes.length === 2, 'A failed save does not block the latest choice');
+        await settle();
+        assert(saved.level === 'CI_FIX' && slider().value === '2', 'The last saved automation choice stays visible');
+        assert(!view.host.textContent?.includes('Earlier automation save failed'), 'A superseded failure does not label the latest saved choice as failed');
+        fail = true; changeInput(slider(), '3');
+        await until(() => view.host.textContent?.includes('Automation unavailable') === true, 'The latest save failure stays visible');
+        await settle();
+        assert(slider().value === '2', 'The latest save failure restores the stored choice');
       }
       finally { view.dispose(); }
     }],

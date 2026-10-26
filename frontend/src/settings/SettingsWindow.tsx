@@ -56,6 +56,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
 }) {
   const [automation, setAutomation] = useState<DevelopmentAutomationDto | null>(null);
   const automationSaves = useRef<Promise<unknown>>(Promise.resolve());
+  const automationRequest = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const [signingIn, setSigningIn] = useState<{ laneId: string; providerName: string } | null>(null);
 
@@ -73,6 +74,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [checking, setChecking] = useState(false);
   const checkedAt = models?.checkedAt ? clock(new Date(models.checkedAt)) : null;
   const modelRequest = useRef(0);
+  const modelSaves = useRef<Promise<unknown>>(Promise.resolve());
   const [skills, setSkills] = useState<AgentSkillDto[] | null>(null);
   const [skillsBusy, setSkillsBusy] = useState(false);
   const [account, setAccount] = useState<GitHubAccountDto | null>(null);
@@ -110,7 +112,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     setError(null);
     setChecking(true);
     // Paint saved choices before waiting for CLI startup, authentication, or model discovery.
-    return window.bridge.getModelSettings(modelWorkspaceId)
+    return modelSaves.current.then(() => window.bridge.getModelSettings(modelWorkspaceId))
       .then(receive)
       .catch(failure => { if (request === modelRequest.current) report(failure); })
       .then(() => window.bridge.refreshModelSettings(force, modelWorkspaceId))
@@ -126,7 +128,12 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
 
   useEffect(() => {
     if (section !== 'workflow') return;
-    void window.bridge.getDevelopmentAutomation().then(setAutomation).catch(report);
+    let active = true;
+    const request = automationRequest.current;
+    void automationSaves.current.then(() => window.bridge.getDevelopmentAutomation())
+      .then(value => { if (active && request === automationRequest.current) setAutomation(value); })
+      .catch(failure => { if (active && request === automationRequest.current) report(failure); });
+    return () => { active = false; };
   }, [section, report]);
 
   const loadAccount = useCallback(() => {
@@ -192,11 +199,30 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     return () => { active = false; };
   }, [section, report, workspaceId_]);
 
-  const chooseModel = (type: AgentModelType, choice: ModelChoice) => {
+  const saveModels = (save: () => Promise<ModelSettingsDto>) => {
+    const request = ++modelRequest.current;
+    const scope = modelWorkspaceId;
+    setChecking(false);
     setError(null);
-    window.bridge.setAgentModel(type, choice.configId, choice.model, choice.effort)
-      .then(setModels)
-      .catch(report);
+    // Keep writes ordered and prevent a provider read started before this edit from reverting it.
+    modelSaves.current = modelSaves.current.then(save)
+      .then(value => {
+        if (request !== modelRequest.current || modelScopeRef.current !== scope) return;
+        setModels(value);
+        setModelsScope(scope);
+      })
+      .catch(async (failure: unknown) => {
+        if (modelScopeRef.current !== scope) return;
+        report(failure);
+        if (request !== modelRequest.current) return;
+        try {
+          const saved = await window.bridge.getModelSettings(scope);
+          if (request !== modelRequest.current || modelScopeRef.current !== scope) return;
+          setModels(saved);
+          setModelsScope(scope);
+        }
+        catch { /* Keep the last displayed choices beside the save error until the user retries. */ }
+      });
   };
 
   const chooseWorkspaceModel = (type: AgentModelType, choice: ModelChoice) => {
@@ -336,32 +362,31 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 laneId: providerId,
                 providerName: models.providers.find(provider => provider.id === providerId)?.label ?? providerId,
               })}
-              onChoose={chooseModel}
-              onInherit={type => {
-                setError(null);
-                window.bridge.clearAgentModel(type).then(setModels).catch(report);
-              }}
-              onAddKey={(provider, alias, key) => {
-                setError(null);
-                window.bridge.addModelApiKey(provider, alias, key).then(setModels).catch(report);
-              }}
-              onRemoveKey={alias => {
-                setError(null);
-                window.bridge.removeModelApiKey(alias).then(setModels).catch(report);
-              }}
+              onChoose={(type, choice) => saveModels(() => window.bridge.setAgentModel(type, choice.configId, choice.model, choice.effort))}
+              onInherit={type => saveModels(() => window.bridge.clearAgentModel(type))}
+              onAddKey={(provider, alias, key) => saveModels(() => window.bridge.addModelApiKey(provider, alias, key))}
+              onRemoveKey={alias => saveModels(() => window.bridge.removeModelApiKey(alias))}
             />
           )}
           {section === 'features' && <FeaturesPage quietHours={quietHours} />}
           {section === 'workflow' && <WorkflowPage value={automation} providers={modelsScope === modelWorkspaceId ? models?.providers ?? [] : []} error={error}
             preferences={preferences} onPreferences={savePreferences}
             onChange={next => {
+              const request = ++automationRequest.current;
               setAutomation(next);
               setError(null);
               // Saves run in order, so a quick drag across the slider ends saved at the stop it ended on.
-              automationSaves.current = automationSaves.current.then(() => window.bridge.saveDevelopmentAutomation(next)).catch((failure: unknown) => {
-                report(failure);
-                return window.bridge.getDevelopmentAutomation().then(setAutomation).catch(report);
-              });
+              automationSaves.current = automationSaves.current.then(() => window.bridge.saveDevelopmentAutomation(next))
+                .then(saved => { if (request === automationRequest.current) setAutomation(saved); })
+                .catch(async (failure: unknown) => {
+                  if (request !== automationRequest.current) return;
+                  report(failure);
+                  try {
+                    const saved = await window.bridge.getDevelopmentAutomation();
+                    if (request === automationRequest.current) setAutomation(saved);
+                  }
+                  catch { /* Keep the failed selection visible beside its error until the user retries. */ }
+                });
             }} />}
           {section === 'skills' && (
             <SkillsPage

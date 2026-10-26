@@ -65,6 +65,63 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(view.host.textContent?.includes('Provider temporarily unavailable') === true, 'Refresh errors stay visible');
       assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('GPT-6 Sol') === true, 'Failure retains the saved choice');
     },
+    async 'a late provider refresh cannot overwrite a saved model choice'(view: View) {
+      await settle(); view.finish({ ...saved, providers: [...saved.providers, claude] }); await settle();
+      const check = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Check');
+      assert(check !== undefined, 'Check is available'); check.click(); await settle();
+      view.host.querySelector<HTMLButtonElement>('[aria-label="Development model"]')?.click(); await settle();
+      const choice = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find(button => button.textContent?.includes('Opus'));
+      assert(choice !== undefined, 'Another model is available while discovery runs'); choice.click(); await settle();
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Opus') === true, 'The saved choice is displayed');
+      view.finish(saved); await settle();
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Opus') === true, 'The earlier refresh cannot roll back the saved choice');
+    },
+    async 'quick model choices are persisted in selection order'(view: View) {
+      await settle(); view.finish(withAccount); await settle();
+      const first = Promise.withResolvers<void>();
+      const writes: string[] = [];
+      window.bridge.setAgentModel = async (type, configId, model, effort) => {
+        writes.push(configId);
+        if (writes.length === 1) await first.promise;
+        const provider = withAccount.providers.find(candidate => candidate.id === configId);
+        return { ...withAccount, agents: [{ type, explicit: true, configId, model, effort,
+          label: provider?.label ?? configId, modelLabel: provider?.models.find(candidate => candidate.id === model)?.name ?? model }] };
+      };
+      const choose = async (name: string) => {
+        view.host.querySelector<HTMLButtonElement>('[aria-label="Development model"]')?.click(); await settle();
+        const option = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(button => button.textContent?.includes(name));
+        assert(option !== undefined, `${name} is available`); option.click(); await settle();
+      };
+      await choose('Opus'); await choose('GPT-6 Sol');
+      assert(writes.join(',') === 'claude', 'The second choice waits for the first save');
+      first.resolve(); await settle();
+      assert(writes.join(',') === 'claude,codex', 'The latest choice is persisted last');
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('GPT-6 Sol') === true, 'The final saved choice is displayed');
+    },
+    async 'a failed latest model save restores the earlier persisted choice'(view: View) {
+      await settle(); view.finish(withAccount); await settle();
+      const first = Promise.withResolvers<void>();
+      let persisted = withAccount;
+      let writes = 0;
+      window.bridge.getModelSettings = async () => persisted;
+      window.bridge.setAgentModel = async (type, configId, model, effort) => {
+        if (++writes === 2) throw new Error('Model save unavailable');
+        await first.promise;
+        persisted = { ...withAccount, agents: [{ type, explicit: true, configId, model, effort, label: 'Claude Code', modelLabel: 'Opus' }] };
+        return persisted;
+      };
+      const choose = async (name: string) => {
+        view.host.querySelector<HTMLButtonElement>('[aria-label="Development model"]')?.click(); await settle();
+        const option = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')].find(button => button.textContent?.includes(name));
+        assert(option !== undefined, `${name} is available`); option.click(); await settle();
+      };
+      await choose('Opus'); await choose('GPT-6 Sol');
+      first.resolve(); await settle();
+      assert(writes === 2 && persisted.agents[0].configId === 'claude', 'Only the first model choice persisted');
+      assert(view.host.textContent?.includes('Model save unavailable') === true, 'The failed latest save remains visible');
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Opus') === true, 'The control reflects the earlier persisted choice');
+    },
     async 'global providers hide repository accounts and their models'(view: View) {
       await settle(); view.finish({ ...withAccount, providers: withAccount.providers.map(provider => provider.id === 'claude'
         ? { ...provider, readiness: 'AUTHENTICATION_REQUIRED', diagnostic: '' } : provider) }); await settle();

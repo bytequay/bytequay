@@ -15,8 +15,8 @@ import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
 testBrowserScenarios([
   {
-    name: 'preserves failed skill edits and serializes preference saves',
-    expected: 2, timeout: 30_000,
+    name: 'preserves failed skill edits and serializes settings saves',
+    expected: 3, timeout: 30_000,
     fixture: { prefix: 'bytequay-settings-saves-', entry: 'src/settings/fixtures/settingsSavesBrowser.tsx', global: 'SettingsSavesTests' },
   },
   {

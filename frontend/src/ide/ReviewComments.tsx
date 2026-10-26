@@ -69,7 +69,7 @@ export default function ReviewComments({ cards, selectedPath, repository, unavai
         title={<code className="lrc__title" title={card.location}>{shortPath(card.location)}</code>}
         chip={<span className="lrc__chip">{card.kind}</span>}
         badges={card.status && <span className="lrc__badge">{card.status}</span>}
-        resolved={card.resolved} outdated={card.outdated} defaultOpen attributes={{ 'data-comment-id': card.id }}
+        resolved={card.resolved} outdated={card.outdated} attributes={{ 'data-comment-id': card.id }}
         controls={card.target && <footer className="lrc__foot"><button type="button" className="ide-comments__jump" disabled={opening !== null}
           aria-label={`${card.target.end === null ? 'Open file' : 'Jump to code'}: ${card.location}`} onClick={() => { void jump(card); }}>
           <ArrowUpRight size={13} />{opening === card.id ? 'Opening…' : card.target.end === null ? 'Open file' : 'Jump to code'}

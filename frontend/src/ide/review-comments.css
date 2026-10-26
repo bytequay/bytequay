@@ -1,4 +1,4 @@
-.ide-comments { display: flex; flex-direction: column; flex: 0 0 min(460px, 42%); min-width: 0; min-height: 0; border-left: 1px solid var(--ide-edge); background: var(--ide-bar); color: var(--ide-fg); font-size: 12px; }
+.ide-comments { --ui-font-size: var(--code-font-size); display: flex; flex-direction: column; flex: 0 0 min(460px, 42%); min-width: 0; min-height: 0; border-left: 1px solid var(--ide-edge); background: var(--ide-bar); color: var(--ide-fg); font-size: var(--ui-font-size); }
 .ide-comments > header { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; gap: 8px; }
 .ide-comments button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; padding: 4px 7px; font: inherit; cursor: pointer; }
 .ide-comments button:hover:not(:disabled) { background: var(--ide-bg); border-color: var(--ide-edge); }
@@ -16,5 +16,6 @@
 .ide-comments__list > .lrc { margin: 0 0 10px; width: 100%; min-width: 0; }
 .ide-comments .lrc__head { flex-wrap: wrap; }
 .ide-comments .lrc__title { flex-basis: calc(100% - 30px); }
+.ide-comments .lrc__head :is(code.lrc__title, .lrc__chip, .lrc__badge, .lrc__resolved), .ide-comments .markdown-body code { font-size: var(--code-font-size); }
 .ide-comments .lrc__foot { justify-content: flex-end; }
 .ide-comments .ide-comments__jump { color: var(--accent); }

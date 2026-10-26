@@ -28,8 +28,9 @@ export async function run() {
   const cards = reviewCommentCards({ review: reviewFixture() });
   const source = cards[0];
   cards.push({ ...source, id: 'other', path: 'src/Other.java', location: 'src/Other.java:R5', kind: 'Pending', title: 'Check the fallback',
-    status: 'Not posted', messages: [{ author: 'You', body: 'Please check the **fallback** path.', timestamp: null }],
+    status: 'Not posted', messages: [{ author: 'You', body: 'Please check the **fallback** path with `fallback()`.\n\n```java\nfallback();\n```', timestamp: null }],
     target: { path: 'src/Other.java', start: null, end: 5, revision: 'head' } });
+  cards.push({ ...source, id: 'resolved', kind: 'GitHub', resolved: true });
   let selectedPath: string | null = source.path;
   let closed = false, failed = false, composed = false;
   const jumps: ReviewCommentTarget[] = [];
@@ -47,10 +48,25 @@ export async function run() {
   render(); await settle();
   assert(count() === cards.length, 'All shows every review card');
   assert(host.textContent?.includes(source.messages[0].body.split('`')[0]), 'Card contents are readable before navigation');
+  const codeSize = getComputedStyle(element<HTMLElement>('.markdown-body pre code', host, 'Card contains code')).fontSize;
+  for (const headerText of host.querySelectorAll<HTMLElement>('.lrc__head, .lrc__title, .lrc__chip, .lrc__badge, .lrc__resolved')) {
+    assert(getComputedStyle(headerText).fontSize === codeSize, 'Every card header label matches the code font size');
+  }
+  const resolved = element<HTMLDetailsElement>('[data-comment-id="resolved"]', host, 'Resolved card is present');
+  assert(!resolved.open, 'Resolved cards start folded');
+  assert(element<HTMLDetailsElement>('[data-comment-id="other"]', host, 'Pending card is present').open, 'Unresolved cards start expanded');
+  await click('[data-comment-id="resolved"] summary');
+  assert(resolved.open, 'Resolved cards can still be expanded');
+  render(); await settle();
+  assert(resolved.open, 'Refreshing the sidebar preserves a manually expanded card');
+  await click('[data-comment-id="resolved"] summary');
   await click('[role="tab"]:nth-child(2)');
   assert(count() === cards.filter(card => card.path === selectedPath).length, 'This file only shows selected-file cards');
   selectedPath = 'src/Other.java'; render(); await settle();
   assert(count() === 1 && host.querySelector('[data-comment-id="other"] strong')?.textContent === 'You', 'The file filter follows active-file changes');
+  for (const selector of ['.lrc__title', '.lrc-message__head strong', '.markdown-body p', '.markdown-body p code', '.ide-comments__jump']) {
+    assert(getComputedStyle(element<HTMLElement>(selector, host, `Missing ${selector}`)).fontSize === codeSize, 'Card text matches its code font size');
+  }
   await click('.ide-comments__jump');
   assert(jumps.length === 1 && jumps[0].path === selectedPath && jumps[0].end === 5, 'Card navigation retains its own path and line');
   failed = true; await click('.ide-comments__jump');

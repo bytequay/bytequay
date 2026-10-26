@@ -88,6 +88,8 @@ jobs:
         run: node --test scripts/java-runtime.test.mjs
       - name: Test Lab runtime packaging
         run: node --test scripts/lab-runtime.test.mjs
+      - name: Test dictation helper build
+        run: node --test scripts/dictation-helper.test.mjs
       - name: Package
         working-directory: frontend
         env:

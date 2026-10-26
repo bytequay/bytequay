@@ -512,7 +512,8 @@ public class DevelopmentFollowupCoordinator
             return;
         }
         try {
-            turns.failDevelopmentContinuation(completion.task().id(), completion.turn().id(), "Automation stopped. " + reason);
+            turns.failDevelopmentContinuation(completion.task().id(), completion.turn().id(),
+                    "Automation stopped. " + reason + (reason.endsWith(".") ? "" : ".") + " Send another message to retry.");
         }
         catch (RuntimeException failure) {
             log.error("Could not settle development follow-up failure for task {}", completion.task().id(), failure);

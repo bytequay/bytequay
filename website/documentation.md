@@ -298,7 +298,8 @@ the ones before it:
 
 When the agent rewrites pushed commits, for example by splitting or squashing
 them, the next push replaces them with a lease. It stops instead when the PR
-branch has commits the task never had.
+branch has commits the task never had. When automation stops on an error, your
+next message retries the delivery, even if that turn changes nothing.
 
 Every step after Auto-Commit writes to GitHub, and repairs use your model
 allowance. The stop square above the composer halts automation and keeps your

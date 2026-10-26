@@ -313,12 +313,12 @@ public record AgentTask(
     }
 
     /**
-     * Ends the continuation. One a restart cut off leaves its work for the next development turn to deliver, even across
-     * that turn's own restart; any other end has delivered the work or chosen not to.
+     * Ends the continuation. One a restart or an error cut off leaves its work for the next development turn to deliver,
+     * even across that turn's own restart; any other end has delivered the work or the user chose not to.
      */
-    public AgentTask withSettledDevelopmentContinuation(boolean lost, Instant now)
+    public AgentTask withSettledDevelopmentContinuation(boolean undelivered, Instant now)
     {
-        return withDevelopmentContinuation(false, now).toBuilder().developmentDeliveryPending(lost).build();
+        return withDevelopmentContinuation(false, now).toBuilder().developmentDeliveryPending(undelivered).build();
     }
 
     public AgentTask withVersion(long updatedVersion)

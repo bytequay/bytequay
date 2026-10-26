@@ -1509,12 +1509,14 @@ class TestDefaultAgentTurnService
         assertThat(driver.commands()).hasSize(1);
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
         assertThat(worktrees.cleanupCalls).isZero();
+        assertThat(taskService.get(task.id()).developmentDeliveryPending()).isTrue();
         AgentTurn resumed = service.resumeQueued(task.id());
         developmentListener = Optional.of(ignored -> {});
         reportReady(resumed);
         driver.complete("Queued request finished");
         assertThat(service.ownsDevelopmentContinuation(task.id(), resumed.id())).isTrue();
         service.finishDevelopmentContinuation(task.id(), resumed.id());
+        assertThat(taskService.get(task.id()).developmentDeliveryPending()).isFalse();
     }
 
     @Test
@@ -2315,6 +2317,7 @@ class TestDefaultAgentTurnService
         assertThat(service.cancel(generated.id()).state()).isEqualTo(TurnState.COMPLETED);
 
         assertThat(taskService.get(task.id()).state()).isEqualTo(TaskState.OPEN);
+        assertThat(taskService.get(task.id()).developmentDeliveryPending()).isFalse();
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
         assertThat(runtimeRegistry.session(task.id())).isEmpty();
     }

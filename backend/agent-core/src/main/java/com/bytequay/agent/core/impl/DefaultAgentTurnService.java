@@ -495,6 +495,12 @@ public final class DefaultAgentTurnService
     @Override
     public AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
     {
+        return failDevelopmentContinuation(taskId, sourceTurnId, reason, true);
+    }
+
+    /** @param undelivered whether the next development turn retries delivery: true after an error, false after the user's cancel */
+    private AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason, boolean undelivered)
+    {
         requireNonNull(sourceTurnId, "sourceTurnId is null");
         checkText(reason, "reason");
         synchronized (runtimeRegistry.stopLock(taskId)) {
@@ -512,7 +518,7 @@ public final class DefaultAgentTurnService
                 pending = runtimeRegistry.stopDevelopment(taskId);
             }
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException(reason)));
-            return stopDevelopmentContinuation(taskId, sourceTurnId, reason);
+            return stopDevelopmentContinuation(taskId, sourceTurnId, reason, undelivered);
         }
     }
 
@@ -538,7 +544,7 @@ public final class DefaultAgentTurnService
         }
     }
 
-    private AgentTask stopDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
+    private AgentTask stopDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason, boolean undelivered)
     {
         Optional<AgentTurn> active;
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -553,10 +559,10 @@ public final class DefaultAgentTurnService
             active.ifPresent(turn -> turnStore.update(turn.requestCancellation(Instant.now(clock))));
         }
         stopDevelopmentRuntimes(taskId, active);
-        return settleStoppedDevelopmentContinuation(taskId, reason, false);
+        return settleStoppedDevelopmentContinuation(taskId, reason, undelivered);
     }
 
-    private AgentTask settleStoppedDevelopmentContinuation(TaskId taskId, String reason, boolean lost)
+    private AgentTask settleStoppedDevelopmentContinuation(TaskId taskId, String reason, boolean undelivered)
     {
         AgentTask stopped;
         synchronized (runtimeRegistry.taskLock(taskId)) {
@@ -581,7 +587,7 @@ public final class DefaultAgentTurnService
                         queueStore.update(input.paused(message, now));
                     }
                 }
-                AgentTask updated = taskStore.update(task.withSettledDevelopmentContinuation(lost, now));
+                AgentTask updated = taskStore.update(task.withSettledDevelopmentContinuation(undelivered, now));
                 outboxStore.insert(pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
                 return updated;
             });
@@ -1706,7 +1712,7 @@ public final class DefaultAgentTurnService
         }
         if (cancelledDevelopment.isPresent()) {
             pending.forEach(future -> future.completeExceptionally(new AgentConflictException("Development automation cancelled")));
-            failDevelopmentContinuation(initial.taskId(), cancelledDevelopment.orElseThrow(), "The current request was cancelled. Send another message to continue.");
+            failDevelopmentContinuation(initial.taskId(), cancelledDevelopment.orElseThrow(), "The current request was cancelled. Send another message to continue.", false);
             return turnStore.require(turnId);
         }
         // Approval and provider cancellation may complete callbacks that

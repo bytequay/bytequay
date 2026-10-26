@@ -857,7 +857,8 @@ class TestDevelopmentFollowupCoordinator
 
         advance();
 
-        verify(turns).failDevelopmentContinuation(taskId, interrupted.id(), "Automation stopped. Check development result: Approval request timed out");
+        verify(turns).failDevelopmentContinuation(taskId, interrupted.id(),
+                "Automation stopped. Check development result: Approval request timed out. Send another message to retry.");
         verify(git, never()).inspectLocal(any(), any());
         verify(git, never()).inspectPublication(any(), any());
         noFollowup();

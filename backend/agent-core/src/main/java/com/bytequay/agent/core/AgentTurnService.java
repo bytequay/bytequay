@@ -67,7 +67,10 @@ public interface AgentTurnService
     /** Releases a settled continuation; queued questions remain paused until explicitly resumed. */
     void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId);
 
-    /** Revokes live authority and stops known writers, preserving the open task after verified shutdown. */
+    /**
+     * Revokes live authority and stops known writers, preserving the open task after verified shutdown. The work stays
+     * pending, so the next development turn retries its delivery even when it changes nothing.
+     */
     AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason);
 
     /** Stops an unfinished continuation whose backend was lost, preserving the task without replaying work. */

@@ -354,6 +354,22 @@
 
 .cmt-search input::placeholder { color: var(--fg-dim); }
 
+.cmt-sync-notice {
+  display: flex;
+  flex: none;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line-default);
+  background: var(--bg-info);
+  color: var(--fg-link);
+  line-height: 1.5;
+}
+
+.cmt-sync-notice > .bq-spinner { flex: none; margin-top: 2px; }
+.cmt-sync-notice strong,
+.cmt-sync-notice div > span { display: block; }
+
 .cmt-range-bar { padding: 10px 12px; border-bottom: 1px solid var(--line-default); background: var(--surface-canvas); }
 
 .cmt-hint { font-size: var(--ui-font-size); color: var(--fg-dim); margin-top: 8px; line-height: 1.4; }

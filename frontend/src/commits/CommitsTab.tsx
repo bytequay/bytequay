@@ -608,6 +608,17 @@ export function CommitsBrowser({ workspace, settings, repos, initialRepo, initia
           )}
         </div>
       )}
+      {syncing && !showPulls && (
+        <div className="cmt-sync-notice" role="status">
+          <span className="bq-spinner is-spinning">
+            <RefreshCw size={16} strokeWidth={2} aria-hidden="true" />
+          </span>
+          <div>
+            <strong>Syncing commit details…</strong>
+            <span>Avatars and pull-request details will update when sync finishes.</span>
+          </div>
+        </div>
+      )}
     </>
   );
 

@@ -1471,10 +1471,10 @@ public class AgentReviewService
         Snapshot snapshot = review.replay().isPresent() ? ReviewSnapshots.frozen(runs.getFirst()) : review.sourceTaskId()
                 .map(ignored -> localSnapshot(sourceTask(review), workspace, review.number()))
                 .orElseGet(() -> snapshots.pullRequest(workspace, review.repo(), review.number().orElseThrow()));
+        // The base tip only locates the merge base; it moves with every unrelated base-branch commit, so it is not part of the reviewed scope.
         boolean changed = latest.map(run -> !run.headSha().equals(snapshot.headSha())
                 || !run.worktreeTreeSha().equals(snapshot.worktreeTreeSha())
                 || !run.baseRef().equals(snapshot.baseRef())
-                || !run.baseSha().equals(snapshot.baseSha())
                 || !run.mergeBaseSha().equals(snapshot.mergeBaseSha())).orElse(true);
         List<ReviewFinding> findings = store.listFindings(review.id());
         boolean needsReassessment = findings.stream().anyMatch(finding -> finding.state() == ReviewFinding.State.OPEN
@@ -1613,7 +1613,6 @@ public class AgentReviewService
         boolean incremental = review.sourceTaskId().isEmpty() && previous.isPresent()
                 && !previous.orElseThrow().headSha().equals(snapshot.headSha())
                 && previous.orElseThrow().baseRef().equals(snapshot.baseRef())
-                && previous.orElseThrow().baseSha().equals(snapshot.baseSha())
                 && previous.orElseThrow().mergeBaseSha().equals(snapshot.mergeBaseSha())
                 && git.run(workspace.repository(), "merge-base", "--is-ancestor", previous.orElseThrow().headSha(), snapshot.headSha()).successful();
         ReviewRun run = insertRun(review, snapshot, ordinal, incremental ? ReviewRun.Scope.INCREMENTAL : ReviewRun.Scope.FULL,

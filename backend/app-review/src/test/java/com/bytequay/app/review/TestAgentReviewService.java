@@ -2296,12 +2296,11 @@ class TestAgentReviewService
     }
 
     @Test
-    void aChangedBaseStartsAFullReviewEvenWhenThePullRequestHeadIsUnchanged()
+    void aNewerBaseTipWithTheSameHeadAndMergeBaseIsNotAChange()
     {
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
-        ReviewRun validating = beginValidation(fixture, first);
-        completeCleanReview(fixture, validating);
+        completeCleanReview(fixture, beginValidation(fixture, first));
         fixture.service.reconcile(reviewId);
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, first.id(), 1, ReviewFinding.State.OPEN));
         String newerBase = "3".repeat(40);
@@ -2310,21 +2309,31 @@ class TestAgentReviewService
 
         fixture.service.update(reviewId);
 
-        ReviewRun updated = fixture.store.listRuns(reviewId).getLast();
-        assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
-        assertThat(updated.headSha()).isEqualTo(HEAD);
-        assertThat(updated.baseSha()).isEqualTo(newerBase);
-        assertThat(updated.scope()).isEqualTo(ReviewRun.Scope.FULL);
-        ReviewFinding pending = fixture.store.findFinding(finding.id()).orElseThrow();
-        assertThat(pending.outdated()).isTrue();
-        assertThat(pending.validatedHeadSha()).isEqualTo(HEAD);
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
+        assertThat(fixture.store.findFinding(finding.id())).contains(finding);
+        verify(fixture.turns, times(2)).start(any());
+    }
 
-        ReviewMessage question = fixture.service.ask(reviewId, Optional.of(finding.id()), Optional.empty(), pending.revision(), "Still valid?", "ask-2310");
-        assertThat(question.runId()).isEqualTo(updated.id());
-        assertThat(question.runId()).isNotEqualTo(first.id());
-        ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
-        verify(fixture.turns, times(4)).start(started.capture());
-        assertThat(started.getValue().message()).contains("reviewed head " + HEAD.substring(0, 7), "pending reassessment in the current review scope", "current base and head");
+    @Test
+    void aNewPushReviewsOnlyItsCommitsWhenTheBaseTipAlsoMoved()
+    {
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        completeCleanReview(fixture, beginValidation(fixture, fixture.store.listRuns(reviewId).getFirst()));
+        fixture.service.reconcile(reviewId);
+        pushHead(fixture, NEW_HEAD);
+        String newerBase = "3".repeat(40);
+        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(newerBase));
+        when(fixture.git.run(REPOSITORY, "merge-base", NEW_HEAD, newerBase)).thenReturn(ok(MERGE_BASE));
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
+
+        fixture.service.update(reviewId);
+
+        ReviewRun updated = fixture.store.listRuns(reviewId).getLast();
+        assertThat(updated.headSha()).isEqualTo(NEW_HEAD);
+        assertThat(updated.baseSha()).isEqualTo(newerBase);
+        assertThat(updated.scope()).isEqualTo(ReviewRun.Scope.INCREMENTAL);
+        assertThat(updated.priorHeadSha()).contains(HEAD);
     }
 
     @Test
@@ -2337,8 +2346,11 @@ class TestAgentReviewService
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, first.id(), 1, ReviewFinding.State.OPEN));
         fixture.service.resolveFinding(reviewId, finding.id(), finding.version(), "Addressed locally");
         String newerBase = "3".repeat(40);
+        String rewrittenMergeBase = "4".repeat(40);
         when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(newerBase));
-        when(fixture.git.run(REPOSITORY, "merge-base", HEAD, newerBase)).thenReturn(ok(MERGE_BASE));
+        when(fixture.git.run(REPOSITORY, "merge-base", HEAD, newerBase)).thenReturn(ok(rewrittenMergeBase));
+        when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", rewrittenMergeBase + ".." + HEAD))
+                .thenReturn(ok(HEAD + FIELD + "Alice" + FIELD + "Fix the parser\n"));
 
         fixture.service.update(reviewId);
         ReviewRun second = fixture.store.listRuns(reviewId).getLast();

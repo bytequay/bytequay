@@ -25,6 +25,7 @@ import { IdeViews } from './ideViews';
 import { ArtifactView } from './artifactView';
 import { parseArtifactPage, parseArtifactRows, parseArtifactView } from './artifacts/contracts';
 import { repositoryAvatar } from './repositoryAvatars';
+import { ARTIFACT_NOTICE } from './notices/contracts';
 import { NoticeHost } from './notices/host';
 import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
 import { APP_NAVIGATION_SHORTCUTS, type AppNavigationTarget } from './appNavigation';
@@ -322,14 +323,16 @@ const appNotices = new NoticeHost(() => mainWindow,
     return heldNotices?.value;
   },
   async notice => {
-    if (notice.reviewId !== null) {
+    const artifact = notice.id.startsWith(ARTIFACT_NOTICE);
+    if (artifact) parseArtifactView(await backendJson(workspaceUrl(notice.workspaceId, `/artifacts/${encodeURIComponent(notice.taskId)}`)));
+    else if (notice.reviewId !== null) {
       const review = parseAgentReview(await backendJson(`${backendBase()}/api/agent-review/${encodeURIComponent(notice.reviewId)}`));
       if (review.id !== notice.reviewId || review.workspaceId !== notice.workspaceId || review.task.id !== notice.taskId) throw new Error('This review no longer matches the notice.');
     }
     else await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`);
     browserTabs.hide();
     mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId,
-      workItemId: notice.workItemId ?? null });
+      workItemId: notice.workItemId ?? null, artifact });
     mainWindow?.webContents.focus();
   }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'),
   () => ensureWindow().then(() => { mainWindow?.show(); mainWindow?.focus(); }));

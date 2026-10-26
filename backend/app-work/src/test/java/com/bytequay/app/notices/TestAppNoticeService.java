@@ -45,17 +45,21 @@ import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewRunOverview;
 import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.store.ArtifactStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -92,7 +96,9 @@ class TestAppNoticeService
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final EpicNextWork next = mock(EpicNextWork.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, new ObjectMapper());
+    private final ArtifactStore artifacts = mock(ArtifactStore.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, ciRuns, next, artifacts, workspaces, new ObjectMapper());
     private final AgentTask task = created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -199,6 +205,31 @@ class TestAppNoticeService
             assertThat(notice.message()).isEqualTo("Keep the public API?");
         });
         show(task, asked, turnAt(NOW.plusSeconds(20)));
+        assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void alertsOnAnArtifactsQuestionThatTimedOutBesideTheTaskNotices()
+    {
+        Artifact conversation = Artifact.started("conversation", "workspace", "Explain snapshots", NOW)
+                .missing(Optional.of(new Artifact.MissedQuestion("question-1", "claude", "{\"questions\":[{\"question\":\"What next?\"}]}", NOW)), NOW);
+        when(artifacts.missed()).thenReturn(ImmutableList.of(conversation));
+        RepoRef repository = RepoRef.of("owner", "repo");
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(new Workspace("workspace", "repo", 1, repository, Optional.empty(), Optional.empty(), 1, repository,
+                Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/notice-workspace", Optional.of(NOW),
+                Optional.of(NOW), 0, NOW, NOW)));
+
+        assertThat(service.alerts()).singleElement().satisfies(notice -> {
+            assertThat(notice.id()).isEqualTo("artifact:question-1");
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.QUESTION);
+            assertThat(notice.taskId()).isEqualTo("conversation");
+            assertThat(notice.workspaceId()).isEqualTo("workspace");
+            assertThat(notice.title()).isEqualTo("Explain snapshots");
+            assertThat(notice.message()).isEqualTo("Timed out: What next?");
+            assertThat(notice.repository()).isEqualTo("owner/repo");
+            assertThat(notice.occurredAt()).isEqualTo(NOW);
+        });
+        // The Assistant and the agenda read every notice as a task.
         assertThat(service.current()).isEmpty();
     }
 

@@ -330,7 +330,8 @@ or Jira ticket can be one; the grouping stays on your Mac.
 ## Learn with Artifacts
 
 1. Open **Artifacts** and ask in **Ask about this repository**. Answers cite
-   files and end with a question card.
+   files and end with a question card. A card waits five minutes; if it times
+   out, an alert opens the conversation so you can reply there.
 2. Choose **Make the page** when offered, or ask for one at any time.
 3. Ask for changes in the same conversation; **Versions** keeps each save.
 

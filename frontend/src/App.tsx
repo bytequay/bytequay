@@ -26,6 +26,7 @@ import HomePage from './home/HomePage';
 import TeamsPage from './teams/TeamsPage';
 import { reloadHandled } from './home/attention';
 import { loadPinned } from './home/pinned';
+import { openArtifact } from './artifacts/ArtifactsPage';
 import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, type ZoomedReference } from './githubReference';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
@@ -290,14 +291,15 @@ function AppContent() {
       zoomReference({ kind: 'work', workspaceId: target.workspaceId, itemId: target.workItemId });
       return;
     }
-    if (target.reviewId === null) {
+    if (target.reviewId === null && !target.artifact) {
       zoomReference({ kind: 'task', taskId: target.taskId, workspaceId: target.workspaceId });
       return;
     }
     backToApp();
     setLayers([]);
     setPaletteOpen(false);
-    navigateTo(workspaceReviewTaskRoute(target.workspaceId, target.reviewId), 'push');
+    if (target.artifact) openArtifact(target.workspaceId, target.taskId);
+    else if (target.reviewId !== null) navigateTo(workspaceReviewTaskRoute(target.workspaceId, target.reviewId), 'push');
   }), [backToApp, navigateTo]);
 
   useEffect(() => {

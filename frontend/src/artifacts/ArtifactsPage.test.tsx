@@ -13,15 +13,15 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import ArtifactsPage, { openStartedArtifact } from './ArtifactsPage';
+import ArtifactsPage, { openArtifact } from './ArtifactsPage';
 
 describe('a conversation started from Home', () => {
   afterEach(() => { vi.unstubAllGlobals(); });
 
   it('opens in its own workspace’s Artifacts', () => {
     const location = { hash: '' };
-    vi.stubGlobal('window', { location, innerWidth: 1280 });
-    openStartedArtifact('w1', {
+    vi.stubGlobal('window', { location, innerWidth: 1280, dispatchEvent: () => true });
+    openArtifact('w1', 'a1', {
       artifact: { id: 'a1', title: 'What is a checkpoint?', working: true, updatedAt: '2026-01-01T00:00:00Z' },
       offers: [], pages: [], questions: [], pendingApprovals: [],
     });

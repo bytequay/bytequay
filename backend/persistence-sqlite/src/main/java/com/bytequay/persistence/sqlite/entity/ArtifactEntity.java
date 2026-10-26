@@ -23,7 +23,7 @@ import lombok.Getter;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
 
-/** One artifact conversation as JSON, with its workspace and whether it is answering beside it for queries. */
+/** One artifact conversation as JSON, with its workspace, whether it is answering, and whether it missed a question beside it for queries. */
 @Entity
 @Table(name = "artifact_conversation", indexes = @Index(name = "idx_artifact_conversation_workspace", columnList = "workspace_id"))
 public class ArtifactEntity
@@ -38,6 +38,9 @@ public class ArtifactEntity
 
     @Column(nullable = false)
     private boolean working;
+
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean missed;
 
     @Column(nullable = false, columnDefinition = "TEXT")
     @JdbcTypeCode(SqlTypes.JSON)
@@ -55,6 +58,7 @@ public class ArtifactEntity
     {
         workspaceId = artifact.workspaceId();
         working = artifact.working();
+        missed = artifact.missed().isPresent();
         value = artifact;
     }
 

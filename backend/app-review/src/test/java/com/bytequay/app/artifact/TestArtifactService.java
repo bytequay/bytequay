@@ -367,6 +367,34 @@ class TestArtifactService
     }
 
     @Test
+    void aQuestionNobodyAnswersExpiresAndStaysMissedUntilTheUserWritesAgain()
+    {
+        CompletableFuture<ProviderApprovalDecision> decided = new CompletableFuture<>();
+        agent.add(turn -> turn.context().approvals().request(approval("AskUserQuestion", QUESTION_INPUT), Duration.ofMillis(50)).toCompletableFuture()
+                .thenApply(decision -> {
+                    decided.complete(decision);
+                    return new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Nobody answered, so I stop here."), Optional.empty(), Duration.ofSeconds(1), true);
+                }));
+        String id = artifacts.start(WORKSPACE, "Teach me position deletes").artifact().id();
+        ArtifactView ended = waitUntilAnswered(id);
+
+        assertThat(decided.join().timedOut()).isTrue();
+        assertThat(transcript(id)).endsWith("approval_requested", "approval_resolved", "answer: Nobody answered, so I stop here.", "turn_completed: Turn completed");
+        assertThat(artifacts.events(WORKSPACE, id, OptionalLong.empty(), OptionalLong.of(0)).events())
+                .filteredOn(event -> event.payload() instanceof AgentEventPayload.ApprovalResolved)
+                .singleElement().extracting(event -> ((AgentEventPayload.ApprovalResolved) event.payload()).outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.EXPIRED);
+        assertThat(ended.artifact().missed()).hasValueSatisfying(missed -> {
+            assertThat(missed.laneId()).isEqualTo(LANE.value());
+            assertThat(missed.detail()).isEqualTo(QUESTION_INPUT);
+        });
+        assertThat(store.missed()).extracting(Artifact::id).containsExactly(id);
+
+        artifacts.send(WORKSPACE, id, "Go on with the read path");
+        waitUntilAnswered(id);
+        assertThat(store.missed()).isEmpty();
+    }
+
+    @Test
     void keepsAnOpenQuestionAvailableOutsideTheLatestEventWindow()
     {
         agent.add(turn -> {

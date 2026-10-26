@@ -92,6 +92,27 @@ class TestSqliteArtifactStore
         assertThat(store.list("other")).containsExactly(elsewhere);
     }
 
+    @Test
+    void findsConversationsWithAMissedQuestionAndReadsOnesSavedBeforeThem()
+    {
+        Artifact missed = Artifact.started("a1", "workspace", "Teach me position deletes", AT)
+                .missing(Optional.of(new Artifact.MissedQuestion("q1", "claude", "{\"questions\":[]}", AT)), AT);
+        store.save(missed);
+        store.save(Artifact.started("a2", "other", "Explain snapshots", AT));
+        // A conversation saved before missed questions were kept.
+        entities.createNativeQuery("insert into artifact_conversation (id, workspace_id, working, missed, value) values ('a3', 'workspace', false, false, "
+                + "'{\"id\":\"a3\",\"workspaceId\":\"workspace\",\"title\":\"Older\",\"working\":false,\"session\":null,\"createdAt\":1792984892.21,\"updatedAt\":1792984892.21}')")
+                .executeUpdate();
+        flush();
+
+        assertThat(store.missed()).containsExactly(missed);
+        assertThat(store.find("workspace", "a3")).hasValueSatisfying(older -> assertThat(older.missed()).isEmpty());
+
+        store.save(missed.missing(Optional.empty(), AT.plusSeconds(1)));
+        flush();
+        assertThat(store.missed()).isEmpty();
+    }
+
     private void flush()
     {
         entities.flush();

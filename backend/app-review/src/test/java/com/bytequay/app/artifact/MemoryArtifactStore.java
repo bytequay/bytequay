@@ -59,6 +59,12 @@ final class MemoryArtifactStore
     }
 
     @Override
+    public synchronized List<Artifact> missed()
+    {
+        return artifacts.values().stream().filter(artifact -> artifact.missed().isPresent()).collect(toImmutableList());
+    }
+
+    @Override
     public synchronized void save(Artifact artifact)
     {
         artifacts.put(artifact.id(), artifact);

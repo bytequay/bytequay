@@ -158,10 +158,13 @@ it('does not restart background features if readiness returns during quit', asyn
   expect(desktop.ready).toHaveBeenCalledTimes(2);
 });
 
-it('reads only task notices and opens the matching task', async () => {
+it('reads only task notices and opens the matching task or conversation', async () => {
   const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null,
     repository: 'owner/repo', laneId: 'codex', title: 'A question', pullRequest: null, pullRequestTitle: null, changes: null, message: 'Please answer', occurredAt: '2026-10-12T00:00:00Z' };
-  const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/agent/notices') ? [task] : [])));
+  const conversation = { artifact: { id: 'conversation', workspaceId: 'workspace', title: 'Explain snapshots', working: false, updatedAt: '2026-10-12T00:00:00Z' },
+    offers: [], pages: [], questions: [], pendingApprovals: [] };
+  const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/agent/notices') ? [task]
+    : url.endsWith('/artifacts/conversation') ? conversation : [])));
   vi.stubGlobal('fetch', fetcher);
   await start();
   fetcher.mockClear();
@@ -170,10 +173,14 @@ it('reads only task notices and opens the matching task', async () => {
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/notices', expect.objectContaining({ headers: expect.any(Object) }));
   await desktop.openNotice(task);
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/tasks/task?workspaceId=workspace', expect.objectContaining({ headers: expect.any(Object) }));
-  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null, workItemId: null });
+  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null, workItemId: null, artifact: false });
   expect(desktop.openExternal).not.toHaveBeenCalled();
   await desktop.openNotice({ ...task, id: 'next', kind: 'NEXT_WORK', turnId: null, workItemId: 'work-2' });
-  expect(desktop.send).toHaveBeenLastCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: null, reviewId: null, workItemId: 'work-2' });
+  expect(desktop.send).toHaveBeenLastCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: null, reviewId: null, workItemId: 'work-2', artifact: false });
+  // A timed-out Artifacts question names its conversation, which must still exist.
+  await desktop.openNotice({ ...task, id: 'artifact:question-1', taskId: 'conversation', turnId: null });
+  expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/api/workspaces/workspace/artifacts/conversation', expect.objectContaining({ headers: expect.any(Object) }));
+  expect(desktop.send).toHaveBeenLastCalledWith('notices:open-task', { taskId: 'conversation', workspaceId: 'workspace', turnId: null, reviewId: null, workItemId: null, artifact: true });
 });
 
 it('keeps the held notices while the backend answers that nothing changed', async () => {
@@ -201,7 +208,7 @@ it('opens completed reviews through their review route and checks their task and
   expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher).toHaveBeenCalledWith(`http://127.0.0.1:9527/api/agent-review/${review.id}`, expect.objectContaining({ headers: expect.any(Object) }));
   expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: review.task.id, workspaceId: review.workspaceId, turnId: 'turn', reviewId: review.id,
-    workItemId: null });
+    workItemId: null, artifact: false });
   expect(desktop.openExternal).not.toHaveBeenCalled();
   desktop.send.mockClear();
   for (const mismatch of [{ id: 'other' }, { workspaceId: 'other' }, { task: { ...review.task, id: 'other' } }]) {

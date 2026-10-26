@@ -38,7 +38,7 @@ class TestAppNoticeController
         AppNoticeService notices = mock(AppNoticeService.class);
         EpicNextWork next = mock(EpicNextWork.class);
         WriteVersion writes = new WriteVersion();
-        when(notices.current()).thenReturn(ImmutableList.of());
+        when(notices.alerts()).thenReturn(ImmutableList.of());
         var mvc = standaloneSetup(new AppNoticeController(notices, writes, next)).build();
 
         String etag = mvc.perform(get("/agent/notices")).andExpect(status().isOk()).andExpect(content().json("[]"))
@@ -50,6 +50,6 @@ class TestAppNoticeController
         when(next.revision()).thenReturn(1L);
         mvc.perform(get("/agent/notices").header("If-None-Match", written)).andExpect(status().isOk()).andExpect(header().exists("ETag"));
 
-        verify(notices, times(3)).current();
+        verify(notices, times(3)).alerts();
     }
 }

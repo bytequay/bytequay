@@ -46,6 +46,6 @@ public class AppNoticeController
         if (request.checkNotModified(writes.current() + "-" + next.revision())) {
             return null;
         }
-        return notices.current();
+        return notices.alerts();
     }
 }

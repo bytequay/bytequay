@@ -1613,8 +1613,9 @@ export type RecentDraftRequest = {
 
 export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & ArtifactBridge & {
   onAppNavigation: (callback: (target: import('./appNavigation').AppNavigationTarget) => void) => () => void;
-  /** `workItemId` names the Epic work a notice suggests next; it opens instead of the task. */
-  onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null; workItemId: string | null }) => void) => () => void;
+  /** `workItemId` names the Epic work a notice suggests next; it opens instead of the task. With `artifact`, `taskId` is an Artifacts conversation. */
+  onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null; workItemId: string | null;
+    artifact: boolean }) => void) => () => void;
   setNoticeSource: (key: string, taskId: string | null) => Promise<void>;
   /** The notices the Assistant panel lists; each new one also shows once as the bottom-right alert. */
   readAppNotices: () => Promise<NoticeSnapshot>;

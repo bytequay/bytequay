@@ -20,6 +20,7 @@ import type { PendingMessage } from '../agents/model';
 import type { AgentHistoryPageDto } from '../types';
 import { projectTranscript, withApprovalAuthority } from '../agents/transcript';
 import { ago } from '@bytequay/ui/relativeTime';
+import { useNoticeSource } from '../notices/useNoticeSource';
 import { remoteErrorMessage } from '../remoteError';
 import { useNow } from '../useNow';
 import { useResizablePane } from '../useResizablePane';
@@ -35,20 +36,31 @@ const MAXIMUM_MESSAGE = 4_000;
 const BUSY = 'Wait for';
 const MAX_EVENTS = 1000;
 
-// A conversation another page started, which Artifacts opens the next time it shows that workspace.
-let started: { workspaceId: string; view: ArtifactViewDto } | null = null;
+// A conversation another page asked to show, which Artifacts opens the next time it shows that workspace, or at once if it is showing.
+let started: { workspaceId: string; id: string; view: ArtifactViewDto | null } | null = null;
+const OPEN_ARTIFACT = 'bytequay:open-artifact';
 
-/** Shows a conversation another page started, in its workspace's Artifacts. */
-export function openStartedArtifact(workspaceId: string, view: ArtifactViewDto): void {
-  started = { workspaceId, view };
+/** Shows a conversation in its workspace's Artifacts; `view` is what a page that just started it already has. */
+export function openArtifact(workspaceId: string, id: string, view: ArtifactViewDto | null = null): void {
+  started = { workspaceId, id, view };
+  window.dispatchEvent(new Event(OPEN_ARTIFACT));
   window.location.hash = workspaceRoute(workspaceId, 'artifacts');
 }
 
 /** Artifacts: the conversations of a workspace, then one conversation with its pages beside it. Keyed by workspace. */
 export default function ArtifactsPage({ workspaceId }: { workspaceId: string }) {
   const [open, setOpen] = useState<{ id: string; view: ArtifactViewDto | null } | null>(
-    () => started?.workspaceId === workspaceId ? { id: started.view.artifact.id, view: started.view } : null);
-  useEffect(() => { started = null; }, []);
+    () => started?.workspaceId === workspaceId ? { id: started.id, view: started.view } : null);
+  useEffect(() => {
+    started = null;
+    const opened = () => {
+      if (started?.workspaceId !== workspaceId) return;
+      setOpen({ id: started.id, view: started.view });
+      started = null;
+    };
+    window.addEventListener(OPEN_ARTIFACT, opened);
+    return () => window.removeEventListener(OPEN_ARTIFACT, opened);
+  }, [workspaceId]);
   return open === null
     ? <ConversationList workspaceId={workspaceId} onOpen={(id, view) => setOpen({ id, view })} />
     : <Conversation key={open.id} workspaceId={workspaceId} artifactId={open.id} initial={open.view} onBack={() => setOpen(null)} />;
@@ -111,6 +123,8 @@ function Conversation({ workspaceId, artifactId, initial, onBack }: {
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const live = useLive();
+  // A question that times out while the conversation shows needs no alert.
+  useNoticeSource(artifactId);
   const held = useRef<AgentHistoryPageDto | null>(null);
   const following = useRef(true);
   const [loading, setLoading] = useState(false);

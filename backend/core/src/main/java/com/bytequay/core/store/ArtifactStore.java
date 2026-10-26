@@ -30,6 +30,9 @@ public interface ArtifactStore
     /** Every conversation still marked as answering, in any workspace. */
     List<Artifact> working();
 
+    /** Every conversation whose last question timed out unanswered, in any workspace. */
+    List<Artifact> missed();
+
     void save(Artifact artifact);
 
     /**

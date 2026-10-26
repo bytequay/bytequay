@@ -74,6 +74,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,6 +86,7 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.spi.ProviderApprovalRequest.QUESTION_TOOL;
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
@@ -334,7 +336,8 @@ public class ArtifactService
             throw new AgentConflictException("Wait for “" + title + "” to finish");
         }
         try {
-            Artifact working = artifact.working(true, clock.instant());
+            // Writing again is the answer to a question that timed out, so its alert ends.
+            Artifact working = artifact.working(true, clock.instant()).missing(Optional.empty(), clock.instant());
             store.save(working);
             // A task's turn opens the same way: the message, then the turn's start.
             write(working, Optional.of(run.turnId), new AgentEventPayload.UserMessage(message, ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
@@ -448,7 +451,7 @@ public class ArtifactService
         return OneShotSession.run(resources, drivers.require(lane), (scratchId, scratch) -> new AgentSessionContext(
                         scratchId.toString(), checkout.folder(), scratch.runtimeDirectory(), scratch.providerDirectory(), AgentPermissionPolicy.AUTO,
                         resume.map(value -> new AgentSessionRef(lane, value.contractVersion(), value.providerValue())),
-                        (request, timeout) -> ask(run, artifact, request), Optional.of(model.model()), model.effort(),
+                        (request, timeout) -> ask(run, artifact, lane, request, timeout), Optional.of(model.model()), model.effort(),
                         SessionAccess.READ_ONLY, Optional.empty(), INSTRUCTIONS, Optional.empty(),
                         ImmutableList.of(ArtifactTools.offer(mapper, offer -> offer(run, artifact, offer)),
                                 ArtifactTools.save(mapper, page -> save(run, artifact, checkout.commit(), page))), true),
@@ -472,10 +475,10 @@ public class ArtifactService
     }
 
     /**
-     * A question the agent asks with choices waits for the user's answer, shown as a task's question card; anything else asks for
-     * something a read-only session does not grant, and is refused.
+     * A question the agent asks with choices waits for the user's answer, shown as a task's question card, until its timeout; anything else
+     * asks for something a read-only session does not grant, and is refused.
      */
-    private CompletableFuture<ProviderApprovalDecision> ask(Run run, Artifact artifact, ProviderApprovalRequest request)
+    private CompletableFuture<ProviderApprovalDecision> ask(Run run, Artifact artifact, AgentLaneId lane, ProviderApprovalRequest request, Duration timeout)
     {
         if (!request.requestedPermissions().contains(QUESTION_TOOL)) {
             return CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
@@ -491,7 +494,26 @@ public class ArtifactService
             record(run, artifact, question.source(), AgentApprovalEvents.requested(id, request));
             run.questions.put(id, question);
         }
+        // The asker owns the timeout, as a task's approvals do; Codex sets no wait of its own.
+        CompletableFuture.delayedExecutor(timeout.toMillis(), TimeUnit.MILLISECONDS, executor).execute(() -> expire(run, artifact, lane, id));
         return question.answer();
+    }
+
+    /** Closes a question nobody answered in time and keeps it on the conversation, which alerts the user until they write again. */
+    private synchronized void expire(Run run, Artifact artifact, AgentLaneId lane, String approvalId)
+    {
+        if (run.ended || run.stopped) {
+            return;
+        }
+        Question question = run.questions.remove(approvalId);
+        if (question == null) {
+            return;
+        }
+        record(run, artifact, question.source(), new AgentEventPayload.ApprovalResolved(approvalId, AgentEventPayload.ApprovalOutcome.EXPIRED, false));
+        Instant now = clock.instant();
+        store.find(artifact.workspaceId(), artifact.id()).ifPresent(current -> store.save(current.missing(
+                Optional.of(new Artifact.MissedQuestion(approvalId, lane.value(), question.request().providerRequest().detail(), now)), now)));
+        question.answer().complete(ProviderApprovalDecision.expired());
     }
 
     private record Question(ApprovalRequest request, CompletableFuture<ProviderApprovalDecision> answer)

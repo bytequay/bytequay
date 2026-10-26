@@ -28,7 +28,7 @@ import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../remoteError';
-import { openStartedArtifact } from '../artifacts/ArtifactsPage';
+import { openArtifact } from '../artifacts/ArtifactsPage';
 import { displayModelName, laneLabel } from '../settings/model';
 import { BackportButton } from './BackportRequestHint';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -143,7 +143,7 @@ export default function AgentHome({
   const [askError, setAskError] = useState<string | null>(null);
   const askArtifacts = useCallback((question: string) => {
     setAskError(null);
-    return window.bridge.startArtifact(workspaceId, question).then(view => openStartedArtifact(workspaceId, view), failure => {
+    return window.bridge.startArtifact(workspaceId, question).then(view => openArtifact(workspaceId, view.artifact.id, view), failure => {
       setAskError(remoteErrorMessage(failure));
       throw failure;
     });

@@ -31,12 +31,15 @@ import com.bytequay.app.service.epic.EpicNextWork;
 import com.bytequay.app.utils.ContextText;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.domain.Artifact;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewRunOverview;
+import com.bytequay.core.store.ArtifactStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -59,6 +62,9 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class AppNoticeService
 {
+    // Marks a notice that opens an Artifacts conversation, whose id the notice's task id holds; the app reads the same prefix.
+    private static final String ARTIFACT_NOTICE = "artifact:";
+
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
     private final AgentApprovalStore approvals;
@@ -67,6 +73,8 @@ public class AppNoticeService
     private final PullRequestStore pullRequests;
     private final CiAutofixStore ciRuns;
     private final EpicNextWork next;
+    private final ArtifactStore artifacts;
+    private final WorkspaceStore workspaces;
     private final ObjectMapper mapper;
 
     public AppNoticeService(
@@ -78,6 +86,8 @@ public class AppNoticeService
             PullRequestStore pullRequests,
             CiAutofixStore ciRuns,
             EpicNextWork next,
+            ArtifactStore artifacts,
+            WorkspaceStore workspaces,
             ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -88,9 +98,26 @@ public class AppNoticeService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.next = requireNonNull(next, "next is null");
+        this.artifacts = requireNonNull(artifacts, "artifacts is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
+    /** What the app alerts on: the task notices, and each Artifacts conversation whose question timed out unanswered. */
+    public List<AppNotice> alerts()
+    {
+        ImmutableList.Builder<AppNotice> alerts = ImmutableList.<AppNotice>builder().addAll(current());
+        for (Artifact artifact : artifacts.missed()) {
+            Artifact.MissedQuestion missed = artifact.missed().orElseThrow();
+            workspaces.findById(artifact.workspaceId()).ifPresent(workspace -> alerts.add(new AppNotice(ARTIFACT_NOTICE + missed.approvalId(), AppNotice.Kind.QUESTION,
+                    artifact.id(), artifact.workspaceId(), Optional.empty(), Optional.empty(), clip(artifact.title(), 160), Optional.empty(), Optional.empty(),
+                    Optional.empty(), Optional.empty(), clip("Timed out: " + question(missed.detail()), 280), workspace.monitoredRepository().fullName(),
+                    missed.laneId(), Optional.empty(), missed.at())));
+        }
+        return alerts.build();
+    }
+
+    /** The task notices, which the Assistant and the agenda read as tasks. */
     public List<AppNotice> current()
     {
         Map<TaskId, AgentTask> candidates = new LinkedHashMap<>();

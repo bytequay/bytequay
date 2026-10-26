@@ -30,6 +30,9 @@ public interface ArtifactJpaRepository
     @Query("select a.value from ArtifactEntity a where a.working = true")
     List<Artifact> working();
 
+    @Query("select a.value from ArtifactEntity a where a.missed = true")
+    List<Artifact> missed();
+
     @Modifying
     @Query("delete from ArtifactEntity a where a.workspaceId = :workspaceId")
     void deleteWorkspace(String workspaceId);

@@ -24,8 +24,10 @@ import static java.util.Objects.requireNonNull;
  *
  * @param working whether the agent is answering a message now
  * @param session the agent conversation the next message continues
+ * @param missed the agent's last question, when it timed out unanswered and the user has not written since
  */
-public record Artifact(String id, String workspaceId, String title, boolean working, Optional<ArtifactSession> session, Instant createdAt, Instant updatedAt)
+public record Artifact(String id, String workspaceId, String title, boolean working, Optional<ArtifactSession> session, Optional<MissedQuestion> missed,
+        Instant createdAt, Instant updatedAt)
 {
     private static final int WORKING_TITLE = 60;
 
@@ -35,8 +37,26 @@ public record Artifact(String id, String workspaceId, String title, boolean work
         checkText(workspaceId, "workspaceId");
         checkText(title, "title");
         requireNonNull(session, "session is null");
+        requireNonNull(missed, "missed is null");
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
+    }
+
+    /**
+     * A question the agent asked that nobody answered in time.
+     *
+     * @param laneId the agent that asked
+     * @param detail the question as the agent asked it
+     */
+    public record MissedQuestion(String approvalId, String laneId, String detail, Instant at)
+    {
+        public MissedQuestion
+        {
+            checkText(approvalId, "approvalId");
+            checkText(laneId, "laneId");
+            requireNonNull(detail, "detail is null");
+            requireNonNull(at, "at is null");
+        }
     }
 
     /** A new conversation, named by its first message's first words until its first page names it. */
@@ -44,21 +64,26 @@ public record Artifact(String id, String workspaceId, String title, boolean work
     {
         String line = firstMessage.strip().lines().findFirst().orElse(firstMessage).strip();
         String title = line.length() <= WORKING_TITLE ? line : line.substring(0, WORKING_TITLE - 1).strip() + "…";
-        return new Artifact(id, workspaceId, title, false, Optional.empty(), now, now);
+        return new Artifact(id, workspaceId, title, false, Optional.empty(), Optional.empty(), now, now);
     }
 
     public Artifact working(boolean answering, Instant now)
     {
-        return new Artifact(id, workspaceId, title, answering, session, createdAt, now);
+        return new Artifact(id, workspaceId, title, answering, session, missed, createdAt, now);
     }
 
     public Artifact continuing(ArtifactSession conversation, Instant now)
     {
-        return new Artifact(id, workspaceId, title, working, Optional.of(conversation), createdAt, now);
+        return new Artifact(id, workspaceId, title, working, Optional.of(conversation), missed, createdAt, now);
     }
 
     public Artifact named(String newTitle, Instant now)
     {
-        return new Artifact(id, workspaceId, newTitle, working, session, createdAt, now);
+        return new Artifact(id, workspaceId, newTitle, working, session, missed, createdAt, now);
+    }
+
+    public Artifact missing(Optional<MissedQuestion> question, Instant now)
+    {
+        return new Artifact(id, workspaceId, title, working, session, question, createdAt, now);
     }
 }

@@ -16,7 +16,7 @@ import { assert, changeInput, element, settle, until } from '../../fixtures/harn
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { AgentPendingApprovalDto, Bridge } from '../../types';
-import ArtifactsPage from '../ArtifactsPage';
+import ArtifactsPage, { openArtifact } from '../ArtifactsPage';
 import type { ArtifactViewDto } from '../contracts';
 import '../../css/base.css';
 import '../../css/agents.css';
@@ -210,6 +210,30 @@ async function approvalAuthority(): Promise<void> {
   finally { dispose(); timers.restore(); }
 }
 
+async function openFromNotice(): Promise<void> {
+  const view = (id: string, title: string): ArtifactViewDto => ({ artifact: { id, title, updatedAt: occurredAt, working: false },
+    offers: [], pages: [], questions: [], pendingApprovals: [] });
+  const views = [view('first', 'First conversation'), view('missed', 'Missed question')];
+  window.bridge = {
+    listArtifacts: async () => views.map(each => ({ artifact: each.artifact, pages: 0 })),
+    viewArtifact: async (_workspace, artifact) => views.find(each => each.artifact.id === artifact) ?? views[0],
+    artifactEvents: async () => ({ events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 }),
+  } satisfies Partial<Bridge> as unknown as Bridge;
+  const { root, host, dispose } = createFixtureRoot();
+  host.style.cssText = 'height:650px;width:950px';
+  try {
+    flushSync(() => root.render(<ArtifactsPage workspaceId="workspace" />));
+    await until(() => host.querySelector('.artifacts-row') !== null, 'The conversations are listed');
+    openArtifact('other', 'missed');
+    await settle();
+    assert(host.querySelector('[aria-label="Missed question"]') === null, 'A notice for another workspace leaves this one alone');
+    // The list is already showing, so the route does not change; the notice still opens its conversation.
+    openArtifact('workspace', 'missed');
+    await until(() => host.querySelector('[aria-label="Missed question"]') !== null, 'A notice opens its conversation over the showing list');
+  }
+  finally { dispose(); }
+}
+
 async function resumeFollowing(): Promise<void> {
   const all = [...Array.from({ length: 50 }, (_, index) => turn(index + 1)).flat(), ...turn(51).slice(0, 2)];
   let view: ArtifactViewDto = { artifact: { id: 'artifact', title: 'Answer while reading', updatedAt: occurredAt, working: true },
@@ -321,5 +345,6 @@ export async function run(): Promise<boolean> {
   await approvalAuthority();
   await resumeFollowing();
   await answerDuringRead();
+  await openFromNotice();
   return true;
 }

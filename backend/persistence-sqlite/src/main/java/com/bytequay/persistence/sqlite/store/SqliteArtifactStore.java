@@ -78,6 +78,13 @@ public class SqliteArtifactStore
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public List<Artifact> missed()
+    {
+        return artifacts.missed();
+    }
+
+    @Override
     @Transactional
     public void save(Artifact artifact)
     {

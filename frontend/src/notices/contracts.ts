@@ -36,6 +36,8 @@ export type NoticeBridge = {
 };
 /** Approvals and AskUserQuestion cards; an alert's Answer opens the Assistant panel at the card, which has the task's own buttons. */
 export const APPROVAL_NOTICE = 'approval:';
+/** An Artifacts question that timed out; its `taskId` is the conversation's id, and opening it shows the conversation. */
+export const ARTIFACT_NOTICE = 'artifact:';
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED' && notice.kind !== 'NEXT_WORK';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'Turn finished', QUESTION: 'Waiting for you', APPROVAL: 'Approval needed',

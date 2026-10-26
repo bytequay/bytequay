@@ -180,7 +180,8 @@ class InMemoryReviewStore
             if (!reviewRuns.isEmpty()) {
                 ReviewRun latest = reviewRuns.getLast();
                 result.put(reviewId, new ReviewRunOverview(reviewRuns.stream().anyMatch(ReviewRun::active), latest.scope(), latest.commits().size(), latest.diff().size(),
-                        latest.diff().stream().mapToLong(DiffFile::additions).sum(), latest.diff().stream().mapToLong(DiffFile::deletions).sum()));
+                        latest.diff().stream().mapToLong(DiffFile::additions).sum(), latest.diff().stream().mapToLong(DiffFile::deletions).sum(), latest.state(),
+                        latest.endedAt()));
             }
         }
         return result.buildOrThrow();

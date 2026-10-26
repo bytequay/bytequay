@@ -13,13 +13,18 @@
  */
 package com.bytequay.core.review;
 
+import java.time.Instant;
+import java.util.Optional;
+
 import static java.util.Objects.requireNonNull;
 
-/** Latest-run counts with activity across every run owned by the review. */
-public record ReviewRunOverview(boolean active, ReviewRun.Scope scope, int commits, int files, long additions, long deletions)
+/** Latest-run counts and state, with activity across every run owned by the review. */
+public record ReviewRunOverview(boolean active, ReviewRun.Scope scope, int commits, int files, long additions, long deletions, ReviewRun.State state, Optional<Instant> endedAt)
 {
     public ReviewRunOverview
     {
         requireNonNull(scope, "scope is null");
+        requireNonNull(state, "state is null");
+        requireNonNull(endedAt, "endedAt is null");
     }
 }

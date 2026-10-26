@@ -32,7 +32,7 @@ public interface AgentReviewRunJpaRepository
                     MAX(CASE WHEN state = 'RUNNING' THEN 1 ELSE 0 END) OVER (PARTITION BY review_id) AS active
                 FROM agent_review_run WHERE review_id IN :reviewIds
             )
-            SELECT run.review_id AS reviewId, latest.active AS active, run.scope AS scope,
+            SELECT run.review_id AS reviewId, latest.active AS active, run.scope AS scope, run.state AS state, run.ended_at AS endedAt,
                 json_array_length(run.commits_json) AS commits, json_array_length(run.diff_json) AS files,
                 COALESCE((SELECT SUM(json_extract(file.value, '$.additions')) FROM json_each(run.diff_json) file), 0) AS additions,
                 COALESCE((SELECT SUM(json_extract(file.value, '$.deletions')) FROM json_each(run.diff_json) file), 0) AS deletions
@@ -47,6 +47,10 @@ public interface AgentReviewRunJpaRepository
         int getActive();
 
         String getScope();
+
+        String getState();
+
+        String getEndedAt();
 
         int getCommits();
 

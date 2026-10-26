@@ -33,6 +33,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -193,7 +194,8 @@ public class SqliteAgentReviewStore
         }
         return runs.summarizeRuns(reviewIds).stream().collect(toImmutableMap(AgentReviewRunJpaRepository.RunOverview::getReviewId,
                 run -> new ReviewRunOverview(run.getActive() != 0, ReviewRun.Scope.valueOf(run.getScope()),
-                        run.getCommits(), run.getFiles(), run.getAdditions(), run.getDeletions())));
+                        run.getCommits(), run.getFiles(), run.getAdditions(), run.getDeletions(), ReviewRun.State.valueOf(run.getState()),
+                        Optional.ofNullable(run.getEndedAt()).map(Instant::parse))));
     }
 
     @Override

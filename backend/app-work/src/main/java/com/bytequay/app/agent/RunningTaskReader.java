@@ -33,10 +33,11 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReviewStore;
-import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewRunOverview;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -112,13 +113,14 @@ public class RunningTaskReader
         String title = task.title();
         OptionalInt number = OptionalInt.empty();
         Optional<String> branch = task.taskWorktree().map(TaskWorktree::generatedBranch);
-        Optional<ReviewRun> run = Optional.empty();
+        Optional<ReviewRunOverview> run = Optional.empty();
         if (!task.interactive()) {
             var review = reviews.findReviewByTask(task.id().toString());
             if (review.isPresent()) {
                 kind = Kind.REVIEW;
                 targetId = review.orElseThrow().id();
-                run = reviews.listRuns(targetId).stream().max(comparing(ReviewRun::createdAt));
+                // The latest run's state only, without parsing every run's diff and evidence: often several hundred KB a run, read every few seconds.
+                run = Optional.ofNullable(reviews.summarizeRuns(ImmutableSet.of(targetId)).get(targetId));
                 number = review.orElseThrow().number();
                 // The stored task title is only "Review owner/repo#N"; the cached pull request title says what is being reviewed.
                 OptionalLong pullRequestId = review.orElseThrow().pullRequestId();
@@ -155,7 +157,7 @@ public class RunningTaskReader
                 endedAt = Optional.empty();
             }
             else if (task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN).isPresent()
-                    || task.developmentContinuationUnfinished() || run.filter(ReviewRun::active).isPresent() || queued) {
+                    || task.developmentContinuationUnfinished() || run.filter(newest -> !newest.state().terminal()).isPresent() || queued) {
                 if (status != Status.WAITING) {
                     status = Status.RUNNING;
                 }
@@ -164,7 +166,7 @@ public class RunningTaskReader
         }
         // A review can settle after its last turn; internal follow-up turns do not finish the row.
         if (status == Status.COMPLETED && run.isPresent() && run.orElseThrow().endedAt().filter(at -> !at.isBefore(startedAt)).isPresent()) {
-            ReviewRun finished = run.orElseThrow();
+            ReviewRunOverview finished = run.orElseThrow();
             endedAt = finished.endedAt();
             status = switch (finished.state()) {
                 case ACCEPTED -> Status.COMPLETED;

@@ -52,6 +52,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewRunOverview;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -73,6 +74,7 @@ import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -199,7 +201,7 @@ class TestRunningTaskReader
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(finished.id().toString()), ReviewRun.State.RUNNING,
                 Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW.minusSeconds(60), NOW.minusSeconds(10), Optional.empty());
-        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run));
+        showRun(run);
         show(task, finished);
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.kind()).isEqualTo(Kind.REVIEW);
@@ -210,12 +212,12 @@ class TestRunningTaskReader
             assertThat(item.status()).isEqualTo(Status.RUNNING);
             assertThat(item.expiresAt()).isEmpty();
         });
-        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW)));
+        showRun(run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.COMPLETED);
             assertThat(item.expiresAt()).contains(NOW.plusSeconds(600));
         });
-        when(reviews.listRuns("review")).thenReturn(ImmutableList.of(run.ended(ReviewRun.State.INCOMPLETE, Optional.empty(), NOW)));
+        showRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.empty(), NOW));
         assertThat(reader.current()).singleElement().extracting(RunningTask::status).isEqualTo(Status.FAILED);
 
         PullRequest pullRequest = new PullRequest(7, "owner/repo", 42, "Add read support for deletion vectors", "author", "https://github.com/owner/repo/pull/42", NOW, NOW,
@@ -227,6 +229,8 @@ class TestRunningTaskReader
             assertThat(item.title()).isEqualTo("Add read support for deletion vectors");
             assertThat(item.branch()).contains("author/deletion-vectors");
         });
+        // Every run's stored diff and evidence stay unparsed; only the latest run's state is read.
+        verify(reviews, never()).listRuns(anyString());
     }
 
     @Test
@@ -285,6 +289,12 @@ class TestRunningTaskReader
     {
         when(tasks.listByWorkspace("workspace")).thenReturn(ImmutableList.of(task));
         when(turns.findLatest(ImmutableSet.of(task.id()))).thenReturn(ImmutableMap.of(task.id(), turn));
+    }
+
+    private void showRun(ReviewRun run)
+    {
+        when(reviews.summarizeRuns(ImmutableSet.of("review"))).thenReturn(ImmutableMap.of("review",
+                new ReviewRunOverview(run.active(), run.scope(), 0, 0, 0, 0, run.state(), run.endedAt())));
     }
 
     private static AgentTask task(boolean interactive)

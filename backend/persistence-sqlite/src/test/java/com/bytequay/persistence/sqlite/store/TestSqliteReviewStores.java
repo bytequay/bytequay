@@ -182,8 +182,8 @@ class TestSqliteReviewStores
         entityManager.clear();
 
         assertThat(store.summarizeRuns(ImmutableSet.of("review-one", "review-two", "no-runs"))).containsExactlyInAnyOrderEntriesOf(ImmutableMap.of(
-                "review-one", new ReviewRunOverview(true, ReviewRun.Scope.INCREMENTAL, 1, 2, 2L * Integer.MAX_VALUE, 10),
-                "review-two", new ReviewRunOverview(false, ReviewRun.Scope.FULL, 0, 0, 0, 0)));
+                "review-one", new ReviewRunOverview(true, ReviewRun.Scope.INCREMENTAL, 1, 2, 2L * Integer.MAX_VALUE, 10, ReviewRun.State.ACCEPTED, Optional.of(NOW)),
+                "review-two", new ReviewRunOverview(false, ReviewRun.Scope.FULL, 0, 0, 0, 0, ReviewRun.State.STOPPED, Optional.of(NOW))));
         assertThat(entityManager.unwrap(Session.class).getStatistics().getEntityCount()).isZero();
         assertThat(store.summarizeRuns(ImmutableSet.of())).isEmpty();
     }

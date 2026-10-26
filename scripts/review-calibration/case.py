@@ -7,6 +7,7 @@ import argparse
 from collections import Counter
 import json
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 
@@ -127,7 +128,7 @@ def main():
                if subprocess.run(["git", "-C", str(args.clone), "cat-file", "-e", commit + "^{commit}"], stderr=subprocess.DEVNULL).returncode]
     if missing:
         print(f"The clone lacks {' and '.join(missing)}. Fetch, then build again:\n"
-              f"  git -C {args.clone} fetch https://github.com/{args.repo} {' '.join(missing)}", file=sys.stderr)
+              f"  git -C {shlex.quote(str(args.clone))} fetch https://github.com/{args.repo} {' '.join(missing)}", file=sys.stderr)  # the lab's own folder has a space
         return 1
     output.mkdir(parents=True, exist_ok=False)
     (output / "case.json").write_text(json.dumps(case, indent=2) + "\n")

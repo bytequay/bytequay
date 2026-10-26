@@ -1113,6 +1113,16 @@ function registerIpc(): void {
     return dictation.setEnabled(enabled);
   });
   ipcMain.handle('voice:install', () => dictation.install());
+  ipcMain.handle('voice:languages', (_event, spoken: unknown) => dictation.languages(typeof spoken === 'string' && spoken !== '' ? spoken : null));
+  ipcMain.handle('voice:set-languages', (_event, languages: unknown) => {
+    const value = typeof languages === 'object' && languages !== null ? languages as Record<string, unknown> : null;
+    const choice = (field: unknown) => (typeof field === 'string' && field !== '' ? field : null);
+    if (value === null || (value.spoken !== null && typeof value.spoken !== 'string') || (value.written !== null && typeof value.written !== 'string')) {
+      throw new Error('Malformed Voice languages');
+    }
+    return dictation.setLanguages({ spoken: choice(value.spoken), written: choice(value.written) });
+  });
+  ipcMain.handle('voice:download-translation', () => dictation.downloadTranslation());
   ipcMain.handle('voice:privacy', () => shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone'));
   const dictationId = (id: unknown): string => {
     if (typeof id !== 'string' || id === '') throw new Error('Malformed dictation');

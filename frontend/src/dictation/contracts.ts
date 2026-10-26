@@ -20,13 +20,20 @@ export type VoiceState =
   | 'no-microphone'
   | 'microphone-denied'
   | 'needs-model'
+  | 'needs-translation'
   | 'downloading'
   | 'ready';
 
-/** `macos` is this Mac's version; `language` names the Mac's language when the helper could tell. */
+/** `macos` is this Mac's version; `language` names the spoken language when the helper could tell. */
 export type VoiceSupport = { state: VoiceState; macos: string; language?: string };
 
-export type VoiceSettings = { enabled: boolean };
+/** `spoken` null follows the Mac's language; `written` null keeps the spoken one, so nothing is translated. */
+export type VoiceSettings = { enabled: boolean; spoken: string | null; written: string | null };
+
+export type VoiceLanguage = { id: string; name: string };
+
+/** What one can speak, and what the given spoken language can be written in besides itself. */
+export type VoiceLanguages = { spoken: VoiceLanguage[]; written: VoiceLanguage[] };
 
 /** Turning the setting on returns the check it ran, so the card can show why it stayed off. */
 export type VoiceToggle = VoiceSettings & { support: VoiceSupport };
@@ -42,7 +49,9 @@ export type DictationStart = { id: string } | { refused: DictationRefusal };
  */
 export type DictationEvent =
   | { id: string; type: 'listening' | 'finishing' | 'cancelled' }
-  | { id: string; type: 'partial' | 'final' | 'done'; text: string }
+  | { id: string; type: 'partial' | 'done'; text: string }
+  /** `original` is the spoken words when `text` is their translation. */
+  | { id: string; type: 'final'; text: string; original?: string }
   | { id: string; type: 'failed'; code: string; seconds: number };
 
 export type VoiceBridge = {
@@ -50,9 +59,14 @@ export type VoiceBridge = {
   checkVoice: () => Promise<VoiceSupport>;
   /** Turning it on runs the check, asks for the microphone once, and reserves the language; it stays off unless all pass. */
   setVoiceEnabled: (enabled: boolean) => Promise<VoiceToggle>;
-  /** Downloads the speech model for the Mac's language; progress arrives through `onVoiceInstallProgress`. */
+  /** Downloads the speech model for the spoken language; progress arrives through `onVoiceInstallProgress`. */
   installVoiceModel: () => Promise<void>;
   openMicrophonePrivacy: () => Promise<void>;
+  getVoiceLanguages: (spoken: string | null) => Promise<VoiceLanguages>;
+  /** Saves both languages and checks again; a written language the spoken one cannot be translated into is dropped. */
+  setVoiceLanguages: (languages: { spoken: string | null; written: string | null }) => Promise<VoiceToggle>;
+  /** Opens a small window where Apple asks to download the translation pair; resolves once it is installed. */
+  downloadVoiceTranslation: () => Promise<void>;
   onVoiceChanged: (listener: (settings: VoiceSettings) => void) => () => void;
   onVoiceInstallProgress: (listener: (progress: { fraction: number }) => void) => () => void;
   startDictation: () => Promise<DictationStart>;

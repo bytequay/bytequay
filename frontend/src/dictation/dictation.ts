@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createInterface } from 'node:readline';
-import type { DictationEvent, DictationRefusal, DictationStart, VoiceSettings, VoiceState, VoiceSupport, VoiceToggle } from './contracts';
+import type { DictationEvent, DictationRefusal, DictationStart, VoiceLanguage, VoiceLanguages, VoiceSettings, VoiceState, VoiceSupport, VoiceToggle } from './contracts';
 
 /** What Electron main supplies; a test stands in for each. */
 export interface DictationHost {
@@ -40,8 +40,8 @@ export interface DictationSender {
   once(event: 'destroyed', listener: () => void): unknown;
 }
 
-/** The helper's `check` line. */
-export type CheckFacts = { available: boolean; language: string | null; languageName: string; model: string | null; microphone: boolean };
+/** The helper's `check` line; `translation` is null when nothing needs translating. */
+export type CheckFacts = { available: boolean; language: string | null; languageName: string; model: string | null; translation: string | null; microphone: boolean };
 
 type Line = { type: string; [key: string]: unknown };
 
@@ -75,15 +75,26 @@ export function voiceSupport(facts: CheckFacts | null, macos: string, microphone
     : !facts.microphone ? 'no-microphone'
       : blocked(microphone) ? 'microphone-denied'
         : installing || facts.model === 'downloading' ? 'downloading'
-          : facts.model === 'ready' ? 'ready' : 'needs-model';
+          : facts.model !== 'ready' ? 'needs-model'
+            : facts.translation === 'missing' ? 'needs-translation'
+              : facts.translation === 'unsupported' ? 'language-unsupported' : 'ready';
   return { state, macos, language: facts.languageName };
 }
 
 export function parseCheckFacts(line: Line | undefined): CheckFacts | null {
   if (line === undefined || typeof line.available !== 'boolean' || typeof line.microphone !== 'boolean' || typeof line.languageName !== 'string'
     || (line.language !== null && typeof line.language !== 'string') || (line.model !== null && typeof line.model !== 'string')) return null;
-  return { available: line.available, language: line.language, languageName: line.languageName, model: line.model, microphone: line.microphone };
+  return {
+    available: line.available, language: line.language, languageName: line.languageName, model: line.model,
+    translation: typeof line.translation === 'string' ? line.translation : null, microphone: line.microphone,
+  };
 }
+
+const languageList = (value: unknown): VoiceLanguage[] => Array.isArray(value)
+  ? value.filter((item): item is VoiceLanguage => typeof item === 'object' && item !== null && typeof item.id === 'string' && typeof item.name === 'string')
+  : [];
+
+const optionalText = (value: unknown): string | null => (typeof value === 'string' && value !== '' ? value : null);
 
 function readLines(child: ChildProcessWithoutNullStreams, receive: (line: Line) => void): void {
   createInterface({ input: child.stdout }).on('line', text => {
@@ -99,39 +110,86 @@ function readLines(child: ChildProcessWithoutNullStreams, receive: (line: Line) 
 
 /** Owns the helper processes, the recordings kept for Retry, and the per-Mac Voice switch. */
 export class Dictation {
-  private enabled: boolean | null = null;
+  private stored: VoiceSettings | null = null;
   private session: Session | null = null;
   private readonly kept = new Map<string, Kept>();
   private installing: Promise<void> | null = null;
+  private downloading: Promise<void> | null = null;
   private readonly watched = new WeakSet<DictationSender>();
 
   constructor(private readonly host: DictationHost) {}
 
   settings(): VoiceSettings {
-    if (this.enabled === null) {
+    if (this.stored === null) {
       try {
         const saved: unknown = JSON.parse(fs.readFileSync(this.host.settingsFile, 'utf8'));
-        this.enabled = typeof saved === 'object' && saved !== null && 'enabled' in saved && saved.enabled === true;
+        const value = typeof saved === 'object' && saved !== null ? saved as Record<string, unknown> : {};
+        this.stored = { enabled: value.enabled === true, spoken: optionalText(value.spoken), written: optionalText(value.written) };
       }
       catch {
-        this.enabled = false;
+        this.stored = { enabled: false, spoken: null, written: null };
       }
     }
-    return { enabled: this.enabled };
+    return { ...this.stored };
   }
 
   async check(): Promise<VoiceSupport> {
     if (!(Number.parseInt(this.host.macos(), 10) >= 26) || this.host.helper === null) return voiceSupport(null, this.host.macos(), this.host.microphone());
-    const lines = await this.run(['check']).catch((): Line[] => []);
-    return voiceSupport(parseCheckFacts(lines.find(line => line.type === 'check')), this.host.macos(), this.host.microphone(), this.installing !== null);
+    return voiceSupport(await this.facts(), this.host.macos(), this.host.microphone(), this.installing !== null);
+  }
+
+  async languages(spoken: string | null): Promise<VoiceLanguages> {
+    const lines = await this.run(['languages', ...(spoken === null ? [] : ['--locale', spoken])]).catch((): Line[] => []);
+    const line = lines.find(candidate => candidate.type === 'languages');
+    return { spoken: languageList(line?.spoken), written: languageList(line?.written) };
+  }
+
+  /** A written language the new spoken one cannot be translated into is dropped, so the draft keeps the spoken language. */
+  async setLanguages(next: { spoken: string | null; written: string | null }): Promise<VoiceToggle> {
+    const { written } = await this.languages(next.spoken);
+    const keep = next.written !== null && written.some(language => language.id === next.written) ? next.written : null;
+    this.save({ ...this.settings(), spoken: next.spoken, written: keep });
+    let support = await this.check();
+    if (this.settings().enabled && support.state === 'ready') {
+      // A newly chosen spoken language is reserved as turning dictation on would reserve it.
+      await this.install().catch(() => {});
+      support = await this.check();
+    }
+    return { ...this.settings(), support };
+  }
+
+  /** Apple downloads a translation pair only after asking in its own sheet, which needs the helper's small window. */
+  downloadTranslation(): Promise<void> {
+    const helper = this.host.helper;
+    const { written } = this.settings();
+    if (helper === null || written === null) return Promise.reject(new Error('unavailable'));
+    this.downloading ??= this.spokenLocale().then(from => new Promise<void>((resolve, reject) => {
+      if (from === null) {
+        reject(new Error('language-unsupported'));
+        return;
+      }
+      const child = spawn(helper, ['translation-download', from, written]);
+      let installed = false;
+      let error: string | null = null;
+      readLines(child, line => {
+        if (line.type === 'installed') installed = true;
+        if (line.type === 'error') error = typeof line.code === 'string' ? line.code : 'failed';
+      });
+      child.on('error', () => reject(new Error('unavailable')));
+      // Closing the window without downloading leaves no line at all.
+      child.on('exit', () => (installed ? resolve() : reject(new Error(error ?? 'cancelled'))));
+    })).finally(() => {
+      this.downloading = null;
+    });
+    return this.downloading;
   }
 
   async setEnabled(on: boolean): Promise<VoiceToggle> {
     if (!on) {
-      this.save(false);
+      this.save({ ...this.settings(), enabled: false });
       if (this.session !== null) this.cancel(this.session.sender, this.session.id);
       for (const [id, kept] of [...this.kept]) this.discard(kept.sender, id);
-      return { enabled: false, support: await this.check() };
+      return { ...this.settings(), support: await this.check() };
     }
     let support = await this.check();
     if (support.state === 'ready' && this.host.microphone() === 'not-determined' && !await this.host.askMicrophone()) {
@@ -142,15 +200,15 @@ export class Dictation {
       await this.install().catch(() => {});
       support = await this.check();
     }
-    if (support.state === 'ready') this.save(true);
-    return { enabled: this.settings().enabled, support };
+    if (support.state === 'ready') this.save({ ...this.settings(), enabled: true });
+    return { ...this.settings(), support };
   }
 
   install(): Promise<void> {
     const helper = this.host.helper;
     if (helper === null) return Promise.reject(new Error('unavailable'));
     this.installing ??= new Promise<void>((resolve, reject) => {
-      const child = spawn(helper, ['install']);
+      const child = spawn(helper, ['install', ...this.options()]);
       let error: string | null = null;
       readLines(child, line => {
         if (line.type === 'progress' && typeof line.fraction === 'number') this.host.broadcast('voice:install-progress', { fraction: line.fraction });
@@ -170,7 +228,7 @@ export class Dictation {
     const id = randomUUID();
     const recording = path.join(this.host.folder, `${id}.caf`);
     fs.mkdirSync(this.host.folder, { recursive: true });
-    this.begin(sender, id, recording, ['listen', recording], 0);
+    this.begin(sender, id, recording, ['listen', recording, ...this.options()], 0);
     return { id };
   }
 
@@ -198,7 +256,7 @@ export class Dictation {
     const refused = this.refusal(false);
     if (refused !== null) return { refused };
     this.kept.delete(id);
-    this.begin(sender, id, kept.recording, ['file', kept.recording], kept.seconds);
+    this.begin(sender, id, kept.recording, ['file', kept.recording, ...this.options()], kept.seconds);
     return { id };
   }
 
@@ -240,7 +298,8 @@ export class Dictation {
         session.listeningAt = Date.now();
         this.emit(sender, { id, type: 'listening' });
       }
-      else if (line.type === 'partial' || line.type === 'final') this.emit(sender, { id, type: line.type, text });
+      else if (line.type === 'partial') this.emit(sender, { id, type: 'partial', text });
+      else if (line.type === 'final') this.emit(sender, { id, type: 'final', text, ...(typeof line.original === 'string' ? { original: line.original } : {}) });
       else if (line.type === 'done') session.done = text;
       else if (line.type === 'error') session.error = typeof line.code === 'string' ? line.code : 'failed';
     });
@@ -280,6 +339,21 @@ export class Dictation {
     session.timer = setTimeout(() => session.child.kill(), SETTLE_MS);
   }
 
+  /** The helper's options for the chosen languages; none follows the Mac's language and leaves the text untranslated. */
+  private options(): string[] {
+    const { spoken, written } = this.settings();
+    return [...(spoken === null ? [] : ['--locale', spoken]), ...(written === null ? [] : ['--translate', written])];
+  }
+
+  private async facts(): Promise<CheckFacts | null> {
+    const lines = await this.run(['check', ...this.options()]).catch((): Line[] => []);
+    return parseCheckFacts(lines.find(line => line.type === 'check'));
+  }
+
+  private async spokenLocale(): Promise<string | null> {
+    return this.settings().spoken ?? (await this.facts())?.language ?? null;
+  }
+
   private run(args: string[]): Promise<Line[]> {
     const helper = this.host.helper;
     if (helper === null) return Promise.reject(new Error('unavailable'));
@@ -307,17 +381,17 @@ export class Dictation {
     if (!sender.isDestroyed()) sender.send('dictation:event', event);
   }
 
-  private save(enabled: boolean): void {
-    this.enabled = enabled;
+  private save(next: VoiceSettings): void {
+    this.stored = { ...next };
     try {
       fs.mkdirSync(path.dirname(this.host.settingsFile), { recursive: true });
-      fs.writeFileSync(`${this.host.settingsFile}.tmp`, JSON.stringify({ enabled }));
+      fs.writeFileSync(`${this.host.settingsFile}.tmp`, JSON.stringify(next));
       fs.renameSync(`${this.host.settingsFile}.tmp`, this.host.settingsFile);
     }
     catch (error) {
       console.warn('Unable to save the Voice setting', error);
     }
-    this.host.broadcast('voice:changed', { enabled });
+    this.host.broadcast('voice:changed', next);
   }
 
   private watch(sender: DictationSender): void {

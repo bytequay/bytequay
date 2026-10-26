@@ -268,7 +268,7 @@ function VoiceFeature() {
     setBusy(true);
     clear();
     window.bridge.setVoiceEnabled(enabled).then(result => {
-      setSettings({ enabled: result.enabled });
+      setSettings({ enabled: result.enabled, spoken: result.spoken, written: result.written });
       setSupport(result.support);
     }).catch(fail).finally(() => setBusy(false));
   };

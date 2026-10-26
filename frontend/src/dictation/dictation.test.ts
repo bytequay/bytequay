@@ -21,11 +21,22 @@ import { Dictation, parseCheckFacts, voiceSupport, type CheckFacts, type Dictati
 // Speaks the helper's protocol. FAKE_* variables pick its behavior; every run is logged to FAKE_LOG.
 const FAKE_HELPER = `#!${process.execPath}
 const fs = require('node:fs');
-const [command, file] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const [command, file] = args;
+const option = name => (args.includes(name) ? args[args.indexOf(name) + 1] : null);
 const say = line => console.log(JSON.stringify(line));
-fs.appendFileSync(process.env.FAKE_LOG, command + '\\n');
+fs.appendFileSync(process.env.FAKE_LOG, args.join(' ') + '\\n');
 if (command === 'check') {
-  say({ type: 'check', available: true, language: 'en_US', languageName: 'English (United States)', model: process.env.FAKE_MODEL || 'ready', microphone: true });
+  const spoken = option('--locale') || 'en_US';
+  say({ type: 'check', available: true, language: spoken, languageName: spoken === 'zh_CN' ? 'Chinese (China mainland)' : 'English (United States)',
+    model: process.env.FAKE_MODEL || 'ready', translation: option('--translate') === null ? null : process.env.FAKE_TRANSLATION || 'ready', microphone: true });
+}
+else if (command === 'languages') {
+  say({ type: 'languages', spoken: [{ id: 'en_US', name: 'English (United States)' }, { id: 'zh_CN', name: 'Chinese (China mainland)' }],
+    written: option('--locale') === 'zh_CN' ? [{ id: 'en', name: 'English' }] : [{ id: 'zh', name: 'Chinese' }] });
+}
+else if (command === 'translation-download') {
+  if (process.env.FAKE_DOWNLOAD !== 'cancel') say({ type: 'installed' });
 }
 else if (command === 'install') {
   say({ type: 'progress', fraction: 0.5 });
@@ -37,7 +48,7 @@ else if (command === 'listen') {
   fs.writeFileSync(file, 'audio');
   say({ type: 'listening' });
   say({ type: 'partial', text: 'Hel' });
-  say({ type: 'final', text: 'Hello.' });
+  say(option('--translate') === null ? { type: 'final', text: 'Hello.' } : { type: 'final', text: 'Hello.', original: '你好。' });
   require('node:readline').createInterface({ input: process.stdin }).on('line', line => {
     if (line === 'cancel') process.exit(0);
     if (line !== 'stop') return;
@@ -63,11 +74,12 @@ class FakeSender {
   events(): DictationEvent[] { return this.sent.filter(([channel]) => channel === 'dictation:event').map(([, event]) => event as DictationEvent); }
 }
 
-const ready: CheckFacts = { available: true, language: 'en_US', languageName: 'English (United States)', model: 'ready', microphone: true };
+const ready: CheckFacts = { available: true, language: 'en_US', languageName: 'English (United States)', model: 'ready', translation: null, microphone: true };
 
 let root: string;
 let host: DictationHost & { microphoneStatus: string; askMicrophone: Mock<[], Promise<boolean>>; broadcast: Mock<[string, unknown], void> };
-const runs = () => fs.readFileSync(path.join(root, 'runs'), 'utf8').split('\n').filter(Boolean);
+const calls = () => fs.readFileSync(path.join(root, 'runs'), 'utf8').split('\n').filter(Boolean);
+const runs = () => calls().map(call => call.split(' ')[0]);
 
 beforeEach(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-dictation-test-'));
@@ -107,6 +119,10 @@ describe('voice support', () => {
     ['a denied microphone', ready, '26.5', 'denied', false, 'microphone-denied'],
     ['a restricted microphone', ready, '27.0.1', 'restricted', false, 'microphone-denied'],
     ['a missing model', { ...ready, model: 'missing' }, '26.5', 'granted', false, 'needs-model'],
+    ['a missing model before a missing translation', { ...ready, model: 'missing', translation: 'missing' }, '26.5', 'granted', false, 'needs-model'],
+    ['a missing translation pair', { ...ready, translation: 'missing' }, '26.5', 'granted', false, 'needs-translation'],
+    ['a pair Apple cannot translate', { ...ready, translation: 'unsupported' }, '26.5', 'granted', false, 'language-unsupported'],
+    ['an installed translation pair', { ...ready, translation: 'ready' }, '26.5', 'granted', false, 'ready'],
     ['a model macOS is downloading', { ...ready, model: 'downloading' }, '26.5', 'granted', false, 'downloading'],
     ['a download ByteQuay started', { ...ready, model: 'missing' }, '26.5', 'granted', true, 'downloading'],
     ['a microphone never asked about', ready, '26.5', 'not-determined', false, 'ready'],
@@ -134,14 +150,14 @@ describe('the Voice setting', () => {
   it('turns on after asking for the microphone and reserving the language, and tells every window', async () => {
     host.microphoneStatus = 'not-determined';
     const dictation = new Dictation(host);
-    expect(dictation.settings()).toEqual({ enabled: false });
+    expect(dictation.settings()).toEqual({ enabled: false, spoken: null, written: null });
     const toggle = await dictation.setEnabled(true);
     expect(toggle).toMatchObject({ enabled: true, support: { state: 'ready' } });
     expect(host.askMicrophone).toHaveBeenCalledOnce();
     expect(runs()).toEqual(['check', 'install', 'check']);
-    expect(JSON.parse(fs.readFileSync(host.settingsFile, 'utf8'))).toEqual({ enabled: true });
-    expect(host.broadcast).toHaveBeenCalledWith('voice:changed', { enabled: true });
-    expect(new Dictation(host).settings()).toEqual({ enabled: true });
+    expect(JSON.parse(fs.readFileSync(host.settingsFile, 'utf8'))).toEqual({ enabled: true, spoken: null, written: null });
+    expect(host.broadcast).toHaveBeenCalledWith('voice:changed', { enabled: true, spoken: null, written: null });
+    expect(new Dictation(host).settings()).toEqual({ enabled: true, spoken: null, written: null });
   });
 
   it('stays off when a check fails or the microphone is refused', async () => {
@@ -163,9 +179,56 @@ describe('the Voice setting', () => {
     await expect(dictation.install()).rejects.toThrow('failed');
   });
 
-  it('treats a missing or malformed setting as off', () => {
+  it('treats a missing or malformed setting as off, following the Mac language', () => {
     fs.writeFileSync(host.settingsFile, '{nope');
-    expect(new Dictation(host).settings()).toEqual({ enabled: false });
+    expect(new Dictation(host).settings()).toEqual({ enabled: false, spoken: null, written: null });
+    fs.writeFileSync(host.settingsFile, JSON.stringify({ enabled: true, spoken: 7, written: '' }));
+    expect(new Dictation(host).settings()).toEqual({ enabled: true, spoken: null, written: null });
+  });
+});
+
+describe('spoken and written languages', () => {
+  it('lists what one can speak and what that language can be written in', async () => {
+    const dictation = new Dictation(host);
+    expect(await dictation.languages('zh_CN')).toEqual({
+      spoken: [{ id: 'en_US', name: 'English (United States)' }, { id: 'zh_CN', name: 'Chinese (China mainland)' }], written: [{ id: 'en', name: 'English' }],
+    });
+    expect(calls()).toEqual(['languages --locale zh_CN']);
+  });
+
+  it('keeps a written language only when the spoken one can be translated into it, and tells every window', async () => {
+    const dictation = new Dictation(host);
+    expect(await dictation.setLanguages({ spoken: 'en_US', written: 'en' })).toMatchObject({ spoken: 'en_US', written: null });
+    const toggle = await dictation.setLanguages({ spoken: 'zh_CN', written: 'en' });
+    expect(toggle).toMatchObject({ enabled: false, spoken: 'zh_CN', written: 'en', support: { state: 'ready', language: 'Chinese (China mainland)' } });
+    expect(JSON.parse(fs.readFileSync(host.settingsFile, 'utf8'))).toEqual({ enabled: false, spoken: 'zh_CN', written: 'en' });
+    expect(host.broadcast).toHaveBeenLastCalledWith('voice:changed', { enabled: false, spoken: 'zh_CN', written: 'en' });
+    vi.stubEnv('FAKE_TRANSLATION', 'missing');
+    expect((await dictation.check()).state).toBe('needs-translation');
+  });
+
+  it('passes both languages to the helper and forwards the original words with their translation', async () => {
+    fs.writeFileSync(host.settingsFile, JSON.stringify({ enabled: true, spoken: 'zh_CN', written: 'en' }));
+    const dictation = new Dictation(host);
+    await dictation.check();
+    const owner = new FakeSender();
+    const start = dictation.start(owner);
+    if (!('id' in start)) throw new Error('refused');
+    await vi.waitFor(() => expect(owner.events()).toContainEqual({ id: start.id, type: 'final', text: 'Hello.', original: '你好。' }));
+    dictation.stop(owner, start.id);
+    await vi.waitFor(() => expect(owner.events().at(-1)).toEqual({ id: start.id, type: 'done', text: 'Hello.' }));
+    expect(calls()).toEqual(['check --locale zh_CN --translate en', `listen ${path.join(host.folder, `${start.id}.caf`)} --locale zh_CN --translate en`]);
+  });
+
+  it('downloads a translation pair through the helper window, for the Mac language when none is chosen', async () => {
+    fs.writeFileSync(host.settingsFile, JSON.stringify({ enabled: true, spoken: null, written: 'zh' }));
+    const dictation = new Dictation(host);
+    await dictation.downloadTranslation();
+    expect(calls()).toEqual(['check --translate zh', 'translation-download en_US zh']);
+    vi.stubEnv('FAKE_DOWNLOAD', 'cancel');
+    await expect(dictation.downloadTranslation()).rejects.toThrow('cancelled');
+    fs.writeFileSync(host.settingsFile, JSON.stringify({ enabled: true, spoken: null, written: null }));
+    await expect(new Dictation(host).downloadTranslation()).rejects.toThrow('unavailable');
   });
 });
 

@@ -93,7 +93,7 @@ export function run() {
     ['Shows the mic only while Voice is on', async () => {
       await mount();
       assert(mic() === null, 'No mic while Voice is off');
-      flushSync(() => voiceChanged({ enabled: true }));
+      flushSync(() => voiceChanged({ enabled: true, spoken: null, written: null }));
       await until(() => mic() !== null, 'The mic appears as soon as Voice is turned on');
     }],
     ['Shows live words and inserts the finished text at the caret, without sending', async () => {

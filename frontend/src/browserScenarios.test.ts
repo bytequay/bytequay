@@ -86,7 +86,7 @@ testBrowserScenarios([
   },
   {
     name: 'preserves Recent across navigation and loads pages without redundant requests in Chromium',
-    expected: 11, timeout: 30_000,
+    expected: 12, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-recent-loading-',
       entry: 'src/recent/fixtures/loadingBrowser.tsx',

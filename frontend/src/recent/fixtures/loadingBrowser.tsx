@@ -165,6 +165,24 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await view.click('Open the thread');
     assert(view.openedTargets.join() === `#/workspaces/workspace-1/tasks/agent/${taskId}`, 'Open the thread must select the original task conversation');
   });
+  await check('keeps nested row actions independent during keyboard activation', async view => {
+    const page = dayPage(today, 1);
+    page.rows[0].snippet = 'A recent comment';
+    await view.resolve(0, page);
+    const row = element<HTMLElement>('.rc-row', view.host);
+    const action = element<HTMLButtonElement>('button', row);
+    for (const key of ['Enter', ' ']) {
+      const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true });
+      action.dispatchEvent(event);
+      await settle();
+      assert(!event.defaultPrevented, 'The button must retain its native keyboard activation');
+      assert(row.getAttribute('aria-expanded') === 'false', 'A button key must not activate the containing row');
+    }
+    row.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    await settle();
+    assert(row.getAttribute('aria-expanded') === 'true', 'The row itself still expands from the keyboard');
+    assert(view.openedTargets.length === 0, 'Row actions must not navigate away from Recent');
+  });
   await check('shows real pending loads and retries a failed page once without dropping existing rows', async view => {
     assert(view.requestCount() === 1, 'Mount should request the first page once');
     assert(view.host.querySelector('[role="status"]')?.textContent?.includes('Loading recent') === true, 'The initial request needs an initial-loading status');

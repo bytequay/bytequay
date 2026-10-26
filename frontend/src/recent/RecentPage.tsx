@@ -442,7 +442,12 @@ export function Row({ row, change, open, onToggle, onOpen }: {
       <div className={`rc-row${open ? ' is-open' : ''}`} role="button" tabIndex={0}
         aria-expanded={row.snippet ? open : undefined}
         onClick={activate}
-        onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); } }}>
+        onKeyDown={event => {
+          if (event.target === event.currentTarget && (event.key === 'Enter' || event.key === ' ')) {
+            event.preventDefault();
+            activate();
+          }
+        }}>
         <span className="rc-row__time">{clock(row.touchedAt)}</span>
         {row.type === 'PULL_REQUEST'
           ? <PullRequestStateIcon pullRequest={row.pullRequest} size={16} className="rc-glyph rc-row__glyph" />

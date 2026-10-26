@@ -15,7 +15,7 @@ import { shortSha } from '@bytequay/ui/displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { findConversationReview } from '../agents/agentConversations';
+import { findConversationReview, followAgentReview } from '../agents/agentConversations';
 import { useTaskCardState } from '../agents/attention';
 import DevelopmentLearningPanel from '../agents/DevelopmentLearningPanel';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
@@ -900,28 +900,7 @@ export default function PullsScreen({
   // Summary and Tears of time each follow the review while shown. PR and Changes draw its findings and their
   // threads too; main keeps one reader per review, so this one runs only while neither of those tabs is shown.
   const followedReviewId = reviewWorkspace === undefined && review?.state === 'OPEN' && (detailTab === 'overview' || detailTab === 'files') ? review.id : null;
-  useEffect(() => {
-    if (followedReviewId === null) return;
-    let live = true;
-    let revision = 0;
-    let settling: ReturnType<typeof setTimeout> | undefined;
-    const read = async () => {
-      const request = ++revision;
-      const updated = await window.bridge.getAgentReview(followedReviewId);
-      if (!live || request !== revision) return;
-      updateReview(updated);
-      // The review observer settles after the task event. One follow-up covers a read that reached it first.
-      if (updated.activeTurn === null && updated.task.mutationClaim === null && updated.runs.at(-1)?.state === 'RUNNING') {
-        clearTimeout(settling); settling = setTimeout(() => { void read().catch(() => {}); }, 200);
-      }
-    };
-    const stream = Promise.resolve().then(() => window.bridge.subscribeAgentReview(followedReviewId, 0, message => {
-      if (message.kind === 'changed' || message.kind === 'events' || message.state === 'open') void read().catch(() => {});
-    }, true));
-    // A background follow stays silent; Refresh still reports.
-    stream.catch(() => {});
-    return () => { live = false; clearTimeout(settling); void stream.then(stop => stop(), () => {}); };
-  }, [followedReviewId, updateReview]);
+  useEffect(() => followedReviewId === null ? undefined : followAgentReview(window.bridge, followedReviewId, updateReview), [followedReviewId, updateReview]);
 
   const privateThreads = usePullCommentThreads({
     pr: selectedPr, workspaceId, review, task: codeTask, loading: reviewLoading || codeTaskLoading, error: reviewError,

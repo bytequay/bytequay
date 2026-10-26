@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
+import { followAgentReview } from '../agents/agentConversations';
 import IdeSurface from './IdeSurface';
 import type { CodeTestsBridge, CodeTestsHost } from '../pulls/code-tests/CodeTestsTab';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
@@ -51,22 +52,7 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
   }, [active, bridge, hostRef, reload]);
   useEffect(() => {
     if (!active || !open || !reviewId || !ownReviewStream) return;
-    let live = true;
-    let revision = 0;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const read = async () => {
-      const request = ++revision;
-      const next = await bridge.getAgentReview(reviewId);
-      if (!live || request !== revision) return;
-      callback.current(next);
-      if (next.activeTurn === null && next.task.mutationClaim === null && next.runs.at(-1)?.state === 'RUNNING') {
-        clearTimeout(timer); timer = setTimeout(() => { void read().catch(() => {}); }, 200);
-      }
-    };
-    const stream = bridge.subscribeAgentReview(reviewId, 0, event => {
-      if (event.kind === 'changed' || event.kind === 'events' || event.state === 'open') void read().catch(() => {});
-    }, true);
-    return () => { live = false; clearTimeout(timer); void stream.then(stop => stop(), () => {}); };
+    return followAgentReview(bridge, reviewId, next => callback.current(next));
   }, [active, open, reviewId, ownReviewStream, bridge]);
   return <div className="ct">
     {loadError && <div className="ct-banner is-error" role="alert">{loadError}<button onClick={() => { setLoadError(null); setReload(value => value + 1); }}>Retry</button></div>}

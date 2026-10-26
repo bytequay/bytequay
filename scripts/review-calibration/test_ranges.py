@@ -29,6 +29,25 @@ class TestRatio(unittest.TestCase):
         self.assertEqual(made, ranges.Ratio((1.0, 2.0, 0.0), (4.0, 0.0, 5.0), 100))
 
 
+class TestPairedChange(unittest.TestCase):
+    def test_tasks_that_all_rose_alike_give_exactly_that_rise(self):
+        before = ranges.Ratio((1, 2, 0, 3), (4, 4, 4, 4), 100)
+        after = ranges.Ratio((2, 3, 1, 4), (4, 4, 4, 4), 100)  # one more of four on every task, however hard it was
+        self.assertEqual(ranges.paired_change(before, after), (25.0, 25.0))
+        self.assertLess(ranges.change(before, after)[0], 0, "drawn apart, the tasks' own spread hides the rise")
+
+    def test_mixed_tasks_give_a_range_around_the_change(self):
+        before = ranges.Ratio((1, 2, 0, 3, 1, 2), (4,) * 6, 100)
+        after = ranges.Ratio((3, 2, 1, 3, 2, 4), (4,) * 6, 100)
+        low, high = ranges.paired_change(before, after)
+        self.assertTrue(low < after.value() - before.value() < high)
+        self.assertEqual(ranges.paired_change(before, after), (low, high))
+
+    def test_other_or_too_few_tasks_give_none(self):
+        self.assertIsNone(ranges.paired_change(ranges.Ratio((1, 2, 3), (4, 4, 4)), ranges.Ratio((1, 2, 3, 4), (4, 4, 4, 4))))
+        self.assertIsNone(ranges.paired_change(ranges.Ratio((1, 2), (4, 4)), ranges.Ratio((2, 3), (4, 4))))
+
+
 class TestMedian(unittest.TestCase):
     def test_value_is_the_middle_of_every_value(self):
         self.assertEqual(ranges.Median(((1.0, 2.0), (10.0,))).value(), 2.0)

@@ -35,10 +35,13 @@ class Ratio:
     def draws(self, seed):
         if not self.enough():
             return None
+        return self.share(numpy.random.default_rng(seed).integers(0, len(self.parts), size=(DRAWS, len(self.parts))))
+
+    def share(self, picks):
+        """The number again for each row of picked tasks."""
         parts, wholes = numpy.asarray(self.parts, dtype=float), numpy.asarray(self.wholes, dtype=float)
-        picks = numpy.random.default_rng(seed).integers(0, len(parts), size=(DRAWS, len(parts)))
         top, bottom = parts[picks].sum(axis=1), wholes[picks].sum(axis=1)
-        return numpy.divide(top, bottom, out=numpy.full(DRAWS, numpy.nan), where=bottom > 0) * self.scale
+        return numpy.divide(top, bottom, out=numpy.full(len(picks), numpy.nan), where=bottom > 0) * self.scale
 
 
 @dataclass(frozen=True)
@@ -145,6 +148,16 @@ def change(before, since):
     """Where the change from `before` to `since` could lie, in the unit of the number; None when either side has too few tasks."""
     drawn = drawn_apart(before, since)
     return None if drawn is None else span(drawn[1] - drawn[0])
+
+
+def paired_change(before, after):
+    """Where the change from `before` to `after` could lie when both were measured on the same tasks, such as two rules files
+    run on the same pull requests. Each draw picks the same tasks for both, as a task's two numbers share its difficulty.
+    None when either has too few tasks or they are not the same tasks."""
+    if len(before.parts) != len(after.parts) or not (before.enough() and after.enough()):
+        return None
+    picks = numpy.random.default_rng(SEED).integers(0, len(before.parts), size=(DRAWS, len(before.parts)))
+    return span(after.share(picks) - before.share(picks))
 
 
 def relative(before, since):

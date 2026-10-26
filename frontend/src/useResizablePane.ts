@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useState, type Dispatch, type SetStateAction, type MouseEvent as ReactMouseEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction, type MouseEvent as ReactMouseEvent } from 'react';
 
 type Pane<T extends number | null> = {
   width: T;
@@ -31,11 +31,17 @@ export function useResizablePane(
 ): Pane<number> | Pane<number | null> {
   const [width, setWidth] = useState(initialWidth);
   const [resizing, setResizing] = useState(false);
+  const stopResize = useRef<(() => void) | null>(null);
+
+  useEffect(() => () => { stopResize.current?.(); }, []);
 
   const startResize = useCallback((event: ReactMouseEvent, renderedWidth = width ?? minimumWidth) => {
+    if (event.button !== 0) return;
     event.preventDefault();
+    stopResize.current?.();
     const startPosition = axis === 'x' ? event.clientX : event.clientY;
     const startWidth = renderedWidth;
+    const { cursor, userSelect } = document.body.style;
     const move = (next: globalThis.MouseEvent) => {
       const position = axis === 'x' ? next.clientX : next.clientY;
       const distance = resizeEdge === 'start' ? startPosition - position : position - startPosition;
@@ -44,15 +50,19 @@ export function useResizablePane(
     const stop = () => {
       window.removeEventListener('mousemove', move);
       window.removeEventListener('mouseup', stop);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
+      window.removeEventListener('blur', stop);
+      document.body.style.cursor = cursor;
+      document.body.style.userSelect = userSelect;
+      stopResize.current = null;
       setResizing(false);
     };
+    stopResize.current = stop;
     document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
     setResizing(true);
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', stop);
+    window.addEventListener('blur', stop);
   }, [maximumWidth, minimumWidth, resizeEdge, width, axis]);
 
   return { width, setWidth, resizing, startResize };

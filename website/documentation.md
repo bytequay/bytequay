@@ -159,6 +159,10 @@ a task it started. The Assistant never edits files or runs code itself.
 **Post now** and **Reply** publish at once; **Add to review** keeps comments
 pending until you submit.
 
+To update **Reviewers** or **Assignees**, search and select each person (or
+reviewer team), then choose **Save changes** to apply the selection together.
+**Cancel** or closing the picker discards unsaved selections.
+
 <a id="explore-locally"></a>
 
 ## Explore code and tests

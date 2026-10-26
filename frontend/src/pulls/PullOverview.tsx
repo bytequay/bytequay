@@ -320,7 +320,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
   const visibleDetail = optimisticDetail?.key === key ? optimisticDetail.value : detail;
   optionsKey.current = key;
 
-  const root = usePopoverDismiss(() => setOpen(null), false, open !== null);
+  const root = usePopoverDismiss(() => { if (!updatingRef.current) setOpen(null); }, false, open !== null);
 
   useEffect(() => {
     optionsRequest.current += 1;
@@ -334,6 +334,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
   }, [key]);
 
   const toggle = (kind: MetadataPickerKind) => {
+    if (updatingRef.current) return;
     setQuery('');
     setError(null);
     setOpen(current => current === kind ? null : kind);
@@ -396,11 +397,54 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
     }
   };
 
+  const savePeople = async (kind: PeoplePickerKind, changes: PeoplePickerCandidate[]) => {
+    if (updatingRef.current || changes.length === 0) return;
+    updatingRef.current = true;
+    setUpdating(true);
+    setError(null);
+    let confirmed = visibleDetail;
+    const commit = (apply: (current: PullRequestDetailDto) => PullRequestDetailDto) => {
+      confirmed = apply(confirmed);
+      if (optionsKey.current === key) setOptimisticDetail({ key, value: confirmed });
+      onDetailUpdate(visibleDetail.repo, visibleDetail.number, apply);
+      recordAttentionAction(`${visibleDetail.repo}#${visibleDetail.number}`, 'update');
+    };
+    try {
+      if (kind === 'assignees') {
+        const removed = new Set(changes.filter(candidate => !candidate.selected).map(candidate => candidate.login.toLowerCase()));
+        const next = [...visibleDetail.assignees.filter(login => !removed.has(login.toLowerCase())),
+          ...changes.filter(candidate => candidate.selected).map(candidate => candidate.login)];
+        await window.bridge.updatePrMetadata(visibleDetail.repo, visibleDetail.number, next, visibleDetail.labels.map(label => label.name));
+        commit(current => ({ ...current, assignees: next }));
+      }
+      else {
+        for (const candidate of changes) {
+          await window.bridge.updatePrReviewer(visibleDetail.repo, visibleDetail.number, candidate.login, candidate.selected);
+          // Keep successful writes when a later reviewer fails, so retry only sends the remaining changes.
+          commit(current => ({ ...current, reviewers: candidate.selected
+            ? current.reviewers.some(reviewer => reviewer.login.toLowerCase() === candidate.login.toLowerCase()) ? current.reviewers
+              : [...current.reviewers, { login: candidate.login, avatarUrl: candidate.avatarUrl, state: 'PENDING' }]
+            : current.reviewers.filter(reviewer => reviewer.login.toLowerCase() !== candidate.login.toLowerCase() || reviewer.state.toUpperCase() !== 'PENDING'),
+          }));
+        }
+      }
+      if (optionsKey.current === key) setOpen(null);
+    }
+    catch (failure) {
+      if (optionsKey.current === key) setError(remoteErrorMessage(failure));
+    }
+    finally {
+      if (optionsKey.current === key) setOptimisticDetail(null);
+      updatingRef.current = false;
+      setUpdating(false);
+    }
+  };
+
   return (
     <div className="pr-meta" ref={root}>
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'reviewers' ? ' is-open' : ''}`}
-          aria-expanded={open === 'reviewers'} aria-haspopup="listbox" onClick={() => toggle('reviewers')}>
+          disabled={updating} aria-expanded={open === 'reviewers'} aria-haspopup="listbox" onClick={() => toggle('reviewers')}>
           <small>Reviewers</small>
           {visibleDetail.reviewers.length === 0 && 'None'}
           {visibleDetail.reviewers.slice(0, visibleDetail.reviewers.length > 3 ? 2 : 3).map(reviewer => (
@@ -411,26 +455,14 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
           ))}
           {visibleDetail.reviewers.length > 3 && `${visibleDetail.reviewers.length - 2} other reviewers`}
         </button>
-        {open === 'reviewers' && <PeoplePicker detail={visibleDetail} kind="reviewers" loading={loading} query={query}
+        {open === 'reviewers' && <PeoplePicker key={`${key}:reviewers`} detail={visibleDetail} kind="reviewers" loading={loading} query={query}
           repoUsers={[...(repoTeams ?? []).map((login): RepoUserDto => ({ login, avatarUrl: null, bot: false })), ...repoUsers]}
-          setQuery={setQuery} updating={updating}
-          onToggle={candidate => {
-            if (candidate.locked) return;
-            const previous = visibleDetail.reviewers;
-            const next = candidate.selected
-              ? previous.filter(reviewer => reviewer.login.toLowerCase() !== candidate.login.toLowerCase())
-              : [...previous, { login: candidate.login, avatarUrl: candidate.avatarUrl, state: 'PENDING' }];
-            void update(
-              current => ({ ...current, reviewers: next }),
-              current => current.reviewers === next ? { ...current, reviewers: previous } : current,
-              () => window.bridge.updatePrReviewer(
-                visibleDetail.repo, visibleDetail.number, candidate.login, !candidate.selected),
-            );
-          }} />}
+          setQuery={setQuery} updating={updating} error={error} onCancel={() => setOpen(null)}
+          onSave={changes => { void savePeople('reviewers', changes); }} />}
       </div>
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'assignees' ? ' is-open' : ''}`}
-          aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => toggle('assignees')}>
+          disabled={updating} aria-expanded={open === 'assignees'} aria-haspopup="listbox" onClick={() => toggle('assignees')}>
           <User size={15} strokeWidth={1.4} aria-hidden="true" /> <small>Assignees</small>
           {visibleDetail.assignees.slice(0, visibleDetail.assignees.length > 3 ? 2 : 3).map(login => (
             <span className="pr-meta__item" key={login}>
@@ -440,22 +472,13 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
           ))}
           {visibleDetail.assignees.length > 3 && `${visibleDetail.assignees.length - 2} other assignees`}
         </button>
-        {open === 'assignees' && <PeoplePicker detail={visibleDetail} kind="assignees" loading={loading}
-          query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating}
-          onToggle={candidate => {
-            const previous = visibleDetail.assignees;
-            const next = toggleSelection(previous, candidate.login);
-            void update(
-              current => ({ ...current, assignees: next }),
-              current => current.assignees === next ? { ...current, assignees: previous } : current,
-              () => window.bridge.updatePrMetadata(
-                visibleDetail.repo, visibleDetail.number, next, visibleDetail.labels.map(label => label.name)),
-            );
-          }} />}
+        {open === 'assignees' && <PeoplePicker key={`${key}:assignees`} detail={visibleDetail} kind="assignees" loading={loading}
+          query={query} repoUsers={repoUsers} setQuery={setQuery} updating={updating} error={error} onCancel={() => setOpen(null)}
+          onSave={changes => { void savePeople('assignees', changes); }} />}
       </div>
       <div className="pr-meta__picker">
         <button type="button" className={`pr-meta__chip${open === 'labels' ? ' is-open' : ''}`}
-          aria-expanded={open === 'labels'} aria-haspopup="listbox" onClick={() => toggle('labels')}>
+          disabled={updating} aria-expanded={open === 'labels'} aria-haspopup="listbox" onClick={() => toggle('labels')}>
           {visibleDetail.labels.length === 0 && 'No labels'}
           {visibleDetail.labels.slice(0, visibleDetail.labels.length > 3 ? 2 : 3).map(label => (
             <span className="pr-meta__item" key={label.name}>
@@ -482,12 +505,12 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
           }} />}
       </div>
       {visibleDetail.milestone && <span><small>Milestone</small> {visibleDetail.milestone}</span>}
-      {error && <div className="pr-meta__error" role="alert">Could not update pull request. {error}</div>}
+      {error && open !== 'reviewers' && open !== 'assignees' && <div className="pr-meta__error" role="alert">Could not update pull request. {error}</div>}
     </div>
   );
 }
 
-function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery, updating, onToggle }: {
+function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery, updating, error, onCancel, onSave }: {
   detail: PullRequestDetailDto;
   kind: PeoplePickerKind;
   loading: boolean;
@@ -495,13 +518,35 @@ function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery, updat
   repoUsers: RepoUserDto[];
   setQuery: (value: string) => void;
   updating: boolean;
-  onToggle: (candidate: PeoplePickerCandidate) => void;
+  error: string | null;
+  onCancel: () => void;
+  onSave: (changes: PeoplePickerCandidate[]) => void;
 }) {
+  const [draft, setDraft] = useState<Map<string, PeoplePickerCandidate>>(new Map());
   const normalized = query.trim().toLowerCase();
-  const candidates = peoplePickerCandidates(detail, repoUsers, kind)
-    .filter(candidate => candidate.login.toLowerCase().includes(normalized));
+  const current = peoplePickerCandidates(detail, repoUsers, kind);
+  const currentLogins = new Set(current.map(candidate => candidate.login.toLowerCase()));
+  for (const [login, candidate] of draft) {
+    if (!currentLogins.has(login)) current.push({ ...candidate, selected: false, locked: false });
+  }
+  const selection = current.map(candidate => ({ ...candidate,
+    selected: candidate.locked ? candidate.selected : draft.get(candidate.login.toLowerCase())?.selected ?? candidate.selected,
+  }));
+  const changes = selection.filter((candidate, index) => candidate.selected !== current[index].selected);
+  const candidates = selection.filter(candidate => candidate.login.toLowerCase().includes(normalized))
+    .sort((left, right) => Number(right.selected) - Number(left.selected));
   return <MetadataPicker ariaLabel={kind} placeholder={kind === 'reviewers' ? 'Search users and teams...' : 'Search users...'} query={query} setQuery={setQuery}
     loading={loading} updating={updating} emptyText="No users found" loadingText="Loading repository users…"
+    footer={<>
+      {error && <div className="pr-people-picker__error" role="alert">{error}</div>}
+      <div className="pr-people-picker__actions">
+        <span>{selection.filter(candidate => candidate.selected).length} selected</span>
+        <button type="button" disabled={updating} onClick={onCancel}>Cancel</button>
+        <button type="button" className="is-primary" disabled={updating || changes.length === 0} onClick={() => onSave(changes)}>
+          {updating ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
+    </>}
     options={candidates.map(candidate => ({
       key: candidate.login,
       label: displayActor(candidate.login),
@@ -514,7 +559,9 @@ function PeoplePicker({ detail, kind, loading, query, repoUsers, setQuery, updat
     }))}
     onToggle={option => {
       const candidate = candidates.find(value => value.login === option.key);
-      if (candidate) onToggle(candidate);
+      if (!candidate || candidate.locked) return;
+      setDraft(previous => new Map(previous).set(candidate.login.toLowerCase(), { ...candidate, selected: !candidate.selected }));
+      setQuery('');
     }} />;
 }
 
@@ -579,6 +626,7 @@ export function MetadataPicker({
   loadingText,
   emptyText,
   onToggle,
+  footer,
 }: {
   ariaLabel: string;
   placeholder: string;
@@ -590,17 +638,19 @@ export function MetadataPicker({
   loadingText: string;
   emptyText: string;
   onToggle: (option: MetadataPickerOption) => void;
+  footer?: ReactNode;
 }) {
+  const search = useRef<HTMLInputElement>(null);
   const displayedOptions = displayedMetadataPickerOptions(options);
   return (
     <div className="pr-people-picker">
-      <input autoFocus aria-label={`Search ${ariaLabel}`} placeholder={placeholder} value={query}
+      <input ref={search} autoFocus aria-label={`Search ${ariaLabel}`} placeholder={placeholder} value={query}
         onChange={event => setQuery(event.target.value)} />
-      <div className="pr-people-picker__list" role="listbox" aria-label={ariaLabel}>
+      <div className="pr-people-picker__list" role="listbox" aria-label={ariaLabel} aria-multiselectable="true">
         {displayedOptions.map(option => (
           <button className={`pr-people-picker__row${option.color ? ' is-label' : ''}`} type="button"
             disabled={updating || option.disabled} aria-label={option.label} aria-selected={option.selected} role="option" key={option.key}
-            title={option.disabledReason} onClick={() => onToggle(option)}>
+            title={option.disabledReason} onClick={() => { onToggle(option); if (footer) search.current?.focus(); }}>
             <span className="pr-people-picker__check">{option.selected && <CheckIcon size={16} />}</span>
             {option.login
               ? <Avatar login={option.login} avatarUrl={option.avatarUrl} size={20} allowGitHubFallback={false} />
@@ -612,6 +662,7 @@ export function MetadataPicker({
         {loading && options.length === 0 && <div className="pr-people-picker__empty">{loadingText}</div>}
         {!loading && options.length === 0 && <div className="pr-people-picker__empty">{emptyText}</div>}
       </div>
+      {footer}
     </div>
   );
 }

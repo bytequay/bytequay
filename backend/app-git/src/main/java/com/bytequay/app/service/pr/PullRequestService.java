@@ -589,7 +589,7 @@ public class PullRequestService
             }
             catch (RuntimeException failure) {
                 if (!isRateLimit(failure)) {
-                    log.info("Recent PR discovery deferred for {}: {}", query, failure.getMessage());
+                    log.info("Recent PR discovery deferred for {}: {}", query, failure.getMessage(), failure);
                 }
             }
             if (ran) {
@@ -868,7 +868,7 @@ public class PullRequestService
                     || response.getStatusCode().value() == 403 || response.getStatusCode().value() == 429)) {
                 throw failure;
             }
-            log.warn("GitHub PR card enrichment failed for {} PRs; keeping discovered updates: {}", batch.size(), failure.getMessage());
+            log.warn("GitHub PR card enrichment failed for {} PRs; keeping discovered updates: {}", batch.size(), failure.getMessage(), failure);
         }
         try {
             // GitHub's secondary limit allows about a minute of GraphQL execution per minute; resting as long as each batch ran leaves half of it free.

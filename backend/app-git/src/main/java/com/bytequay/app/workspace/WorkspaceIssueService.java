@@ -275,7 +275,7 @@ public class WorkspaceIssueService
                 if (isRateLimit(failure) || failure instanceof ResponseStatusException response && response.getStatusCode().value() == 401) {
                     throw failure;
                 }
-                log.warn("Recent issue refresh failed for {}: {}", workspace.monitoredRepository(), failure.getMessage());
+                log.warn("Recent issue refresh failed for {}: {}", workspace.monitoredRepository(), failure.getMessage(), failure);
             }
         }
     }

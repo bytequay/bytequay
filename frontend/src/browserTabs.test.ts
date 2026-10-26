@@ -691,7 +691,10 @@ it('reports rejected loads but ignores an older request after newer navigation o
 it('recreates a destroyed page on reload without retaining its native view', () => {
   const id = open('https://example.com/start');
   tabs.mount(id, bounds);
-  view(0).webContents.close();
+  const contents = view(0).webContents;
+  contents.destroyed = true;
+  Object.defineProperty(view(0), 'webContents', { value: undefined });
+  contents.emit('destroyed');
   expect(tabs.getState().tabs[0].error).toContain('stopped unexpectedly');
   expect(contentView.removeChildView).toHaveBeenLastCalledWith(view(0));
   tabs.reload(id);

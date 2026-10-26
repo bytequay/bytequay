@@ -446,6 +446,8 @@ export class BrowserTabs {
     });
     contents.on('destroyed', () => {
       if (!current()) return;
+      // Electron clears view.webContents when it is destroyed; retries need a new native view.
+      tab.view = null;
       if (tab.closing) this.removeTab(tab);
       else this.fail(tab, 'This page stopped unexpectedly. Reload to try again.');
     });

@@ -76,13 +76,13 @@ export class ArtifactView {
     try {
       const html = await this.readPage(target);
       // Another page, or a newer save of this one, replaced it while it was read or loaded.
-      if (this.wanted !== wanted) return;
-      this.page = { url, html };
       await this.proxied;
+      if (this.wanted !== wanted || this.view !== view) return;
+      this.page = { url, html };
       await view.webContents.loadURL(url);
     }
     catch (error) {
-      if (this.wanted !== wanted) return;
+      if (this.wanted !== wanted || this.view !== view) return;
       this.wanted = null;
       throw error;
     }
@@ -109,6 +109,7 @@ export class ArtifactView {
     contents.on('will-navigate', event => event.preventDefault());
     contents.on('will-frame-navigate', event => { if (!event.isMainFrame) event.preventDefault(); });
     contents.on('render-process-gone', () => { this.wanted = null; });
+    contents.on('destroyed', () => { if (this.view === view) this.closeHidden(); });
     this.view = view;
     return view;
   }
@@ -129,9 +130,10 @@ export class ArtifactView {
   /** The page belongs to the window; a new window opens it again. */
   releaseWindow(): void {
     clearTimeout(this.idle);
-    if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
+    const contents = this.view?.webContents;
     this.view = null;
     this.wanted = null;
     this.page = null;
+    if (contents && !contents.isDestroyed()) contents.close();
   }
 }

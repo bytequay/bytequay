@@ -146,6 +146,29 @@ switch is off by default.
 Every action leaves a receipt with **Open**; **Stop** cancels the first turn of
 a task it started. The Assistant never edits files or runs code itself.
 
+<a id="dictation"></a>
+
+## Dictate instead of typing
+
+Speak into any agent composer, the Assistant, a review, or a discussion. Your
+Mac turns the speech into text, and nothing is sent until you press **Send**.
+Dictation needs macOS 26 or later.
+
+1. Turn on **Enable dictation** in **Settings → Agents → Features**. If this
+   Mac still needs something, such as a speech model or microphone access, the
+   Voice card says so and offers the fix.
+2. In a composer, hold **right ⌥** while you speak, then let go. Or click the
+   microphone to start and again to stop. **Esc** cancels.
+3. Your words show above the draft as you talk. The finished text lands at the
+   cursor, and **⌘Z** removes it.
+
+To speak one language and write in another, choose **I speak** and **Write it
+in** on the Voice card. The first time, Apple asks in a small window to
+download that translation. Hover the finished words to see what you said.
+
+If a recording can't be turned into text, choose **Retry** or **Discard**.
+Recordings stay on your Mac and are deleted when ByteQuay quits.
+
 <a id="pull-requests"></a>
 
 ## Review a pull request

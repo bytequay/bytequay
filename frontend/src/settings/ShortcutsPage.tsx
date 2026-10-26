@@ -30,6 +30,7 @@ const SCOPED_SHORTCUTS: { title: string; rows: { label: string; keys: string; de
   { title: 'Tasks and the Assistant', rows: [
     { label: 'Show all tasks', keys: '⇧⌘\\', detail: 'On a workspace task screen.' },
     { label: 'Send / add a new line', keys: 'Enter / ⇧Enter', detail: 'In an agent or Assistant composer.' },
+    { label: 'Dictate', keys: 'Hold right ⌥', detail: 'In a composer while dictation is on; release to stop, Escape cancels.' },
     { label: 'Edit a queued message', keys: '↑', detail: 'When the task composer is empty and a queued message can be edited.' },
     { label: 'New Assistant conversation', keys: '⌘N', detail: 'While the Assistant is open.' },
     { label: 'Previous / next Assistant card', keys: '← / →', detail: 'When a card or its group is focused; Tab switches expanded groups.' },

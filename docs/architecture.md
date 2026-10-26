@@ -61,6 +61,19 @@ announcing a block. While another app is in front, Electron also shows a new
 alert as a macOS notification whose click takes the alert's own path, and the
 Dock badge counts the notices that need the user.
 
+Dictation runs in a bundled Swift helper that Electron main starts per command,
+one dictation at a time; the backend takes no part. The helper records the
+microphone and turns speech into text, and optionally into another language,
+with Apple's on-device speech and translation frameworks, so audio never leaves
+the Mac. Because ByteQuay starts it, macOS charges microphone access to
+ByteQuay. Events go only to the window that started the dictation, and only the
+finished text enters that composer's draft, where the user still sends it. A
+recording stays in the app's data folder only until its text is inserted, it is
+discarded, or ByteQuay quits. Apple supplies the speech models and translation
+pairs; a pair downloads only after the user agrees in Apple's own sheet, which
+the helper shows in a small window of its own. The Voice switch and languages
+are a per-Mac setting kept by Electron main.
+
 ## Backend organization
 
 The backend is a fourteen-module Maven application. Modules define dependency and

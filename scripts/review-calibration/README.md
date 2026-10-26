@@ -135,7 +135,8 @@ DEEPSEEK_API_KEY=... uv run run.py --repo /path/to/source --base BASE_SHA --head
 `agent.py` is an agent written on the model API itself, with no agent
 framework, so every part of it can be read and changed here. Each use gives its
 loop the tools it offers and the one that hands the answer in. A review is
-described here; the Resources page's risk look (see Monitor) is the other.
+described here; the Resources page's risk look (see Monitor) and the rules
+writer (below) are the others.
 `--provider agent`
 runs it on the same frozen input, with the same prompt and the same answer shape
 as the two command lines, so the judge scores all three alike. It calls
@@ -155,7 +156,9 @@ there, arguments that are not JSON, a review that misses a field.
 
 A run ends after 40 model calls or at `--timeout`. The last call, or the one
 after a conversation passes 100,000 prompt tokens, comes with a request to hand
-the review in now. The model's own messages go back to it as they came,
+the review in now and offers the tool that hands it in alone, so the call
+cannot go to reading on. A review handed in then and sent back for what is
+wrong with it gets two more calls to put it right. The model's own messages go back to it as they came,
 thinking included, which a thinking model needs between the steps of one task.
 `events.jsonl` keeps one line per model call (its time, tokens, text and the
 calls it made) and per tool call (its time, the size of its result and any
@@ -165,6 +168,77 @@ hash of its source, so a changed agent is told apart in the results.
 `test_agent.py` drives the loop with a stand-in model that answers from a
 script, and runs the whole arm against a stand-in of DeepSeek's chat API on
 this machine (`DEEPSEEK_BASE_URL`), so no test needs a key or the network.
+
+## Rules writer
+
+```sh
+uv run writer.py NAME --setting SETTING --kind work
+uv run writer.py NAME --setting SETTING --kind expert
+uv run writer.py NAME --setting SETTING --kind merge --versions SETTING SETTING
+```
+
+`writer.py` has the lab's agent write a new version of the review rules from
+what a setting's runs in experiment `NAME` did. `work` changes how the
+reviewer works (what it reads first, how it checks a lead, when it stops) and
+may not name the repository, as the rules serve every repository. `expert`
+adds what a reviewer of the experiment's repository knows: its conventions and
+what its maintainers ask for. Each `expert` change must be backed by runs of
+at least two pull requests, when the evidence holds two: what only one pull
+request needed is knowledge of that change, and would only teach the rules
+the tuning cases.
+
+`merge` puts together versions that settings of the same experiment tried on
+the same cases. Besides the runs of the rules as they stand, the writer reads
+each version under `versions/<name>/`: the version, what its writer changed
+and why, and its runs, whose description and change are those of the run of
+the same name under `runs/`. It compares what the reviewer did under each version
+with what it did before, pull request by pull request, keeps the changes whose
+runs show the reviewer working better and merges them into one file. Nothing
+it reads says which version scored better. A change may name a version's run
+as `<name>/<run>`; the rule against naming the repository and the one of two
+pull requests do not apply, as the merge carries both kinds on.
+
+The writer reads an evidence folder built from the setting's completed runs,
+all of which must have used the same rules file: that rules file; the task
+every run was given and the shape of its answer, which are fixed, so a rule
+must fit them (the task asks for leads to check later, not checked findings);
+and for each run its change, the pull request's prose from before the review,
+the leads it handed in, its time and tokens, and what it did. It sees the
+change as a diff, not the whole code, and is told to claim only what it read. What a run did is its Codex
+commands or Claude tool calls in order, each with the start of what came back,
+and what the model said. All runs read together share 120,000 characters of
+steps, at least 6,000 each, so every run fits the writer's conversation; a
+run's steps lose their middle first. The run's input folder appears as `.`, so no path names this Mac's user.
+Only these files are copied. The writer never reads a judgement, a score, a
+label or a case, and the folder is searched for every reviewer comment of the
+cases all the same: one found there stops the writing and the folder is
+deleted. A writer that saw the answer key would learn the key, not how to
+review. What it reads goes to DeepSeek's API, with the judge's key.
+
+It hands in edits to the rules, every change with the runs that show the need
+for it, and one lesson. An edit quotes a piece of the rules exactly and gives
+what goes in its place, so the rest stays word for word and a long rules file
+is never written out again; the lab makes the edits. A quoted piece that is not
+in the rules exactly once, or edits that overlap, are sent back, saying how
+much of a quote that went astray does match, as are rules
+that come out unchanged or longer than one and a half times the current rules
+plus 2,000 characters (they go with every review), more than eight changes or
+twenty edits, and changes that name no run it read. A writing may read until
+its conversation holds 200,000 tokens, as it reads every run, and ends after 40
+model calls or 15 minutes; its last call can only hand the edits in, with two
+more calls when they are sent back.
+
+Each version stays in the experiment's `rules` folder: `work-1.md` and so on,
+counted per kind; `work-1.json` with the changes, the reasons, the lesson, a
+diff against the current rules, the runs read, the hashes of the rules, the
+writer and the agent, and the tokens; `work-1.events.jsonl` with every model
+and tool call; and `work-1.evidence/`, exactly what the writer could read.
+The command prints a setting that names the new rules, such as
+`"quick-work-1": {..., "policy": "rules/work-1.md"}`. Add it to the plan's
+settings and run `batch.py NAME` to try the version on the same cases, then
+judge and compare it like any setting. Cases the writer learned from are
+tuning cases: a better score on them says the version runs, not that it
+reviews better.
 
 ## Scoring
 
@@ -307,10 +381,11 @@ from the tuning cases a change was made from. Its scores are shown only as each
 setting's totals and their range, never a run or a comment: `report.py` prints
 the totals alone, and the dashboard's Reviews tab leaves out the comparison
 comment by comment and the list of runs. The Judge page never offers its pairs,
-as a pair shows the reviewer's comment. What the runs and the judge leave on
-disk is complete; nobody opens it. After three changes chosen on the same
-unseen cases, they have been leaned on enough: replace them with pull requests
-merged since, and make the old ones tuning cases.
+as a pair shows the reviewer's comment, and `writer.py` refuses to learn from
+it. What the runs and the judge leave on disk is complete; nobody opens it.
+After three changes chosen on the same unseen cases, they have been leaned on
+enough: replace them with pull requests merged since, and make the old ones
+tuning cases.
 
 The dashboard can do the same with a button: its Reviews tab shows how the
 runs of the experiment you picked stand, and runs and judges what is missing,

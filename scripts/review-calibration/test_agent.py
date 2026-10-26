@@ -34,11 +34,12 @@ class Script:
     """A stand-in for the model: it gives its messages in order and keeps a copy of every conversation it was sent."""
 
     def __init__(self, *messages, used=USED):
-        self.messages, self.used, self.sent, self.timeouts = list(messages), used, [], []
+        self.messages, self.used, self.sent, self.timeouts, self.offered = list(messages), used, [], [], []
 
     def __call__(self, messages, offered, timeout):
         self.sent.append(copy.deepcopy(messages))
         self.timeouts.append(timeout)
+        self.offered.append([tool["function"]["name"] for tool in offered])
         message = self.messages.pop(0)
         if isinstance(message, Exception):
             raise message
@@ -148,6 +149,16 @@ class TestLoop(Folder):
         self.assertEqual([conversation[-1] for conversation in script.sent][2], {"role": "user", "content": agent.WRAP_UP})
         self.assertNotIn({"role": "user", "content": agent.WRAP_UP}, script.sent[1])
         self.assertEqual(events[-1]["status"], "incomplete_output")
+        self.assertEqual((script.offered[1], script.offered[2]), (["list_files", "read_file", "search", "submit_review"], ["submit_review"]))  # the last step can only hand in
+
+    def test_a_review_sent_back_on_the_last_step_can_be_put_right_twice(self):
+        wrong = said(call("x", "submit_review", {}))
+        script = Script(wrong, wrong, said(call("c", "submit_review", ANSWER)))
+        done, _ = self.review(script, max_steps=1)
+        self.assertEqual((done.status, done.steps, script.offered), ("completed", 3, [["submit_review"]] * 3))
+        self.assertEqual([conversation.count({"role": "user", "content": agent.WRAP_UP}) for conversation in script.sent], [1, 1, 1])  # asked once
+        done, _ = self.review(Script(wrong, wrong, wrong), max_steps=1)
+        self.assertEqual((done.status, done.steps), ("incomplete_output", 3))
 
     def test_a_conversation_near_the_limit_gets_one_more_step_to_hand_the_review_in(self):
         script = Script(said(call("a", "list_files", {"path": "."})), said(call("b", "list_files", {"path": "."})), said(call("c", "list_files", {"path": "."})),

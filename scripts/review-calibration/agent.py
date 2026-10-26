@@ -1,7 +1,7 @@
 """The lab's own agent, written on the raw model API: one loop, given by each use its own tools and a tool that hands the
 answer in. A review gives it three read-only tools kept to one folder; run.py starts it with --provider agent, on
 the same frozen input and with the same prompt as the Codex and Claude command lines, so the three can be scored side by
-side. The advisor gives it the monitor's numbers.
+side. The advisor gives it the monitor's numbers, and the rules writer earlier runs to write new review rules from.
 
 The loop: send the conversation and the tools to the model. If it calls tools, run them and add their results to the
 conversation. If it hands the answer in, stop. A limit on model calls and a deadline end a run that does neither."""
@@ -23,6 +23,7 @@ import judge
 VERSION = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()[:8]  # kept with every run, so a changed agent is told apart
 MAX_STEPS = 40  # model calls in one run
 CONTEXT_LIMIT = 100_000  # prompt tokens; past this the model is told to hand in what it has before the conversation outgrows it
+RETRIES = 2  # more calls for a model whose hand-in on the last step was sent back, to put right what was wrong with it
 REQUEST_SECONDS = 120.0  # the longest one model call may take
 LINES = 300  # lines one read hands back
 MATCHES = 50  # matches one search hands back
@@ -62,11 +63,12 @@ class Brief:
     """What one run of the loop is for."""
 
     system: str  # the system prompt
-    offered: list  # the tools in the model API's shape, the one that hands the answer in among them
+    offered: list  # the tools in the model API's shape, the one that hands the answer in last
     call: Callable  # one tool call -> (what the model reads back, the answer once a whole one is handed in)
     nudge: str  # what a reply that calls no tool is told
     wrap_up: str  # what the last step is told
     noun: str  # what is handed in, as the reason a run ended names it
+    limit: int = CONTEXT_LIMIT  # prompt tokens past which the model is told to hand in
 
 
 def text(arguments, name, default=None):
@@ -241,16 +243,21 @@ def work(brief, prompt, ask, deadline, log=lambda event: None, max_steps=MAX_STE
         log({"type": "result", "status": status, "reason": reason, "steps": run.steps, "usage": run.usage})
         return run
 
-    for step in range(1, max_steps + 1):
+    handing = None  # the step from which the model was told to hand in
+    step = 0
+    while True:
+        step += 1
         left = deadline - clock()
         if left <= 0:
             return ended("timed_out", f"the deadline passed after {run.steps} model calls")
-        last = step == max_steps or seen >= CONTEXT_LIMIT
-        if last:
+        if handing is None and (step >= max_steps or seen >= brief.limit):
+            handing = step
             messages.append({"role": "user", "content": brief.wrap_up})
+        last = handing is not None
         began = clock()
         try:
-            message, spent, finish = ask(messages, brief.offered, min(left, REQUEST_SECONDS))
+            # On the last step the hand-in alone is offered: a model told to hand in would otherwise spend the step reading on.
+            message, spent, finish = ask(messages, brief.offered[-1:] if last else brief.offered, min(left, REQUEST_SECONDS))
         except Exception as failed:  # the model API refused or broke off; the tokens spent so far stay counted
             return ended("failed", f"{type(failed).__name__}: {failed}"[:500])
         run.steps, seen = step, spent["prompt_tokens"]
@@ -271,9 +278,9 @@ def work(brief, prompt, ask, deadline, log=lambda event: None, max_steps=MAX_STE
             if answer is not None:
                 return ended("completed", answer=answer)
             messages.append({"role": "tool", "tool_call_id": call["id"], "content": result})
-        if last:
+        sent_back = any(call["function"]["name"] == brief.offered[-1]["function"]["name"] for call in calls)
+        if last and not (sent_back and step - handing < RETRIES):
             return ended("incomplete_output", f"no whole {brief.noun} after {run.steps} model calls")
-    return ended("incomplete_output", f"no whole {brief.noun} after {run.steps} model calls")
 
 
 def asker(client, model):

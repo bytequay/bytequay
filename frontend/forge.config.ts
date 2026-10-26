@@ -29,6 +29,7 @@ const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-
 const IDE_BUNDLE = join(__dirname, 'vendor', 'ide');
 const JAVA_RUNTIME = join(__dirname, 'vendor', 'jre');
 const LAB_RUNTIME = join(__dirname, 'vendor', 'lab');
+const DICTATION = join(__dirname, 'vendor', 'dictation');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -43,11 +44,17 @@ const config: ForgeConfig = {
     // Ship the backend JAR and runtimes alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
     // path process.resourcesPath resolves to at runtime).
-    extraResource: [BACKEND_JAR, IDE_BUNDLE, JAVA_RUNTIME, LAB_RUNTIME],
+    extraResource: [BACKEND_JAR, IDE_BUNDLE, JAVA_RUNTIME, LAB_RUNTIME, DICTATION],
+    extendInfo: {
+      NSMicrophoneUsageDescription: 'ByteQuay uses the microphone for dictation. Speech is turned into text on this Mac.',
+    },
   },
   hooks: {
     prePackage: async (_config, platform, arch) => {
-      execFileSync(process.execPath, ['scripts/java-runtime.mjs', `${platform}-${arch}`], { cwd: join(__dirname, '..'), stdio: 'inherit' });
+      const root = join(__dirname, '..');
+      execFileSync(process.execPath, ['scripts/java-runtime.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
+      // Asset generation may have skipped the helper for lack of the macOS 26 SDK; a package must not.
+      execFileSync(process.execPath, ['scripts/dictation-helper.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
     },
     // The Vite plugin ships only its bundles, so the one runtime native module is copied in: its JS, license and
     // this platform's N-API prebuild, without sources or other platforms.
@@ -67,6 +74,7 @@ const config: ForgeConfig = {
       const root = join(__dirname, '..');
       execFileSync(process.execPath, ['scripts/ide-bundle.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
       execFileSync(process.execPath, ['scripts/lab-runtime.mjs', `${platform}-${arch}`], { cwd: root, stdio: 'inherit' });
+      execFileSync(process.execPath, ['scripts/dictation-helper.mjs', `${platform}-${arch}`, '--optional'], { cwd: root, stdio: 'inherit' });
       // eslint-disable-next-line no-console
       console.log('[forge] building backend JAR…');
       execSync('mvn -B -q -DskipTests -Dcheckstyle.skip=true -Dlicense.skip=true clean package', {

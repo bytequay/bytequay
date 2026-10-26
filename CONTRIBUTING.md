@@ -22,6 +22,7 @@ service within the documented architecture and explicitly approved product scope
 | npm | 11.19+ | Node 24.21.0 ships with npm 11.19.0. |
 | uv | Current | Prepares the pinned Python runtime and dependencies bundled with Lab. |
 | macOS | 14+ | Required for the packaged desktop app. |
+| Command Line Tools | 26+ | The macOS 26 SDK builds the dictation helper. `npm start` runs without it, with dictation unavailable; packaging requires it. |
 
 No Docker or PostgreSQL installation is required. Runtime data is stored in a
 local SQLite database.
@@ -374,6 +375,13 @@ bundle on the next start or package.
 Lab packaging excludes dependency test suites, build headers, duplicate
 notebook assets, and the unused Arrow Flight client. Runtime libraries, offline chart exports, package metadata,
 and license notices remain in the bundle.
+
+Forge compiles the on-device dictation helper into `frontend/vendor/dictation`
+with `scripts/dictation-helper.mjs`, rebuilding it when its Swift source or the
+SDK changes. The helper uses only macOS 26 frameworks, so installed users need
+no developer tools. Run `node --test scripts/dictation-helper.test.mjs` to check
+the build script and, after packaging, `node scripts/test-packaged-dictation.mjs`
+to check the bundled helper.
 
 Choose **Settings → Integrations → Lab → Open Lab** to start its dashboard
 with refreshed local statistics. Later opens immediately reuse a healthy

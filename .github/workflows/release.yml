@@ -82,6 +82,8 @@ jobs:
         run: node scripts/test-packaged-ide.mjs
       - name: Start packaged Lab without system Python
         run: node scripts/test-packaged-lab.mjs
+      - name: Check packaged dictation helper
+        run: node scripts/test-packaged-dictation.mjs
 
       # Surface what was produced before the upload step in case we
       # need to debug a missing asset.

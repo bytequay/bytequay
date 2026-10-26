@@ -52,6 +52,7 @@ def load(folder, name):
     except ValueError:
         need(False, "it is not JSON")
     need(isinstance(plan, dict) and plan.get("version") == 1, "it is not a plan this version reads")
+    need(type(plan.get("unseen", False)) is bool, "unseen must be true or false")
     repeats, timeout, clones, programs = plan.get("repeats", 1), plan.get("timeout", 900), plan.get("clones", {}), plan.get("executables", {})
     need(type(repeats) is int and repeats >= 1, "repeats must be a whole number of 1 or more")
     need(type(timeout) is int and timeout >= 1, "timeout must be a whole number of seconds")
@@ -80,7 +81,17 @@ def load(folder, name):
         policy = chosen.get("policy", plan.get("policy"))
         need(isinstance(policy, str) and (experiment / policy).is_file(), f"{setting}: its rules file {policy!r} is not there")
         made.append({"name": setting, "provider": chosen["provider"], "model": chosen["model"], "effort": chosen["effort"], "policy": experiment / policy})
-    return {"folder": experiment, "repeats": repeats, "timeout": timeout, "executables": programs, "cases": cases, "settings": made}
+    return {"folder": experiment, "repeats": repeats, "timeout": timeout, "executables": programs, "cases": cases, "settings": made, "unseen": plan.get("unseen", False)}
+
+
+def unseen(experiment):
+    """Whether an experiment holds unseen cases, whose scores are shown as totals only, so nobody reads how one case or comment did.
+    A folder without a plan that can be read holds none: the dashboard lists folders that keep only their scores."""
+    try:
+        plan = json.loads((experiment / "plan.json").read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(plan, dict) and plan.get("unseen") is True
 
 
 def rounds(plan):

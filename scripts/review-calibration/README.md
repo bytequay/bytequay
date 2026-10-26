@@ -183,10 +183,10 @@ never falls back to a later commit, because the comments would point at other
 code. `case.py list` prints recently merged pull requests that fit, so cases
 are chosen by a rule. Private repositories are refused: the judge sends comment
 text and leads to a model provider. A case holds other people's comment text,
-so `--output` must be outside this repository; record chosen cases here only as
-pointers (repository, number, commit, comment ids) in `cases.json`. A case whose
-comments or scores anyone has read is a `tuning` case and can no longer serve
-as an unseen holdout.
+so `--output` must be outside this repository; record chosen cases only as
+pointers (repository, number, commit, comment ids) in `cases.json` in the lab's
+folder, which is never committed. A case whose comments or scores anyone has
+read is a `tuning` case and can no longer serve as an unseen holdout.
 
 ```sh
 uv run case.py list --repo OWNER/NAME --since YYYY-MM-DD
@@ -301,6 +301,16 @@ the completed runs that have no verdicts yet: the key is read from
 kept when a person is at the terminal. `"executables"` in the plan can name the
 full path of `codex` and `claude` for a scheduler that does not know where they
 are.
+
+`"unseen": true` in a plan marks an experiment of unseen cases, kept apart
+from the tuning cases a change was made from. Its scores are shown only as each
+setting's totals and their range, never a run or a comment: `report.py` prints
+the totals alone, and the dashboard's Reviews tab leaves out the comparison
+comment by comment and the list of runs. The Judge page never offers its pairs,
+as a pair shows the reviewer's comment. What the runs and the judge leave on
+disk is complete; nobody opens it. After three changes chosen on the same
+unseen cases, they have been leaned on enough: replace them with pull requests
+merged since, and make the old ones tuning cases.
 
 The dashboard can do the same with a button: its Reviews tab shows how the
 runs of the experiment you picked stand, and runs and judges what is missing,
@@ -1077,7 +1087,8 @@ is zero in more draws than the range leaves out: drawn again, such a side
 would look known for sure.
 Ranges appear in the Models and Reviews tables, beside each number to watch,
 on a noted change in the Suggestions tab, and in the report's "Clear?" column.
-The comparison of two scorer settings keeps its own sign test.
+The comparison of two scorer settings keeps its own sign test, and each scored
+setting's share of comments found or partly found has a range drawn by case.
 
 ## Synthetic smoke fixture
 

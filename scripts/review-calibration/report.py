@@ -57,8 +57,9 @@ def cells(name, case, rows):
             + ("-" if cost is None else f"${cost:,.2f}") + " |")
 
 
-def render(rows):
-    lines = []
+def render(rows, unseen=False):
+    """The tables, a row per run and the total of each setting; for unseen cases the totals alone, so nobody reads how one case did."""
+    lines = ["Unseen cases: only each setting's totals are shown, so the cases stay unseen.", ""] if unseen else []
     for setting in sorted({made["setting"] for made in rows}):
         mine = [made for made in rows if made["setting"] == setting]
         scored = [made for made in mine if made["judged"]]
@@ -69,7 +70,7 @@ def render(rows):
         if scored:
             lines += ["| run | case | comments | found | partly | missed | judge errors | leads | extra leads | reviewer tokens in (cached) / out | minutes | recorded cost |",
                       "|---|---|---|---|---|---|---|---|---|---|---|---|"]
-            lines += [cells(made["run"], made["case"], [made]) for made in scored]
+            lines += [] if unseen else [cells(made["run"], made["case"], [made]) for made in scored]
             lines += [cells("all scored runs", f"{len(scored)} of {len(mine)} runs", scored), "",
                       "Judge tokens: " + " / ".join(f"{sum(made[count] for made in scored):,}" for count in JUDGE) + " (in / out)", ""]
         unscored = [f"{made['run']} ({made['status'] if made['status'] != 'completed' else 'completed, not judged'})" for made in mine if not made["judged"]]
@@ -100,8 +101,9 @@ def main():
     parser.add_argument("root", type=Path, help="An experiment: a directory holding <setting>/<run>/ folders written by run.py and judge.py")
     parser.add_argument("--save", action="store_true", help="Also save the numbers as scores.json in that directory, where the dashboard looks for them")
     args = parser.parse_args()
+    import batch  # here and not at the top, as batch imports this module
     rows = collect(args.root)
-    print(render(rows))
+    print(render(rows, batch.unseen(args.root)))
     if args.save and rows:  # with no runs there is nothing worth replacing an earlier result with
         print("Saved to", saved.write(args.root, "scores.json", summary(rows, datetime.now(timezone.utc))))
 

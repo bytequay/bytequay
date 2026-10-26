@@ -855,10 +855,19 @@ def score_cells(scores, total):
             "recorded cost": total["cost"]}
 
 
+def found_range(setting):
+    """Where the share of comments found or partly found could lie had other pull requests come. A case is drawn whole, as its
+    comments are on one change and its runs read the same code; with fewer than three cases there is none."""
+    runs = pandas.DataFrame(setting["runs"], columns=["case", "found", "partly", "comments"])
+    cases = runs.groupby("case")
+    return ranges.said(ranges.range_of(ranges.ratio(cases["found"].sum() + cases["partly"].sum(), cases["comments"].sum(), 100)), 0)
+
+
 def score_settings_table(scores):
-    """One row per setting: what all of its scored runs found and what they cost."""
+    """One row per setting: what all of its scored runs found, the range of the share found or partly found, and what they cost."""
     return [{"setting": name, "rules": ", ".join(rules), "scored runs": f"{len(setting['runs'])} of {len(setting['runs']) + len(setting['notScored'])}",
-             **score_cells(scores, total), "judge tokens in": total["judgeInputTokens"], "judge tokens out": total["judgeOutputTokens"]}
+             **score_cells(scores, total), "found or partly % range": found_range(setting), "judge tokens in": total["judgeInputTokens"],
+             "judge tokens out": total["judgeOutputTokens"]}
             for (name, rules, total), setting in zip(score_totals(scores), scores["settings"])]
 
 

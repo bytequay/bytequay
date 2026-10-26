@@ -544,10 +544,19 @@ class TestScores(unittest.TestCase):
         settings = charts.score_settings_table(SCORES)
         self.assertEqual(settings[1], {"setting": "today", "rules": "aaaaaaaa reviewer-model high, bbbbbbbb reviewer-model high", "scored runs": "2 of 3", "comments": 5, "found": 3,
                                        "partly": 1, "missed": 0, "judge errors": 1, "leads": 6, "extra leads": 2, "tokens in": 2000, "cached": 800, "tokens out": 100, "minutes": 3,
-                                       "recorded cost": 1.5, "judge tokens in": 1600, "judge tokens out": 120})
+                                       "recorded cost": 1.5, "found or partly % range": None, "judge tokens in": 1600, "judge tokens out": 120})  # one case gives no range
         self.assertIsNone(settings[0]["recorded cost"])  # no run of this setting records a cost: not known, and not zero
         self.assertEqual([(row["setting"], row["run"], row["case"], row["comments"], row["minutes"], row["recorded cost"]) for row in charts.score_runs_table(SCORES)],
                          [("before", "pr1_rep1", "o/n#1", 2, 1.5, None), ("today", "pr1_rep1", "o/n#1", 3, 1.5, 1.5), ("today", "pr1_rep2", "o/n#1", 2, 1.5, None)])
+
+    def test_the_share_found_or_partly_has_a_range_drawn_by_case(self):
+        run = SCORES["settings"][1]["runs"][0]
+        cases = [{**run, "case": f"o/n#{number}", "comments": 4, "found": found, "partly": 1} for number, found in enumerate((0, 1, 2, 3))]
+        low, high = map(float, charts.found_range({"runs": cases}).split(" to "))
+        self.assertTrue(25 < low < 62.5 < high < 100)  # 10 of 16 found or partly is 62.5%, and four cases leave room either way
+        same = [{**one, "case": "o/n#1"} for one in cases]
+        self.assertIsNone(charts.found_range({"runs": same}))  # one pull request run four times is still one case
+        self.assertIsNone(charts.found_range({"runs": []}))
 
     def test_two_settings_are_compared_on_the_comments_both_were_judged_on(self):
         self.assertEqual(charts.comment_verdicts(SCORES["settings"][1]), {("o/n#1", "0"): ["found", "found"], ("o/n#1", "1"): ["partly", "found"]})

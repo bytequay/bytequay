@@ -100,6 +100,14 @@ class TestPage(Experiment):
         self.assertEqual(([note.value for note in page.success], page.metric[0].value), (["Every pair is labelled."], "2 of 4"))
         self.assertEqual(page.dataframe[0].value.set_index("you").loc["MISSED"].tolist(), [1, 1, 2])
 
+    def test_an_experiment_of_unseen_cases_is_never_offered_for_labels(self):
+        unseen = self.folder / "experiments" / "unseen"
+        run(unseen, "astra", "pr-3_rep1", [(31, "FOUND")], [(31, "leads C, comment 31")])
+        (unseen / "plan.json").write_text(json.dumps({"version": 1, "unseen": True}))
+        self.assertEqual(self.page().selectbox[0].options, ["trial"])
+        shutil.rmtree(self.experiment)
+        self.assertEqual([note.value for note in self.page().info], ["No experiment has a judged run yet. Run and score one with `uv run batch.py NAME --judge`"])
+
     def test_without_a_judged_run_it_says_how_to_get_one(self):
         shutil.rmtree(self.experiment)
         self.assertEqual([note.value for note in self.page().info], ["No experiment has a judged run yet. Run and score one with `uv run batch.py NAME --judge`"])

@@ -73,6 +73,16 @@ class TestReport(unittest.TestCase):
         self.assertIn("Judge tokens: 1,600 / 120 (in / out)", table)
         self.assertLess(table.index("## before"), table.index("## today"))
 
+    def test_unseen_cases_show_only_each_settings_totals(self):
+        self.two_settings()
+        (self.root / "plan.json").write_text(json.dumps({"version": 1, "unseen": True}))
+        printed = subprocess.run([sys.executable, report.__file__, str(self.root)], capture_output=True, text=True)
+        self.assertEqual(printed.returncode, 0, printed.stderr)
+        self.assertTrue(printed.stdout.startswith("Unseen cases: only each setting's totals are shown, so the cases stay unseen.\n"))
+        self.assertIn("| all scored runs | 2 of 3 runs | 5 | 3 | 1 | 0 | 1 | 6 | 2 |", printed.stdout)
+        self.assertNotIn("| pr1_rep1 |", printed.stdout)  # no row of one run, and so of one case
+        self.assertIn("| pr1_rep1 | o/n#1 |", report.render(report.collect(self.root)))  # other experiments keep them
+
     def two_settings(self):
         self.run_directory("before", "pr1_rep1", leads=2, verdicts=[("FOUND", ["c1"]), ("MISSED", [])])
         self.run_directory("before", "pr1_rep2", status="timed_out")

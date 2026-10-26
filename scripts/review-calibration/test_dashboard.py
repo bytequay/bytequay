@@ -365,6 +365,17 @@ class Page(unittest.TestCase):
         self.save_reviews(scores=json.dumps({**scores, "settings": []}))
         self.assertIn("The saved scores of first hold no setting.", [note.value for note in self.page().info])
 
+    def test_reviews_tab_shows_unseen_cases_as_each_settings_totals_alone(self):
+        self.save()
+        self.save_reviews()
+        (self.folder / "experiments" / "first" / "plan.json").write_text(json.dumps({"version": 1, "unseen": True}))
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        self.assertIn("Unseen cases: only each setting's totals are shown, so the cases stay unseen.", captions(page))
+        self.assertEqual(table(page, "scored runs")[["setting", "found", "found or partly % range"]].values.tolist(), [["before", 1, None], ["today", 3, None]])
+        self.assertEqual([frame.value for frame in page.dataframe if "run" in frame.value.columns or "better" in frame.value.columns], [])  # no run, no comment
+        self.assertEqual([box.label for box in page.selectbox], ["Experiment"])
+
     def test_reviews_tab_lets_the_reader_pick_the_experiment_and_the_two_settings_to_compare(self):
         self.save()
         scores = json.loads((FIXTURE / "saved-scores.json").read_text())

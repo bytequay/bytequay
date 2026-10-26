@@ -6,6 +6,7 @@ from pathlib import Path
 
 import streamlit as st
 
+import batch
 import dashboard
 import judge
 import labels
@@ -18,7 +19,8 @@ FOLDER = arguments.parse_known_args()[0].folder
 st.title("Judge")
 st.caption("How far to trust the review scores. Each pair is one reviewer comment and one run's leads, word for word as the judge was asked, without the "
            "judge's answer or the setting that ran. Answer as the judge should, by its rules; the scores are worth as much as you and the judge agree.")
-KEPT = sorted({path.parents[2].name for path in (FOLDER / "experiments").glob("*/*/*/judge-calls.json")})
+# Labelling shows the reviewer's comment, which would make an unseen case seen.
+KEPT = sorted({path.parents[2].name for path in (FOLDER / "experiments").glob("*/*/*/judge-calls.json") if not batch.unseen(path.parents[2])})
 if not KEPT:
     st.info("No experiment has a judged run yet. Run and score one with `uv run batch.py NAME --judge`")
     st.stop()

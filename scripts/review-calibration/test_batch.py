@@ -128,6 +128,18 @@ class TestPlan(Experiment):
         plan = batch.load(self.folder, "first")
         self.assertEqual((plan["settings"][0]["policy"], plan["repeats"], plan["timeout"], plan["executables"]), (self.experiment / "other.md", 1, 900, {"codex": "/opt/codex"}))
 
+    def test_an_experiment_of_unseen_cases_says_so(self):
+        self.assertEqual((batch.load(self.folder, "first")["unseen"], batch.unseen(self.experiment)), (False, False))
+        self.save(unseen=True)
+        self.assertEqual((batch.load(self.folder, "first")["unseen"], batch.unseen(self.experiment)), (True, True))
+        self.save(unseen="yes")  # only true counts, and anything else that is not false cannot run
+        self.assertFalse(batch.unseen(self.experiment))
+        with self.assertRaisesRegex(ValueError, "unseen must be true or false"):
+            batch.load(self.folder, "first")
+        (self.experiment / "plan.json").write_text("{")
+        self.assertFalse(batch.unseen(self.experiment))
+        self.assertFalse(batch.unseen(self.folder / "experiments" / "scores-only"))
+
     def test_plan_that_cannot_run_is_refused_with_what_is_wrong(self):
         quick = self.plan["settings"]["quick"]
         for changed, problem in [({"version": 2}, "not a plan this version reads"), ({"repeats": 0}, "repeats must be"), ({"repeats": 1.5}, "repeats must be"), ({"timeout": "long"}, "timeout must be"),

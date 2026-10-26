@@ -447,6 +447,9 @@ def scored_reviews(folder, mode):
         st.info(f"The saved scores of {name} hold no setting.")
         return
     st.caption(f"What each setting found of the comments a human reviewer left on the same pull requests. Saved {when(scores['savedAt'])}")
+    unseen = batch.unseen(folder / "experiments" / name)
+    if unseen:
+        st.caption("Unseen cases: only each setting's totals are shown, so the cases stay unseen.")
     trusted(folder / "experiments" / name)
     if figure is not None:
         draw("scores", figure)
@@ -455,6 +458,8 @@ def scored_reviews(folder, mode):
     numbers = {name: st.column_config.NumberColumn(format="localized") for name in ("tokens in", "cached", "tokens out", "judge tokens in", "judge tokens out")}
     dollars = {"recorded cost": st.column_config.NumberColumn(format="dollar")}
     st.dataframe(settings, hide_index=True, column_config=numbers | dollars)
+    if unseen:
+        return  # how one comment or one run did would make its case seen
     if len(scored) >= 2:
         st.subheader("Two settings, comment by comment")
         left, right = st.columns(2)

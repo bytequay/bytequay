@@ -37,14 +37,30 @@ export default function TaskOverview({
   const [tasks, setTasks] = useState<AgentTaskDto[]>([]);
   const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
-  const refresh = useCallback(() => live().listAgentTasks(workspaceId)
-    .then((found) => setTasks(found.filter((task) => task.state === 'OPEN' && !taskArchived(task))))
-    .catch((failure: unknown) => setNotice(failure instanceof Error ? failure.message : String(failure))), [live, workspaceId]);
-  useEffect(() => { void refresh(); }, [refresh]);
+  const requestRef = useRef(0);
+  const refresh = useCallback(() => {
+    const request = ++requestRef.current;
+    return live().listAgentTasks(workspaceId)
+      .then((found) => {
+        if (request !== requestRef.current) return;
+        setTasks(found.filter((task) => task.state === 'OPEN' && !taskArchived(task)));
+        setNotice(null);
+      })
+      .catch((failure: unknown) => {
+        if (request === requestRef.current) setNotice(failure instanceof Error ? failure.message : String(failure));
+      });
+  }, [live, workspaceId]);
   useEffect(() => {
+    const requests = requestRef;
+    void refresh();
+    return () => { requests.current++; };
+  }, [refresh]);
+  useEffect(() => {
+    let active = true;
     void live().getModelSettings(workspaceId)
-      .then((catalog) => setProviders(catalog.providers))
+      .then((catalog) => { if (active) setProviders(catalog.providers); })
       .catch(() => {});
+    return () => { active = false; };
   }, [live, workspaceId]);
   const [closing, setClosing] = useState<AgentTaskDto | null>(null);
   const close = useCallback((task: AgentTaskDto) => {

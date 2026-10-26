@@ -107,6 +107,40 @@ async function keyboardSwitching(): Promise<void> {
   }
 }
 
+async function overlappingRefreshes(): Promise<void> {
+  const bridge = createPreviewBridge('workspace-1');
+  const base = await bridge.getAgentTask(bridge.events[0].taskId, 'workspace-1');
+  const tasks: AgentTaskDto[] = ['First task', 'Second task'].map((title, index) => ({ ...base, id: `refresh-task-${index}`, title, mutationClaim: null }));
+  const older = Promise.withResolvers<AgentTaskDto[]>();
+  let reads = 0;
+  bridge.listAgentTasks = async () => ++reads === 1 ? tasks : reads === 2 ? older.promise : [];
+  bridge.getAgentTask = async id => tasks.find(task => task.id === id) ?? tasks[0];
+  bridge.readAgentHistory = async () => ({ events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 });
+  const { host, root, dispose } = createFixtureRoot();
+  const close = async (title: string) => {
+    host.querySelector<HTMLButtonElement>(`[aria-label="Close task: ${title}"]`)?.click();
+    await until(() => host.querySelector('dialog[open]') !== null, 'Closing asks for confirmation');
+    host.querySelector<HTMLButtonElement>('dialog .bq-button--primary')?.click();
+    await until(() => host.querySelector('dialog[open]') === null, 'Confirmation closes after accepting');
+  };
+  try {
+    flushSync(() => root.render(<TaskOverview workspaceId="workspace-1" bridge={bridge} activeTaskId={null}
+      onOpenTask={() => {}} onNewTask={() => {}} onDismiss={() => {}} />));
+    await until(() => host.querySelectorAll('.agt-card').length === 2, 'Initial tasks load');
+    await close('First task');
+    await until(() => reads === 2, 'The first close starts a delayed refresh');
+    await close('Second task');
+    await until(() => reads === 3 && host.querySelectorAll('.agt-card').length === 0, 'The second close refreshes the empty list');
+    older.resolve([tasks[1]]);
+    await settle();
+    assert(host.querySelectorAll('.agt-card').length === 0, 'A superseded refresh must not restore a closed task');
+  }
+  finally { older.resolve([]); dispose(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return runScenarios([['switches tasks with the keyboard and isolates Escape', keyboardSwitching]]);
+  return runScenarios([
+    ['switches tasks with the keyboard and isolates Escape', keyboardSwitching],
+    ['ignores superseded task list refreshes', overlappingRefreshes],
+  ]);
 }

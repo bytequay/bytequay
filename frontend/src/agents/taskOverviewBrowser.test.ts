@@ -27,5 +27,8 @@ it('switches tasks with the keyboard and isolates Escape', async () => {
       await new Promise(resolve => setTimeout(resolve, 30));
     });`,
   });
-  expect(results).toEqual([{ name: 'switches tasks with the keyboard and isolates Escape' }]);
+  expect(results).toEqual([
+    { name: 'switches tasks with the keyboard and isolates Escape' },
+    { name: 'ignores superseded task list refreshes' },
+  ]);
 }, deadline(30_000));

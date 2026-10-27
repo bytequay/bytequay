@@ -74,7 +74,7 @@ testBrowserScenarios([
   },
   {
     name: 'uses cached Google data and Gemini and manages account access in Chromium',
-    expected: 16, timeout: 30_000,
+    expected: 17, timeout: 30_000,
     fixture: { prefix: 'bytequay-google-', entry: 'src/integrations/fixtures/googleBrowser.tsx', global: 'GoogleTests', styles: true, width: 1120, height: 820 },
   },
   {

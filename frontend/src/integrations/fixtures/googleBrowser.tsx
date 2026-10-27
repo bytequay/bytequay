@@ -15,7 +15,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { GoogleScreen, GooglePage } from '../google';
 import AppSidebar from '../../AppSidebar';
 import { useGoogle } from '@bytequay/google/renderer';
-import { GOOGLE_CHANGED, type GoogleChatState, type GoogleStatus } from '@bytequay/google/contracts';
+import { GOOGLE_CHANGED, type GeminiSetupStatus, type GoogleChatState, type GoogleStatus } from '@bytequay/google/contracts';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../../githubReference';
 import type { Bridge } from '../../types';
 import { assert, changeInput, settle, element, runScenarios } from '../../fixtures/harness';
@@ -128,6 +128,31 @@ export async function run() {
       button('Remove key').click(); await settle(); await settle();
       assert(document.querySelector('[aria-label="Gemini API key"]') !== null, 'Removing key restores setup');
       assert(status.snapshot !== null, 'Removing model key preserves Google login and data');
+    },
+    async 'keeps saved and removed Gemini keys authoritative over pending focus reads'() {
+      await mountPreview(true);
+      for (const configured of [true, false]) {
+        const read = Promise.withResolvers<GeminiSetupStatus>();
+        const action = Promise.withResolvers<GeminiSetupStatus>();
+        let reads = 0;
+        window.bridge.getGeminiSetupStatus = () => { reads++; return read.promise; };
+        window.bridge.saveGeminiSetupKey = () => action.promise;
+        window.bridge.removeGeminiSetupKey = () => action.promise;
+        window.dispatchEvent(new Event('focus')); await settle();
+        assert(reads === 1, 'Focus starts a status read before the key changes');
+        if (configured) {
+          changeInput(element<HTMLInputElement>('[aria-label="Gemini API key"]'), 'AQ.fixture-only-key'); await settle();
+          button('Save key').click();
+        }
+        else button('Remove key').click();
+        await settle();
+        window.dispatchEvent(new Event('focus')); await settle();
+        action.resolve({ configured, installed: true }); await settle();
+        const isConfigured = () => document.querySelector('[aria-label="Gemini API key"]') === null;
+        assert(isConfigured() === configured, 'The completed action publishes the new key state');
+        read.resolve({ configured: !configured, installed: true }); await settle();
+        assert(isConfigured() === configured, 'An earlier status response cannot undo the saved or removed key');
+      }
     },
     async 'shows the apps navigation only after completed sign-in and removes it on disconnect'() {
       await mountPreview(true);

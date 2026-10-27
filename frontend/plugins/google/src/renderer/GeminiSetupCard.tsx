@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useGoogleHost } from './host';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { GeminiSetupStatus } from '../contracts';
 import { Badge, SettingsCard, SettingsRow } from '@bytequay/ui/settings';
 
@@ -24,20 +24,29 @@ export default function GeminiSetupCard() {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const statusRequest = useRef(0);
+  const actionPending = useRef(false);
   useEffect(() => {
     let active = true;
-    const refresh = () => { void bridge.getGeminiSetupStatus().then(next => {
-      if (active) setStatus(next);
-    }).catch(() => { if (active) setError('Unable to read Gemini setup. Check macOS Keychain access and retry.'); }); };
+    const refresh = () => {
+      if (actionPending.current) return;
+      const request = ++statusRequest.current;
+      void bridge.getGeminiSetupStatus().then(next => {
+        if (active && request === statusRequest.current) setStatus(next);
+      }).catch(() => { if (active && request === statusRequest.current) setError('Unable to read Gemini setup. Check macOS Keychain access and retry.'); });
+    };
     refresh();
     window.addEventListener('focus', refresh);
     return () => { active = false; window.removeEventListener('focus', refresh); };
   }, [bridge]);
   async function act(action: () => Promise<void>) {
+    if (actionPending.current) return;
+    actionPending.current = true;
+    statusRequest.current += 1;
     setBusy(true); setError(null); setNotice(null);
     try { await action(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Gemini setup failed. Try again.'); }
-    finally { setBusy(false); }
+    finally { actionPending.current = false; setBusy(false); }
   }
   const openLink = (url: string) => { void act(() => bridge.openExternal(url)); };
   return <>

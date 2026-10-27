@@ -53,6 +53,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -342,15 +343,131 @@ class TestMergedPullRequestResolver
         assertHold(resolver, "missing from the fetched base branch");
     }
 
-    @Test
-    void holdsSameFileBaseEditsWithoutGuessingPatchEquivalence()
+    @ParameterizedTest
+    @EnumSource(value = Shape.class, names = {"SQUASH", "REBASE"})
+    void resolvesSameFileUpstreamEdits(Shape shape)
     {
-        write(source, "feature.txt", "seed\nextra base line\n");
-        commit(source, "Base edited the same file");
-        write(source, "feature.txt", "P3 adaptation of the P4 change\nextra base line\n");
-        commit(source, "Squash after base edit");
+        String base = landWithSameFileUpstreamEdit(shape);
+        List<String> expected = git(source, "rev-list", "--reverse", base + "..HEAD").lines().toList();
         expectEvidence(detail(head(source)), original);
-        assertHold(resolver, "base changed the same files");
+
+        MergedPullRequestRange range = resolver.resolve(WORKSPACE, "source", PR);
+
+        assertThat(range.sourceBaseSha()).isEqualTo(base);
+        assertThat(range.commits()).containsExactlyElementsOf(expected).hasSize(shape == Shape.SQUASH ? 1 : 3);
+        assertThat(range.originalCommits()).containsExactlyElementsOf(original);
+        assertThat(git(clone, "status", "--porcelain")).isEmpty();
+        assertThat(git(clone, "for-each-ref", "--format=%(refname)", "refs/bytequay/merged-pr")).isEmpty();
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = Shape.class, names = {"SQUASH", "REBASE"})
+    void rejectsAdditionalLandedChangesAfterUpstreamEdits(Shape shape)
+    {
+        landWithSameFileUpstreamEdit(shape);
+        write(source, "extra.txt", "Not part of the PR\n");
+        git(source, "add", ".");
+        git(source, "commit", "--amend", "--no-edit", "--quiet");
+        expectEvidence(detail(head(source)), original);
+        assertHold(resolver, "exact landed changes could not be proved");
+    }
+
+    @Test
+    void rejectsConflictingSourceChanges()
+    {
+        commitFile(source, "feature.txt", "Upstream replaced seed\n", "Upstream change");
+        commitFile(source, "feature.txt", "Manually rewritten PR change\n", "Resolve source conflict");
+        expectEvidence(detail(head(source)), original);
+        assertHold(resolver, "exact landed changes could not be proved in the source repository");
+    }
+
+    @Test
+    void neverRunsCustomMergeDriversDuringSourceVerification()
+    {
+        landWithSameFileUpstreamEdit(Shape.SQUASH);
+        Path marker = temporaryDirectory.resolve("merge-driver-ran");
+        git(clone, "config", "merge.text.driver", "touch '" + marker + "'");
+        expectEvidence(detail(head(source)), original);
+        assertHold(resolver, "custom Git merge drivers");
+        assertThat(marker).doesNotExist();
+    }
+
+    @Test
+    void resolvesExactRebaseWithoutReplaySupport()
+    {
+        String base = commitFile(source, "unrelated.txt", "Upstream change\n", "Move upstream");
+        git(source, "cherry-pick", original.getFirst(), original.getLast());
+        List<String> expected = git(source, "rev-list", "--reverse", base + "..HEAD").lines().toList();
+        git(clone, "config", "merge.text.driver", "false");
+        expectEvidence(detail(head(source)), original);
+        MergedPullRequestResolver exactOnly = resolver(new GitCommandRunner()
+        {
+            @Override
+            public Result runLocalBoundedStdout(Path repository, Duration timeout, int maximumOutputBytes, List<String> arguments)
+            {
+                assertThat(arguments).doesNotContain("merge-tree");
+                return super.runLocalBoundedStdout(repository, timeout, maximumOutputBytes, arguments);
+            }
+        });
+        assertThat(exactOnly.resolve(WORKSPACE, "source", PR).commits()).containsExactlyElementsOf(expected);
+        server.verify();
+    }
+
+    @Test
+    void neverRunsRenormalizationFiltersDuringSourceVerification()
+    {
+        landWithSameFileUpstreamEdit(Shape.SQUASH);
+        Path marker = temporaryDirectory.resolve("filter-ran");
+        git(clone, "config", "merge.renormalize", "true");
+        git(clone, "config", "filter.probe.clean", "touch '" + marker + "'; cat");
+        write(clone, ".git/info/attributes", "feature.txt filter=probe\n");
+        expectEvidence(detail(head(source)), original);
+        assertThat(resolver.resolve(WORKSPACE, "source", PR).commits()).containsExactly(head(source));
+        assertThat(marker).doesNotExist();
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"129,false", "0,true"})
+    void rejectsUnavailableOrTruncatedReplayEvidence(int exitCode, boolean truncated)
+    {
+        landWithSameFileUpstreamEdit(Shape.SQUASH);
+        expectEvidence(detail(head(source)), original);
+        MergedPullRequestResolver unavailable = resolver(new GitCommandRunner()
+        {
+            @Override
+            public Result runLocalBoundedStdout(Path repository, Duration timeout, int maximumOutputBytes, List<String> arguments)
+            {
+                if (arguments.contains("merge-tree")) {
+                    return new Result(exitCode, "", truncated);
+                }
+                return super.runLocalBoundedStdout(repository, timeout, maximumOutputBytes, arguments);
+            }
+        });
+        assertHold(unavailable, "Local Git could not verify the source merge");
+    }
+
+    private String landWithSameFileUpstreamEdit(Shape shape)
+    {
+        String context = "unchanged\n".repeat(10);
+        String base = commitFile(source, "feature.txt", "seed\n" + context + "base\n", "Shared base");
+        git(source, "checkout", "--quiet", "-B", "feature", base);
+        original = ImmutableList.of(
+                commitFile(source, "first.txt", "First change\n", "First PR commit"),
+                commitFile(source, "second.txt", "Second change\n", "Second PR commit"),
+                commitFile(source, "feature.txt", "PR change\n" + context + "base\n", "Third PR commit"));
+        git(source, "update-ref", "refs/pull/7/head", head(source));
+        git(source, "checkout", "--quiet", "main");
+        String landedBase = commitFile(source, "feature.txt", "seed\n" + context + "upstream change\n", "Upstream edited another part of the same file");
+        if (shape == Shape.SQUASH) {
+            git(source, "merge", "--squash", "feature");
+            commit(source, "Squash PR");
+        }
+        else {
+            git(source, ImmutableList.<String>builder().add("cherry-pick").addAll(original).build().toArray(String[]::new));
+        }
+        return landedBase;
     }
 
     @Test

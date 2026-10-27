@@ -133,33 +133,38 @@ public class MergedPullRequestResolver
 
         String mergeParent = singleParent(repository, merged.mergeSha())
                 .orElseThrow(() -> hold("The landed result is a merge or root commit; merge-commit replay is unsupported"));
-        List<Candidate> candidates = new ArrayList<>();
         String aggregate = changes(repository, originalBase, original.getLast());
-        if (!aggregate.isEmpty() && aggregate.equals(changes(repository, mergeParent, merged.mergeSha()))) {
-            candidates.add(new Candidate(mergeParent, ImmutableList.of(merged.mergeSha())));
-        }
+        // Prove exact ranges first so an optional replay cannot block an already-verifiable rebase or squash.
+        for (boolean replay : ImmutableList.of(false, true)) {
+            List<Candidate> candidates = new ArrayList<>();
+            if (!aggregate.isEmpty() && matchesChanges(repository, originalBase, original.getLast(), aggregate, mergeParent, merged.mergeSha(), replay)) {
+                candidates.add(new Candidate(mergeParent, ImmutableList.of(merged.mergeSha())));
+            }
 
-        List<String> reversed = new ArrayList<>();
-        String cursor = merged.mergeSha();
-        for (int index = original.size() - 1; index >= 0; index--) {
-            Optional<String> parent = singleParent(repository, cursor);
-            if (parent.isEmpty() || !changes.get(index).equals(changes(repository, parent.orElseThrow(), cursor))) {
-                break;
+            List<String> reversed = new ArrayList<>();
+            String cursor = merged.mergeSha();
+            for (int index = original.size() - 1; index >= 0; index--) {
+                Optional<String> parent = singleParent(repository, cursor);
+                String originalParent = index == 0 ? originalBase : original.get(index - 1);
+                if (parent.isEmpty() || !matchesChanges(repository, originalParent, original.get(index), changes.get(index), parent.orElseThrow(), cursor, replay)) {
+                    break;
+                }
+                reversed.add(cursor);
+                cursor = parent.orElseThrow();
             }
-            reversed.add(cursor);
-            cursor = parent.orElseThrow();
-        }
-        if (reversed.size() == original.size()) {
-            Candidate candidate = new Candidate(cursor, ImmutableList.copyOf(reversed.reversed()));
-            if (!candidates.contains(candidate)) {
-                candidates.add(candidate);
+            if (reversed.size() == original.size()) {
+                Candidate candidate = new Candidate(cursor, ImmutableList.copyOf(reversed.reversed()));
+                if (!candidates.contains(candidate)) {
+                    candidates.add(candidate);
+                }
+            }
+            requireEvidence(candidates.size() <= 1, "More than one landed range matches the pull request");
+            if (!candidates.isEmpty()) {
+                Candidate selected = candidates.getFirst();
+                return range(merged, selected.base(), selected.commits());
             }
         }
-        requireEvidence(candidates.size() == 1, candidates.isEmpty()
-                ? "The exact landed changes could not be proved; the PR may have been rewritten or the base changed the same files"
-                : "More than one landed range matches the pull request");
-        Candidate selected = candidates.getFirst();
-        return range(merged, selected.base(), selected.commits());
+        throw hold("The exact landed changes could not be proved in the source repository; its merged result differs from the original PR");
     }
 
     private static MergedPullRequestRange range(MergedPullRequest merged, String base, List<String> commits)
@@ -176,10 +181,35 @@ public class MergedPullRequestResolver
 
     private String changes(Path repository, String base, String tip)
     {
-        // ponytail: require exact blob/mode/path transitions; add replay proof only if same-file base edits need automatic resolution.
         // Quoted paths preserve non-UTF-8 filename bytes through the command runner's text decoding.
         return read(repository, "-c", "core.quotePath=true", "diff-tree", "-r", "--raw", "--no-abbrev", "--no-renames", "--no-ext-diff", "--no-textconv",
                 "--ignore-submodules=none", "--no-relative", base, tip, "--");
+    }
+
+    private boolean matchesChanges(Path repository, String originalBase, String originalTip, String originalChanges, String landedBase, String landedTip, boolean replay)
+    {
+        String landedChanges = changes(repository, landedBase, landedTip);
+        if (originalChanges.equals(landedChanges)) {
+            return true;
+        }
+        if (!replay || landedChanges.isEmpty()) {
+            return false;
+        }
+        Result drivers = local(repository, "config", "--get-regexp", "^merge\\..*\\.driver$");
+        requireEvidence(!drivers.truncated() && (drivers.exitCode() == 0 || drivers.exitCode() == 1), "Cannot inspect local Git merge drivers");
+        requireEvidence(drivers.exitCode() == 1, "Source verification cannot run configured custom Git merge drivers");
+        // Reverse replay excludes PR changes already in the candidate base, which would make a partial range look like a squash.
+        return replaysTo(repository, originalBase, originalTip, landedBase, landedTip)
+                && replaysTo(repository, originalTip, originalBase, landedTip, landedBase);
+    }
+
+    private boolean replaysTo(Path repository, String originalBase, String originalTip, String landedBase, String landedTip)
+    {
+        Result replay = local(repository, "-c", "merge.renormalize=false", "merge-tree", "--write-tree", "--no-messages",
+                "--merge-base=" + originalBase, landedBase, originalTip);
+        requireEvidence(!replay.truncated() && (replay.exitCode() == 0 || replay.exitCode() == 1),
+                "Local Git could not verify the source merge; Git 2.40 or newer with merge-tree support is required");
+        return replay.successful() && replay.output().strip().equals(read(repository, "rev-parse", landedTip + "^{tree}").strip());
     }
 
     private String read(Path repository, String... arguments)

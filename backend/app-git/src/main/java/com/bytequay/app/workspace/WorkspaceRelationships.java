@@ -38,6 +38,7 @@ import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -227,10 +228,27 @@ public class WorkspaceRelationships
     public Workspace requireRelated(String workspaceId, String destinationId)
     {
         checkArgument(related(workspaceId).stream().anyMatch(value -> value.workspaceId().equals(destinationId)), "Workspace is not related");
+        return requireReadable(workspaceId, destinationId);
+    }
+
+    /** Agent conversations may read any other watched project; a link only adds guidance and the right to start work there. */
+    public Workspace requireReadable(String workspaceId, String destinationId)
+    {
         Workspace destination = requireWorkspace(workspaces, destinationId);
         checkArgument(workspaces.isWatched(destinationId), "Related workspace is unavailable");
         requireDifferent(requireWorkspace(workspaces, workspaceId), destination);
         return destination;
+    }
+
+    /** Watched workspaces of other projects that {@link #related} does not list. */
+    public List<Workspace> unrelatedWatched(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Set<String> related = related(workspaceId).stream().map(Related::workspaceId).collect(toImmutableSet());
+        return workspaces.findAllRetained().stream()
+                .filter(other -> workspaces.isWatched(other.id()) && !related.contains(other.id()) && other.monitoredRepositoryId() != workspace.monitoredRepositoryId()
+                        && !matches(other, workspace.monitoredRepository()))
+                .collect(toImmutableList());
     }
 
     /** Apply to both directions and all remote aliases, including known personal push forks. */

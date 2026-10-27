@@ -328,6 +328,8 @@ draft. CI watching runs while ByteQuay is open and resumes after a restart.
 
 Link related repositories once under **Related workspaces** in repository
 settings. Fork links form a repo line that every workspace in it shows.
+Tasks can read the code and memory of every watched repository; a link adds
+guidance and lets a task start work there.
 
 1. In **Commits → History**, pick upstream commits or a merged PR.
 2. Choose **Cherry-pick**, check the **Dry run**, then **Start cherry-pick**.

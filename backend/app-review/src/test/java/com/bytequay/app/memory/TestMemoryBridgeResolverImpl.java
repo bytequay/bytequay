@@ -262,7 +262,7 @@ class TestMemoryBridgeResolverImpl
         Workspace destination = new Workspace("iceberg", "Iceberg", 2, RepoRef.of("apache", "iceberg"), Optional.empty(), Optional.empty(),
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, java.time.Instant.EPOCH, java.time.Instant.EPOCH);
-        when(relationships.requireRelated("workspace", "iceberg")).thenReturn(destination);
+        when(relationships.requireReadable("workspace", "iceberg")).thenReturn(destination);
         for (int number = 1; number <= 25; number++) {
             store.save(rule("m" + number, "iceberg", "Rule " + number, ImmutableList.of()));
         }
@@ -286,9 +286,9 @@ class TestMemoryBridgeResolverImpl
                 .hasMessageContaining("Related workspace memory is disabled");
         assertThat(resolver.resolve(task.id().toString())).isPresent(); // Local REMEMBER remains available.
         memories.saveSwitches("iceberg", new MemorySwitches(true, true));
-        when(relationships.requireRelated("workspace", "iceberg")).thenThrow(new IllegalArgumentException("Workspace is not related"));
+        when(relationships.requireReadable("workspace", "iceberg")).thenThrow(new IllegalArgumentException("Related workspace is unavailable"));
         assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\",\"workspaceId\":\"iceberg\"}"))
-                .hasMessageContaining("not related");
+                .hasMessageContaining("unavailable");
         when(tasks.find(task.id())).thenReturn(Optional.of(task.fail("Failed", NOW, NOW.plus(Duration.ofDays(7)))));
         assertThatThrownBy(() -> call(bridge, "{\"action\":\"SEARCH\"}")).hasMessageContaining("Task is unavailable");
     }

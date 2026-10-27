@@ -48,6 +48,8 @@ class TestWorkspaceRelationships
         assertThat(relationships.requireRelated("p2", "p4").id()).isEqualTo("p4");
         assertThat(relationships.requireRelated("p3", "p2")).isEqualTo(p2);
         assertThatThrownBy(() -> relationships.requireRelated("p2", "p5")).hasMessageContaining("not related");
+        assertThat(relationships.requireReadable("p2", "p5").id()).isEqualTo("p5");
+        assertThat(relationships.unrelatedWatched("p2")).extracting(Workspace::id).containsExactly("p5");
         assertThatThrownBy(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p2", FORK, "", false)))
                 .hasMessageContaining("itself");
         Workspace alias = add("alias", 3);

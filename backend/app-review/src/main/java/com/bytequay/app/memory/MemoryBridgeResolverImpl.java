@@ -120,7 +120,7 @@ public class MemoryBridgeResolverImpl
             checkArgument(arguments.path("action").asText().equals("SEARCH") || arguments.path("action").asText().equals("READ"),
                     "Only SEARCH and READ may use a related workspace");
             checkArgument(task.interactive() && currentReview.isEmpty(), "Related memory is available only in development conversations");
-            relationships.requireRelated(workspaceId, selectedWorkspace);
+            relationships.requireReadable(workspaceId, selectedWorkspace);
             checkArgument(memories.switches(selectedWorkspace).development(), "Related workspace memory is disabled");
         }
         Predicate<Memory> visible = MemoryService.visibleTo(replay);
@@ -139,7 +139,7 @@ public class MemoryBridgeResolverImpl
         };
         result.put("workspaceId", selectedWorkspace);
         if (related) {
-            result.put("repository", relationships.requireRelated(workspaceId, selectedWorkspace).monitoredRepository().fullName());
+            result.put("repository", relationships.requireReadable(workspaceId, selectedWorkspace).monitoredRepository().fullName());
             result.put("activityLine", result.path("activityLine").asText() + " · " + selectedWorkspace);
         }
         return result.toString();

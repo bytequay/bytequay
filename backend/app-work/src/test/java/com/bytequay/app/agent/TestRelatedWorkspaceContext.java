@@ -29,6 +29,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -40,6 +41,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
@@ -76,10 +78,11 @@ class TestRelatedWorkspaceContext
                 Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
         when(relationships.related("repository")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Related("iceberg", WorkspaceRelationships.Position.DEPENDENCY, "Version in pom.xml")));
-        when(relationships.requireRelated("repository", "iceberg")).thenReturn(workspace);
+        when(relationships.requireReadable("repository", "iceberg")).thenReturn(workspace);
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
-        var context = new RelatedWorkspaceContext(relationships, repositories, mock(AgentReviewStore.class), git, new ObjectMapper());
+        var reviews = mock(AgentReviewStore.class);
+        var context = new RelatedWorkspaceContext(relationships, repositories, reviews, git, new ObjectMapper());
         AgentTask task = created(TaskId.random(), Optional.of("repository"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
                 new RepositoryIdentity("owner", "repository"), repository,
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
@@ -101,7 +104,30 @@ class TestRelatedWorkspaceContext
         assertThat(command(git, "rev-parse", "HEAD")).isEqualTo(next);
         command(git, "update-ref", "-d", "refs/remotes/origin/main");
         assertThat(context.append(task, turn, "Investigate")).contains("unavailable", "synchronize").doesNotContain("\"commit\":");
+        command(git, "update-ref", "refs/remotes/origin/main", next);
         when(relationships.related("repository")).thenReturn(ImmutableList.of());
+        when(relationships.unrelatedWatched("repository")).thenReturn(ImmutableList.of(workspace));
+        assertThat(context.append(task, turn, "Read another watched project")).contains("\"position\":\"WATCHED\"", next, "apache/iceberg")
+                .doesNotContain("guidance");
+        assertThat(context.instructions(task)).contains("WATCHED has no link");
+        // A review's own steps stay on its diff; a question asked in its conversation reads other projects too.
+        AgentTask reviewer = created(TaskId.random(), Optional.of("repository"), false, "Review", new AgentLaneId("codex"),
+                new RepositoryIdentity("owner", "repository"), repository,
+                new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
+        when(reviews.findReviewByTask(reviewer.id().toString())).thenReturn(Optional.of(new AgentReview("review", "repository", "owner/repository", OptionalInt.of(1),
+                OptionalLong.empty(), reviewer.id().toString(), Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
+                Instant.EPOCH, Instant.EPOCH, Optional.empty(), Optional.empty())));
+        AgentTurn question = AgentTurn.accepted(TurnId.random(), reviewer.id(), "user", turn.settings().orElseThrow(), Instant.EPOCH);
+        AgentTurn step = AgentTurn.accepted(TurnId.random(), reviewer.id(), "review-step:run-1:1", turn.settings().orElseThrow(), Instant.EPOCH);
+        assertThat(context.append(reviewer, question, "Compare with the internal fork")).contains("\"position\":\"WATCHED\"", next);
+        assertThat(context.append(reviewer, step, "Review the diff")).isEqualTo("Review the diff");
+        assertThat(context.instructions(reviewer)).contains("WATCHED has no link");
+        AgentTask unattended = created(TaskId.random(), Optional.of("repository"), false, "Fix CI", new AgentLaneId("codex"),
+                new RepositoryIdentity("owner", "repository"), repository,
+                new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
+        AgentTurn repair = AgentTurn.accepted(TurnId.random(), unattended.id(), "ci", turn.settings().orElseThrow(), Instant.EPOCH);
+        assertThat(context.append(unattended, repair, "Fix CI")).isEqualTo("Fix CI");
+        when(relationships.unrelatedWatched("repository")).thenReturn(ImmutableList.of());
         assertThat(context.append(task, turn, "No related workspaces")).isEqualTo("No related workspaces");
         assertThat(context.instructions(task)).isEmpty();
     }

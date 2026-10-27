@@ -182,6 +182,8 @@ export default function JiraScreen({ workspace }: { workspace?: { id: string; na
     catch (cause) { if (request === generation.current) setError(message(cause)); }
     finally { if (request === generation.current) setLoading(false); }
   }, [actualConnectionId, actualCloudId, boardId, sprintId, mine, coassigned, view, host.bridge]);
+  const activeReload = useRef<typeof reload | null>(reload);
+  useLayoutEffect(() => { activeReload.current = reload; return () => { activeReload.current = null; }; }, [reload]);
   useEffect(() => { setPage(emptyPage); void reload(); return () => { generation.current += 1; }; }, [reload]);
   useEffect(() => {
     if (covered || selected !== null || launch !== null) return;
@@ -213,13 +215,15 @@ export default function JiraScreen({ workspace }: { workspace?: { id: string; na
     finally { if (request === generation.current) setLoading(false); }
   };
   const update = (detail: JiraIssueDetail, refresh = true) => {
-    setPage(value => ({ ...value, issues: value.issues.map(issue => issue.id === detail.issue.id && issue.cloudId === detail.issue.cloudId ? detail.issue : issue) }));
     notifyJiraChanged();
+    // A mutation can finish after navigation and still hold the previous scope's reload.
+    if (activeReload.current !== reload) return;
+    setPage(value => ({ ...value, issues: value.issues.map(issue => issue.id === detail.issue.id && issue.cloudId === detail.issue.cloudId ? detail.issue : issue) }));
     void reload(refresh);
   };
   const toggleEpic = async (issue: JiraIssue) => {
     try { update(await host.bridge.setJiraEpic(jiraIssueLocation(issue), !issue.isEpic)); }
-    catch (cause) { setError(message(cause)); }
+    catch (cause) { if (activeReload.current === reload) setError(message(cause)); }
   };
   const closeMenu = useCallback(() => setMenu(null), []);
   const toggleMenu = (next: 'scope' | 'status' | 'assignment') => setMenu(current => current === next ? null : next);

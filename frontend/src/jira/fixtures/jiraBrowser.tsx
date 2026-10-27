@@ -566,6 +566,44 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       scope().click(); await settle(); button('Manage accounts…').click(); await until(() => window.location.hash === '#/settings/integrations/jira');
       assert(!document.body.textContent?.includes('Authentication service URL'), 'Jira page links to the shared account settings');
     },
+    async 'keeps the selected site and board when an old Epic request succeeds or fails'() {
+      for (const [target, fails] of [['site', false], ['board', false], ['site', true]] as const) {
+        await mountPreview();
+        button('Close ticket').click(); await until(() => document.querySelector('.jira-detail') === null);
+        const source = currentIssues()[1];
+        const destination = { ...source, connectionId: target === 'site' ? 'other' : source.connectionId, cloudId: target === 'site' ? 'other-site' : source.cloudId, title: 'Ticket from the selected board' };
+        const mutation = Promise.withResolvers<JiraIssueDetail>();
+        window.bridge.setJiraEpic = () => mutation.promise;
+        window.bridge.listJiraBoards = async connectionId => [
+          ...(connectionId === 'connection' ? [{ id: 828, name: 'Connectors', type: 'scrum' }] : []),
+          { id: 829, name: 'Other board', type: 'scrum' },
+        ];
+        window.bridge.listJiraIssues = async query => {
+          record('issues', query);
+          return { issues: [query.connectionId === 'other' || query.boardId === 829 ? destination : source], fetchedAt: source.updatedAt, error: null, nextPageToken: null };
+        };
+        if (target === 'board') {
+          scope().click(); await settle(); siteItems()[1].click();
+          await until(() => document.querySelector('.jira-card__title')?.textContent === destination.title);
+          scope().click(); await settle(); siteItems()[0].click();
+          await until(() => document.querySelector('.jira-card__title')?.textContent === source.title);
+        }
+        button('Mark ENG-1008 as Epic').click(); await settle();
+        scope().click(); await settle();
+        if (target === 'site') siteItems()[1].click();
+        else menuItem('Other board').click();
+        await until(() => document.querySelector('.jira-card__title')?.textContent === destination.title);
+        assert(scope().textContent?.includes('Other board'), 'The selected site has its own board');
+        calls.length = 0;
+        if (fails) mutation.reject(new Error('The old site could not mark its Epic'));
+        else mutation.resolve(jiraDetail({ ...source, isEpic: true }));
+        await settle(); await settle();
+        assert(document.querySelector('.jira-card__title')?.textContent === destination.title && scope().textContent?.includes('Other board'),
+          'The old mutation cannot replace tickets under the selected board');
+        assert(!calls.some(call => call.name === 'issues' && (call.args[0] as JiraQuery).connectionId === source.connectionId && (call.args[0] as JiraQuery).boardId === 828), 'The old scope is not reloaded');
+        assert(document.querySelector('.jira-error') === null, 'An old mutation error cannot appear on the selected site');
+      }
+    },
     async 'filters workspace tickets and retains workspace navigation'() {
       await mountPreview(false, false);
       const workspace = { id: 'workspace / one', name: 'Repository' };

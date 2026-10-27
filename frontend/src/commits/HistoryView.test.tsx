@@ -15,11 +15,18 @@ import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import Avatar from '../Avatar';
+import { deadline, runBrowserFixture } from '../fixtures/browserFixture';
 import { DiffViewer } from '../pulls/PullChanges';
 import type { GitCommitDto } from '../types';
 import HistoryView, { nextCommitRenderLimit } from './HistoryView';
 
 describe('workspace commit history', () => {
+  it('clears the previous commit diff when the next read fails and recovers after refresh', async () => {
+    expect(await runBrowserFixture<string>({
+      prefix: 'bytequay-history-diff-', entry: 'src/commits/fixtures/historyDiffBrowser.tsx', global: 'HistoryDiffTests',
+    })).toBe('Failed commit reads never show another commit’s files and refresh retries the selected commit');
+  }, deadline(40_000));
+
   it('shows the empty state without range controls or hints', () => {
     const html = history();
 

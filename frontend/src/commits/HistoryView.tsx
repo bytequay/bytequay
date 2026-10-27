@@ -178,6 +178,7 @@ export default function HistoryView({
       return;
     }
     let cancelled = false;
+    setDiffFiles([]);
     setDiffLoading(true);
     window.bridge.gitDiff(workspaceId, diffBase, diffHead)
       .then(files => {

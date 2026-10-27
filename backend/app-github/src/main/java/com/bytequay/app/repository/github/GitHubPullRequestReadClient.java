@@ -30,6 +30,8 @@ import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
+import com.bytequay.core.hosting.DiscussionProbe;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -587,7 +589,7 @@ public class GitHubPullRequestReadClient
         return r == null ? null : toPrRawDetail(pr, r);
     }
 
-    public PrRawDetail toPrRawDetail(PullRequestRef pr, GitHubPullRequestDetailResponse r)
+    private PrRawDetail toPrRawDetail(PullRequestRef pr, GitHubPullRequestDetailResponse r)
     {
         requireNonNull(r, "response is null");
         List<String> labels =
@@ -687,15 +689,6 @@ public class GitHubPullRequestReadClient
                     .ifPresent(etag -> fresh.put(source.getKey(), etag));
         }
         return new DiscussionProbe(unchanged, fresh.buildOrThrow());
-    }
-
-    /** {@code unchanged} when every source answered 304; otherwise {@code etags} vouch for a refetch made after the probe. */
-    public record DiscussionProbe(boolean unchanged, Map<String, String> etags)
-    {
-        public DiscussionProbe
-        {
-            etags = ImmutableMap.copyOf(etags);
-        }
     }
 
     public List<PrReaction> fetchPrDescriptionReactions(String pat, PullRequestRef pr)
@@ -1477,22 +1470,7 @@ public class GitHubPullRequestReadClient
         checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
         List<String> reviewers = Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
                 .map(GitHubUser::login).filter(Objects::nonNull).collect(toImmutableList());
-        return new PullRequestFetch(Optional.of(toPullRequest(item, fullName, reviewers)), responseEtag, Optional.of(item));
-    }
-
-    public record PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag, Optional<GitHubPullRequestDetailResponse> detailResponse)
-    {
-        public PullRequestFetch
-        {
-            requireNonNull(pullRequest, "pullRequest is null");
-            requireNonNull(etag, "etag is null");
-            requireNonNull(detailResponse, "detailResponse is null");
-        }
-
-        public PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag)
-        {
-            this(pullRequest, etag, Optional.empty());
-        }
+        return new PullRequestFetch(Optional.of(toPullRequest(item, fullName, reviewers)), responseEtag, Optional.of(toPrRawDetail(pr, item)));
     }
 
     private static FetchedPullRequest toPullRequest(GitHubPullRequestDetailResponse item, String fullName, List<String> reviewers)

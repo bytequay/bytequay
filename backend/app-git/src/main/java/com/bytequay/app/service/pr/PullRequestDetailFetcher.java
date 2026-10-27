@@ -14,7 +14,6 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
@@ -23,6 +22,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
@@ -75,7 +75,7 @@ class PullRequestDetailFetcher
 
     PrRawDetail raw(String pat, PullRequestRef ref, PullRequestFetch fetched)
     {
-        return requireRaw(fetched.detailResponse().map(response -> gitHub.toPrRawDetail(ref, response)).orElseGet(() -> gitHub.fetchPrDetail(pat, ref)));
+        return requireRaw(fetched.detail().orElseGet(() -> gitHub.fetchPrDetail(pat, ref)));
     }
 
     ListenableFuture<StoredPrDetail> fetchDiscussion(String pat, PullRequestRef ref, StoredPrDetail existing)

@@ -14,7 +14,6 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
@@ -24,6 +23,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -129,6 +129,16 @@ class TestPullRequestDetailFetcher
 
         assertThat(stored.checkRuns()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly(StoredPrDetail.CHECKS);
+        verify(gitHub, never()).fetchPrDetail("pat", REF);
+    }
+
+    @Test
+    void reusesTheNormalizedDetailFromTheMetadataRead()
+    {
+        PrRawDetail detail = raw("head");
+
+        assertThat(fetcher.raw("pat", REF, new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(detail)))).isEqualTo(detail);
+
         verify(gitHub, never()).fetchPrDetail("pat", REF);
     }
 

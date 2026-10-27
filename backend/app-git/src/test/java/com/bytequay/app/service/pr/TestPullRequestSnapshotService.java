@@ -15,9 +15,7 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
-import com.bytequay.app.repository.github.GitHubPullRequestDetailResponse;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PrDiffEtags;
@@ -25,6 +23,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
@@ -271,10 +270,7 @@ class TestPullRequestSnapshotService
 
     private static PullRequestFetch coordinates(String base, String head)
     {
-        GitHubPullRequestDetailResponse response = new GitHubPullRequestDetailResponse(1L, 7, null, null, null, null, null, null, null, null,
-                null, ImmutableList.of(), ImmutableList.of(), null, false, 0, 0, 0, ImmutableList.of(), ImmutableList.of(),
-                new GitHubPullRequestDetailResponse.Head(head, "feature"), new GitHubPullRequestDetailResponse.Base(base, "main"), null, null);
-        return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(response));
+        return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(raw(base, head)));
     }
 
     private static StoredPrDetail stored()

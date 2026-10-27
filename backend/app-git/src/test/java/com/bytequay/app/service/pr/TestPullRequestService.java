@@ -20,10 +20,7 @@ import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
-import com.bytequay.app.repository.github.GitHubPullRequestDetailResponse;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.DiscussionProbe;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
@@ -73,6 +70,8 @@ import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.hosting.DiscussionProbe;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
@@ -3152,10 +3151,7 @@ class TestPullRequestService
 
     private static PullRequestFetch diffCoordinates()
     {
-        GitHubPullRequestDetailResponse response = new GitHubPullRequestDetailResponse(12L, 7, null, null, null, null, null, null, null, null,
-                null, ImmutableList.of(), ImmutableList.of(), null, false, 0, 0, 0, ImmutableList.of(), ImmutableList.of(),
-                new GitHubPullRequestDetailResponse.Head("head", "feature"), new GitHubPullRequestDetailResponse.Base("base", "main"), null, null);
-        return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(response));
+        return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(raw()));
     }
 
     private static StoredPrDetail stored()

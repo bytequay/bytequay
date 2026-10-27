@@ -27,12 +27,10 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
-import com.bytequay.integration.jira.JiraIssue;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -92,31 +90,21 @@ public class RecentTouchRecorder
         guard(() -> issueItem(workspaceId, number).ifPresent(item -> save(item, reason, 0)));
     }
 
-    public void jiraRead(JiraIssue issue, int dwellSeconds)
+    public void read(RecentItem item, int dwellSeconds)
     {
         if (dwellSeconds >= DWELL_THRESHOLD.toSeconds()) {
-            jiraAction(issue, RecentReason.READ, dwellSeconds / 60);
+            action(item, RecentReason.READ, dwellSeconds / 60);
         }
     }
 
-    public void jiraAction(JiraIssue issue, RecentReason reason, int count)
+    public void action(RecentItem item, RecentReason reason, int count)
     {
-        guard(() -> save(jiraItem(issue), reason, count));
+        guard(() -> save(item, reason, count));
     }
 
-    public void wroteOnJira(JiraIssue issue, String commentId, String body)
+    public void wrote(RecentItem item, RecentTextKind kind, String suffix, String body)
     {
-        guard(() -> {
-            Item item = jiraItem(issue);
-            write(item, RecentTextKind.COMMENT, item.itemKey() + ":comment:" + commentId, body, clock.instant());
-        });
-    }
-
-    private static Item jiraItem(JiraIssue issue)
-    {
-        return new Item(RecentItemType.JIRA, "jira:" + issue.cloudId() + ":" + issue.id(), null, issue.title(), null,
-                issue.workspace().map(workspace -> workspace.id()).orElse(null), issue.url(), false, null,
-                issue.key() + " · " + URI.create(issue.url()).getHost());
+        guard(() -> write(item, kind, item.itemKey() + ":" + suffix, body, clock.instant()));
     }
 
     /** Records a task the user prompted. Tasks carry no repository number of their own. */
@@ -124,7 +112,8 @@ public class RecentTouchRecorder
     {
         guard(() -> {
             String itemKey = RecentItemType.TASK.prefix() + ":" + taskId;
-            Item item = new Item(RecentItemType.TASK, itemKey, null, firstLine(prompt), repo, null, null, true, null, lane);
+            RecentItem item = new RecentItem(RecentItemType.TASK, itemKey, Optional.empty(), firstLine(prompt), Optional.ofNullable(repo), Optional.empty(), Optional.empty(),
+                    true, Optional.empty(), Optional.ofNullable(lane));
             save(item, RecentReason.PROMPTED, 0);
             // The prompt is the user's own words, so it belongs in Words mode
             // beside their comments. Keyed per turn, not per task.
@@ -140,7 +129,8 @@ public class RecentTouchRecorder
                     .map(workspace -> workspace.monitoredRepository().fullName())
                     .orElse(null);
             String itemKey = RecentItemType.COMMIT.prefix() + ":" + repo + "@" + sha;
-            Item item = new Item(RecentItemType.COMMIT, itemKey, null, summary, repo, workspaceId, null, true, null, sha.length() > 7 ? sha.substring(0, 7) : sha);
+            RecentItem item = new RecentItem(RecentItemType.COMMIT, itemKey, Optional.empty(), summary, Optional.ofNullable(repo), Optional.ofNullable(workspaceId),
+                    Optional.empty(), true, Optional.empty(), Optional.of(sha.length() > 7 ? sha.substring(0, 7) : sha));
             save(item, RecentReason.PUSHED, 0);
         });
     }
@@ -158,7 +148,7 @@ public class RecentTouchRecorder
             return;
         }
         guard(() -> {
-            Optional<Item> item = switch (touch.type()) {
+            Optional<RecentItem> item = switch (touch.type()) {
                 case PULL_REQUEST -> pullRequestItem(touch.repo(), touch.number(), touch.workspaceId());
                 case ISSUE -> issueItem(touch.workspaceId(), touch.number());
                 case JIRA, TASK, COMMIT -> Optional.empty();
@@ -184,7 +174,7 @@ public class RecentTouchRecorder
     public void draft(RecentItemType type, String repo, int number, String workspaceId, String body)
     {
         guard(() -> {
-            Optional<Item> item = switch (type) {
+            Optional<RecentItem> item = switch (type) {
                 case PULL_REQUEST -> pullRequestItem(repo, number, workspaceId);
                 case ISSUE -> issueItem(workspaceId, number);
                 case JIRA, TASK, COMMIT -> Optional.empty();
@@ -207,7 +197,7 @@ public class RecentTouchRecorder
                 .ifPresent(item -> write(item, kind, item.itemKey() + ":" + suffix, body, clock.instant())));
     }
 
-    private void save(Item item, RecentReason reason, int reasonCount)
+    private void save(RecentItem item, RecentReason reason, int reasonCount)
     {
         Instant now = clock.instant();
         LocalDate day = LocalDate.ofInstant(now, clock.getZone());
@@ -219,17 +209,17 @@ public class RecentTouchRecorder
                 now,
                 reason,
                 reasonCount,
-                item.number(),
+                item.number().orElse(null),
                 item.title(),
-                item.repo(),
-                item.workspaceId(),
-                item.htmlUrl(),
+                item.repo().orElse(null),
+                item.workspaceId().orElse(null),
+                item.htmlUrl().orElse(null),
                 item.mine(),
-                item.prId(),
-                item.subtitle()));
+                item.prId().orElse(null),
+                item.subtitle().orElse(null)));
     }
 
-    private void write(Item item, RecentTextKind kind, String id, String body, Instant writtenAt)
+    private void write(RecentItem item, RecentTextKind kind, String id, String body, Instant writtenAt)
     {
         if (body == null || body.isBlank()) {
             return;
@@ -241,13 +231,13 @@ public class RecentTouchRecorder
                 kind,
                 body.length() > SNIPPET_LIMIT ? body.substring(0, SNIPPET_LIMIT) : body,
                 writtenAt,
-                item.number(),
-                item.repo(),
+                item.number().orElse(null),
+                item.repo().orElse(null),
                 item.title(),
-                item.htmlUrl()));
+                item.htmlUrl().orElse(null)));
     }
 
-    private Optional<Item> pullRequestItem(String repo, int number, String workspaceId)
+    private Optional<RecentItem> pullRequestItem(String repo, int number, String workspaceId)
     {
         Optional<Long> prId = pullRequests.findIdByRepoAndNumber(repo, number);
         Optional<StoredPrDetail> detail = prId.flatMap(details::find);
@@ -259,20 +249,20 @@ public class RecentTouchRecorder
                 .flatMap(author -> credentials.cachedLogin().map(author::equalsIgnoreCase))
                 .orElse(false);
         String author = detail.map(stored -> stored.raw().author()).orElse(null);
-        return Optional.of(new Item(
+        return Optional.of(new RecentItem(
                 RecentItemType.PULL_REQUEST,
                 RecentItemType.PULL_REQUEST.itemKey(repo, number),
-                number,
+                Optional.of(number),
                 title,
-                repo,
-                workspaceId,
-                htmlUrl,
+                Optional.ofNullable(repo),
+                Optional.ofNullable(workspaceId),
+                Optional.ofNullable(htmlUrl),
                 mine,
-                prId.orElse(null),
-                author));
+                prId,
+                Optional.ofNullable(author)));
     }
 
-    private Optional<Item> issueItem(String workspaceId, int number)
+    private Optional<RecentItem> issueItem(String workspaceId, int number)
     {
         if (workspaceId == null) {
             return Optional.empty();
@@ -287,18 +277,17 @@ public class RecentTouchRecorder
         boolean mine = issue.map(RepositoryIssue::author)
                 .flatMap(author -> credentials.cachedLogin().map(author::equalsIgnoreCase))
                 .orElse(false);
-        return Optional.of(new Item(
+        return Optional.of(new RecentItem(
                 RecentItemType.ISSUE,
                 RecentItemType.ISSUE.itemKey(repo, number),
-                number,
+                Optional.of(number),
                 issue.map(RepositoryIssue::title).orElseGet(() -> repo + " #" + number),
-                repo,
-                workspaceId,
-                issue.map(RepositoryIssue::htmlUrl)
-                        .orElseGet(() -> "https://github.com/" + repo + "/issues/" + number),
+                Optional.of(repo),
+                Optional.of(workspaceId),
+                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElseGet(() -> "https://github.com/" + repo + "/issues/" + number)),
                 mine,
-                null,
-                issue.map(RepositoryIssue::author).orElse(null)));
+                Optional.empty(),
+                issue.map(RepositoryIssue::author)));
     }
 
     private static String firstLine(String prompt)
@@ -318,17 +307,4 @@ public class RecentTouchRecorder
             log.debug("Recent touch not recorded: {}", failure.toString());
         }
     }
-
-    /** One item resolved from local storage, ready to be stamped with a reason. */
-    private record Item(
-            RecentItemType type,
-            String itemKey,
-            Integer number,
-            String title,
-            String repo,
-            String workspaceId,
-            String htmlUrl,
-            boolean mine,
-            Long prId,
-            String subtitle) {}
 }

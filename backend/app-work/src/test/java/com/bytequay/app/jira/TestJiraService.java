@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.app.service.recent.RecentItem;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
+import com.bytequay.core.domain.RecentItemType;
+import com.bytequay.core.domain.RecentReason;
+import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
@@ -274,13 +278,45 @@ class TestJiraService
         JiraIssue cached = ticketIssue("connection");
         saved.put("jira.connection.cloud.issue.1001", mapper.writeValueAsString(cached));
         jira.recordRead("connection", "cloud", "1001", 65);
-        verify(recent).jiraRead(cached, 65);
+        verify(recent).read(new RecentItem(RecentItemType.JIRA, "jira:cloud:1001", Optional.empty(), "A ticket", Optional.empty(), Optional.empty(),
+                Optional.of("https://example.atlassian.net/browse/ENG-7"), false, Optional.empty(), Optional.of("ENG-7 · example.atlassian.net")), 65);
         verifyNoInteractions(remote);
+    }
+
+    @Test
+    void convertsJiraActionsAndCommentsToRecentItems()
+    {
+        JiraIssue issue = ticketIssue("connection").withMetadata(false, Optional.empty(), Optional.of(new JiraDtos.WorkspaceLink("workspace", "ByteQuay")));
+        RecentItem item = new RecentItem(RecentItemType.JIRA, "jira:cloud:1001", Optional.empty(), "A ticket", Optional.empty(), Optional.of("workspace"),
+                Optional.of("https://example.atlassian.net/browse/ENG-7"), false, Optional.empty(), Optional.of("ENG-7 · example.atlassian.net"));
+
+        context.jiraAction(issue, RecentReason.EDITED, 0);
+        context.wroteOnJira(issue, "comment-1", "Ready to review");
+
+        verify(recent).action(item, RecentReason.EDITED, 0);
+        verify(recent).wrote(item, RecentTextKind.COMMENT, "comment:comment-1", "Ready to review");
+    }
+
+    @Test
+    void malformedRecentMetadataDoesNotFailJiraActions()
+    {
+        JiraIssue issue = ticketIssue("connection", "https://invalid host/browse/ENG-7");
+
+        context.recordRead(issue, 65);
+        context.jiraAction(issue, RecentReason.EDITED, 0);
+        context.wroteOnJira(issue, "comment-1", "Ready to review");
+
+        verifyNoInteractions(recent);
     }
 
     private static JiraIssue ticketIssue(String connectionId)
     {
-        return new JiraIssue(connectionId, "cloud", "1001", "ENG-7", "https://example.atlassian.net/browse/ENG-7", "A ticket", "", "Story",
+        return ticketIssue(connectionId, "https://example.atlassian.net/browse/ENG-7");
+    }
+
+    private static JiraIssue ticketIssue(String connectionId, String url)
+    {
+        return new JiraIssue(connectionId, "cloud", "1001", "ENG-7", url, "A ticket", "", "Story",
                 new JiraDtos.Status("1", "To do", "new"), Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty(), false, false,
                 UPDATED, Optional.empty(), Optional.empty(), ImmutableList.of(), false, Optional.empty(), Optional.empty());
     }

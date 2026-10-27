@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.DiscussionProbe;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
@@ -22,6 +21,7 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.DiscussionProbe;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
@@ -188,6 +188,7 @@ class TestGitHubPullRequestOverviewClient
         var fetched = client.getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\""));
 
         assertThat(fetched.pullRequest()).isEmpty();
+        assertThat(fetched.detail()).isEmpty();
         assertThat(fetched.etag()).contains("\"etag-1\"");
     }
 
@@ -213,7 +214,8 @@ class TestGitHubPullRequestOverviewClient
                 .andRespond(withSuccess("""
                         {"id":12,"number":42,"title":"Title","state":"open","labels":[],
                          "requested_reviewers":[],"draft":false,
-                         "mergeable":false,"mergeable_state":"dirty"}
+                         "mergeable":false,"mergeable_state":"dirty",
+                         "head":{"sha":"head-sha","ref":"feature"},"base":{"sha":"base-sha","ref":"main"}}
                         """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"etag-2\""));
 
         var fetched = client.getPullRequest("pat", PULL_REQUEST, Optional.empty());
@@ -222,6 +224,12 @@ class TestGitHubPullRequestOverviewClient
         assertThat(fetched.pullRequest().orElseThrow().origin()).isEqualTo(OTHER);
         assertThat(fetched.pullRequest().orElseThrow().mergeable()).isFalse();
         assertThat(fetched.pullRequest().orElseThrow().mergeableState()).isEqualTo("dirty");
+        assertThat(fetched.detail()).hasValueSatisfying(detail -> {
+            assertThat(detail.title()).isEqualTo("Title");
+            assertThat(detail.mergeable()).isFalse();
+            assertThat(detail.headSha()).isEqualTo("head-sha");
+            assertThat(detail.baseSha()).isEqualTo("base-sha");
+        });
         assertThat(fetched.etag()).contains("\"etag-2\"");
     }
 

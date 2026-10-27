@@ -110,7 +110,7 @@ python3 scripts/review-calibration/run.py \
 
 python3 scripts/review-calibration/run.py \
   --repo /path/to/source --base BASE_SHA --head HEAD_SHA \
-  --policy backend/app-github/src/main/resources/agent-skills/bytequay-review.md \
+  --policy backend/app-review/src/main/resources/agent-skills/bytequay-review.md \
   --context /path/to/frozen-context.md --output /tmp/review-proposed-run1 \
   --model CONFIGURED_REVIEW_MODEL --reasoning CONFIGURED_REVIEW_EFFORT \
   --timeout TEST_TIMEOUT_SECONDS

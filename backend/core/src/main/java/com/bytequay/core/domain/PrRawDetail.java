@@ -23,9 +23,9 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Raw data returned by a single GitHub pull-request API call, before business-logic aggregation.
+ * Normalized request metadata returned by a hosting adapter, before local snapshot aggregation.
  *
- * @param requestedReviewers GitHub logins still on the PR's pending-review list.
+ * @param requestedReviewers logins known to have a pending review request; a negative count means this state is unavailable.
  * @param headRef branch name on the head side.
  */
 public record PrRawDetail(
@@ -55,6 +55,9 @@ public record PrRawDetail(
         String baseRef,
         String baseSha)
 {
+    /** An unavailable count, including a remote count that was truncated instead of measured exactly. */
+    public static final int UNKNOWN_COUNT = -1;
+
     public PrRawDetail
     {
         author = author == null ? FetchedPullRequest.GHOST_AUTHOR : author;

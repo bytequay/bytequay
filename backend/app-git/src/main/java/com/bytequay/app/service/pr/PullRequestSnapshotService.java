@@ -17,7 +17,6 @@ import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.app.repository.github.actions.CiRerunResult;
 import com.bytequay.app.repository.github.actions.CiWorkflowRun;
@@ -32,6 +31,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
@@ -247,8 +247,8 @@ public class PullRequestSnapshotService
         if (baseSha.isPresent() && headSha.isPresent()) {
             // The default endpoints follow a moving PR. Do not label their bytes with coordinates that moved during retrieval.
             PullRequestFetch verified = gitHub.getPullRequest(pat, pullRequest, Optional.empty());
-            boolean unchanged = verified.detailResponse().filter(response -> response.base() != null && response.head() != null
-                    && baseSha.orElseThrow().equals(response.base().sha()) && headSha.orElseThrow().equals(response.head().sha())).isPresent();
+            boolean unchanged = verified.detail().filter(response -> baseSha.orElseThrow().equals(response.baseSha())
+                    && headSha.orElseThrow().equals(response.headSha())).isPresent();
             if (!unchanged) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request changed while fetching its diff; refresh again");
             }

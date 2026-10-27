@@ -23,7 +23,7 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 /**
- * A pull request as GitHub reports it, before this application has stored it.
+ * A pull request reported by a hosting adapter, before this application has stored it.
  * It carries no row id and none of the state this application owns -- viewed
  * and reviewed marks, attention, or the counts filled in by a later detail
  * refresh. Store it to obtain a {@link PullRequest}, whose id is always
@@ -77,7 +77,7 @@ public record FetchedPullRequest(
                 mergeable, mergeableState, headRef);
     }
 
-    /** This pull request with its relationship to the current GitHub user derived from GitHub facts. */
+    /** This pull request with its relationship to the current account derived from known remote facts. */
     public FetchedPullRequest withViewerOrigin(String viewerLogin)
     {
         requireNonNull(viewerLogin, "viewerLogin is null");

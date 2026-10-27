@@ -13,8 +13,11 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.app.service.recent.RecentItem;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
+import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.JiraIssueTaskStore;
@@ -24,9 +27,13 @@ import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.bytequay.integration.jira.JiraIssueContext;
 import com.bytequay.integration.jira.impl.JiraCache;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.net.URI;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.bytequay.integration.jira.JiraIdentifiers.segment;
 import static java.util.Objects.requireNonNull;
@@ -36,6 +43,8 @@ import static java.util.Objects.requireNonNull;
 public class JiraIssueContextImpl
         implements JiraIssueContext
 {
+    private static final Logger log = LoggerFactory.getLogger(JiraIssueContextImpl.class);
+
     private final JiraCache cache;
     private final JiraIssueTaskStore tasks;
     private final WorkspaceStore workspaces;
@@ -85,18 +94,31 @@ public class JiraIssueContextImpl
 
     public void recordRead(JiraIssue issue, int dwellSeconds)
     {
-        recent.jiraRead(issue, dwellSeconds);
+        recordRecent(issue, item -> recent.read(item, dwellSeconds));
     }
 
     @Override
     public void jiraAction(JiraIssue issue, RecentReason reason, int dwellSeconds)
     {
-        recent.jiraAction(issue, reason, dwellSeconds);
+        recordRecent(issue, item -> recent.action(item, reason, dwellSeconds));
     }
 
     @Override
     public void wroteOnJira(JiraIssue issue, String commentId, String body)
     {
-        recent.wroteOnJira(issue, commentId, body);
+        recordRecent(issue, item -> recent.wrote(item, RecentTextKind.COMMENT, "comment:" + commentId, body));
+    }
+
+    private void recordRecent(JiraIssue issue, Consumer<RecentItem> record)
+    {
+        // Recent metadata must not fail a Jira action, even when a remote URL is malformed.
+        try {
+            record.accept(new RecentItem(RecentItemType.JIRA, "jira:" + issue.cloudId() + ":" + issue.id(), Optional.empty(), issue.title(), Optional.empty(),
+                    issue.workspace().map(workspace -> workspace.id()), Optional.of(issue.url()), false, Optional.empty(),
+                    Optional.of(issue.key() + " · " + URI.create(issue.url()).getHost())));
+        }
+        catch (RuntimeException failure) {
+            log.debug("Jira recent touch not recorded: {}", failure.toString());
+        }
     }
 }

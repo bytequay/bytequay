@@ -30,10 +30,12 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Stores account names, login emails, and stable identities in SQLite, never credentials. */
+/** Stores account names, login emails, gateway URLs, and stable identities in SQLite, never credentials. */
 @Service
 public class ClaudeAccounts
 {
+    /** The {@code ModelApiKeyStore} provider of a gateway account's token, saved under the account's ID. */
+    public static final String GATEWAY_TOKEN_PROVIDER = "Claude gateway";
     private static final String KEY = "model.claudeAccounts";
 
     private final AppSettingsStore settings;
@@ -58,9 +60,18 @@ public class ClaudeAccounts
         }).orElse(ImmutableList.of());
     }
 
-    public synchronized ClaudeAccount add(String label, String email, Optional<String> workspaceId)
+    public ClaudeAccount add(String label, String email, Optional<String> workspaceId)
     {
-        ClaudeAccount account = new ClaudeAccount(UUID.randomUUID().toString(), label, Optional.of(requireNonNull(email, "email is null")), workspaceId);
+        return add(new ClaudeAccount(UUID.randomUUID().toString(), label, Optional.of(requireNonNull(email, "email is null")), Optional.empty(), workspaceId));
+    }
+
+    public ClaudeAccount addGateway(String label, String gatewayUrl, Optional<String> workspaceId)
+    {
+        return add(new ClaudeAccount(UUID.randomUUID().toString(), label, Optional.empty(), Optional.of(requireNonNull(gatewayUrl, "gatewayUrl is null")), workspaceId));
+    }
+
+    private synchronized ClaudeAccount add(ClaudeAccount account)
+    {
         List<ClaudeAccount> existing = list();
         checkArgument(existing.stream().noneMatch(value -> value.label().equalsIgnoreCase(account.label())), "A Claude account with that name already exists");
         save(ImmutableList.<ClaudeAccount>builder().addAll(existing).add(account).build());
@@ -90,7 +101,7 @@ public class ClaudeAccounts
     {
         ClaudeAccount account = find(laneId).orElseThrow(() -> new IllegalArgumentException("Unknown Claude account"));
         checkArgument(account.workspaceId().isEmpty(), "This account already belongs to a repository");
-        ClaudeAccount scoped = new ClaudeAccount(account.id(), account.label(), account.email(), Optional.of(workspaceId));
+        ClaudeAccount scoped = new ClaudeAccount(account.id(), account.label(), account.email(), account.gatewayUrl(), Optional.of(workspaceId));
         save(list().stream().map(value -> value.id().equals(account.id()) ? scoped : value).collect(toImmutableList()));
     }
 

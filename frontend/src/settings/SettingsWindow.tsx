@@ -45,6 +45,7 @@ import {
   WorkspaceTokenPage,
 } from './WorkspacePages';
 import { isWorkspaceSection, type SettingsSection } from './routes';
+import type { ClaudeLogin } from './model';
 import '../css/settings-window.css';
 
 export default function SettingsWindow({ section, workspace, onWorkspacesChanged }: {
@@ -233,10 +234,12 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
       .catch(report);
   };
 
-  const addClaudeAccount = async (label: string, email: string) => {
+  const addClaudeAccount = async (label: string, login: ClaudeLogin) => {
     setError(null);
     const scope = modelWorkspaceId;
-    const updated = await window.bridge.addClaudeAccount(label, email, scope);
+    const updated = 'email' in login
+      ? await window.bridge.addClaudeAccount(label, login.email, scope)
+      : await window.bridge.addClaudeGateway(label, login.gatewayUrl, login.token, scope);
     if (modelScopeRef.current !== scope) return;
     modelRequest.current += 1;
     setChecking(false);
@@ -244,7 +247,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     setModelsScope(scope);
     refreshWorkspaceSettings();
     const account = updated.providers.find(provider => provider.label === `Claude · ${label}`);
-    if (account !== undefined) setSigningIn({ laneId: account.id, providerName: account.label });
+    if (account !== undefined && 'email' in login) setSigningIn({ laneId: account.id, providerName: account.label });
   };
 
   const removeClaudeAccount = async (laneId: string) => {

@@ -15,14 +15,19 @@ package com.bytequay.app.service.settings;
 
 import com.bytequay.agent.spi.AgentLaneId;
 
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.util.Optional;
 import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** A named CLI login. Credentials remain owned by Claude Code. */
-public record ClaudeAccount(String id, String label, Optional<String> email, Optional<String> workspaceId)
+/**
+ * A named CLI login: a Claude sign-in for the email, or a gateway reached with a token.
+ * Claude Code owns a sign-in's credentials; a gateway's token is stored encrypted under the account ID.
+ */
+public record ClaudeAccount(String id, String label, Optional<String> email, Optional<String> gatewayUrl, Optional<String> workspaceId)
 {
     public ClaudeAccount
     {
@@ -33,6 +38,9 @@ public record ClaudeAccount(String id, String label, Optional<String> email, Opt
         email = requireNonNull(email, "email is null").map(String::trim);
         email.ifPresent(value -> checkArgument(value.length() <= 254 && value.matches("[^\\s@]+@[^\\s@]+") && value.chars().noneMatch(Character::isISOControl),
                 "Enter a valid Claude account email"));
+        gatewayUrl = requireNonNull(gatewayUrl, "gatewayUrl is null").map(String::trim);
+        gatewayUrl.ifPresent(value -> checkArgument(isGatewayUrl(value), "Enter the gateway's http or https URL"));
+        checkArgument(email.isEmpty() || gatewayUrl.isEmpty(), "A Claude account uses an email or a gateway, not both");
         requireNonNull(workspaceId, "workspaceId is null").ifPresent(value -> checkArgument(!value.isBlank(), "workspaceId is blank"));
     }
 
@@ -44,5 +52,18 @@ public record ClaudeAccount(String id, String label, Optional<String> email, Opt
     public AgentLaneId laneId()
     {
         return new AgentLaneId(AgentLaneId.CLAUDE_ACCOUNT_PREFIX + id);
+    }
+
+    private static boolean isGatewayUrl(String value)
+    {
+        try {
+            URI uri = new URI(value);
+            boolean web = "http".equalsIgnoreCase(uri.getScheme()) || "https".equalsIgnoreCase(uri.getScheme());
+            // A user-info part would show its password wherever the URL is displayed.
+            return value.length() <= 2048 && web && uri.getHost() != null && uri.getUserInfo() == null;
+        }
+        catch (URISyntaxException invalid) {
+            return false;
+        }
     }
 }

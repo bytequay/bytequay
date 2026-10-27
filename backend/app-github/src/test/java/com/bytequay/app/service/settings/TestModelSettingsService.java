@@ -119,6 +119,21 @@ class TestModelSettingsService
     }
 
     @Test
+    void aRepositoryGatewayAccountKeepsItsTokenOutOfTheKeyListAndDropsItOnRemoval()
+    {
+        AgentDriver named = mock(AgentDriver.class);
+        when(named.label()).thenReturn("Claude · Work");
+        when(drivers.require(any())).thenReturn(named);
+        ClaudeAccount account = service.addClaudeGateway("Work", "https://llm.example.com", "sk-gateway-secret", Optional.of("downstream"));
+        assertThat(account.gatewayUrl()).contains("https://llm.example.com");
+        assertThat(apiKeys.findSecretById(account.id())).contains("sk-gateway-secret");
+        assertThat(service.get(Optional.of("downstream")).agents()).allSatisfy(agent -> assertThat(agent.configId()).isEqualTo(account.laneId().value()));
+        assertThat(service.get().apiKeys()).isEmpty();
+        service.removeClaudeAccount(account.id());
+        assertThat(apiKeys.findAll()).isEmpty();
+    }
+
+    @Test
     void workspacesSelectDifferentClaudeAccountsAndKeepTheSameModelCatalog()
     {
         ClaudeAccounts accounts = new ClaudeAccounts(settingsStore, new ObjectMapper());

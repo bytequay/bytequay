@@ -91,10 +91,32 @@ class TestClaudeAccounts
         for (String email : new String[] {"", "wrong", "one@@example.com", "a b@example.com", "a\nb@example.com", "x".repeat(243) + "@example.com"}) {
             assertThatThrownBy(() -> accounts.add("Invalid email", email, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         }
-        assertThatThrownBy(() -> new ClaudeAccount("../../other-home", "Invalid", Optional.of("work@example.com"), Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ClaudeAccount("../../other-home", "Invalid", Optional.of("work@example.com"), Optional.empty(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
         assertThat(accounts.list()).containsExactly(work, personal);
         store.put("model.claudeAccounts", "broken");
         assertThatThrownBy(() -> accounts.add("New", "work@example.com", Optional.empty())).isInstanceOf(IllegalStateException.class);
         assertThat(store.get("model.claudeAccounts")).contains("broken");
+    }
+
+    @Test
+    void aGatewayAccountKeepsItsUrlAcrossRestartAndScoping()
+    {
+        InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
+        ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
+        ClaudeAccount work = accounts.addGateway("Work", " https://llm.example.com/anthropic ", Optional.empty());
+        assertThat(work.gatewayUrl()).contains("https://llm.example.com/anthropic");
+        assertThat(work.email()).isEmpty();
+        accounts.restrictToWorkspace(work.laneId().value(), "downstream");
+        assertThat(new ClaudeAccounts(store, new ObjectMapper()).list()).singleElement()
+                .satisfies(account -> {
+                    assertThat(account.gatewayUrl()).isEqualTo(work.gatewayUrl());
+                    assertThat(account.workspaceId()).contains("downstream");
+                });
+        for (String url : new String[] {"", "llm.example.com", "ftp://llm.example.com", "https://user:secret@llm.example.com", "https://"}) {
+            assertThatThrownBy(() -> accounts.addGateway("Invalid " + url.length(), url, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> new ClaudeAccount(work.id(), "Both", Optional.of("work@example.com"), work.gatewayUrl(), Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }

@@ -918,7 +918,7 @@ class TestReviewCodeService
         assertThat(service.terminal(service.reviewHost(REVIEW_ID)).claudeConfigDirectory()).isEmpty();
         assertThat(service.terminal(taskHost()).claudeConfigDirectory()).isEmpty();
         Path claudeHome = directory.resolve("claude-home");
-        ClaudeAccount account = new ClaudeAccount("11111111-1111-4111-8111-111111111111", "Work", Optional.of("work@example.com"), Optional.of(WORKSPACE_ID));
+        ClaudeAccount account = new ClaudeAccount("11111111-1111-4111-8111-111111111111", "Work", Optional.of("work@example.com"), Optional.empty(), Optional.of(WORKSPACE_ID));
         when(claudeAccounts.find(account.laneId().value())).thenReturn(Optional.of(account));
         for (AgentLaneId lane : ImmutableList.of(AgentLaneId.CLAUDE_CLI, account.laneId())) {
             when(reviews.task(REVIEW_ID)).thenReturn(AgentTask.created(worktree.taskId(), false, Optional.empty(), "Review", TitleSource.USER, lane, worktree,

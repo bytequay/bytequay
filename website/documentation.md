@@ -289,6 +289,9 @@ Keys are stored encrypted on your Mac.
 3. To keep an account to one repository, add it in that repository’s **Model
    overrides**, or choose **Use only here**.
 
+For a company gateway such as LiteLLM, choose **Gateway token** and enter its
+URL and token instead of an email. The token is stored encrypted on your Mac.
+
 Existing tasks keep the account they started with.
 
 <a id="agent-tasks"></a>

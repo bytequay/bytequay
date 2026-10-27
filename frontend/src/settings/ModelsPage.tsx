@@ -17,7 +17,7 @@ import { ProviderIcon } from '../agents/ProviderIcon';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
 import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
-import { isClaudeAccount, isDeepSeekKeyLane, providerStatusLabel } from './model';
+import { isClaudeAccount, isDeepSeekKeyLane, providerStatusLabel, type ClaudeLogin } from './model';
 import { AddAction, Dialog, Segmented, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
 
 /** Chosen when Review should follow Development instead of naming its own model. */
@@ -182,7 +182,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
   onInherit: (type: AgentModelType) => void;
   onAddKey: (provider: string, alias: string, key: string) => void;
   onRemoveKey: (alias: string) => void;
-  onAddClaudeAccount?: (label: string, email: string) => Promise<void>;
+  onAddClaudeAccount?: (label: string, login: ClaudeLogin) => Promise<void>;
   onRemoveClaudeAccount?: (laneId: string) => Promise<void>;
 }) {
   const [addingKey, setAddingKey] = useState(false);

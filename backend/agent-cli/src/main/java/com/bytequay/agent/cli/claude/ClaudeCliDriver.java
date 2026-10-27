@@ -175,6 +175,7 @@ public final class ClaudeCliDriver
     private final AgentLaneId laneId;
     private final String label;
     private final Optional<String> loginEmail;
+    private final Optional<ClaudeGateway> gateway;
     private final Path claudeHome;
     private final ProcessSupervisor supervisor;
     private final Map<String, String> environment;
@@ -205,14 +206,15 @@ public final class ClaudeCliDriver
             Path claudeHome,
             AgentLaneId laneId,
             String label,
-            Optional<String> loginEmail)
+            Optional<String> loginEmail,
+            Optional<ClaudeGateway> gateway)
     {
-        this(executable, objectMapper, permissions, supervisor, claudeHome, laneId, label, loginEmail, inheritedEnvironment());
+        this(executable, objectMapper, permissions, supervisor, claudeHome, laneId, label, loginEmail, gateway, inheritedEnvironment());
     }
 
     ClaudeCliDriver(String executable, ObjectMapper objectMapper, PermissionBroker permissions, ProcessSupervisor supervisor, Path claudeHome, Map<String, String> environment)
     {
-        this(executable, objectMapper, permissions, supervisor, claudeHome, AgentLaneId.CLAUDE_CLI, "Claude Code", Optional.empty(), environment);
+        this(executable, objectMapper, permissions, supervisor, claudeHome, AgentLaneId.CLAUDE_CLI, "Claude Code", Optional.empty(), Optional.empty(), environment);
     }
 
     ClaudeCliDriver(
@@ -224,6 +226,7 @@ public final class ClaudeCliDriver
             AgentLaneId laneId,
             String label,
             Optional<String> loginEmail,
+            Optional<ClaudeGateway> gateway,
             Map<String, String> environment)
     {
         this.executable = requireNonNull(executable, "executable is null");
@@ -231,16 +234,18 @@ public final class ClaudeCliDriver
         checkArgument(laneId.usesClaude(), "not a Claude lane");
         this.label = requireNonNull(label, "label is null");
         this.loginEmail = requireNonNull(loginEmail, "loginEmail is null");
+        this.gateway = requireNonNull(gateway, "gateway is null");
         this.claudeHome = requireNonNull(claudeHome, "claudeHome is null").toAbsolutePath().normalize();
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         // Overrides any inherited value: a shell that exports CLAUDE_CONFIG_DIR must not redirect
         // ByteQuay's processes into the user's own Claude setup.
-        this.environment = ImmutableMap.<String, String>builder()
+        ImmutableMap.Builder<String, String> processEnvironment = ImmutableMap.<String, String>builder()
                 .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CLAUDE_CONFIG_DIR")
                         // Named accounts must use their own login, even when the backend inherited API credentials.
                         && (laneId.equals(AgentLaneId.CLAUDE_CLI) || (!name.startsWith("ANTHROPIC_") && !name.equals("CLAUDE_CODE_OAUTH_TOKEN")))))
-                .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString())
-                .buildOrThrow();
+                .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString());
+        gateway.ifPresent(value -> processEnvironment.put("ANTHROPIC_BASE_URL", value.baseUrl()).put("ANTHROPIC_AUTH_TOKEN", value.token()));
+        this.environment = processEnvironment.buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null").copy()
                 .registerModule(new Jdk8Module())
@@ -263,6 +268,9 @@ public final class ClaudeCliDriver
     @Override
     public ProviderQuotaSnapshot quota()
     {
+        if (gateway.isPresent()) {
+            return ProviderQuotaSnapshot.unavailable("Usage limits aren’t available through a gateway.");
+        }
         try {
             ProviderCli.Result version = run(executable, "--version");
             // get_usage and safe-mode are experimental; keep task support on the existing minimum.
@@ -553,6 +561,10 @@ public final class ClaudeCliDriver
     private AuthenticationProbe probeAuthentication()
             throws InterruptedException
     {
+        if (gateway.isPresent()) {
+            // auth status reports logged out for a token-only login, and checking the token would need the network.
+            return new AuthenticationProbe(AgentProviderStatus.Readiness.READY, "Gateway · " + gateway.orElseThrow().host());
+        }
         ProviderCli.Result result = run(executable, "auth", "status", "--json");
         if (result.timedOut()) {
             return AuthenticationProbe.unavailable("Claude authentication status timed out");

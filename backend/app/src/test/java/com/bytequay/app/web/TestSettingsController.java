@@ -20,7 +20,6 @@ import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.AppTheme;
 import com.bytequay.app.service.settings.ClaudeAccount;
-import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.QuietHours;
 import com.bytequay.core.domain.Workspace;
@@ -53,13 +52,13 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestSettingsController
 {
-    private static final ClaudeAccount WORK = new ClaudeAccount("3fc79e41-f2c8-4d04-b4fc-bc6e658f4e56", "Work", Optional.of("work@example.com"), Optional.empty());
+    private static final ClaudeAccount WORK =
+            new ClaudeAccount("3fc79e41-f2c8-4d04-b4fc-bc6e658f4e56", "Work", Optional.of("work@example.com"), Optional.empty(), Optional.empty());
 
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
-    private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
-    private final SettingsController controller = new SettingsController(models, settings, claudeAccounts, workspaces);
+    private final SettingsController controller = new SettingsController(models, settings, workspaces);
 
     /** Boot's own serialization settings, so the test asserts the wire format the renderer parses. */
     private static ObjectMapper appMapper()
@@ -81,7 +80,7 @@ class TestSettingsController
             throws Exception
     {
         mvc().perform(delete("/api/settings/claude-accounts/" + WORK.id())).andExpect(status().isOk());
-        verify(claudeAccounts).remove(WORK.id());
+        verify(models).removeClaudeAccount(WORK.id());
         verify(models, never()).refreshCatalogs();
         verify(models).get();
     }
@@ -120,7 +119,23 @@ class TestSettingsController
     {
         mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Work\"}"))
                 .andExpect(status().isBadRequest());
-        verifyNoInteractions(claudeAccounts, models);
+        verifyNoInteractions(models);
+    }
+
+    @Test
+    void addingAClaudeGatewayRequiresItsTokenAndChecksOnlyItsLane()
+            throws Exception
+    {
+        mvc().perform(post("/api/settings/claude-accounts/gateway").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"label\":\"Work\",\"gatewayUrl\":\"https://llm.example.com\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(models);
+        when(models.addClaudeGateway("Work", "https://llm.example.com", "sk-gateway", Optional.empty())).thenReturn(WORK);
+        mvc().perform(post("/api/settings/claude-accounts/gateway").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"label\":\"Work\",\"gatewayUrl\":\"https://llm.example.com\",\"token\":\"sk-gateway\"}"))
+                .andExpect(status().isOk());
+        verify(models).checkNewLane(WORK.laneId());
+        verify(models).get(Optional.empty());
     }
 
     @Test

@@ -272,6 +272,7 @@ const bridge: Bridge = {
   getProviderUsage: invoke('usage:read'),
   getModelSettings: invoke('settings:models'),
   addClaudeAccount: invoke('settings:claude-accounts:add'),
+  addClaudeGateway: invoke('settings:claude-accounts:add-gateway'),
   restrictClaudeAccount: invoke('settings:claude-accounts:restrict'),
   removeClaudeAccount: invoke('settings:claude-accounts:remove'),
   refreshModelSettings: (force = false, workspaceId) => ipcRenderer.invoke('settings:models:refresh', force, workspaceId),

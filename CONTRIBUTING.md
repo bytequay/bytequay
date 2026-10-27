@@ -129,6 +129,16 @@ selected for both Development and Review immediately. Other repositories cannot
 see or run them. Accounts added under global **Models → Claude accounts** are
 available to every repository and can be selected as global defaults.
 
+To reach Claude through an Anthropic-compatible gateway, such as a company
+LiteLLM proxy, choose **Gateway token** in the same dialog and enter the
+gateway's URL and token instead of an email. That account's Claude processes
+get them as `ANTHROPIC_BASE_URL` and `ANTHROPIC_AUTH_TOKEN`; the token is stored
+encrypted with the saved API keys and deleted with the account. Readiness skips
+`claude auth status`, which reports a token-only login as signed out, and usage
+limits are not shown. A gateway account can be global or belong to one
+repository like any other, so a global default and a repository override can
+mix a Claude login with a gateway.
+
 For an account previously saved globally, open the intended repository's
 **Model overrides** and choose **Use only here** on the account. This preserves
 its sign-in and selects it for both task types while preventing later turns in

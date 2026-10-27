@@ -17,7 +17,6 @@ import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccount;
-import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
 import com.bytequay.app.service.settings.QuietHours;
@@ -44,14 +43,12 @@ public class SettingsController
 {
     private final ModelSettingsService models;
     private final AppSettingsService settings;
-    private final ClaudeAccounts claudeAccounts;
     private final WorkspaceStore workspaces;
 
-    public SettingsController(ModelSettingsService models, AppSettingsService settings, ClaudeAccounts claudeAccounts, WorkspaceStore workspaces)
+    public SettingsController(ModelSettingsService models, AppSettingsService settings, WorkspaceStore workspaces)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
-        this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
     }
 
@@ -108,6 +105,19 @@ public class SettingsController
         return models.get(workspaceId);
     }
 
+    @PostMapping("/claude-accounts/gateway")
+    public ModelSettings addClaudeGateway(@RequestBody ClaudeGatewayRequest request)
+    {
+        checkText(request.label(), "account name");
+        checkText(request.gatewayUrl(), "gateway URL");
+        checkText(request.token(), "gateway token");
+        Optional<String> workspaceId = Optional.ofNullable(request.workspaceId());
+        workspaceId.ifPresent(this::requireWorkspace);
+        ClaudeAccount account = models.addClaudeGateway(request.label(), request.gatewayUrl(), request.token(), workspaceId);
+        models.checkNewLane(account.laneId());
+        return models.get(workspaceId);
+    }
+
     @PutMapping("/claude-accounts/{id}/workspace")
     public ModelSettings restrictClaudeAccount(@PathVariable String id, @RequestBody AccountWorkspaceRequest request)
     {
@@ -132,7 +142,7 @@ public class SettingsController
     public ModelSettings removeClaudeAccount(@PathVariable String id)
     {
         // Settings already hide a removed account's lane, so nothing needs checking again.
-        claudeAccounts.remove(id);
+        models.removeClaudeAccount(id);
         return models.get();
     }
 
@@ -177,6 +187,8 @@ public class SettingsController
     public record ApiKeyRequest(String provider, String alias, String key) {}
 
     public record ClaudeAccountRequest(String label, String email, String workspaceId) {}
+
+    public record ClaudeGatewayRequest(String label, String gatewayUrl, String token, String workspaceId) {}
 
     public record AccountWorkspaceRequest(String workspaceId) {}
 }

@@ -1909,6 +1909,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   clearAgentModel: (type: AgentModelType) => Promise<ModelSettingsDto>;
   addModelApiKey: (provider: string, alias: string, key: string) => Promise<ModelSettingsDto>;
   addClaudeAccount: (label: string, email: string, workspaceId?: string) => Promise<ModelSettingsDto>;
+  addClaudeGateway: (label: string, gatewayUrl: string, token: string, workspaceId?: string) => Promise<ModelSettingsDto>;
   restrictClaudeAccount: (laneId: string, workspaceId: string) => Promise<ModelSettingsDto>;
   removeClaudeAccount: (laneId: string) => Promise<ModelSettingsDto>;
   removeModelApiKey: (alias: string) => Promise<ModelSettingsDto>;

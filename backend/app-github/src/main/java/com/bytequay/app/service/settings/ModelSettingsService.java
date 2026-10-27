@@ -255,6 +255,8 @@ public class ModelSettingsService
                 .map(this::provider)
                 .collect(toImmutableList());
         List<ApiKey> keys = apiKeys.findAll().stream()
+                // Gateway tokens belong to their Claude account, not the API keys list.
+                .filter(key -> KEY_PROVIDER_MODELS.containsKey(key.provider()))
                 .map(this::apiKey)
                 .collect(toImmutableList());
         List<KeyProvider> keyProviders = KEY_PROVIDER_MODELS.entrySet().stream()
@@ -409,6 +411,23 @@ public class ModelSettingsService
         ClaudeAccount account = claudeAccounts.add(label, email, workspaceId);
         workspaceId.ifPresent(id -> useClaudeAccount(id, account.laneId().value()));
         return account;
+    }
+
+    @Transactional
+    public ClaudeAccount addClaudeGateway(String label, String gatewayUrl, String token, Optional<String> workspaceId)
+    {
+        ClaudeAccount account = claudeAccounts.addGateway(label, gatewayUrl, workspaceId);
+        apiKeys.save(new ModelApiKey(account.id(), account.id(), ClaudeAccounts.GATEWAY_TOKEN_PROVIDER, SecretMasker.mask(token), clock.instant()), token);
+        workspaceId.ifPresent(id -> useClaudeAccount(id, account.laneId().value()));
+        return account;
+    }
+
+    /** Removes the account and any gateway token it owns. */
+    @Transactional
+    public void removeClaudeAccount(String id)
+    {
+        claudeAccounts.remove(id);
+        apiKeys.delete(id);
     }
 
     @Transactional

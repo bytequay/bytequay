@@ -21,7 +21,7 @@ import type {
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
 import { RelatedWorkspaceSettings } from '../workspaces/RelatedWorkspaces';
-import { isClaudeLane, isDeepSeekKeyLane } from './model';
+import { isClaudeLane, isDeepSeekKeyLane, type ClaudeLogin } from './model';
 import ProviderRow from './ProviderRow';
 import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
@@ -148,7 +148,7 @@ export function WorkspaceAgentsPage({
   onCheck: () => void;
   /** Opens that lane's sign-in terminal; this is where a blocked composer sends the user. */
   onSignIn?: (providerId: string) => void;
-  onAddClaudeAccount?: (label: string, email: string) => Promise<void>;
+  onAddClaudeAccount?: (label: string, login: ClaudeLogin) => Promise<void>;
   onRemoveClaudeAccount?: (laneId: string) => Promise<void>;
   onRestrictClaudeAccount?: (laneId: string) => Promise<void>;
 }) {

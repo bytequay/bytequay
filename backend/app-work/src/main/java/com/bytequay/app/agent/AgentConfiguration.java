@@ -14,6 +14,7 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.cli.claude.ClaudeCliDriver;
+import com.bytequay.agent.cli.claude.ClaudeGateway;
 import com.bytequay.agent.cli.claude.ClaudeHome;
 import com.bytequay.agent.cli.codex.CodexCliDriver;
 import com.bytequay.agent.cli.codex.CodexHome;
@@ -181,6 +182,7 @@ public class AgentConfiguration
     public ClaudeAccountDriverRegistry claudeAccountDriverRegistry(
             List<AgentDriver> drivers,
             ClaudeAccounts accounts,
+            ModelApiKeyStore keys,
             AgentProperties properties,
             ObjectMapper objectMapper,
             ProcessSupervisor supervisor,
@@ -188,10 +190,12 @@ public class AgentConfiguration
             @Value("${bytequay.agent.claude-enabled:false}") boolean enabled)
     {
         return new ClaudeAccountDriverRegistry(new StaticAgentDriverRegistry(drivers), accounts, enabled, account -> {
+            Optional<ClaudeGateway> gateway = account.gatewayUrl().map(url -> new ClaudeGateway(url, keys.findSecretById(account.id())
+                    .orElseThrow(() -> new AgentUnavailableException("This Claude gateway's token is missing; remove the account and add it again"))));
             try {
                 return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor,
                         ClaudeHome.prepare(properties.claudeHome().resolve("accounts").resolve(account.id())),
-                        account.laneId(), "Claude · " + account.label(), account.email());
+                        account.laneId(), "Claude · " + account.label(), account.email(), gateway);
             }
             catch (IOException failure) {
                 throw new AgentUnavailableException("Claude account home could not be prepared", failure);

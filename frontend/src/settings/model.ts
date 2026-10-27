@@ -43,6 +43,9 @@ export function isClaudeAccount(laneId: string): boolean {
   return laneId.startsWith('claude-account-');
 }
 
+/** How a new Claude account authenticates: a Claude sign-in for the email, or a gateway's base URL and token. */
+export type ClaudeLogin = { email: string } | { gatewayUrl: string; token: string };
+
 export function isClaudeLane(laneId: string): boolean {
   return laneId === 'claude' || isClaudeAccount(laneId);
 }

@@ -58,7 +58,9 @@ public class ProviderUsageService
         ImmutableList.Builder<Account> result = ImmutableList.builder();
         result.add(new Account("codex", "Codex"), new Account("claude", "Claude"));
         claudeAccounts.list().forEach(account -> result.add(new Account(account.laneId().value(), "Claude · " + account.label())));
-        apiKeys.findAll().forEach(key -> result.add(new Account(API_KEY_PREFIX + key.id(), key.provider() + " · " + key.alias())));
+        apiKeys.findAll().stream()
+                .filter(key -> !key.provider().equals(ClaudeAccounts.GATEWAY_TOKEN_PROVIDER))
+                .forEach(key -> result.add(new Account(API_KEY_PREFIX + key.id(), key.provider() + " · " + key.alias())));
         return result.build();
     }
 

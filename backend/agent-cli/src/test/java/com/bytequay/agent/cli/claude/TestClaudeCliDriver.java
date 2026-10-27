@@ -1065,9 +1065,9 @@ class TestClaudeCliDriver
                 "HOME", buildHome.toString(), "JAVA_HOME", System.getProperty("java.home"), "CLAUDE_CONFIG_DIR", "/ambient", "ANTHROPIC_API_KEY", "wrong-key",
                 "ANTHROPIC_AUTH_TOKEN", "wrong-token", "CLAUDE_CODE_OAUTH_TOKEN", "wrong-login", "ANTHROPIC_BASE_URL", "https://wrong.example");
         try (ClaudeCliDriver work = new ClaudeCliDriver("/fake/claude", objectMapper, broker, workSupervisor, workHome,
-                workLane, "Claude · Work", Optional.of("work@example.com"), ambient);
+                workLane, "Claude · Work", Optional.of("work@example.com"), Optional.empty(), ambient);
                 ClaudeCliDriver personal = new ClaudeCliDriver("/fake/claude", objectMapper, broker, personalSupervisor, personalHome,
-                        personalLane, "Claude · Personal", Optional.of("personal@example.com"), ambient)) {
+                        personalLane, "Claude · Personal", Optional.of("personal@example.com"), Optional.empty(), ambient)) {
             AgentProviderStatus status = work.probe();
             assertThat(status.laneId()).isEqualTo(workLane);
             assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
@@ -1126,6 +1126,33 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void gatewayAccountRunsWithItsOwnTokenWithoutAskingAuthStatus()
+            throws Exception
+    {
+        // A token-only login reports logged out, which must not mark the gateway as needing sign-in.
+        supervisor.authentication("{\"loggedIn\":false}", "", 1);
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
+        Map<String, String> ambient = ImmutableMap.of("HOME", worktree.toString(), "ANTHROPIC_API_KEY", "wrong-key", "ANTHROPIC_AUTH_TOKEN", "wrong-token",
+                "ANTHROPIC_BASE_URL", "https://wrong.example");
+        try (ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), new AgentLaneId("claude-account-work"),
+                "Claude · Work", Optional.empty(), Optional.of(new ClaudeGateway("https://llm.example.com/anthropic", "sk-gateway-secret")), ambient)) {
+            AgentProviderStatus status = driver.probe();
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            assertThat(status.diagnostic()).isEqualTo("Gateway · llm.example.com");
+            assertThat(status.signInCommand()).isEmpty();
+            assertThat(driver.quota().message()).contains("Usage limits aren’t available through a gateway.");
+            try (AgentSession session = driver.open(accountContext("repository-a", Optional.empty()), event -> {})) {
+                assertThat(await(session.start(command("profile-gateway"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            }
+            assertThat(supervisor.authenticationProbes).isZero();
+            assertThat(supervisor.specs).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment())
+                    .containsEntry("ANTHROPIC_BASE_URL", "https://llm.example.com/anthropic")
+                    .containsEntry("ANTHROPIC_AUTH_TOKEN", "sk-gateway-secret")
+                    .doesNotContainKey("ANTHROPIC_API_KEY"));
+        }
+    }
+
+    @Test
     void namedAccountSignInUsesItsQuotedProfileDespiteAmbientCredentials()
             throws Exception
     {
@@ -1145,7 +1172,7 @@ class TestClaudeCliDriver
         Path profile = worktree.resolve("Work account's profile");
         PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(executable.toString(), objectMapper, broker, supervisor, profile,
-                new AgentLaneId("claude-account-work"), "Claude · Work", Optional.of("o'connor+work@example.com"), ImmutableMap.of())) {
+                new AgentLaneId("claude-account-work"), "Claude · Work", Optional.of("o'connor+work@example.com"), Optional.empty(), ImmutableMap.of())) {
             ProcessBuilder shell = new ProcessBuilder("/bin/sh", "-c", driver.probe().signInCommand().orElseThrow());
             shell.environment().putAll(ImmutableMap.of("CLAUDE_CONFIG_DIR", "/wrong-profile", "ANTHROPIC_API_KEY", "wrong-key",
                     "ANTHROPIC_AUTH_TOKEN", "wrong-token", "ANTHROPIC_BASE_URL", "https://wrong.example", "CLAUDE_CODE_OAUTH_TOKEN", "wrong-login"));

@@ -16,7 +16,7 @@ import { linkTasks, useTaskAttention } from '../agents/attention';
 import { jiraIssueLocation } from '../jira/contracts';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, X } from 'lucide-react';
-import type { AuthoredIssueDto, PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
+import type { AgendaDto, AuthoredIssueDto, PullRequestDto, RecentEventDto, UserProfileDto, WorkspaceDto } from '../types';
 import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
@@ -36,7 +36,7 @@ import ContributionCard from './ContributionCard';
 import MyWork, { AllMyWork, useLocalWork } from './MyWork';
 import { isOwnWork, myWorkItems } from './work';
 import TodayList, { useWideWindow } from './TodayList';
-import { todayKeys } from './today';
+import { showsToday, todayKeys, todayRows } from './today';
 import { useTodayAgenda } from './useTodayAgenda';
 import { getCached, getCachedFresh, setCached } from '../dataCache';
 import WatchedReposGrid from './WatchedReposGrid';
@@ -71,6 +71,13 @@ const SEED = {
   issues: ATTENTION_SEED.issues,
   authoredIssues: 'home:authored-issues',
 };
+
+/** Reserve Today's rows even when folded, so expanding it stays within the shared 15-entry limit. */
+export function followingActivityRows(events: RecentEventDto[], agenda: AgendaDto | null): RecentEventDto[] {
+  const todayCount = showsToday(agenda, 'global') ? todayRows(agenda.items).length : 0;
+  const recapCount = todayCount > 0 && agenda?.recap != null ? 1 : 0;
+  return groupRecentEvents(events).slice(0, Math.max(0, 15 - todayCount - recapCount));
+}
 
 /** Activity titles may reuse stored PRs, but must never import followed people's work into attention. */
 export async function enrichActivityPrTitles(events: RecentEventDto[]): Promise<RecentEventDto[]> {
@@ -445,7 +452,7 @@ function HomePage({
               <div className="hp-empty">No recent activity from people you follow.</div>
             ) : (
               <div className="home-following-list">
-                {groupRecentEvents(followingEvents).map((e, i) => (
+                {followingActivityRows(followingEvents, today.agenda).map((e, i) => (
                   <ActivityRow
                     key={i}
                     event={e}

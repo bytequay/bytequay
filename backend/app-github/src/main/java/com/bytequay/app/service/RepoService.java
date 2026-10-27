@@ -126,7 +126,6 @@ public class RepoService
     public List<RecentEvent> getFollowingEvents(String login)
     {
         checkText(login, "login");
-        List<RecentEvent> all = accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
-        return ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
+        return accounts.fetchReceivedEvents(credentialService.resolveGitHubToken(), login, 30);
     }
 }

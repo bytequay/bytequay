@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { afterEach, expect, it, vi } from 'vitest';
-import { enrichActivityPrTitles } from './HomePage';
-import type { RecentEventDto } from '../types';
+import { enrichActivityPrTitles, followingActivityRows } from './HomePage';
+import type { AgendaDto, AgendaItemDto, RecentEventDto } from '../types';
 
 function event(values: Partial<RecentEventDto> = {}): RecentEventDto {
   return {
@@ -23,6 +23,36 @@ function event(values: Partial<RecentEventDto> = {}): RecentEventDto {
 }
 
 afterEach(() => { vi.unstubAllGlobals(); });
+
+function agenda(statuses: AgendaItemDto['status'][]): AgendaDto {
+  return {
+    day: '2026-10-25', state: 'READY', enabled: true, at: 540, generatedAt: null, model: null, summary: '', recap: null, calendar: null, failure: null,
+    items: statuses.map((status, index) => ({
+      ref: `pr:${index}`, action: 'review', title: `Review ${index}`, label: `#${index}`, why: '', at: null, workspaceId: null, where: null,
+      status, byYou: false, doneText: null, doneAt: null,
+      target: { kind: 'PULL', workspaceId: null, repo: 'example/harbor', number: index, id: null, connectionId: null, cloudId: null },
+    })),
+  };
+}
+
+it('shares fifteen entries between Today and the newest following activity', () => {
+  const events = Array.from({ length: 30 }, (_, index) => event({ prNumber: 100 - index }));
+  expect(followingActivityRows(events, null)).toEqual(events.slice(0, 15));
+  expect(followingActivityRows(events, agenda(['open', 'done', 'open']))).toEqual(events.slice(0, 12));
+  expect(followingActivityRows(events, agenda(['open', 'open', 'open', 'open', 'open']))).toEqual(events.slice(0, 10));
+  expect(followingActivityRows(events, agenda(['done', 'done', 'done', 'dismissed']))).toEqual(events.slice(0, 12));
+  expect(followingActivityRows(events, { ...agenda(['open']), enabled: false, state: 'NONE' })).toEqual(events.slice(0, 15));
+});
+
+it('counts grouped activity rows and reserves a row for the weekly recap', () => {
+  const events = Array.from({ length: 30 }, (_, index) => event({ type: 'PushEvent', prNumber: Math.floor(index / 2), commitCount: 1 }));
+  const today = agenda(['open', 'done', 'open']);
+  const rows = followingActivityRows(events, today);
+  expect(rows).toHaveLength(12);
+  expect(rows.map(row => row.prNumber)).toEqual(Array.from({ length: 12 }, (_, index) => index));
+  expect(rows.every(row => row.commitCount === 2 && row.pushCount === 2)).toBe(true);
+  expect(followingActivityRows(events, { ...today, recap: { text: 'This week', merged: [], slipped: [] } })).toHaveLength(11);
+});
 
 it('resolves missing activity titles only from stored PRs and shares duplicate lookups', async () => {
   const read = vi.fn().mockResolvedValue({ title: 'More dao overrides' });

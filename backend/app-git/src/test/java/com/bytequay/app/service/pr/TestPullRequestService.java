@@ -1812,8 +1812,6 @@ class TestPullRequestService
         when(gitHub.fetchPrCommits("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrDescriptionReactions("pat", ref)).thenReturn(ImmutableList.of());
-        when(gitHub.enrichTimelineReferences(eq("pat"), eq(ref), anyList()))
-                .thenAnswer(invocation -> invocation.getArgument(2));
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
         when(viewStateStore.findByPrIds(ImmutableSet.of(12L)))
@@ -2902,7 +2900,6 @@ class TestPullRequestService
         when(gitHub.getPullRequest("pat", ref, Optional.of("etag-1"))).thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("etag-1")));
         PrTimelineEvent comment = new PrTimelineEvent(3L, "commented", "alice", sourceAt, "New reply", Optional.empty());
         when(gitHub.fetchPrIssueComments("pat", ref)).thenReturn(ImmutableList.of(comment));
-        when(gitHub.enrichTimelineReferences(eq("pat"), eq(ref), anyList())).thenAnswer(invocation -> invocation.getArgument(2));
 
         PullRequestService.DetailRefresh result = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
@@ -2974,7 +2971,6 @@ class TestPullRequestService
         verify(detailStore).saveDiscussion(eq(12L), any(), eq(pullRequest().updatedAt()));
         verify(gitHub, times(unchanged ? 0 : 1)).fetchPrIssueComments("pat", ref);
         verify(gitHub, times(unchanged ? 0 : 1)).fetchPrReviewThreads("pat", ref);
-        verify(gitHub, times(unchanged ? 0 : 1)).enrichTimelineReferences(eq("pat"), eq(ref), any());
         verify(detailStore, times(unchanged ? 0 : 1)).updateDiscussionEtags(12L, ImmutableMap.of("timeline", "\"t2\""));
     }
 

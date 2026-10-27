@@ -499,6 +499,15 @@ describe('MarkdownBody', () => {
     expect(html).not.toContain(`href="${url}."`);
   });
 
+  it('renders an upstream PR link without nested links or leftover Markdown', () => {
+    const body = '- Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} repository="acme/downstream" />);
+
+    expect(html.match(/<a /g)).toHaveLength(1);
+    expect(html).toContain('class="md-reference is-pull" href="https://github.com/trinodb/trino/pull/31610"');
+    expect(html.replace(/<[^>]+>/g, '')).toBe('Upstream PR: trinodb/trino#31610');
+  });
+
   it('hides HTTP link definitions and resolves their references across details', () => {
     const definition = '[HBR-1234]: https://example.atlassian.net/browse/HBR-1234?atlOrigin=abc';
     const body = 'See [HBR-1234], [ticket][HBR-1234], and [HBR-1234][].\n\n'

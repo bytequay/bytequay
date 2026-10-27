@@ -75,7 +75,7 @@ class PullRequestDetailFetcher
 
     PrRawDetail raw(String pat, PullRequestRef ref, PullRequestFetch fetched)
     {
-        return requireRaw(fetched.detailResponse().map(response -> gitHub.toPrRawDetail(pat, ref, response)).orElseGet(() -> gitHub.fetchPrDetail(pat, ref)));
+        return requireRaw(fetched.detailResponse().map(response -> gitHub.toPrRawDetail(ref, response)).orElseGet(() -> gitHub.fetchPrDetail(pat, ref)));
     }
 
     ListenableFuture<StoredPrDetail> fetchDiscussion(String pat, PullRequestRef ref, StoredPrDetail existing)
@@ -101,12 +101,12 @@ class PullRequestDetailFetcher
                 .call(() -> new StoredPrDetail(
                                 raw,
                                 getDone(reviews).items(),
-                                gitHub.enrichTimelineReferences(pat, ref, mergeTimeline(
+                                mergeTimeline(
                                         getDone(timeline).items(),
                                         getDone(comments).items(),
                                         getDone(commits).items(),
                                         getDone(threads).items(),
-                                        getDone(descriptionReactions).items())),
+                                        getDone(descriptionReactions).items()),
                                 getDone(checks).items(),
                                 unavailable(reviews, timeline, comments, commits, threads, descriptionReactions, checks),
                                 existing.viewerCanWrite()),

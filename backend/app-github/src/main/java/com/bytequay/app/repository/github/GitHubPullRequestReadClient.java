@@ -61,8 +61,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
@@ -97,8 +95,6 @@ public class GitHubPullRequestReadClient
     }
 
     private static final String REPOS_SEGMENT = "/repos/";
-    private static final Pattern ISSUE_REFERENCE = Pattern.compile("https://github\\.com/[^/\\s]+/[^/\\s]+/(?:issues|pull)/\\d+");
-    private static final Pattern SHORT_ISSUE_REFERENCE = Pattern.compile("(?<![\\w/\\[])#(\\d+)\\b(?!\\]\\()");
     private static final Set<String> NON_CI_RULES = ImmutableSet.of(
             "creation", "update", "deletion", "required_linear_history", "merge_queue", "required_deployments", "required_signatures", "pull_request", "non_fast_forward",
             "commit_message_pattern", "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "tag_name_pattern",
@@ -588,10 +584,10 @@ public class GitHubPullRequestReadClient
 
     public PrRawDetail fetchPrDetail(String pat, PullRequestRef pr) {
         GitHubPullRequestDetailResponse r = fetchPullRequestDetailResponse(pat, pr);
-        return r == null ? null : toPrRawDetail(pat, pr, r);
+        return r == null ? null : toPrRawDetail(pr, r);
     }
 
-    public PrRawDetail toPrRawDetail(String pat, PullRequestRef pr, GitHubPullRequestDetailResponse r)
+    public PrRawDetail toPrRawDetail(PullRequestRef pr, GitHubPullRequestDetailResponse r)
     {
         requireNonNull(r, "response is null");
         List<String> labels =
@@ -639,7 +635,7 @@ public class GitHubPullRequestReadClient
                 r.createdAt(),
                 r.updatedAt(),
                 r.mergedAt(),
-                enrichIssueReferences(pat, pr, r.body()),
+                r.body(),
                 labels,
                 labelColors,
                 assignees,
@@ -665,142 +661,6 @@ public class GitHubPullRequestReadClient
         return translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
                 .retrieve()
                 .body(GitHubPullRequestDetailResponse.class));
-    }
-
-    private String enrichIssueReferences(String pat, PullRequestRef pr, String body)
-    {
-        if (body == null || body.isBlank()) {
-            return body;
-        }
-        return applyIssueReferenceReplacements(body, resolveIssueReferences(pat, pr, ImmutableList.of(body)));
-    }
-
-    public List<PrTimelineEvent> enrichTimelineReferences(String pat, PullRequestRef pr, List<PrTimelineEvent> timeline)
-    {
-        List<String> bodies = new ArrayList<>();
-        for (PrTimelineEvent event : timeline) {
-            bodies.add(event.body());
-            event.payload().comments().forEach(comment -> bodies.add(comment.body()));
-        }
-        Map<String, String> replacements = resolveIssueReferences(pat, pr, bodies);
-        if (replacements.isEmpty()) {
-            return timeline;
-        }
-        return timeline.stream()
-                .map(event -> withIssueReferenceReplacements(event, replacements))
-                .collect(toImmutableList());
-    }
-
-    private Map<String, String> resolveIssueReferences(String pat, PullRequestRef pr, Iterable<String> bodies)
-    {
-        Map<String, String> references = new LinkedHashMap<>();
-        for (String body : bodies) {
-            if (body == null || body.isBlank() || references.size() >= 50) {
-                continue;
-            }
-            Matcher matcher = ISSUE_REFERENCE.matcher(body);
-            while (matcher.find() && references.size() < 50) {
-                references.putIfAbsent(matcher.group(), matcher.group());
-            }
-            matcher = SHORT_ISSUE_REFERENCE.matcher(body);
-            while (matcher.find() && references.size() < 50) {
-                references.putIfAbsent(matcher.group(), "https://github.com/%s/%s/issues/%s".formatted(pr.owner(), pr.repo(), matcher.group(1)));
-            }
-        }
-        if (references.isEmpty()) {
-            return ImmutableMap.of();
-        }
-
-        StringBuilder query = new StringBuilder("query(");
-        Map<String, Object> variables = new LinkedHashMap<>();
-        int index = 0;
-        for (String url : references.values()) {
-            if (index > 0) {
-                query.append(',');
-            }
-            query.append("$url").append(index).append(":URI!");
-            variables.put("url" + index, url);
-            index++;
-        }
-        query.append("){ ");
-        for (index = 0; index < references.size(); index++) {
-            query.append("ref").append(index)
-                    .append(":resource(url:$url").append(index)
-                    .append("){__typename ... on Issue{title number}... on PullRequest{title number}} ");
-        }
-        query.append('}');
-
-        try {
-            JsonNode response = graphql(graphQlRestClient, pat, query.toString(), variables)
-                    .body(JsonNode.class);
-            Map<String, String> replacements = new LinkedHashMap<>();
-            index = 0;
-            for (Map.Entry<String, String> reference : references.entrySet()) {
-                int referenceIndex = index++;
-                JsonNode item = response == null ? null : response.path("data").path("ref" + referenceIndex);
-                if (item == null || item.isMissingNode() || item.isNull() || item.path("title").isMissingNode()) {
-                    continue;
-                }
-                String title = item.path("title").asText().replace('[', '(').replace(']', ')');
-                int number = item.path("number").asInt();
-                String url = reference.getKey().startsWith("#")
-                        ? "https://github.com/%s/%s/%s/%s".formatted(
-                                pr.owner(),
-                                pr.repo(),
-                                item.path("__typename").asText().equals("PullRequest") ? "pull" : "issues",
-                                number)
-                        : reference.getValue();
-                replacements.put(reference.getKey(), "[" + title + " #" + number + "](" + url + ")");
-            }
-            return replacements;
-        }
-        catch (RestClientResponseException ignored) {
-            return ImmutableMap.of();
-        }
-    }
-
-    private static PrTimelineEvent withIssueReferenceReplacements(PrTimelineEvent event, Map<String, String> replacements)
-    {
-        String body = applyIssueReferenceReplacements(event.body(), replacements);
-        PrTimelinePayload payload = event.payload();
-        List<PrTimelineComment> comments = payload.comments().stream()
-                .map(comment -> {
-                    String commentBody = applyIssueReferenceReplacements(comment.body(), replacements);
-                    if (Objects.equals(comment.body(), commentBody)) {
-                        return comment;
-                    }
-                    return new PrTimelineComment(
-                            comment.githubId(), comment.actor(), comment.actorAvatarUrl(), comment.actorBot(),
-                            comment.timestamp(), commentBody, comment.htmlUrl(), comment.reviewId(),
-                            comment.inReplyToId(), comment.reactions());
-                })
-                .collect(toImmutableList());
-        if (Objects.equals(event.body(), body) && comments.equals(payload.comments())) {
-            return event;
-        }
-        return new PrTimelineEvent(
-                event.githubId(), event.event(), event.actor(), event.timestamp(), body,
-                PrTimelinePayload.builder(payload).comments(comments).build(),
-                event.localEventKey());
-    }
-
-    private static String applyIssueReferenceReplacements(String body, Map<String, String> replacements)
-    {
-        if (body == null || body.isBlank() || replacements.isEmpty()) {
-            return body;
-        }
-        String enriched = body;
-        Map<String, String> placeholders = new LinkedHashMap<>();
-        int index = 0;
-        for (Map.Entry<String, String> replacement : replacements.entrySet()) {
-            String placeholder = "\0bytequay-reference-" + index++ + "\0";
-            enriched = enriched.replace(replacement.getKey(), placeholder);
-            placeholders.put(placeholder, replacement.getValue());
-        }
-        for (Map.Entry<String, String> placeholder : placeholders.entrySet()) {
-            enriched = enriched.replace(placeholder.getKey(), placeholder.getValue());
-        }
-        return enriched;
     }
 
     /**

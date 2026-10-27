@@ -262,18 +262,13 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void enrichesFullAndShortIssueReferencesAndFetchesDescriptionReactions()
+    void preservesDescriptionMarkdownAndFetchesDescriptionReactions()
     {
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
                 .andRespond(withSuccess("""
-                        {"title":"Overview","state":"open","body":"Includes\\n\\n- https://github.com/owner/repo/issues/7\\n- #8",
+                        {"title":"Overview","state":"open","body":"Includes\\n\\n- https://github.com/owner/repo/issues/7\\n- #8\\n- Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)\\n- `#8 https://github.com/owner/repo/issues/7`",
                          "labels":[],"assignees":[],"requested_reviewers":[],"head":{},"base":{},
                          "draft":false,"additions":0,"deletions":0,"changed_files":0}
-                        """, MediaType.APPLICATION_JSON));
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess("""
-                        {"data":{"ref0":{"__typename":"Issue","title":"Linked issue","number":7},
-                                 "ref1":{"__typename":"PullRequest","title":"Linked pull","number":8}}}
                         """, MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
                 .andRespond(withSuccess("""
@@ -292,8 +287,10 @@ class TestGitHubPullRequestOverviewClient
         assertThat(detail.body()).isEqualTo("""
                 Includes
 
-                - [Linked issue #7](https://github.com/owner/repo/issues/7)
-                - [Linked pull #8](https://github.com/owner/repo/pull/8)""");
+                - https://github.com/owner/repo/issues/7
+                - #8
+                - Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)
+                - `#8 https://github.com/owner/repo/issues/7`""");
         assertThat(client.fetchPrDescriptionReactions("pat", PULL_REQUEST))
                 .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
                 .containsExactly("+1:2:true", "eyes:1:false");
@@ -615,7 +612,7 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void groupsReviewCommentsAndEnrichesEveryTimelineBody()
+    void groupsReviewCommentsAndPreservesTheirMarkdown()
     {
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
@@ -650,14 +647,7 @@ class TestGitHubPullRequestOverviewClient
                           "pageInfo":{"hasNextPage":false,"endCursor":"cursor"}
                         }}}}}
                         """, MediaType.APPLICATION_JSON));
-        graphServer.expect(requestTo("https://api.github.test/graphql"))
-                .andRespond(withSuccess("""
-                        {"data":{"ref0":{"__typename":"PullRequest","title":"Linked pull","number":8}}}
-                        """, MediaType.APPLICATION_JSON));
-
         List<PrTimelineEvent> threads = client.fetchPrReviewThreads("pat", PULL_REQUEST);
-        PrTimelineEvent issueComment = new PrTimelineEvent(99L, "commented", "eve", Instant.parse("2026-08-20T10:10:00Z"), "See #8", Optional.empty());
-        List<PrTimelineEvent> enriched = client.enrichTimelineReferences("pat", PULL_REQUEST, ImmutableList.of(issueComment, threads.getFirst()));
 
         assertThat(threads).singleElement().satisfies(thread -> {
             assertThat(thread.event()).isEqualTo("review_thread");
@@ -670,11 +660,9 @@ class TestGitHubPullRequestOverviewClient
                         assertThat(reaction.viewerHasReacted()).isTrue();
                     });
         });
-        assertThat(enriched.getFirst().body())
-                .isEqualTo("See [Linked pull #8](https://github.com/owner/repo/pull/8)");
-        assertThat(enriched.getLast().payload().comments())
+        assertThat(threads.getFirst().payload().comments())
                 .extracting(comment -> comment.body())
-                .containsExactly("Please verify [Linked pull #8](https://github.com/owner/repo/pull/8)", "Done [Linked pull #8](https://github.com/owner/repo/pull/8)");
+                .containsExactly("Please verify #8", "Done #8");
     }
 
     @Test

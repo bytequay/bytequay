@@ -19,7 +19,9 @@ import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
+import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.google.common.collect.ImmutableList;
@@ -42,8 +44,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -67,8 +67,6 @@ class TestPullRequestDetailFetcher
         fetcher = new PullRequestDetailFetcher(gitHub, Runnable::run);
         lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of());
-        lenient().when(gitHub.enrichTimelineReferences(eq("pat"), eq(REF), anyList()))
-                .thenAnswer(invocation -> invocation.getArgument(2));
     }
 
     @Test
@@ -102,6 +100,24 @@ class TestPullRequestDetailFetcher
         assertThat(stored.reviews()).isEmpty();
         assertThat(stored.timeline()).isEmpty();
         assertThat(stored.checkRuns()).isEmpty();
+    }
+
+    @Test
+    void preservesMarkdownLinksAndCodeInDiscussionBodies()
+    {
+        String body = "Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)\n"
+                + "Keep `#31610` and `https://github.com/trinodb/trino/pull/31610` literal.";
+        Instant commentedAt = Instant.parse("2026-08-15T10:00:00Z");
+        PrTimelineEvent issueComment = comment(1L, "alice", commentedAt, body);
+        PrTimelineComment reviewComment = new PrTimelineComment(2L, "bob", null, false, commentedAt, body, null, null, null, ImmutableList.of());
+        PrTimelineEvent thread = new PrTimelineEvent(2L, "review_thread", "bob", commentedAt, body,
+                PrTimelinePayload.builder().comments(ImmutableList.of(reviewComment)).build(), Optional.empty());
+        when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of(issueComment));
+        when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of(thread));
+
+        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()));
+
+        assertThat(stored.timeline()).containsExactly(issueComment, thread);
     }
 
     @Test

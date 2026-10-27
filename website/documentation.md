@@ -353,6 +353,9 @@ guidance and lets a task start work there.
 
 **Pause** holds the task; **Abort** closes the PR and deletes the work branch.
 **Backport** carries a PR down the line, one cherry-pick per repository.
+Each backport PR uses the destination repository’s template and title conventions
+from recently merged PRs. Without a clear convention, its title is
+**Backport: _source PR title_**.
 
 <a id="issues-and-jira"></a>
 

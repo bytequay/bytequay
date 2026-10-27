@@ -118,6 +118,7 @@ class TestBackportChainService
     private final GitHubPullRequestReadClient prs = mock(GitHubPullRequestReadClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
+    private final BackportDrafts drafts = mock(BackportDrafts.class);
     private final MergedPullRequestResolver landed = mock(MergedPullRequestResolver.class);
     private final CherryPickPreviewService previews = mock(CherryPickPreviewService.class);
     private final CherryPickExecutionService executions = mock(CherryPickExecutionService.class);
@@ -190,6 +191,7 @@ class TestBackportChainService
                     request.sourceBaseRef(), request.sourceTipRef(), BASE,
                     ImmutableList.of(commit(request.sourceTipRef())), ImmutableList.of(), NOW, NOW.plusSeconds(300));
         });
+        when(drafts.create(any(), anyInt(), any(), any())).thenAnswer(call -> draft(((CherryPickPreview) call.getArgument(3)).sourceTipSha()));
         when(executions.start(any(), anyString(), any(), any())).thenAnswer(call -> {
             StartCherryPickExecutionCommand command = call.getArgument(0);
             String workspace = call.getArgument(1);
@@ -260,6 +262,8 @@ class TestBackportChainService
         service.advance(chain.id());
         assertThat(current(chain).state()).isEqualTo(State.COMPLETED);
         verify(executions, times(2)).start(any(), anyString(), any(), any());
+        verify(drafts, times(2)).create(any(), anyInt(), any(), any());
+        assertThat(current(chain).hops()).allSatisfy(hop -> assertThat(hop.plan().orElseThrow().draft()).isEqualTo(draft(P4_SHA)));
     }
 
     @Test
@@ -662,7 +666,7 @@ class TestBackportChainService
     private BackportChainService service()
     {
         return new BackportChainService(chains, workspaces, tasks, turns, related, relationships, repositories, remotes, models, prs,
-                credentials, landed, previews, executions, executionStore, delivery, ciStore, ci, Clock.fixed(NOW, ZoneOffset.UTC), git);
+                credentials, landed, previews, executions, executionStore, delivery, ciStore, ci, Clock.fixed(NOW, ZoneOffset.UTC), git, drafts);
     }
 
     private static Workspace workspace(int number)
@@ -694,10 +698,14 @@ class TestBackportChainService
                 new CherryPickExecution.Workspace(workspace, repo, repo, sourceSha.equals(P4_SHA) ? "p4" : "p3", "origin", "main", "origin-main",
                         "backport-" + workspace, Path.of("/tmp", workspace, "work"), "codex",
                         Optional.of(RepoRef.of("test", sourceSha.equals(P4_SHA) ? "p4" : "p3")), Optional.of("model"), Optional.of("high")),
-                Optional.of(new CherryPickExecution.PullRequestDraft("Backport test/" + (sourceSha.equals(P4_SHA) ? "p4#4" : "p3#3"),
-                        "Backport of test/" + (sourceSha.equals(P4_SHA) ? "p4#4" : "p3#3") + "\n\nLanded source: " + sourceSha)),
+                Optional.of(draft(sourceSha)),
                 new Range(BASE, sourceSha, BASE), ImmutableList.of(item), false, NOW);
         result = empty ? result.recordEmptySkipped(sourceSha, NOW) : result.recordApplied(sourceSha, TARGET, NOW);
         return result.finish(FinishReason.COMPLETED, empty ? "Already present" : "Complete", NOW);
+    }
+
+    private static CherryPickExecution.PullRequestDraft draft(String sourceSha)
+    {
+        return new CherryPickExecution.PullRequestDraft("Backport: Fix projection", "# Description\n\nSource change: " + sourceSha);
     }
 }

@@ -44,7 +44,6 @@ import com.bytequay.core.backport.BackportChain.Route;
 import com.bytequay.core.backport.BackportChain.State;
 import com.bytequay.core.backport.BackportChainStore;
 import com.bytequay.core.cherrypick.CherryPickExecution;
-import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -96,6 +95,7 @@ public class BackportChainService
     private final CiAutofixService ci;
     private final Clock clock;
     private final GitCommandRunner git;
+    private final BackportDrafts drafts;
     private final Striped<Lock> locks = Striped.lock(64);
     private final Striped<Lock> requests = Striped.lock(64);
 
@@ -104,7 +104,7 @@ public class BackportChainService
             WorkspaceRemoteSourceService remotes, ModelSettingsService models, GitHubPullRequestReadClient pullRequests,
             CredentialService credentials, MergedPullRequestResolver landed, CherryPickPreviewService previews,
             CherryPickExecutionService executions, CherryPickExecutionStore executionStore, WorkspacePullRequestService delivery,
-            CiAutofixStore ciStore, CiAutofixService ci, Clock clock, GitCommandRunner git)
+            CiAutofixStore ciStore, CiAutofixService ci, Clock clock, GitCommandRunner git, BackportDrafts drafts)
     {
         this.chains = chains;
         this.workspaces = workspaces;
@@ -126,6 +126,7 @@ public class BackportChainService
         this.ci = ci;
         this.clock = clock;
         this.git = git;
+        this.drafts = requireNonNull(drafts, "drafts is null");
     }
 
     public record SourcePullRequest(String workspaceId, int number)
@@ -538,9 +539,7 @@ public class BackportChainService
                 var preview = hop.selection().isPresent() ? previews.preview(command) : previews.preview(command, hop.landedSource().orElseThrow());
                 checkState(preview.commits().stream().map(com.bytequay.app.cherrypick.CherryPickCommitPreview::sourceSha).collect(toImmutableList())
                         .equals(hop.sourceCommits()), "The selected source changed");
-                String sourceLabel = sourcePr.map(PullRequestRef::fullName).orElse(source.repository().fullName());
-                var plan = new BackportChain.Plan(preview.targetSha(),
-                        new PullRequestDraft("Backport " + sourceLabel, "Backport of " + sourceLabel + "\n\nLanded source: " + hop.sourceTipSha()));
+                var plan = new BackportChain.Plan(preview.targetSha(), drafts.create(chain, index, local.repository(), preview));
                 chain = chains.save(chain.withHop(index, hop.withPlan(plan), clock.instant()));
                 hop = chain.hops().get(index);
                 requireActive(chain.id());

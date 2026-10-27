@@ -442,7 +442,7 @@ type Detail = { text: string; tone: AttentionTone; spinning?: boolean; accept?: 
 /** Where the work stands, in one short detail; its full meaning is in the row's tooltip. */
 export function workDetail(item: WorkItemDto, items: WorkItemDto[], needsYou: ReadonlySet<string>): Detail | null {
   const merged = item.links.find((link) => link.kind === 'PULL_REQUEST' && link.state === 'MERGED');
-  if (!isOpen(item)) return item.state === 'DONE' && merged !== undefined ? { text: `${merged.label} merged`, tone: 'green' } : null;
+  if (!isOpen(item)) return item.state === 'DONE' && merged !== undefined ? { text: `${merged.label} merged`, tone: 'purple' } : null;
   if (merged !== undefined) return { text: `${merged.label} merged`, tone: 'purple', accept: true };
   if (item.links.some((link) => link.kind === 'TASK' && link.status === 'Running')) return { text: 'running', tone: 'blue', spinning: true };
   if (itemNeedsYou(item, needsYou)) return { text: 'waiting on you', tone: 'amber' };

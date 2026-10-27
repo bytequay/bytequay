@@ -234,7 +234,7 @@
 }
 
 .epic-card__progress > .is-done {
-  background: light-dark(#1a7f37, #287a43);
+  background: var(--fg-purple);
 }
 
 .epic-card__progress > .is-working {

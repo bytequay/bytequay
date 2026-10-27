@@ -80,7 +80,7 @@
 }
 
 .epic-progress > .is-done {
-  background: light-dark(#1a7f37, #287a43);
+  background: var(--fg-purple);
 }
 
 .epic-progress > .is-working {
@@ -136,7 +136,7 @@
 }
 
 .epic-view__counts > .is-ready {
-  color: var(--fg-success);
+  color: var(--fg-purple);
 }
 
 .epic-view__counts > .is-muted {
@@ -385,16 +385,16 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid light-dark(#d1e7d6, var(--dark-green-soft));
+  border: 1px solid light-dark(#e6dcfb, var(--dark-purple-soft));
   border-radius: 10px;
-  background: light-dark(#f4fbf6, var(--dark-subtle));
+  background: light-dark(#fbf8ff, var(--dark-subtle));
 }
 
 .epic-view__concluded-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  color: var(--fg-success);
+  color: var(--fg-purple);
   font-size: 12.5px;
 }
 
@@ -680,7 +680,7 @@
 }
 
 .epic-state.is-done {
-  color: var(--fg-success);
+  color: var(--fg-purple);
 }
 
 .epic-row.is-dropped .item-row__title > span:first-child {

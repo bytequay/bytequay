@@ -48,6 +48,7 @@ function onTop(element: Element | null): boolean {
 const opened: string[] = [];
 const lookups: string[] = [];
 const posted: string[] = [];
+let toggleAssistant: () => void = () => {};
 
 /** The Jira page's own ticket sits in the page; a ticket opened from a link or a row is a layer beside it. */
 const ticketLayer = () => [...document.querySelectorAll<HTMLDialogElement>('dialog.jira-detail')].find(dialog => dialog.closest('.app-shell') === null) ?? null;
@@ -67,6 +68,7 @@ function installBridge() {
     getInAppBrowserState: async () => browser,
     onInAppBrowserState: (listener: (state: InAppBrowserState) => void) => { showBrowser = listener; return () => {}; },
     onLabTask: () => () => {},
+    onAssistantToggle: (listener: () => void) => { toggleAssistant = listener; return () => { toggleAssistant = () => {}; }; },
     openInAppBrowser: async (url: string) => {
       opened.push(url);
       setBrowser({ tabs: [{ id: 'jira', url, title: 'ENG-1007', canGoBack: false, canGoForward: false, loading: false, pinned: false, name: null, favicon: null, error: null }], activeTabId: 'jira' });
@@ -182,6 +184,20 @@ async function ticketLinksOverThePage(): Promise<void> {
   });
 }
 
+async function assistantOverTicket(): Promise<void> {
+  await withApp(jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: ticket.id }), async () => {
+    const ticketDialog = () => document.querySelector<HTMLDialogElement>('dialog.jira-detail');
+    const assistant = () => document.querySelector('.assistant-float');
+    await until(() => ticketDialog()?.matches(':modal') ?? false, 'The ticket opened');
+    toggleAssistant();
+    await until(() => assistant() !== null, 'Command-J opened the Assistant over the ticket');
+    assert(onTop(assistant()) && document.querySelector('dialog:modal') === null, 'The Assistant is drawn above the ticket');
+    toggleAssistant();
+    await until(() => assistant() === null, 'Command-J closed the Assistant');
+    assert(ticketDialog()?.matches(':modal') && onTop(ticketDialog()), 'The ticket is back on top');
+  });
+}
+
 async function myWorkOverHome(): Promise<void> {
   await withApp('#/home', async () => {
     const card = () => [...document.querySelectorAll<HTMLElement>('.mw-card')].find(item => item.textContent?.includes(ticket.title)) ?? null;
@@ -261,6 +277,7 @@ async function localWorkAndTasksOverEpic(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results = await runScenarios([
     ['links open tickets, issues and web pages on top of whatever opened them', ticketLinksOverThePage],
+    ['the Assistant opens above a Jira ticket', assistantOverTicket],
     ['My work opens and starts tickets on top of Home', myWorkOverHome],
     ['Local Epic cards and task links retain the underlying layers', localWorkAndTasksOverEpic],
   ]);

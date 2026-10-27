@@ -16,7 +16,7 @@ import { Maximize2, Minimize2, X } from 'lucide-react';
 import './css/zoom.css';
 
 /**
- * Whether another layer, or the embedded browser, is drawn above this page or layer. Only the top
+ * Whether another layer, the Assistant, or the embedded browser is drawn above this page or layer. Only the top
  * answers Escape, and a covered page keeps its native modals closed: they paint in the browser's
  * top layer, over anything opened after them.
  */

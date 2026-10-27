@@ -659,7 +659,7 @@ function AppContent() {
         onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))}
         onRename={(id, name) => browserAction(window.bridge.renameInAppBrowserTab(id, name))} />
       <div className="app-surfaces" inert={browserOpen}>
-    <LayerCovered.Provider value={browserOpen || layers.length > 0}>
+    <LayerCovered.Provider value={browserOpen || assistantShown || layers.length > 0}>
     <div className="app-shell" inert={layers.length > 0}>
         <AppSidebar
           page={page}
@@ -752,7 +752,7 @@ function AppContent() {
         const key = layerKey(layer);
         const covered = index < layers.length - 1;
         return (
-          <LayerCovered.Provider key={key} value={browserOpen || covered}>
+          <LayerCovered.Provider key={key} value={browserOpen || assistantShown || covered}>
             <div style={{ display: 'contents' }} inert={covered}>
               {layer.kind === 'pull' && (
                 <PullsScreen

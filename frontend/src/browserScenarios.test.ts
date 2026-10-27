@@ -138,7 +138,7 @@ testBrowserScenarios([
   },
   {
     name: 'draws the most recently opened ticket, issue or web page on top in the running app',
-    expected: 3, timeout: 30_000,
+    expected: 4, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-zoom-over-jira-',
       entry: 'src/fixtures/zoomOverJiraBrowser.tsx',

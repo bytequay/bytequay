@@ -64,7 +64,7 @@ import {
 } from './agents/contracts';
 import { parseDiscussionReplyDraft, parseTaskDiscussion, parseTaskDiscussions, type AskCommentDiscussionRequest, type AskDiscussionRequest, type DiscussionQuery, type DraftDiscussionReplyRequest, type OpenDiscussionRequest, type ResolveDiscussionRequest, type RetryDiscussionRequest } from './agents/discussions/contracts';
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
-import { parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
+import { parseAgentEventSequence, parseAgentHistoryPage, parseAgentPendingApprovals } from './agents/events';
 import {
   parseContextBuildView,
   parseContextSpecCheck,
@@ -1176,6 +1176,8 @@ function registerIpc(): void {
       jsonInit('POST', { expectedVersion, reason, remember: remember === true })));
   ipcMain.handle('review:finding:reopen', (_event, reviewId: string, findingId: string, expectedVersion: number) =>
     review(`/${encodeURIComponent(reviewId)}/findings/${encodeURIComponent(findingId)}/reopen`, {}, jsonInit('POST', { expectedVersion })));
+  ipcMain.handle('review:events:read', async (_event, reviewId: string, after: number) =>
+    parseAgentEventSequence(await backendJson<unknown>(reviewUrl(`/${encodeURIComponent(reviewId)}/events`, { after: String(after) })), after));
   ipcMain.handle('review:history:read', async (_event, reviewId: string, taskId: string, before?: string, after?: string) => {
     const query: Record<string, string> = {};
     if (before !== undefined) query.before = String(before);

@@ -59,7 +59,7 @@ function useReviewHistory(reviewId: string | null, taskId: string | null, live: 
           // The newest page holds whole command and tool outputs, often megabytes; a poll reads only what came after it.
           // ponytail: keeps every event since the first read; drop old ones if a single review's history outgrows memory.
           const seen = latest;
-          const newer = (await readHistory(taskId, undefined, String(seen))).events.filter(event => event.sequence > seen);
+          const newer = await window.bridge.readAgentReviewEvents(reviewId, seen);
           if (!current || newer.length === 0) return;
           latest = newer[newer.length - 1].sequence;
           setHistory(shown => ({ ...shown, events: [...shown.events, ...newer] }));

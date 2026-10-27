@@ -487,6 +487,7 @@ const bridge: Bridge = {
   resolveAgentReviewFinding: invoke('review:finding:resolve'),
   reopenAgentReviewFinding: invoke('review:finding:reopen'),
   readAgentReviewHistory: invoke('review:history:read'),
+  readAgentReviewEvents: invoke('review:events:read'),
   readAgentReviewApprovals: invoke('review:approvals:pending'),
   resolveAgentReviewApproval: invoke('review:approvals:resolve'),
   subscribeAgentReview: streamSubscriber('review'),

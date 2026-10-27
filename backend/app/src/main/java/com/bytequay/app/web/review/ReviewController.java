@@ -348,6 +348,15 @@ public class ReviewController
                 after == null ? OptionalLong.empty() : OptionalLong.of(after)));
     }
 
+    /** Events after a sequence number; history cursors are log offsets, which a caught-up reader never receives. */
+    @GetMapping("/{reviewId}/events")
+    public List<AgentHttpModels.EventResponse> events(@PathVariable String reviewId, @RequestParam(defaultValue = "0") long after, @RequestParam(defaultValue = "100") int limit)
+    {
+        return events.readAfter(reviews.task(reviewId).id(), after, limit).stream()
+                .map(AgentHttpModels::event)
+                .collect(toImmutableList());
+    }
+
     @GetMapping(path = "/{reviewId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@PathVariable String reviewId, @RequestParam(defaultValue = "0") long after)
             throws IOException

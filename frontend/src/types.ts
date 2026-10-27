@@ -2182,6 +2182,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   ) => Promise<AgentReviewDto>;
   reopenAgentReviewFinding: (reviewId: string, findingId: string, expectedVersion: number) => Promise<AgentReviewDto>;
   readAgentReviewHistory: (reviewId: string, taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;
+  /** Up to 100 review task events after a sequence number, in order. */
+  readAgentReviewEvents: (reviewId: string, after: number) => Promise<AgentEventEnvelope[]>;
   readAgentReviewApprovals: (reviewId: string, taskId: string, turnId: string) => Promise<AgentPendingApprovalDto[]>;
   resolveAgentReviewApproval: (
     reviewId: string,

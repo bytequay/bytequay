@@ -36,15 +36,19 @@ export async function run(): Promise<ScenarioResult[]> {
   };
   add();
   add();
-  const cursors: Array<string | undefined> = [];
+  const cursors: number[] = [];
   const previous = window.bridge;
-  // The bridge ignores the cursor and returns everything, so the hook itself must keep only what is new.
+  // History cursors are log offsets, so a poll must ask for events after a sequence number instead.
   const bridge = {
     readAgentReviewHistory: async (_reviewId, _taskId, _before, after) => {
-      cursors.push(after);
+      if (after !== undefined) throw new Error(`A poll must not send sequence ${after} as a history cursor`);
       return { events: [...events], beforeCursor: null, afterCursor: null, latestSequence: events.length };
     },
-  } satisfies Pick<Bridge, 'readAgentReviewHistory'>;
+    readAgentReviewEvents: async (_reviewId, after) => {
+      cursors.push(after);
+      return events.filter(event => event.sequence > after);
+    },
+  } satisfies Pick<Bridge, 'readAgentReviewHistory' | 'readAgentReviewEvents'>;
   Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: bridge });
   const originalSetInterval = window.setInterval;
   let poll = (): void => { throw new Error('A running review must poll its history'); };
@@ -68,7 +72,7 @@ export async function run(): Promise<ScenarioResult[]> {
     poll();
     await settle();
     await settle();
-    assert(cursors.at(-1) === '2', `A poll must read only after the newest shown event, read after ${cursors.at(-1)}`);
+    assert(cursors.at(-1) === 2, `A poll must read only after the newest shown event, read after ${cursors.at(-1)}`);
     assert(renders === quiet, 'A poll that finds nothing new must not render again');
     add();
     poll();
@@ -76,7 +80,7 @@ export async function run(): Promise<ScenarioResult[]> {
     assert(shown.join() === 'Read file 3,Read file 2,Read file 1', `Each action must show once, newest first: ${shown.join()}`);
     poll();
     await settle();
-    assert(cursors.at(-1) === '3', 'The next poll must start after the new event');
+    assert(cursors.at(-1) === 3, 'The next poll must start after the new event');
     return [{ name: 'A running review reads its history once, then only the events after it' }];
   }
   catch (error) { return [{ name: 'Review history poll', error: error instanceof Error ? error.message : String(error) }]; }

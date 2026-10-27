@@ -333,6 +333,11 @@ export async function run(): Promise<{ name: string }[]> {
     assistantOpens({ hash: '#/workspaces/workspace' });
     await until(() => document.activeElement === homeInput && homeInput.selectionStart === homeInput.value.length,
       'Opening the page already on screen focuses its composer after the draft');
+    zoomReference({ kind: 'task', workspaceId: workspace.id, taskId: bridge.events[0].taskId });
+    await until(() => document.querySelector('[aria-label="Task"][data-navigation-layer]') !== null, 'A task layer opens over workspace Home');
+    assistantOpens({ hash: '#/workspaces/workspace' });
+    await until(() => document.querySelector('[aria-label="Task"][data-navigation-layer]') === null,
+      'Opening the page under a layer closes the layer');
 
     deferBrowserHide = true;
     browser = { ...browser, activeTabId: 'docs' };

@@ -191,6 +191,20 @@ public final class AgentStartupRecovery
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(delete, "delete is null");
+        List<OwnedProcessRecovery> recoveries = verifiedRecoveredProcesses(taskId);
+        delete.run();
+        recoveries.forEach(recovery -> supervisor.acknowledge(recovery.launchId()));
+    }
+
+    /** Verifies durable launches before cleanup, including failed tasks whose recovery claim was cleared. */
+    public void requireRecoveredRuntimeStopped(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        verifiedRecoveredProcesses(taskId).forEach(recovery -> supervisor.acknowledge(recovery.launchId()));
+    }
+
+    private List<OwnedProcessRecovery> verifiedRecoveredProcesses(TaskId taskId)
+    {
         ImmutableSet.Builder<String> launchIds = ImmutableSet.builder();
         taskStore.find(taskId).flatMap(AgentTask::worktreeMutationClaim)
                 .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY)
@@ -207,11 +221,10 @@ public final class AgentStartupRecovery
                 .filter(recovery -> recovery.outcome() == OwnedProcessRecovery.Outcome.UNVERIFIABLE)
                 .findFirst()
                 .ifPresent(unresolved -> {
-                    throw new AgentConflictException("Task " + taskId + " cannot be deleted while its provider process " + unresolved.launchId()
-                            + " from before the restart is not verified stopped (" + unresolved.detail() + "); mark the task failed instead");
+                    throw new AgentConflictException("Task " + taskId + " cannot remove its runtime while its provider process " + unresolved.launchId()
+                            + " from before the restart is not verified stopped (" + unresolved.detail() + ")");
                 });
-        delete.run();
-        recoveries.forEach(recovery -> supervisor.acknowledge(recovery.launchId()));
+        return recoveries;
     }
 
     private AgentTask stopRecoveredProvider(AgentTask task, WorktreeMutationClaim claim)

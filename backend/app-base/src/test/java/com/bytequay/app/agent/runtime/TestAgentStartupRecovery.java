@@ -816,7 +816,7 @@ class TestAgentStartupRecovery
         assertThatThrownBy(() -> recovery.deleteAfterVerifiedStop(taskId, delete))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("old-provider")
-                .hasMessageContaining("mark the task failed");
+                .hasMessageContaining("not verified stopped");
 
         verifyNoInteractions(delete);
         verify(supervisor, never()).acknowledge(any());

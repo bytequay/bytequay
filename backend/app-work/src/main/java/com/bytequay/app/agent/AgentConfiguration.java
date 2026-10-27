@@ -69,6 +69,7 @@ import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.WorkItemBridge;
 import com.bytequay.app.agent.runtime.AgentProperties;
+import com.bytequay.app.agent.runtime.AgentStartupRecovery;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
@@ -429,6 +430,7 @@ public class AgentConfiguration
             AgentMetricsService metricsService,
             AppSettingsService appSettings,
             ObjectProvider<DevelopmentBranchService> branches,
+            ObjectProvider<AgentStartupRecovery> recovery,
             Clock agentClock)
     {
         return new DefaultAgentCompletionService(
@@ -445,7 +447,13 @@ public class AgentConfiguration
                 metricsService,
                 appSettings::taskRuntimeRetention,
                 agentClock,
-                task -> branches.getObject().recover(task));
+                task -> {
+                    // Marking a blocked task failed keeps its checkout and must remain possible before its old process stops.
+                    if (task.state().terminal()) {
+                        recovery.getObject().requireRecoveredRuntimeStopped(task.id());
+                    }
+                    return branches.getObject().recover(task);
+                });
     }
 
     @Bean

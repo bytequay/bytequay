@@ -244,9 +244,9 @@ Key creation and billing remain in Google AI Studio.
 │   ├── agent-core/   # Agent task, turn, approval, queue, and retention logic
 │   ├── agent-cli/    # Codex App Server and Claude CLI adapters
 │   ├── persistence-sqlite/ # JPA, SQLite, and credential storage
-│   ├── plugins/      # Independently built Google and Jira integration modules
-│   ├── app-base/     # Shared agent workflow helpers, Git runner, configuration
-│   ├── app-github/   # GitHub clients, credentials, and settings
+│   ├── plugins/      # Google, Jira, GitHub and GitLab integration modules
+│   ├── app-base/     # Agent helpers, model settings, text helpers, Git runner
+│   ├── app-github/   # Existing GitHub clients, hosting connections and credentials
 │   ├── app-git/      # Git history, workspaces, worktrees, and pull-request refresh
 │   ├── app-review/   # Reviews, discussions, context, memory, and artifacts
 │   ├── app-delivery/ # CI Autofix, cherry-picks, and rebases; beside app-review

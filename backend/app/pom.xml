@@ -17,6 +17,18 @@
     <dependencies>
         <dependency>
             <groupId>com.bytequay</groupId>
+            <artifactId>integration-github</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
+            <artifactId>integration-gitlab</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.bytequay</groupId>
             <artifactId>app-work</artifactId>
             <version>${project.version}</version>
         </dependency>

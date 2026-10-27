@@ -439,8 +439,7 @@ public class SqlitePullRequestStore
             entity.setAdditions(additions);
             entity.setDeletions(deletions);
             entity.setCommentCount(commentCount);
-            entity.setMergeable(mergeable);
-            entity.setMergeableState(mergeableState);
+            entity.observeMergeability(mergeable, mergeableState);
             entity.setHeadPushedAt(headPushedAt);
             // Only overwrite head_ref when the detail sync actually
             // produced one. Detail can briefly miss it on first fetch

@@ -368,6 +368,28 @@ class TestSqlitePullRequestWorkspaceScope
     }
 
     @Test
+    void mergeabilityGitHubHasNotComputedKeepsTheLastKnownAnswer()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
+        PullRequest row = store.saveObserved(fetched);
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "clean"));
+
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "unknown"));
+        assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(true, "clean");
+
+        store.saveObserved(new FetchedPullRequest(fetched.githubId(), fetched.repo(), fetched.number(), fetched.title(), fetched.author(), fetched.htmlUrl(),
+                fetched.createdAt(), fetched.updatedAt(), fetched.origin(), fetched.labels(), fetched.labelColors(), false, "open", null, null,
+                ImmutableList.of(), null, "unknown", "feature"));
+        assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(true, "clean");
+
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, false, "dirty", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "dirty"));
+        assertThat(store.findById(row.id()).orElseThrow()).extracting(PullRequest::mergeable, PullRequest::mergeableState).containsExactly(false, "dirty");
+    }
+
+    @Test
     void newReviewRequestsAdvanceTheirTimestampAndSearchDoesNotInventRequests()
     {
         FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);

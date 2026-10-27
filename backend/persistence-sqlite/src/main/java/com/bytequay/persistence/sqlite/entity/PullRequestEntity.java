@@ -247,15 +247,27 @@ public class PullRequestEntity
         setDeletions(previous.getDeletions());
         setCommentCount(previous.getCommentCount());
         setHeadPushedAt(previous.getHeadPushedAt());
-        // Reported by the pulls endpoint but not by search.
-        if (getMergeable() == null) {
-            setMergeable(previous.getMergeable());
-        }
-        if (getMergeableState() == null) {
-            setMergeableState(previous.getMergeableState());
-        }
+        Boolean observedMergeable = getMergeable();
+        String observedMergeableState = getMergeableState();
+        setMergeable(previous.getMergeable());
+        setMergeableState(previous.getMergeableState());
+        observeMergeability(observedMergeable, observedMergeableState);
         if (getHeadRef() == null) {
             setHeadRef(previous.getHeadRef());
+        }
+    }
+
+    /**
+     * Keeps the last known mergeability while GitHub reports none: search omits it, and GitHub answers null and "unknown" until it
+     * has computed it again, which it redoes after every push to the base branch.
+     */
+    public void observeMergeability(Boolean observedMergeable, String observedMergeableState)
+    {
+        if (observedMergeable != null) {
+            setMergeable(observedMergeable);
+        }
+        if (observedMergeableState != null && !"unknown".equals(observedMergeableState)) {
+            setMergeableState(observedMergeableState);
         }
     }
 }

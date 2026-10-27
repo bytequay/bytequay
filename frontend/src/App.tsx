@@ -87,8 +87,12 @@ function pageFromRoute(hash: string): AppPage {
   return match ? match[1] as AppPage : 'home';
 }
 
-function taskComposer(): HTMLTextAreaElement | undefined {
-  return [...document.querySelectorAll<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]')]
+const TASK_COMPOSER = 'textarea[aria-label="Describe a task"]';
+// A page's own composer, never one in a layer over the page or the Assistant's.
+const PAGE_COMPOSER = '.app-shell .agt-compose__input';
+
+function composer(selector: string): HTMLTextAreaElement | undefined {
+  return [...document.querySelectorAll<HTMLTextAreaElement>(selector)]
     .find(input => input.checkVisibility() && !input.disabled && !input.closest('[inert]:not(.app-surfaces)'));
 }
 
@@ -153,6 +157,7 @@ function AppContent() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [taskSwitcher, setTaskSwitcher] = useState<{ workspaceId: string; activeTaskId: string | null } | null>(null);
   const [composerFocus, setComposerFocus] = useState<{ route: string; workspaceId?: string } | null>(null);
+  const [pageComposerFocus, setPageComposerFocus] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const workspaceRef = useRef(workspace);
   const [navigation, setNavigation] = useState({ canGoBack: false, canGoForward: false });
@@ -285,6 +290,7 @@ function AppContent() {
     backToApp();
     if ('hash' in target) openPage(target.hash);
     else zoomReference(target.zoom);
+    setPageComposerFocus(true);
   }), [backToApp, openPage]);
 
   useEffect(() => window.bridge.setAssistantPanelOpen?.(assistantShown), [assistantShown]);
@@ -535,7 +541,7 @@ function AppContent() {
   const openTaskComposer = useCallback((workspaceId: string | null) => {
     const activeTasks = [...document.querySelectorAll<HTMLButtonElement>('[data-task-list="active"]')]
       .find(button => button.checkVisibility() && !button.closest('[inert]:not(.app-surfaces)'));
-    if (taskComposer() || activeTasks?.getAttribute('aria-selected') === 'false') {
+    if (composer(TASK_COMPOSER) || activeTasks?.getAttribute('aria-selected') === 'false') {
       document.querySelector<HTMLButtonElement>('.agt-overview [aria-label="Close task switcher"]')?.click();
       if (activeTasks?.getAttribute('aria-selected') === 'false') activeTasks.click();
       setTaskSwitcher(null);
@@ -560,7 +566,7 @@ function AppContent() {
     if (composerFocus === null) return;
     const focus = () => {
       if (composerFocus.workspaceId !== undefined && workspace?.id !== composerFocus.workspaceId) return;
-      const input = taskComposer();
+      const input = composer(TASK_COMPOSER);
       if (window.location.hash !== composerFocus.route || !input) return;
       input.focus();
       if (document.activeElement === input) setComposerFocus(null);
@@ -575,6 +581,30 @@ function AppContent() {
     window.addEventListener('hashchange', changed);
     return () => { observer.disconnect(); window.removeEventListener('hashchange', changed); };
   }, [composerFocus, workspace?.id]);
+
+  // A page the Assistant opened is where the talk goes on: its composer takes focus as it draws, until the user clicks or types.
+  useEffect(() => {
+    if (!pageComposerFocus || assistantShown) return;
+    const focus = () => {
+      const active = document.activeElement;
+      // From nowhere, or from a composer the page left behind hidden; whatever else holds focus keeps it.
+      if (active !== null && active !== document.body && !(active.matches('.agt-compose__input') && !active.checkVisibility())) return;
+      const input = composer(PAGE_COMPOSER);
+      input?.focus();
+      input?.setSelectionRange(input.value.length, input.value.length);
+    };
+    const done = () => setPageComposerFocus(false);
+    focus();
+    const observer = new MutationObserver(focus);
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden', 'inert', 'style'] });
+    window.addEventListener('keydown', done, true);
+    window.addEventListener('pointerdown', done, true);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('keydown', done, true);
+      window.removeEventListener('pointerdown', done, true);
+    };
+  }, [assistantShown, pageComposerFocus]);
 
   useEffect(() => window.bridge.onAppNavigation?.(target => {
     if (status !== 'ready') return;
@@ -811,7 +841,7 @@ function AppContent() {
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
       <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
-        onPage={openPage} />
+        onPage={openPage} onOpened={() => setPageComposerFocus(true)} />
     </div>
     </FocusBreakProvider>
   );

@@ -40,6 +40,7 @@ const workspace: WorkspaceDto = {
 export async function run(): Promise<{ name: string }[]> {
   let connections = [connected];
   let navigate: (target: AppNavigationTarget) => void = () => {};
+  let assistantOpens: (target: { hash: string }) => void = () => {};
   let browserChanged: (state: InAppBrowserState) => void = () => {};
   let browser: InAppBrowserState = { tabs: [], activeTabId: null };
   let browserHidden = 0;
@@ -50,6 +51,7 @@ export async function run(): Promise<{ name: string }[]> {
     ...createPreviewBridge('workspace'),
     hasPat: () => startup,
     onAppNavigation: callback => { navigate = callback; return () => { navigate = () => {}; }; },
+    onAssistantNavigate: callback => { assistantOpens = callback; return () => { assistantOpens = () => {}; }; },
     getInAppBrowserState: async () => browser,
     onInAppBrowserState: callback => { browserChanged = callback; return () => { browserChanged = () => {}; }; },
     hideInAppBrowser: async () => {
@@ -313,6 +315,24 @@ export async function run(): Promise<{ name: string }[]> {
       'New task closes the Home overview and focuses the same composer');
     assert(window.location.hash === '#/workspaces/workspace' && homeDraft.value === 'Keep the Home draft',
       'New task keeps Home mounted with its unsent draft');
+
+    const taskRoute = `#/workspaces/workspace/tasks/agent/${bridge.events[0].taskId}`;
+    assistantOpens({ hash: taskRoute });
+    await until(() => window.location.hash === taskRoute && document.activeElement?.getAttribute('aria-label') === 'Message the agent',
+      'A task the Assistant opened takes the talk in its composer');
+    assistantOpens({ hash: '#/workspaces/workspace' });
+    await until(() => document.activeElement?.matches('.agt-home [aria-label="Describe a task"]') === true,
+      'Workspace Home the Assistant opened focuses its composer');
+    const homeInput = document.activeElement as HTMLTextAreaElement;
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'K' }));
+    changeInput(homeInput, 'Keep talking here');
+    homeInput.setSelectionRange(0, 0);
+    homeInput.blur();
+    await settle();
+    assert(document.activeElement !== homeInput, 'Once the user types, the page keeps the focus they give it');
+    assistantOpens({ hash: '#/workspaces/workspace' });
+    await until(() => document.activeElement === homeInput && homeInput.selectionStart === homeInput.value.length,
+      'Opening the page already on screen focuses its composer after the draft');
 
     deferBrowserHide = true;
     browser = { ...browser, activeTabId: 'docs' };

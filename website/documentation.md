@@ -124,7 +124,8 @@ allowance.
 1. Press **⌘J** and ask what needs you, or about the item on screen.
 2. Browse **Decision**, **Running**, **Finished**, and **Today** cards. Answer
    approvals and questions right on them.
-3. Ask it to find work or open a page, such as a repository's Tasks. Pull
+3. Ask it to find work or open a page, such as a repository's Tasks. A page
+   with a message box, such as a task, opens with the cursor in it. Pull
    request cards can **Approve**, **Merge**, **Comment**, and, on your own PRs,
    **Close**.
 4. Ask it for today's agenda. It reads the one on Home, or makes it when you

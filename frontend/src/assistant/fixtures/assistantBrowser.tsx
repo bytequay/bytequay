@@ -131,14 +131,14 @@ const REPLIES: Record<string, AgentEventEnvelope[]> = { 'task-2': [{
 
 type Calls = {
   sent: unknown[][]; resolved: unknown[][]; opened: string[]; removed: string[]; stopped: number; closed: number; cancelled: string[]; answered: string[];
-  completed: unknown[][];
+  completed: unknown[][]; left: number;
 };
 
 type Mounted = { host: HTMLElement; calls: Calls; render: (open: boolean, openCard?: { id: string }) => void; dispose: () => void };
 
 function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, running: RunningTask[] = [], replied: () => AssistantViewDto = () => view,
   completed: () => AssistantViewDto = () => view, scripted: Partial<Bridge> = {}, chatEnabled = true): Mounted {
-  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
+  const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [], left: 0 };
   let failures = failSends;
   history = [step(1, 'sed -n 1,100p IcebergMetadata.java', 'READ', 'IcebergMetadata.java')];
   pages = [];
@@ -191,7 +191,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
       <div className="browser-workspace">
         <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page under the Assistant</main></div>
         <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} openCard={openCard ?? null} onScreen="pr:owner/repository#31377"
-          onClose={() => { calls.closed++; if (shown) render(false); }} onPage={hash => { pages.push(hash); window.location.hash = hash; }} />
+          onClose={() => { calls.closed++; if (shown) render(false); }} onPage={hash => { pages.push(hash); window.location.hash = hash; }} onOpened={() => { calls.left++; }} />
       </div>,
     ));
   };
@@ -570,15 +570,18 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
   const earlier = { ...VIEW, items: [...VIEW.items, opened('o1', '2026-10-16T07:09:00Z', null, PULL, 'open it')] };
   const view = mount(earlier, 0, [], [], () => ({ ...earlier, items: [...earlier.items, opened('o2', new Date(Date.now() + 1000).toISOString(), 'settings/models', null,
     'take me to model settings')] }));
+  const pageButton = document.body.appendChild(document.createElement('button'));
   try {
     window.location.hash = '#/home';
     await settle();
     assert(view.calls.closed === 0 && window.location.hash === '#/home', 'An open read when the panel opens is not followed');
     enter(type(view.host, 'take me to model settings'));
     await settle();
-    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 1, `An open that arrives while the panel is open goes there: ${window.location.hash}`);
+    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 1 && Number(view.calls.left) === 1,
+      `An open that arrives while the panel is open goes there: ${window.location.hash}`);
 
     window.location.hash = '#/home';
+    pageButton.focus();
     view.render(true);
     await settle();
     enter(type(view.host, 'and now?'));
@@ -588,11 +591,14 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
     assert(actions.filter(text => text?.startsWith('Opened') === true && text.endsWith('Open')).length === 2, `Each open keeps its Open: ${JSON.stringify(actions)}`);
     [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].find(receipt => receipt.textContent?.startsWith('Opened Settings') === true)
       ?.querySelector<HTMLButtonElement>('.assistant-action')?.click();
-    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 2, 'Open goes to the page and closes the Assistant');
+    assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 2 && Number(view.calls.left) === 2,
+      'Open goes to the page and closes the Assistant');
+    assert(document.activeElement !== pageButton, 'Focus stays with the page it opened, not where the Assistant was opened from');
     assert(pages.length === 2 && pages.every(page => page === settingsRoute('models')), `Page opens go through the host: ${pages.join()}`);
   }
   finally {
     window.location.hash = '';
+    pageButton.remove();
     view.dispose();
   }
 }

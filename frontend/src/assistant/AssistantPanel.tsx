@@ -49,7 +49,7 @@ function setHash(hash: string) {
   window.location.hash = hash;
 }
 
-export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose, onPage = setHash }: {
+export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose, onPage = setHash, onOpened }: {
   open: boolean;
   chatEnabled?: boolean;
   notices: AppNotice[];
@@ -60,6 +60,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   onClose: () => void;
   /** Opens a page's route with nothing left over it. */
   onPage?: (hash: string) => void;
+  /** After it closed to open a page or an item there, where the user goes on. */
+  onOpened?: () => void;
 }) {
   const [conversation, setConversation] = useState<string>(() => crypto.randomUUID());
   const [history, setHistory] = useState(false);
@@ -121,14 +123,23 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     if (node) node.scrollTop = node.scrollHeight;
   }, [open, talkOpen, items.length, running]);
 
-  // Where a receipt opens, a page before an item; the Assistant closes first, so nothing opens under it.
+  // The Assistant closes first, so nothing opens under it, and focus stays with what opened instead of going back.
+  const leave = useCallback((go: () => void) => {
+    returnFocus.current = null;
+    onClose();
+    go();
+    onOpened?.();
+  }, [onClose, onOpened]);
+
+  // Where a receipt opens, a page before an item.
   const openReceipt = useCallback((receipt: AssistantReceiptDto) => {
     const hash = receipt.page === null ? null : pageRoute(receipt.page);
     if (hash === null && receipt.target === null) return;
-    onClose();
-    if (hash !== null) onPage(hash);
-    else if (receipt.target !== null) openTarget(receipt.target);
-  }, [onClose, onPage]);
+    leave(() => {
+      if (hash !== null) onPage(hash);
+      else if (receipt.target !== null) openTarget(receipt.target);
+    });
+  }, [leave, onPage]);
 
   // An open the assistant made while the user watched goes there once; read later, its receipt only offers Open.
   useEffect(() => {
@@ -148,7 +159,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
 
   if (!open) return null;
 
-  const show = (target: AgendaTargetDto) => { onClose(); openTarget(target); };
+  const show = (target: AgendaTargetDto) => leave(() => openTarget(target));
   const choose = (id: string) => {
     setConversation(id);
     setHistory(false);
@@ -156,7 +167,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     input.current?.focus();
   };
   const startNew = () => choose(crypto.randomUUID());
-  const openSettings = (section: SettingsSection) => { onClose(); onPage(settingsRoute(section)); };
+  const openSettings = (section: SettingsSection) => leave(() => onPage(settingsRoute(section)));
   // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
   const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
   const submit = () => {

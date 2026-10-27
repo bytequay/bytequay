@@ -124,11 +124,14 @@ allowance.
 1. Press **⌘J** and ask what needs you, or about the item on screen.
 2. Browse **Decision**, **Running**, **Finished**, and **Today** cards. Answer
    approvals and questions right on them.
-3. Ask it to find work or open a page. Pull request cards can **Approve**,
-   **Merge**, **Comment**, and, on your own PRs, **Close**.
-4. Ask for a new Epic issue. Nothing is created until you click **Create
+3. Ask it to find work or open a page, such as a repository's Tasks. Pull
+   request cards can **Approve**, **Merge**, **Comment**, and, on your own PRs,
+   **Close**.
+4. Ask it for today's agenda. It reads the one on Home, or makes it when you
+   ask, as **Make again** does.
+5. Ask for a new Epic issue. Nothing is created until you click **Create
    issue**.
-5. Start a new topic with **New conversation** or **⌘N**. After 15 minutes
+6. Start a new topic with **New conversation** or **⌘N**. After 15 minutes
    away, ⌘J opens on a new one. Go back to an earlier one from the clock
    button to keep going.
 

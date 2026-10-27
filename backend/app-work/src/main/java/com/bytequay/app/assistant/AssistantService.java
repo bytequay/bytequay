@@ -110,7 +110,10 @@ public class AssistantService
             Use only refs that assistant_context returned. Keep replies to a few sentences.
             Write each ref as a Markdown link with a short label, such as [#31402](pr:owner/repository#31402).
             Show several items with assistant_show list, not as text.
-            Open a page or item with assistant_show open, only when the user's latest message asks.
+            Open a page or item with assistant_show open, only when the user's latest message asks. A repository opens by its ws: ref from
+            start_options, at a tab such as tasks when the user names one.
+            Read today's agenda with assistant_context kind today. Make it with assistant_show make_agenda only when the user's latest message
+            asks; it takes a few minutes and shows on Home and under Today, and an agenda already made stays until the new one is ready.
             Completing a task is the user's click: show the task with assistant_show list in the cards style, whose card has Complete task.
             A new GitHub issue as an Epic is the user's click too: draft it with assistant_show draft_epic for them to edit and create.
             """;

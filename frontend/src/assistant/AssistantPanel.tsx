@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react';
 import {
-  AlarmClock, ArrowUpRight, Ban, CheckCheck, CircleDot, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Play, RotateCw, Send, ShieldCheck,
+  AlarmClock, ArrowUpRight, Ban, CalendarCheck, CheckCheck, CircleDot, Flag, History, ListEnd, ListPlus, ListTodo, MessageSquareReply, Play, RotateCw, Send, ShieldCheck,
   SquarePen, SquarePlus, TriangleAlert, X, type LucideIcon,
 } from 'lucide-react';
 import { relativeTime } from '@bytequay/ui/relativeTime';
@@ -136,6 +136,9 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   // The lists read marks once at start, so a mark the assistant made reaches them when its receipt does.
   const marked = items.filter(item => item.receipt?.outcome === 'DONE' && (item.receipt.operation === 'ACKNOWLEDGE' || item.receipt.operation === 'SNOOZE')).length;
   useEffect(() => { if (marked > 0) void reloadHandled().catch(() => {}); }, [marked]);
+  // Today's agenda reads on open and focus, so one the assistant started reaches Today when its receipt does.
+  const making = items.filter(item => item.receipt?.outcome === 'DONE' && item.receipt.operation === 'MAKE_AGENDA').length;
+  useEffect(() => { if (making > 0) window.dispatchEvent(new Event('bytequay:agenda-changed')); }, [making]);
 
   if (!open) return null;
 
@@ -331,6 +334,7 @@ function Entry({ item, rows, drafts, model, retryable, onRetry, onSettings, onOp
 const ACTED: Record<AssistantReceiptDto['operation'], LucideIcon> = {
   START_TASK: Play, ANSWER_APPROVAL: ShieldCheck, ANSWER_QUESTION: MessageSquareReply, REPLY_TO_TASK: Send, OPEN: ArrowUpRight, MARK_EPIC: Flag,
   ADD_TO_EPIC: ListPlus, CREATE_WORK_ITEM: SquarePlus, CREATE_EPIC: CircleDot, ACKNOWLEDGE: CheckCheck, SNOOZE: AlarmClock,
+  MAKE_AGENDA: CalendarCheck,
 };
 
 /**

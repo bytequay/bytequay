@@ -15,6 +15,7 @@ package com.bytequay.app.assistant;
 
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaRefs;
+import com.bytequay.app.agenda.AgendaService;
 import com.bytequay.core.domain.AssistantDraft;
 import com.bytequay.core.domain.AssistantItem;
 import com.bytequay.core.domain.AssistantList;
@@ -30,6 +31,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.util.LinkedHashSet;
@@ -47,10 +49,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The {@code assistant_show} tool: what the assistant shows the user, which changes no data. A list names refs the user could see, on
- * screen or handed out in the conversation, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes
- * to a page or such an item only on the user's own words, and leaves a receipt either way. A draft is a new GitHub issue the user
- * edits and creates as an Epic with a click.
+ * The {@code assistant_show} tool: what the assistant shows the user. A list names refs the user could see, on screen or handed out in the
+ * conversation, and the panel draws each from ByteQuay's own data, so the assistant never writes a row. An open goes to a page, a
+ * repository or such an item only on the user's own words, and leaves a receipt either way. A draft is a new GitHub issue the user
+ * edits and creates as an Epic with a click. Making today's agenda, also on the user's words, is the one call that changes data, as
+ * the agenda's own Make again does.
  */
 @Component
 class AssistantShow
@@ -68,8 +71,18 @@ class AssistantShow
             "timeline", AssistantList.Style.TIMELINE);
     private static final Map<String, Set<String>> FIELDS = ImmutableMap.of(
             "list", ImmutableSet.of("op", "style", "title", "refs"),
-            "open", ImmutableSet.of("op", "ref", "page", "words"),
-            "draft_epic", ImmutableSet.of("op", "workspace", "title", "body"));
+            "open", ImmutableSet.of("op", "ref", "page", "tab", "words"),
+            "draft_epic", ImmutableSet.of("op", "workspace", "title", "body"),
+            "make_agenda", ImmutableSet.of("op", "words"));
+    // Twins of WORKSPACE_TABS in AppSidebar.tsx, by the names the app shows.
+    private static final Map<String, String> TABS = ImmutableMap.of(
+            "home", "Home",
+            "tasks", "Tasks",
+            "prs", "Pull requests",
+            "issues", "Work items",
+            "commits", "Commits",
+            "context", "Memory",
+            "artifacts", "Artifacts");
     // Twins of the sidebar's AppPage in AppSidebar.tsx and the Settings sections in settings/routes.ts, by the names the app shows; change them together.
     private static final Map<String, String> PAGES = ImmutableMap.<String, String>builder()
             .put("home", "Home")
@@ -96,14 +109,16 @@ class AssistantShow
     private final AssistantActions actions;
     private final AssistantRows rows;
     private final WorkspaceStore workspaces;
+    private final AgendaService agenda;
     private final ObjectMapper mapper;
     private final Clock clock;
 
-    AssistantShow(AssistantActions actions, AssistantRows rows, WorkspaceStore workspaces, ObjectMapper mapper, Clock clock)
+    AssistantShow(AssistantActions actions, AssistantRows rows, WorkspaceStore workspaces, AgendaService agenda, ObjectMapper mapper, Clock clock)
     {
         this.actions = requireNonNull(actions, "actions is null");
         this.rows = requireNonNull(rows, "rows is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.agenda = requireNonNull(agenda, "agenda is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -122,13 +137,17 @@ class AssistantShow
                 "title", ImmutableMap.of("type", "string", "description", "list: a few words that name the list; draft_epic: the issue's title"),
                 "refs", ImmutableMap.of("type", "array", "items", ImmutableMap.of("type", "string"), "maxItems", AssistantList.MAXIMUM_REFS,
                         "description", "list: refs that assistant_context returned or that are on screen, in the order to show them"),
-                "ref", ImmutableMap.of("type", "string", "description", "open: an item's ref that assistant_context returned or that is on screen"),
+                "ref", ImmutableMap.of("type", "string", "description", "open: an item's ref that assistant_context returned or that is on screen, or a "
+                        + "repository's ws: ref from start_options"),
                 "page", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(PAGES.keySet()), "description", "open: a page of the app or a Settings section"),
-                "words", ImmutableMap.of("type", "string", "description", "open: the user's exact words in their latest message that ask for it"),
+                "tab", ImmutableMap.of("type", "string", "enum", ImmutableList.copyOf(TABS.keySet()), "description", "open with a ws: ref: the repository's tab, home "
+                        + "by default; prs is Pull requests, issues is Work items, context is Memory"),
+                "words", ImmutableMap.of("type", "string", "description", "open and make_agenda: the user's exact words in their latest message that ask for it"),
                 "workspace", ImmutableMap.of("type", "string", "description", "draft_epic: the ws: ref from start_options of the repository the issue goes to"),
                 "body", ImmutableMap.of("type", "string", "description", "draft_epic: the issue's description for the user to edit")), "op");
-        return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data; open a page or an item when the "
-                + "user's latest message asks, with a receipt; or draft a new GitHub issue that the user edits and creates as an Epic with a click.", schema,
+        return new ReviewTool(NAME, "Show the user several items as a list in the panel, which the app draws from its own data; open a page, a repository or an "
+                + "item when the user's latest message asks, with a receipt; draft a new GitHub issue that the user edits and creates as an Epic with a click; or "
+                + "make today's agenda when the user's latest message asks.", schema,
                 arguments -> call(message, context, items, arguments), false);
     }
 
@@ -144,6 +163,7 @@ class AssistantShow
             return switch (op) {
                 case "list" -> list(message, context, items, body);
                 case "open" -> open(message, context, items, body);
+                case "make_agenda" -> makeAgenda(message, items, body);
                 default -> draft(message, context, items, body);
             };
         }
@@ -181,25 +201,37 @@ class AssistantShow
                 ImmutableList.copyOf(dropped));
     }
 
-    /** Goes where the user's own words ask: a page of the app, or an item they could see. Done or refused, it leaves a receipt. */
+    /** Goes where the user's own words ask: a page of the app, a watched repository, or an item they could see. Done or refused, it leaves a receipt. */
     private String open(AssistantItem message, AssistantContext context, Consumer<AssistantItem> items, JsonNode body)
     {
         checkArgument(body.path("words").isTextual(), "open needs the user's words");
         String words = body.path("words").asText();
         Optional<String> ref = text(body, "ref");
         Optional<String> page = text(body, "page");
+        Optional<String> tab = text(body, "tab");
+        boolean repository = ref.map(named -> AgendaRefs.kind(named).equals("ws")).orElse(false);
         checkArgument(ref.isPresent() != page.isPresent(), "open takes a ref or a page");
         checkArgument(page.map(PAGES::containsKey).orElse(true), "page must be one of %s", String.join(", ", PAGES.keySet()));
-        checkArgument(ref.map(named -> LISTED.contains(AgendaRefs.kind(named))).orElse(true), "open takes an item's ref or a page");
+        checkArgument(repository || ref.map(named -> LISTED.contains(AgendaRefs.kind(named))).orElse(true), "open takes an item's or a repository's ref, or a page");
+        checkArgument(repository || tab.isEmpty(), "only a ws: ref takes a tab");
+        checkArgument(tab.map(TABS::containsKey).orElse(true), "tab must be one of %s", String.join(", ", TABS.keySet()));
         Optional<String> unsaid = AssistantActions.unsaid(message, words);
         if (unsaid.isPresent()) {
             return receipt(message, items, unsaid.orElseThrow(), AssistantReceipt.refused(Operation.OPEN, Optional.empty()), words);
         }
         if (page.isPresent()) {
-            return receipt(message, items, "Opened " + PAGES.get(page.orElseThrow()), new AssistantReceipt(Operation.OPEN, Outcome.DONE, Optional.empty(), Optional.empty(),
-                    page, Optional.empty(), Optional.empty(), Optional.empty()), words);
+            return receipt(message, items, "Opened " + PAGES.get(page.orElseThrow()), opened(page.orElseThrow()), words);
         }
         String named = ref.orElseThrow();
+        if (repository) {
+            // ponytail: a repository's page shows nothing a watched repository's name doesn't already, so it needs no on-screen check.
+            Optional<Workspace> watched = workspaces.findById(AgendaRefs.id(named));
+            if (watched.isEmpty()) {
+                return receipt(message, items, "That repository is not watched any more", AssistantReceipt.refused(Operation.OPEN, Optional.empty()), words);
+            }
+            String where = watched.orElseThrow().monitoredRepository().fullName() + tab.filter(value -> !value.equals("home")).map(value -> " · " + TABS.get(value)).orElse("");
+            return receipt(message, items, "Opened " + where, opened("workspaces/" + watched.orElseThrow().id() + tab.map(value -> "/" + value).orElse("")), words);
+        }
         if (!actions.shown(message, context).contains(named)) {
             return receipt(message, items, "That isn't on screen", AssistantReceipt.refused(Operation.OPEN, Optional.empty()), words);
         }
@@ -230,6 +262,34 @@ class AssistantShow
                 clip(body.path("body").asText("").strip(), DRAFT_BODY), UUID.randomUUID().toString());
         items.accept(AssistantItem.draft(message.conversationId(), clock.instant(), clip(title, DRAFT_TITLE), draft));
         return reply("done", "Showed the draft; the user edits it and creates the issue as an Epic with a click", ImmutableList.of());
+    }
+
+    /**
+     * Starts today's agenda on the user's words, as its Make again does: the agenda already made stays until the new one is ready, which
+     * takes a few minutes, and Home and the panel's Today show it then.
+     */
+    private String makeAgenda(AssistantItem message, Consumer<AssistantItem> items, JsonNode body)
+    {
+        checkArgument(body.path("words").isTextual(), "make_agenda needs the user's words");
+        String words = body.path("words").asText();
+        Optional<String> unsaid = AssistantActions.unsaid(message, words);
+        if (unsaid.isPresent()) {
+            return receipt(message, items, unsaid.orElseThrow(), AssistantReceipt.refused(Operation.MAKE_AGENDA, Optional.empty()), words);
+        }
+        try {
+            agenda.makeAgain();
+        }
+        catch (ResponseStatusException busy) {
+            return receipt(message, items, Optional.ofNullable(busy.getReason()).orElse("Today's agenda can't be made now"),
+                    AssistantReceipt.refused(Operation.MAKE_AGENDA, Optional.empty()), words);
+        }
+        return receipt(message, items, "Making today's agenda", new AssistantReceipt(Operation.MAKE_AGENDA, Outcome.DONE, Optional.of("Ready on Home in a few minutes"),
+                Optional.empty(), Optional.of("home"), Optional.empty(), Optional.empty(), Optional.empty()), words);
+    }
+
+    private static AssistantReceipt opened(String page)
+    {
+        return new AssistantReceipt(Operation.OPEN, Outcome.DONE, Optional.empty(), Optional.empty(), Optional.of(page), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     /** Leaves the receipt the user reads, with the words the assistant acted on, and tells the assistant the same line. */

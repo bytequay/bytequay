@@ -39,6 +39,8 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agenda.AgendaReader;
+import com.bytequay.app.agenda.AgendaService;
+import com.bytequay.app.agenda.AgendaView;
 import com.bytequay.app.agent.RunningTask;
 import com.bytequay.app.agent.RunningTaskReader;
 import com.bytequay.app.agent.TaskActivity;
@@ -125,6 +127,7 @@ class TestAssistantContext
     private final ObjectMapper mapper = AgendaFixtures.mapper();
     private final AgendaReader agenda = mock(AgendaReader.class);
     private final AgendaStore agendas = mock(AgendaStore.class);
+    private final AgendaService agendaService = mock(AgendaService.class);
     private final RunningTaskReader running = mock(RunningTaskReader.class);
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AgentApprovalStore approvals = mock(AgentApprovalStore.class);
@@ -142,7 +145,7 @@ class TestAssistantContext
     private final CredentialService credentials = mock(CredentialService.class);
     private final AssistantRows rows = new AssistantRows(pullRequests, mock(PrDetailStore.class), issues, jira, mock(JiraActivityReader.class), tasks, reviews, running, activities,
             workItems, epics, workspaces, agenda, models, credentials);
-    private final AssistantReader reader = new AssistantReader(agenda, agendas, running, notices, approvals, tasks, activities, reviews, pullRequests, workItems, workspaces,
+    private final AssistantReader reader = new AssistantReader(agenda, agendas, agendaService, running, notices, approvals, tasks, activities, reviews, pullRequests, workItems, workspaces,
             rows, credentials, models, settings, mapper, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
@@ -272,6 +275,31 @@ class TestAssistantContext
         read(tool, "overview");
         verify(agenda).read(TODAY, NOW.minus(Duration.ofDays(3)), false, ImmutableList.of(day(TODAY, AgendaDay.State.FAILED, NOW, Optional.empty())),
                 AgendaCalendar.of("off"));
+    }
+
+    @Test
+    void readsTodaysAgendaWithWhatIsDone()
+            throws Exception
+    {
+        AgendaTarget pull = AgendaTarget.pull("owner/repository", 31402, Optional.of("ws1"));
+        when(agendaService.today(Optional.empty())).thenReturn(new AgendaView(TODAY.toString(), "READY", true, 540, Optional.of(NOW), Optional.of("Opus 5.5"),
+                Optional.of("Unblock the Iceberg retry first."), ImmutableList.of(new AgendaView.Item("pr:owner/repository#31402", "fix", "Fix the retry test",
+                        "the retry test", "CI fails on the retry test", Optional.empty(), Optional.of("ws1"), pull, Optional.empty(), "done", false, Optional.of("Merged"),
+                        Optional.of(NOW))), Optional.empty(), Optional.empty(), Optional.empty()));
+        AssistantContext context = context(Optional.empty(), ImmutableMap.of());
+
+        JsonNode today = read(context.tool(), "today");
+
+        assertThat(keys(today)).isEqualTo(ImmutableSet.of("kind", "state", "summary", "items"));
+        assertThat(today.path("state").asText()).isEqualTo("ready");
+        assertThat(keys(today.path("items").path(0))).isEqualTo(ImmutableSet.of("ref", "title", "why", "status"));
+        assertThat(today.path("items").path(0).path("status").asText()).isEqualTo("done");
+        // Its items may be listed and opened later in the conversation.
+        assertThat(context.served()).containsEntry("pr:owner/repository#31402", new ServedRef("today", Optional.of(pull)));
+
+        when(agendaService.today(Optional.empty())).thenReturn(new AgendaView(TODAY.toString(), "RUNNING", true, 540, Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty()));
+        assertThat(read(context.tool(), "today").toString()).isEqualTo("{\"kind\":\"today\",\"state\":\"running\"}");
     }
 
     @Test

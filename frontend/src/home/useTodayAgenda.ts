@@ -35,7 +35,10 @@ export type TodayAgenda = {
   showHidden: () => void;
 };
 
-/** Today's agenda for one Home: read on open and focus, after pull request refreshes, and every few seconds while it is being made. */
+/**
+ * Today's agenda for one Home: read on open and focus, after pull request refreshes, when the Assistant starts one, and every few seconds
+ * while it is being made.
+ */
 export function useTodayAgenda(workspaceId?: string): TodayAgenda {
   const availability = useAgentAvailability();
   const [agenda, setAgenda] = useState<AgendaDto | null>(null);
@@ -65,10 +68,12 @@ export function useTodayAgenda(workspaceId?: string): TodayAgenda {
     const focused = () => { void load(); };
     const refreshed = () => { if (Date.now() - loadedAt.current >= ATTENTION_REFRESH_MS) void load(); };
     window.addEventListener('focus', focused);
+    window.addEventListener('bytequay:agenda-changed', focused);
     window.addEventListener('bytequay:pr-attention-updated', refreshed);
     return () => {
       request.current += 1;
       window.removeEventListener('focus', focused);
+      window.removeEventListener('bytequay:agenda-changed', focused);
       window.removeEventListener('bytequay:pr-attention-updated', refreshed);
     };
   }, [load]);

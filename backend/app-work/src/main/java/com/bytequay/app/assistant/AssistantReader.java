@@ -28,6 +28,7 @@ import com.bytequay.app.agenda.AgendaReader;
 import com.bytequay.app.agenda.AgendaRefs;
 import com.bytequay.app.agenda.AgendaService;
 import com.bytequay.app.agenda.AgendaSnapshot;
+import com.bytequay.app.agenda.AgendaView;
 import com.bytequay.app.agent.RunningTask;
 import com.bytequay.app.agent.RunningTaskReader;
 import com.bytequay.app.agent.TaskActivity;
@@ -93,6 +94,7 @@ class AssistantReader
 
     private final AgendaReader agenda;
     private final AgendaStore agendas;
+    private final AgendaService agendaService;
     private final RunningTaskReader running;
     private final AppNoticeService notices;
     private final AgentApprovalStore approvals;
@@ -112,6 +114,7 @@ class AssistantReader
     AssistantReader(
             AgendaReader agenda,
             AgendaStore agendas,
+            AgendaService agendaService,
             RunningTaskReader running,
             AppNoticeService notices,
             AgentApprovalStore approvals,
@@ -130,6 +133,7 @@ class AssistantReader
     {
         this.agenda = requireNonNull(agenda, "agenda is null");
         this.agendas = requireNonNull(agendas, "agendas is null");
+        this.agendaService = requireNonNull(agendaService, "agendaService is null");
         this.running = requireNonNull(running, "running is null");
         this.notices = requireNonNull(notices, "notices is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
@@ -170,6 +174,16 @@ class AssistantReader
         // Reading the calendar again would ask Google; the busy times today's agenda read are enough to talk about the day.
         AgendaCalendar calendar = earlier.stream().filter(day -> day.day().equals(today)).findFirst().flatMap(AgendaDay::calendar).orElse(AgendaCalendar.of("off"));
         return agenda.read(today, since, false, earlier, calendar);
+    }
+
+    /** Today's agenda as Home shows it: whether it is made yet, its summary, and each item with whether it is done. */
+    Page today()
+    {
+        AgendaView view = agendaService.today(Optional.empty());
+        Map<String, Optional<AgendaTarget>> refs = new LinkedHashMap<>();
+        view.items().forEach(item -> refs.put(item.ref(), Optional.of(item.target())));
+        List<Planned> items = view.items().stream().map(item -> new Planned(item.ref(), item.title(), item.why(), item.status())).collect(toImmutableList());
+        return new Page(new Today("today", view.state().toLowerCase(Locale.ROOT), view.summary(), items, view.failure()), refs);
     }
 
     /** Tasks at work, waiting on the user, or settled in the last few minutes, as the sidebar lists them. */
@@ -416,6 +430,21 @@ class AssistantReader
 
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     record Match(String ref, String title, Optional<String> state, Optional<Instant> at) {}
+
+    /**
+     * Today's agenda as the assistant reads it.
+     *
+     * @param state none before today's agenda is made, running while it is being made, ready or failed
+     */
+    @JsonInclude(JsonInclude.Include.NON_EMPTY)
+    record Today(String kind, String state, Optional<String> summary, List<Planned> items, Optional<String> failure) {}
+
+    /**
+     * One of today's items.
+     *
+     * @param status open, done or dismissed
+     */
+    record Planned(String ref, String title, String why, String status) {}
 
     record StartOptions(String kind, List<Repository> repositories, List<Agent> agents, AutomationLevel automation) {}
 

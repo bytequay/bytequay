@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest';
 import type { RunningTask } from '../agents/runningTaskModel';
 import type { AppNotice } from '../notices/contracts';
 import type { AgendaTargetDto, AssistantItemDto, AssistantReceiptDto, AssistantRowDto } from '../types';
-import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
+import { workspaceAgentTaskRoute, workspaceIssueRoute, workspacePullRequestRoute, workspaceReviewTaskRoute, workspaceRoute } from '../workspaces/model';
 import { settingsRoute } from '../settings/routes';
 import {
   arrivedOpen, createdDrafts, dayLabel, linkRefs, localDay, pageRoute, refFromHref, refLabel, replyExcerpt, rowState, rowTitle, screenRef, stackOf, timelineDays,
@@ -172,6 +172,9 @@ describe('opens', () => {
     expect(pageRoute('settings')).toBe('#/settings');
     expect(pageRoute('settings/ws-token')).toBeNull();
     expect(pageRoute('terminal')).toBeNull();
+    expect(pageRoute('workspaces/ws1')).toBe(workspaceRoute('ws1'));
+    expect(pageRoute('workspaces/ws1/tasks')).toBe(workspaceRoute('ws1', 'tasks'));
+    expect(pageRoute('workspaces/ws1/terminal')).toBeNull();
   });
 
   it('follows only the newest done open that came in after the panel opened, once', () => {

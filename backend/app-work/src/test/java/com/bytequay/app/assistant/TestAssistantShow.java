@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agenda.AgendaFixtures;
+import com.bytequay.app.agenda.AgendaService;
 import com.bytequay.app.agenda.ItemTaskStarter;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
@@ -37,6 +38,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -49,6 +52,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
 
+import static com.bytequay.core.domain.AssistantReceipt.Operation.MAKE_AGENDA;
 import static com.bytequay.core.domain.AssistantReceipt.Operation.OPEN;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.DONE;
 import static com.bytequay.core.domain.AssistantReceipt.Outcome.REFUSED;
@@ -57,6 +61,7 @@ import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,6 +78,7 @@ class TestAssistantShow
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AssistantRows rows = mock(AssistantRows.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final AgendaService agenda = mock(AgendaService.class);
     private final ObjectMapper mapper = AgendaFixtures.mapper();
     private final List<AssistantItem> shown = new ArrayList<>();
     private AssistantShow show;
@@ -88,7 +94,7 @@ class TestAssistantShow
         AssistantActions actions = new AssistantActions(new MemoryAssistantStore(), mock(AssistantSettings.class), mock(AgentApprovalStore.class),
                 mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(ItemTaskStarter.class), notices,
                 mock(AgentReviewStore.class), mock(AssistantWork.class), mapper, clock);
-        show = new AssistantShow(actions, rows, workspaces, mapper, clock);
+        show = new AssistantShow(actions, rows, workspaces, agenda, mapper, clock);
         when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
                 RepoRef.of("owner", "repository"), Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(),
                 "/managed/repository", Optional.empty(), Optional.empty(), 0, NOW, NOW)));
@@ -148,7 +154,7 @@ class TestAssistantShow
     void rejectsAMalformedCall()
             throws Exception
     {
-        assertThat(error(show(message(), "{\"op\":\"merge\"}"))).isEqualTo("op must be one of list, open, draft_epic");
+        assertThat(error(show(message(), "{\"op\":\"merge\"}"))).isEqualTo("op must be one of list, open, draft_epic, make_agenda");
         assertThat(error(show(message(), "{\"op\":\"list\",\"title\":\"Mine\",\"refs\":[\"work:w22\"],\"words\":\"show them\"}"))).isEqualTo("list takes no words");
         assertThat(error(show(message(), "{\"op\":\"list\",\"refs\":[\"work:w22\"]}"))).isEqualTo("list needs a title");
         assertThat(error(show(message(), "{\"op\":\"list\",\"title\":\"Mine\",\"refs\":\"work:w22\"}"))).isEqualTo("list needs refs");
@@ -193,6 +199,49 @@ class TestAssistantShow
     }
 
     @Test
+    void opensAWatchedRepositoryAtATabOnTheirOwnWords()
+            throws Exception
+    {
+        JsonNode answer = show(message("take me to the repository's tasks"), "{\"op\":\"open\",\"ref\":\"ws:ws1\",\"tab\":\"tasks\",\"words\":\"take me to the repository\"}");
+
+        assertThat(answer.path("message").asText()).isEqualTo("Opened owner/repository · Tasks");
+        AssistantReceipt receipt = shown.getLast().receipt().orElseThrow();
+        assertThat(receipt.outcome()).isEqualTo(DONE);
+        assertThat(receipt.page()).contains("workspaces/ws1/tasks");
+        assertThat(receipt.target()).isEmpty();
+
+        show(message("open the repository"), "{\"op\":\"open\",\"ref\":\"ws:ws1\",\"words\":\"open the repository\"}");
+        assertThat(shown.getLast().text()).isEqualTo("Opened owner/repository");
+        assertThat(shown.getLast().receipt().orElseThrow().page()).contains("workspaces/ws1");
+        assertRefused(show(message("open the other repository"), "{\"op\":\"open\",\"ref\":\"ws:ws2\",\"words\":\"open the other repository\"}"),
+                "That repository is not watched any more", "open the other repository");
+    }
+
+    @Test
+    void makesTodaysAgendaOnTheirOwnWords()
+            throws Exception
+    {
+        JsonNode answer = show(message("let's make today's agenda"), "{\"op\":\"make_agenda\",\"words\":\"make today's agenda\"}");
+
+        assertThat(answer.path("outcome").asText()).isEqualTo("done");
+        verify(agenda).makeAgain();
+        AssistantReceipt receipt = shown.getLast().receipt().orElseThrow();
+        assertThat(shown.getLast().text()).isEqualTo("Making today's agenda");
+        assertThat(receipt.operation()).isEqualTo(MAKE_AGENDA);
+        assertThat(receipt.page()).contains("home");
+        assertThat(receipt.words()).contains("make today's agenda");
+
+        // One already being made stays the one, and words the message turns down make nothing.
+        when(agenda.makeAgain()).thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Today's agenda is already being made"));
+        JsonNode busy = show(message("make the agenda"), "{\"op\":\"make_agenda\",\"words\":\"make the agenda\"}");
+        assertThat(busy.path("outcome").asText()).isEqualTo("refused");
+        assertThat(shown.getLast().text()).isEqualTo("Today's agenda is already being made");
+        show(message("don't make the agenda yet"), "{\"op\":\"make_agenda\",\"words\":\"make the agenda\"}");
+        assertThat(shown.getLast().text()).isEqualTo("Your message says not to do that");
+        verify(agenda, times(2)).makeAgain();
+    }
+
+    @Test
     void refusesWordsThatAreNotTheUsersOrThatTheMessageTurnsDown()
             throws Exception
     {
@@ -218,7 +267,9 @@ class TestAssistantShow
         assertThat(error(show(message(), "{\"op\":\"open\",\"words\":\"waiting\"}"))).isEqualTo("open takes a ref or a page");
         assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"home\"}"))).isEqualTo("open needs the user's words");
         assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"terminal\",\"words\":\"waiting\"}"))).startsWith("page must be one of home, workspaces");
-        assertThat(error(show(message(), "{\"op\":\"open\",\"ref\":\"ws:ws1\",\"words\":\"waiting\"}"))).isEqualTo("open takes an item's ref or a page");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"ref\":\"approval:a1\",\"words\":\"waiting\"}"))).isEqualTo("open takes an item's or a repository's ref, or a page");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"home\",\"tab\":\"tasks\",\"words\":\"waiting\"}"))).isEqualTo("only a ws: ref takes a tab");
+        assertThat(error(show(message(), "{\"op\":\"open\",\"ref\":\"ws:ws1\",\"tab\":\"jira\",\"words\":\"waiting\"}"))).startsWith("tab must be one of home, tasks");
         assertThat(error(show(message(), "{\"op\":\"open\",\"page\":\"home\",\"words\":\"waiting\",\"title\":\"Home\"}"))).isEqualTo("open takes no title");
         assertThat(shown).hasSize(2);
     }

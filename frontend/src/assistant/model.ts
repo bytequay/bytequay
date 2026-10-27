@@ -18,7 +18,7 @@ import { dayText } from '../home/today';
 import { needsAction, type AppNotice } from '../notices/contracts';
 import { SETTINGS_ENTRIES, isWorkspaceSection, settingsRoute } from '../settings/routes';
 import type { AgendaTargetDto, AssistantItemDto, AssistantRowDto } from '../types';
-import { workspaceLocationFromRoute } from '../workspaces/model';
+import { workspaceLocationFromRoute, workspaceRoute, type WorkspaceTab } from '../workspaces/model';
 
 /** The pills over the stack, in the order Tab moves through them. */
 export const GROUPS = ['all', 'decision', 'running', 'finished', 'today'] as const;
@@ -180,11 +180,20 @@ export function rowTitle(row: AssistantRowDto): string {
   }
 }
 
-// The pages the assistant may open: the sidebar's, and each Settings section outside a workspace. AssistantShow.java holds the twin.
+// The pages the assistant may open: the sidebar's, each Settings section outside a workspace, and a repository's tabs. AssistantShow.java holds the twins.
 const PAGES: readonly AppPage[] = ['home', 'workspaces', 'teams', 'recent', 'pulls', 'jira', 'google', 'settings'];
+const TABS: readonly WorkspaceTab[] = ['home', 'tasks', 'prs', 'issues', 'commits', 'context', 'artifacts'];
 
-/** Where a page the assistant opened lives: `settings/models` is a Settings section, and the rest are the sidebar's pages. */
+/**
+ * Where a page the assistant opened lives: `settings/models` is a Settings section, `workspaces/<id>/tasks` a repository's tab, and the
+ * rest are the sidebar's pages.
+ */
 export function pageRoute(page: string): string | null {
+  const repository = /^workspaces\/([^/]+)(?:\/([^/]+))?$/.exec(page);
+  if (repository !== null) {
+    const tab = TABS.find(each => each === (repository[2] ?? 'home'));
+    return tab === undefined ? null : workspaceRoute(repository[1], tab);
+  }
   const entry = SETTINGS_ENTRIES.find(each => `settings/${each.section}` === page);
   if (entry !== undefined) return isWorkspaceSection(entry.section) ? null : settingsRoute(entry.section);
   return PAGES.some(each => each === page) ? `#/${page}` : null;

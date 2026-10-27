@@ -108,9 +108,8 @@ export default function AgentHome({
   workspaceId, headerAction, repository, taskAttention, attention, bridge: explicitBridge, onOpenTask, onOpenReview, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask });
-  // The polled list is fresher; until its first read lands, the list this page last painted stands in.
-  const listed = taskAttention.tasks.length > 0 ? taskAttention.tasks.map((entry) => entry.task) : creation.tasks;
+  const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask, taskAttention });
+  const listed = creation.tasks;
   const openTasks = useMemo(() => listed.filter((task) => task.state === 'OPEN' && !taskArchived(task)), [listed]);
   const changes = useTaskChanges(workspaceId, openTasks, live);
   const work = useWorkspaceWork(workspaceId, live);

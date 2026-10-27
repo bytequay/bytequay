@@ -316,6 +316,7 @@ export default function WorkspaceShell({ workspace, taskAttention, tab, relatedW
           <AgentTasksView
             key={sourceIssueNumber ?? startWork?.key ?? 'new-task'}
             workspaceId={workspace.id}
+            active={openTaskPage === null}
             repository={monitoredRepository}
             sourceIssueNumber={sourceIssueNumber}
             launch={sourceIssueNumber === null ? undefined : startLaunch}

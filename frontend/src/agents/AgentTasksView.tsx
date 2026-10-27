@@ -68,6 +68,8 @@ const STARTUP_POLL_MS = 500;
 
 interface AgentTasksViewProps {
   workspaceId: string;
+  /** A retained composer settles its request in the background without taking over navigation. */
+  active?: boolean;
   /** "owner/repo" new tasks start in, named by the chip above the composer. */
   repository?: string;
   sourceIssueNumber?: number | null;
@@ -137,8 +139,9 @@ export function creationBlocker(
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
 export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft, replaces,
-  workItemId, autoStart = false, onAutoStart }: {
+  workItemId, autoStart = false, onAutoStart, taskAttention, active = true }: {
   workspaceId: string;
+  active?: boolean;
   sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
   initialLaunch?: TaskLaunch;
@@ -156,12 +159,31 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   autoStart?: boolean;
   /** The composer took that start. */
   onAutoStart?: () => void;
+  taskAttention?: TaskAttention;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
   const availability = useAgentAvailability(workspaceId);
   const seed = `agent-tasks:${workspaceId}`;
-  const [tasks, setTasks] = useState<AgentTaskDto[]>(() => getCached<AgentTaskDto[]>(seed) ?? []);
+  const [tasks, updateTasks] = useState<AgentTaskDto[]>(() => getCached<AgentTaskDto[]>(seed) ?? []);
+  const latestTaskChange = useRef(0);
+  const setTasks = useCallback((update: React.SetStateAction<AgentTaskDto[]>) => {
+    latestTaskChange.current = performance.now();
+    updateTasks(update);
+  }, []);
+  const acceptTaskRead = useCallback((found: AgentTaskDto[], startedAt: number) => {
+    // A read begun before a local create, archive or delete cannot undo that result.
+    if (startedAt < latestTaskChange.current) return;
+    latestTaskChange.current = startedAt;
+    updateTasks(current => {
+      const local = new Map(current.map(task => [task.id, task]));
+      const next = found.map(task => {
+        const previous = local.get(task.id);
+        return previous !== undefined && previous.version > task.version ? previous : task;
+      });
+      return JSON.stringify(current) === JSON.stringify(next) ? current : next;
+    });
+  }, []);
   const [loading, setLoading] = useState(() => getCached(seed) === undefined);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<ModelSettingsDto | null>(null);
@@ -184,16 +206,23 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const busyRef = useRef(false);
   const imagesRef = useRef<DraftImage[]>([]);
   const mountedRef = useRef(true);
+  const creationScope = useRef(0);
+  const activeRef = useRef(active);
+  useLayoutEffect(() => { activeRef.current = active; }, [active]);
   const clearImages = useCallback(() => {
     const current = imagesRef.current;
     imagesRef.current = [];
     current.forEach((image) => URL.revokeObjectURL(image.url));
     if (current.length > 0) void bridge().discardAgentDraftAttachments(current.map((image) => image.id)).catch(() => {});
   }, [bridge]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; clearImages(); };
-  }, [clearImages]);
+    creationScope.current += 1;
+    busyRef.current = false;
+    setOperation(null);
+    setStartup(null);
+    return () => { mountedRef.current = false; creationScope.current += 1; clearImages(); };
+  }, [clearImages, workspaceId]);
 
   const submissionRef = useRef<TaskCreationTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createTaskCreationTracker();
@@ -239,10 +268,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 
   useEffect(() => {
     let active = true;
+    const startedAt = performance.now();
     bridge().listAgentTasks(workspaceId)
       .then((found) => {
         if (!active) return;
-        setTasks(found);
+        acceptTaskRead(found, startedAt);
         setError(null);
       })
       .catch((failure: unknown) => {
@@ -253,7 +283,14 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         if (active) setLoading(false);
       });
     return () => { active = false; };
-  }, [bridge, workspaceId]);
+  }, [acceptTaskRead, bridge, workspaceId]);
+
+  const polledTasks = taskAttention?.tasks;
+  const taskReadStartedAt = taskAttention?.readStartedAt[workspaceId];
+  useEffect(() => {
+    if (taskReadStartedAt === undefined || polledTasks === undefined) return;
+    acceptTaskRead(polledTasks.filter(entry => entry.workspace.id === workspaceId).map(entry => entry.task), taskReadStartedAt);
+  }, [acceptTaskRead, polledTasks, taskReadStartedAt, workspaceId]);
 
   useEffect(() => {
     // A failed read leaves nothing worth painting on the next visit.
@@ -374,6 +411,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const create = useCallback(async () => {
     const message = draft.trim();
     if (busyRef.current || selection === null || taskAutomation === null || blocker !== null || message === '') return;
+    const scope = creationScope.current;
+    const isCurrent = () => mountedRef.current && creationScope.current === scope;
     busyRef.current = true;
     setOperation('sending');
     setError(null);
@@ -393,12 +432,11 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     let watching = true;
     const watch = setInterval(() => {
       bridge().getAgentTaskStartup(request.taskId)
-        .then((progress) => { if (watching && mountedRef.current) setStartup(progress.phase); })
+        .then((progress) => { if (watching && isCurrent()) setStartup(progress.phase); })
         .catch(() => {});
     }, STARTUP_POLL_MS);
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
-      if (task.workspaceId === workspaceId) setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       if (issue !== null) {
         if (task.issueSource !== null && task.issueSource !== undefined) recordAttentionAction(`${task.issueSource.repo}#${task.issueSource.number}`, 'prompt');
         notifyIssueDevelopmentChanged(issue.id);
@@ -406,12 +444,16 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       if (sourceJira !== null) notifyJiraChanged();
       // The work's new attempt shows wherever its work is read.
       if (workItemId !== undefined) window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspaceId }));
+      // The backend finishes its accepted request even after the user leaves its composer.
+      if (!isCurrent()) return;
+      if (task.workspaceId === workspaceId) setTasks((current) => [task, ...current.filter((existing) => existing.id !== task.id)]);
       setDraft('');
       // A choice made for one task does not carry over to the next.
       setAutomation(savedAutomation);
       clearImages();
       setImages([]);
       setError(null);
+      if (!activeRef.current) return;
       if (onOpenCreatedTask !== undefined) onOpenCreatedTask(task);
       else onOpenTask(task.id);
     };
@@ -422,14 +464,15 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     catch (failure) {
       const unavailable = agentProviderUnavailableFrom(failure);
       if (unavailable !== null) {
+        if (!isCurrent()) return;
         setError(`${laneLabel(unavailable.laneId)} could not start. Choose another provider or check its settings.`);
         // Refresh readiness without replacing a provider the user selects while the read is pending.
         void bridge().getModelSettings(workspaceId)
-          .then(setCatalog)
+          .then(settings => { if (isCurrent()) setCatalog(settings); })
           .catch(() => {});
         return;
       }
-      setError(unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : failure instanceof Error ? failure.message : 'Unable to create the agent task');
+      if (isCurrent()) setError(unconfirmedRequest(failure) ? CHECKING_ACCEPTANCE : failure instanceof Error ? failure.message : 'Unable to create the agent task');
       // The retained request makes the same click safe when the backend answer was lost.
       try {
         // A failed IPC answer is ambiguous. Replaying the whole composite request is what finishes
@@ -439,18 +482,20 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       }
       catch {
         // Still unresolved: keep the exact request for a safe retry.
-        setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
+        if (isCurrent()) setError(failure instanceof Error ? failure.message : 'Unable to create the agent task');
       }
     }
     finally {
       watching = false;
       clearInterval(watch);
-      setStartup(null);
-      busyRef.current = false;
-      setOperation(null);
+      if (isCurrent()) {
+        setStartup(null);
+        busyRef.current = false;
+        setOperation(null);
+      }
     }
   }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, onOpenCreatedTask, onOpenTask, replaces, savedAutomation, selection, submissions, taskAutomation,
-    workItemId, workspaceId]);
+    setTasks, workItemId, workspaceId]);
 
   // A decided start reaches the composer that opens for it, or one already open on the same work; saying it was taken keeps a composer
   // opened later from sending it again.
@@ -601,7 +646,7 @@ function failureMessage(failure: unknown): string {
   return failure instanceof Error ? failure.message : String(failure);
 }
 
-const NO_TASK_ATTENTION: TaskAttention = { items: [], tasks: [], activity: {}, refresh: () => {} };
+const NO_TASK_ATTENTION: TaskAttention = { items: [], tasks: [], readStartedAt: {}, activity: {}, refresh: () => {} };
 
 /** How often Home and Tasks re-read workflow activity. */
 const WORK_POLL_MS = 5000;
@@ -656,17 +701,9 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
   return work;
 }
 
-/** Each listed task in its newest copy: the page's own changes and the polled list both move the version. */
-function freshest(tasks: AgentTaskDto[], polled: { task: AgentTaskDto }[]): AgentTaskDto[] {
-  const latest = new Map(polled.map(({ task }) => [task.id, task]));
-  return tasks.map((task) => {
-    const fresh = latest.get(task.id);
-    return fresh !== undefined && fresh.version > task.version ? fresh : task;
-  });
-}
-
 export default function AgentTasksView({
   workspaceId,
+  active,
   repository,
   sourceIssueNumber = null,
   onOpenCreatedTask,
@@ -690,9 +727,8 @@ export default function AgentTasksView({
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft, replaces,
-    workItemId, autoStart, onAutoStart });
-  const { setTasks } = creation;
-  const tasks = useMemo(() => freshest(creation.tasks, taskAttention.tasks), [creation.tasks, taskAttention.tasks]);
+    workItemId, autoStart, onAutoStart, taskAttention, active });
+  const { tasks, setTasks } = creation;
   const tasksRef = useRef(tasks);
   tasksRef.current = tasks;
   // One task at a time: each answer carries the version the next request must echo, and the list

@@ -457,7 +457,7 @@ async function latestSummary(): Promise<void> {
   const newest = item(51).pr;
   assert(newest !== null, 'Summary fixture is a pull request');
   function Workspace() {
-    const attention = useWorkspaceAttention('ws-1', 'octo/app', { items: [], tasks: [], activity: {}, refresh: noOp });
+    const attention = useWorkspaceAttention('ws-1', 'octo/app', { items: [], tasks: [], readStartedAt: {}, activity: {}, refresh: noOp });
     return <div className="workspace-attention">
       <AttentionList variant="workspace" candidates={attention.candidates} handled={attention.handled} viewerLogin={attention.login}
         onHandledChange={attention.applyHandled} onOpen={noOp} />

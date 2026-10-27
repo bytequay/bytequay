@@ -25,7 +25,7 @@ import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
 import UnwatchWorkspaceDialog from './UnwatchWorkspaceDialog';
 import WorkspaceShell from './WorkspaceShell';
 
-const taskAttention: TaskAttention = { items: [], tasks: [], activity: {}, refresh: () => {} };
+const taskAttention: TaskAttention = { items: [], tasks: [], readStartedAt: {}, activity: {}, refresh: () => {} };
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 

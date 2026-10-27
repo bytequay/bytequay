@@ -181,6 +181,8 @@ type TaskAttentionBridge = Pick<Bridge, 'listAgentTasks' | 'listAgentTaskActivit
 export type TaskAttention = {
   items: AttentionItem[];
   tasks: WorkspaceTask[];
+  /** Start of each workspace's last successful read, including an empty task list. */
+  readStartedAt: Record<string, number>;
   /** What each read task last said and waits on, by task id. */
   activity: Record<string, AgentTaskActivityDto>;
   /** Reads again now, after a change this page made itself. */
@@ -200,7 +202,7 @@ export function useTaskAttention(
   bridge: () => TaskAttentionBridge = windowBridge,
 ): TaskAttention {
   const [state, setState] = useState<{ key: string; loaded: {
-    workspace: TaskAttentionWorkspace; tasks: AgentTaskDto[]; activity: Record<string, AgentTaskActivityDto>;
+    workspace: TaskAttentionWorkspace; tasks: AgentTaskDto[]; activity: Record<string, AgentTaskActivityDto>; readStartedAt: number;
   }[] } | null>(null);
   const [tick, setTick] = useState(0);
   const refresh = useCallback(() => setTick((count) => count + 1), []);
@@ -222,20 +224,22 @@ export function useTaskAttention(
       return;
     }
     let active = true;
-    const read = () =>
-      Promise.allSettled(listed.map((workspace) => Promise.all([
+    const read = () => {
+      const readStartedAt = performance.now();
+      return Promise.allSettled(listed.map((workspace) => Promise.all([
         bridge().listAgentTasks(workspace.id),
         bridge().listAgentTaskActivity(workspace.id),
-      ]).then(([tasks, activity]) => ({ workspace, tasks, activity })))).then((results) => {
+      ]).then(([tasks, activity]) => ({ workspace, tasks, activity, readStartedAt })))).then((results) => {
         if (!active) return;
         setState(previous => {
           // A failed refresh must not erase a known approval while the next tick can retry.
           const loaded = results.flatMap((result, index) => result.status === 'fulfilled' ? [result.value]
             : previous?.key === key ? previous.loaded.filter(entry => entry.workspace.id === listed[index].id) : []);
-          // Most ticks read what is already shown; keep the same snapshot to avoid re-rendering its consumers.
+          // Failed reads keep their timestamp too: they cannot confirm a local task change.
           return previous?.key === key && JSON.stringify(previous.loaded) === JSON.stringify(loaded) ? previous : { key, loaded };
         });
       });
+    };
     const stop = pollVisible(read, TASK_ATTENTION_POLL_MS);
     return () => { active = false; stop(); };
   }, [bridge, key, tick]);
@@ -245,6 +249,7 @@ export function useTaskAttention(
     return {
       items: loaded.flatMap(({ workspace, tasks, activity }) => taskAttentionItems(tasks, activity, workspace, laneNames)),
       tasks: loaded.flatMap(({ workspace, tasks }) => tasks.map((task) => ({ task, workspace }))),
+      readStartedAt: Object.fromEntries(loaded.map(({ workspace, readStartedAt }) => [workspace.id, readStartedAt])),
       activity: Object.assign({}, ...loaded.map(({ activity }) => activity)),
       refresh,
     };

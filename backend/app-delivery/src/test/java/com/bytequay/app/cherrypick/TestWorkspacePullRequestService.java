@@ -37,6 +37,7 @@ import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
+import com.bytequay.core.cherrypick.CherryPickLifecycle.Stage;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
@@ -50,6 +51,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -111,7 +114,8 @@ class TestWorkspacePullRequestService
         verify(fixture.ciAutofix(), times(2)).start(argThat(command ->
                 command.workspaceId().equals("workspace")
                         && command.pullRequestNumber() == 12
-                        && command.laneId().toString().equals("lane")));
+                        && command.laneId().toString().equals("lane")),
+                argThat(identity -> identity.baseBranch().equals("main") && identity.headSha().equals(PARENT_SHA)));
         assertThat(result).isEqualTo(repeated);
         assertThat(result.providerId()).isEqualTo(900);
         assertThat(result.url()).isEqualTo("https://github.com/owner/project/pull/12");
@@ -136,7 +140,7 @@ class TestWorkspacePullRequestService
                 false);
         verify(fixture.pullRequestCatalog())
                 .observeWorkspacePullRequest(RepoRef.of("upstream", "project"), 12);
-        verify(fixture.ciAutofix()).start(any());
+        verify(fixture.ciAutofix()).start(any(), any());
         assertThat(result.baseRepository()).isEqualTo(RepoRef.of("upstream", "project"));
         assertThat(result.head()).isEqualTo("contributor:" + WORK_BRANCH);
     }
@@ -174,7 +178,7 @@ class TestWorkspacePullRequestService
         assertThat(retried.number()).isEqualTo(12);
         verify(fixture.pullRequests(), times(1)).createPullRequest(
                 any(), any(), any(), any(), any(), any(), anyBoolean());
-        verify(fixture.ciAutofix(), times(1)).start(any());
+        verify(fixture.ciAutofix(), times(1)).start(any(), any());
     }
 
     @Test
@@ -217,7 +221,7 @@ class TestWorkspacePullRequestService
         verify(fixture.git(), never()).pushBranch(any(), any(), any());
         verify(fixture.pullRequests()).createPullRequest(
                 "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body", false);
-        verify(fixture.ciAutofix()).start(any());
+        verify(fixture.ciAutofix()).start(any(), any());
     }
 
     @Test
@@ -269,7 +273,7 @@ class TestWorkspacePullRequestService
         assertThat(fixture.service().deliverChain(chain.id(), 0, true).number()).isEqualTo(12);
         verify(fixture.git(), never()).pushBranch(any(), any(), any());
         verifyNoInteractions(fixture.pullRequests());
-        verify(fixture.ciAutofix()).start(any());
+        verify(fixture.ciAutofix()).start(any(), any());
     }
 
     @Test
@@ -305,6 +309,121 @@ class TestWorkspacePullRequestService
         assertThatThrownBy(() -> fixture.service().deliverChain(chain.id(), 0, true)).hasMessageContaining("Remote result unknown");
         verify(fixture.git(), never()).pushBranch(any(), any(), any());
         verifyNoInteractions(fixture.pullRequests(), fixture.reads(), fixture.ciAutofix());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"base", "head", "head-repository", "head-branch", "base-repository"})
+    void lostPublishResponseDoesNotAdoptARetargetedOrChangedPullRequest(String change)
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = publishing(fixture);
+        when(fixture.pullRequests().createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException("Lost publish response"));
+        assertThatThrownBy(() -> fixture.service().publish(execution.id())).hasMessage("Lost publish response");
+        when(fixture.reads().fetchPullRequestsByHead(any(), any(), any())).thenReturn(ImmutableList.of(publishedRow(fixture)));
+        RepoRef repository = fixture.workspace().selectedRepository();
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+                PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
+                change.equals("head-repository") ? RepoRef.of("another", "project") : repository,
+                change.equals("head-branch") ? "another-branch" : WORK_BRANCH,
+                change.equals("head") ? SHA : PARENT_SHA,
+                change.equals("base-repository") ? RepoRef.of("another", "project") : repository,
+                change.equals("base") ? "main" : "release", SHA, GitHubPullRequestIdentity.State.OPEN, false, "owner"));
+
+        assertThatThrownBy(() -> fixture.service().publish(execution.id()))
+                .hasMessageContaining(change.equals("head") ? "published cherry-pick head" : "retargeted");
+
+        assertThat(fixture.executions().find(execution.id()).orElseThrow().delivery().orElseThrow().pullRequestId()).isEmpty();
+        verify(fixture.pullRequests(), times(1)).createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(fixture.git(), times(1)).pushBranch(any(), any(), any());
+        verifyNoInteractions(fixture.ciAutofix(), fixture.pullRequestCatalog());
+    }
+
+    @Test
+    void lostPublishResponseRecoversTheAcceptedPullRequestAndStartsCi()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = publishing(fixture);
+        when(fixture.pullRequests().createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenThrow(new IllegalStateException("Lost publish response"));
+        assertThatThrownBy(() -> fixture.service().publish(execution.id())).hasMessage("Lost publish response");
+        when(fixture.reads().fetchPullRequestsByHead(any(), any(), any())).thenReturn(ImmutableList.of(publishedRow(fixture)));
+
+        CherryPickExecution recovered = fixture.service().publish(execution.id());
+        fixture.service().startCi(recovered, 1);
+
+        assertThat(recovered.delivery().orElseThrow().pullRequestNumber()).contains(12);
+        verify(fixture.pullRequests(), times(1)).createPullRequest(any(), any(), any(), any(), any(), any(), anyBoolean());
+        verify(fixture.git(), times(1)).pushBranch(any(), any(), any());
+        verify(fixture.ciAutofix()).start(argThat(command -> command.pullRequestNumber() == 12),
+                argThat(identity -> identity.baseBranch().equals("release") && identity.headSha().equals(PARENT_SHA)));
+    }
+
+    @Test
+    void retargetingABoundPullRequestBlocksDeliveryAndPreservesItsBranch()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = fixture.executions().save(publishing(fixture)
+                .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
+        RepoRef repository = fixture.workspace().selectedRepository();
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+                PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
+                repository, WORK_BRANCH, PARENT_SHA, repository, "main", SHA, GitHubPullRequestIdentity.State.MERGED, false, "owner"));
+
+        assertThatThrownBy(() -> fixture.service().pullRequest(execution)).hasMessageContaining("retargeted");
+        assertThatThrownBy(() -> fixture.service().startCi(execution, 1)).hasMessageContaining("retargeted");
+        assertThatThrownBy(() -> fixture.service().markReady(execution)).hasMessageContaining("retargeted");
+        assertThatThrownBy(() -> fixture.service().replaceBranch(execution, SHA, PARENT_SHA)).hasMessageContaining("retargeted");
+        assertThat(fixture.service().withdraw(execution, false)).singleElement().asString().contains("branch was preserved", "retargeted");
+        assertThat(fixture.service().withdraw(execution, true)).singleElement().asString().contains("branch was preserved", "retargeted");
+        verifyNoInteractions(fixture.git(), fixture.pullRequests(), fixture.ciAutofix());
+    }
+
+    @Test
+    void retryingCiStartKeepsItsAcceptedHeadAfterCiAlreadyPushed()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = fixture.executions().save(publishing(fixture)
+                .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
+        RepoRef repository = fixture.workspace().selectedRepository();
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+                PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
+                repository, WORK_BRANCH, SHA, repository, "release", SHA, GitHubPullRequestIdentity.State.OPEN, false, "owner"));
+
+        fixture.service().startCi(execution, 1);
+
+        verify(fixture.ciAutofix()).start(any(), argThat(identity -> identity.headSha().equals(PARENT_SHA) && identity.baseBranch().equals("release")));
+    }
+
+    @Test
+    void acceptedMergedPullRequestStillAllowsBranchCleanup()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = fixture.executions().save(publishing(fixture)
+                .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
+        RepoRef repository = fixture.workspace().selectedRepository();
+        when(fixture.reads().fetchPullRequestIdentity(any(), any())).thenReturn(new GitHubPullRequestIdentity(
+                PullRequestRef.of(repository.owner(), repository.repo(), 12), "https://github.com/owner/project/pull/12",
+                repository, WORK_BRANCH, PARENT_SHA, repository, "release", SHA, GitHubPullRequestIdentity.State.MERGED, false, "owner"));
+        when(fixture.git().remoteBranchSha(any(), any())).thenReturn(Optional.of(PARENT_SHA));
+
+        assertThat(fixture.service().withdraw(execution, false)).isEmpty();
+
+        verify(fixture.git()).deleteBranch(fixture.workspace(), WORK_BRANCH, PARENT_SHA);
+        verifyNoInteractions(fixture.pullRequests());
+    }
+
+    private CherryPickExecution publishing(Fixture fixture)
+    {
+        CherryPickExecution completed = fixture.executions().find(fixture.executionId()).orElseThrow();
+        return fixture.executions().save(CherryPickExecution.create(completed.id(), completed.startIdempotencyKey(), completed.workspace(), completed.pullRequestDraft(),
+                completed.range(), completed.items(), true, NOW).withLifecycle(lifecycle -> lifecycle.inStage(Stage.PUBLISH), NOW));
+    }
+
+    private static FetchedPullRequest publishedRow(Fixture fixture)
+    {
+        return new FetchedPullRequest(900L, fixture.workspace().monitoredRepository().fullName(), 12, "Backport", "owner", "https://github.com/owner/project/pull/12", NOW, NOW,
+                PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", WORK_BRANCH);
     }
 
     private BackportChain chain(Fixture fixture)

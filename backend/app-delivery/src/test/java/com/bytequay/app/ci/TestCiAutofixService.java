@@ -90,6 +90,7 @@ import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.FinishReason;
 import com.bytequay.core.ci.CiAutofixRun.PauseReason;
+import com.bytequay.core.ci.CiAutofixRun.PushJournal;
 import com.bytequay.core.ci.CiAutofixRun.RerunJournal;
 import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -2290,6 +2291,33 @@ class TestCiAutofixService
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed");
         verify(taskService, never()).create(any());
         verify(provisioning, never()).synchronizeCode(any());
+    }
+
+    @Test
+    void deliveryCannotAdoptARetargetedPullRequestDuringCiAdmission()
+    {
+        GitHubPullRequestIdentity expected = publishedPr();
+        when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(true));
+
+        assertThatThrownBy(() -> service.start(startCommand("delivery-retarget"), expected))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("changed before CI attachment");
+
+        verify(taskService, never()).create(any());
+        verify(provisioning, never()).synchronizeCode(any());
+    }
+
+    @Test
+    void deliveryStartsCiForItsVerifiedPullRequest()
+    {
+        GitHubPullRequestIdentity expected = publishedPr();
+        CiAutofixRun run = service.start(startCommand("delivery"), expected);
+
+        assertThat(run.scope().baseRef()).isEqualTo(snapshot.baseRef());
+        assertThat(run.taskStartCommit()).isEqualTo(HEAD);
+        run = store.update(run.recordPushJournal(new PushJournal(run.attempts().getFirst().id(), HEAD, FIXED_HEAD, "fingerprint", NOW, 0), NOW)
+                .recordPublishedAttempt(FIXED_HEAD, NOW, NOW));
+        assertThat(service.start(startCommand("delivery"), expected)).isEqualTo(run);
+        verify(taskService, times(1)).create(any());
     }
 
     @Test

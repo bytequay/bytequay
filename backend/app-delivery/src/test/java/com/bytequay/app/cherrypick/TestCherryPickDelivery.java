@@ -21,6 +21,7 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
@@ -65,6 +66,7 @@ import static com.bytequay.app.git.GitTestSupport.initRepository;
 import static com.bytequay.app.git.GitTestSupport.write;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -182,6 +184,22 @@ class TestCherryPickDelivery
         assertThat(merged.status()).isEqualTo(Status.FINISHED);
         assertThat(merged.finishReason()).contains(FinishReason.COMPLETED);
         assertThat(merged.summary()).contains("Merged into main");
+    }
+
+    @Test
+    void aRetargetedPullRequestHoldsCompletionAndPreservesTheBranch()
+    {
+        String copy = copy();
+        CiAutofixRun green = run(Optional.of(CiAutofixRun.FinishReason.GREEN), copy);
+        CherryPickExecution merging = save(delivered(execution(copy), Stage.MERGE, green));
+        when(publication.pullRequest(any())).thenThrow(WorkspaceException.deliveryUnavailable("The pull request was retargeted"));
+
+        CherryPickExecution held = delivery.advance(merging);
+
+        assertThat(held.status()).isEqualTo(Status.RUNNING);
+        assertThat(held.lifecycle().hold().orElseThrow().summary()).contains("retargeted");
+        verify(publication, never()).markReady(any());
+        verify(publication, never()).withdraw(any(), anyBoolean());
     }
 
     @Test

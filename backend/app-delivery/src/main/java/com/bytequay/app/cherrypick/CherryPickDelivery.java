@@ -22,6 +22,7 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
@@ -269,6 +270,9 @@ public class CherryPickDelivery
         GitHubPullRequestIdentity pull;
         try {
             pull = publication.pullRequest(execution);
+        }
+        catch (WorkspaceException failure) {
+            return hold(execution, Reason.PUBLISH_FAILED, failure.getMessage());
         }
         catch (RuntimeException failure) {
             // A background poll; the next one tries again.

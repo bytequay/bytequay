@@ -266,7 +266,13 @@ public class CiAutofixService
      */
     public CiAutofixRun start(StartCiAutofixCommand command)
     {
-        return start(command, Optional.empty());
+        return start(command, Optional.empty(), Optional.empty());
+    }
+
+    /** Binds a delivery's CI run to its verified pull request route and accepted starting head. */
+    public CiAutofixRun start(StartCiAutofixCommand command, GitHubPullRequestIdentity expectedPr)
+    {
+        return start(command, Optional.empty(), Optional.of(requireNonNull(expectedPr, "expectedPr is null")));
     }
 
     /** Starts the run that watches a development task's pull request at a pushed head, keeping when the push authorized it. */
@@ -281,10 +287,10 @@ public class CiAutofixService
         // One run watches the task's pull request; a newer push replaces the run watching an older head.
         stopRuns(parentTaskId, run -> run.status() != Status.FINISHED && !run.startIdempotencyKey().equals(command.idempotencyKey()),
                 FinishReason.STALE_HEAD, "A newer push replaced this CI Autofix run");
-        return start(command, Optional.of(new DevelopmentStart(parentTaskId, expectedPr, activatedAt)));
+        return start(command, Optional.of(new DevelopmentStart(parentTaskId, activatedAt)), Optional.of(expectedPr));
     }
 
-    private CiAutofixRun start(StartCiAutofixCommand command, Optional<DevelopmentStart> development)
+    private CiAutofixRun start(StartCiAutofixCommand command, Optional<DevelopmentStart> development, Optional<GitHubPullRequestIdentity> expectedPr)
     {
         validateStartCommand(command);
         Optional<CiAutofixRun> existing = store.findByIdempotencyKey(command.idempotencyKey());
@@ -292,6 +298,7 @@ public class CiAutofixService
             CiAutofixRun run = existing.orElseThrow();
             requireStartWorkspace(run, command.workspaceId());
             requireStartOwnership(run, development);
+            expectedPr.ifPresent(value -> requireExpectedPullRequest(run, value));
             if (run.status() == Status.FINISHED) {
                 return run;
             }
@@ -310,7 +317,7 @@ public class CiAutofixService
         String currentUser = currentUser();
         validatePullRequest(snapshot, pullRequest, currentUser);
         validateStartWorkspace(workspace, snapshot);
-        development.ifPresent(value -> requireExpectedPullRequest(snapshot, value.expectedPr()));
+        expectedPr.ifPresent(value -> requireExpectedPullRequest(snapshot, value));
 
         WorkspaceCodeSyncResult sync = provisioning.synchronizeCode(command.workspaceId());
         checkArgument(sync.successful(), "Workspace repository could not be synchronized");
@@ -344,6 +351,7 @@ public class CiAutofixService
             CiAutofixRun raced = store.findByIdempotencyKey(command.idempotencyKey()).orElseThrow(() -> conflict);
             requireStartWorkspace(raced, command.workspaceId());
             requireStartOwnership(raced, development);
+            expectedPr.ifPresent(value -> requireExpectedPullRequest(raced, value));
             return ownership.execute(raced, () -> {
                 if (raced.status() != Status.FINISHED && raced.agentTaskId().isPresent()) {
                     ensureAgentTask(raced);
@@ -1783,12 +1791,6 @@ public class CiAutofixService
             if (run.status() != Status.FINISHED) {
                 ownership.require(run);
             }
-            checkArgument(run.scope().pullRequest().equals(value.expectedPr().pullRequest())
-                            && run.scope().headRepository().fullName().equalsIgnoreCase(value.expectedPr().headRepository().fullName())
-                            && run.scope().headRef().equals(value.expectedPr().headBranch())
-                            && run.scope().baseRef().equals(value.expectedPr().baseBranch())
-                            && run.taskStartCommit().equals(value.expectedPr().headSha()),
-                    "CI Autofix start belongs to another published revision");
         });
     }
 
@@ -1800,6 +1802,17 @@ public class CiAutofixService
                         && snapshot.headRef().equals(expected.headBranch()) && snapshot.headSha().equals(expected.headSha())
                         && snapshot.baseRef().equals(expected.baseBranch()) && snapshot.baseSha().equals(expected.baseSha()),
                 "The published pull request changed before CI attachment");
+    }
+
+    private static void requireExpectedPullRequest(CiAutofixRun run, GitHubPullRequestIdentity expected)
+    {
+        checkArgument(run.scope().pullRequest().equals(expected.pullRequest())
+                        && run.scope().pullRequest().repoFullName().equalsIgnoreCase(expected.baseRepository().fullName())
+                        && run.scope().headRepository().fullName().equalsIgnoreCase(expected.headRepository().fullName())
+                        && run.scope().headRef().equals(expected.headBranch())
+                        && run.scope().baseRef().equals(expected.baseBranch())
+                        && run.taskStartCommit().equals(expected.headSha()),
+                "CI Autofix start belongs to another published revision");
     }
 
     private static void validateMessageCommand(SendCiAutofixMessageCommand command)
@@ -1848,7 +1861,7 @@ public class CiAutofixService
         return failureSummary("Task completion failed", failure);
     }
 
-    private record DevelopmentStart(TaskId parentTaskId, GitHubPullRequestIdentity expectedPr, Instant activatedAt) {}
+    private record DevelopmentStart(TaskId parentTaskId, Instant activatedAt) {}
 
     private record InheritedFailures(String headSha, Set<Long> failingJobs, Map<Long, String> inherited) {}
 

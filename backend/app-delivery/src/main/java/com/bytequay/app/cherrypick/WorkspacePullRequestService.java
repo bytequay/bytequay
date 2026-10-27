@@ -257,6 +257,12 @@ public class WorkspacePullRequestService
                         .findFirst();
                 if (existing.isPresent()) {
                     FetchedPullRequest row = existing.orElseThrow();
+                    GitHubPullRequestIdentity identity = reads.fetchPullRequestIdentity(token,
+                            PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), row.number()));
+                    requirePullRequestRoute(execution, identity);
+                    checkState(identity.state() == GitHubPullRequestIdentity.State.OPEN && identity.headSha().equals(execution.currentTargetSha())
+                                    && identity.pullRequest().number() == row.number() && identity.url().equals(row.htmlUrl()),
+                            "The existing pull request does not match the published cherry-pick head");
                     execution = executions.save(execution.recordPullRequest(row.githubId(), row.number(), row.htmlUrl(), clock.instant()));
                 }
                 else {
@@ -276,13 +282,22 @@ public class WorkspacePullRequestService
     {
         checkArgument(round >= 1, "round is not positive");
         return ciAutofix.start(new StartCiAutofixCommand(execution.workspace().workspaceId(), pullRequestNumber(execution),
-                new AgentLaneId(execution.workspace().laneId()), "cherry-pick-ci:" + execution.id() + ":" + round));
+                new AgentLaneId(execution.workspace().laneId()), "cherry-pick-ci:" + execution.id() + ":" + round), expectedCiPullRequest(execution));
+    }
+
+    private GitHubPullRequestIdentity expectedCiPullRequest(CherryPickExecution execution)
+    {
+        GitHubPullRequestIdentity current = pullRequest(execution);
+        // A lost CI-start response may be retried after that same run already pushed a repair.
+        return new GitHubPullRequestIdentity(current.pullRequest(), current.url(), current.headRepository(), current.headBranch(),
+                execution.currentTargetSha(), current.baseRepository(), current.baseBranch(), current.baseSha(), current.state(), current.draft(), current.author());
     }
 
     /** Replaces the published branch with a rebased or folded tip, only while origin still holds {@code leaseSha}. */
     public void replaceBranch(CherryPickExecution execution, String tipSha, String leaseSha)
     {
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+        requirePublishedHead(execution, leaseSha);
         try {
             git.replaceBranch(workspace, execution.workspace().workBranch(), tipSha, leaseSha);
         }
@@ -294,13 +309,38 @@ public class WorkspacePullRequestService
     public GitHubPullRequestIdentity pullRequest(CherryPickExecution execution)
     {
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
-        return reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+        requireExecution(workspace, execution.id());
+        GitHubPullRequestIdentity identity = reads.fetchPullRequestIdentity(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+        requirePullRequestRoute(execution, identity);
+        checkState(identity.pullRequest().equals(pullRequestRef(workspace, execution))
+                        && execution.delivery().flatMap(Delivery::pullRequestUrl).filter(identity.url()::equals).isPresent(),
+                "The saved pull request identity changed");
+        return identity;
+    }
+
+    private GitHubPullRequestIdentity requirePublishedHead(CherryPickExecution execution, String headSha)
+    {
+        GitHubPullRequestIdentity identity = pullRequest(execution);
+        checkState(identity.state() == GitHubPullRequestIdentity.State.OPEN && identity.headSha().equals(headSha),
+                "The published cherry-pick head changed or its pull request is no longer open");
+        return identity;
+    }
+
+    private static void requirePullRequestRoute(CherryPickExecution execution, GitHubPullRequestIdentity identity)
+    {
+        if (!identity.headRepository().equals(execution.workspace().physicalRepository())
+                || !identity.headBranch().equals(execution.workspace().workBranch())
+                || !identity.baseRepository().equals(execution.workspace().repository())
+                || !identity.baseBranch().equals(execution.workspace().targetBranch())) {
+            throw WorkspaceException.deliveryUnavailable("The cherry-pick pull request was retargeted. Restore its accepted repositories and branches before continuing.");
+        }
     }
 
     /** Takes the draft out of draft once its squashed head is green, so the user can merge it. */
     public void markReady(CherryPickExecution execution)
     {
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
+        requirePublishedHead(execution, execution.currentTargetSha());
         String token = credentials.resolveGitHubToken(workspace.id());
         String nodeId = pullRequests.pullRequestNodeId(token, pullRequestRef(workspace, execution))
                 .orElseThrow(() -> WorkspaceException.deliveryFailed("GitHub returned no pull request node ID"));
@@ -319,9 +359,16 @@ public class WorkspacePullRequestService
             return problems.build();
         }
         Workspace workspace = requireWorkspace(execution.workspace().workspaceId());
-        if (closePullRequest && execution.delivery().flatMap(Delivery::pullRequestNumber).isPresent()) {
+        if (execution.delivery().flatMap(Delivery::pullRequestNumber).isPresent()) {
+            GitHubPullRequestIdentity identity;
             try {
-                if (pullRequest(execution).state() == GitHubPullRequestIdentity.State.OPEN) {
+                identity = pullRequest(execution);
+            }
+            catch (RuntimeException failure) {
+                return ImmutableList.of("Could not verify the published pull request; its branch was preserved: " + failure.getMessage());
+            }
+            try {
+                if (closePullRequest && identity.state() == GitHubPullRequestIdentity.State.OPEN) {
                     pullRequests.closePullRequest(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
                     pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), pullRequestNumber(execution));
                 }
@@ -391,7 +438,8 @@ public class WorkspacePullRequestService
         CherryPickExecution execution = executions.find(executionId)
                 .orElseThrow(() -> new CherryPickNotFoundException(executionId));
         if (!execution.workspace().workspaceId().equals(workspace.id())
-                || !execution.workspace().repository().equals(workspace.monitoredRepository())) {
+                || !execution.workspace().repository().equals(workspace.monitoredRepository())
+                || !execution.workspace().physicalRepository().equals(workspace.selectedRepository())) {
             throw WorkspaceException.deliveryUnavailable("The execution does not belong to this workspace.");
         }
         return execution;
@@ -463,7 +511,8 @@ public class WorkspacePullRequestService
     {
         int number = delivery.pullRequestNumber().orElseThrow();
         pullRequestCatalog.observeWorkspacePullRequest(workspace.monitoredRepository(), number);
-        ciAutofix.start(new StartCiAutofixCommand(workspace.id(), number, new AgentLaneId(execution.workspace().laneId()), ciAutofixKey(execution)));
+        ciAutofix.start(new StartCiAutofixCommand(workspace.id(), number, new AgentLaneId(execution.workspace().laneId()), ciAutofixKey(execution)),
+                expectedCiPullRequest(execution));
     }
 
     private static String ciAutofixKey(CherryPickExecution execution)

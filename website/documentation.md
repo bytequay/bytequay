@@ -146,6 +146,10 @@ In **Settings → Agents → Features**, you can let the Assistant start tasks,
 answer tasks, change Epics and work items, or acknowledge and snooze items. Each
 switch is off by default.
 
+Ask it to work on one of your own pull requests and it uses that PR's
+development task, as the PR's **Development task** button does, and sends your
+words there. A task started some other way can't be linked to a PR later.
+
 Every action leaves a receipt with **Open**; **Stop** cancels the first turn of
 a task it started. The Assistant never edits files or runs code itself.
 

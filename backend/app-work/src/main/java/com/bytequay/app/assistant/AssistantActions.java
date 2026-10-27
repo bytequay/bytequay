@@ -22,12 +22,14 @@ import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.app.agenda.AgendaRefs;
 import com.bytequay.app.agenda.ItemTaskStarter;
+import com.bytequay.app.agent.PullRequestTaskService;
 import com.bytequay.app.agent.runtime.TaskInput;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
@@ -40,8 +42,10 @@ import com.bytequay.core.domain.AssistantReceipt.Fix;
 import com.bytequay.core.domain.AssistantReceipt.Operation;
 import com.bytequay.core.domain.AssistantReceipt.Outcome;
 import com.bytequay.core.domain.ServedRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AssistantStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -113,7 +117,7 @@ class AssistantActions
             .buildOrThrow();
     /** The operations the "change Epics and work items" switch allows; each stays local. */
     private static final Set<Operation> WORK = Sets.immutableEnumSet(Operation.MARK_EPIC, Operation.ADD_TO_EPIC, Operation.CREATE_WORK_ITEM);
-    private static final Set<String> START_FROM = ImmutableSet.of("work", "issue", "jira");
+    private static final Set<String> START_FROM = ImmutableSet.of("work", "issue", "jira", "pr");
     private static final Set<String> MARKABLE = ImmutableSet.of("issue", "jira", "work");
     private static final Set<String> JOINABLE = ImmutableSet.of("work", "issue", "jira", "pr", "task");
     /** The operations the "acknowledge and snooze" switch allows, on what Needs attention lists. */
@@ -140,6 +144,8 @@ class AssistantActions
     private final AgentTaskStore tasks;
     private final AgentTurnService turns;
     private final ItemTaskStarter starts;
+    private final PullRequestTaskService pullRequestTasks;
+    private final WorkspaceStore workspaces;
     private final AppNoticeService notices;
     private final AgentReviewStore reviews;
     private final AssistantWork work;
@@ -154,6 +160,8 @@ class AssistantActions
             AgentTaskStore tasks,
             AgentTurnService turns,
             ItemTaskStarter starts,
+            PullRequestTaskService pullRequestTasks,
+            WorkspaceStore workspaces,
             AppNoticeService notices,
             AgentReviewStore reviews,
             AssistantWork work,
@@ -167,6 +175,8 @@ class AssistantActions
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.starts = requireNonNull(starts, "starts is null");
+        this.pullRequestTasks = requireNonNull(pullRequestTasks, "pullRequestTasks is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.notices = requireNonNull(notices, "notices is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.work = requireNonNull(work, "work is null");
@@ -187,8 +197,10 @@ class AssistantActions
                 .put("words", ImmutableMap.of("type", "string", "description", "The user's exact words in their latest message that ask for this action"))
                 .put("workspace", ImmutableMap.of("type", "string", "description", "start_task without from, and create_work_item outside an Epic: a ws: ref "
                         + "from start_options"))
-                .put("from", ImmutableMap.of("type", "string", "description", "start_task: the work:, issue: or jira: ref of the item to start"))
-                .put("agent", ImmutableMap.of("type", "string", "description", "start_task: an agent id from start_options; the repository's default when absent"))
+                .put("from", ImmutableMap.of("type", "string", "description", "start_task: the work:, issue: or jira: ref of the item to start, "
+                        + "or the pr: ref of the user's own pull request, whose development task gets the user's words"))
+                .put("agent", ImmutableMap.of("type", "string", "description", "start_task: an agent id from start_options; the repository's default when absent; "
+                        + "none for a pr: ref"))
                 .put("approval", ImmutableMap.of("type", "string", "description", "answer_approval and answer_question: the card's approval: ref"))
                 .put("decision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("allow_once", "deny")))
                 .put("answers", ImmutableMap.of("type", "object", "additionalProperties", ImmutableMap.of("type", "string"),
@@ -200,9 +212,9 @@ class AssistantActions
                         "description", "snooze: for an hour, until tomorrow at 9:00, or until Monday at 9:00"))
                 .put("epic", ImmutableMap.of("type", "string", "description", "add_to_epic, and create_work_item in an Epic: the epic: ref"))
                 .buildOrThrow(), "op", "words");
-        return new ReviewTool(NAME, "Do one thing the user's latest message asks for: start a task, answer a card, send the user's words to a task, mark an Epic, "
-                + "add work to an Epic, create a work item titled with the user's words, or acknowledge or snooze a Needs attention item. The app checks every call and "
-                + "shows the user a receipt.", schema, run::call, false);
+        return new ReviewTool(NAME, "Do one thing the user's latest message asks for: start a task, give the user's own pull request's task their words, "
+                + "answer a card, send the user's words to a task, mark an Epic, add work to an Epic, create a work item titled with the user's words, "
+                + "or acknowledge or snooze a Needs attention item. The app checks every call and shows the user a receipt.", schema, run::call, false);
     }
 
     /**
@@ -264,6 +276,11 @@ class AssistantActions
             return task.orElseThrow().workspaceId().map(workspace -> AgendaTarget.of(AgendaTarget.Kind.TASK, workspace, taskId.toString()));
         }
         return reviews.findReviewByTask(taskId.toString()).map(review -> AgendaTarget.of(AgendaTarget.Kind.REVIEW, review.workspaceId(), review.id()));
+    }
+
+    private static boolean pullRequest(Request request)
+    {
+        return AgendaRefs.kind(request.text("from")).equals("pr");
     }
 
     /** What one call asked for, once its shape is valid. */
@@ -364,7 +381,10 @@ class AssistantActions
             checkArgument(body.path("words").isTextual(), "words are required");
             Request request = new Request(operation, body.path("words").asText(), body);
             switch (operation) {
-                case START_TASK -> checkArgument(request.optional("from").isPresent() || request.optional("workspace").isPresent(), "start_task needs from or workspace");
+                case START_TASK -> {
+                    checkArgument(request.optional("from").isPresent() || request.optional("workspace").isPresent(), "start_task needs from or workspace");
+                    checkArgument(!pullRequest(request) || request.optional("agent").isEmpty(), "start_task from a pr: ref takes no agent");
+                }
                 case ANSWER_APPROVAL -> checkArgument(ImmutableSet.of("allow_once", "deny").contains(request.text("decision")), "decision must be allow_once or deny");
                 case ANSWER_QUESTION -> checkArgument(body.path("answers").isObject() && !body.path("answers").isEmpty(), "answers are required");
                 case REPLY_TO_TASK -> checkArgument(request.optional("task").isPresent(), "reply_to_task needs a task: ref");
@@ -603,6 +623,9 @@ class AssistantActions
 
         private Result start(Request request)
         {
+            if (pullRequest(request)) {
+                return startOnPullRequest(request);
+            }
             ItemTaskStarter.Start start = request.optional("from").map(from -> starts.item(from).followedBy(NOTE.formatted(request.words())))
                     .orElseGet(() -> starts.freeText(request.text("workspace").substring("ws:".length()), request.words()));
             TaskId taskId = new TaskId(UUID.nameUUIDFromBytes(identity(request).getBytes(StandardCharsets.UTF_8)));
@@ -629,6 +652,29 @@ class AssistantActions
             Optional<String> turnId = turns.findTurnByIdempotencyKey(task.id(), key).map(turn -> turn.id().toString());
             return new Result("Started “" + clip(task.title(), 80) + "”", new AssistantReceipt(Operation.START_TASK, Outcome.DONE, Optional.of(String.join(" · ", detail.build())),
                     target, Optional.empty(), turnId, Optional.empty(), Optional.empty()), Optional.of(task.id().toString()));
+        }
+
+        /**
+         * The pull request's own development task, as its page's Development task button opens or makes it, with the user's words as its next
+         * message: the first one when the button just made it.
+         */
+        private Result startOnPullRequest(Request request)
+        {
+            AgendaRefs.Numbered pr = AgendaRefs.numbered(request.text("from")).orElseThrow(() -> new IllegalArgumentException("That pull request ref is not valid"));
+            Workspace workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo())).findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException("That pull request's repository is not watched"));
+            boolean had = pullRequestTasks.find(workspace.id(), pr.repo(), pr.number()).filter(found -> found.state() != TaskState.COMPLETED).isPresent();
+            AgentTask task = pullRequestTasks.assign(workspace.id(), pr.repo(), pr.number());
+            String key = key(request);
+            // A task at work takes the words after its current turn, as a reply to it does.
+            boolean working = task.worktreeMutationClaim().isPresent();
+            TaskInput.Accepted accepted = TaskInput.accepted(turns, task.id(), key)
+                    .orElseGet(() -> TaskInput.send(turns, task.id(), task.version(), request.words(), key, working, Optional.empty()));
+            Optional<AgendaTarget> target = target(task.id());
+            target.ifPresent(opens -> context.serve(AgendaRefs.task(task.id().toString()), new ServedRef("act", Optional.of(opens))));
+            String line = !had ? "Started “%s”" : accepted.queuedInputId().isPresent() ? "Queued your words for “%s”" : "Sent your words to “%s”";
+            return new Result(line.formatted(clip(task.title(), 80)), new AssistantReceipt(Operation.START_TASK, Outcome.DONE, Optional.of(pr.repo() + "#" + pr.number()),
+                    target, Optional.empty(), accepted.turnId().map(TurnId::toString), Optional.empty(), Optional.empty()), Optional.of(task.id().toString()));
         }
 
         /** The same call on the same message is the same input: a retried reply starts or sends nothing twice. */

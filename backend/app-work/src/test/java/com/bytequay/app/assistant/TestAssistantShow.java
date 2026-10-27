@@ -20,6 +20,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.app.agenda.AgendaFixtures;
 import com.bytequay.app.agenda.AgendaService;
 import com.bytequay.app.agenda.ItemTaskStarter;
+import com.bytequay.app.agent.PullRequestTaskService;
 import com.bytequay.app.notices.AppNotice;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.core.domain.AgendaTarget;
@@ -92,8 +93,8 @@ class TestAssistantShow
                 Optional.empty(), NOW)));
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         AssistantActions actions = new AssistantActions(new MemoryAssistantStore(), mock(AssistantSettings.class), mock(AgentApprovalStore.class),
-                mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(ItemTaskStarter.class), notices,
-                mock(AgentReviewStore.class), mock(AssistantWork.class), mapper, clock);
+                mock(AgentApprovalService.class), mock(AgentTaskStore.class), mock(AgentTurnService.class), mock(ItemTaskStarter.class),
+                mock(PullRequestTaskService.class), workspaces, notices, mock(AgentReviewStore.class), mock(AssistantWork.class), mapper, clock);
         show = new AssistantShow(actions, rows, workspaces, agenda, mapper, clock);
         when(workspaces.findById("ws1")).thenReturn(Optional.of(new Workspace("ws1", "Repository", 1, RepoRef.of("owner", "repository"), Optional.empty(), Optional.empty(), 1,
                 RepoRef.of("owner", "repository"), Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(),

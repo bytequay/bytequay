@@ -50,6 +50,7 @@ import com.bytequay.app.agenda.ItemTaskStarter;
 import com.bytequay.app.agent.InteractiveAgentTaskStarter;
 import com.bytequay.app.agent.InteractiveTaskStart;
 import com.bytequay.app.agent.IssueDevelopmentService;
+import com.bytequay.app.agent.PullRequestTaskService;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.notices.AppNoticeService;
 import com.bytequay.app.service.attention.AttentionMarkService;
@@ -117,6 +118,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -143,6 +145,7 @@ class TestAssistantActions
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final InteractiveAgentTaskStarter starter = mock(InteractiveAgentTaskStarter.class);
+    private final PullRequestTaskService pullRequestTasks = mock(PullRequestTaskService.class);
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -196,7 +199,7 @@ class TestAssistantActions
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows, attentionMarks);
         actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, new ItemTaskStarter(starter, models, settings, workspaces, workItems,
-                issues, jira), notices, reviews, work, mapper, clock);
+                issues, jira), pullRequestTasks, workspaces, notices, reviews, work, mapper, clock);
     }
 
     @Test
@@ -504,6 +507,55 @@ class TestAssistantActions
         InteractiveTaskStart jiraStart = started();
         assertThat(jiraStart.message()).isEqualTo("Implement ICE-7: Expire snapshots by branch\n\nNote from the user, in their words to the assistant: “go ahead with the ticket”");
         assertThat(jiraStart.jiraSource().orElseThrow().key()).isEqualTo("ICE-7");
+    }
+
+    @Test
+    void startsTheUsersPullRequestTaskWithTheirWordsAsItsFirstMessage()
+    {
+        String pr = "pr:owner/repository#31402";
+        AgentTask assigned = task("Retry snapshot commits on conflict");
+        when(tasks.find(assigned.id())).thenReturn(Optional.of(assigned));
+        when(pullRequestTasks.assign("ws1", "owner/repository", 31402)).thenReturn(assigned);
+        doReturn(Optional.empty()).when(turns).findTurnByIdempotencyKey(any(), any());
+        String start = "{\"op\":\"start_task\",\"from\":\"" + pr + "\",\"words\":\"read it and tell me how to proceed\"}";
+
+        act(message("start a task on #31402: read it and tell me how to proceed", ImmutableList.of()), start);
+        assertRefused("That isn't on screen", Optional.empty());
+        verifyNoInteractions(pullRequestTasks);
+
+        AssistantItem message = message("start a task on #31402: read it and tell me how to proceed", ImmutableList.of(), Optional.of(pr));
+        act(message, start);
+        ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(turn.capture());
+        assertThat(turn.getValue().taskId()).isEqualTo(assigned.id());
+        assertThat(turn.getValue().message()).isEqualTo("read it and tell me how to proceed");
+        assertThat(turn.getValue().idempotencyKey()).startsWith("assistant:");
+        verify(starter, never()).start(any());
+        AssistantReceipt receipt = receipts.getLast().receipt().orElseThrow();
+        assertThat(receipts.getLast().text()).isEqualTo("Started “Retry snapshot commits on conflict”");
+        assertThat(receipt.detail()).contains("owner/repository#31402");
+        assertThat(receipt.turnId()).isPresent();
+        assertThat(receipt.target()).contains(AgendaTarget.of(AgendaTarget.Kind.TASK, "ws1", assigned.id().toString()));
+        assertThat(store.actions(message.id()).getLast().result()).contains(assigned.id().toString());
+    }
+
+    @Test
+    void sendsTheWordsToThePullRequestsOpenTask()
+    {
+        String pr = "pr:owner/repository#31402";
+        when(pullRequestTasks.find("ws1", "owner/repository", 31402)).thenReturn(Optional.of(task));
+        when(pullRequestTasks.assign("ws1", "owner/repository", 31402)).thenReturn(task);
+        doReturn(Optional.empty()).when(turns).findTurnByIdempotencyKey(any(), any());
+        AssistantItem message = message("on #31402, rebase it with codex", ImmutableList.of(), Optional.of(pr));
+
+        assertThat(act(message, "{\"op\":\"start_task\",\"from\":\"" + pr + "\",\"agent\":\"codex\",\"words\":\"rebase it\"}"))
+                .isEqualTo("{\"outcome\":\"error\",\"message\":\"start_task from a pr: ref takes no agent\"}");
+        act(message, "{\"op\":\"start_task\",\"from\":\"" + pr + "\",\"words\":\"rebase it\"}");
+        ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(turns).start(turn.capture());
+        assertThat(turn.getValue().taskId()).isEqualTo(task.id());
+        assertThat(turn.getValue().message()).isEqualTo("rebase it");
+        assertThat(receipts.getLast().text()).isEqualTo("Sent your words to “Retry Iceberg commit on conflict”");
     }
 
     @Test

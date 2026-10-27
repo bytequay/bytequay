@@ -39,9 +39,9 @@ import {
   MetadataPicker,
   reactionEmoji,
   toggleSelection,
-  type MentionCandidate,
   type QuoteRequest,
 } from '../pulls/PullOverview';
+import type { MentionCandidate } from '../pulls/useMentions';
 import { remoteErrorMessage } from '../remoteError';
 import { CommentIcon, PaneIcon, RefreshIcon } from '../pulls/PullsScreen';
 import { parsePullSearch, pullRequestMatchesSearch } from '../pulls/model';

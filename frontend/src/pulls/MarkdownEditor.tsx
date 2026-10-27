@@ -14,6 +14,7 @@
 import { Fragment, type ReactNode, type RefObject, useId, useRef, useState } from 'react';
 import { Lock } from 'lucide-react';
 import MarkdownBody, { type SuggestionBase } from './MarkdownBody';
+import { useMentions } from './useMentions';
 
 export type MarkdownCommand =
   | 'heading' | 'bold' | 'italic' | 'quote' | 'code' | 'link' | 'bullet' | 'number' | 'task';
@@ -246,6 +247,8 @@ export default function MarkdownEditor({
   const bodyRef = textareaRef ?? ownRef;
   const suggestionLines = canSuggest ? suggestion?.lines ?? null : null;
   const statusId = useId();
+  // A private note never reaches GitHub, so nobody there could be mentioned.
+  const mentions = useMentions({ repository: isPrivate ? undefined : repository, value, onChange, textareaRef: bodyRef });
 
   const edit = (change: (value: string, start: number, end: number) => { value: string; start: number; end: number }) => {
     const textarea = bodyRef.current;
@@ -295,18 +298,27 @@ export default function MarkdownEditor({
         aria-label={ariaLabel}
         aria-describedby={statusId}
         placeholder={placeholder}
-        onChange={event => onChange(event.target.value)}
+        {...(mentions.open ? mentions.inputProps : {})}
+        onBlur={mentions.dismiss}
+        onChange={event => {
+          onChange(event.target.value);
+          mentions.change(event.target);
+        }}
         onKeyDown={event => {
           if (busy) return;
+          // Ahead of the mention list, whose plain Enter would otherwise take Cmd+Enter as a pick.
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && onSubmit !== undefined) {
+            event.preventDefault();
+            onSubmit();
+            return;
+          }
+          if (mentions.keyDown(event)) return;
           if (event.key === 'Escape' && onCancel !== undefined) {
             event.preventDefault();
             onCancel();
           }
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && onSubmit !== undefined) {
-            event.preventDefault();
-            onSubmit();
-          }
         }} />
+      {mentions.list}
       <p id={statusId} className={statusMessage ? 'pull-diff-review__status' : 'sr-only'} role="status">{statusMessage}</p>
       {error && <span className="pull-diff-review__error" role="alert">{error}</span>}
       <footer>{children}</footer>

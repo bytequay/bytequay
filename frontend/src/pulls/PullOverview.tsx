@@ -55,6 +55,7 @@ import { PullRequestIcon } from './PullRowItem';
 import ReviewCommentIndex, { commentIndexTarget } from './ReviewCommentIndex';
 import { PendingReviewComments, useReviewDraft } from './ReviewDrafts';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import { useMentions, type MentionCandidate } from './useMentions';
 import { usePrCommentCommand } from './usePrCommentCommand';
 
 type Activity = PullRequestDetailDto['recentActivity'][number];
@@ -1755,8 +1756,6 @@ function CheckStatusIcon({ check }: { check: PullRequestDetailDto['checkRuns'][n
   return running ? <span className="bq-spinner is-spinning">{icon}</span> : icon;
 }
 
-export type MentionCandidate = { login: string; avatarUrl: string | null };
-
 // ponytail: one pending request at a time; asking to comment on another pull request first replaces it.
 let commentRequest: string | null = null;
 
@@ -1764,7 +1763,6 @@ let commentRequest: string | null = null;
 export function requestPullComment(repo: string, number: number): void {
   commentRequest = `${repo.toLowerCase()}#${number}`;
 }
-type ActiveMention = { start: number; query: string };
 export type QuoteRequest = { id: number; body: string };
 
 export function DiscussionComposer({
@@ -1798,13 +1796,10 @@ export function DiscussionComposer({
   const [error, setError] = useState<string | null>(null);
   const [draftRevision, setDraftRevision] = useState(0);
   const hadDraft = useRef(false);
-  const [mention, setMention] = useState<ActiveMention | null>(null);
-  const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const command = usePrCommentCommand({ repository, number: pullRequestNumber, value: body, onChange: setBody, textareaRef });
-  const visibleCandidates = mention
-    ? candidates.filter(candidate => candidate.login.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 8)
-    : [];
+  const mentions = useMentions({ repository, workspaceId, participants: candidates, value: body, onChange: setBody, textareaRef });
+  const dismissMention = mentions.dismiss;
   useEffect(() => {
     if (pullRequestNumber === undefined || commentRequest !== `${repository.toLowerCase()}#${pullRequestNumber}`) return;
     commentRequest = null;
@@ -1817,13 +1812,13 @@ export function DiscussionComposer({
     if (!quotedReply) return;
     setBody(current => appendQuotedReply(current, quotedReply.body));
     setPreview(false);
-    setMention(null);
+    dismissMention();
     setError(null);
     requestAnimationFrame(() => {
       textareaRef.current?.focus();
       textareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
-  }, [quotedReply]);
+  }, [quotedReply, dismissMention]);
   useEffect(() => {
     if (!onDraftChange || (!body && !hadDraft.current)) return;
     // An untouched composer must not clear the saved text from an earlier visit.
@@ -1831,16 +1826,6 @@ export function DiscussionComposer({
     const timer = window.setTimeout(() => onDraftChange(body), 1200);
     return () => window.clearTimeout(timer);
   }, [body, onDraftChange]);
-  const chooseMention = (candidate: MentionCandidate) => {
-    if (!mention) return;
-    const replacement = replaceMention(body, mention, candidate.login);
-    setBody(replacement.value);
-    setMention(null);
-    requestAnimationFrame(() => {
-      textareaRef.current?.focus();
-      textareaRef.current?.setSelectionRange(replacement.caret, replacement.caret);
-    });
-  };
   const submit = async () => {
     if (!body.trim() || command.loading) return;
     command.dismiss();
@@ -1873,21 +1858,19 @@ export function DiscussionComposer({
           setPreview(false);
           requestAnimationFrame(() => textareaRef.current?.focus());
         }}>Write</button>
-        <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); setMention(null); command.dismiss(); }}>Preview</button>
+        <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); mentions.dismiss(); command.dismiss(); }}>Preview</button>
       </header>
       {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={repository} />}
       <div className="pr-composer__input" hidden={preview}>
           <textarea ref={textareaRef} value={body} placeholder="Add a comment" rows={7}
             disabled={posting || closing}
             {...command.inputProps}
-            aria-controls={mention !== null ? 'pr-mention-list' : command.inputProps['aria-controls']}
-            aria-expanded={mention !== null || command.inputProps['aria-expanded']}
-            onBlur={() => { setMention(null); command.dismiss(); }}
+            {...(mentions.open ? mentions.inputProps : {})}
+            onBlur={() => { mentions.dismiss(); command.dismiss(); }}
             onChange={event => {
               command.change(event);
               setError(null);
-              setMention(activeMention(event.target.value, event.target.selectionStart));
-              setMentionIndex(0);
+              mentions.change(event.target);
             }}
             onKeyDown={event => {
               // Ahead of the mention list, whose plain Enter would otherwise take Cmd+Enter as a pick.
@@ -1897,39 +1880,10 @@ export function DiscussionComposer({
                 return;
               }
               if (command.keyDown(event)) return;
-              if (!mention) return;
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                setMention(null);
-              }
-              else if (visibleCandidates.length > 0 && event.key === 'ArrowDown') {
-                event.preventDefault();
-                setMentionIndex(index => (index + 1) % visibleCandidates.length);
-              }
-              else if (visibleCandidates.length > 0 && event.key === 'ArrowUp') {
-                event.preventDefault();
-                setMentionIndex(index => (index - 1 + visibleCandidates.length) % visibleCandidates.length);
-              }
-              else if (visibleCandidates.length > 0 && (event.key === 'Enter' || event.key === 'Tab')) {
-                event.preventDefault();
-                chooseMention(visibleCandidates[mentionIndex] ?? visibleCandidates[0]);
-              }
+              mentions.keyDown(event);
             }} />
           {command.suggestion}
-          {mention && (
-            <div className="pr-mention-list" id="pr-mention-list" role="listbox" aria-label="Mention a participant">
-              {visibleCandidates.length === 0
-                ? <span className="pr-mention-list__empty">No matching participants</span>
-                : visibleCandidates.map((candidate, index) => (
-                  <button type="button" role="option" aria-selected={index === mentionIndex}
-                    className={index === mentionIndex ? 'is-active' : ''} key={candidate.login}
-                    onMouseDown={event => { event.preventDefault(); chooseMention(candidate); }}>
-                    <Avatar login={candidate.login} avatarUrl={candidate.avatarUrl} size={24} />
-                    <strong>{candidate.login}</strong>
-                  </button>
-                ))}
-            </div>
-          )}
+          {mentions.list}
         </div>
       {error && <span className="pr-composer__error" role="alert">{error}</span>}
       <footer>
@@ -1965,20 +1919,6 @@ export function mentionCandidates(detail: PullRequestDetailDto): MentionCandidat
     activity.payload.comments.forEach(comment => add(comment.actor, comment.actorAvatarUrl));
   });
   return [...candidates.values()];
-}
-
-export function activeMention(value: string, caret: number): ActiveMention | null {
-  const match = value.slice(0, caret).match(/(^|[\s([{])@([a-z\d-]*)$/i);
-  return match ? { start: caret - match[2].length - 1, query: match[2] } : null;
-}
-
-export function replaceMention(value: string, mention: ActiveMention, login: string) {
-  const end = mention.start + mention.query.length + 1;
-  const inserted = `@${login} `;
-  return {
-    value: value.slice(0, mention.start) + inserted + value.slice(end),
-    caret: mention.start + inserted.length,
-  };
 }
 
 export function appendQuotedReply(draft: string, body: string) {

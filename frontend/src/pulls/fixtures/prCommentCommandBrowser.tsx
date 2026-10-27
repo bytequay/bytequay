@@ -18,6 +18,7 @@ import { prDetail } from './pullRequest';
 import type { Bridge, DiffCommitDto } from '../../types';
 import type { ReviewDraftDto } from '../agent-review/contracts';
 import { element as fixtureElement, assert, changeInput, settle } from '../../fixtures/harness';
+import MarkdownEditor from '../MarkdownEditor';
 import { DiscussionComposer } from '../PullOverview';
 import { remotePullRequest, ReviewDialog } from '../PullsScreen';
 import '../../css/base.css';
@@ -52,7 +53,11 @@ export async function run(): Promise<string> {
     saveReviewDraft: async (_repo, _number, version, body) => (saved = draft(body, version + 1)),
     submitReviewDraft: async (_repo, _number, _version, body) => { posted.push(body); saved = draft('', saved.version + 1); },
     fetchPullRequestDetailByRef: async () => detail,
-  } satisfies Pick<Bridge, 'fetchPrDiffCommits' | 'getReviewDraft' | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef'>;
+    fetchRepoUsers: async repo => {
+      assert(repo === detail.repo, 'Mentions must read this repository\'s people');
+      return [['albert', false], ['alice', false], ['bob', false], ['alfred-bot', true]].map(([login, bot]) => ({ login: String(login), avatarUrl: null, bot: Boolean(bot) }));
+    },
+  } satisfies Pick<Bridge, 'fetchPrDiffCommits' | 'getReviewDraft' | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef' | 'fetchRepoUsers'>;
   Object.assign(window, { bridge });
   const host = document.createElement('main');
   document.body.append(host);
@@ -96,6 +101,13 @@ export async function run(): Promise<string> {
     assert(option() === null && editor().value === '/tes', 'Escape dismisses without editing');
     await type('/te'); editor().setSelectionRange(0, 0); await key('Enter');
     assert(option() === null && editor().value === '/te', 'Moving the caret away stops command acceptance');
+    const mentions = () => [...host.querySelectorAll('[aria-label="Mention someone"] [role="option"] strong')].map(item => item.textContent);
+    await type('Thanks @al');
+    assert(mentions().join() === 'alice,albert', 'Mentions list participants, then the repository\'s people, by login prefix and without bots');
+    await type('Thanks @b');
+    assert(mentions().join() === 'bob', 'A repository person who never took part can be mentioned');
+    await type('Thanks @al'); await key('ArrowDown'); await key('Enter');
+    assert(editor().value === 'Thanks @albert ', 'Arrow keys pick a mention');
     await type('Thanks @al'); await key('Enter');
     assert(editor().value === 'Thanks @alice ', 'Existing mention completion still works');
     await type('Please run CI.\n/tes\nThanks.');
@@ -136,6 +148,18 @@ export async function run(): Promise<string> {
     assert(editor().value === `${command} sha=${head}` && Number(posted.length) === 1, 'Review command acceptance does not submit the review');
     host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary')?.click(); await settle();
     assert(posted[1] === `${command} sha=${head}`, 'Submit review posts the completed draft');
+
+    let lineComment = '';
+    let cancelled = false;
+    const renderLineComment = () => flushSync(() => root.render(<MarkdownEditor repository={detail.repo} ariaLabel="Line comment"
+      value={lineComment} onChange={value => { lineComment = value; renderLineComment(); }} onCancel={() => { cancelled = true; }}>{null}</MarkdownEditor>));
+    renderLineComment();
+    await type('cc @b');
+    assert(mentions().join() === 'bob', 'A line comment suggests the repository\'s people');
+    await key('Escape');
+    assert(mentions().length === 0 && !cancelled && editor().value === 'cc @b', 'Escape closes the mention list before the comment');
+    await type('cc @al'); await key('Enter');
+    assert(editor().value === 'cc @albert ' && !cancelled, 'Enter picks a mention in a line comment');
     return 'PR command completion passed';
   }
   finally { root.unmount(); host.remove(); Object.assign(window, { bridge: previous }); }

@@ -18,13 +18,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
-import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewDraftFixture, reviewFixture, runningReviewFixture } from './agent-review/fixtures/review';
 import { timelineActivity, timelineComment, pr, prDetail } from './fixtures/pullRequest';
 import type { PrivateThreads } from './PrivateThread';
+import { activeMention, matchingMentions, replaceMention } from './useMentions';
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
 const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';
@@ -1477,6 +1478,15 @@ describe('PullOverview', () => {
     if (!mention) throw new Error('Expected an active mention');
     expect(replaceMention('Thanks @ca!', mention, 'carol')).toEqual({ value: 'Thanks @carol !', caret: 14 });
     expect(activeMention('mail@example.com', 16)).toBeNull();
+  });
+
+  it('matches mentions on the login prefix, participants first, without repeats', () => {
+    const person = (login: string) => ({ login, avatarUrl: null });
+    const people = [person('carol'), person('Alice'), person('bob'), person('alicia'), person('malice'), person('alice')];
+
+    expect(matchingMentions(people, 'ali').map(candidate => candidate.login)).toEqual(['Alice', 'alicia']);
+    expect(matchingMentions(people, '')).toHaveLength(5);
+    expect(matchingMentions(Array.from({ length: 20 }, (_, index) => person(`user${index}`)), 'user')).toHaveLength(8);
   });
 
   it('appends a GitHub-style quote without replacing a draft', () => {

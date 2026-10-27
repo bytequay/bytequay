@@ -37,6 +37,8 @@
 .pull-diff-review__preview { min-height: 88px; border-bottom: 1px solid var(--line-default); }
 .pull-diff-review__preview .markdown-body { padding: 4px 2px 8px; }
 .pull-diff-review__nothing { margin: 0; color: light-dark(#6e7781, var(--dark-muted)); padding: 8px 2px; font-size: var(--ui-font-size); }
+/* In flow: a diff file and an IDE comment zone clip anything that floats past their edge. */
+.pull-diff-review > .pr-mention-list { position: static; width: min(300px, 100%); }
 .pull-diff-review textarea { width: 100%; min-height: 88px; max-height: 40vh; field-sizing: content; resize: vertical; border: 1px solid light-dark(#8c959f, var(--dark-border-strong)); border-radius: 6px; outline: 0; background: var(--surface-canvas); padding: 9px; font: inherit; font-size: var(--ui-font-size); }
 .pull-diff-review textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 2px light-dark(rgba(9, 105, 218, 0.15), rgb(0 0 0 / 27%)); }
 .pull-diff-review__error { color: var(--fg-danger); font-size: var(--ui-font-size); }

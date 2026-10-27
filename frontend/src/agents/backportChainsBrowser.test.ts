@@ -28,6 +28,12 @@ it('shows the saved route and operates existing chain controls', async () => {
   expect(results).toEqual([{ name: 'backport chain groups, navigation, selection, Stop and Resume' }]);
 }, deadline(30_000));
 
+it('orders backport endpoints regardless of click or paste order', async () => {
+  const results = await fixture.run<ScenarioResult[]>({
+    width: 1100, height: 950, body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runSelectionOrder()");' });
+  expect(results).toEqual([{ name: 'Backport ranges preserve chronological order for clicks and pasted endpoints' }]);
+}, deadline(30_000));
+
 it('completes backport requests on workspace Home and Tasks without sending', async () => {
   const results = await fixture.run<ScenarioResult[]>({
     width: 1100, height: 950, body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runComposer()");' });

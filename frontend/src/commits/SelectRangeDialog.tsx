@@ -21,6 +21,7 @@ import { matchesCommitQuery, pastedRangePair, shortSha } from './model';
 type Slot = 'from' | 'to';
 
 type SelectRangeDialogProps = {
+  /** Source history in newest-first order. */
   commits: GitCommitDto[];
   /** Repo and branch the picker is searching, shown under the title. */
   scope: string;
@@ -28,7 +29,7 @@ type SelectRangeDialogProps = {
   pullRequestRepo?: string | null;
   onOpenPullRequest: (number: number) => void;
   onCancel: () => void;
-  onApply: (anchors: [string, string]) => void;
+  onApply: (anchors: [oldest: string, newest: string]) => void;
 };
 
 export default function SelectRangeDialog({
@@ -166,7 +167,11 @@ export default function SelectRangeDialog({
               type="button"
               className="cmt-rd-btn is-primary"
               disabled={!ready}
-              onClick={() => { if (fromCommit && toCommit) onApply([fromCommit.sha, toCommit.sha]); }}
+              onClick={() => {
+                if (!fromCommit || !toCommit) return;
+                const [oldest, newest] = commits.indexOf(fromCommit) >= commits.indexOf(toCommit) ? [fromCommit, toCommit] : [toCommit, fromCommit];
+                onApply([oldest.sha, newest.sha]);
+              }}
             >
               Select range
             </button>

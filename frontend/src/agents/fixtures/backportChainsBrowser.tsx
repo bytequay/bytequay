@@ -70,7 +70,7 @@ export function mount() {
     resumeBackportChain: (workspace: string, id: string) => change(workspace, id, 'ACTIVE'),
     gitLog: async (...args: unknown[]) => {
       calls.push(args);
-      return { commits: ['a', 'b'].map((letter, i) => ({ sha: letter.repeat(40), title: 'Landed fix ' + i, body: '',
+      return { commits: ['a', 'b', 'c'].map((letter, i) => ({ sha: letter.repeat(40), title: 'Landed fix ' + i, body: '',
         author: 'Developer', committer: 'Developer', authoredAt: '2026-01-01T00:00:00Z', committedAt: '2026-01-01T00:00:00Z' })),
       refresh: { state: 'IDLE', workspaceId: 'p4' } };
     },
@@ -113,11 +113,13 @@ export async function run() {
     await settle();
     assert(view.host.querySelector('[role="dialog"]')?.textContent?.includes('Select a commit range'), 'Existing commit picker reused');
     const results = [...view.host.querySelectorAll<HTMLElement>('.cmt-rd-results .cmt-commit-row')];
-    assert(results.length === 2, 'Source history supplied');
+    assert(results.length === 3, 'Source history supplied');
     results[1].click(); await settle(); results[0].click(); await settle();
     button('Select range').click(); await settle();
     assert(view.host.textContent?.includes('Selected 2 landed commits'), 'Explicit selected range returned');
-    assert(view.calls.some(call => call[0] === 'p2' && call[1] === 'blocked' && typeof call[2] === 'object'), 'Selection bound to chain and version');
+    assert(view.calls.some(call => JSON.stringify(call) === JSON.stringify(['p2', 'blocked', {
+      version: 1, hopIndex: 0, oldest: 'b'.repeat(40), newest: 'a'.repeat(40),
+    }])), 'Selection bound to chain, version and ordered endpoints');
     button('Resume').click(); await settle();
     assert(view.calls.some(call => JSON.stringify(call) === JSON.stringify(['p2', 'blocked', 'ACTIVE'])), 'Resume uses owning workspace');
     button('Stop').click(); await settle();
@@ -130,6 +132,34 @@ export async function run() {
     assert(!view.host.textContent?.includes('Conversation ›'), 'Existing PR source has no invented source conversation');
     return [{ name: 'backport chain groups, navigation, selection, Stop and Resume' }];
   } finally { view.close(); }
+}
+
+export async function runSelectionOrder() {
+  for (const mode of ['oldest-first', 'newest-first', 'paste-oldest-first', 'paste-newest-first', 'single'] as const) {
+    const view = mount();
+    try {
+      element<HTMLButtonElement>('.backport-block button', view.host, 'Select commits exists').click();
+      await settle();
+      const dialog = element<HTMLDialogElement>('.cmt-rd', view.host, 'Range picker opens');
+      if (mode.startsWith('paste-')) {
+        const input = element<HTMLInputElement>('.cmt-rd-search', dialog, 'Range input exists');
+        changeInput(input, mode === 'paste-oldest-first' ? 'ccccccc..aaaaaaa' : 'aaaaaaa..ccccccc');
+        await settle();
+      } else {
+        const results = [...dialog.querySelectorAll<HTMLElement>('.cmt-commit-row')];
+        const indices = mode === 'single' ? [1, 1] : mode === 'oldest-first' ? [2, 0] : [0, 2];
+        for (const index of indices) { results[index].click(); await settle(); }
+      }
+      assert(dialog.textContent?.includes(mode === 'single' ? '1 commit in this range' : '3 commits in this range'), `${mode}: inclusive range count`);
+      element<HTMLButtonElement>('.cmt-rd-btn.is-primary', dialog, 'Select range exists').click();
+      await settle();
+      const selections = view.calls.filter(call => call[0] === 'p2' && call[1] === 'blocked');
+      assert(JSON.stringify(selections) === JSON.stringify([['p2', 'blocked', {
+        version: 1, hopIndex: 0, oldest: (mode === 'single' ? 'b' : 'c').repeat(40), newest: (mode === 'single' ? 'b' : 'a').repeat(40),
+      }]]), `${mode}: backport receives oldest then newest exactly once`);
+    } finally { view.close(); }
+  }
+  return [{ name: 'Backport ranges preserve chronological order for clicks and pasted endpoints' }];
 }
 
 export function mountComposer(surface: 'Home' | 'Tasks' | 'Other' = 'Home') {

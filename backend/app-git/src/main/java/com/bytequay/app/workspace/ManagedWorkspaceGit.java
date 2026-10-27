@@ -154,6 +154,13 @@ public class ManagedWorkspaceGit
         if (!remoteUrl(repository, "origin").filter(workspace.originCloneUrl()::equals).isPresent()) {
             throw remoteMismatch("origin remote does not match persisted push routing");
         }
+        // Git expands insteadOf/pushInsteadOf after reading the stored remote URL.
+        Result fetch = git.run(repository, "remote", "get-url", "--all", "origin");
+        Result push = git.run(repository, "remote", "get-url", "--push", "--all", "origin");
+        if (!fetch.successful() || fetch.truncated() || !fetch.output().strip().equals(workspace.originCloneUrl())
+                || !push.successful() || push.truncated() || !push.output().strip().equals(workspace.originCloneUrl())) {
+            throw remoteMismatch("origin remote resolves outside persisted push routing");
+        }
     }
 
     public Optional<String> remoteBranchSha(Workspace workspace, String branch)

@@ -459,7 +459,8 @@ class TestWorkspaceProvisioningService
         StringBuilder script = new StringBuilder("#!/bin/sh\n")
                 .append("printf '%s\\n' \"$*\" >> ")
                 .append(shellQuote(commandLog.toString()))
-                .append("\nexec git");
+                // Transport routing in this fixture must not alter the URLs production validates.
+                .append("\ncase \"$3 $4\" in 'remote get-url') exec git \"$@\" ;; esac\nexec git");
         routes.forEach((url, remote) -> script.append(" -c ")
                 .append(shellQuote("url." + remote.toUri() + ".insteadOf=" + url)));
         script.append(" \"$@\"\n");

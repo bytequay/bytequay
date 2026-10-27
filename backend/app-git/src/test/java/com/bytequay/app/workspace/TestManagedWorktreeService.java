@@ -35,13 +35,17 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.app.git.GitTestSupport.configureUser;
@@ -226,7 +230,6 @@ class TestManagedWorktreeService
     {
         Path remote = temporaryDirectory.resolve("remote.git");
         run(temporaryDirectory, "init", "--bare", "--initial-branch=main", remote.toString());
-        run(repository, "config", "url." + remote.toUri() + ".insteadOf", ORIGIN);
         TaskWorktree worktree = service.provision(command(TaskId.random()));
         Files.writeString(worktree.canonicalWorktree().resolve("change.txt"), "change\n");
         run(worktree.canonicalWorktree(), "add", "change.txt");
@@ -234,12 +237,19 @@ class TestManagedWorktreeService
         String expectedSha = run(worktree.canonicalWorktree(), "rev-parse", "HEAD").output().strip();
         service.cleanup(worktree);
 
-        CredentialService credentials = mock(CredentialService.class);
-        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection()))
-                .thenReturn(ImmutableMap.of());
-        RemoteSourceStore remoteSources = mock(RemoteSourceStore.class);
-        when(remoteSources.findByWorkspace(WORKSPACE_ID)).thenReturn(List.of());
-        ManagedWorkspaceGit workspaceGit = new ManagedWorkspaceGit(paths, git, credentials, remoteSources);
+        ManagedWorkspaceGit workspaceGit = workspaceGit(new GitCommandRunner()
+        {
+            @Override
+            public Result run(Path worktree, Duration timeout, Map<String, String> environment, List<String> arguments)
+            {
+                if (arguments.getFirst().equals("push")) {
+                    assertThat(arguments.subList(0, 3)).containsExactly("push", "--porcelain", "origin");
+                    // Route only the test transport; validation still sees the real checkout configuration.
+                    return super.run(worktree, timeout, environment, ImmutableList.of("push", "--porcelain", remote.toString(), arguments.get(3)));
+                }
+                return super.run(worktree, timeout, environment, arguments);
+            }
+        });
 
         assertThatThrownBy(() -> workspaceGit.pushBranch(workspace(), worktree.generatedBranch(), startCommit))
                 .isInstanceOf(ManagedWorkspaceGit.Failure.class)
@@ -249,6 +259,39 @@ class TestManagedWorktreeService
         assertThat(worktree.canonicalWorktree()).doesNotExist();
         assertThat(run(remote, "rev-parse", "refs/heads/" + worktree.generatedBranch()).output().strip())
                 .isEqualTo(expectedSha);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"insteadOf", "pushInsteadOf"})
+    void rejectsRedirectedBranchWrites(String rewrite)
+    {
+        Path remote = temporaryDirectory.resolve("other.git");
+        run(temporaryDirectory, "init", "--bare", "--initial-branch=main", remote.toString());
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+        String branch = worktree.generatedBranch();
+        String ref = "refs/heads/" + branch;
+        run(repository, "push", remote.toString(), ref + ":" + ref);
+        run(repository, "config", "url." + remote.toUri() + "." + rewrite, ORIGIN);
+        ManagedWorkspaceGit workspaceGit = workspaceGit(git);
+
+        assertThatThrownBy(() -> workspaceGit.pushBranch(workspace(), branch, startCommit))
+                .isInstanceOf(ManagedWorkspaceGit.Failure.class).hasMessageContaining("persisted push routing");
+        assertThatThrownBy(() -> workspaceGit.replaceBranch(workspace(), branch, startCommit, startCommit))
+                .isInstanceOf(ManagedWorkspaceGit.Failure.class).hasMessageContaining("persisted push routing");
+        assertThatThrownBy(() -> workspaceGit.deleteBranch(workspace(), branch, startCommit))
+                .isInstanceOf(ManagedWorkspaceGit.Failure.class).hasMessageContaining("persisted push routing");
+        assertThatThrownBy(() -> workspaceGit.remoteBranchSha(workspace(), branch))
+                .isInstanceOf(ManagedWorkspaceGit.Failure.class).hasMessageContaining("persisted push routing");
+        assertThat(run(remote, "rev-parse", ref).output().strip()).isEqualTo(startCommit);
+    }
+
+    private ManagedWorkspaceGit workspaceGit(GitCommandRunner runner)
+    {
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenReturn(ImmutableMap.of());
+        RemoteSourceStore remoteSources = mock(RemoteSourceStore.class);
+        when(remoteSources.findByWorkspace(WORKSPACE_ID)).thenReturn(ImmutableList.of());
+        return new ManagedWorkspaceGit(paths, runner, credentials, remoteSources);
     }
 
     @Test

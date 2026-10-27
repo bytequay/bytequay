@@ -86,6 +86,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const quietHoursRequest = useRef(0);
   const [copied, setCopied] = useState(false);
   const [wsSettings, setWsSettings] = useState<WorkspaceSettingsDto | null>(null);
+  const workspaceRequest = useRef(0);
   const [wsBusy, setWsBusy] = useState(false);
   const [unwatching, setUnwatching] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -161,7 +162,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     return () => { quietHoursRequest.current += 1; };
   }, [section, report]);
 
-    const workspaceId_ = workspace?.id ?? null;
+  const workspaceId_ = workspace?.id ?? null;
 
   /**
    * Re-reads the workspace after something on the page changed it. It leaves the
@@ -171,12 +172,14 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const refreshWorkspaceSettings = useCallback(() => {
     const id = workspaceRef.current;
     if (id === null) return;
+    const request = ++workspaceRequest.current;
     window.bridge.getWorkspaceSettings(id)
       .then(value => {
-        if (workspaceRef.current === id) setWsSettings(value);
+        if (workspaceRef.current !== id || request !== workspaceRequest.current) return;
+        setWsSettings(value);
         window.dispatchEvent(new Event('bytequay:models-changed'));
       })
-      .catch(report);
+      .catch(failure => { if (workspaceRef.current === id && request === workspaceRequest.current) report(failure); });
   }, [report]);
 
   useEffect(() => { workspaceRef.current = workspaceId_; }, [workspaceId_]);
@@ -192,13 +195,10 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   // re-picking the workspace already open blanked the page with nothing left to refill it.
   useEffect(() => {
     if (!isWorkspaceSection(section) || workspaceId_ === null) return;
-    let active = true;
     setWsSettings(null);
-    window.bridge.getWorkspaceSettings(workspaceId_)
-      .then(value => { if (active) setWsSettings(value); })
-      .catch(failure => { if (active) report(failure); });
-    return () => { active = false; };
-  }, [section, report, workspaceId_]);
+    refreshWorkspaceSettings();
+    return () => { workspaceRequest.current += 1; };
+  }, [section, refreshWorkspaceSettings, workspaceId_]);
 
   const saveModels = (save: () => Promise<ModelSettingsDto>) => {
     const request = ++modelRequest.current;
@@ -228,6 +228,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
 
   const chooseWorkspaceModel = (type: AgentModelType, choice: ModelChoice) => {
     if (workspace === null) return;
+    workspaceRequest.current += 1;
     setError(null);
     window.bridge.setWorkspaceAgentModel(workspace.id, type, choice.configId, choice.model, choice.effort)
       .then(refreshWorkspaceSettings)
@@ -469,6 +470,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               error={error}
               onChoose={chooseWorkspaceModel}
               onUseGlobal={type => {
+                workspaceRequest.current += 1;
+                setError(null);
                 window.bridge.clearWorkspaceAgentModel(workspace.id, type).then(refreshWorkspaceSettings).catch(report);
               }}
               onCheck={() => { void loadModels(true).then(refreshWorkspaceSettings); }}

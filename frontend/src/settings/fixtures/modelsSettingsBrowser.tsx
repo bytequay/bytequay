@@ -77,6 +77,61 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       view.finish(saved); await settle();
       assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Opus') === true, 'The earlier refresh cannot roll back the saved choice');
     },
+    async 'late workspace reads cannot undo saved or inherited model choices'(view: View) {
+      await settle(); view.finish(withAccount); await settle();
+      view.render('ws-agents', 'repo-a'); await settle(); view.finish(withAccount); await settle();
+      for (const inherit of [false, true]) {
+        const read = window.bridge.getWorkspaceSettings;
+        const previous = await read('repo-a');
+        const delayed = Promise.withResolvers<WorkspaceSettingsDto>();
+        let requested = false;
+        window.bridge.getWorkspaceSettings = id => {
+          window.bridge.getWorkspaceSettings = read;
+          assert(id === 'repo-a', 'The refresh belongs to the selected repository');
+          requested = true;
+          return delayed.promise;
+        };
+        const check = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Check again');
+        assert(check !== undefined, 'Workspace discovery can be refreshed'); check.click(); await settle();
+        view.finish(withAccount); await settle();
+        assert(requested, 'The earlier workspace read is pending');
+        if (inherit) {
+          const useGlobal = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Use global');
+          assert(useGlobal !== undefined, 'The workspace override can be cleared'); useGlobal.click();
+        }
+        else {
+          view.host.querySelector<HTMLButtonElement>('[aria-label="Development model"]')?.click(); await settle();
+          const choice = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+            .find(button => button.textContent?.includes('Opus') && button.textContent?.includes('Claude Code'));
+          assert(choice !== undefined, 'Another workspace model can be selected'); choice.click();
+        }
+        await settle();
+        const assertSaved = () => {
+          assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes(inherit ? 'GPT-6 Sol' : 'Opus') === true,
+            'The model control reflects the saved workspace choice');
+          if (inherit) assert(view.host.textContent?.includes('Global default') === true, 'The cleared override stays inherited');
+        };
+        assertSaved(); delayed.resolve(previous); await settle(); assertSaved();
+      }
+    },
+    async 'late workspace read errors do not replace a successful save'(view: View) {
+      await settle(); view.finish(withAccount); await settle();
+      view.render('ws-agents', 'repo-a'); await settle(); view.finish(withAccount); await settle();
+      const read = window.bridge.getWorkspaceSettings;
+      const delayed = Promise.withResolvers<WorkspaceSettingsDto>();
+      window.bridge.getWorkspaceSettings = () => {
+        window.bridge.getWorkspaceSettings = read;
+        return delayed.promise;
+      };
+      const check = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Check again');
+      assert(check !== undefined, 'Workspace discovery can be refreshed'); check.click(); await settle();
+      view.finish(withAccount); await settle();
+      const useGlobal = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Use global');
+      assert(useGlobal !== undefined, 'The workspace override can be cleared'); useGlobal.click(); await settle();
+      delayed.reject(new Error('Old workspace read failed')); await settle();
+      assert(!view.host.textContent?.includes('Old workspace read failed'), 'The obsolete read cannot report a save error');
+      assert(view.host.textContent?.includes('Global default') === true, 'The saved inherited choice remains visible');
+    },
     async 'quick model choices are persisted in selection order'(view: View) {
       await settle(); view.finish(withAccount); await settle();
       const first = Promise.withResolvers<void>();
@@ -255,6 +310,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         const value: WorkspaceSettingsDto = { agents: [{ type, explicit: true, configId, model, effort, label: account.label, modelLabel: 'Opus' }], commitsTarget: { remote: 'origin', branch: 'main', overridden: false } };
         workspaceSettings.set(id, value);
         return value.agents[0];
+      },
+      clearWorkspaceAgentModel: async id => {
+        const agents = saved.agents.map(agent => ({ ...agent, explicit: false }));
+        workspaceSettings.set(id, { agents, commitsTarget: { remote: 'origin', branch: 'main', overridden: false } });
+        return agents[0];
       },
       openProviderSignIn: async laneId => { signIns.push(laneId); return { terminalId: laneId, scrollback: 'Choose an email in your browser' }; },
       onReviewTerminalEvent: listener => { terminalEvent = listener; return () => {}; },

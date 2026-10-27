@@ -152,8 +152,14 @@ in `core.hosting`. It verifies accounts before retaining server coordinates,
 keeps encrypted credentials separate from object identity, and rejects results
 whose credential generation changed during a read. Hosting adapters own HTTP
 transport and provider mapping; only `app` composes their concrete factories.
-The existing workspace and review flows still use the original GitHub clients
-while they move to the target boundary below.
+Existing GitHub.com workspaces can explicitly bind to a connected hosting account.
+The binding retains local account and repository identities beside the existing
+workspace fields; remote numeric IDs are verified before binding, so repository
+renames preserve identity. A workspace-scoped live metadata endpoint uses this
+binding and rejects results after credential, binding or repository-routing changes.
+It does not reuse legacy PR caches or validators. Existing desktop workspace and
+review flows still use the original GitHub clients; GitLab workspace creation and
+the shared PR cache/UI remain to be integrated.
 
 ## Git hosting boundary (target)
 

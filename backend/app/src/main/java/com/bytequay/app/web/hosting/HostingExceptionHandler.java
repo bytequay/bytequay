@@ -14,12 +14,15 @@
 package com.bytequay.app.web.hosting;
 
 import com.bytequay.core.hosting.HostingFailure;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice(assignableTypes = HostingController.class)
+@RestControllerAdvice(assignableTypes = {HostingController.class, WorkspaceHostingController.class})
+@Order(Ordered.HIGHEST_PRECEDENCE)
 public class HostingExceptionHandler
 {
     @ExceptionHandler(HostingFailure.class)

@@ -50,9 +50,11 @@ import java.util.concurrent.locks.ReentrantLock;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.AdditionalAnswers.delegatesTo;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -569,6 +571,91 @@ class TestWorkspaceRepositoryService
 
         assertThat(unlinked.upstreamRepository()).isEmpty();
         assertThat(unlinked.monitoredRepository()).isEqualTo(selected.selectedRepository());
+    }
+
+    @Test
+    void upstreamLookupPreservesARenameAndLeavesTheWorkspaceUnlocked()
+    {
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspaceRepositoryService service = service(store, gitHub);
+        Workspace selected = watch(service, 100);
+        when(gitHub.fetchRepository("token", 300L)).thenAnswer(invocation -> {
+            assertThat(((ReentrantLock) WorkspaceOperationLocks.get(selected.id())).isHeldByCurrentThread()).isFalse();
+            service.rename(selected.id(), "Renamed while fetching");
+            return Optional.of(direct(300, "upstream"));
+        });
+
+        Workspace linked = service.setUpstream(selected.id(), Optional.of(300L));
+
+        assertThat(linked.name()).isEqualTo("Renamed while fetching");
+        assertThat(linked.upstreamRepositoryId()).contains(300L);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false", "true"})
+    void rejectsUpstreamResolutionAfterRoutingChanges(boolean restoreOriginal)
+    {
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        when(gitHub.fetchRepository("token", 400L)).thenReturn(Optional.of(direct(400, "other")));
+        WorkspaceRepositoryService service = service(store, gitHub);
+        Workspace selected = watch(service, 100);
+        when(gitHub.fetchRepository("token", 300L)).thenAnswer(invocation -> {
+            service.setUpstream(selected.id(), Optional.of(400L));
+            if (restoreOriginal) {
+                service.setUpstream(selected.id(), Optional.empty());
+            }
+            return Optional.of(direct(300, "upstream"));
+        });
+
+        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(300L)))
+                .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("WATCH_PREVIEW_CHANGED"));
+
+        assertThat(store.findById(selected.id()).orElseThrow().upstreamRepositoryId()).isEqualTo(restoreOriginal ? Optional.empty() : Optional.of(400L));
+    }
+
+    @Test
+    void rechecksActiveWorkflowsAfterResolvingUpstream()
+    {
+        WorkspaceStore checkedStore = mock(WorkspaceStore.class, delegatesTo(store));
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspaceRepositoryService service = service(checkedStore, gitHub);
+        Workspace selected = watch(service, 100);
+        when(gitHub.fetchRepository("token", 300L)).thenAnswer(invocation -> {
+            doReturn(true).when(checkedStore).hasActiveWorkflows(selected.id());
+            return Optional.of(direct(300, "upstream"));
+        });
+
+        assertThatThrownBy(() -> service.setUpstream(selected.id(), Optional.of(300L)))
+                .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("WORKSPACE_BUSY"));
+        assertThat(checkedStore.findById(selected.id()).orElseThrow()).isEqualTo(selected);
+        reset(gitHub);
+        assertThat(service.setUpstream(selected.id(), Optional.empty())).isEqualTo(selected);
+        verifyNoInteractions(gitHub);
+    }
+
+    @Test
+    void renameReadsAndSavesUnderTheWorkspaceLock()
+    {
+        WorkspaceStore checkedStore = mock(WorkspaceStore.class, delegatesTo(store));
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        WorkspaceRepositoryService service = service(checkedStore, gitHub);
+        Workspace selected = watch(service, 100);
+        ReentrantLock lock = (ReentrantLock) WorkspaceOperationLocks.get(selected.id());
+        doAnswer(invocation -> {
+            assertThat(lock.isHeldByCurrentThread()).isTrue();
+            return store.findById(invocation.getArgument(0));
+        }).when(checkedStore).findById(selected.id());
+        doAnswer(invocation -> {
+            assertThat(lock.isHeldByCurrentThread()).isTrue();
+            return store.save(invocation.getArgument(0));
+        }).when(checkedStore).save(any());
+
+        Workspace renamed = service.rename(selected.id(), " Renamed ");
+
+        assertThat(renamed.name()).isEqualTo("Renamed");
+        assertThat(service.rename(selected.id(), "Renamed")).isEqualTo(renamed);
+        verify(checkedStore).save(renamed);
+        assertThat(lock.isHeldByCurrentThread()).isFalse();
     }
 
     @Test

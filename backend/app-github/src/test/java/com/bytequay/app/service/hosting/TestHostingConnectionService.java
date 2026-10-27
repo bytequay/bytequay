@@ -31,9 +31,12 @@ import com.bytequay.core.store.HostingIdentityStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -164,6 +167,70 @@ class TestHostingConnectionService
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
         verify(credentials).delete(20);
         verify(identities, never()).upsertRepository(anyLong(), any());
+    }
+
+    @Test
+    void repositoryIdLookupRetainsTheStoredIdentityAfterARename()
+    {
+        RemoteHostingRepository renamed = new RemoteHostingRepository("99", "new/group/project", URI.create("https://git.company.test/code/new/group/project"),
+                URI.create("https://git.company.test/code/new/group/project.git"), Optional.empty(), Optional.empty());
+        HostingRepository retained = new HostingRepository(30, 10, renamed.remoteId(), renamed.fullPath(), renamed.webUrl(), renamed.httpCloneUrl(),
+                renamed.sshCloneUrl(), renamed.defaultBranch());
+        when(repositories.findById(any(), eq("99"))).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.instanceId()).hasValue(10);
+            assertThat(access.token()).isEqualTo("first-secret");
+            return renamed;
+        });
+        when(identities.upsertRepository(10, renamed)).thenReturn(retained);
+
+        assertThat(service.resolveRepositoryById(20, "99")).isEqualTo(retained);
+        verify(repositories, never()).findByPath(any(), anyString());
+        verify(identities).upsertRepository(10, renamed);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void credentialChangesInvalidateRepositoryIdLookupBeforeSaving(boolean disconnect)
+    {
+        when(repositories.findById(any(), eq("99"))).thenAnswer(ignored -> {
+            if (disconnect) {
+                service.disconnect(20);
+            }
+            else {
+                credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
+            }
+            return remoteRepository();
+        });
+
+        assertThatThrownBy(() -> service.resolveRepositoryById(20, "99"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(disconnect ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
+        verify(identities, never()).upsertRepository(anyLong(), any());
+    }
+
+    @Test
+    void currentCredentialAllowsLocalAcceptance()
+    {
+        assertThat(service.withCurrentCredential(20, 1, () -> "accepted")).isEqualTo("accepted");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void credentialChangesPreventLocalAcceptance(boolean disconnect)
+    {
+        if (disconnect) {
+            service.disconnect(20);
+        }
+        else {
+            credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
+        }
+        AtomicBoolean accepted = new AtomicBoolean();
+
+        assertThatThrownBy(() -> service.withCurrentCredential(20, 1, () -> {
+            accepted.set(true);
+            return "accepted";
+        })).isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(disconnect ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
+        assertThat(accepted).isFalse();
     }
 
     @Test

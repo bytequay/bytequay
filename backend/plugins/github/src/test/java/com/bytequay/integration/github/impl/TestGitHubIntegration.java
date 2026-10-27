@@ -122,6 +122,44 @@ class TestGitHubIntegration
         assertThat(request.get().path()).isEqualTo("/api/v3/repos/bytequay/bytequay");
     }
 
+    @Test
+    void resolvesARenamedRepositoryByIdUnderTheConfiguredApiPrefix()
+    {
+        serve("/api/v3/repositories/42", 200, REPOSITORY_RESPONSE.replace("bytequay/bytequay", "new-owner/new-name"), ImmutableMap.of());
+
+        RemoteHostingRepository found = integration.repositories().findById(access, "42");
+
+        assertThat(found.remoteId()).isEqualTo("42");
+        assertThat(found.fullPath()).isEqualTo("new-owner/new-name");
+        assertThat(found.webUrl()).isEqualTo(URI.create("https://github.example/new-owner/new-name"));
+        assertThat(request.get().path()).isEqualTo("/api/v3/repositories/42");
+        assertThat(request.get().authorization()).isEqualTo("Bearer private-token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "0", "-1", "+42", "042", "42.0", "42/other", "42?query", "9223372036854775808"})
+    void rejectsInvalidRepositoryIdsBeforeSendingCredentials(String remoteId)
+    {
+        assertThatThrownBy(() -> integration.repositories().findById(access, remoteId)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(request.get()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "\"id\":42|\"id\":43",
+            "\"full_name\":\"bytequay/bytequay\"|\"full_name\":\"other/repository\"",
+            "https://github.example/bytequay/bytequay\"|https://other.example/bytequay/bytequay\"",
+            "https://github.example/bytequay/bytequay.git|https://other.example/bytequay/bytequay.git",
+            "https://github.example/bytequay/bytequay.git|https://github.example/other/repository.git"
+    })
+    void rejectsRepositoryIdentityAndCoordinateMismatches(String original, String replacement)
+    {
+        serve("/api/v3/repositories/42", 200, REPOSITORY_RESPONSE.replace(original, replacement), ImmutableMap.of());
+
+        assertThatThrownBy(() -> integration.repositories().findById(access, "42"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE)).hasNoCause();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {
             "null", "[]", "42", "\"sensitive-response-value\"", "[{\"id\":123,\"login\":\"alice\"}]",

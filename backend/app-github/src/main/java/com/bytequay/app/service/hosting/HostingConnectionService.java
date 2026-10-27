@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -105,7 +106,30 @@ public class HostingConnectionService
     public HostingRepository resolveRepository(long accountId, String fullPath)
     {
         HostingAccess access = access(accountId);
-        RemoteHostingRepository remote = integration(access.server().provider()).repositories().findByPath(access, fullPath);
+        return saveRepository(access, integration(access.server().provider()).repositories().findByPath(access, fullPath));
+    }
+
+    public HostingRepository resolveRepositoryById(long accountId, String remoteId)
+    {
+        HostingAccess access = access(accountId);
+        return saveRepository(access, integration(access.server().provider()).repositories().findById(access, remoteId));
+    }
+
+    /** The action may accept or persist local results, but must not perform remote I/O while holding the credential lock. */
+    public <T> T withCurrentCredential(long accountId, long generation, Supplier<T> action)
+    {
+        checkArgument(generation > 0, "generation must be positive");
+        requireNonNull(action, "action is null");
+        synchronized (lock(server(account(accountId)))) {
+            if (credential(accountId).generation() != generation) {
+                throw new HostingFailure(REVISION_CONFLICT, "The hosting credential changed during this request; refresh to retry");
+            }
+            return action.get();
+        }
+    }
+
+    private HostingRepository saveRepository(HostingAccess access, RemoteHostingRepository remote)
+    {
         synchronized (lock(access.server())) {
             // The bound accessor rechecks credential generation before accepting remote data.
             access.token();

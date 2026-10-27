@@ -14,15 +14,27 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.WorkspaceStore;
+import com.bytequay.persistence.sqlite.entity.HostingAccountEntity;
+import com.bytequay.persistence.sqlite.entity.HostingRepositoryEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
+import com.bytequay.persistence.sqlite.repository.HostingAccountJpaRepository;
+import com.bytequay.persistence.sqlite.repository.HostingInstanceJpaRepository;
+import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -34,11 +46,18 @@ public class SqliteWorkspaceStore
 {
     private final WorkspaceJpaRepository repository;
     private final SqliteWorkspacePurge purge;
+    private final HostingAccountJpaRepository hostingAccounts;
+    private final HostingInstanceJpaRepository hostingInstances;
+    private final HostingRepositoryJpaRepository hostingRepositories;
 
-    public SqliteWorkspaceStore(WorkspaceJpaRepository repository, SqliteWorkspacePurge purge)
+    public SqliteWorkspaceStore(WorkspaceJpaRepository repository, SqliteWorkspacePurge purge, HostingAccountJpaRepository hostingAccounts,
+            HostingInstanceJpaRepository hostingInstances, HostingRepositoryJpaRepository hostingRepositories)
     {
         this.repository = requireNonNull(repository, "repository is null");
         this.purge = requireNonNull(purge, "purge is null");
+        this.hostingAccounts = requireNonNull(hostingAccounts, "hostingAccounts is null");
+        this.hostingInstances = requireNonNull(hostingInstances, "hostingInstances is null");
+        this.hostingRepositories = requireNonNull(hostingRepositories, "hostingRepositories is null");
     }
 
     @Override
@@ -90,6 +109,51 @@ public class SqliteWorkspaceStore
     {
         return repository.findBySelectedRepositoryId(selectedRepositoryId)
                 .map(WorkspaceEntity::toDomain);
+    }
+
+    @Override
+    public Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId)
+    {
+        return repository.findById(checkText(workspaceId, "workspaceId")).flatMap(WorkspaceEntity::hostingBinding);
+    }
+
+    @Override
+    public long hostingGeneration(String workspaceId)
+    {
+        return repository.findById(checkText(workspaceId, "workspaceId")).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId))
+                .hostingGeneration();
+    }
+
+    @Override
+    @Transactional
+    public WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
+    {
+        checkText(workspaceId, "workspaceId");
+        checkArgument(accountId > 0, "accountId must be positive");
+        checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
+        requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
+        upstreamRepositoryId.ifPresent(id -> checkArgument(id > 0, "upstreamRepositoryId must be positive"));
+        WorkspaceEntity entity = repository.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId));
+        Workspace workspace = entity.toDomain();
+        checkArgument(upstreamRepositoryId.isPresent() == workspace.upstreamRepositoryId().isPresent(), "Hosting upstream differs from workspace routing");
+        HostingAccountEntity accountEntity = hostingAccounts.findById(accountId).orElseThrow(() -> new IllegalArgumentException("Hosting account not found"));
+        HostingAccount account = accountEntity.toDomain();
+        HostingInstance instance = hostingInstances.findById(account.instanceId()).orElseThrow().toDomain();
+        checkArgument(instance.provider() == HostingProvider.GITHUB && instance.webBaseUrl().equals(URI.create("https://github.com"))
+                && instance.apiBaseUrl().equals(URI.create("https://api.github.com")), "Existing workspaces require GitHub.com identities");
+        HostingRepositoryEntity selected = bindingRepository(selectedRepositoryId, account.instanceId(), workspace.selectedRepositoryId());
+        Optional<HostingRepositoryEntity> upstream = upstreamRepositoryId.map(id -> bindingRepository(id, account.instanceId(), workspace.upstreamRepositoryId().orElseThrow()));
+        entity.bindHosting(accountEntity, selected, upstream);
+        return repository.saveAndFlush(entity).hostingBinding().orElseThrow();
+    }
+
+    private HostingRepositoryEntity bindingRepository(long repositoryId, long instanceId, long remoteId)
+    {
+        HostingRepositoryEntity entity = hostingRepositories.findById(repositoryId).orElseThrow(() -> new IllegalArgumentException("Hosting repository not found"));
+        HostingRepository repository = entity.toDomain();
+        checkArgument(repository.instanceId() == instanceId, "Hosting repository belongs to another instance");
+        checkArgument(repository.remoteId().equals(Long.toString(remoteId)), "Hosting repository differs from workspace repository identity");
+        return entity;
     }
 
     @Override

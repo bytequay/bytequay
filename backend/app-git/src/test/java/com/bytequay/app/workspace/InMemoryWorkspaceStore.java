@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 
@@ -32,6 +33,8 @@ final class InMemoryWorkspaceStore
 {
     private final Map<String, Workspace> byId = new LinkedHashMap<>();
     private final Set<String> unwatched = new HashSet<>();
+    private final Map<String, WorkspaceHostingBinding> bindings = new LinkedHashMap<>();
+    private final Map<String, Long> hostingGenerations = new LinkedHashMap<>();
 
     @Override
     public synchronized List<Workspace> findAll()
@@ -97,8 +100,37 @@ final class InMemoryWorkspaceStore
     @Override
     public synchronized Workspace save(Workspace workspace)
     {
-        byId.put(workspace.id(), workspace);
+        Workspace previous = byId.put(workspace.id(), workspace);
+        if (previous != null && (previous.selectedRepositoryId() != workspace.selectedRepositoryId()
+                || !previous.upstreamRepositoryId().equals(workspace.upstreamRepositoryId())
+                || previous.monitoredRepositoryId() != workspace.monitoredRepositoryId() || previous.topology() != workspace.topology())) {
+            bindings.remove(workspace.id());
+            hostingGenerations.merge(workspace.id(), 1L, Math::addExact);
+        }
         return workspace;
+    }
+
+    @Override
+    public synchronized Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId)
+    {
+        return Optional.ofNullable(bindings.get(workspaceId));
+    }
+
+    @Override
+    public synchronized long hostingGeneration(String workspaceId)
+    {
+        checkArgument(byId.containsKey(workspaceId), "Workspace not found: %s", workspaceId);
+        return hostingGenerations.getOrDefault(workspaceId, 0L);
+    }
+
+    @Override
+    public synchronized WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
+    {
+        long generation = Math.addExact(hostingGeneration(workspaceId), 1L);
+        WorkspaceHostingBinding binding = new WorkspaceHostingBinding(workspaceId, accountId, selectedRepositoryId, upstreamRepositoryId, generation);
+        hostingGenerations.put(workspaceId, generation);
+        bindings.put(workspaceId, binding);
+        return binding;
     }
 
     @Override
@@ -106,5 +138,7 @@ final class InMemoryWorkspaceStore
     {
         byId.remove(workspaceId);
         unwatched.remove(workspaceId);
+        bindings.remove(workspaceId);
+        hostingGenerations.remove(workspaceId);
     }
 }

@@ -14,6 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +42,14 @@ public interface WorkspaceStore
 
     /** Finds a workspace by the selected repository's stable GitHub identifier. */
     Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId);
+
+    Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId);
+
+    /** Survives binding invalidation so a delayed bind cannot overwrite a changed workspace route. */
+    long hostingGeneration(String workspaceId);
+
+    /** Attaches retained GitHub.com identities without changing the workspace's existing repository IDs or local data. */
+    WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /**
      * Creates a workspace or returns the row that already owns the selected GitHub repository.

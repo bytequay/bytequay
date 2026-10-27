@@ -59,11 +59,30 @@ public final class GitLabConnectionClient
     {
         HostingUrls.checkRepositoryPath(fullPath);
         checkArgument(fullPath.matches("[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+"), "invalid repository path");
-        GitLabRepositoryResponse repository = http.get(access, "projects/" + encode(fullPath), Optional.empty(), GitLabRepositoryResponse.class).body().orElseThrow();
+        return repository(access, "projects/" + encode(fullPath), Optional.empty());
+    }
+
+    @Override
+    public RemoteHostingRepository findById(HostingAccess access, String remoteId)
+    {
+        checkArgument(checkText(remoteId, "remoteId").matches("[1-9][0-9]*") && Long.parseLong(remoteId) > 0, "invalid project id");
+        return repository(access, "projects/" + remoteId, Optional.of(remoteId));
+    }
+
+    private RemoteHostingRepository repository(HostingAccess access, String path, Optional<String> expectedId)
+    {
+        GitLabRepositoryResponse repository = http.get(access, path, Optional.empty(), GitLabRepositoryResponse.class).body().orElseThrow();
         try {
             checkArgument(repository.id() != null && repository.id() > 0, "repository id must be positive");
-            return new RemoteHostingRepository(repository.id().toString(), checkText(repository.pathWithNamespace(), "pathWithNamespace"),
-                    URI.create(checkText(repository.webUrl(), "webUrl")), URI.create(checkText(repository.httpUrlToRepo(), "httpUrlToRepo")),
+            String remoteId = repository.id().toString();
+            checkArgument(expectedId.isEmpty() || expectedId.orElseThrow().equals(remoteId), "project id does not match the request");
+            String fullPath = checkText(repository.pathWithNamespace(), "pathWithNamespace");
+            HostingUrls.checkRepositoryPath(fullPath);
+            URI webUrl = HostingUrls.requireWithinBase(URI.create(checkText(repository.webUrl(), "webUrl")), access.server().webBaseUrl());
+            URI cloneUrl = HostingUrls.requireWithinBase(URI.create(checkText(repository.httpUrlToRepo(), "httpUrlToRepo")), access.server().webBaseUrl());
+            String expectedPath = access.server().webBaseUrl().getPath() + "/" + fullPath;
+            checkArgument(webUrl.getPath().equals(expectedPath) && cloneUrl.getPath().equals(expectedPath + ".git"), "project URLs do not match its path");
+            return new RemoteHostingRepository(remoteId, fullPath, webUrl, cloneUrl,
                     Optional.ofNullable(repository.sshUrlToRepo()).filter(value -> !value.isBlank()),
                     Optional.ofNullable(repository.defaultBranch()).filter(value -> !value.isBlank()));
         }

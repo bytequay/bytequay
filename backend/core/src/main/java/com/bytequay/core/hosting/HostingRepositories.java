@@ -16,4 +16,6 @@ package com.bytequay.core.hosting;
 public interface HostingRepositories
 {
     RemoteHostingRepository findByPath(HostingAccess access, String fullPath);
+
+    RemoteHostingRepository findById(HostingAccess access, String remoteId);
 }

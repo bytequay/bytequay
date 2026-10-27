@@ -19,6 +19,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.integration.gitlab.GitLabIntegration;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -484,6 +485,57 @@ class TestGitLabPullRequestReader
 
         assertThat(new GitLabConnectionClient(http, MAPPER).findByPath(access, "group/subgroup/repo").remoteId()).isEqualTo("42");
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/group%2Fsubgroup%2Frepo");
+    }
+
+    @Test
+    void resolvesARenamedProjectByIdUnderTheConfiguredPrefix()
+    {
+        reply.set(new Reply(200, """
+                {"id":42,"path_with_namespace":"new/group/project","web_url":"%s/new/group/project",
+                 "http_url_to_repo":"%s/new/group/project.git"}
+                """.formatted(base, base), Optional.empty()));
+
+        RemoteHostingRepository found = new GitLabConnectionClient(http, MAPPER).findById(access, "42");
+
+        assertThat(found.remoteId()).isEqualTo("42");
+        assertThat(found.fullPath()).isEqualTo("new/group/project");
+        assertThat(found.webUrl()).isEqualTo(URI.create(base + "/new/group/project"));
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42");
+        assertThat(requestToken.get()).isEqualTo("secret-token");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"", "0", "-1", "+42", "042", "42.0", "42/other", "42?query", "9223372036854775808"})
+    void rejectsInvalidProjectIdsBeforeSendingCredentials(String remoteId)
+    {
+        assertThatThrownBy(() -> new GitLabConnectionClient(http, MAPPER).findById(access, remoteId)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(requestedPath.get()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"43,group/subgroup/repo,group/subgroup/repo,group/subgroup/repo", "42,other/project,group/subgroup/repo,group/subgroup/repo",
+            "42,group/subgroup/repo,other/project,group/subgroup/repo", "42,group/subgroup/repo,group/subgroup/repo,other/project"})
+    void rejectsProjectIdentityAndCoordinateMismatches(int id, String path, String webPath, String clonePath)
+    {
+        reply.set(new Reply(200, """
+                {"id":%d,"path_with_namespace":"%s","web_url":"%s/%s","http_url_to_repo":"%s/%s.git"}
+                """.formatted(id, path, base, webPath, base, clonePath), Optional.empty()));
+
+        assertThatThrownBy(() -> new GitLabConnectionClient(http, MAPPER).findById(access, "42"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE)).hasNoCause();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://other.example/gitlab", "http://127.0.0.1:%d/outside"})
+    void rejectsProjectUrlsOutsideTheConfiguredInstance(String otherBase)
+    {
+        reply.set(new Reply(200, """
+                {"id":42,"path_with_namespace":"group/subgroup/repo","web_url":"%s/group/subgroup/repo",
+                 "http_url_to_repo":"%s/group/subgroup/repo.git"}
+                """.formatted(otherBase.formatted(server.getAddress().getPort()), base), Optional.empty()));
+
+        assertThatThrownBy(() -> new GitLabConnectionClient(http, MAPPER).findById(access, "42"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE)).hasNoCause();
     }
 
     @ParameterizedTest

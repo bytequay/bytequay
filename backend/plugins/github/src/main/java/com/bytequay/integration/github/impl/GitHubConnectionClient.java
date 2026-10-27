@@ -17,6 +17,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingRepositories;
+import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -55,11 +56,30 @@ public final class GitHubConnectionClient
     @Override
     public RemoteHostingRepository findByPath(HostingAccess access, String fullPath)
     {
-        GitHubRepositoryResponse repository = http.get(access, GitHubHttpClient.repositoryPath(fullPath), GitHubRepositoryResponse.class);
+        return repository(access, GitHubHttpClient.repositoryPath(fullPath), Optional.empty());
+    }
+
+    @Override
+    public RemoteHostingRepository findById(HostingAccess access, String remoteId)
+    {
+        checkArgument(checkText(remoteId, "remoteId").matches("[1-9][0-9]*") && Long.parseLong(remoteId) > 0, "invalid repository id");
+        return repository(access, "repositories/" + remoteId, Optional.of(remoteId));
+    }
+
+    private RemoteHostingRepository repository(HostingAccess access, String path, Optional<String> expectedId)
+    {
+        GitHubRepositoryResponse repository = http.get(access, path, GitHubRepositoryResponse.class);
         try {
             checkArgument(repository.id() != null && repository.id() > 0, "repository id must be positive");
-            return new RemoteHostingRepository(Long.toString(repository.id()), checkText(repository.fullName(), "full_name"),
-                    URI.create(checkText(repository.htmlUrl(), "html_url")), URI.create(checkText(repository.cloneUrl(), "clone_url")),
+            String remoteId = Long.toString(repository.id());
+            checkArgument(expectedId.isEmpty() || expectedId.orElseThrow().equals(remoteId), "repository id does not match the request");
+            String fullPath = checkText(repository.fullName(), "full_name");
+            GitHubHttpClient.repositoryPath(fullPath);
+            URI webUrl = HostingUrls.requireWithinBase(URI.create(checkText(repository.htmlUrl(), "html_url")), access.server().webBaseUrl());
+            URI cloneUrl = HostingUrls.requireWithinBase(URI.create(checkText(repository.cloneUrl(), "clone_url")), access.server().webBaseUrl());
+            String expectedPath = access.server().webBaseUrl().getPath() + "/" + fullPath;
+            checkArgument(webUrl.getPath().equals(expectedPath) && cloneUrl.getPath().equals(expectedPath + ".git"), "repository URLs do not match its path");
+            return new RemoteHostingRepository(remoteId, fullPath, webUrl, cloneUrl,
                     Optional.ofNullable(repository.sshUrl()).filter(value -> !value.isBlank()), Optional.ofNullable(repository.defaultBranch()).filter(value -> !value.isBlank()));
         }
         catch (IllegalArgumentException e) {

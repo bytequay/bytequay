@@ -17,6 +17,7 @@ import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
@@ -263,7 +264,7 @@ class TestHostingController
         ObjectMapper mapper = Jackson2ObjectMapperBuilder.json().modules(new Jdk8Module(), new JavaTimeModule())
                 .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build();
         return standaloneSetup(new HostingController(service))
-                .setControllerAdvice(new HostingExceptionHandler())
+                .setControllerAdvice(new GlobalExceptionHandler(), new HostingExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                 .addFilters(new AgentRequestFilter(properties, mapper, new AgentServingGate()))
                 .build();

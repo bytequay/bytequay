@@ -16,19 +16,26 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.DynamicUpdate;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.Optional;
+
+import static com.google.common.base.Preconditions.checkState;
 
 @Entity
 @Table(name = "watched_repo_workspaces")
@@ -65,6 +72,21 @@ public class WorkspaceEntity
 
     @Column(name = "monitored_repository_id", nullable = false)
     private long monitoredRepositoryId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "hosting_account_id")
+    private HostingAccountEntity hostingAccount;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "selected_hosting_repository_id")
+    private HostingRepositoryEntity selectedHostingRepository;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "upstream_hosting_repository_id")
+    private HostingRepositoryEntity upstreamHostingRepository;
+
+    @Column(name = "hosting_binding_generation")
+    private Long hostingBindingGeneration;
 
     @Column(nullable = false)
     private String monitoredOwner;
@@ -118,6 +140,14 @@ public class WorkspaceEntity
 
     public void updateFrom(Workspace workspace)
     {
+        if (selectedRepositoryId > 0 && (selectedRepositoryId != workspace.selectedRepositoryId()
+                || !Objects.equals(upstreamRepositoryId, workspace.upstreamRepositoryId().orElse(null))
+                || monitoredRepositoryId != workspace.monitoredRepositoryId() || topology != workspace.topology())) {
+            advanceHostingGeneration();
+            hostingAccount = null;
+            selectedHostingRepository = null;
+            upstreamHostingRepository = null;
+        }
         name = workspace.name();
         selectedRepositoryId = workspace.selectedRepositoryId();
         selectedOwner = workspace.selectedRepository().owner();
@@ -139,6 +169,32 @@ public class WorkspaceEntity
         displayOrder = workspace.displayOrder();
         createdAt = workspace.createdAt();
         updatedAt = workspace.updatedAt();
+    }
+
+    public Optional<WorkspaceHostingBinding> hostingBinding()
+    {
+        return Optional.ofNullable(hostingAccount).map(account -> new WorkspaceHostingBinding(id, account.getId(), selectedHostingRepository.getId(),
+                Optional.ofNullable(upstreamHostingRepository).map(HostingRepositoryEntity::getId), hostingBindingGeneration));
+    }
+
+    public long hostingGeneration()
+    {
+        return Optional.ofNullable(hostingBindingGeneration).orElse(0L);
+    }
+
+    public void bindHosting(HostingAccountEntity account, HostingRepositoryEntity selected, Optional<HostingRepositoryEntity> upstream)
+    {
+        advanceHostingGeneration();
+        hostingAccount = account;
+        selectedHostingRepository = selected;
+        upstreamHostingRepository = upstream.orElse(null);
+    }
+
+    private void advanceHostingGeneration()
+    {
+        long previous = hostingGeneration();
+        checkState(previous < Long.MAX_VALUE, "Workspace hosting binding generation is exhausted");
+        hostingBindingGeneration = previous + 1;
     }
 
     public Workspace toDomain()

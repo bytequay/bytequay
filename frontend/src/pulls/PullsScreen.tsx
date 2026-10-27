@@ -911,7 +911,6 @@ export default function PullsScreen({
     onSelectPullRequest?.({ repo: row.repo, number: row.num }, 'push');
     setSelected(row.id);
     setDetailTab('overview');
-    setPendingReviewComments([]);
     setReviewNavigation(null);
     setFocusFindingId(null);
     setReviewCardFocus(null);

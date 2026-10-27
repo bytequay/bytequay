@@ -157,6 +157,12 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     button('Add to review').click();
     await settle();
     assert(host.querySelector('[aria-label="Submit review, 1 pending review comment"]') !== null, 'Inline review must stage one pending comment');
+    fixtureElement<HTMLButtonElement>('.pull-row[aria-pressed="true"]', host, 'The current PR must remain selected').click();
+    await settle();
+    assert(host.querySelector('[aria-label="Submit review, 1 pending review comment"]') !== null,
+      'Clicking the selected PR must retain its staged review comment');
+    button('WorkBench').click(); await settle();
+    button('Changes').click(); await settle();
 
     detail = { ...detail, updatedAt: '2026-01-02T00:00:00Z', labels: [{ name: 'reviewed-label', color: 'aabbcc' }], recentActivity: [timelineActivity({ actor: 'alice', eventType: 'commented', timestamp: '2026-01-02T00:00:00Z', body: 'New timeline discussion', githubId: 99 }, { ...payload, reactions: [{ content: '+1', count: 1, viewerHasReacted: false }] })] };
     await tick();

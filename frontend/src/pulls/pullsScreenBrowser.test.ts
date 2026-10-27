@@ -37,7 +37,7 @@ it.each([
     'runMainScreen(false, true)', 'Watched PRs offer exploration', {}],
   ['edits PR titles with cancellation, validation, retry, and selection isolation',
     'runTitleEdit()', 'Inline title edits', { width: 650, height: 700 }],
-  ['acknowledges a viewed PR when leaving zoom without closing the regular detail pane',
+  ['retains staged comments when reselecting a PR and acknowledges it when leaving zoom',
     'runMainScreen()', 'Main PR page', {}],
   ['follows the review on Changes when a review opens over the task list',
     'runOverlayChangesStream()', 'follows its review on Changes', { width: 1250, height: 850 }],

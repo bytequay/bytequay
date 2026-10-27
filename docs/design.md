@@ -89,8 +89,9 @@ All ByteQuay app data is stored locally on the Mac, including conversations,
 reviews, settings, and working copies. Development tasks use separate local
 worktrees so their changes can be inspected independently. A task’s reviewer
 shares that task’s checkout and can inspect uncommitted changes. Its conversation
-and review permissions remain separate, and ending review preserves the checkout. GitHub, model
-providers, and optional integrations remain external network services.
+and review permissions remain separate, and ending review preserves the checkout. Dictation
+turns speech into text on the Mac, so agents and model providers receive only the text a person
+sends, never audio. GitHub, model providers, and optional integrations remain external network services.
 
 ### Keep the interface coherent
 

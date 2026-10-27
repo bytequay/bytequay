@@ -169,8 +169,18 @@ To speak one language and write in another, choose **I speak** and **Write it
 in** on the Voice card. The first time, Apple asks in a small window to
 download that translation. Hover the finished words to see what you said.
 
-If a recording can't be turned into text, choose **Retry** or **Discard**.
-Recordings stay on your Mac and are deleted when ByteQuay quits.
+### Your voice stays on your Mac
+
+- Apple's speech engine on your Mac turns your voice into text. No audio goes
+  to a cloud service.
+- Agents and model providers see only the text you send, as if you had typed
+  it. They never receive audio.
+- A recording exists only while you talk and is deleted once its text is in
+  your draft. If it can't be turned into text, choose **Retry** or
+  **Discard**; either way it is deleted when ByteQuay quits.
+- Translation runs on your Mac too. The only downloads are Apple's speech and
+  translation models, which come to your Mac.
+
 
 <a id="pull-requests"></a>
 

@@ -14,14 +14,15 @@
 package com.bytequay.core.domain;
 
 /**
- * Outcome of an attempted pull request merge. Two shapes share the
+ * Outcome of an attempted pull request merge. Three shapes share the
  * type: an immediate merge (REST {@code PUT .../merge} returned 200,
  * {@code sha} populated, {@code queued=false}) and an enqueue when
  * the target branch has merge queue enabled ({@code sha=null},
  * {@code merged=false}, {@code queued=true}, {@code message} carries
- * the queue-entry hint).
+ * the queue-entry hint). An accepted auto-merge still waiting for requirements
+ * has {@code sha=null}, {@code merged=false}, and {@code queued=false}.
  *
- * <p>The 3-arg constructor represents an immediate merge and defaults
+ * <p>The 3-arg constructor represents a result outside the merge queue and defaults
  * the queue flag to {@code false}.
  */
 public record MergeResult(String sha, boolean merged, String message, boolean queued)

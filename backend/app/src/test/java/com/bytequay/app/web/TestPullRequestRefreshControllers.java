@@ -295,7 +295,11 @@ class TestPullRequestRefreshControllers
         mvc.perform(delete("/prs/merge-queue").queryParam("repo", "owner/repo").queryParam("number", "7"))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).removeFromMergeQueue("owner/repo", 7);
+        verify(pullRequests).removeFromMergeQueue("owner/repo", 7, false);
+        mvc.perform(delete("/prs/merge-queue").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("autoMerge", "true"))
+                .andExpect(status().isNoContent());
+
+        verify(pullRequests).removeFromMergeQueue("owner/repo", 7, true);
     }
 
     @Test

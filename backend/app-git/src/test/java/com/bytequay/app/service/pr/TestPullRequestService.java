@@ -2659,10 +2659,11 @@ class TestPullRequestService
         verify(writes).mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class));
     }
 
-    @Test
-    void rejectsMissingMergeHeadBeforeWriting()
+    @ParameterizedTest
+    @ValueSource(strings = {"rebase", "queue", "when-ready"})
+    void rejectsMissingMergeHeadBeforeWriting(String strategy)
     {
-        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, "rebase", " "))
+        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, strategy, " "))
                 .isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(writes);
     }
@@ -2720,29 +2721,82 @@ class TestPullRequestService
         verifyNoInteractions(diffStore, gitHub, actions);
     }
 
-    @Test
-    void removesFromMergeQueueWithoutMergingOrDiscardingCachedDiffs()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void schedulesManualMergeWithoutRequiringChecksToFinish(boolean queued)
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        MergeResult accepted = queued ? MergeResult.enqueued("queued") : new MergeResult(null, false, "Waiting for required checks");
+        when(writes.enablePullRequestAutoMerge("pat", "PR_1", "displayed-head")).thenReturn(accepted);
+
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "when-ready", "displayed-head");
+
+        assertThat(result).isEqualTo(accepted);
+        verify(writes).enablePullRequestAutoMerge("pat", "PR_1", "displayed-head");
+        verify(writes, never()).mergePullRequest(anyString(), any(), any());
+        verify(writes, never()).enqueuePullRequest(anyString(), anyString(), anyString());
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(diffStore, gitHub, actions, viewStateStore, recent);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"409,Head changed", "502,Response lost"})
+    void refreshesManualMergeStatusAfterARejectedOrUncertainRequest(int status, String reason)
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
+        when(writes.enablePullRequestAutoMerge("pat", "PR_1", "displayed-head"))
+                .thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), reason));
+
+        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, "when-ready", "displayed-head"))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining(reason);
+
+        verify(writes, never()).mergePullRequest(anyString(), any(), any());
+        verify(writes, never()).enqueuePullRequest(anyString(), anyString(), anyString());
+        verify(detailStore).updateEtag(12L, Optional.empty());
+        verifyNoInteractions(diffStore, viewStateStore, recent);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void stopsScheduledMergeWithoutMergingOrDiscardingCachedDiffs(boolean autoMerge)
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
 
-        service.removeFromMergeQueue("owner/repo", 7);
+        service.removeFromMergeQueue("owner/repo", 7, autoMerge);
 
-        verify(writes).dequeuePullRequest("pat", "PR_1");
+        if (autoMerge) {
+            verify(writes).disablePullRequestAutoMerge("pat", "PR_1");
+            verify(writes, never()).dequeuePullRequest(anyString(), anyString());
+        }
+        else {
+            verify(writes).dequeuePullRequest("pat", "PR_1");
+            verify(writes, never()).disablePullRequestAutoMerge(anyString(), anyString());
+        }
         verify(writes, never()).mergePullRequest(anyString(), any(), any());
         verify(detailStore).updateEtag(12L, Optional.empty());
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, viewStateStore);
     }
 
-    @Test
-    void invalidatesQueueStatusAfterAnUncertainRemoval()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void invalidatesQueueStatusAfterAnUncertainRemoval(boolean autoMerge)
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
-        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Response lost")).when(writes).dequeuePullRequest("pat", "PR_1");
+        if (autoMerge) {
+            doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Response lost")).when(writes).disablePullRequestAutoMerge("pat", "PR_1");
+        }
+        else {
+            doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Response lost")).when(writes).dequeuePullRequest("pat", "PR_1");
+        }
 
-        assertThatThrownBy(() -> service.removeFromMergeQueue("owner/repo", 7))
+        assertThatThrownBy(() -> service.removeFromMergeQueue("owner/repo", 7, autoMerge))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Response lost");
 
         verify(detailStore).updateEtag(12L, Optional.empty());

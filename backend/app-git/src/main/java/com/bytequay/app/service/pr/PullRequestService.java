@@ -1302,9 +1302,9 @@ public class PullRequestService
         return actions.mergePullRequest(repo, number, prId, strategy, headSha);
     }
 
-    public void removeFromMergeQueue(String repo, int number)
+    public void removeFromMergeQueue(String repo, int number, boolean autoMerge)
     {
-        actions.removeFromMergeQueue(repo, number);
+        actions.removeFromMergeQueue(repo, number, autoMerge);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────

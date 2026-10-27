@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
-import PullOverview, { appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isAutoMergeEnabled, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import type { AgentReviewDto } from './agent-review/contracts';
@@ -137,21 +137,46 @@ describe('PullOverview', () => {
     expect(popup).toMatch(/<button type="button">.*Remove from merge queue<\/button>/);
   });
 
-  it.each([true, false, undefined, null])('waits for running checks in every merge mode (%s)', mergeQueue => {
+  it.each([true, false, undefined, null])('allows running checks only for merge when ready (%s)', async mergeQueue => {
     const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, ciStatus: 'PENDING',
       checkRuns: [{ ...detail().checkRuns[0], status: 'in_progress', conclusion: null, category: 'pending' }],
     };
-    const props = { pr: pullRequest(), detail: value, mergeQueue, onClose: () => {}, onRefresh: async () => {} };
+    const props = { pr: pullRequest(), detail: value, mergeQueue, onClose: vi.fn(), onRefresh: vi.fn(async () => {}) };
     const popup = renderToStaticMarkup(<MergeDialog {...props} />);
     const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
     expect(popup).toContain('Waiting for checks');
     expect(popup).toContain(`${mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}</button>`);
-    expect(actions[1]).toContain('disabled=""');
+    expect(actions[1].includes('disabled=""')).toBe(mergeQueue !== true);
 
     const mergePr = vi.fn(async () => {});
     vi.stubGlobal('window', { bridge: { mergePr } });
     captureMergeSubmit(props)();
-    expect(mergePr).not.toHaveBeenCalled();
+    if (mergeQueue === true) {
+      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, 'when-ready', value.headSha);
+      await vi.waitFor(() => expect(props.onRefresh).toHaveBeenCalledOnce());
+    }
+    else expect(mergePr).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, null, true, false])('shows a scheduled merge with cancellation while checks run (queue: %s)', mergeQueue => {
+    const value = scheduledDetail();
+    const popup = renderToStaticMarkup(<MergeDialog pr={pullRequest()} detail={value} mergeQueue={mergeQueue}
+      onClose={() => {}} onRefresh={async () => {}} />);
+    expect(popup).toContain('Merge scheduled');
+    expect(popup).toMatch(/<button type="button">.*Cancel scheduled merge<\/button>/);
+    expect(popup).not.toContain('Merge when ready</button>');
+    expect(popup).not.toContain('Ready for review');
+    expect(headerMarkup({ detail: value })).toContain('Merge scheduled</button>');
+  });
+
+  it.each(['auto_merge_enabled', 'auto_rebase_enabled', 'auto_squash_enabled'])('tracks %s through cancellation and queue entry', eventType => {
+    const enabled = timelineActivity({ eventType });
+    expect(isAutoMergeEnabled([enabled])).toBe(true);
+    for (const eventType of ['auto_merge_disabled', 'added_to_merge_queue', 'removed_from_merge_queue', 'closed', 'merged', 'convert_to_draft']) {
+      const ended = timelineActivity({ eventType });
+      expect(isAutoMergeEnabled([enabled, ended])).toBe(false);
+      expect(isAutoMergeEnabled([enabled, ended, enabled])).toBe(true);
+    }
   });
 
   it('keeps unresolved reviews blocked while queue checks run', () => {
@@ -205,7 +230,10 @@ describe('PullOverview', () => {
     expect(popup).not.toContain('Merge blocked');
   });
 
-  it.each([true, false])('removes a queued PR once and closes before refresh only on success (%s)', async accepted => {
+  it.each([
+    { accepted: true, autoMerge: false }, { accepted: false, autoMerge: false },
+    { accepted: true, autoMerge: true }, { accepted: false, autoMerge: true },
+  ])('cancels a scheduled or queued PR once and closes only on success ($accepted, auto-merge: $autoMerge)', async ({ accepted, autoMerge }) => {
     const write = Promise.withResolvers<void>();
     const refresh = Promise.withResolvers<void>();
     const removePrFromMergeQueue = vi.fn(() => write.promise);
@@ -216,7 +244,7 @@ describe('PullOverview', () => {
       return refresh.promise;
     });
     const submit = captureMergeSubmit({
-      pr: pullRequest(), detail: queuedDetail(), mergeQueue: undefined, onClose, onRefresh,
+      pr: pullRequest(), detail: autoMerge ? scheduledDetail() : queuedDetail(), mergeQueue: undefined, onClose, onRefresh,
     });
     vi.stubGlobal('window', { bridge: { removePrFromMergeQueue, mergePr } });
     try {
@@ -224,7 +252,7 @@ describe('PullOverview', () => {
       submit();
       submit();
       expect(removePrFromMergeQueue).toHaveBeenCalledOnce();
-      expect(removePrFromMergeQueue).toHaveBeenCalledWith('owner/repo', 42);
+      expect(removePrFromMergeQueue).toHaveBeenCalledWith('owner/repo', 42, autoMerge);
       expect(onClose).not.toHaveBeenCalled();
       if (accepted) write.resolve();
       else write.reject(new Error('Write access is required'));
@@ -706,7 +734,7 @@ describe('PullOverview', () => {
     vi.stubGlobal('window', { bridge: { mergePr } });
     try {
       submit();
-      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'queue' : 'rebase', value.headSha);
+      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'when-ready' : 'rebase', value.headSha);
       expect(onClose).not.toHaveBeenCalled();
       expect(onRefresh).not.toHaveBeenCalled();
 
@@ -1647,6 +1675,13 @@ function queuedDetail(): PullRequestDetailDto {
   return { ...detail(), viewerCanWrite: true, recentActivity: [
     timelineActivity({ actor: 'alice', eventType: 'added_to_merge_queue', timestamp: '2026-08-20T09:00:00Z' }),
   ] };
+}
+
+function scheduledDetail(): PullRequestDetailDto {
+  return { ...detail(), viewerCanWrite: true, ciStatus: 'PENDING',
+    checkRuns: [{ ...detail().checkRuns[0], status: 'in_progress', conclusion: null, category: 'pending' }],
+    recentActivity: [timelineActivity({ actor: 'alice', eventType: 'auto_merge_enabled' })],
+  };
 }
 
 function pullRequest(): PullRequestDto {

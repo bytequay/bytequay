@@ -1713,7 +1713,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   rerunFailedPrChecks: (repo: string, number: number) => Promise<void>;
   betterWords: (text: string, repository?: string, workspaceId?: string) => Promise<string>;
   mergePr: (prId: number, repo: string, number: number, strategy: string, headSha: string) => Promise<void>;
-  removePrFromMergeQueue: (repo: string, number: number) => Promise<void>;
+  removePrFromMergeQueue: (repo: string, number: number, autoMerge: boolean) => Promise<void>;
 
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
   previewWatch: (selectedRepositoryId: number, topology?: WatchRepositoryTopology) => Promise<WatchRepositoryPreviewDto>;

@@ -427,12 +427,41 @@ public class GitHubPullRequestWriteClient
                 + " mergeQueueEntry { position state } } }";
         JsonNode entry = graphqlData(pat, mutation, ImmutableMap.of("id", pullRequestNodeId, "head", headSha),
                 HttpStatus.UNPROCESSABLE_ENTITY, "GitHub enqueuePullRequest failed").path("enqueuePullRequest").path("mergeQueueEntry");
-        if (!entry.isObject()
-                || (entry.hasNonNull("position") && (!entry.path("position").isIntegralNumber() || !entry.path("position").canConvertToInt()))
-                || (entry.hasNonNull("state") && !entry.path("state").isTextual())) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub enqueuePullRequest returned no queue entry");
+        return queueResult(entry, "GitHub enqueuePullRequest returned no queue entry");
+    }
+
+    public MergeResult enablePullRequestAutoMerge(String pat, String pullRequestNodeId, String headSha)
+    {
+        String mutation = "mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head, mergeMethod: REBASE }) {"
+                + " pullRequest { autoMergeRequest { enabledAt } mergeQueueEntry { position state } } } }";
+        JsonNode pullRequest = graphqlData(pat, mutation, ImmutableMap.of("id", pullRequestNodeId, "head", headSha),
+                HttpStatus.UNPROCESSABLE_ENTITY, "GitHub enablePullRequestAutoMerge failed").path("enablePullRequestAutoMerge").path("pullRequest");
+        JsonNode autoMerge = pullRequest.path("autoMergeRequest");
+        JsonNode entry = pullRequest.path("mergeQueueEntry");
+        if (!pullRequest.isObject() || !pullRequest.has("autoMergeRequest") || !pullRequest.has("mergeQueueEntry")
+                || (!autoMerge.isNull() && (!autoMerge.isObject() || !autoMerge.path("enabledAt").isTextual() || autoMerge.path("enabledAt").asText().isBlank()))) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub enablePullRequestAutoMerge returned incomplete GraphQL data");
         }
-        return MergeResult.enqueued(queueMessage(entry));
+        if (!entry.isNull()) {
+            if (!entry.has("position") || !entry.path("state").isTextual() || entry.path("state").asText().isBlank()) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub enablePullRequestAutoMerge returned an invalid queue entry");
+            }
+            return queueResult(entry, "GitHub enablePullRequestAutoMerge returned an invalid queue entry");
+        }
+        if (autoMerge.isNull()) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub enablePullRequestAutoMerge returned no merge request");
+        }
+        return new MergeResult(null, false, "Will enter the merge queue when required checks and reviews pass");
+    }
+
+    public void disablePullRequestAutoMerge(String pat, String pullRequestNodeId)
+    {
+        String mutation = "mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId } }";
+        JsonNode result = graphqlData(pat, mutation, ImmutableMap.of("id", pullRequestNodeId),
+                HttpStatus.UNPROCESSABLE_ENTITY, "GitHub disablePullRequestAutoMerge failed").path("disablePullRequestAutoMerge");
+        if (!result.isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub disablePullRequestAutoMerge returned incomplete GraphQL data");
+        }
     }
 
     public void dequeuePullRequest(String pat, String pullRequestNodeId)
@@ -458,6 +487,16 @@ public class GitHubPullRequestWriteClient
             throw new ResponseStatusException(errorStatus, failureMessage + ": " + type + error.path("message").asText("Invalid GraphQL errors"));
         }
         return response.path("data");
+    }
+
+    private static MergeResult queueResult(JsonNode entry, String failureMessage)
+    {
+        if (!entry.isObject()
+                || (entry.hasNonNull("position") && (!entry.path("position").isIntegralNumber() || !entry.path("position").canConvertToInt()))
+                || (entry.hasNonNull("state") && !entry.path("state").isTextual())) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, failureMessage);
+        }
+        return MergeResult.enqueued(queueMessage(entry));
     }
 
     private static String queueMessage(JsonNode entry)

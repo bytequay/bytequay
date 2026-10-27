@@ -558,6 +558,17 @@ final class PullRequestActions
         checkText(headSha, "pull request head commit");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
+        if ("when-ready".equalsIgnoreCase(strategy)) {
+            String nodeId = pullRequestWrites.pullRequestNodeId(pat, ref)
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
+            try {
+                return pullRequestWrites.enablePullRequestAutoMerge(pat, nodeId, headSha);
+            }
+            finally {
+                // A lost response may still have enabled auto-merge; let refresh reconcile it.
+                afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
+            }
+        }
         if ("queue".equalsIgnoreCase(strategy)) {
             return enqueuePullRequest(pat, ref, repo, number, headSha);
         }
@@ -583,16 +594,21 @@ final class PullRequestActions
         return result;
     }
 
-    void removeFromMergeQueue(String repo, int number)
+    void removeFromMergeQueue(String repo, int number, boolean autoMerge)
     {
         String pat = credentialService.resolveGitHubToken();
         String nodeId = pullRequestWrites.pullRequestNodeId(pat, parseRef(repo, number))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         try {
-            pullRequestWrites.dequeuePullRequest(pat, nodeId);
+            if (autoMerge) {
+                pullRequestWrites.disablePullRequestAutoMerge(pat, nodeId);
+            }
+            else {
+                pullRequestWrites.dequeuePullRequest(pat, nodeId);
+            }
         }
         finally {
-            // A lost response may still have removed the entry; let refresh reconcile it.
+            // A lost response may still have stopped the merge; let refresh reconcile it.
             afterWrite(repo, number, () -> invalidatePullRequestDetail(repo, number));
         }
         afterWrite(repo, number, () -> recent.pullRequestAction(repo, number, RecentReason.EDITED, 0));

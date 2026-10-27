@@ -357,9 +357,12 @@ public class PullRequestController
 
     @DeleteMapping("/prs/merge-queue")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeFromMergeQueue(@RequestParam("repo") String repo, @RequestParam("number") int number)
+    public void removeFromMergeQueue(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam(value = "autoMerge", defaultValue = "false") boolean autoMerge)
     {
-        pullRequests.removeFromMergeQueue(repo, number);
+        pullRequests.removeFromMergeQueue(repo, number, autoMerge);
     }
 
     @PostMapping("/prs/merge")

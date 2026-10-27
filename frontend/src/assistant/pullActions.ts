@@ -33,8 +33,8 @@ export async function approvePull(repo: string, number: number, head: string | n
 }
 
 /**
- * Merges as the merge sheet's button does, after reading the pull request from GitHub again: the sheet's own check decides, and only
- * the head commit the card showed is merged.
+ * Uses the merge sheet's guard after reading GitHub again, bound to the head commit the card showed.
+ * Queue branches schedule GitHub's merge when ready.
  */
 export async function mergePull(repo: string, number: number, head: string | null): Promise<void> {
   const stored = await window.bridge.findStoredPullRequest(repo, number);
@@ -44,7 +44,7 @@ export async function mergePull(repo: string, number: number, head: string | nul
   if (!head || detail.headSha !== head) throw new Error('New commits arrived after this card was drawn. Open the pull request to check them.');
   const mergeQueue = detail.baseRef ? (await window.bridge.fetchMergeMode(repo, detail.baseRef)).mergeQueue : null;
   if (!mergeReady(detail, mergeQueue)) throw new Error('Not ready to merge. Open the pull request to see why.');
-  await window.bridge.mergePr(stored.id, repo, number, mergeQueue ? 'queue' : 'rebase', head);
+  await window.bridge.mergePr(stored.id, repo, number, mergeQueue ? 'when-ready' : 'rebase', head);
 }
 
 /** Closes as the pull request page's Close pull request does. */

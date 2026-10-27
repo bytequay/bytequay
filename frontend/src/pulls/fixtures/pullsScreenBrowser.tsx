@@ -514,6 +514,72 @@ export async function runOverlayChangesStream(): Promise<string> {
   }
 }
 
+export async function runMergeWhenReady(): Promise<string> {
+  const detail = prDetail({
+    headSha: 'displayed-head', ciStatus: 'PENDING', mergeableState: 'blocked',
+    checkRuns: [{ githubId: 1, name: 'PR tests', status: 'in_progress', conclusion: null,
+      detailsUrl: null, source: 'check_run', startedAt: null, completedAt: null, category: 'pending' }],
+  });
+  const pr = remotePullRequest(detail, 'bob');
+  const { host, root, dispose } = createFixtureRoot();
+  const originalBridge = window.bridge;
+  const merges: Parameters<Bridge['mergePr']>[] = [];
+  const removals: Parameters<Bridge['removePrFromMergeQueue']>[] = [];
+  const merging = Promise.withResolvers<void>();
+  let closes = 0;
+  let refreshes = 0;
+  const bridge = {
+    mergePr: (...args) => { merges.push(args); return merging.promise; },
+    removePrFromMergeQueue: async (...args) => { removals.push(args); },
+  } satisfies Pick<Bridge, 'mergePr' | 'removePrFromMergeQueue'>;
+  Object.assign(window, { bridge: { ...originalBridge, ...bridge } });
+  const render = (mergeQueue: boolean, scheduled = false) => flushSync(() => root.render(
+    <MergeDialog key={scheduled ? 'scheduled' : 'unscheduled'} pr={pr}
+      detail={scheduled ? { ...detail, recentActivity: [timelineActivity({ eventType: 'auto_merge_enabled' })] } : detail}
+      mergeQueue={mergeQueue} onClose={() => { closes++; }} onRefresh={async () => { refreshes++; }} />,
+  ));
+  const action = () => fixtureElement<HTMLButtonElement>('.pr-merge-sheet__footer button:last-child', host, 'Merge sheet must offer an action');
+  try {
+    render(false);
+    await settle();
+    assert(action().textContent?.trim() === 'Rebase and merge' && action().disabled,
+      'Direct rebase must remain disabled while CI runs');
+    action().click();
+    assert(merges.length === 0, 'Disabled direct merge must not send a write');
+
+    render(true);
+    await settle();
+    assert(host.textContent?.includes('Checks are running') && action().textContent?.trim() === 'Merge when ready' && !action().disabled,
+      'Running CI must allow Merge when ready for a merge queue');
+    action().click();
+    action().click();
+    await settle();
+    assert(Number(merges.length) === 1 && JSON.stringify(merges[0]) === JSON.stringify([pr.id, detail.repo, detail.number, 'when-ready', detail.headSha]),
+      'Merge when ready must send the displayed head once even on a double click');
+    assert(action().disabled && closes === 0, 'Scheduling must keep the sheet busy until the write completes');
+    merging.resolve();
+    await settle();
+    assert(Number(closes) === 1 && refreshes === 1, 'Successful scheduling must close and refresh the sheet');
+
+    render(true, true);
+    await settle();
+    assert(action().textContent?.trim() === 'Cancel scheduled merge' && !action().disabled,
+      'Refreshed auto-merge activity must offer cancellation while CI still runs');
+    action().click();
+    action().click();
+    await settle();
+    assert(removals.length === 1 && JSON.stringify(removals[0]) === JSON.stringify([detail.repo, detail.number, true]),
+      'Cancelling a waiting merge must disable auto-merge once rather than dequeue');
+    assert(Number(closes) === 2 && Number(refreshes) === 2, 'Successful cancellation must close and refresh the sheet');
+    return 'Merge when ready schedules and cancels during CI while direct rebase stays blocked';
+  }
+  finally {
+    merging.resolve();
+    dispose();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
 export async function runMergeQueueRemoval(keepMounted = false): Promise<string> {
   const detail: PullRequestDetailDto = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true,
     recentActivity: [timelineActivity({ actor: 'github-merge-queue', eventType: 'removed_from_merge_queue', timestamp: '2026-10-17T07:39:43Z', githubId: 71 }, { ...payload, mergeQueueRemoval: {

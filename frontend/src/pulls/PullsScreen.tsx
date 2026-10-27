@@ -67,7 +67,7 @@ import {
 } from './model';
 import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
-import PullOverview, { commentedCodeLines, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
+import PullOverview, { commentedCodeLines, isAutoMergeEnabled, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
 import { remoteErrorMessage } from '../remoteError';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
 import MergeQueueRemoval from './MergeQueueRemoval';
@@ -1457,7 +1457,8 @@ export function PullDetailHeader({
   const draft = detail?.draft === true;
   const canOpenMerge = pr !== null && detail?.state?.toLowerCase() === 'open';
   const queued = detail !== null && isQueued(detail.recentActivity);
-  const canMerge = canOpenMerge && !draft && detail.viewerCanWrite && !queued;
+  const autoMerge = !queued && detail !== null && isAutoMergeEnabled(detail.recentActivity);
+  const canMerge = canOpenMerge && !draft && detail.viewerCanWrite && !queued && !autoMerge;
   const conflicts = hasMergeConflicts(detail);
   const merge = detail ? mergeStatus(detail) : null;
   const mergeBlocked = merge?.state === 'failed' || merge?.state === 'blocked';
@@ -1466,7 +1467,7 @@ export function PullDetailHeader({
   const iconState = state === 'merged' || state === 'closed'
     ? state
     : (detail?.draft ?? pr?.draft) ? 'draft' : 'open';
-  const mergeLabel = queued ? 'In merge queue' : conflicts
+  const mergeLabel = queued ? 'In merge queue' : autoMerge ? 'Merge scheduled' : conflicts
     ? 'Conflicts'
     : merge?.state === 'failed'
         ? 'Checks failed'
@@ -1607,12 +1608,12 @@ export function hasMergeConflicts(detail: PullRequestDetailDto | null) {
   return ['dirty', 'conflicting', 'conflicts'].includes(detail?.mergeableState?.toLowerCase() ?? '');
 }
 
-/** Whether the merge sheet's button may merge now: every place that merges a pull request asks the same. */
+/** Whether a user can request the selected merge action from the sheet or an Assistant card. */
 export function mergeReady(detail: PullRequestDetailDto, mergeQueue: boolean | null | undefined): boolean {
-  // A queued pull request merges whatever head it then has, so it joins only once checks pass; GitHub drops it on a new push.
-  const { state } = mergeStatus(detail);
-  return !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && state === 'ready'
-    && typeof mergeQueue === 'boolean' && !!detail.headSha && !hasMergeConflicts(detail) && !isQueued(detail.recentActivity);
+  const { pending, failing, unresolved } = mergeStatus(detail);
+  return !detail.draft && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite && failing === 0 && unresolved === 0
+    && typeof mergeQueue === 'boolean' && (mergeQueue || pending === 0) && !!detail.headSha && !hasMergeConflicts(detail)
+    && !isQueued(detail.recentActivity) && !isAutoMergeEnabled(detail.recentActivity);
 }
 
 export function mergeActionLabel(mergeQueue: boolean | null | undefined, conflicts = false) {
@@ -2113,8 +2114,10 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   const canMarkReady = detail.draft && detail.state?.toLowerCase() === 'open'
     && (detail.viewerCanWrite || pr.origin === 'AUTHORED');
   const queued = isQueued(detail.recentActivity);
+  const autoMerge = !queued && isAutoMergeEnabled(detail.recentActivity);
+  const scheduled = queued || autoMerge;
   const lastRemoval = detail.recentActivity.filter(activity => activity.eventType === 'removed_from_merge_queue').at(-1);
-  const canRemoveFromQueue = queued && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
+  const canRemoveFromQueue = scheduled && detail.state?.toLowerCase() === 'open' && detail.viewerCanWrite;
   const canMerge = mergeReady(detail, mergeQueue);
 
   useEffect(() => {
@@ -2136,11 +2139,11 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
         onDetailUpdate(detail.repo, detail.number, current => ({ ...current, draft: false }));
       }
       else if (action === 'remove') {
-        await window.bridge.removePrFromMergeQueue(detail.repo, detail.number);
+        await window.bridge.removePrFromMergeQueue(detail.repo, detail.number, autoMerge);
       }
       else {
         if (!detail.headSha) throw new Error('Refresh the pull request before merging.');
-        await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'queue' : 'rebase', detail.headSha);
+        await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'when-ready' : 'rebase', detail.headSha);
       }
       recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
       submitted.current = true;
@@ -2160,14 +2163,15 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   return (
     <PullActionSheet kind="merge" busy={submitting} onClose={close} footer={<>
         <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
-        {!queued && <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
+        {!scheduled && <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
           onClick={() => { void submit('ready'); }}>
           <PullRequestIcon /> {submitting && detail.draft ? 'Marking ready…' : 'Ready for review'}
         </button>}
-        <button className={queued ? undefined : 'is-primary'} type="button" disabled={submitting || !(queued ? canRemoveFromQueue : canMerge)}
-          onClick={() => { void submit(queued ? 'remove' : 'merge'); }}>
-          {queued ? <X size={14} aria-hidden="true" /> : <PullRequestIcon />}
+        <button className={scheduled ? undefined : 'is-primary'} type="button" disabled={submitting || !(scheduled ? canRemoveFromQueue : canMerge)}
+          onClick={() => { void submit(scheduled ? 'remove' : 'merge'); }}>
+          {scheduled ? <X size={14} aria-hidden="true" /> : <PullRequestIcon />}
           {queued ? submitting ? 'Removing…' : 'Remove from merge queue'
+            : autoMerge ? submitting ? 'Cancelling…' : 'Cancel scheduled merge'
             : submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
         </button>
     </>}>
@@ -2181,6 +2185,8 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
               : <span className={`pr-merge-dot${mergeQueue ? ' is-queue' : ''}`} />}
           <strong>{queued
             ? 'In merge queue'
+            : autoMerge
+            ? 'Merge scheduled'
             : conflicts
             ? <>Conflicts with target branch{detail.baseRef && <> <code>{detail.baseRef}</code></>}</>
             : blocked
@@ -2194,7 +2200,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
         </div>
         {conflicts && !queued && <PullRequestConflictFiles key={`${detail.repo}#${detail.number}:${detail.baseRef}:${detail.updatedAt}`}
           repo={detail.repo} number={detail.number} />}
-        {!queued && lastRemoval && <section className="pr-merge-queue-removal" aria-label="Last merge queue removal">
+        {!scheduled && lastRemoval && <section className="pr-merge-queue-removal" aria-label="Last merge queue removal">
           <strong>Last removed from the merge queue</strong>
           <MergeQueueRemoval activity={lastRemoval} repo={detail.repo} number={detail.number} />
         </section>}

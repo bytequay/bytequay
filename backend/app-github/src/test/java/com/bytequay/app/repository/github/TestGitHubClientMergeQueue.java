@@ -64,6 +64,124 @@ class TestGitHubClientMergeQueue
     }
 
     @Test
+    void enablesAutoMergeWhileRequiredChecksArePending()
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"query":"mutation($id: ID!, $head: GitObjectID!) { enablePullRequestAutoMerge(input: { pullRequestId: $id, expectedHeadOid: $head, mergeMethod: REBASE }) { pullRequest { autoMergeRequest { enabledAt } mergeQueueEntry { position state } } } }",
+                         "variables":{"id":"PR_1","head":"displayed-head"}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"autoMergeRequest":{"enabledAt":"2026-01-01T12:00:00Z"},"mergeQueueEntry":null}}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        MergeResult result = client.enablePullRequestAutoMerge("pat", "PR_1", "displayed-head");
+
+        assertThat(result.merged()).isFalse();
+        assertThat(result.queued()).isFalse();
+        assertThat(result.message()).isEqualTo("Will enter the merge queue when required checks and reviews pass");
+    }
+
+    @Test
+    void reportsImmediateQueueEntryWhenAutoMergeIsReady()
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"autoMergeRequest":null,"mergeQueueEntry":{"position":2,"state":"QUEUED"}}}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        MergeResult result = client.enablePullRequestAutoMerge("pat", "PR_1", "displayed-head");
+
+        assertThat(result.merged()).isFalse();
+        assertThat(result.queued()).isTrue();
+        assertThat(result.message()).isEqualTo("Added to merge queue (position 2, queued)");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"data\":{}}", "{\"data\":{\"enablePullRequestAutoMerge\":null}}",
+            "{\"data\":{\"enablePullRequestAutoMerge\":{\"pullRequest\":null}}}"})
+    void rejectsIncompleteAutoMergeAcknowledgment(String response)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.enablePullRequestAutoMerge("pat", "PR_1", "head"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("incomplete GraphQL data");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"autoMergeRequest\":null,\"mergeQueueEntry\":null}",
+            "{\"autoMergeRequest\":{},\"mergeQueueEntry\":null}", "{\"autoMergeRequest\":{\"enabledAt\":12},\"mergeQueueEntry\":null}",
+            "{\"autoMergeRequest\":{\"enabledAt\":\" \"},\"mergeQueueEntry\":null}", "{\"autoMergeRequest\":null,\"mergeQueueEntry\":false}",
+            "{\"autoMergeRequest\":null,\"mergeQueueEntry\":{}}", "{\"autoMergeRequest\":null,\"mergeQueueEntry\":{\"position\":2}}",
+            "{\"autoMergeRequest\":null,\"mergeQueueEntry\":{\"state\":\"QUEUED\"}}",
+            "{\"autoMergeRequest\":null,\"mergeQueueEntry\":{\"position\":2,\"state\":null}}",
+            "{\"autoMergeRequest\":null,\"mergeQueueEntry\":{\"position\":\"unknown\",\"state\":\"QUEUED\"}}"})
+    void rejectsMissingOrMalformedAutoMergeState(String pullRequest)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("{\"data\":{\"enablePullRequestAutoMerge\":{\"pullRequest\":" + pullRequest + "}}}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.enablePullRequestAutoMerge("pat", "PR_1", "head"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(502));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Head changed", "Write access is required"})
+    void reportsAutoMergeRejectionEvenWithPartialData(String reason)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"enablePullRequestAutoMerge":{"pullRequest":{"autoMergeRequest":{"enabledAt":"2026-01-01T12:00:00Z"},"mergeQueueEntry":null}}},
+                         "errors":[{"message":"%s"}]}
+                        """.formatted(reason), MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.enablePullRequestAutoMerge("pat", "PR_1", "head"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(422))
+                .hasMessageContaining("GitHub enablePullRequestAutoMerge failed: " + reason);
+    }
+
+    @Test
+    void disablesAutoMergeUsingThePullRequestNodeId()
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"query":"mutation($id: ID!) { disablePullRequestAutoMerge(input: { pullRequestId: $id }) { clientMutationId } }","variables":{"id":"PR_1"}}
+                        """))
+                .andRespond(withSuccess("""
+                        {"data":{"disablePullRequestAutoMerge":{"clientMutationId":null}}}
+                        """, MediaType.APPLICATION_JSON));
+
+        client.disablePullRequestAutoMerge("pat", "PR_1");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "{\"data\":{}}", "{\"data\":{\"disablePullRequestAutoMerge\":null}}"})
+    void rejectsIncompleteDisableAutoMergeAcknowledgment(String response)
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.disablePullRequestAutoMerge("pat", "PR_1"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("incomplete GraphQL data");
+    }
+
+    @Test
+    void reportsDisableAutoMergeRejectionEvenWithPartialData()
+    {
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("""
+                        {"data":{"disablePullRequestAutoMerge":{"clientMutationId":null}},"errors":[{"message":"Write access is required"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.disablePullRequestAutoMerge("pat", "PR_1"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(422))
+                .hasMessageContaining("GitHub disablePullRequestAutoMerge failed: Write access is required");
+    }
+
+    @Test
     void dequeuesPullRequestUsingItsNodeId()
     {
         graphServer.expect(requestTo("https://api.github.test/graphql"))

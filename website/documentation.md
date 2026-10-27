@@ -201,7 +201,10 @@ download that translation. Hover the finished words to see what you said.
    `@author`.
 2. Read checks and activity in **PR**. Inspect files in **WorkBench → Changes**.
 3. Select diff lines, choose **Add to review**, then **Submit review**.
-4. Merge from the header when checks allow. **Monitor PR** follows updates.
+4. Merge from the header. For branches with a merge queue, **Merge when ready**
+   schedules the merge while CI runs; use **Cancel scheduled merge** to cancel
+   before it enters the queue. **Rebase and merge** waits for passing checks.
+   **Monitor PR** follows updates.
 
 **Post now** and **Reply** publish at once; **Add to review** keeps comments
 pending until you submit.

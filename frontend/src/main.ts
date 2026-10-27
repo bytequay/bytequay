@@ -1784,8 +1784,8 @@ function registerIpc(): void {
     backendJson(prUrl('/prs/close', repo, number), { method: 'POST' }));
   ipcMain.handle('prs:ready-for-review', (_event, repo: string, number: number) =>
     backendJson(prUrl('/prs/ready-for-review', repo, number), { method: 'POST' }));
-  ipcMain.handle('prs:merge-queue:remove', (_event, repo: string, number: number) =>
-    backendJson(prUrl('/prs/merge-queue', repo, number), { method: 'DELETE' }));
+  ipcMain.handle('prs:merge-queue:remove', (_event, repo: string, number: number, autoMerge: boolean) =>
+    backendJson(prUrl('/prs/merge-queue', repo, number, { autoMerge: String(autoMerge) }), { method: 'DELETE' }));
   ipcMain.handle('prs:review-comment:reply', (
     _event,
     repo: string,

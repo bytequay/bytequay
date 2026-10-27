@@ -184,15 +184,26 @@ it('carries the viewed head commit through review submission', async () => {
     expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedVersion: 4, body: '', event: 'APPROVE', headSha: 'viewed-head' }) }));
 });
 
-it('carries the displayed head commit through the merge request', async () => {
+it.each(['rebase', 'when-ready'])('carries the displayed head commit through the %s merge request', async strategy => {
   await startMain();
   const fetch = vi.fn(async () => new Response('{}'));
   vi.stubGlobal('fetch', fetch);
 
-  await desktop.handlers.get('prs:merge')?.({}, 12, 'owner/repo', 7, 'rebase', 'displayed-head');
+  await desktop.handlers.get('prs:merge')?.({}, 12, 'owner/repo', 7, strategy, 'displayed-head');
 
-  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/prs/merge?repo=owner%2Frepo&number=7&id=12&strategy=rebase&headSha=displayed-head',
+  expect(fetch).toHaveBeenCalledWith(`http://127.0.0.1:9527/prs/merge?repo=owner%2Frepo&number=7&id=12&strategy=${strategy}&headSha=displayed-head`,
     expect.objectContaining({ method: 'POST' }));
+});
+
+it.each([true, false])('cancels the selected merge mode (auto-merge: %s)', async autoMerge => {
+  await startMain();
+  const fetch = vi.fn(async () => new Response('{}'));
+  vi.stubGlobal('fetch', fetch);
+
+  await desktop.handlers.get('prs:merge-queue:remove')?.({}, 'owner/repo', 7, autoMerge);
+
+  expect(fetch).toHaveBeenCalledWith(`http://127.0.0.1:9527/prs/merge-queue?repo=owner%2Frepo&number=7&autoMerge=${autoMerge}`,
+    expect.objectContaining({ method: 'DELETE' }));
 });
 
 it.each([

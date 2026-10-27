@@ -1499,6 +1499,10 @@ function eventText(activity: Activity, activities: Activity[], headRef: string |
     case 'demilestoned': return <>removed this from the <strong>{p.milestoneTitle}</strong> milestone</>;
     case 'added_to_merge_queue': return <>added this to the merge queue</>;
     case 'removed_from_merge_queue': return <>removed this from the merge queue</>;
+    case 'auto_merge_enabled':
+    case 'auto_rebase_enabled':
+    case 'auto_squash_enabled': return <>enabled merge when ready</>;
+    case 'auto_merge_disabled': return <>cancelled merge when ready</>;
     case 'head_ref_force_pushed': return <>force-pushed the head branch{activities.length > 1 ? ` ${activities.length} times` : ''}</>;
     case 'head_ref_deleted': return <>deleted the {headRef ? <code>{headRef}</code> : 'head'} branch</>;
     case 'convert_to_draft': return <>converted this pull request to draft</>;
@@ -2307,6 +2311,14 @@ export function isQueued(activity: Activity[]) {
     : item.eventType === 'removed_from_merge_queue'
       ? false
       : queued, false);
+}
+
+export function isAutoMergeEnabled(activity: Activity[]) {
+  return activity.reduce((enabled, item) => {
+    if (['auto_merge_enabled', 'auto_rebase_enabled', 'auto_squash_enabled'].includes(item.eventType)) return true;
+    if (['auto_merge_disabled', 'added_to_merge_queue', 'removed_from_merge_queue', 'closed', 'merged', 'convert_to_draft'].includes(item.eventType)) return false;
+    return enabled;
+  }, false);
 }
 
 function reviewBadge(state?: string | null) {

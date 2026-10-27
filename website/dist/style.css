@@ -247,7 +247,7 @@ p {
 .app-stage img {
   width: 100%;
 }
-.docs-content > .app-stage {
+.docs-content .app-stage {
   margin: 24px 0 32px;
 }
 /* Product page: full-width rules between bands and a framed column, so every section lines up. */

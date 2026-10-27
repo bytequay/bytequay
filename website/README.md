@@ -83,6 +83,15 @@ animation cycles the default, cards, and timeline views; the landing page
 shows the still image when reduced motion is preferred. Leave out views whose
 sample text names a real repository.
 
+`app-dictation.gif` and its reduced-motion still `app-dictation.jpg` come from
+`src/assistant/dictationMovieBrowser.test.ts`: from `frontend/`, run it with
+`BYTEQUAY_DICTATION_FRAMES=<folder>` through `npx vitest run`. It writes each
+dark 2× frame as a PNG, plus `holds.json` with each frame's hold in
+milliseconds. Encode the frames in order at 1100 × 700 with one 256-color
+palette per frame and no dithering, for example with Pillow's fast octree
+quantizer; one shared palette turns the window buttons and running spinner
+gray. The still is `frame-08.png`, where the strip shows the words as heard.
+
 Capture through an isolated browser fixture with sample bridge data, blocked
 external images and connections, and no live provider or backend. Development
 uses `AgentTaskScreen` with WorkBench Changes; review uses `AgentReviewTab`;

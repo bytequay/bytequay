@@ -239,6 +239,14 @@ export function voiceFooter({ support, on, fraction, written, translating, onChe
   }
 }
 
+/**
+ * Progress moves only a download this card started, because only that download's end clears the bar. Turning dictation on
+ * or choosing a language also reports progress while it reserves a model already on disk, and nothing would clear that.
+ */
+export function downloadProgress(current: number | null, fraction: number): number | null {
+  return current === null ? null : fraction;
+}
+
 /** The switch always turns off; it turns on only on a Mac that passes every check. */
 export function voiceSwitchDisabled(on: boolean, state: VoiceState | undefined, busy: boolean): boolean {
   return busy || state === undefined || !on && state !== 'ready';
@@ -263,7 +271,7 @@ function VoiceFeature() {
     void window.bridge.getVoiceSettings().then(value => { if (current) setSettings(value); }).catch(fail);
     check();
     const offChanged = window.bridge.onVoiceChanged(setSettings);
-    const offProgress = window.bridge.onVoiceInstallProgress(progress => setFraction(progress.fraction));
+    const offProgress = window.bridge.onVoiceInstallProgress(progress => setFraction(current => downloadProgress(current, progress.fraction)));
     // Coming back from System Settings, where the microphone may just have been allowed.
     window.addEventListener('focus', check);
     return () => {

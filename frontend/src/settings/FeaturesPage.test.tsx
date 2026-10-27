@@ -14,7 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { VoiceState } from '../dictation/contracts';
-import { FeatureCard, voiceFooter, voiceSwitchDisabled } from './FeaturesPage';
+import { downloadProgress, FeatureCard, voiceFooter, voiceSwitchDisabled } from './FeaturesPage';
 
 const agent = vi.hoisted(() => ({ loading: false, development: false }));
 vi.mock('../agents/availability', () => ({ useAgentAvailability: () => agent }));
@@ -71,6 +71,11 @@ describe('Voice card', () => {
     expect(footer('downloading')).toContain('Downloading the Chinese (China mainland) speech model');
     expect(footer('ready')).toBe('');
     expect(footer('ready', true)).toContain('Hold right ⌥ in any composer to talk.');
+  });
+
+  it('moves the bar only for a download the card started', () => {
+    expect(downloadProgress(0, 0.38)).toBe(0.38);
+    expect(downloadProgress(null, 0)).toBeNull();
   });
 
   it('waits on Apple’s download window without offering another download', () => {

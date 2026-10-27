@@ -13,6 +13,7 @@
  */
 
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -96,9 +97,16 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
     const preload = fixture.preload === undefined ? '' : `, preload: ${JSON.stringify(join(directory, 'preload.cjs'))}`;
     const network = fixture.blockNetwork === false ? ''
       : "window.webContents.session.webRequest.onBeforeRequest({ urls: ['http://*/*', 'https://*/*'] }, (_details, callback) => callback({ cancel: true }));";
+    const exitMarker = `bytequay-fixture-exit-${randomUUID()}:`;
     await writeFile(join(directory, 'main.cjs'), `
       const { app, BrowserWindow, ipcMain, nativeTheme } = require('electron');
       ${electronFixtureLifecycle(timeout)}
+      const reportExit = code => require('node:fs').writeSync(2, '\\n${exitMarker}' + code + '\\n');
+      const finishFixture = code => {
+        // Run after the fixture's own quit handlers; exit callbacks cannot await pipe writes.
+        app.once('quit', (_event, exitCode) => reportExit(exitCode));
+        app.exit(code);
+      };
       // Fixtures render the same whatever the host's appearance and motion settings are.
       nativeTheme.themeSource = 'light';
       app.commandLine.appendSwitch('force-prefers-no-reduced-motion');
@@ -115,8 +123,8 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
           await window.loadFile(${JSON.stringify(join(directory, 'index.html'))});
           ${fixture.body ?? `const results = await window.webContents.executeJavaScript('${fixture.global}.run()');`}
           await new Promise((resolve, reject) => process.stdout.write(JSON.stringify(results) + '\\n', error => error ? reject(error) : resolve()));
-          app.exit(0);
-        } catch (error) { console.error(error); app.exit(1); }
+          finishFixture(0);
+        } catch (error) { console.error(error); reportExit(1); finishFixture(1); }
       });
     `);
     const environment = { ...process.env };
@@ -124,7 +132,31 @@ async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Prom
     const executable = electron as unknown as string;
     const args = [join(directory, 'main.cjs')];
     const command = process.platform === 'linux' && !process.env.DISPLAY ? 'xvfb-run' : executable;
-    const result = await promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout, killSignal: 'SIGKILL' });
+    const running = promisify(execFile)(command, command === executable ? args : ['-a', executable, ...args], { env: environment, timeout, killSignal: 'SIGKILL' });
+    let quitCode: number | undefined;
+    let stderr = '';
+    let shutdownTimer: NodeJS.Timeout | undefined;
+    let reapedAfterQuit = false;
+    if (process.platform === 'darwin') running.child.stderr?.on('data', chunk => {
+      stderr += chunk;
+      for (const quit of stderr.matchAll(new RegExp(`\\n${exitMarker}(-?\\d+)\\n`, 'g'))) {
+        const code = Number(quit[1]);
+        if (quitCode === undefined || code !== 0) quitCode = code;
+      }
+      if (quitCode === undefined || shutdownTimer !== undefined) return;
+      // macOS can leave Electron alive in native teardown after its final quit callback.
+      shutdownTimer = setTimeout(() => {
+        const child = running.child;
+        if (child.exitCode === null && child.signalCode === null && !child.killed) reapedAfterQuit = child.kill('SIGKILL');
+      }, deadline(1000)).unref();
+    });
+    const result = await running.catch((error: unknown) => {
+      if (reapedAfterQuit && quitCode === 0 && error instanceof Error
+        && 'code' in error && error.code === null && 'signal' in error && error.signal === 'SIGKILL'
+        && 'stdout' in error && typeof error.stdout === 'string') return { stdout: error.stdout };
+      throw error;
+    }).finally(() => clearTimeout(shutdownTimer));
+    if (quitCode !== undefined && quitCode !== 0) throw new Error(`Electron fixture failed during shutdown:\n${stderr}`);
     return JSON.parse(result.stdout.trim()) as T;
   }
   finally { await rm(directory, { recursive: true, force: true }); }

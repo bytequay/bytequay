@@ -98,6 +98,56 @@ it('force-closes a fixture whose main thread cannot handle graceful shutdown', a
   finally { await rm(directory, { recursive: true, force: true }); }
 }, deadline(20_000));
 
+it.skipIf(process.platform !== 'darwin')('reaps native shutdown stalls only after a successful final quit callback', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bytequay-fixture-native-exit-'));
+  try {
+    const entry = join(directory, 'renderer.js');
+    await writeFile(entry, 'export function run() { return "completed"; }');
+    const fixture = await buildBrowserFixture({ prefix: 'bytequay-fixture-native-exit-app-', entry, global: 'Fixture', timeoutMs: 5000,
+      body: 'const results = { pid: process.pid, value: await window.webContents.executeJavaScript("Fixture.run()") };',
+    });
+    // Simulate native teardown blocking after window destruction and the quit event have completed.
+    const stalledExit = (quitCode: string) => `app.on('window-all-closed', () => {});
+    Object.defineProperty(app, 'exit', { value: code => {
+      for (const window of BrowserWindow.getAllWindows()) window.destroy();
+      app.emit('quit', {}, ${quitCode});
+      while (true) {}
+    } });`;
+    try {
+      const result = await fixture.run<{ pid: number; value: string }>({ beforeReady: stalledExit('code') });
+      expect(result.value).toBe('completed');
+      expect(() => process.kill(result.pid, 0)).toThrowError();
+      await expect(fixture.run({ beforeReady: stalledExit('1') }))
+        .rejects.toMatchObject({ signal: 'SIGKILL', stdout: expect.stringContaining('completed') });
+      await expect(fixture.run({ beforeReady: stalledExit('code'), body: 'throw new Error("failed before quit");' }))
+        .rejects.toThrow('failed before quit');
+      await expect(fixture.run({ beforeReady: `app.on('window-all-closed', () => {});
+        Object.defineProperty(app, 'exit', { value: code => {
+          app.emit('quit', {}, code);
+          if (code === 0) throw new Error('failed after quit');
+          while (true) {}
+        } });` }))
+        .rejects.toThrow('failed after quit');
+      await expect(fixture.run({ beforeReady: stalledExit('code'), setup: 'app.on("quit", () => { throw new Error("quit handler failed"); });' }))
+        .rejects.toThrow('quit handler failed');
+    }
+    finally { await fixture.dispose(); }
+  }
+  finally { await rm(directory, { recursive: true, force: true }); }
+}, deadline(30_000));
+
+it.skipIf(process.platform !== 'darwin')('rejects a stalled fixture with valid results but no quit acknowledgement', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'bytequay-fixture-unfinished-exit-'));
+  try {
+    const entry = join(directory, 'renderer.js');
+    await writeFile(entry, 'export function run() { return "completed"; }');
+    await expect(runBrowserFixture({ prefix: 'bytequay-fixture-unfinished-exit-app-', entry, global: 'Fixture', timeoutMs: 3000,
+      beforeReady: 'Object.defineProperty(app, "exit", { value: () => { while (true) {} } });',
+    })).rejects.toMatchObject({ killed: true, signal: 'SIGKILL', stdout: '"completed"\n' });
+  }
+  finally { await rm(directory, { recursive: true, force: true }); }
+}, deadline(20_000));
+
 function forceExit(pid: number): void {
   try { process.kill(pid, 'SIGKILL'); }
   catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error; }

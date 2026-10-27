@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, ipcMain, Notification, shell, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, Notification, shell, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import path from 'node:path';
 import { APPROVAL_NOTICE, NOTICE_WIDTH, needsAction, noticeLabel, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
@@ -37,7 +37,7 @@ export class NoticeHost {
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
     private readonly openNotice: (notice: AppNotice) => Promise<void>, storagePath: () => string,
-    private readonly reveal: () => Promise<void>) {
+    private readonly reveal: () => Promise<void>, private readonly floating: () => WebContents | null = () => null) {
     this.store = new NoticeStore(storagePath);
   }
 
@@ -60,8 +60,13 @@ export class NoticeHost {
     const child = (event: IpcMainInvokeEvent | IpcMainEvent): void => {
       if (!this.view || event.sender !== this.view.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown notice surface');
     };
+    // The floating Assistant over other apps is the same panel in its own window.
+    const assistant = (event: IpcMainInvokeEvent): boolean => {
+      const contents = this.floating();
+      return owner(event) || Boolean(contents && event.sender === contents && event.senderFrame === contents.mainFrame);
+    };
     // The Assistant panel lists the same notices, so the main window may read and open them too.
-    const ownerOrChild = (event: IpcMainInvokeEvent): void => { if (!owner(event)) child(event); };
+    const ownerOrChild = (event: IpcMainInvokeEvent): void => { if (!assistant(event)) child(event); };
     ipcMain.handle('notices:read', event => { ownerOrChild(event); return this.snapshot(); });
     ipcMain.handle('notices:dismiss', (event, id: unknown, seen: unknown) => {
       child(event);
@@ -72,14 +77,16 @@ export class NoticeHost {
     });
     // Only the panel clears a notice for good; an alert's × just closes the alert.
     ipcMain.handle('notices:remove', (event, id: unknown) => {
-      if (!owner(event)) throw new Error('Unknown notice owner');
+      if (!assistant(event)) throw new Error('Unknown notice owner');
       if (typeof id !== 'string') throw new Error('Invalid notice');
       this.store.remove(id); this.publish();
     });
     ipcMain.handle('notices:open', async (event, id: unknown) => {
       ownerOrChild(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
-      await this.open(id, !owner(event));
+      // What the floating panel opens shows in the main window, which comes forward first.
+      if (!owner(event) && assistant(event)) await this.reveal().then(() => this.open(id, false));
+      else await this.open(id, !owner(event));
     });
     ipcMain.on('notices:resize', (event, height: unknown) => {
       child(event);
@@ -238,7 +245,11 @@ export class NoticeHost {
     if (this.view && viewState !== this.viewState) { this.viewState = viewState; this.view.webContents.send('notices:changed', state); }
     // Window events publish often; the panel and the sidebar's unread dot need only a changed list or viewed set.
     const notices = JSON.stringify([state.notices, state.viewedIds]);
-    if (notices !== this.mainNotices) { this.mainNotices = notices; window.webContents.send('notices:changed', state); }
+    if (notices !== this.mainNotices) {
+      this.mainNotices = notices;
+      window.webContents.send('notices:changed', state);
+      this.floating()?.send('notices:changed', state);
+    }
     this.layout();
   }
 

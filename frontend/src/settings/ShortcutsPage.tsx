@@ -74,6 +74,7 @@ export default function ShortcutsPage() {
       </SettingsRow>)}
       <SettingsRow title="Toggle Assistant or task notices"><kbd>⌘J</kbd></SettingsRow>
       <SettingsRow title="Open the next waiting task"><kbd>⇧⌘J</kbd></SettingsRow>
+      <SettingsRow title="Open the Assistant from any app"><kbd>⌥Space</kbd></SettingsRow>
       <div className="setw-foot-row"><span>These work from app pages, web pages, and the code editor. Task commands open Workspaces when no workspace is selected. Finish or dismiss an open form before navigating.</span></div>
     </SettingsCard>
     {SCOPED_SHORTCUTS.map(group => <Fragment key={group.title}>

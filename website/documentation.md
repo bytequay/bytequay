@@ -138,6 +138,12 @@ allowance.
 **⇧⌘J** opens the task that has waited longest. Task alerts also show as macOS
 notifications.
 
+**⌥Space** opens the same Assistant from any app, even over a full-screen
+window, with voice, cards and replies. What you open from it shows in
+ByteQuay. Escape puts it away and keeps what you typed. If another app, such
+as Claude, already uses ⌥Space, quit it or change its shortcut, then restart
+ByteQuay.
+
 <a id="assistant-actions"></a>
 
 ### Let it act when you ask

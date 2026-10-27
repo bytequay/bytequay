@@ -27,6 +27,7 @@ import { parseArtifactPage, parseArtifactRows, parseArtifactView } from './artif
 import { repositoryAvatar } from './repositoryAvatars';
 import { ARTIFACT_NOTICE } from './notices/contracts';
 import { NoticeHost } from './notices/host';
+import { QuickAsk } from './quick/host';
 import { isAssistantShortcut, isNextTaskShortcut } from './assistantShortcut';
 import { APP_NAVIGATION_SHORTCUTS, type AppNavigationTarget } from './appNavigation';
 import { registerGoogleIpc } from '@bytequay/google/main';
@@ -336,8 +337,12 @@ const appNotices = new NoticeHost(() => mainWindow,
     mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId,
       workItemId: notice.workItemId ?? null, artifact });
     mainWindow?.webContents.focus();
-  }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'),
-  () => ensureWindow().then(() => { mainWindow?.show(); mainWindow?.focus(); }));
+  }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'), revealWindow, () => quickAsk.contents());
+const quickAsk = new QuickAsk(async target => {
+  await revealWindow();
+  if ('url' in target) requestBrowser(target.url);
+  else mainWindow?.webContents.send('assistant:navigate', target);
+});
 const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.lastUsed(sender), () => appNotices.raise());
 const artifactView = new ArtifactView(() => mainWindow,
   target => backendJson(workspaceUrl(target.workspaceId, `/artifacts/${encodeURIComponent(target.artifactId)}/pages/${encodeURIComponent(target.pageId)}`))
@@ -474,6 +479,10 @@ function openPopup(url: string): void {
     return { action: 'deny' };
   });
   void popup.loadURL(url);
+}
+
+function revealWindow(): Promise<void> {
+  return ensureWindow().then(() => { mainWindow?.show(); mainWindow?.focus(); });
 }
 
 function ensureWindow(): Promise<void> {
@@ -2038,6 +2047,7 @@ function registerIpc(): void {
   registerBrowserTabIpc(browserTabs, () => mainWindow);
   registerFocusBreakBackground(() => mainWindow);
   appNotices.register();
+  quickAsk.register();
   ideViews.register();
   artifactView.register();
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
@@ -2071,7 +2081,7 @@ async function recoverBackend(): Promise<void> {
 app.on('ready', async () => {
   configureApplication();
   nativeTheme.on('updated', () => {
-    for (const window of BrowserWindow.getAllWindows()) window.setBackgroundColor(windowBackground());
+    for (const window of BrowserWindow.getAllWindows()) if (!quickAsk.owns(window)) window.setBackgroundColor(windowBackground());
   });
   // Packaged startup restores the login-shell PATH before IPC services discover tools such as Gemini.
   spawnBackend();

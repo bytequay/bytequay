@@ -67,6 +67,7 @@ vi.mock('electron', async () => {
       close = vi.fn();
     },
     protocol: { registerSchemesAsPrivileged: vi.fn() },
+    globalShortcut: { register: () => true },
     ipcMain: { handle: vi.fn(), on: vi.fn() },
     Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
     screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1600, height: 1000 } }) },

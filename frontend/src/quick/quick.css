@@ -1,0 +1,9 @@
+html, body, #root { height: auto; margin: 0; background: transparent; overflow: hidden; }
+
+/* The panel alone in a window its own size, with room round it for its shadow; there is no page under it to dim. */
+.quick-ask .assistant-panel { position: static; padding: 24px 40px 64px; }
+.quick-ask .assistant-backdrop { display: none; }
+.quick-ask .assistant-float { position: static; width: auto; max-height: var(--quick-max-height); transform: none; }
+
+/* vh here is this window, which grows with the input. */
+.quick-ask .agt-compose__input { max-height: 320px; }

@@ -20,6 +20,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge } from './types';
 import { observeNoticeOcclusion } from './notices/occlusion';
+import type { QuickAskBridge } from './quick/QuickAsk';
 
 ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('bytequay:github-account-changed')));
 
@@ -65,6 +66,7 @@ const bridge: Bridge = {
   setAssistantPanelOpen: open => ipcRenderer.send('notices:suppress', open),
   onAssistantToggle: callback => subscribe('assistant:toggle', callback),
   onAssistantOpenCard: callback => subscribe('assistant:open-card', callback),
+  onAssistantNavigate: callback => subscribe('assistant:navigate', callback),
   ...createGoogleBridge(ipcRenderer),
   ...createJiraBridge(ipcRenderer),
   createLocalJiraChild: invoke('jira:issue:local-child'),
@@ -509,9 +511,20 @@ const bridge: Bridge = {
 
 contextBridge.exposeInMainWorld('bridge', bridge);
 
-window.addEventListener('DOMContentLoaded', () => {
-  observeNoticeOcclusion(obscured => ipcRenderer.send('notices:obscured', obscured));
-});
+// The floating Assistant over other apps loads this preload too, for the same bridge; no alert ever shows over it.
+if (window.location.pathname.endsWith('/quick.html')) {
+  const quick: QuickAskBridge = {
+    close: () => ipcRenderer.send('quick:close'),
+    resize: height => ipcRenderer.send('quick:resize', height),
+    navigate: target => ipcRenderer.send('quick:navigate', target),
+  };
+  contextBridge.exposeInMainWorld('quickAskBridge', quick);
+}
+else {
+  window.addEventListener('DOMContentLoaded', () => {
+    observeNoticeOcclusion(obscured => ipcRenderer.send('notices:obscured', obscured));
+  });
+}
 
 const ide: IdeDesktopBridge = {
   resume: invoke('ide:resume'),

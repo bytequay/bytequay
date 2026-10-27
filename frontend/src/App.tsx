@@ -280,6 +280,13 @@ function AppContent() {
     setAssistantCard({ id });
   }), []);
 
+  // Where the floating Assistant over other apps opened something; it shows here, in front of any web page.
+  useEffect(() => window.bridge.onAssistantNavigate?.(target => {
+    backToApp();
+    if ('hash' in target) openPage(target.hash);
+    else zoomReference(target.zoom);
+  }), [backToApp, openPage]);
+
   useEffect(() => window.bridge.setAssistantPanelOpen?.(assistantShown), [assistantShown]);
 
   // A web page is a native view the floating Assistant cannot cover: opening the Assistant goes back to the app, and opening a page closes it.

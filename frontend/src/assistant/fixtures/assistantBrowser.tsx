@@ -119,6 +119,7 @@ const step = (sequence: number, argv: string, action: string, name: string | nul
 } as AgentEventEnvelope);
 
 let history: AgentEventEnvelope[] = [];
+let pages: string[] = [];
 
 const REPLY = Array.from({ length: 60 }, (_, index) => index === 0 ? 'Retried' : `word${index}`).join(' ');
 /** The finished task's history: its turn ended with a reply longer than a card quotes. */
@@ -140,6 +141,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
   const calls: Calls = { sent: [], resolved: [], opened: [], removed: [], stopped: 0, closed: 0, cancelled: [], answered: [], completed: [] };
   let failures = failSends;
   history = [step(1, 'sed -n 1,100p IcebergMetadata.java', 'READ', 'IcebergMetadata.java')];
+  pages = [];
   // As the backend keeps them: a conversation begins with its first message, which titles it, and holds what its replies left.
   const views = new Map<string, AssistantViewDto>();
   const summaries: AssistantSummaryDto[] = [];
@@ -189,7 +191,7 @@ function mount(view: AssistantViewDto = VIEW, failSends = 0, notices = NOTICES, 
       <div className="browser-workspace">
         <div className="app-surfaces"><main style={{ height: '100vh', padding: 24, color: 'var(--fg-muted)' }}>The page under the Assistant</main></div>
         <AssistantPanel open={open} chatEnabled={chatEnabled} notices={notices} openCard={openCard ?? null} onScreen="pr:owner/repository#31377"
-          onClose={() => { calls.closed++; if (shown) render(false); }} />
+          onClose={() => { calls.closed++; if (shown) render(false); }} onPage={hash => { pages.push(hash); window.location.hash = hash; }} />
       </div>,
     ));
   };
@@ -587,6 +589,7 @@ async function followsAnOpenOnceWhenItArrives(): Promise<void> {
     [...view.host.querySelectorAll<HTMLElement>('.assistant-receipt')].find(receipt => receipt.textContent?.startsWith('Opened Settings') === true)
       ?.querySelector<HTMLButtonElement>('.assistant-action')?.click();
     assert(window.location.hash === settingsRoute('models') && Number(view.calls.closed) === 2, 'Open goes to the page and closes the Assistant');
+    assert(pages.length === 2 && pages.every(page => page === settingsRoute('models')), `Page opens go through the host: ${pages.join()}`);
   }
   finally {
     window.location.hash = '';

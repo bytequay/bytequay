@@ -45,7 +45,11 @@ const BREAK_MS = 15 * 60_000;
  * back to an earlier one. It floats, and nothing paints over a native view, so the app leaves a web page before it opens and the editor
  * hides under any dialog.
  */
-export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose }: {
+function setHash(hash: string) {
+  window.location.hash = hash;
+}
+
+export default function AssistantPanel({ open, chatEnabled = true, notices, openCard, onScreen, onClose, onPage = setHash }: {
   open: boolean;
   chatEnabled?: boolean;
   notices: AppNotice[];
@@ -54,6 +58,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
   /** The ref of what the user is looking at, sent with a message unless they remove it. */
   onScreen: string | null;
   onClose: () => void;
+  /** Opens a page's route with nothing left over it. */
+  onPage?: (hash: string) => void;
 }) {
   const [conversation, setConversation] = useState<string>(() => crypto.randomUUID());
   const [history, setHistory] = useState(false);
@@ -120,9 +126,9 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     const hash = receipt.page === null ? null : pageRoute(receipt.page);
     if (hash === null && receipt.target === null) return;
     onClose();
-    if (hash !== null) window.location.hash = hash;
+    if (hash !== null) onPage(hash);
     else if (receipt.target !== null) openTarget(receipt.target);
-  }, [onClose]);
+  }, [onClose, onPage]);
 
   // An open the assistant made while the user watched goes there once; read later, its receipt only offers Open.
   useEffect(() => {
@@ -150,7 +156,7 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
     input.current?.focus();
   };
   const startNew = () => choose(crypto.randomUUID());
-  const openSettings = (section: SettingsSection) => { onClose(); window.location.hash = settingsRoute(section); };
+  const openSettings = (section: SettingsSection) => { onClose(); onPage(settingsRoute(section)); };
   // A receipt a card's button left after a failed reply does not end that exchange, so Retry stays on the failure.
   const lastExchange = items.findLast(item => item.kind !== 'RECEIPT')?.id;
   const submit = () => {

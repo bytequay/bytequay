@@ -172,6 +172,13 @@ function AppContent() {
     else if (window.location.hash !== hash) window.location.hash = hash;
   }, [replaceCurrentRoute]);
 
+  // Opening the page already under a layer fires no hashchange, so what covers it closes here.
+  const openPage = useCallback((hash: string) => {
+    setLayers([]);
+    setTaskSwitcher(null);
+    navigateTo(hash, 'push');
+  }, [navigateTo]);
+
   useEffect(() => {
     const hash = window.location.hash || '#/home';
     window.history.replaceState(window.history.state, '', hash);
@@ -796,7 +803,8 @@ function AppContent() {
       </div>
       {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
         error={browserError} onError={setBrowserError} onBack={backToApp} />}
-      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)} />
+      <AssistantPanel open={assistantShown} chatEnabled={assistantAvailable} notices={notices} openCard={assistantCard} onScreen={onScreen} onClose={() => setAssistantOpen(false)}
+        onPage={openPage} />
     </div>
     </FocusBreakProvider>
   );

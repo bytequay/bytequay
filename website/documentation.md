@@ -445,6 +445,8 @@ needed.
   **Processes**.
 - **Agent activity** shows agent performance, review guidance, and context
   costs.
+- **Improve** writes and tests new review rules on cases the Lab never saw;
+  every step runs from a button.
 
 [Explore the Lab](dist/lab.html) · [Start the Lab](dist/lab-guide.html)
 

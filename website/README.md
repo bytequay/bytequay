@@ -54,10 +54,10 @@ steps per task; leave implementation contracts in source. The Docs index keeps
 old topic links working through `doc-links.js`; use direct guide links elsewhere
 on the website. `dist/lab.html` introduces the Lab; `dist/lab-guide.html`
 explains setup, measurements, experiments, and follow-up. Keep them aligned with
-the Python toolkit and its runbook in `scripts/review-calibration/`. The four
+the Python toolkit and its runbook in `scripts/review-calibration/`. The five
 `dist/assets/lab-*.svg` images are scalable dashboard illustrations, with
 synthetic example numbers and generic project labels. They explain the current
-resource, experiment, context, and follow-up views; they are not actual app
+resource, experiment, rules improvement, context, and follow-up views; they are not actual app
 screenshots or measured benchmark results. Keep the sample-data label in each
 illustration, and preserve full-size image links. Do not embed private Lab data
 or make unmeasured improvement claims. The two public design documents are

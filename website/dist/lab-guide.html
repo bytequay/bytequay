@@ -45,6 +45,7 @@
             ><a href="#start">Start the Lab</a><a href="#resources">Resources</a
             ><a href="#activity">Time &amp; tools</a
             ><a href="#experiments">Skills &amp; review rules</a
+            ><a href="#improve">Rules improvement</a
             ><a href="#context">Context &amp; memory</a
             ><a href="#outcomes">Tuning &amp; delivery</a
             ><a href="#follow-up">Check a change</a
@@ -74,6 +75,10 @@
                 <strong>Agent activity</strong> shows agent performance, review
                 guidance, and context costs.
               </li>
+              <li>
+                <strong>Improve</strong> writes and tests new review rules on
+                cases the Lab never saw; every step runs from a button.
+              </li>
             </ul>
             <p>
               <strong>Show the Lab</strong> adds a sidebar shortcut. The
@@ -96,10 +101,11 @@
                 alt="Resource usage and agent activity — illustrated preview with sample data."
             /></a>
             <p>
-              Run <code>uv run monitor.py</code> for a snapshot. For history,
-              use <code>uv run monitor.py --start</code>: it installs a local
-              login service, samples every 15 seconds, and refreshes analysis
-              hourly. <code>--stop</code> removes the service.
+              For history, choose <strong>Start resource monitoring</strong> on
+              <strong>App health</strong> or <strong>Start the monitor</strong>
+              on <strong>Processes</strong>: it installs a local login service,
+              samples every 15 seconds, and refreshes analysis hourly.
+              <strong>Stop the monitor</strong> removes the service.
             </p>
             <p>
               Open <strong>Resources</strong> to compare memory, CPU, and disk
@@ -176,6 +182,52 @@
                 href="https://github.com/bytequay/bytequay/tree/main/scripts/review-calibration#experiments"
                 >Experiment commands and case setup</a
               >
+            </p>
+          </section>
+          <section id="improve">
+            <h2>Improve review rules</h2>
+            <a
+              class="lab-guide-visual"
+              href="assets/lab-improve.svg"
+              target="_blank"
+              rel="noopener"
+              aria-label="Open the rules improvement illustration at full size"
+              ><img
+                src="assets/lab-improve.svg"
+                width="1440"
+                height="900"
+                loading="lazy"
+                alt="Rules improvement stages, versions, and a verdict on unseen cases — illustrated preview with sample data."
+            /></a>
+            <ol>
+              <li>
+                Keep two experiments: tuning cases the Lab learns from, and
+                unseen cases marked <code>"unseen": true</code>. Unseen cases
+                are only ever shown as totals.
+              </li>
+              <li>
+                On <strong>Improve</strong>, choose both and a setting, then
+                <strong>Start an improvement</strong>. The Lab’s agent writes a
+                version of how the reviewer works and one of what an expert of
+                the repository knows, tries both, merges what their runs
+                support, and runs the result on the unseen cases.
+                <strong>Carry on</strong> resumes after a stop.
+              </li>
+              <li>
+                Read the verdict. It says <strong>better</strong> or
+                <strong>worse</strong> only when the whole range of the change,
+                measured case by case, sits on one side of zero; otherwise it
+                says <strong>not clear</strong>.
+              </li>
+              <li>
+                A version that comes out better becomes your change to the
+                rules. The Lab never changes them itself.
+              </li>
+            </ol>
+            <p>
+              The writer reads how earlier reviews went, never their scores, and
+              hands in edits to the rules with the reason for each. Expect
+              about three hours of review runs per improvement.
             </p>
           </section>
           <section id="context">
@@ -258,8 +310,8 @@
             <p>
               <strong>Report</strong> summarizes a day or week.
               <strong>What became of them</strong> keeps earlier decisions
-              visible. <code>uv run digest.py</code> saves a report from current
-              tables.
+              visible, and <strong>Analyze now</strong> refreshes every table
+              it reads.
             </p>
           </section>
           <section id="reading-results">
@@ -287,8 +339,9 @@
             <p>
               Ordinary analysis reads app data locally. Optional experiments
               send frozen inputs to your selected provider; judging sends
-              comments and leads to DeepSeek; resource advice sends measured
-              counters and prior risk titles.
+              comments and leads to DeepSeek; the rules writer sends run
+              transcripts, never scores, to DeepSeek; resource advice sends
+              measured counters and prior risk titles.
             </p>
             <p>
               <strong>Clean up</strong> deletes eligible app data only after

@@ -184,17 +184,6 @@ export default function AttentionList({
             ))}
           </div>
         </>}
-        {summary !== '' && (
-          <div className="atn-handled">
-            <span>{summary} this session</span>
-            <button className="atn-handled__action" type="button" aria-expanded={showHandled} onClick={() => setShowHandled(value => !value)}>
-              {showHandled ? 'Hide them' : 'View them'}
-            </button>
-            <button className="atn-handled__action" type="button" onClick={() => restore(session)}>
-              Bring back
-            </button>
-          </div>
-        )}
       </div>
 
       {cards.length > 0 ? (
@@ -220,6 +209,18 @@ export default function AttentionList({
         </div>
       ) : (
         <div className="atn-clear">{myPrs ? 'No pull requests to show right now.' : onlyTeam ? 'Nothing from your circles needs you right now.' : openOnly ? 'Nothing open needs you right now.' : 'Nothing needs you right now.'}</div>
+      )}
+
+      {summary !== '' && (
+        <div className="atn-handled">
+          <span>{summary} this session</span>
+          <button className="atn-handled__action" type="button" aria-expanded={showHandled} onClick={() => setShowHandled(value => !value)}>
+            {showHandled ? 'Hide them' : 'View them'}
+          </button>
+          <button className="atn-handled__action" type="button" onClick={() => restore(session)}>
+            Bring back
+          </button>
+        </div>
       )}
 
       {showHandled && sessionItems.length > 0 && (

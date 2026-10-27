@@ -59,7 +59,7 @@ export async function runAttentionActions(): Promise<void> {
     assert(handled[issue.key]?.kind === 'ack' && !host.querySelector('.item-row'), 'Ack must hide the suggestion');
     assert(host.textContent?.includes('Nothing needs you right now.') === true, 'An empty list must say nothing needs you');
     assert(started === 1 && opened === 1, 'Ack must not launch or navigate');
-    assert(host.querySelector('.atn-head .atn-handled')?.textContent?.includes('1 acknowledged this session') === true, 'The header must count what was handled');
+    assert(host.querySelector('.atn-clear + .atn-handled')?.textContent?.includes('1 acknowledged this session') === true, 'The summary below the cards must count what was handled');
     flushSync(() => button('View them').click());
     const handledRow = host.querySelector<HTMLElement>('[aria-label="Handled this session"] .item-row');
     assert(handledRow?.textContent?.includes('Restore uploads') === true && !handledRow.querySelector('[aria-label="Acknowledge #7"]'), 'View them must list the item without triage actions');

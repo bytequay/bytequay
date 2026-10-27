@@ -437,12 +437,12 @@
 
 .atn-handled {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  margin-left: auto;
+  margin-top: 8px;
   font-size: 11.5px;
   color: var(--fg-dim);
-  white-space: nowrap;
 }
 
 .atn-handled__action {

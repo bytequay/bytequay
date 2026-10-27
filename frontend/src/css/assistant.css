@@ -237,8 +237,9 @@
   gap: 10px;
   min-width: 0;
   padding: 7px 8px 7px 10px;
-  border: 1px solid var(--assistant-line-subtle);
+  border: 1px solid var(--assistant-line);
   border-radius: 8px;
+  background: var(--bg-hover);
 }
 
 .assistant-receipt__icon {
@@ -246,7 +247,7 @@
   align-self: flex-start;
   /* Centred on the first line, which is 19px high. */
   margin-top: 2.5px;
-  color: var(--fg-muted);
+  color: var(--fg-link);
 }
 
 .assistant-receipt__text { flex: 1; min-width: 0; }
@@ -259,7 +260,8 @@
 }
 
 .assistant-receipt__line { font-size: 13px; line-height: 19px; }
-.assistant-receipt.is-refused .assistant-receipt__line { color: var(--fg-muted); }
+.assistant-receipt.is-refused .assistant-receipt__line,
+.assistant-receipt.is-refused .assistant-receipt__icon { color: var(--fg-muted); }
 
 .assistant-receipt__below,
 .assistant-receipt__stopped {
@@ -281,14 +283,14 @@
   padding: 0 8px;
   border: 1px solid var(--assistant-line);
   border-radius: 6px;
-  background: none;
+  background: var(--assistant-line);
   color: var(--fg-default);
   font: inherit;
   font-size: 12px;
   cursor: pointer;
 }
 
-.assistant-action:hover:not(:disabled) { background: var(--bg-hover); }
+.assistant-action:hover:not(:disabled) { background: color-mix(in srgb, var(--assistant-line), var(--fg-default) 10%); }
 
 .assistant-action:focus-visible {
   outline: 2px solid var(--control-strong);

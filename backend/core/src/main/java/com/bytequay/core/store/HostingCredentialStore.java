@@ -14,6 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 
 import java.util.Optional;
 
@@ -21,7 +22,7 @@ public interface HostingCredentialStore
 {
     Optional<HostingCredential> find(long accountId);
 
-    HostingCredential save(long accountId, String token);
+    HostingCredential save(long accountId, String token, Source source);
 
     /** Removes authorization while retaining the account identity. */
     void delete(long accountId);

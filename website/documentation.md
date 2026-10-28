@@ -108,14 +108,26 @@ memory.
 ### Set up a GitLab workspace
 
 In **Workspaces → Watch repository**, choose **GitLab**. Select a saved account,
-or connect one with a personal access token that has `read_api` and
-`read_repository`. The server defaults to `https://gitlab.com`; enter your
-company GitLab URL when needed, including its port or path prefix.
+or choose **Sign in with GitLab** to use your normal email or SSO login in the
+browser. Install GitLab CLI 1.125 or newer with `brew install glab`, or update it
+with `brew upgrade glab`. The server defaults to `https://gitlab.com`; enter your
+company GitLab HTTPS URL when needed, including its port or path prefix.
+
+GitLab CLI owns browser authorization and token refresh. It requests its standard
+API and repository permissions. For a company server, configure its public OAuth
+application's client ID in `glab` first, as described in the
+[GitLab CLI authentication guide](https://docs.gitlab.com/cli/authentication/).
+The CLI keeps one active account per server; use personal access tokens to keep
+additional accounts connected. Disconnecting in ByteQuay does not sign out of `glab`.
+
+To connect with a personal access token instead, select `read_api` and
+`read_repository`. This option also works when browser sign-in is unavailable.
 
 Choose **Create access token** to open that server's token settings in your
 browser with the ByteQuay name and required permissions prefilled. Sign in to
 GitLab normally, create the token, then paste it into ByteQuay and choose
-**Connect GitLab**.
+**Connect GitLab**. If your server does not preselect the permissions, select
+`read_api` and `read_repository` yourself before generating the token.
 
 Enter the full **Project path**, such as `group/subgroup/project`, and choose
 **Find project**. Check the account, server and project, then choose **Create

@@ -102,6 +102,7 @@ class TestHostingController
     @CsvSource({
             "GET,/api/hosting/accounts",
             "POST,/api/hosting/accounts",
+            "POST,/api/hosting/cli/login",
             "DELETE,/api/hosting/accounts/7/credential",
             "POST,/api/hosting/accounts/7/repositories/resolve",
             "POST,/api/hosting/accounts/7/workspaces",
@@ -161,6 +162,24 @@ class TestHostingController
         assertThat(body).doesNotContain(TOKEN, SESSION, "secret", "credential");
         verify(connections).connect(GITLAB, WEB, API, TOKEN);
         verifyNoMoreInteractions(connections);
+    }
+
+    @Test
+    void connectsThroughCliWithoutExposingCredentials()
+            throws Exception
+    {
+        when(connections.connectCli(GITLAB, WEB, API)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true));
+
+        mvc(connections).perform(post("/api/hosting/cli/login").header(SESSION_HEADER, SESSION)
+                        .contentType(MediaType.APPLICATION_JSON).content("""
+                                {"provider":"GITLAB","webBaseUrl":"https://gitlab.company.test/team","apiBaseUrl":"https://gitlab.company.test/team/api/v4"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.account.id").value(7))
+                .andExpect(jsonPath("$.connected").value(true))
+                .andExpect(jsonPath("$.token").doesNotExist());
+
+        verify(connections).connectCli(GITLAB, WEB, API);
     }
 
     @Test
@@ -353,7 +372,7 @@ class TestHostingController
     {
         HostingIdentityStore identities = mock(HostingIdentityStore.class);
         HostingCredentialStore credentials = mock(HostingCredentialStore.class);
-        HostingConnectionService service = new HostingConnectionService(identities, credentials, ImmutableList.of());
+        HostingConnectionService service = new HostingConnectionService(identities, credentials, ImmutableList.of(), ImmutableList.of());
 
         mvc(service).perform(delete("/api/hosting/accounts/7/credential").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk());

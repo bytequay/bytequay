@@ -134,6 +134,7 @@ const bridge: Bridge = {
 
   listHostingAccounts: invoke('hosting:accounts'),
   connectHostingAccount: invoke('hosting:connect'),
+  connectHostingCliAccount: invoke('hosting:cli-login'),
   disconnectHostingAccount: invoke('hosting:disconnect'),
   resolveHostingRepository: invoke('hosting:repository'),
   createHostingWorkspace: invoke('hosting:workspace'),

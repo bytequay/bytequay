@@ -21,8 +21,19 @@ export function GitLabConnectionForm({ server, onConnected }: {
 }) {
   const [url, setUrl] = useState(server?.webBaseUrl ?? 'https://gitlab.com');
   const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'cli' | 'token' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const connect = async (cli: boolean) => {
+    if (busy !== null) return;
+    setBusy(cli ? 'cli' : 'token'); setError(null);
+    const webBaseUrl = url.trim().replace(/\/+$/, '');
+    const target: HostingServerDto = { provider: 'GITLAB', webBaseUrl, apiBaseUrl: server?.apiBaseUrl ?? `${webBaseUrl}/api/v4` };
+    try {
+      const account = await (cli ? window.bridge.connectHostingCliAccount(target) : window.bridge.connectHostingAccount({ ...target, token: token.trim() }));
+      setToken(''); onConnected(account);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { setBusy(null); }
+  };
   const openTokenPage = async () => {
     setError(null);
     try {
@@ -37,22 +48,22 @@ export function GitLabConnectionForm({ server, onConnected }: {
   };
   return <form className="hosting-form" onSubmit={event => {
     event.preventDefault();
-    if (busy) return;
-    setBusy(true); setError(null);
-    const webBaseUrl = url.trim().replace(/\/+$/, '');
-    void window.bridge.connectHostingAccount({ provider: 'GITLAB', webBaseUrl, apiBaseUrl: server?.apiBaseUrl ?? `${webBaseUrl}/api/v4`, token: token.trim() })
-      .then(account => { setToken(''); onConnected(account); })
-      .catch(failure => setError(failure instanceof Error ? failure.message : String(failure)))
-      .finally(() => setBusy(false));
+    void connect(false);
   }}>
-    <label>GitLab server<input aria-label="GitLab server" type="url" required value={url} disabled={busy || server !== undefined}
+    <label>GitLab server<input aria-label="GitLab server" type="url" required value={url} disabled={busy !== null || server !== undefined}
       onChange={event => setUrl(event.target.value)} placeholder="https://gitlab.example.com" /></label>
-    <label>Personal access token<input aria-label="GitLab personal access token" type="password" required value={token} disabled={busy}
+    <button type="button" className="setw-btn-primary" disabled={busy !== null} onClick={() => { void connect(true); }}>
+      {busy === 'cli' ? 'Waiting for GitLab…' : 'Sign in with GitLab'}
+    </button>
+    <p>Use your normal email or SSO sign-in in the browser. Requires GitLab CLI 1.125 or newer: <code>brew install glab</code> or <code>brew upgrade glab</code>.
+      GitLab CLI requests its standard API and repository permissions.</p>
+    <label>Or use a personal access token<input aria-label="GitLab personal access token" type="password" required value={token} disabled={busy !== null}
       autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
-    <button type="button" className="setw-link" disabled={busy} onClick={() => { void openTokenPage(); }}>Create access token</button>
-    <p>Use a token with <code>read_api</code> and <code>read_repository</code> access to connect and clone your projects. The token is stored encrypted on this Mac.</p>
+    <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage(); }}>Create access token</button>
+    <p>The shortcut preselects the required permissions: <code>read_api</code> and <code>read_repository</code>. If your server does not preselect them, select both before generating the token.
+      The token is stored encrypted on this Mac.</p>
     {error !== null && <p role="alert" className="setw-error">{error}</p>}
-    <button type="submit" className="setw-btn-primary" disabled={busy || token.trim() === ''}>{busy ? 'Connecting…' : 'Connect GitLab'}</button>
+    <button type="submit" className="setw-btn" disabled={busy !== null || token.trim() === ''}>{busy === 'token' ? 'Connecting…' : 'Connect GitLab'}</button>
   </form>;
 }
 

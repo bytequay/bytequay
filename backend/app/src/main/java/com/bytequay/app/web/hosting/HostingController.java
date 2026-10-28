@@ -22,6 +22,7 @@ import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestListPage;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -73,6 +74,12 @@ public class HostingController
     public void disconnect(@PathVariable long accountId)
     {
         connections.disconnect(accountId);
+    }
+
+    @PostMapping("/cli/login")
+    public HostingConnection connectCli(@RequestBody HostingServer server)
+    {
+        return connections.connectCli(server.provider(), server.webBaseUrl(), server.apiBaseUrl());
     }
 
     @PostMapping("/accounts/{accountId}/repositories/resolve")

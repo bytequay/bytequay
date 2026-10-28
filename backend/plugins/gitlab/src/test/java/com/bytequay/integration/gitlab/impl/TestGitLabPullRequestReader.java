@@ -80,7 +80,7 @@ class TestGitLabPullRequestReader
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/", exchange -> {
             requestedPath.set(exchange.getRequestURI().toASCIIString());
-            requestToken.set(exchange.getRequestHeaders().getFirst("PRIVATE-TOKEN"));
+            requestToken.set(exchange.getRequestHeaders().getFirst("Authorization"));
             requestValidator.set(exchange.getRequestHeaders().getFirst("If-None-Match"));
             Reply result = reply.get();
             byte[] bytes = result.body().getBytes(StandardCharsets.UTF_8);
@@ -123,7 +123,7 @@ class TestGitLabPullRequestReader
         PullRequestListPage result = GitLabIntegration.create(http, MAPPER).pullRequests().list(access, repository, false, 1, 2);
 
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests?scope=all&state=all&order_by=updated_at&sort=desc&per_page=2&page=1");
-        assertThat(requestToken.get()).isEqualTo("secret-token");
+        assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
         assertThat(requestValidator.get()).isNull();
         assertThat(result.hasNext()).isTrue();
         assertThat(result.items()).extracting(item -> item.number()).containsExactly(17, 18);
@@ -202,7 +202,7 @@ class TestGitLabPullRequestReader
         PullRequestFetch result = GitLabIntegration.create(http, MAPPER).pullRequests().fetch(access, repository, 17, Optional.empty());
 
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests/17");
-        assertThat(requestToken.get()).isEqualTo("secret-token");
+        assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
         assertThat(result.etag()).contains("\"fresh\"");
         assertThat(result.pullRequest()).hasValueSatisfying(summary -> {
             assertThat(summary.githubId()).isEqualTo(9001L);
@@ -555,7 +555,7 @@ class TestGitLabPullRequestReader
         assertThat(found.fullPath()).isEqualTo("new/group/project");
         assertThat(found.webUrl()).isEqualTo(URI.create(base + "/new/group/project"));
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42");
-        assertThat(requestToken.get()).isEqualTo("secret-token");
+        assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
     }
 
     @ParameterizedTest

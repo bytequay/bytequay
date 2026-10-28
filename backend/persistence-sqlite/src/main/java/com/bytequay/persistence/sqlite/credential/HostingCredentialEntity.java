@@ -13,9 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.credential;
 
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.persistence.sqlite.entity.HostingAccountEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
@@ -24,6 +27,7 @@ import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
+import org.hibernate.annotations.ColumnDefault;
 
 import static java.util.Objects.requireNonNull;
 
@@ -44,6 +48,12 @@ class HostingCredentialEntity
     @Getter(AccessLevel.PACKAGE)
     private String ciphertext;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    @ColumnDefault("'TOKEN'")
+    @Getter(AccessLevel.PACKAGE)
+    private Source source = Source.TOKEN;
+
     protected HostingCredentialEntity() {}
 
     HostingCredentialEntity(HostingAccountEntity account)
@@ -51,8 +61,9 @@ class HostingCredentialEntity
         this.account = requireNonNull(account, "account is null");
     }
 
-    void update(String ciphertext)
+    void update(String ciphertext, Source source)
     {
         this.ciphertext = requireNonNull(ciphertext, "ciphertext is null");
+        this.source = requireNonNull(source, "source is null");
     }
 }

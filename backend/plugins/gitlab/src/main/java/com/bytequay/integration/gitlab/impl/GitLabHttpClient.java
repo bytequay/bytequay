@@ -86,7 +86,7 @@ final class GitLabHttpClient
         try {
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
                     .timeout(Duration.ofSeconds(30))
-                    .header("PRIVATE-TOKEN", token)
+                    .header("Authorization", "Bearer " + token)
                     .header("Accept", "application/json");
             validator.ifPresent(value -> request.header("If-None-Match", value));
             HttpResponse<byte[]> response = readResponse(request.GET().build());

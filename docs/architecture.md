@@ -162,6 +162,13 @@ are encrypted separately from retained object identities. Redirects cannot
 forward tokens, and native GitHub operations reject other hosting servers before
 sending credentials.
 
+Connected credentials retain whether they came from a personal token or a CLI.
+GitLab CLI owns browser authorization and OAuth refresh; its adapter supplies
+current credentials through the shared hosting connection flow. Each CLI-backed
+read verifies the remote account before using the selected account's cache.
+Tokens stay in the backend, and disconnect removes ByteQuay's connection without
+changing the CLI's login.
+
 ### Accounts, identity and storage
 
 A hosting instance is identified by provider and server coordinates. Accounts

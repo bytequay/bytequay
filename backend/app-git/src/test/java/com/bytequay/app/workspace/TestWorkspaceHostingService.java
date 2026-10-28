@@ -27,6 +27,7 @@ import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
@@ -87,7 +88,7 @@ class TestWorkspaceHostingService
     private final PullRequestReader requests = mock(PullRequestReader.class);
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
             ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests),
-                    new HostingIntegration(GITLAB, mock(HostingAccounts.class), repositories, requests)));
+                    new HostingIntegration(GITLAB, mock(HostingAccounts.class), repositories, requests)), ImmutableList.of());
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     private final CredentialService desktop = mock(CredentialService.class);
@@ -107,7 +108,7 @@ class TestWorkspaceHostingService
         });
         when(identities.findAccount(20)).thenReturn(Optional.of(new HostingAccount(20, 10, "42", "alice")));
         when(identities.findInstance(10)).thenReturn(Optional.of(INSTANCE));
-        when(credentials.find(20)).thenAnswer(ignored -> Optional.of(new HostingCredential(20, "secret")));
+        when(credentials.find(20)).thenAnswer(ignored -> Optional.of(new HostingCredential(20, "secret", Source.TOKEN)));
         when(repositories.findById(any(), any())).thenAnswer(call -> remote(call.getArgument(1)));
         when(identities.upsertRepository(eq(10L), any())).thenAnswer(call -> retained(call.getArgument(1)));
         when(identities.findRepository(30)).thenReturn(Optional.of(retained(remote("100"))));
@@ -362,7 +363,7 @@ class TestWorkspaceHostingService
         gitLab("https://gitlab.com");
         Workspace workspace = service.watch(40, 60, Optional.empty());
         when(identities.findAccount(41)).thenReturn(Optional.of(new HostingAccount(41, 90, "2", "bob")));
-        when(credentials.find(41)).thenReturn(Optional.of(new HostingCredential(41, "second-token")));
+        when(credentials.find(41)).thenReturn(Optional.of(new HostingCredential(41, "second-token", Source.TOKEN)));
 
         WorkspaceHostingBinding binding = service.bind(workspace.id(), 41);
 
@@ -390,7 +391,7 @@ class TestWorkspaceHostingService
                 remote.sshCloneUrl(), remote.defaultBranch());
         when(identities.findInstance(90)).thenReturn(Optional.of(instance));
         when(identities.findAccount(40)).thenReturn(Optional.of(new HostingAccount(40, 90, "1", "alice")));
-        when(credentials.find(40)).thenReturn(Optional.of(new HostingCredential(40, "gitlab-token")));
+        when(credentials.find(40)).thenReturn(Optional.of(new HostingCredential(40, "gitlab-token", Source.TOKEN)));
         when(identities.findRepository(60)).thenReturn(Optional.of(repository));
         doReturn(remote).when(repositories).findById(any(), eq("100"));
         when(identities.upsertRepository(eq(90L), any())).thenReturn(repository);

@@ -14,6 +14,7 @@
 package com.bytequay.persistence.sqlite.credential;
 
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.persistence.sqlite.entity.HostingAccountEntity;
 import com.bytequay.persistence.sqlite.repository.HostingAccountJpaRepository;
@@ -48,20 +49,20 @@ public class SqliteHostingCredentialStore
         checkArgument(accountId > 0, "accountId must be positive");
         return jpaRepository.findById(accountId)
                 .filter(entity -> entity.getCiphertext() != null)
-                .map(entity -> new HostingCredential(accountId, cipher.decrypt(entity.getCiphertext())));
+                .map(entity -> new HostingCredential(accountId, cipher.decrypt(entity.getCiphertext()), entity.getSource()));
     }
 
     @Override
     @Transactional
-    public HostingCredential save(long accountId, String token)
+    public HostingCredential save(long accountId, String token, Source source)
     {
         checkArgument(accountId > 0, "accountId must be positive");
         String secret = checkText(requireNonNull(token, "token is null").trim(), "token");
         HostingAccountEntity account = accounts.findById(accountId).orElseThrow(() -> new IllegalStateException("Hosting account does not exist"));
         HostingCredentialEntity entity = jpaRepository.findById(accountId).orElseGet(() -> new HostingCredentialEntity(account));
-        entity.update(cipher.encrypt(secret));
+        entity.update(cipher.encrypt(secret), source);
         jpaRepository.save(entity);
-        return new HostingCredential(accountId, secret);
+        return new HostingCredential(accountId, secret, source);
     }
 
     @Override

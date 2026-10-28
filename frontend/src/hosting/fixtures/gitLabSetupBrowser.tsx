@@ -39,6 +39,38 @@ function select(host: HTMLElement, id: number) {
 
 export async function run() {
   return runScenarios([
+    ['Sign in through GitLab CLI without a token and retry a failed browser login', async () => {
+      const view = createFixtureRoot();
+      const requests: HostingServerDto[] = [];
+      let connected: HostingConnectionDto | undefined;
+      const login = Promise.withResolvers<void>();
+      let tokenConnections = 0;
+      const bridge: Partial<Bridge> = {
+        connectHostingCliAccount: async request => {
+          requests.push(request);
+          if (requests.length === 1) throw new Error('Install or update GitLab CLI to sign in');
+          await login.promise;
+          return account(1, request);
+        },
+        connectHostingAccount: async request => { tokenConnections++; return account(1, request); },
+      };
+      window.bridge = bridge as Bridge;
+      try {
+        flushSync(() => view.root.render(<GitLabConnectionForm onConnected={value => { connected = value; }} />));
+        button('Sign in with GitLab', view.host).click();
+        await until(() => view.host.querySelector('[role="alert"]')?.textContent?.includes('Install or update') === true, 'CLI login error was not shown');
+        assert(requests[0].webBaseUrl === 'https://gitlab.com' && connected === undefined, 'Failed GitLab.com login connected an account');
+        changeInput(element<HTMLInputElement>('[aria-label="GitLab server"]', view.host), `${SERVER.webBaseUrl}/`);
+        await settle(); button('Sign in with GitLab', view.host).click();
+        await until(() => requests.length === 2, 'CLI login did not start');
+        assert(button('Waiting for GitLab…', view.host).disabled && button('Create access token', view.host).disabled, 'Login must disable connection controls');
+        assert(element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host).value === '', 'CLI login must not require a token');
+        login.resolve(); await until(() => connected !== undefined, 'CLI login did not select its account');
+        assert(requests[1].webBaseUrl === SERVER.webBaseUrl && requests[1].apiBaseUrl === SERVER.apiBaseUrl, 'CLI login lost the private port or prefix');
+        assert(!('token' in requests[1]) && tokenConnections === 0, 'CLI login must not send a token or submit the token form');
+        assert(view.host.querySelector('[role="alert"]') === null, 'Successful retry retained the login error');
+      } finally { view.dispose(); }
+    }],
     ['Open token creation for the selected GitLab server without connecting', async () => {
       const view = createFixtureRoot();
       const opened: string[] = [];

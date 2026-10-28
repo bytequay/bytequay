@@ -19,6 +19,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
@@ -69,17 +70,20 @@ class TestHostingConnectionService
     private final PullRequestReader requests = mock(PullRequestReader.class);
     private final HostingInstance instance = new HostingInstance(10, GITLAB, URI.create("https://git.company.test/code"), URI.create("https://git.company.test/code/api/v4"));
     private final HostingAccount account = new HostingAccount(20, 10, "42", "alice");
-    private final HostingConnectionService service = new HostingConnectionService(identities, credentials,
-            ImmutableList.of(new HostingIntegration(GITLAB, accounts, repositories, requests)));
+    private final HostingCli cli = mock(HostingCli.class);
+    private HostingConnectionService service;
 
     @BeforeEach
     void setUp()
     {
+        when(cli.provider()).thenReturn(GITLAB);
+        service = new HostingConnectionService(identities, credentials,
+                ImmutableList.of(new HostingIntegration(GITLAB, accounts, repositories, requests)), ImmutableList.of(cli));
         when(identities.listInstances()).thenReturn(ImmutableList.of(instance));
         when(identities.listAccounts(10)).thenReturn(ImmutableList.of(account));
         when(identities.findAccount(20)).thenReturn(Optional.of(account));
         when(identities.findInstance(10)).thenReturn(Optional.of(instance));
-        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "first-secret")));
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "first-secret", Source.TOKEN)));
     }
 
     @Test
@@ -97,8 +101,63 @@ class TestHostingConnectionService
         HostingConnection result = service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "new-secret");
         assertThat(result.account()).isEqualTo(other);
         assertThat(result.connected()).isTrue();
-        verify(credentials).save(21, "new-secret");
-        verify(credentials, never()).save(eq(20L), anyString());
+        verify(credentials).save(21, "new-secret", Source.TOKEN);
+        verify(credentials, never()).save(eq(20L), anyString(), any());
+    }
+
+    @Test
+    void connectsThroughTheSelectedProviderCli()
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        when(cli.readToken(server)).thenReturn("cli-token");
+        when(accounts.verify(any())).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.server()).isEqualTo(server);
+            assertThat(access.token()).isEqualTo("cli-token");
+            return new RemoteHostingAccount("42", "alice");
+        });
+        when(identities.upsertInstance(server)).thenReturn(instance);
+        when(identities.upsertAccount(10, new RemoteHostingAccount("42", "alice"))).thenReturn(account);
+
+        assertThat(service.connectCli(GITLAB, server.webBaseUrl(), server.apiBaseUrl()).account()).isEqualTo(account);
+
+        verify(cli).login(server);
+        verify(credentials).save(20, "cli-token", Source.CLI);
+    }
+
+    @Test
+    void cliSessionsUseRefreshedCredentialsForTheRetainedAccount()
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", Source.CLI)));
+        when(cli.readToken(server)).thenReturn("current-token", "refreshed-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("42", "alice"));
+
+        assertThat(service.readSession(20).access().token()).isEqualTo("current-token");
+        assertThat(service.readSession(20).access().token()).isEqualTo("refreshed-token");
+        verify(credentials, never()).save(anyLong(), anyString(), any());
+    }
+
+    @Test
+    void cliAccountChangesCannotReadThroughAnotherStoredAccount()
+    {
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", Source.CLI)));
+        when(cli.readToken(any())).thenReturn("other-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("43", "bob"));
+
+        assertThatThrownBy(() -> service.resolveRepository(20, "group/project"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
+        verifyNoInteractions(repositories);
+    }
+
+    @Test
+    void cliFailureDoesNotFallBackToTheStoredToken()
+    {
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", Source.CLI)));
+        when(cli.readToken(any())).thenThrow(new HostingFailure(AUTHENTICATION_REQUIRED, "Sign in again"));
+
+        assertThatThrownBy(() -> service.readSession(20)).isInstanceOf(HostingFailure.class).hasMessageContaining("Sign in again");
+        verifyNoInteractions(accounts);
     }
 
     @Test
@@ -108,7 +167,7 @@ class TestHostingConnectionService
         when(accounts.verify(any())).thenThrow(new HostingFailure(AUTHENTICATION_REQUIRED, "Authentication required"));
         assertThatThrownBy(() -> service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "invalid"))
                 .isInstanceOf(HostingFailure.class);
-        verify(credentials, never()).save(anyLong(), anyString());
+        verify(credentials, never()).save(anyLong(), anyString(), any());
         verify(identities, never()).upsertInstance(any());
         verify(identities, never()).upsertAccount(anyLong(), any());
     }
@@ -132,7 +191,7 @@ class TestHostingConnectionService
         assertThat(session.access().server()).isEqualTo(server);
         assertThat(session.access().token()).isEqualTo("external-token");
         assertThat(service.readSession(20).access().token()).isEqualTo("first-secret");
-        verify(credentials, never()).save(anyLong(), anyString());
+        verify(credentials, never()).save(anyLong(), anyString(), any());
     }
 
     @Test

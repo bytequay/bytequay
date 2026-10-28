@@ -17,6 +17,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingCacheTarget;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
@@ -196,7 +197,7 @@ class TestSqliteWorkspaceHostingBinding
         HostingInstance instance = identities.upsertInstance(GITHUB);
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "owner/project");
-        credentials.save(account.id(), "workspace-token");
+        credentials.save(account.id(), "workspace-token", Source.TOKEN);
         credentials.delete(account.id());
         WorkspaceHostingBinding binding = store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty());
         assertThat(store.findHostingBinding(workspace.id())).contains(binding);

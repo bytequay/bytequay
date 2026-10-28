@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -46,8 +47,8 @@ class TestSqliteHostingCredentialStore
     {
         HostingAccount first = account("1", "alice");
         HostingAccount second = account("2", "bob");
-        HostingCredential firstCredential = credentials.save(first.id(), "alice-token");
-        credentials.save(second.id(), "bob-token");
+        HostingCredential firstCredential = credentials.save(first.id(), "alice-token", Source.TOKEN);
+        credentials.save(second.id(), "bob-token", Source.TOKEN);
         entityManager.flush();
         entityManager.clear();
 
@@ -58,11 +59,27 @@ class TestSqliteHostingCredentialStore
     }
 
     @Test
+    void retainsTheCredentialSourceAndReplacesItWhenConnectingWithAToken()
+    {
+        HostingAccount account = account("1", "alice");
+        credentials.save(account.id(), "cli-token", Source.CLI);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(credentials.find(account.id())).contains(new HostingCredential(account.id(), "cli-token", Source.CLI));
+        assertThat(ciphertext(account.id())).doesNotContain("cli-token");
+
+        credentials.save(account.id(), "personal-token", Source.TOKEN);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(credentials.find(account.id())).contains(new HostingCredential(account.id(), "personal-token", Source.TOKEN));
+    }
+
+    @Test
     void replacesAndDeletesSecretsWithoutRemovingAccountIdentity()
     {
         HostingAccount account = account("1", "alice");
-        credentials.save(account.id(), "first-token");
-        credentials.save(account.id(), "second-token");
+        credentials.save(account.id(), "first-token", Source.TOKEN);
+        credentials.save(account.id(), "second-token", Source.TOKEN);
         entityManager.flush();
         entityManager.clear();
         assertThat(credentials.find(account.id()).orElseThrow().secret()).isEqualTo("second-token");
@@ -73,16 +90,16 @@ class TestSqliteHostingCredentialStore
         assertThat(credentials.find(account.id())).isEmpty();
         assertThat(identities.findAccount(account.id())).contains(account);
         assertThat(entityManager.createQuery("SELECT COUNT(credential) FROM HostingCredentialEntity credential", Long.class).getSingleResult()).isZero();
-        assertThat(credentials.save(account.id(), "third-token").secret()).isEqualTo("third-token");
+        assertThat(credentials.save(account.id(), "third-token", Source.TOKEN).secret()).isEqualTo("third-token");
     }
 
     @Test
     void rejectsUnownedAndInvalidCredentials()
     {
         assertThatIllegalArgumentException().isThrownBy(() -> credentials.find(0));
-        assertThatIllegalArgumentException().isThrownBy(() -> credentials.save(0, "token"));
+        assertThatIllegalArgumentException().isThrownBy(() -> credentials.save(0, "token", Source.TOKEN));
         assertThatIllegalArgumentException().isThrownBy(() -> credentials.delete(-1));
-        assertThatIllegalStateException().isThrownBy(() -> credentials.save(999, "unowned-token"));
+        assertThatIllegalStateException().isThrownBy(() -> credentials.save(999, "unowned-token", Source.TOKEN));
         assertThat(entityManager.createQuery("SELECT COUNT(credential) FROM HostingCredentialEntity credential", Long.class).getSingleResult()).isZero();
     }
 

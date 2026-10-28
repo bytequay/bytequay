@@ -18,6 +18,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
@@ -83,8 +84,8 @@ class TestHostingPullRequestService
     @BeforeEach
     void setUp()
     {
-        tokens.put(20L, new HostingCredential(20, "first"));
-        tokens.put(21L, new HostingCredential(21, "second"));
+        tokens.put(20L, new HostingCredential(20, "first", Source.TOKEN));
+        tokens.put(21L, new HostingCredential(21, "second", Source.TOKEN));
         when(credentials.find(anyLong())).thenAnswer(call -> Optional.ofNullable(tokens.get(call.<Long>getArgument(0))));
         when(identities.findAccount(anyLong())).thenAnswer(call -> Optional.of(new HostingAccount(call.getArgument(0), 10, "42", "alice")));
         when(identities.findRepository(30)).thenReturn(Optional.of(new HostingRepository(30, 10, "100", "team/project", URI.create("https://hosting.test/team/project"),
@@ -273,7 +274,7 @@ class TestHostingPullRequestService
     {
         when(identities.findInstance(10)).thenReturn(Optional.of(new HostingInstance(10, provider, URI.create("https://hosting.test"), URI.create("https://hosting.test/api"))));
         connections = new HostingConnectionService(identities, credentials,
-                ImmutableList.of(new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)));
+                ImmutableList.of(new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)), ImmutableList.of());
         return new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

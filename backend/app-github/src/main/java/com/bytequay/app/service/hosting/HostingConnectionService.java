@@ -16,6 +16,7 @@ package com.bytequay.app.service.hosting;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingCredential;
+import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
@@ -53,23 +54,37 @@ public class HostingConnectionService
     private final HostingIdentityStore identities;
     private final HostingCredentialStore credentials;
     private final Map<HostingProvider, HostingIntegration> integrations;
+    private final Map<HostingProvider, HostingCli> clis;
 
-    public HostingConnectionService(HostingIdentityStore identities, HostingCredentialStore credentials, List<HostingIntegration> integrations)
+    public HostingConnectionService(HostingIdentityStore identities, HostingCredentialStore credentials, List<HostingIntegration> integrations, List<HostingCli> clis)
     {
         this.identities = requireNonNull(identities, "identities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.integrations = integrations.stream().collect(toImmutableMap(HostingIntegration::provider, integration -> integration));
+        this.clis = clis.stream().collect(toImmutableMap(HostingCli::provider, cli -> cli));
     }
 
     public HostingConnection connect(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl, String token)
     {
-        checkText(token, "token");
+        return connect(new HostingServer(provider, webBaseUrl, apiBaseUrl), token, Source.TOKEN);
+    }
+
+    public HostingConnection connectCli(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl)
+    {
         HostingServer server = new HostingServer(provider, webBaseUrl, apiBaseUrl);
+        HostingCli cli = cli(provider);
+        cli.login(server);
+        return connect(server, cli.readToken(server), Source.CLI);
+    }
+
+    private HostingConnection connect(HostingServer server, String token, Source source)
+    {
+        checkText(token, "token");
         // Verify before retaining an instance so a mistyped API address is not stored.
-        RemoteHostingAccount remote = integration(provider).accounts().verify(new HostingAccess(server, token));
+        RemoteHostingAccount remote = integration(server.provider()).accounts().verify(new HostingAccess(server, token));
         HostingInstance instance = identities.upsertInstance(server);
         HostingAccount account = identities.upsertAccount(instance.id(), remote);
-        credentials.save(account.id(), token);
+        credentials.save(account.id(), token, source);
         return new HostingConnection(account, instance, true);
     }
 
@@ -187,7 +202,16 @@ public class HostingConnectionService
         HostingInstance instance = identities.findInstance(account.instanceId())
                 .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting instance is unavailable"));
         HostingCredential credential = credential(accountId);
-        return new HostingAccess(instance, credential.secret());
+        if (credential.source() == Source.TOKEN) {
+            return new HostingAccess(instance, credential.secret());
+        }
+        HostingServer server = new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl());
+        HostingAccess access = new HostingAccess(instance, cli(instance.provider()).readToken(server));
+        RemoteHostingAccount remote = integration(instance.provider()).accounts().verify(access);
+        if (!remote.remoteId().equals(account.remoteUserId())) {
+            throw new HostingFailure(AUTHENTICATION_REQUIRED, "The CLI is signed in to a different account. Reconnect this hosting account to continue");
+        }
+        return access;
     }
 
     private HostingCredential credential(long accountId)
@@ -199,6 +223,12 @@ public class HostingConnectionService
     {
         checkArgument(accountId > 0, "accountId must be positive");
         return identities.findAccount(accountId).orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));
+    }
+
+    private HostingCli cli(HostingProvider provider)
+    {
+        return Optional.ofNullable(clis.get(provider))
+                .orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "Browser sign-in is unavailable for this hosting provider. Connect with a token instead"));
     }
 
     private HostingIntegration integration(HostingProvider provider)

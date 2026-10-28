@@ -15,19 +15,27 @@ package com.bytequay.core.hosting;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 /** An account-bound hosting credential. */
-public record HostingCredential(long accountId, String secret)
+public record HostingCredential(long accountId, String secret, Source source)
 {
+    public enum Source
+    {
+        TOKEN,
+        CLI
+    }
+
     public HostingCredential
     {
         checkArgument(accountId > 0, "accountId must be positive");
         checkText(secret, "secret");
+        requireNonNull(source, "source is null");
     }
 
     @Override
     public String toString()
     {
-        return "HostingCredential[accountId=" + accountId + ", secret=<redacted>]";
+        return "HostingCredential[accountId=" + accountId + ", source=" + source + ", secret=<redacted>]";
     }
 }

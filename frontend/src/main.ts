@@ -1823,6 +1823,8 @@ function registerIpc(): void {
   ipcMain.handle('hosting:accounts', () => backendJson(`${backendBase()}/api/hosting/accounts`));
   ipcMain.handle('hosting:connect', (_event, request: HostingServerDto & { token: string }) =>
     backendJson(`${backendBase()}/api/hosting/accounts`, jsonInit('POST', request)));
+  ipcMain.handle('hosting:cli-login', (_event, request: HostingServerDto) =>
+    backendJson(`${backendBase()}/api/hosting/cli/login`, { ...jsonInit('POST', request), signal: AbortSignal.timeout(360_000) }));
   ipcMain.handle('hosting:disconnect', (_event, accountId: number) =>
     backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/credential`, { method: 'DELETE' }));
   ipcMain.handle('hosting:repository', (_event, accountId: number, fullPath: string) =>

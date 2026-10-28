@@ -1749,6 +1749,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
 
   listHostingAccounts: () => Promise<HostingConnectionDto[]>;
   connectHostingAccount: (request: HostingServerDto & { token: string }) => Promise<HostingConnectionDto>;
+  connectHostingCliAccount: (request: HostingServerDto) => Promise<HostingConnectionDto>;
   disconnectHostingAccount: (accountId: number) => Promise<void>;
   resolveHostingRepository: (accountId: number, fullPath: string) => Promise<HostingRepositoryDto>;
   createHostingWorkspace: (accountId: number, repositoryId: number) => Promise<WorkspaceDto>;

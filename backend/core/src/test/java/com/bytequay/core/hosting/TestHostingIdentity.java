@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.hosting;
 
+import com.bytequay.core.hosting.HostingCredential.Source;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -112,10 +113,10 @@ class TestHostingIdentity
     @Test
     void credentialsDoNotExposeTheirSecretInDiagnostics()
     {
-        HostingCredential credential = new HostingCredential(4, "private-token");
+        HostingCredential credential = new HostingCredential(4, "private-token", Source.TOKEN);
         assertThat(credential.secret()).isEqualTo("private-token");
         assertThat(credential.toString()).contains("accountId=4", "<redacted>").doesNotContain("private-token");
-        assertThatIllegalArgumentException().isThrownBy(() -> new HostingCredential(0, "private-token"));
+        assertThatIllegalArgumentException().isThrownBy(() -> new HostingCredential(0, "private-token", Source.TOKEN));
         assertThatIllegalArgumentException().isThrownBy(() -> new HostingAccount(0, 1, "42", "alice"));
     }
 }

@@ -45,7 +45,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -66,15 +65,18 @@ class TestWorkItemCatalog
     }
 
     @Test
-    void gitLabCatalogKeepsLocalWorkAndJiraWithoutReadingGitHubIssues()
+    void gitLabCatalogReadsTheSameWorkspaceIssueProjection()
     {
         ContextFixture fixture = new ContextFixture();
         when(fixture.workspace.isGitHub()).thenReturn(false);
+        when(fixture.workspace.issueHost()).thenReturn("https://gitlab.example.com");
+        when(fixture.issues.findPage(any(), any(), eq(0), eq(100)))
+                .thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"), ImmutableList.of(), 0, 100, 0, false, Optional.empty()));
 
         assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id).containsExactlyInAnyOrder("owner", "target");
         assertThat(fixture.catalog.list("workspace", false)).extracting(UnifiedWorkItem::id)
                 .containsExactlyInAnyOrder("owner", "target", WorkItemLink.jiraIdentity("cloud", "workspace"));
-        verifyNoInteractions(fixture.issues, fixture.markers);
+        verify(fixture.issues).findPage(any(), any(), eq(0), eq(100));
     }
 
     @Test
@@ -106,8 +108,8 @@ class TestWorkItemCatalog
 
         assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id, UnifiedWorkItem::title, UnifiedWorkItem::description, UnifiedWorkItem::status)
                 .containsExactlyInAnyOrder(tuple("github", "Remote request", "Remote context", "Open"), tuple("jira", "Jira request", "Jira context", "Open"));
-        verify(fixture.issues).find(1, 1);
-        verify(fixture.issues, never()).findPage(anyLong(), any(), anyInt(), anyInt());
+        verify(fixture.issues).find(any(WorkspaceStore.class), eq(fixture.workspace), eq(1));
+        verify(fixture.issues, never()).findPage(any(WorkspaceStore.class), any(Workspace.class), anyInt(), anyInt());
         verify(fixture.jira).cachedIssue("cloud", "workspace");
         verify(fixture.jira, never()).cachedIssues();
     }
@@ -155,13 +157,14 @@ class TestWorkItemCatalog
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(workspace.monitoredRepositoryId()).thenReturn(1L);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
         RepositoryIssue issue = new RepositoryIssue(10, 1, "Remote request", "Remote context", "alice", "", "https://github.com/org/repo/issues/1",
                 ImmutableList.of(), ImmutableList.of(), 0, now, now);
         RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
-        when(issues.findPage(1, RepoRef.of("org", "repo"), 0, 100))
+        when(issues.findPage(any(), any(), eq(0), eq(100)))
                 .thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"), ImmutableList.of(issue), 0, 100, 1, false, Optional.of(now)));
         JiraService jira = mock(JiraService.class);
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("workspace"), ticket("other")));
@@ -333,14 +336,15 @@ class TestWorkItemCatalog
         {
             WorkspaceStore workspaces = mock(WorkspaceStore.class);
             when(workspace.isGitHub()).thenReturn(true);
+            when(workspace.issueHost()).thenReturn("github.com");
             when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
             when(workspace.monitoredRepositoryId()).thenReturn(1L);
             when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
             RepositoryIssue issue = new RepositoryIssue(10, 1, "Remote request", "Remote context", "alice", "", "https://github.com/org/repo/issues/1",
                     ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, Instant.EPOCH);
-            when(issues.findPage(1, RepoRef.of("org", "repo"), 0, 100)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"),
+            when(issues.findPage(any(), any(), eq(0), eq(100))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"),
                     ImmutableList.of(issue), 0, 100, 1, false, Optional.of(Instant.EPOCH)));
-            when(issues.find(1, 1)).thenReturn(Optional.of(issue));
+            when(issues.find(any(), any(), eq(1))).thenReturn(Optional.of(issue));
             when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("workspace"), ticket("other")));
             when(jira.cachedIssue("cloud", "workspace")).thenReturn(Optional.of(ticket("workspace")));
             catalog = new WorkItemCatalog(workspaces, issues, jira, store, work, markers);

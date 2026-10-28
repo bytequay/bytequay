@@ -489,7 +489,7 @@ class TestAssistantActions
         assertThat(work.defaults().model()).contains("gpt-6.1-sol");
         assertThat(work.defaults().effort()).isEmpty();
 
-        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77",
+        when(issues.find(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(77))).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77",
                 ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW.minusSeconds(60))));
         act(message("start #77", ImmutableList.of(), Optional.of("issue:owner/repository#77")),
                 "{\"op\":\"start_task\",\"from\":\"issue:owner/repository#77\",\"words\":\"start #77\"}");

@@ -60,7 +60,6 @@ import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.merge.AutoMergeService;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -69,6 +68,7 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -157,7 +157,7 @@ class TestAgentHttpErrors
                         appSettings,
                         startupProgress,
                         mock(PullRequestStore.class),
-                        mock(CredentialService.class)),
+                        mock(WorkspaceHostingService.class)),
                         mock(IssueDevelopmentService.class),
                         mock(WorkItemService.class),
                         taskService,

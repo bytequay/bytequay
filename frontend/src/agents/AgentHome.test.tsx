@@ -47,12 +47,12 @@ describe('agent home on a return visit', () => {
   it('paints the attention cards Home last read for this repository, ranked as its own reads will rank them', () => {
     expect(home('workspace-attention')).toContain('Nothing needs you right now.');
 
-    setCached(ATTENTION_SEED.prs, [
+    setCached('workspace-attention:workspace-attention', { login: 'me', pullRequests: [
       pullRequest('octo/app', 7, 'Retry flaky upload'),
       pullRequest('octo/other', 8, 'Elsewhere'),
       // Only the login makes this one review work.
       { ...pullRequest('octo/app', 9, 'Reviewer named by login'), origin: 'OTHER', requestedReviewers: ['me'] },
-    ]);
+    ] });
     setCached(ATTENTION_SEED.profile, { login: 'me' });
     setCached(ATTENTION_SEED.issues, [issue('workspace-attention', 3, 'Assigned in this workspace'), issue('workspace-other', 4, 'Assigned in another workspace')]);
     const seeded = home('workspace-attention');
@@ -70,11 +70,11 @@ describe('agent home on a return visit', () => {
 
   it('always separates up to two own PRs from workspace attention, without acknowledge controls', () => {
     setCached(ATTENTION_SEED.profile, { login: 'me' });
-    setCached(ATTENTION_SEED.prs, [
+    setCached('workspace-attention:workspace-own-prs', { login: 'me', pullRequests: [
       ...[1, 2, 3].map(number => ({ ...pullRequest('octo/app', number, `My change ${number}`), author: 'Me' })),
       pullRequest('octo/app', 4, 'Someone else needs review'),
       { ...pullRequest('octo/other', 5, 'My change elsewhere'), author: 'me' },
-    ]);
+    ] });
     const markup = home('workspace-own-prs');
     const attention = markup.split('aria-label="Needs attention"')[1].split('</section>')[0];
     const mine = markup.split('aria-label="My PRs"')[1].split('</section>')[0];
@@ -85,7 +85,7 @@ describe('agent home on a return visit', () => {
     expect(mine).toContain('Snooze #1');
     expect(mine).toContain('Open #1');
     expect(mine).not.toContain('My change elsewhere');
-    setCached(ATTENTION_SEED.prs, []);
+    setCached('workspace-attention:workspace-own-prs', {login: 'me', pullRequests: []});
     expect(home('workspace-own-prs')).toContain('aria-label="My PRs"');
   });
 
@@ -124,7 +124,7 @@ describe('agent home on a return visit', () => {
       idle, running, { ...idle, id: 'automation', title: 'Delivery running', developmentContinuationUnfinished: true },
       { ...running, id: 'archived', title: 'Archived task', archivedAt: '2026-08-02T00:00:00Z' },
     ]);
-    const review = { ...runningReviewFixture(), workspaceId, pullRequest: { title: 'Running PR review', state: 'open', draft: false } };
+    const review = { ...runningReviewFixture(), workspaceId, pullRequest: { title: 'Running PR review', state: 'open', draft: false, htmlUrl: 'https://github.com/owner/repository/pull/3' } };
     setCached(`task-work:${workspaceId}`, {
       reviews: [
         reviewFixture({ id: 'finished', number: 1 }),

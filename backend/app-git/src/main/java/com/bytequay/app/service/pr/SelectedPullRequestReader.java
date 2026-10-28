@@ -75,13 +75,18 @@ public class SelectedPullRequestReader
         return read(pullRequests.prepareRead(repository, number), section);
     }
 
+    public Read read(String workspaceId, String repo, int number, Section section)
+    {
+        return read(pullRequests.prepareRead(workspaceId, repo, number), section);
+    }
+
     public Read read(PullRequestRead route, Section section)
     {
         requireNonNull(section, "section is null");
         pullRequests.prepareRead(route);
-        String repository = route.githubRef().repoFullName().toLowerCase(Locale.ROOT);
+        String repository = route.repository().fullPath().toLowerCase(Locale.ROOT);
         int number = route.number();
-        Optional<Cached> cached = cached(repository, number);
+        Optional<Cached> cached = cached(route);
         if (cached.isPresent() && fresh(cached.orElseThrow(), section) && !incomplete(cached.orElseThrow().stored(), section)) {
             return result(cached.orElseThrow(), section, false, false);
         }
@@ -92,7 +97,7 @@ public class SelectedPullRequestReader
             else {
                 refresh.refreshDetail(route);
             }
-            Optional<Cached> updated = cached(repository, number);
+            Optional<Cached> updated = cached(route);
             Cached available = updated.or(() -> cached)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request detail has not been refreshed"));
             return result(available, section, true, updated.isEmpty());
@@ -122,12 +127,14 @@ public class SelectedPullRequestReader
         });
     }
 
-    private Optional<Cached> cached(String repo, int number)
+    private Optional<Cached> cached(PullRequestRead route)
     {
-        Optional<PullRequest> row = pullRequests.findStored(repo, number);
+        String repo = route.repository().fullPath();
+        int number = route.number();
+        Optional<PullRequest> row = pullRequests.findStored(route);
         row.ifPresent(value -> checkArgument(value.repo().equalsIgnoreCase(repo) && value.number() == number, "Stored PR identity does not match selected request"));
         return row.flatMap(value -> details.find(value.id())
-                .map(stored -> new Cached(value, stored, details.findSyncedAt(repo, number),
+                .map(stored -> new Cached(value, stored, details.findSyncedAt(value.id()),
                         Optional.ofNullable(details.findFreshness(value.id())).orElseGet(PrDetailFreshness::unknown))));
     }
 

@@ -184,7 +184,7 @@ it('carries the viewed head commit through review submission', async () => {
     expect.objectContaining({ method: 'POST', body: JSON.stringify({ expectedVersion: 4, body: '', event: 'APPROVE', headSha: 'viewed-head' }) }));
 });
 
-it.each(['rebase', 'when-ready'])('carries the displayed head commit through the %s merge request', async strategy => {
+it.each(['default', 'when-ready'])('carries the displayed head commit through the %s merge request', async strategy => {
   await startMain();
   const fetch = vi.fn(async () => new Response('{}'));
   vi.stubGlobal('fetch', fetch);

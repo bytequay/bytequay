@@ -26,7 +26,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapReviewConstraint;
@@ -47,9 +46,9 @@ public class SqliteReviewDraftStore
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<ReviewDraft> find(String repo, int number)
+    public Optional<ReviewDraft> find(String id)
     {
-        return repository.findById(repo.toLowerCase(Locale.ROOT) + "#" + number).map(PrReviewDraftEntity::toDomain);
+        return repository.findById(id).map(PrReviewDraftEntity::toDomain);
     }
 
     @Override

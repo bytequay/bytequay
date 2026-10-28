@@ -11,25 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github;
+package com.bytequay.core.hosting;
 
+import com.bytequay.core.domain.PrReviewState;
+import com.bytequay.core.domain.PrTimelineEvent;
 import com.google.common.collect.ImmutableList;
 
-import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record GitHubIssuePreview(String title, String body, String author, List<String> labels, Instant updatedAt, String state, boolean pullRequest)
+public record SubmittedReview(Optional<PrReviewState> review, List<PrTimelineEvent> events)
 {
-    public GitHubIssuePreview
+    public SubmittedReview
     {
-        requireNonNull(title, "title is null");
-        requireNonNull(body, "body is null");
-        requireNonNull(author, "author is null");
-        labels = ImmutableList.copyOf(labels);
-        requireNonNull(updatedAt, "updatedAt is null");
-        checkArgument("open".equals(state) || "closed".equals(state), "state must be open or closed");
+        requireNonNull(review, "review is null");
+        events = ImmutableList.copyOf(events);
     }
 }

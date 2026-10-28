@@ -75,7 +75,7 @@ final class ReviewHttpModels
                 projection.pendingApprovals(),
                 projection.byteQuayTurnIds(),
                 projection.draft().map(ReviewHttpModels::draft),
-                projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft())),
+                projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft(), pullRequest.htmlUrl())),
                 projection.worktreeSync(),
                 review.replay());
     }
@@ -287,7 +287,7 @@ final class ReviewHttpModels
 
     record ConfigureRequest(Long expectedVersion, String laneId, String model, String effort, String serviceTier) {}
 
-    record PullRequestResponse(String title, String state, boolean draft) {}
+    record PullRequestResponse(String title, String state, boolean draft, String htmlUrl) {}
 
     record DraftResponse(
             String repo,

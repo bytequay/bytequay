@@ -15,10 +15,11 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.git.AvatarCache;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.github.GitHubRepoClient.RepositoryOverview;
 import com.bytequay.app.repository.github.GitHubRepositoryUser;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.GitHubIssueClient;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
@@ -45,7 +46,6 @@ import java.util.Optional;
 
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -68,13 +68,12 @@ class TestWorkspaceMetadataService
     private final GitHubRepoClient gitHub = mock(GitHubRepoClient.class);
     private final GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
     private final AvatarCache avatarCache = mock(AvatarCache.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private WorkspaceMetadataService service;
 
     @BeforeEach
     void setUp()
     {
-        when(credentials.resolveGitHubToken()).thenReturn("token");
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
         when(workspaceStore.findAllRetained()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
@@ -162,29 +161,35 @@ class TestWorkspaceMetadataService
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.any());
-        service = new WorkspaceMetadataService(
-                workspaceStore,
-                metadataStore,
-                gitHub,
-                pullRequests,
-                avatarCache,
-                credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        when(workspaceStore.findHostingRepositoryId(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))).map(Workspace::monitoredRepositoryId));
+        when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
+        service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting,
+                ImmutableList.of(new GitHubIssueClient(gitHub, pullRequests, mock(GitHubPullRequestWriteClient.class))), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    void rejectsGitLabBeforeReadingGitHubMetadataOrCredentials()
+    void gitLabUsesSharedMetadataAndKeepsUnavailableContributorsUnsynced()
     {
         Workspace gitlab = new Workspace("gitlab", "GitLab project", 100, DIRECT, Optional.empty(), Optional.empty(), 100, DIRECT,
                 Topology.DIRECT, "main", "https://gitlab.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/gitlab-project",
                 Optional.empty(), Optional.empty(), 0, NOW, NOW,
                 Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
         workspaces.put("gitlab", gitlab);
+        var route = WorkspaceIssueTestData.route(gitlab);
+        when(hosting.captureRead("gitlab")).thenReturn(route);
+        var reader = mock(com.bytequay.core.hosting.RepositoryMetadataReader.class);
+        when(reader.provider()).thenReturn(GITLAB);
+        when(reader.overview(route.session().access(), route.repository())).thenReturn(new com.bytequay.core.hosting.RepositoryOverview("Project", 3,
+                ImmutableList.of("java"), ImmutableMap.of("Java", 100L)));
+        service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting, ImmutableList.of(reader), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
 
-        assertThatThrownBy(() -> service.getSnapshot("gitlab")).isInstanceOf(WorkspaceException.class);
-        assertThatThrownBy(() -> service.synchronize("gitlab")).isInstanceOf(WorkspaceException.class);
+        service.synchronize("gitlab");
 
-        verifyNoInteractions(metadataStore, credentials, gitHub, pullRequests, avatarCache);
+        assertThat(service.getSnapshot("gitlab").description()).isEqualTo("Project");
+        assertThat(service.getSnapshot("gitlab").contributorsSyncedAt()).isEmpty();
+        verifyNoInteractions(gitHub, pullRequests);
     }
 
     @Test

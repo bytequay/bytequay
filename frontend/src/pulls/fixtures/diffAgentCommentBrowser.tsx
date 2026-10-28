@@ -359,6 +359,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   let githubWrites = 0;
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async (): Promise<null> => null,
     postPrReviewComment: async () => { githubWrites++; throw new Error('Private comments must never post to GitHub'); },
   } });

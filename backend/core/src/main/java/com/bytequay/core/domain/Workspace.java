@@ -163,4 +163,8 @@ public record Workspace(
         DIRECT,
         FORK
     }
+    public String issueHost()
+    {
+        return isGitHub() ? "github.com" : hostingServer.orElseThrow().webBaseUrl().toASCIIString();
+    }
 }

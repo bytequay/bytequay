@@ -367,7 +367,7 @@ class TestAssistantContext
     {
         when(pullRequests.findAttentionCandidates()).thenReturn(ImmutableList.of(pull(7, 31402, "Retry Iceberg commit on conflict", NOW.minusSeconds(60)),
                 pull(8, 31377, "Add Iceberg snapshot cache", NOW.minusSeconds(7200))));
-        when(issues.findPage(1, RepoRef.of("owner", "repository"), 0, 200)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("owner", "repository"),
+        when(issues.findPage(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(0), org.mockito.ArgumentMatchers.eq(200))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("owner", "repository"),
                 ImmutableList.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77", ImmutableList.of(),
                         ImmutableList.of(), 0, NOW.minusSeconds(86400), NOW.minusSeconds(600))), 0, 200, 1, false, Optional.empty()));
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7",
@@ -408,7 +408,7 @@ class TestAssistantContext
     void searchPagesTwentyAtATime()
             throws Exception
     {
-        when(issues.findPage(eq(1L), any(), anyInt(), eq(200))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("owner", "repository"), ImmutableList.of(), 0, 200, 0, false,
+        when(issues.findPage(any(), any(), anyInt(), eq(200))).thenReturn(new RepositoryIssuePage(1, RepoRef.of("owner", "repository"), ImmutableList.of(), 0, 200, 0, false,
                 Optional.empty()));
         when(workItems.list("ws1")).thenReturn(IntStream.range(0, 25).mapToObj(index -> work("w" + index, "Snapshot step " + index, Optional.empty(), NOW.minusSeconds(index)))
                 .collect(toImmutableList()));

@@ -67,7 +67,7 @@ export async function markdownHistory() {
     fetchGitHubIssuePreview: async (owner, repo, number) => {
       assert(`${owner}/${repo}` === 'example-org/example-repo', 'Bare references use the monitored repository, not the selected fork');
       if (number !== pull.number) throw new Error('Unavailable');
-      return { title: pull.title ?? '', body: pull.body ?? '', author: pull.author ?? '', labels: [], updatedAt: now, state: 'open', pullRequest: true };
+      return { title: pull.title ?? '', body: pull.body ?? '', author: pull.author ?? '', labels: [], updatedAt: now, state: 'open', pullRequest: true, htmlUrl: pull.htmlUrl ?? '', authorAvatarUrl: '' };
     },
     fetchPullRequestDetailByRef: async (repo, number) => {
       assert(repo === pull.repo, 'Pull references retain their repository'); reads.push(number);

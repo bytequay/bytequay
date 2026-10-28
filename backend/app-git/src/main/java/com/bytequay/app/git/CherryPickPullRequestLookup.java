@@ -92,6 +92,16 @@ public class CherryPickPullRequestLookup
             return new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.copyOf(sourceShas));
         }
 
+        return lookUpResult(token, repository, sourceShas, sourceBranch, warnings);
+    }
+
+    /** Uses the workspace-selected credential for commit enrichment. */
+    public PullRequestLookupResult lookUpResult(String token, RepoRef repository, List<String> sourceShas, String sourceBranch, List<String> warnings)
+    {
+        requireNonNull(token, "token is null");
+        requireNonNull(repository, "repository is null");
+        requireNonNull(sourceShas, "sourceShas is null");
+        requireNonNull(warnings, "warnings is null");
         List<PullRequestLookupResult.Association> associations = new ArrayList<>();
         Set<String> failedShas = new java.util.LinkedHashSet<>();
         int ambiguous = 0;

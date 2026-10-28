@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.Workspace;
@@ -24,8 +23,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
-import java.util.HashSet;
-import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.refreshQuietly;
 import static java.util.Objects.requireNonNull;
@@ -41,14 +38,12 @@ public class IssueSyncJob
 
     private final WorkspaceIssueService issues;
     private final WorkspaceStore workspaces;
-    private final CredentialService credentials;
     private final AppSettingsService appSettings;
 
-    public IssueSyncJob(WorkspaceIssueService issues, WorkspaceStore workspaces, CredentialService credentials, AppSettingsService appSettings)
+    public IssueSyncJob(WorkspaceIssueService issues, WorkspaceStore workspaces, AppSettingsService appSettings)
     {
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
@@ -58,14 +53,10 @@ public class IssueSyncJob
             scheduler = "repositorySyncScheduler")
     public void tick()
     {
-        if (!credentials.isGitHubAccountConfigured() || appSettings.inQuietHours()) {
+        if (appSettings.inQuietHours()) {
             return;
         }
-        Set<Long> synchronizedRepositories = new HashSet<>();
         for (Workspace workspace : workspaces.findAll()) {
-            if (!workspace.isGitHub() || !synchronizedRepositories.add(workspace.monitoredRepositoryId())) {
-                continue;
-            }
             refreshQuietly(log, "Issue sync for " + workspace.monitoredRepository(), () -> issues.refreshIssuesOlderThan(workspace.id(), FULL_SYNC_AGE));
         }
     }

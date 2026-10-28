@@ -13,16 +13,17 @@
  */
 import { useCallback, useRef, useState } from 'react';
 import { requestTaskFix } from '../../agents/taskFix';
-import { recordAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
+import { recordAttentionAction, recordPullRequestAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../../remoteError';
 import { findingFixPrompt } from '../local-review/conversation';
+import { workspacePullRequestBridge } from '../PullRequestWorkspace';
 import { findingReviewText } from './model';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 
 /** A review belongs to its pull request and, for local reviews, the source development task. */
 export function recordReviewAttentionAction(review: AgentReviewDto, action: AttentionAction): void {
-  if (review.number !== null) recordAttentionAction(`${review.repo}#${review.number}`, action);
+  if (review.number !== null) recordPullRequestAttentionAction(review.repo, review.number, action, review.workspaceId);
   if (review.sourceTaskId != null) recordAttentionAction(`task:${review.sourceTaskId}`, action);
 }
 
@@ -43,6 +44,7 @@ export function useFindingActions({
   onReviewChange: (review: AgentReviewDto) => void;
   onNavigate: (finding: ReviewFindingDto) => void;
 }): { actions: FindingActions; busy: boolean; error: string | null; clearError: () => void } {
+  const bridge = workspacePullRequestBridge(globalThis.window?.bridge, review.workspaceId);
   const fixKeys = useRef(new Map<string, string>());
   const askKeys = useRef(new Map<string, string>());
   const [busy, setBusy] = useState(false);
@@ -99,7 +101,7 @@ export function useFindingActions({
       recordReviewAttentionAction(review, 'update');
     }),
     onAddToReview: finding => guard(async () => {
-      await window.bridge.addReviewDraftFinding(review.repo, number(), draftVersion(), review.id, finding.id);
+      await bridge.addReviewDraftFinding(review.repo, number(), draftVersion(), review.id, finding.id);
       await reload();
     }),
     onPostNow: (finding, body) => guard(async () => {
@@ -109,32 +111,32 @@ export function useFindingActions({
       const existing = review.draft?.items.find(item => item.findingId === finding.id) ?? null;
       let itemId = existing?.id ?? null;
       if (itemId === null) {
-        const draft = await window.bridge.addReviewDraftFinding(review.repo, number(), version, review.id, finding.id);
+        const draft = await bridge.addReviewDraftFinding(review.repo, number(), version, review.id, finding.id);
         version = draft.version;
         itemId = draft.items.find(item => item.findingId === finding.id)?.id ?? null;
       }
       if (itemId === null) throw new Error('The comment could not be prepared for sending');
       if (body !== (existing?.body ?? findingReviewText(finding))) {
-        version = (await window.bridge.editReviewDraftComment(review.repo, number(), version, itemId, body, true)).version;
+        version = (await bridge.editReviewDraftComment(review.repo, number(), version, itemId, body, true)).version;
       }
       try {
-        await window.bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
+        await bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
       }
       catch (failure) {
         // A failed request can still save an uncertain delivery; preserve the send error if reloading also fails.
         await reload().catch(() => {});
         throw failure;
       }
-      recordAttentionAction(`${review.repo}#${number()}`, 'comment');
+      recordPullRequestAttentionAction(review.repo, number(), 'comment', review.workspaceId);
       await reload();
     }, true),
     onEditDraft: (finding, body, expectedVersion) => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
       if (item !== null) {
-        await window.bridge.editReviewDraftComment(review.repo, number(), expectedVersion, item.id, body, item.included);
+        await bridge.editReviewDraftComment(review.repo, number(), expectedVersion, item.id, body, item.included);
       }
       else if (finding.path === null && review.draft !== null) {
-        await window.bridge.saveReviewDraft(review.repo, number(), expectedVersion, body, review.draft.event);
+        await bridge.saveReviewDraft(review.repo, number(), expectedVersion, body, review.draft.event);
       }
       else return;
       await reload();
@@ -142,12 +144,12 @@ export function useFindingActions({
     onRemoveFromReview: finding => guard(async () => {
       const item = review.draft?.items.find(candidate => candidate.findingId === finding.id) ?? null;
       if (item !== null) {
-        await window.bridge.removeReviewDraftComment(review.repo, number(), draftVersion(), item.id);
+        await bridge.removeReviewDraftComment(review.repo, number(), draftVersion(), item.id);
       }
       else if (finding.path === null && review.draft !== null) {
         const text = findingReviewText(finding);
         const body = review.draft.body.replace(review.draft.body.includes(text) ? text : finding.body.trim(), '').trim();
-        await window.bridge.saveReviewDraft(review.repo, number(), draftVersion(), body, review.draft.event);
+        await bridge.saveReviewDraft(review.repo, number(), draftVersion(), body, review.draft.event);
       }
       else return;
       await reload();

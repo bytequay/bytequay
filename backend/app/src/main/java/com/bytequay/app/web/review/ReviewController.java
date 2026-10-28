@@ -30,7 +30,7 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
-import com.bytequay.app.utils.PullRequestRefUtil;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.app.web.agent.ResolveApprovalRequest;
@@ -84,6 +84,7 @@ public class ReviewController
 
     private final AgentReviewService reviews;
     private final ReviewPublicationService publications;
+    private final PullRequestService pullRequests;
     private final AgentTurnService turns;
     private final AgentEventService events;
     private final AgentApprovalService approvals;
@@ -95,6 +96,7 @@ public class ReviewController
     public ReviewController(
             AgentReviewService reviews,
             ReviewPublicationService publications,
+            PullRequestService pullRequests,
             AgentTurnService turns,
             AgentEventService events,
             AgentApprovalService approvals,
@@ -105,6 +107,7 @@ public class ReviewController
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.publications = requireNonNull(publications, "publications is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.events = requireNonNull(events, "events is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
@@ -129,7 +132,7 @@ public class ReviewController
     @GetMapping(params = {"repo", "number"})
     public ResponseEntity<ReviewHttpModels.ReviewResponse> find(@RequestParam String workspaceId, @RequestParam String repo, @RequestParam int number)
     {
-        PullRequestRefUtil.parseRef(repo, number);
+        pullRequests.prepareRead(workspaceId, repo, number);
         return reviews.find(workspaceId, repo, number)
                 .map(projection -> ResponseEntity.ok(ReviewHttpModels.review(projection)))
                 .orElseGet(() -> ResponseEntity.noContent().build());
@@ -141,7 +144,7 @@ public class ReviewController
         checkText(request.workspaceId(), "workspaceId");
         checkText(request.repo(), "repo");
         int number = required(request.number(), "number");
-        PullRequestRefUtil.parseRef(request.repo(), number);
+        pullRequests.prepareRead(request.workspaceId(), request.repo(), number);
         return ReviewHttpModels.review(reviews.start(request.workspaceId(), request.repo(), number));
     }
 
@@ -151,7 +154,7 @@ public class ReviewController
         checkText(request.workspaceId(), "workspaceId");
         checkText(request.repo(), "repo");
         int number = required(request.number(), "number");
-        PullRequestRefUtil.parseRef(request.repo(), number);
+        pullRequests.prepareRead(request.workspaceId(), request.repo(), number);
         return ReviewHttpModels.review(reviews.prepare(request.workspaceId(), request.repo(), number));
     }
 
@@ -399,26 +402,33 @@ public class ReviewController
     // ---- the user's local pending review ----
 
     @GetMapping("/drafts")
-    public ReviewHttpModels.DraftResponse draft(@RequestParam String repo, @RequestParam int number)
+    public ReviewHttpModels.DraftResponse draft(@RequestParam String repo, @RequestParam int number, @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.draft(repo, number));
+        return ReviewHttpModels.draft(publications.draft(pullRequests.prepareRead(workspaceId, repo, number)));
     }
 
     @PostMapping("/drafts/items")
-    public ReviewHttpModels.DraftResponse addManual(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftItemRequest request)
+    public ReviewHttpModels.DraftResponse addManual(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestBody ReviewHttpModels.DraftItemRequest request,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.addManual(repo, number, required(request.expectedVersion(), "expectedVersion"), manual(request)));
+        return ReviewHttpModels.draft(publications.addManual(
+                pullRequests.prepareRead(workspaceId, repo, number), required(request.expectedVersion(), "expectedVersion"), manual(request)));
     }
 
     @PostMapping("/drafts/findings")
-    public ReviewHttpModels.DraftResponse addFinding(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.PromoteFindingRequest request)
+    public ReviewHttpModels.DraftResponse addFinding(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestBody ReviewHttpModels.PromoteFindingRequest request,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
         checkText(request.reviewId(), "reviewId");
         checkText(request.findingId(), "findingId");
-        return ReviewHttpModels.draft(publications.addFinding(repo, number, required(request.expectedVersion(), "expectedVersion"), request.reviewId(), request.findingId()));
+        return ReviewHttpModels.draft(publications.addFinding(
+                pullRequests.prepareRead(workspaceId, repo, number), required(request.expectedVersion(), "expectedVersion"), request.reviewId(), request.findingId()));
     }
 
     @PutMapping("/drafts/items/{itemId}")
@@ -426,13 +436,12 @@ public class ReviewController
             @RequestParam String repo,
             @RequestParam int number,
             @PathVariable String itemId,
-            @RequestBody ReviewHttpModels.DraftItemRequest request)
+            @RequestBody ReviewHttpModels.DraftItemRequest request,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
         checkText(request.body(), "body");
         return ReviewHttpModels.draft(publications.editItem(
-                repo,
-                number,
+                pullRequests.prepareRead(workspaceId, repo, number),
                 required(request.expectedVersion(), "expectedVersion"),
                 itemId,
                 request.body(),
@@ -440,70 +449,98 @@ public class ReviewController
     }
 
     @DeleteMapping("/drafts/items/{itemId}")
-    public ReviewHttpModels.DraftResponse removeItem(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
+    public ReviewHttpModels.DraftResponse removeItem(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestParam long expectedVersion,
+            @PathVariable String itemId,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.removeItem(repo, number, expectedVersion, itemId));
+        return ReviewHttpModels.draft(publications.removeItem(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/items/{itemId}/confirm-not-posted")
-    public ReviewHttpModels.DraftResponse confirmNotPosted(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
+    public ReviewHttpModels.DraftResponse confirmNotPosted(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestParam long expectedVersion,
+            @PathVariable String itemId,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.confirmNotPosted(repo, number, expectedVersion, itemId));
+        return ReviewHttpModels.draft(publications.confirmNotPosted(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/items/{itemId}/confirm-posted")
-    public ReviewHttpModels.DraftResponse confirmPosted(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
+    public ReviewHttpModels.DraftResponse confirmPosted(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestParam long expectedVersion,
+            @PathVariable String itemId,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.confirmPosted(repo, number, expectedVersion, itemId));
+        return ReviewHttpModels.draft(publications.confirmPosted(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/review/confirm")
-    public ReviewHttpModels.DraftResponse confirmReview(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @RequestParam boolean posted)
+    public ReviewHttpModels.DraftResponse confirmReview(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestParam long expectedVersion,
+            @RequestParam boolean posted,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.draft(publications.confirmReview(repo, number, expectedVersion, posted));
+        return ReviewHttpModels.draft(publications.confirmReview(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, posted));
     }
 
     @PutMapping("/drafts/review")
-    public ReviewHttpModels.DraftResponse saveReview(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftReviewRequest request)
+    public ReviewHttpModels.DraftResponse saveReview(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestBody ReviewHttpModels.DraftReviewRequest request,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.draft(publications.saveReview(
-                repo,
-                number,
+                pullRequests.prepareRead(workspaceId, repo, number),
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
                 Optional.ofNullable(request.event()).orElse("COMMENT")));
     }
 
     @PostMapping("/drafts/items/{itemId}/publish")
-    public ReviewHttpModels.PublishResponse publishItem(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
+    public ReviewHttpModels.PublishResponse publishItem(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestParam long expectedVersion,
+            @PathVariable String itemId,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
-        return ReviewHttpModels.publish(publications.publishItem(repo, number, expectedVersion, itemId));
+        return ReviewHttpModels.publish(publications.publishItem(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
     }
 
     /** Posts one comment now; its comment box's key names it in the draft, so a retry after an unknown outcome cannot post it twice. */
     @PostMapping("/drafts/items/{itemId}/post")
-    public PullRequestDetail postComment(@RequestParam String repo, @RequestParam int number, @PathVariable String itemId, @RequestBody ReviewHttpModels.DraftItemRequest request)
+    public PullRequestDetail postComment(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @PathVariable String itemId,
+            @RequestBody ReviewHttpModels.DraftItemRequest request,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
         if (!itemId.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")) {
             throw new ReviewInvalidRequestException("The comment key must be a UUID");
         }
-        return publications.postComment(repo, number, itemId, manual(request));
+        return publications.postComment(pullRequests.prepareRead(workspaceId, repo, number), itemId, manual(request));
     }
 
     @PostMapping("/drafts/submit")
-    public ReviewHttpModels.PublishResponse submit(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftSubmitRequest request)
+    public ReviewHttpModels.PublishResponse submit(
+            @RequestParam String repo,
+            @RequestParam int number,
+            @RequestBody ReviewHttpModels.DraftSubmitRequest request,
+            @RequestParam(required = false) String workspaceId)
     {
-        PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.publish(publications.submit(
-                repo,
-                number,
+                pullRequests.prepareRead(workspaceId, repo, number),
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
                 Optional.ofNullable(request.event()).orElse("COMMENT"),

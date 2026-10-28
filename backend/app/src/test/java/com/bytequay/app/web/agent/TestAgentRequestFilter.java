@@ -19,10 +19,16 @@ import com.bytequay.app.jira.JiraController;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRateLimitInterceptor;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.CredentialController;
 import com.bytequay.app.web.PullRequestController;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.JiraConnectionStore;
 import com.bytequay.integration.jira.JiraActivityReader;
 import com.bytequay.integration.jira.JiraConnections;
@@ -40,6 +46,7 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -248,6 +255,11 @@ class TestAgentRequestFilter
         mvc.perform(post("/prs/close").param("repo", "owner/repo").param("number", "123")).andExpect(status().isUnauthorized());
         verifyNoInteractions(credentials, pullRequests);
 
+        HostingInstance server = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        URI repositoryUrl = URI.create("https://github.com/owner/repo");
+        PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "account", new HostingAccess(server, "token")),
+                new HostingRepository(1, 1, "repository", "owner/repo", repositoryUrl, repositoryUrl, Optional.empty(), Optional.of("main")), 123, "viewer");
+        when(pullRequests.prepareRead(null, "owner/repo", 123)).thenReturn(route);
         when(credentials.gitHubTokenValue()).thenReturn(Optional.of("test-github-token"));
         mvc.perform(get("/api/auth/github/token/value").header(AgentController.SESSION_HEADER, SESSION))
                 .andExpect(status().isOk())
@@ -255,7 +267,7 @@ class TestAgentRequestFilter
         mvc.perform(post("/prs/close").param("repo", "owner/repo").param("number", "123").header(AgentController.SESSION_HEADER, SESSION))
                 .andExpect(status().isNoContent());
         verify(credentials).gitHubTokenValue();
-        verify(pullRequests).closePullRequest("owner/repo", 123);
+        verify(pullRequests).closePullRequest(route);
     }
 
     @ParameterizedTest

@@ -19,7 +19,7 @@ import java.util.Optional;
 /** Durable storage for one pull request's local pending review. */
 public interface ReviewDraftStore
 {
-    Optional<ReviewDraft> find(String repo, int number);
+    Optional<ReviewDraft> find(String id);
 
     /**
      * Inserts a new draft or replaces the stored one whose version matches; the returned draft

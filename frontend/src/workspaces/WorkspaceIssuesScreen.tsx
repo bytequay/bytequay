@@ -28,7 +28,7 @@ import type { TaskLaunch } from '../agents/AgentTasksView';
 import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
 import '../css/issues.css';
 import PinButton from '../home/PinButton';
-import { issueAttentionItem, loadHandled } from '../home/attention';
+import { issueAttentionItem, issueAttentionKey, loadHandled } from '../home/attention';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import type { NavigationMode } from '../navigationHistory';
 import { SkeletonTimeline } from '../pulls/DetailSkeleton';
@@ -111,9 +111,9 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const overlay = onClose !== undefined;
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const close = useCallback(() => {
-    if (initialIssueNumber !== null) void completeAttentionVisit(`${repository}#${initialIssueNumber}`);
+    if (initialIssueNumber !== null) void completeAttentionVisit(issueAttentionKey(repository, initialIssueNumber, workspaceId));
     onClose?.();
-  }, [initialIssueNumber, onClose, repository]);
+  }, [initialIssueNumber, onClose, repository, workspaceId]);
   const zoom = useZoom(close, overlay);
   const [snapshot, setSnapshot] = useState<RepositoryIssueSnapshotDto | null>(null);
   const [previewIssue, setPreviewIssue] = useState<(Issue & { state: string }) | null>(null);
@@ -144,14 +144,13 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   live.current = { snapshot, selectedId };
 
   const readPreview = useCallback(async (number: number): Promise<Issue & { state: string }> => {
-    const [owner, repo] = repository.split('/');
-    const preview = await window.bridge.fetchGitHubIssuePreview(owner, repo, number);
+    const preview = await window.bridge.fetchWorkspaceIssuePreview(workspaceId, number);
     if (preview.pullRequest) throw new Error('This reference is a pull request, not an issue.');
-    const commentCount = loadHandled()[`${repository}#${number}`]?.snoozedItem?.commentCount ?? 0;
+    const commentCount = loadHandled()[issueAttentionKey(repository, number, workspaceId)]?.snoozedItem?.commentCount ?? 0;
     // The read-only preview has no cache-row identity; its negative key stays in this component.
-    return { ...preview, id: -number, number, authorAvatarUrl: '', htmlUrl: `https://github.com/${repository}/issues/${number}`,
+    return { ...preview, id: -number, number,
       assignees: [], commentCount, createdAt: '' };
-  }, [repository]);
+  }, [repository, workspaceId]);
 
   const refreshPreview = async (number: number) => {
     setDetailLoading(true); setDetailError(null);
@@ -206,7 +205,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setMutationError(null);
     try {
       const nextType = await window.bridge.updateWorkspaceIssueType(workspaceId, issueNumber, type);
-      recordAttentionAction(`${repository}#${issueNumber}`, 'update');
+      recordAttentionAction(issueAttentionKey(repository, issueNumber, workspaceId), 'update');
       if (request !== detailRequest.current) return;
       setIssueType(nextType);
       await refreshIssueRow(issueNumber);
@@ -232,7 +231,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
         assignees,
         labels,
       );
-      recordAttentionAction(`${repository}#${issueNumber}`, 'update');
+      recordAttentionAction(issueAttentionKey(repository, issueNumber, workspaceId), 'update');
       setSnapshot(current => current ? {
         ...current,
         issues: current.issues.map(issue => issue.number === issueNumber
@@ -252,7 +251,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setMutationError(null);
     try {
       const development = await window.bridge.setWorkspaceIssueEpic(workspaceId, issue.number, !issue.isEpic);
-      recordAttentionAction(`${repository}#${issue.number}`, 'update');
+      recordAttentionAction(issueAttentionKey(repository, issue.number, workspaceId), 'update');
       setSnapshot(current => current === null ? null : {
         ...current,
         issues: current.issues.map(candidate => candidate.id === issue.id ? { ...candidate, ...development } : candidate),
@@ -276,7 +275,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     setMutationError(null);
     try {
       await window.bridge.closeWorkspaceIssue(workspaceId, issue.number);
-      recordAttentionAction(`${repository}#${issue.number}`, 'update');
+      recordAttentionAction(issueAttentionKey(repository, issue.number, workspaceId), 'update');
       notifyIssueDevelopmentChanged();
       // The store has already dropped the issue, so reloading the list here would swap the issue being read.
       setClosedIssueId(issue.id);
@@ -849,7 +848,7 @@ export function IssueOverview({
           <span>opened by <strong>{issue.author}</strong> {relativeTime(issue.createdAt)}</span>
           <span>· updated {relativeTime(issue.updatedAt)}</span>
           <span className="issues-development-actions">
-            <button className="pulls-toolbar-button" type="button" title="Open on GitHub" aria-label="Open on GitHub"
+            <button className="pulls-toolbar-button" type="button" title="Open in browser" aria-label="Open in browser"
               onClick={() => { void window.bridge.openInAppBrowser(issue.htmlUrl); }}><ExternalLink size={16} aria-hidden="true" /></button>
             {actions}
           </span>
@@ -977,6 +976,7 @@ function IssueEvent({ event, colors }: { event: WorkspaceIssueTimelineEventDto; 
 function issueEventText(event: WorkspaceIssueTimelineEventDto, colors: Record<string, string>) {
   const payload = event.payload;
   switch (event.event) {
+    case 'system': return <>{event.body}</>;
     case 'assigned': return <>assigned this issue{payload.assignee ? <> to <strong>{payload.assignee}</strong></> : null}</>;
     case 'unassigned': return <>removed{payload.assignee ? <> <strong>{payload.assignee}</strong></> : <> an assignee</>} from this issue</>;
     case 'labeled': return <>added <span className="pr-label" style={labelStyle(payload.labelColor ?? colors[payload.label ?? ''])}>{payload.label ?? 'a label'}</span></>;

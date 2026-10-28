@@ -14,6 +14,7 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import Avatar from './Avatar';
+import { useHostingPresentation } from './pulls/PullRequestWorkspace';
 import { HOVER_CARD_CLOSE_MS } from './ReferenceCard';
 import type { UserProfileDto } from './types';
 import { once } from './dataCache';
@@ -42,6 +43,9 @@ export function userCardPosition(rect: Pick<DOMRect, 'left' | 'top' | 'bottom'>)
 }
 
 export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = false }: Props) {
+  const { server } = useHostingPresentation();
+  const github = server?.provider !== 'GITLAB';
+  const profileUrl = `${server?.webBaseUrl ?? 'https://github.com'}/${encodeURIComponent(login)}`;
   const cardId = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const showTimer = useRef<number | null>(null);
@@ -63,7 +67,7 @@ export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = fa
       if (!rect) return;
       setPosition(userCardPosition(rect));
       setOpen(true);
-      void loadProfile(login).then(value => {
+      if (github) void loadProfile(login).then(value => {
         if (!mounted.current) return;
         if (value === null) setOpen(false);
         else setProfile(value);
@@ -90,7 +94,7 @@ export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = fa
       ref={trigger}
       type="button"
       className={`user-avatar-trigger${showLogin ? ' user-avatar-trigger--with-login' : ''}`}
-      aria-label={`Open ${login}'s GitHub profile`}
+      aria-label={`Open ${login}'s ${github ? 'GitHub' : 'GitLab'} profile`}
       aria-describedby={open ? cardId : undefined}
       onMouseEnter={() => show(HOVER_DELAY_MS)}
       onMouseLeave={() => hide()}
@@ -98,7 +102,7 @@ export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = fa
       onBlur={() => hide()}
       onClick={() => {
         hide(0);
-        void window.bridge.openInAppBrowser(profile?.htmlUrl ?? `https://github.com/${encodeURIComponent(login)}`);
+        void window.bridge.openInAppBrowser(profile?.htmlUrl ?? profileUrl);
       }}
     >
       <Avatar login={login} avatarUrl={avatarUrl} size={size} />
@@ -117,7 +121,9 @@ export default function UserAvatar({ login, avatarUrl, size = 20, showLogin = fa
         onFocus={() => clearTimer(hideTimer)}
         onBlur={() => hide()}
       >
-        {profile === null
+        {!github
+          ? <header><Avatar login={login} avatarUrl={avatarUrl} size={48} /><span><strong>{login}</strong><small>@{login}</small></span></header>
+          : profile === null
           ? <span className="user-profile-card__loading">Loading GitHub profile…</span>
           : <>
               <header>

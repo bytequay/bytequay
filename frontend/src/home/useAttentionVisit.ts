@@ -28,12 +28,13 @@ function readStoredItem(visit: Visit, afterWrite = false): void {
   visit.pending = (visit.pending ?? Promise.resolve()).then(async () => {
     const item = visit.item;
     if (item.pr !== null && window.bridge.fetchAttentionPrs !== undefined) {
-      if (afterWrite) await window.bridge.refreshPullRequestDetailByRef?.(item.repo, item.number).catch(() => {});
-      const rows = await window.bridge.fetchAttentionPrs();
-      const row = rows.find(pr => `${pr.repo}#${pr.number}` === item.key);
+      if (afterWrite) await window.bridge.refreshPullRequestDetailByRef?.(item.repo, item.number, undefined, undefined, item.workspaceId ?? undefined).catch(() => {});
+      const rows = item.workspaceId === null ? await window.bridge.fetchAttentionPrs()
+        : (await window.bridge.fetchWorkspaceHostingAttention(item.workspaceId)).pullRequests;
+      const row = rows.find(pr => pr.id === item.pr?.id);
       if (row !== undefined && Date.parse(row.updatedAt) >= Date.parse(visit.item.updatedAt)) {
-        visit.item = pullRequestItem(row, item.kind);
-        window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: rows }));
+        visit.item = pullRequestItem(row, item.kind, item.workspaceId);
+        window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: item.workspaceId === null ? rows : undefined }));
       }
     }
     else if (item.type === 'issue' && item.workspaceId !== null && window.bridge.fetchWorkspaceIssue !== undefined) {
@@ -73,6 +74,15 @@ export function recordAttentionAction(key: string, action: AttentionAction, coun
   if (updatedItem?.key === key) visit.item = updatedItem;
   readStoredItem(visit, true);
   changed();
+}
+
+/** Actions without a list row still identify the open request by its workspace account. */
+export function recordPullRequestAttentionAction(repo: string, number: number, action: AttentionAction, workspaceId?: string): void {
+  for (const [key, visit] of visits) {
+    if (visit.item.pr !== null && visit.item.repo === repo && visit.item.number === number && visit.item.workspaceId === (workspaceId ?? null)) {
+      recordAttentionAction(key, action);
+    }
+  }
 }
 
 /** Zoom can close back into an already mounted detail pane. That still consumes this update. */

@@ -38,7 +38,7 @@ export async function run(): Promise<boolean> {
     fetchGitHubIssuePreview: async (): Promise<GitHubIssuePreviewDto> => ({
       title: 'Delta Lake checkpoint writer drops files with deletion vectors',
       body: 'Issue details', author: 'octocat', labels: [], updatedAt: '2026-09-21T00:00:00Z',
-      state: 'open', pullRequest: false,
+      state: 'open', pullRequest: false, htmlUrl: 'https://github.com/owner/repository/issues/1', authorAvatarUrl: '',
     }),
     openInAppBrowser: async (href: string) => { opened = href; },
   } });
@@ -66,7 +66,7 @@ export async function run(): Promise<boolean> {
     const zoomed = (event: Event) => { zooms.push((event as CustomEvent<ZoomedReference>).detail); };
     window.addEventListener(ZOOM_REFERENCE, zoomed);
     const issue = (title: string): GitHubIssuePreviewDto => ({
-      title, body: 'Issue details', author: 'octocat', labels: [], updatedAt: '2026-09-21T00:00:00Z', state: 'open', pullRequest: false,
+      title, body: 'Issue details', author: 'octocat', labels: [], updatedAt: '2026-09-21T00:00:00Z', state: 'open', pullRequest: false, htmlUrl: 'https://github.com/owner/repository/issues/1', authorAvatarUrl: '',
     });
     Object.assign(window, { bridge: {
       listWorkspaces: async () => ['A', 'B'].map(repo => ({ id: `workspace-${repo}`, monitoredOwner: 'owner', monitoredRepo: repo })),

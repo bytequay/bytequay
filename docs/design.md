@@ -47,7 +47,7 @@ available behavior. The website provides short guides and representative app vie
 
 ## Git hosting direction
 
-The planned GitLab support keeps one ByteQuay workspace, review and work-item
+GitLab support keeps one ByteQuay workspace, review and work-item
 experience across GitHub, GitLab.com and company-operated GitLab servers. A
 workspace identifies its hosting connection. Its request page uses the provider's
 familiar pull-request or merge-request wording, while Work items retains Local,
@@ -58,9 +58,9 @@ Local work, private reviews and agent tasks belong to ByteQuay. Connecting a
 provider supplies remote context and explicitly authorized delivery operations;
 it does not create a separate task system. Shared screens disclose unavailable
 capabilities, incomplete data and partially completed writes. The
-[target hosting boundary](architecture.md#git-hosting-boundary-target) defines
-how the implementations can evolve without changing that ownership. This is
-product direction, not a statement that GitLab support is already available.
+[hosting boundary](architecture.md#git-hosting-boundary) defines how the
+implementations can evolve without changing that ownership. Provider-specific
+limitations are recorded there; shared screens remain the product boundary.
 
 ## Design principles
 

@@ -24,9 +24,8 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.Workspace;
@@ -81,7 +80,7 @@ class TestJiraDevelopment
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AtomicReference<JiraIssueTask> linked = new AtomicReference<>();
     private final IssueDevelopmentService service = new IssueDevelopmentService(mock(IssueDevelopmentStore.class), mock(RepositoryIssueStore.class), workspaces,
-            tasks, taskStore, unitOfWork, mock(GitHubRepoClient.class), mock(CredentialService.class), Clock.fixed(NOW, ZoneOffset.UTC), turns,
+            tasks, taskStore, unitOfWork, mock(WorkspaceIssueService.class), Clock.fixed(NOW, ZoneOffset.UTC), turns,
             mock(WorkItemService.class), sources, jira);
 
     @BeforeEach

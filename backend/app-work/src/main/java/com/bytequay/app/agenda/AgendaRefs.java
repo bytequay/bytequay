@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.agenda;
 
+import com.bytequay.core.domain.Workspace;
+
 import java.util.Locale;
 import java.util.Optional;
 
@@ -33,6 +35,11 @@ public final class AgendaRefs
     public static String issue(String repo, int number)
     {
         return "issue:" + repo.toLowerCase(Locale.ROOT) + "#" + number;
+    }
+
+    public static String issue(Workspace workspace, String repo, int number)
+    {
+        return workspace.isGitHub() ? issue(repo, number) : "issue:" + workspace.id() + ":" + repo.toLowerCase(Locale.ROOT) + "#" + number;
     }
 
     public static String jira(String cloudId, String issueId)
@@ -82,12 +89,21 @@ public final class AgendaRefs
             return Optional.empty();
         }
         try {
-            return Optional.of(new Numbered(rest.substring(0, hash), Integer.parseInt(rest.substring(hash + 1))));
+            String repository = rest.substring(0, hash);
+            int scope = repository.indexOf(':');
+            return Optional.of(new Numbered(scope < 0 ? repository : repository.substring(scope + 1), Integer.parseInt(rest.substring(hash + 1)),
+                    scope < 0 ? Optional.empty() : Optional.of(repository.substring(0, scope))));
         }
         catch (NumberFormatException notNumbered) {
             return Optional.empty();
         }
     }
 
-    public record Numbered(String repo, int number) {}
+    public record Numbered(String repo, int number, Optional<String> workspaceId)
+    {
+        public Numbered(String repo, int number)
+        {
+            this(repo, number, Optional.empty());
+        }
+    }
 }

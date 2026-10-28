@@ -11,7 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDto, WorkspaceDto } from '../types';
+import { useEffect, useState } from 'react';
+import { getCached } from '../dataCache';
+import type { PullRequestDto, WorkspaceDto, WorkspaceHostingAttentionDto } from '../types';
 import { pullRequestNeedsReview } from '../pulls/model';
 import RepoAvatar from '../RepoAvatar';
 import { syncStateColor, workspaceSyncState } from '../workspaces/model';
@@ -19,8 +21,6 @@ import { syncStateColor, workspaceSyncState } from '../workspaces/model';
 type Props = {
   workspaces: WorkspaceDto[];
   loading: boolean;
-  /** Open pull requests across every watched repository. */
-  prs: PullRequestDto[];
   onOpenWorkspace: (workspaceId: string) => void;
   onWatch: () => void;
 };
@@ -38,7 +38,23 @@ function repoCounts(prs: PullRequestDto[], fullName: string) {
 
 /** "Repos you watch": one compact tile per workspace — status, name, and the
  *  two numbers that decide whether to open it. */
-function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }: Props) {
+function WatchedReposGrid({ workspaces, loading, onOpenWorkspace, onWatch }: Props) {
+  const [pulls, setPulls] = useState<Record<string, PullRequestDto[]>>(() => Object.fromEntries(workspaces.map(workspace =>
+    [workspace.id, getCached<WorkspaceHostingAttentionDto>(`workspace-attention:${workspace.id}`)?.pullRequests ?? []])));
+  const workspaceKey = workspaces.map(workspace => workspace.id).join(',');
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      for (const id of workspaceKey.split(',').filter(Boolean)) {
+        void window.bridge.fetchWorkspaceHostingAttention(id).then(snapshot => {
+          if (active) setPulls(current => ({ ...current, [id]: snapshot.pullRequests }));
+        }).catch(() => {});
+      }
+    };
+    refresh();
+    const stop = window.bridge.onPullRequestsSynced(refresh);
+    return () => { active = false; stop(); };
+  }, [workspaceKey]);
   return (
     <div className="home-section">
       <div className="home-section__header">
@@ -55,7 +71,7 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
         <div className="home-repo-grid">
           {workspaces.map(workspace => {
             const fullName = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
-            const counts = repoCounts(workspace.hostingServer?.provider === 'GITLAB' ? [] : prs, fullName);
+            const counts = repoCounts(pulls[workspace.id] ?? [], fullName);
             const state = workspaceSyncState(workspace);
             return (
               <div
@@ -87,10 +103,10 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
                     aria-hidden="true"
                   />
                 </div>
-                {workspace.hostingServer?.provider === 'GITLAB' ? <div className="home-repo-tile__stats">GitLab · merge requests</div> : <div className="home-repo-tile__stats">
+                <div className="home-repo-tile__stats">
                   <span><b>{counts.open}</b> open</span>
                   <span><b>{counts.needsYou}</b> need you</span>
-                </div>}
+                </div>
               </div>
             );
           })}

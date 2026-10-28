@@ -13,14 +13,13 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.app.repository.github.GitHubIssuePreview;
-import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -47,6 +46,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -64,15 +64,14 @@ class TestContextHistoryReader
 
     private final SelectedPullRequestReader pullRequests = mock(SelectedPullRequestReader.class);
     private final SelectedPullRequestDiffReader diffs = mock(SelectedPullRequestDiffReader.class);
-    private final RepoService repositories = mock(RepoService.class);
     private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
-    private final ContextHistoryReader reader = new ContextHistoryReader(pullRequests, diffs, repositories, issues, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final ContextHistoryReader reader = new ContextHistoryReader(pullRequests, diffs, issues, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void capturesMergedPrMetadataDiscussionAndSeparateDefaultDiffWithoutClaimingApplicability()
     {
         selected(detail(NOW.minusSeconds(120), UPDATED, "Rationale", ImmutableList.of(activity("Discussed contract"))), false);
-        when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of(
+        when(diffs.read("workspace", REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of(
                 new DiffFile("src/File.java", "modified", 1, 1, "@@ -1 +1 @@\n-old\n+new"))));
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
@@ -88,9 +87,9 @@ class TestContextHistoryReader
         assertThat(read.truncated()).isFalse();
         assertThat(read.refreshFailed()).isFalse();
         assertHash(read);
-        verify(pullRequests).read(REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE);
-        verify(diffs).read(REPO.fullName(), NUMBER, Optional.empty(), false);
-        verifyNoInteractions(repositories, issues);
+        verify(pullRequests).read("workspace", REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE);
+        verify(diffs).read("workspace", REPO.fullName(), NUMBER, Optional.empty(), false);
+        verifyNoInteractions(issues);
     }
 
     @Test
@@ -98,7 +97,7 @@ class TestContextHistoryReader
     {
         selected(detail(null, UPDATED, "Closed without merge", ImmutableList.of()), false);
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, PR, NUMBER)).withMessageContaining("merge timestamp");
-        when(pullRequests.read(REPO.fullName(), NUMBER + 1, SelectedPullRequestReader.Section.TIMELINE))
+        when(pullRequests.read("workspace", REPO.fullName(), NUMBER + 1, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(new SelectedPullRequestReader.Read(detail(NOW, UPDATED, "Wrong number", ImmutableList.of()), Optional.of(UPDATED), Optional.of(NOW),
                         Optional.of(SHA), false, false, false, false));
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, PR, NUMBER + 1)).withMessageContaining("identity");
@@ -109,7 +108,7 @@ class TestContextHistoryReader
     void preservesCachedMetadataFailureAndUnavailablePatchAsLimitations()
     {
         selected(detail(NOW, UPDATED, "Cached rationale", ImmutableList.of()), true);
-        when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenThrow(new IllegalStateException("Provider unavailable"));
+        when(diffs.read("workspace", REPO.fullName(), NUMBER, Optional.empty(), false)).thenThrow(new IllegalStateException("Provider unavailable"));
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
@@ -136,9 +135,9 @@ class TestContextHistoryReader
         assertThat(read.truncated()).isFalse();
         assertThat(read.refreshFailed()).isFalse();
         assertHash(read);
-        verify(repositories).getIssuePreview("owner", "repo", NUMBER);
+        verify(issues).preview("workspace", NUMBER);
         verify(issues).detail("workspace", NUMBER);
-        verifyNoMoreInteractions(repositories, issues);
+        verifyNoMoreInteractions(issues);
         verifyNoInteractions(pullRequests, diffs);
     }
 
@@ -154,6 +153,7 @@ class TestContextHistoryReader
         assertThat(read.excerpt()).contains("Closure activity");
         assertThat(read.provenance()).contains("activityRefreshAttempted=true", "activityRefreshedAt=" + NOW);
         assertThat(read.refreshFailed()).isFalse();
+        verify(issues).preview("workspace", NUMBER);
         verify(issues).refreshDetail("workspace", NUMBER);
         verify(issues).detail("workspace", NUMBER);
         verifyNoMoreInteractions(issues);
@@ -182,16 +182,18 @@ class TestContextHistoryReader
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("closed issue");
         preview("closed", true, UPDATED);
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("closed issue");
-        when(repositories.getIssuePreview("owner", "repo", NUMBER)).thenThrow(new IllegalStateException("Preview unavailable"));
+        when(issues.preview("workspace", NUMBER)).thenThrow(new IllegalStateException("Preview unavailable"));
         assertThatThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).isInstanceOf(IllegalStateException.class).hasMessage("Preview unavailable");
-        verifyNoInteractions(issues, pullRequests, diffs);
+        verify(issues, never()).detail("workspace", NUMBER);
+        verify(issues, never()).refreshDetail("workspace", NUMBER);
+        verifyNoInteractions(pullRequests, diffs);
     }
 
     @Test
     void rejectsMismatchedIssueCacheAndRetainsOriginalIfRefreshChangesRepository()
     {
         preview("closed", false, UPDATED);
-        when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
+        when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER + 1));
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("identity");
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(UPDATED.minusSeconds(1), "Original"));
         when(issues.refreshDetail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
@@ -205,7 +207,7 @@ class TestContextHistoryReader
     {
         List<PullRequestDetail.ActivityItem> activity = IntStream.range(0, 30).mapToObj(_ -> activity("😀".repeat(1000))).collect(toImmutableList());
         selected(detail(NOW, UPDATED, "😀".repeat(2000), activity), false);
-        when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(IntStream.range(0, 4)
+        when(diffs.read("workspace", REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(IntStream.range(0, 4)
                 .mapToObj(index -> new DiffFile("file-" + index, "modified", 1, 0, "😀".repeat(500))).collect(toImmutableList())));
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
@@ -227,7 +229,7 @@ class TestContextHistoryReader
                 .add(new PullRequestDetail.ActivityItem("alice", "commented", null, "Undated PR discussion", 999L, PrTimelinePayload.empty()))
                 .build();
         selected(detail(NOW, UPDATED, "Rationale", activity), false);
-        when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of()));
+        when(diffs.read("workspace", REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of()));
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, PR, NUMBER);
 
@@ -270,7 +272,7 @@ class TestContextHistoryReader
         preview("closed", false, UPDATED);
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(NOW, "Same discussion"));
         ContextHistoryReader.Read first = reader.read(WORKSPACE, ISSUE, NUMBER);
-        ContextHistoryReader later = new ContextHistoryReader(pullRequests, diffs, repositories, issues, Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC));
+        ContextHistoryReader later = new ContextHistoryReader(pullRequests, diffs, issues, Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC));
         assertThat(later.read(WORKSPACE, ISSUE, NUMBER).contentHash()).isEqualTo(first.contentHash());
         preview("closed", false, UPDATED.plusSeconds(1));
         assertThat(reader.read(WORKSPACE, ISSUE, NUMBER).contentHash()).isNotEqualTo(first.contentHash());
@@ -290,10 +292,10 @@ class TestContextHistoryReader
         assertThat(cachedIssue.contentHash()).isEqualTo(refreshedIssue.contentHash());
 
         PullRequestDetail pr = detail(NOW, UPDATED, "Same merged rationale", ImmutableList.of());
-        when(pullRequests.read(REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE)).thenReturn(
+        when(pullRequests.read("workspace", REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE)).thenReturn(
                 new SelectedPullRequestReader.Read(pr, Optional.of(UPDATED), Optional.of(NOW), Optional.of(SHA), true, false, false, false),
                 new SelectedPullRequestReader.Read(pr, Optional.of(UPDATED), Optional.of(NOW.plusSeconds(1)), Optional.of(SHA), false, false, false, false));
-        when(diffs.read(REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of()));
+        when(diffs.read("workspace", REPO.fullName(), NUMBER, Optional.empty(), false)).thenReturn(diff(ImmutableList.of()));
         ContextHistoryReader.Read refreshedPr = reader.read(WORKSPACE, PR, NUMBER);
         ContextHistoryReader.Read cachedPr = reader.read(WORKSPACE, PR, NUMBER);
         assertThat(refreshedPr.provenance()).contains("refreshAttempted=true");
@@ -305,19 +307,19 @@ class TestContextHistoryReader
     void rejectsAnInvalidNumberBeforeSourceReads()
     {
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, 0));
-        verifyNoInteractions(pullRequests, diffs, repositories, issues);
+        verifyNoInteractions(pullRequests, diffs, issues);
     }
 
     private void selected(PullRequestDetail detail, boolean failed)
     {
-        when(pullRequests.read(REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE)).thenReturn(
+        when(pullRequests.read("workspace", REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE)).thenReturn(
                 new SelectedPullRequestReader.Read(detail, Optional.of(UPDATED), Optional.of(NOW), Optional.of(SHA), failed, failed, failed, failed));
     }
 
     private void preview(String state, boolean pullRequest, Instant updated)
     {
-        when(repositories.getIssuePreview("owner", "repo", NUMBER)).thenReturn(
-                new GitHubIssuePreview("Issue title", "Issue body", "alice", ImmutableList.of(), updated, state, pullRequest));
+        when(issues.preview("workspace", NUMBER)).thenReturn(
+                new GitHubIssuePreview("Issue title", "Issue body", "alice", ImmutableList.of(), updated, state, pullRequest, "https://github.com/owner/repo/issues/42", ""));
     }
 
     private static SelectedPullRequestDiffReader.Read diff(List<DiffFile> files)

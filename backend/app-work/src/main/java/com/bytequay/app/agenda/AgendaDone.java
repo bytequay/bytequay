@@ -233,9 +233,12 @@ class AgendaDone
     /** An issue whose development task has started, from its row's Start or its own. */
     private Optional<Status> issue(AgendaRefs.Numbered ref)
     {
-        return workspaces.findAll().stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo())).findFirst()
-                .flatMap(workspace -> issues.find(workspace.monitoredRepositoryId(), ref.number()))
-                .flatMap(issue -> issueDevelopment.metadata(issue.id()).developmentTask())
+        return ref.workspaceId().flatMap(workspaces::findById)
+                .or(() -> ref.workspaceId().isPresent() ? Optional.empty() : workspaces.findAll().stream().filter(Workspace::isGitHub)
+                        .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo())).findFirst())
+                .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo()))
+                .flatMap(workspace -> issues.find(workspaces, workspace, ref.number())
+                        .flatMap(issue -> issueDevelopment.metadata(workspace.id(), issue.id()).developmentTask()))
                 .map(task -> Status.done("Started", Optional.empty()));
     }
 

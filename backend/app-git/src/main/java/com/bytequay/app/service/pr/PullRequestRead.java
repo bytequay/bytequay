@@ -40,6 +40,12 @@ public record PullRequestRead(HostingReadSession session, HostingRepository repo
         return session.cacheScope() + ":" + repository.id();
     }
 
+    public PullRequestRef ref()
+    {
+        int slash = repository.fullPath().lastIndexOf('/');
+        return PullRequestRef.of(repository.fullPath().substring(0, slash), repository.fullPath().substring(slash + 1), number);
+    }
+
     public PullRequestRef githubRef()
     {
         requireGitHub();

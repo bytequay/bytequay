@@ -164,7 +164,7 @@ export default function AppSidebar({
     if (pickerOpen) pickerMenu.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
-  const memoryNeeds = useMemoryNeeds(workspace?.hostingServer?.provider === 'GITLAB' ? null : workspace?.id ?? null, workspaceTab) ?? 0;
+  const memoryNeeds = useMemoryNeeds(workspace?.id ?? null, workspaceTab) ?? 0;
 
   const historyControls = (
     <div className="app-sidebar__history" role="group" aria-label="View history">
@@ -266,8 +266,7 @@ export default function AppSidebar({
         )}
         <nav className="app-sidebar__nav app-sidebar__nav--scroll" aria-label="Settings navigation">
           {SETTINGS_GROUPS.map(group => {
-            const entries = visible.filter(entry => entry.group === group && (group !== 'Workspace' || picked?.hostingServer?.provider !== 'GITLAB'
-              || entry.section === 'ws-token' || entry.section === 'ws-advanced'));
+            const entries = visible.filter(entry => entry.group === group);
             if (entries.length === 0) return null;
             return (
               <div key={group}>
@@ -381,7 +380,7 @@ export default function AppSidebar({
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
-            {WORKSPACE_TABS.filter(item => workspace.hostingServer?.provider !== 'GITLAB' || item.tab === 'home' || item.tab === 'prs').map(workspaceItem)}
+            {WORKSPACE_TABS.map(workspaceItem)}
           </nav>
         </>
       )}
@@ -399,7 +398,7 @@ export default function AppSidebar({
               key: item.key,
               label: item.title,
               title: item.reference ? `${item.reference} · ${item.title}` : item.title,
-              icon: item.target.kind === 'pull' ? <PinnedPullRequestIcon repo={item.target.repo} number={item.target.number} /> : item.target.kind === 'jira' ? <JiraIcon size={16} />
+              icon: item.target.kind === 'pull' ? <PinnedPullRequestIcon repo={item.target.repo} number={item.target.number} workspaceId={item.target.workspaceId} /> : item.target.kind === 'jira' ? <JiraIcon size={16} />
                 : item.target.kind === 'task' || item.target.kind === 'review' ? <SquareCheck size={16} /> : <CircleDot size={16} />,
               active: false,
               onClick: () => openPinned(item),
@@ -446,18 +445,19 @@ export default function AppSidebar({
   );
 }
 
-function PinnedPullRequestIcon({ repo, number }: { repo: string; number: number }) {
+function PinnedPullRequestIcon({ repo, number, workspaceId }: { repo: string; number: number; workspaceId?: string }) {
   const [pullRequest, setPullRequest] = useState<PullRequestDto | null>(null);
   useEffect(() => {
     let version = 0;
     const reload = () => {
       const request = ++version;
-      void window.bridge.findStoredPullRequest(repo, number).then(pr => {
+      void window.bridge.findStoredPullRequest(repo, number, workspaceId).then(pr => {
         if (request === version) setPullRequest(pr);
       }).catch(() => {});
     };
     const updated = (event: Event) => {
-      const pr = (event as CustomEvent<PullRequestDto[]>).detail.find(candidate => candidate.repo.toLowerCase() === repo.toLowerCase() && candidate.number === number);
+      if (workspaceId !== undefined) { reload(); return; }
+      const pr = (event as CustomEvent<PullRequestDto[] | undefined>).detail?.find(candidate => candidate.repo.toLowerCase() === repo.toLowerCase() && candidate.number === number);
       if (pr === undefined) return;
       version++;
       setPullRequest(pr);
@@ -470,7 +470,7 @@ function PinnedPullRequestIcon({ repo, number }: { repo: string; number: number 
       stopSync();
       window.removeEventListener('bytequay:pr-attention-updated', updated);
     };
-  }, [repo, number]);
+  }, [repo, number, workspaceId]);
   return <PullRequestStateIcon pullRequest={pullRequest} size={16} />;
 }
 

@@ -11,17 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.pr;
+package com.bytequay.core.hosting;
 
-import java.util.Optional;
+import java.time.Instant;
 
-import static java.util.Objects.requireNonNull;
-
-public record PullRequestCheckLog(String text, Optional<String> unavailableReason)
-{
-    public PullRequestCheckLog
-    {
-        requireNonNull(text, "text is null");
-        requireNonNull(unavailableReason, "unavailableReason is null");
-    }
-}
+public record IssueActivity(int commentCount, Instant updatedAt) {}

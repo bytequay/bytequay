@@ -74,23 +74,25 @@ public interface PullRequestJpaRepository
 
     Optional<PullRequestEntity> findByHostingRepositoryIdAndNumber(long repositoryId, int number);
 
+    List<PullRequestEntity> findByHostingRepositoryIdAndHeadRefOrderByNumberDesc(long repositoryId, String headRef);
+
     @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.number = :number")
     Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(@Param("repo") String repo, @Param("number") int number);
 
     @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.headRef = :headRef ORDER BY e.number DESC")
     List<PullRequestEntity> findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(@Param("repo") String repo, @Param("headRef") String headRef);
 
-    @Query("SELECT e.discussionActivityAt FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id = :id")
+    @Query("SELECT e.discussionActivityAt FROM PullRequestEntity e WHERE e.id = :id")
     Optional<Instant> findDiscussionActivityAt(@Param("id") long id);
 
-    @Query("SELECT e.id AS id, e.cardActivity AS cardActivity FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id IN :ids AND e.cardActivity IS NOT NULL")
+    @Query("SELECT e.id AS id, e.cardActivity AS cardActivity FROM PullRequestEntity e WHERE e.id IN :ids AND e.cardActivity IS NOT NULL")
     List<CardActivity> findCardActivities(@Param("ids") Set<Long> ids);
 
-    @Query("SELECT e.id AS id, e.attentionActivityAt AS attentionActivityAt FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id IN :ids "
+    @Query("SELECT e.id AS id, e.attentionActivityAt AS attentionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids "
             + "AND e.attentionActivityAt IS NOT NULL")
     List<AttentionActivity> findAttentionActivities(@Param("ids") Set<Long> ids);
 
-    @Query("SELECT e.id AS id, e.discussionActivityAt AS discussionActivityAt FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id IN :ids "
+    @Query("SELECT e.id AS id, e.discussionActivityAt AS discussionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids "
             + "AND e.discussionActivityAt IS NOT NULL")
     List<DiscussionActivity> findDiscussionActivities(@Param("ids") Set<Long> ids);
 

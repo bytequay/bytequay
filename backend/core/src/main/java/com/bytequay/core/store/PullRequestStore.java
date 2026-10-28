@@ -19,6 +19,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestPage;
+import com.bytequay.core.hosting.HostingPullRequest;
 
 import java.time.Instant;
 import java.util.List;
@@ -33,6 +34,14 @@ public interface PullRequestStore
     List<PullRequest> findAttentionCandidates();
 
     Optional<PullRequest> findById(long prId);
+
+    Optional<PullRequest> findByHostingRepository(long repositoryId, int number);
+
+    PullRequest saveHosted(long repositoryId, FetchedPullRequest pullRequest);
+
+    Optional<HostingPullRequest> findHostingIdentity(long prId);
+
+    List<PullRequest> findByHostingHeadRef(long repositoryId, String headRef);
 
     void setMonitored(long prId, boolean monitored);
 

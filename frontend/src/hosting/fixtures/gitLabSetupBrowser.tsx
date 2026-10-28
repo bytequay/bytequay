@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
+import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import AddRepoModal from '../../AddRepoModal';
 import { assert, button, changeInput, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
@@ -147,7 +148,7 @@ export async function run() {
           changeInput(server, webBaseUrl); await settle(); button('Create access token', view.host).click(); await settle();
           const target = new URL(opened.at(-1) ?? '');
           assert(`${target.origin}${target.pathname}` === `${webBaseUrl.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`, 'Token page lost the selected server');
-          assert(target.searchParams.get('name') === 'ByteQuay' && target.searchParams.get('scopes') === 'read_api,read_repository', 'Token name or scopes differ');
+          assert(target.searchParams.get('name') === 'ByteQuay' && target.searchParams.get('scopes') === 'api', 'Token name or scopes differ');
         }
         assert(opened.length === 2 && connections === 0 && token.value === '', 'Token shortcut must work without a token or a connection');
         for (const invalid of ['', 'not a URL', 'ftp://gitlab.example.com', 'https://user:password@gitlab.example.com', 'https://gitlab.example.com?query=yes', 'https://gitlab.example.com#fragment']) {
@@ -180,6 +181,11 @@ export async function run() {
       const resolved: { accountId: number; path: string }[] = [];
       const created: { accountId: number; repositoryId: number }[] = [];
       const bridge: Partial<Bridge> = {
+        ...createPreviewBridge(WORKSPACE.id),
+        getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: null, pullRequests: [] }),
+        onPullRequestsSynced: () => () => {},
+        listJiraConnections: async () => [], listJiraAttention: async () => [],
         getGitLabCliStatus: readyCli,
         listHostingAccounts: async () => [],
         connectHostingAccount: async request => { requests.push(request); return account(1, request); },
@@ -211,10 +217,10 @@ export async function run() {
         await settle(); button('Find project', view.host).click();
         await until(() => view.host.textContent?.includes('clone this project directly') === true, 'Project preview did not load');
         button('Create workspace', view.host).click();
-        await until(() => view.host.textContent?.includes('Local checkout ready') === true, 'Created workspace did not open');
+        await until(() => view.host.querySelector('.agt-home') !== null, 'Created workspace did not open');
         assert(resolved[0].accountId === 1 && resolved[0].path === 'group/subgroup/project', 'Resolve did not use selected account and full project path');
         assert(created[0].accountId === 1 && created[0].repositoryId === 8, 'Create did not use the resolved project');
-        assert(view.host.textContent?.includes('not available yet'), 'Workspace must explain unavailable actions');
+        assert(view.host.textContent?.includes('Needs attention') === true && view.host.textContent?.includes('Open tasks') === true, 'GitLab must render the existing Home');
       } finally { view.dispose(); }
     }],
     ['Workspace settings switch only between accounts on the same GitLab server', async () => {
@@ -225,6 +231,7 @@ export async function run() {
       const bridge: Partial<Bridge> = {
         getGitLabCliStatus: readyCli,
         getAppVersion: async () => ({ version: '1.0.0' }), getAppPreferences: async () => preferences,
+        getWorkspaceSettings: async () => { throw new Error('No repository settings needed by this account picker'); },
         listHostingAccounts: async () => [account(1), account(2), account(3, { provider: 'GITLAB', webBaseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' })],
         getWorkspaceHosting: async () => binding(),
         setWorkspaceHosting: async (_id: string, selected: number) => { accountId = selected; writes.push(selected); return binding(); },

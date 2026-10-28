@@ -68,7 +68,7 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
   const [refresh, setRefresh] = useState(0);
   const [loading, setLoading] = useState(() => getCached(SEED.watched) === undefined);
   const [error, setError] = useState<string | null>(null);
-  const [prs, setPrs] = useState<PullRequestDto[]>([]);
+  const [prs, setPrs] = useState<Record<string, PullRequestDto[]>>({});
   const [executions, setExecutions] = useState<CherryPickExecution[]>([]);
   const [sparks, setSparks] = useState<Record<string, number[]>>({});
   const [failures, setFailures] = useState<Record<string, WorkspaceFailure>>({});
@@ -107,9 +107,6 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
 
   useEffect(() => {
     let cancelled = false;
-    window.bridge.fetchPrs(undefined, 0, 100)
-      .then(page => { if (!cancelled) setPrs(page.pullRequests); })
-      .catch(() => { /* Cards fall back to zeroed counts. */ });
     window.bridge.listCherryPickExecutions(30)
       .then(rows => { if (!cancelled) setExecutions(rows); })
       .catch(() => { /* Cards fall back to no running task. */ });
@@ -127,6 +124,22 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
     return () => { cancelled = true; window.clearTimeout(timer); };
   }, [deleting, tab, unwatchTarget, workspaces]);
 
+  const workspaceIds = workspaces.map(workspace => workspace.id).join(',');
+  useEffect(() => {
+    let cancelled = false;
+    const reload = () => {
+      if (workspaceIds === '') return;
+      for (const id of workspaceIds.split(',')) {
+        void window.bridge.fetchWorkspaceHostingAttention(id).then(snapshot => {
+          if (!cancelled) setPrs(previous => ({ ...previous, [id]: snapshot.pullRequests }));
+        }).catch(() => {});
+      }
+    };
+    reload();
+    const stop = window.bridge.onPullRequestsSynced(reload);
+    return () => { cancelled = true; stop(); };
+  }, [workspaceIds]);
+
   // Commit history is a local read, so it only runs once the clone exists.
   useEffect(() => {
     let cancelled = false;
@@ -135,7 +148,7 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
         firstSeen.current[workspace.id] = Date.now();
       }
       const key = sparkKey(workspace);
-      if (workspace.hostingServer?.provider === 'GITLAB' || workspace.lastCodeSyncAt === null || sparks[key] !== undefined) continue;
+      if (workspace.lastCodeSyncAt === null || sparks[key] !== undefined) continue;
       const source = workspace.upstreamRepositoryId === null ? 'WORKSPACE' : 'UPSTREAM';
       const branch = workspace.upstreamDefaultBranch ?? workspace.defaultBranch;
       const cached = getCachedFresh<number[]>(key, SPARK_MAX_AGE_MS);
@@ -222,8 +235,8 @@ export default function WorkspacesPage({ onOpen, defaultProvider = 'GITHUB' }: {
     const running = executions.find(execution =>
       execution.workspaceId === workspace.id && execution.status !== 'FINISHED');
     activity[workspace.id] = {
-      openPrs: prs.filter(pr => workspace.hostingServer?.provider !== 'GITLAB' && pr.repo === monitored && pr.state === 'open').length,
-      needsYou: prs.filter(pr => workspace.hostingServer?.provider !== 'GITLAB' && pr.repo === monitored && pr.state === 'open' && pullRequestNeedsReview(pr)).length,
+      openPrs: (prs[workspace.id] ?? []).filter(pr => pr.repo === monitored && pr.state === 'open').length,
+      needsYou: (prs[workspace.id] ?? []).filter(pr => pr.repo === monitored && pr.state === 'open' && pullRequestNeedsReview(pr)).length,
       tasks: executions.filter(execution =>
         execution.workspaceId === workspace.id && execution.status !== 'FINISHED').length,
       spark: sparks[sparkKey(workspace)] ?? null,
@@ -419,13 +432,12 @@ export function WorkspaceCards({
         const name = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
         const defaultBranch = workspace.upstreamDefaultBranch ?? workspace.defaultBranch;
         const fork = workspace.topology === 'FORK';
-        const gitlab = workspace.hostingServer?.provider === 'GITLAB';
         const failure = failures[workspace.id];
         const busy = retrying.includes(workspace.id);
         const stats = activity[workspace.id];
         const codeState: SyncState = failure ? 'failed'
           : busy ? 'syncing' : workspaceCodeState(workspace);
-        const metaState: SyncState = gitlab ? codeState : workspaceMetadataState(workspace, now);
+        const metaState: SyncState = workspaceMetadataState(workspace, now);
         const days = metadataAgeDays(workspace, now);
         const chips = [
           {
@@ -434,7 +446,7 @@ export function WorkspaceCards({
               ? { text: 'fetching latest', tone: 'syncing' as const, spin: true }
               : chipFor(codeState, 'code', days)),
           },
-          ...(gitlab ? [] : [{ id: 'meta', ...chipFor(metaState, 'meta', days) }]),
+          { id: 'meta', ...chipFor(metaState, 'meta', days) },
         ];
         const bars = stats?.spark ?? new Array<number>(SPARK_DAYS).fill(0);
         const weekly = (stats?.spark ?? []).slice(-7).reduce((total, value) => total + value, 0);
@@ -467,7 +479,7 @@ export function WorkspaceCards({
               {fork ? `${defaultBranch} · follows ${name}` : defaultBranch}
             </div>
 
-            {gitlab ? <p className="ws-retired-note">GitLab · merge requests</p> : <div className="ws-stats">
+            <div className="ws-stats">
               <div className="ws-stat">
                 <div className={`ws-stat__n${stats?.openPrs ? '' : ' is-zero'}`}>{stats?.openPrs ?? 0}</div>
                 <div className="ws-stat__label">open PRs</div>
@@ -482,16 +494,16 @@ export function WorkspaceCards({
                   {stats?.tasks === 1 ? 'task running' : 'tasks running'}
                 </div>
               </div>
-            </div>}
+            </div>
 
-            {!gitlab && <div className="ws-card-spark">
+            <div className="ws-card-spark">
               <Sparkline bars={bars} live={stats?.spark != null} />
               <span className="ws-card-spark__label">
                 {stats?.spark == null
                   ? 'activity after first sync'
                   : `${weekly} commit${weekly === 1 ? '' : 's'} this week`}
               </span>
-            </div>}
+            </div>
 
             <div className="ws-chips">
               {chips.map(chip => (

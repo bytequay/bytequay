@@ -11,20 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github;
+package com.bytequay.core.domain;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
+import java.util.Optional;
 
-import static com.bytequay.core.domain.Checks.checkText;
-import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
-/** Stable identity returned by GitHub after pull-request creation. */
-public record CreatedPullRequest(long id, int number, @JsonProperty("html_url") String url)
+public record PullRequestCheckLog(String text, Optional<String> unavailableReason)
 {
-    public CreatedPullRequest
+    public PullRequestCheckLog
     {
-        checkArgument(id > 0, "id is not positive");
-        checkArgument(number > 0, "number is not positive");
-        checkText(url, "url");
+        requireNonNull(text, "text is null");
+        requireNonNull(unavailableReason, "unavailableReason is null");
     }
 }

@@ -204,8 +204,10 @@ class AssistantRows
         return switch (AgendaRefs.kind(ref)) {
             case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
                     .map(pr -> pullRequest(pr, shared));
-            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> workspace(shared.watched.get(), number.repo())
-                    .flatMap(workspace -> issues.find(workspace.monitoredRepositoryId(), number.number()).map(issue -> issue(workspace, issue))));
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> number.workspaceId().flatMap(workspaces::findById)
+                    .or(() -> number.workspaceId().isPresent() ? Optional.empty() : workspace(shared.watched.get(), number.repo()))
+                    .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(number.repo()))
+                    .flatMap(workspace -> issues.find(workspaces, workspace, number.number()).map(issue -> issue(workspace, issue))));
             case "jira" -> Optional.of(Splitter.on(':').limit(2).splitToList(AgendaRefs.id(ref))).filter(parts -> parts.size() == 2)
                     .flatMap(parts -> jira.cachedIssue(parts.get(0), parts.get(1))).map(this::ticket);
             case "task" -> taskId(AgendaRefs.id(ref)).flatMap(tasks::find).flatMap(task -> task(task, shared));
@@ -269,7 +271,8 @@ class AssistantRows
     {
         String repo = workspace.monitoredRepository().fullName();
         // The store keeps a repository's open issues only.
-        return new AssistantRow(AgendaRefs.issue(repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()), Optional.of("open"), Optional.empty(),
+        return new AssistantRow(AgendaRefs.issue(workspace, repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()),
+                Optional.of("open"), Optional.empty(),
                 Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(issue.updatedAt()), Optional.empty(), AgendaTarget.issue(repo, issue.number(), workspace.id()));
     }
@@ -440,13 +443,10 @@ class AssistantRows
     /** The repository's open issues that match, the most recently updated first, and the issue the query numbers wherever it is. */
     private void issues(Workspace workspace, List<String> words, Optional<Integer> number, Map<String, Found> found)
     {
-        if (!workspace.isGitHub()) {
-            return;
-        }
         String repo = workspace.monitoredRepository().fullName();
-        number.flatMap(value -> issues.find(workspace.monitoredRepositoryId(), value)).ifPresent(issue -> add(found, found(workspace, repo, issue, true)));
+        number.flatMap(value -> issues.find(workspaces, workspace, value)).ifPresent(issue -> add(found, found(workspace, repo, issue, true)));
         for (int page = 0; page < ISSUE_PAGES; page++) {
-            RepositoryIssuePage read = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), page, ISSUE_PAGE);
+            RepositoryIssuePage read = issues.findPage(workspaces, workspace, page, ISSUE_PAGE);
             read.issues().stream().filter(issue -> matches(issue.title(), words)).forEach(issue -> add(found, found(workspace, repo, issue, false)));
             if (!read.hasMore()) {
                 return;
@@ -472,7 +472,7 @@ class AssistantRows
     private static Found found(Workspace workspace, String repo, RepositoryIssue issue, boolean exact)
     {
         // The store keeps a repository's open issues only.
-        return new Found(AgendaRefs.issue(repo, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
+        return new Found(AgendaRefs.issue(workspace, repo, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
                 AgendaTarget.issue(repo, issue.number(), workspace.id()), exact);
     }
 

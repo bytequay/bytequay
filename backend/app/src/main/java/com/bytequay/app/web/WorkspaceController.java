@@ -33,6 +33,7 @@ import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRelationships.Relationship;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestPage;
@@ -150,9 +151,7 @@ public class WorkspaceController
     @GetMapping("/{workspaceId}/pull-requests")
     public PullRequestPage pullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size)
     {
-        WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
-        checkArgument(workspace.hostingServer() == null, "Use the hosting request list for GitLab workspaces");
-        return pullRequests.listPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), page, size, "");
+        return pullRequests.listWorkspacePullRequests(workspaceId, page, size, "");
     }
 
     @GetMapping("/{workspaceId}/pull-requests/merged")
@@ -179,19 +178,25 @@ public class WorkspaceController
     @GetMapping("/{workspaceId}/issues")
     public WorkspaceIssueHttpContract.Page issues(@PathVariable String workspaceId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size)
     {
-        return WorkspaceIssueHttpContract.page(issues.list(workspaceId, page, size), issueDevelopment);
+        return WorkspaceIssueHttpContract.page(workspaceId, issues.list(workspaceId, page, size), issueDevelopment);
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}")
     public Optional<WorkspaceIssueHttpContract.Issue> issue(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
-        return issues.find(workspaceId, issueNumber).map(issue -> WorkspaceIssueHttpContract.issue(issue, issueDevelopment));
+        return issues.find(workspaceId, issueNumber).map(issue -> WorkspaceIssueHttpContract.issue(workspaceId, issue, issueDevelopment));
+    }
+
+    @GetMapping("/{workspaceId}/issues/{issueNumber}/preview")
+    public GitHubIssuePreview issuePreview(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    {
+        return issues.preview(workspaceId, issueNumber);
     }
 
     @PostMapping("/{workspaceId}/issues/refresh")
     public WorkspaceIssueHttpContract.Page refreshIssues(@PathVariable String workspaceId)
     {
-        return WorkspaceIssueHttpContract.page(issues.refreshIssues(workspaceId), issueDevelopment);
+        return WorkspaceIssueHttpContract.page(workspaceId, issues.refreshIssues(workspaceId), issueDevelopment);
     }
 
     @GetMapping("/{workspaceId}/issues/attention")
@@ -201,7 +206,7 @@ public class WorkspaceController
         if (request.checkNotModified(writes.current())) {
             return null;
         }
-        return WorkspaceIssueHttpContract.page(issueDevelopment.attention(workspaceId), issueDevelopment);
+        return WorkspaceIssueHttpContract.page(workspaceId, issueDevelopment.attention(workspaceId), issueDevelopment);
     }
 
     @PatchMapping("/{workspaceId}/issues/{issueNumber}/epic")

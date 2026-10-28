@@ -150,9 +150,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       flushSync(() => root.render(<Surface />)); await settle();
       button('Post now').click(); await settle();
       button('Post now').click(); await settle();
-      assert(host.textContent?.includes('Network connection lost') === true && host.textContent.includes('GitHub did not confirm this comment'),
+      assert(host.textContent?.includes('Network connection lost') === true && host.textContent.includes('The server did not confirm this comment'),
         'The network error and saved uncertain delivery must both be visible immediately');
-      assert(!host.textContent?.includes('Posted to GitHub') && host.querySelector('.agr-notice.is-published') === null,
+      assert(!host.textContent?.includes('Posted remotely') && host.querySelector('.agr-notice.is-published') === null,
         'A failed post must never claim success');
       assert(button('Post now').disabled && !button('Cancel').disabled, 'An uncertain post must block resending while allowing the composer to close');
       button('Cancel').click(); await settle();
@@ -180,7 +180,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           actions={actions} busy={busy} />;
       }
       flushSync(() => root.render(<Surface />)); await settle();
-      assert(host.textContent?.includes('Posted to GitHub as a review comment') === true, 'The finding must retain its publication status');
+      assert(host.textContent?.includes('Posted as a review comment') === true, 'The finding must retain its publication status');
       for (const message of ['Why was this withdrawn?', 'Which check confirmed the fix?']) {
         assert(!button('Ask reviewer').disabled, 'Publication and withdrawal must not disable private questions');
         button('Ask reviewer').click(); await settle();

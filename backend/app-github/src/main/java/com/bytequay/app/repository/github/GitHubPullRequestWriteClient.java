@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
 import com.bytequay.core.domain.MergeResult;
@@ -360,11 +361,14 @@ public class GitHubPullRequestWriteClient
         checkText(base, "base");
         checkText(title, "title");
         requireNonNull(body, "body is null");
-        return translating(() -> requireBody(send(gitHubRestClient, HttpMethod.POST, pat,
+        CreatedResponse response = translating(() -> requireBody(send(gitHubRestClient, HttpMethod.POST, pat,
                 ImmutableMap.of("title", title, "body", body, "head", head, "base", base, "draft", draft),
                 "/repos/{owner}/{repo}/pulls", baseRepository.owner(), baseRepository.repo())
-                .body(CreatedPullRequest.class), "Empty response from GitHub when creating pull request"));
+                .body(CreatedResponse.class), "Empty response from GitHub when creating pull request"));
+        return new CreatedPullRequest(response.id(), response.number(), response.url());
     }
+
+    private record CreatedResponse(long id, int number, @JsonProperty("html_url") String url) {}
 
     public record IssueMetadata(List<String> assignees, List<String> labels, Instant updatedAt)
     {

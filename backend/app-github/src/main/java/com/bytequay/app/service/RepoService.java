@@ -14,11 +14,11 @@
 package com.bytequay.app.service;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.ContributionCalendar;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserCommitSummary;

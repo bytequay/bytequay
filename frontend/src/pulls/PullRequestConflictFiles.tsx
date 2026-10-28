@@ -13,9 +13,11 @@
  */
 import { useEffect, useState } from 'react';
 import type { PullRequestConflictsDto } from '../types';
+import { usePullRequestBridge } from './PullRequestWorkspace';
 import { remoteErrorMessage } from '../remoteError';
 
 export default function PullRequestConflictFiles({ repo, number }: { repo: string; number: number }) {
+  const bridge = usePullRequestBridge();
   const [result, setResult] = useState<PullRequestConflictsDto | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -26,12 +28,12 @@ export default function PullRequestConflictFiles({ repo, number }: { repo: strin
     setLoading(true);
     setResult(null);
     setError(null);
-    void window.bridge.fetchPrConflicts(repo, number)
+    void bridge.fetchPrConflicts(repo, number)
       .then(value => { if (!cancelled) setResult(value); })
       .catch(failure => { if (!cancelled) setError(remoteErrorMessage(failure)); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [repo, number, attempt]);
+  }, [bridge, repo, number, attempt]);
 
   return <section className="pr-conflict-files" aria-label="Conflicted files" aria-busy={loading}>
     <div className="pr-conflict-files__header">

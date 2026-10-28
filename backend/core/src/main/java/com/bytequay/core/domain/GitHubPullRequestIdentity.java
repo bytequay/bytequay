@@ -11,10 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github;
-
-import com.bytequay.core.domain.PullRequestRef;
-import com.bytequay.core.domain.RepoRef;
+package com.bytequay.core.domain;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;

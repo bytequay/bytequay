@@ -67,9 +67,9 @@ public record ReviewDraft(
         requireNonNull(updatedAt, "updatedAt is null");
     }
 
-    public static ReviewDraft empty(String repo, int number, Instant now)
+    public static ReviewDraft empty(String id, String repo, int number, Instant now)
     {
-        return new ReviewDraft(repo.toLowerCase(Locale.ROOT) + "#" + number, repo.toLowerCase(Locale.ROOT), number, "", DEFAULT_EVENT, Optional.empty(), ImmutableList.of(),
+        return new ReviewDraft(id, repo.toLowerCase(Locale.ROOT), number, "", DEFAULT_EVENT, Optional.empty(), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(), 0, now);
     }
 

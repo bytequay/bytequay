@@ -69,7 +69,9 @@ import java.util.stream.IntStream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -109,6 +111,7 @@ class TestIssueContextBridgeResolverImpl
         when(task.workspaceId()).thenReturn(Optional.of("workspace"));
         when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.of(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.of("Implement selection"), NOW)));
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("upstream", "repo"));
         when(workspace.monitoredRepositoryId()).thenReturn(2L);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
@@ -154,9 +157,9 @@ class TestIssueContextBridgeResolverImpl
     void returnsAcceptedDescriptionAndExplicitlyCachedMetadataWithBoundedTimeline()
             throws Exception
     {
-        when(issues.find(2, 7)).thenReturn(Optional.of(new RepositoryIssue(70, 7, "Edited title", "New scope", "alice", "", SOURCE.url(),
+        when(issues.find(any(), any(), eq(7))).thenReturn(Optional.of(new RepositoryIssue(70, 7, "Edited title", "New scope", "alice", "", SOURCE.url(),
                 ImmutableList.of("bug"), ImmutableList.of("alice"), 25, NOW, NOW.plusSeconds(20))));
-        when(details.find(2, 7)).thenReturn(Optional.of(new RepositoryIssueDetail(2, 7,
+        when(details.find(any(), any(), eq(7))).thenReturn(Optional.of(new RepositoryIssueDetail(2, 7,
                 IntStream.range(0, 25).mapToObj(index -> new PrTimelineEvent((long) index, "commented", "alice", NOW.plusSeconds(index),
                         "c".repeat(2_500), Optional.empty())).collect(toImmutableList()), "Bug", ImmutableList.of("Bug"), Optional.of(NOW.plusSeconds(10)))));
         JsonNode context = mapper.readTree(resolver.resolve(taskId.toString()).orElseThrow().read().get());
@@ -176,7 +179,7 @@ class TestIssueContextBridgeResolverImpl
     void timelineOmitsMissingTimestampAndKeepsEmptyBodyAndNullPayloadFields()
             throws Exception
     {
-        when(details.find(2, 7)).thenReturn(Optional.of(new RepositoryIssueDetail(2, 7,
+        when(details.find(any(), any(), eq(7))).thenReturn(Optional.of(new RepositoryIssueDetail(2, 7,
                 ImmutableList.of(new PrTimelineEvent(null, "commented", null, null, null, Optional.empty())), "", ImmutableList.of(), Optional.empty())));
 
         JsonNode context = mapper.readTree(resolver.resolve(taskId.toString()).orElseThrow().read().get());
@@ -234,7 +237,7 @@ class TestIssueContextBridgeResolverImpl
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(current));
         when(workItems.list("workspace")).thenReturn(ImmutableList.of(elsewhere, current, done));
         when(sources.findEpic("github.com", 900)).thenReturn(Optional.of(new IssueEpic("github.com", 900, "upstream/repo", 9, true, NOW)));
-        when(issues.find(2, 9)).thenReturn(Optional.of(new RepositoryIssue(900, 9, "Metadata cache", "Epic description", "alice", "",
+        when(issues.find(any(), any(), eq(9))).thenReturn(Optional.of(new RepositoryIssue(900, 9, "Metadata cache", "Epic description", "alice", "",
                 "https://github.com/upstream/repo/issues/9", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW)));
         EpicChild child = new EpicChild(WorkItemLink.issueIdentity("github.com", 910), GoalItemKind.ISSUE, "upstream/repo#10", "#10", "Benchmark warm cache", "Open", false,
                 Optional.empty());
@@ -262,7 +265,7 @@ class TestIssueContextBridgeResolverImpl
         assertThat(context.at("/epic/currentWork/links")).isEmpty();
 
         // Its issue left the local store: the Epic's work stays readable.
-        when(issues.find(2, 9)).thenReturn(Optional.empty());
+        when(issues.find(any(), any(), eq(9))).thenReturn(Optional.empty());
         JsonNode evicted = mapper.readTree(bridge.read().get());
         assertThat(evicted.at("/epic/status").asText()).isEqualTo("missing");
         assertThat(evicted.at("/epic/title").isMissingNode()).isTrue();

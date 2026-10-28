@@ -47,16 +47,11 @@ export function taskPullRequest(pullRequests: PullRequestDto[], linkedNumber?: n
   return newest((pr) => pr.state !== 'merged' && pr.state !== 'closed') ?? newest((pr) => pr.state === 'merged');
 }
 
-/**
- * Whether a transcript link addresses the pull request the panel already holds.
- *
- * The agent writes the URL GitHub gave it, which may carry a comment anchor or tracking query.
- * Only the repository and number decide, so `#issuecomment-1` still resolves to the same row.
- */
-export function samePullRequest(href: string | null, pr: Pick<PullRequestDto, 'repo' | 'number'>): boolean {
-  if (href === null) return false;
-  const path = href.split('#')[0].split('?')[0].replace(/\/+$/, '').toLowerCase();
-  return path.endsWith(`/${pr.repo.toLowerCase()}/pull/${pr.number}`);
+/** Anchors and tracking queries still address the same hosted pull request. */
+export function samePullRequest(href: string | null, pr: Pick<PullRequestDto, 'htmlUrl'>): boolean {
+  if (href === null || !pr.htmlUrl) return false;
+  const address = (url: string) => url.split('#')[0].split('?')[0].replace(/\/+$/, '').toLowerCase();
+  return address(href) === address(pr.htmlUrl);
 }
 
 export type TaskPullRequestDetail = PullRequestDetailSource;
@@ -174,7 +169,7 @@ export function TaskChangesView({
     threads: localReview.threads.filter(thread => thread.repo.toLowerCase() === pr.repo.toLowerCase() && thread.number === pr.number),
   };
   const loadFileContent = (path: string, baseSha?: string, headSha?: string) =>
-    window.bridge.refreshPrDiffFileContent(pr.repo, pr.number, path, baseSha, headSha);
+    window.bridge.refreshPrDiffFileContent(pr.repo, pr.number, path, baseSha, headSha, workspaceId);
   const diff = { toolbarTarget, toolbarStart, defaultTreeOpen, toolbarVisible,
     files: changes.files, commits: changes.commits, loading: changes.loading, commitRange, onCommitRangeChange,
     localReview: pullRequestReview, agentReview, onAskAgent, onAskAgentDisabled };
@@ -223,14 +218,14 @@ export function NoPullRequestView({ branch, repository, onCheck, checking = fals
         type="button"
         className="agt-nopr__check"
         disabled={onCheck === undefined || checking}
-        title="Reads this branch's pull requests from GitHub again"
+        title="Reads this branch's pull requests again"
         onClick={onCheck}
       >
         {checking ? 'Checking…' : 'Check again'}
       </button>
       <div className="agt-nopr__note">
         ByteQuay reads this branch when the task opens and after every turn. A pull request opened
-        from the agent or on GitHub appears at the next check.
+        from the agent or on the remote appears at the next check.
       </div>
     </div>
   );

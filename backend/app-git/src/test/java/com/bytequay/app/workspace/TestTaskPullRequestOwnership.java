@@ -65,9 +65,25 @@ class TestTaskPullRequestOwnership
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("owner", "repo"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of("renamed"));
+    }
+
+    @Test
+    void hostedTasksUseTheirRepositoryIdentityForAssignedAndBranchRequests()
+    {
+        when(workspaces.findById("workspace").orElseThrow().isGitHub()).thenReturn(false);
+        when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(42L));
+        PullRequest hosted = pullRequest(7, "open", PullRequest.Origin.AUTHORED);
+        when(pullRequests.findByHostingHeadRef(42L, worktree.generatedBranch())).thenReturn(ImmutableList.of(hosted));
+        assertThat(ownership.linkedPullRequest(task)).contains(hosted);
+        when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", "owner/repo", 7, "context")));
+        when(pullRequests.findByHostingRepository(42L, 7)).thenReturn(Optional.of(hosted));
+        assertThat(ownership.owns(task, "owner/repo", 7, true)).isTrue();
+        verify(pullRequests, never()).findIdByRepoAndNumber("owner/repo", 7);
+        verify(pullRequests, never()).findByHeadRef("owner/repo", worktree.generatedBranch());
     }
 
     @Test

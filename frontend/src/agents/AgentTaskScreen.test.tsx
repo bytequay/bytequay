@@ -836,7 +836,7 @@ describe('agent task side panel', () => {
     expect(markup).toContain('No pull request yet');
     expect(markup).toContain('<code>reuse-resolved-field-index</code>');
     expect(markup).toContain('<strong>owner/repository</strong>');
-    expect(markup).toContain('A pull request opened from the agent or on GitHub appears at the next check.');
+    expect(markup).toContain('A pull request opened from the agent or on the remote appears at the next check.');
   });
 
   it('offers a re-check only while the branch has no pull request of its own', () => {
@@ -886,6 +886,10 @@ describe('agent task side panel', () => {
     expect(samePullRequest('https://github.com/owner/repository/pull/482', pr)).toBe(false);
     expect(samePullRequest('https://github.com/bytequay/bytequay/issues/482', pr)).toBe(false);
     expect(samePullRequest(null, pr)).toBe(false);
+    const mergeRequest = { ...pr, htmlUrl: 'https://gitlab.example.com/group/project/-/merge_requests/482' };
+    expect(samePullRequest(`${mergeRequest.htmlUrl}#note_9`, mergeRequest)).toBe(true);
+    expect(samePullRequest('https://gitlab.com/group/project/-/merge_requests/482', mergeRequest)).toBe(false);
+
   });
 
 });

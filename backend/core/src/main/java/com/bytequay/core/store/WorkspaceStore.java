@@ -50,6 +50,12 @@ public interface WorkspaceStore
 
     Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId);
 
+    default Optional<Long> findHostingRepositoryId(String workspaceId)
+    {
+        return findHostingBinding(workspaceId).map(WorkspaceHostingBinding::monitoredRepositoryId)
+                .or(() -> findHostingCacheTarget(workspaceId).map(HostingCacheTarget::repositoryId));
+    }
+
     void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target);
 
     /** Selects an account and retained repository identities on the workspace's hosting server. */

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.recent;
 
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentText;
@@ -22,6 +23,8 @@ import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
@@ -57,6 +60,7 @@ public class RecentTouchRecorder
     private final PrDetailStore details;
     private final RepositoryIssueStore issues;
     private final WorkspaceStore workspaces;
+    private final HostingIdentityStore hostingIdentities;
     private final CredentialService credentials;
     private final Clock clock;
 
@@ -66,6 +70,7 @@ public class RecentTouchRecorder
             PrDetailStore details,
             RepositoryIssueStore issues,
             WorkspaceStore workspaces,
+            HostingIdentityStore hostingIdentities,
             CredentialService credentials,
             Clock clock)
     {
@@ -74,6 +79,7 @@ public class RecentTouchRecorder
         this.details = requireNonNull(details, "details is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.hostingIdentities = requireNonNull(hostingIdentities, "hostingIdentities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -82,6 +88,16 @@ public class RecentTouchRecorder
     public void pullRequestAction(String repo, int number, RecentReason reason, int reasonCount)
     {
         guard(() -> pullRequestItem(repo, number, null).ifPresent(item -> save(item, reason, reasonCount)));
+    }
+
+    public void pullRequestAction(long prId, RecentReason reason, int reasonCount)
+    {
+        guard(() -> pullRequestItem(prId).ifPresent(item -> save(item, reason, reasonCount)));
+    }
+
+    public void wroteOnPullRequest(long prId, RecentTextKind kind, String suffix, String body)
+    {
+        guard(() -> pullRequestItem(prId).ifPresent(item -> write(item, kind, item.itemKey() + ":" + suffix, body, clock.instant())));
     }
 
     /** Records an explicit issue action. */
@@ -237,8 +253,28 @@ public class RecentTouchRecorder
                 item.htmlUrl().orElse(null)));
     }
 
+    private Optional<RecentItem> pullRequestItem(long prId)
+    {
+        return pullRequests.findById(prId).map(row -> {
+            var identity = pullRequests.findHostingIdentity(prId);
+            Optional<String> workspaceId = identity.flatMap(request -> workspaces.findAll().stream()
+                    .filter(workspace -> workspaces.findHostingRepositoryId(workspace.id()).filter(id -> id == request.repositoryId()).isPresent())
+                    .map(Workspace::id).findFirst());
+            String key = identity.isPresent() ? "pr:" + prId : RecentItemType.PULL_REQUEST.itemKey(row.repo(), row.number());
+            return new RecentItem(RecentItemType.PULL_REQUEST, key, Optional.of(row.number()), row.title(), Optional.of(row.repo()), workspaceId,
+                    Optional.of(row.htmlUrl()), row.origin() == PullRequest.Origin.AUTHORED, Optional.of(prId), Optional.of(row.author()));
+        });
+    }
+
     private Optional<RecentItem> pullRequestItem(String repo, int number, String workspaceId)
     {
+        if (workspaceId != null) {
+            Optional<RecentItem> hosted = workspaces.findHostingRepositoryId(workspaceId)
+                    .flatMap(id -> pullRequests.findByHostingRepository(id, number)).flatMap(row -> pullRequestItem(row.id()));
+            if (hosted.isPresent()) {
+                return hosted;
+            }
+        }
         Optional<Long> prId = pullRequests.findIdByRepoAndNumber(repo, number);
         Optional<StoredPrDetail> detail = prId.flatMap(details::find);
         String title = detail.map(stored -> stored.raw().title()).filter(value -> value != null && !value.isBlank())
@@ -269,22 +305,28 @@ public class RecentTouchRecorder
         }
         Optional<Workspace> workspace = workspaces.findById(workspaceId);
         Optional<RepositoryIssue> issue = workspace
-                .flatMap(found -> issues.find(found.monitoredRepositoryId(), number));
+                .flatMap(found -> issues.find(workspaces, found, number));
         if (workspace.isEmpty()) {
             return Optional.empty();
         }
-        String repo = workspace.orElseThrow().monitoredRepository().fullName();
-        boolean mine = issue.map(RepositoryIssue::author)
-                .flatMap(author -> credentials.cachedLogin().map(author::equalsIgnoreCase))
-                .orElse(false);
+        Workspace found = workspace.orElseThrow();
+        String repo = found.monitoredRepository().fullName();
+        Optional<Long> accountId = workspaces.findHostingBinding(workspaceId).map(binding -> binding.accountId())
+                .or(() -> workspaces.findHostingCacheTarget(workspaceId).map(target -> target.accountId()));
+        Optional<String> viewer = accountId.flatMap(hostingIdentities::findAccount).map(HostingAccount::login)
+                .or(() -> accountId.isEmpty() && found.isGitHub() ? credentials.cachedLogin() : Optional.empty());
+        boolean mine = issue.map(RepositoryIssue::author).flatMap(author -> viewer.map(author::equalsIgnoreCase)).orElse(false);
+        String itemKey = found.isGitHub() ? RecentItemType.ISSUE.itemKey(repo, number) : "issue:" + workspaceId + ":" + repo + "#" + number;
+        String fallbackUrl = found.hostingServer().map(server -> server.webBaseUrl() + "/" + repo + "/-/issues/" + number)
+                .orElse("https://github.com/" + repo + "/issues/" + number);
         return Optional.of(new RecentItem(
                 RecentItemType.ISSUE,
-                RecentItemType.ISSUE.itemKey(repo, number),
+                itemKey,
                 Optional.of(number),
                 issue.map(RepositoryIssue::title).orElseGet(() -> repo + " #" + number),
                 Optional.of(repo),
                 Optional.of(workspaceId),
-                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElseGet(() -> "https://github.com/" + repo + "/issues/" + number)),
+                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElse(fallbackUrl)),
                 mine,
                 Optional.empty(),
                 issue.map(RepositoryIssue::author)));

@@ -33,7 +33,7 @@ const pull = pullRequestItem(pr({}));
 const taskDto = { ...previewTask('ws-1', 'task-1'), updatedAt: '2026-09-28T10:00:00Z' };
 const task = taskAttentionItem(taskDto, null, { id: 'ws-1', name: 'Workspace', repository: pull.repo });
 const jira = jiraAttentionItem({ ...jiraIssue, workspace: { id: 'ws-1', name: 'Workspace' } });
-const issue: AttentionItem = { ...pull, key: `${pull.repo}#99`, number: 99, type: 'issue', kind: 'assigned', pr: null, workspaceId: 'ws-1' };
+const issue: AttentionItem = { ...pull, key: 'issue:ws-1:99', number: 99, type: 'issue', kind: 'assigned', pr: null, workspaceId: 'ws-1' };
 
 describe('retained snoozed attention', () => {
   it('restores each missing source at its deadline, deduplicates eligible cards and stops after acknowledgment', () => {
@@ -65,8 +65,8 @@ describe('retained snoozed attention', () => {
   it('loads an exact closed issue after cache removal and retains the snapshot when its source is inaccessible', async () => {
     const bridge = {
       fetchWorkspaceIssue: async () => null,
-      fetchGitHubIssuePreview: async () => ({ title: 'Resolved issue', body: 'Latest issue body', author: 'alice', labels: ['fixed'],
-        updatedAt: '2026-09-28T10:00:00Z', state: 'closed', pullRequest: false }),
+      fetchWorkspaceIssuePreview: async () => ({ title: 'Resolved issue', body: 'Latest issue body', author: 'alice', labels: ['fixed'],
+        updatedAt: '2026-09-28T10:00:00Z', state: 'closed', pullRequest: false, htmlUrl: 'https://github.com/owner/repository/issues/1', authorAvatarUrl: '' }),
     } satisfies Partial<Bridge>;
     expect(await refreshSnoozedItem(issue, bridge as unknown as Bridge)).toMatchObject({ title: 'Resolved issue', body: 'Latest issue body', issueState: 'closed', workspaceId: 'ws-1' });
     for (const source of [pull, task, jira, issue]) expect(await refreshSnoozedItem(source, {} as Bridge)).toBe(source);

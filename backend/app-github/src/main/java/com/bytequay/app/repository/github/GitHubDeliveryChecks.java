@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;

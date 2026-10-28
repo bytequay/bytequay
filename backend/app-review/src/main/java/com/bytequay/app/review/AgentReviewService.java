@@ -1749,9 +1749,11 @@ public class AgentReviewService
                 queuedInputs.stream().findFirst().filter(input -> input.state() == QueuedAgentInput.State.PAUSED).flatMap(QueuedAgentInput::pauseReason),
                 pendingApprovals,
                 runs.stream().flatMap(run -> run.turnIds().stream()).collect(toImmutableList()),
-                review.number().stream().mapToObj(number -> drafts.find(review.repo(), number).map(ignored -> publications.draft(review.repo(), number)))
+                review.number().stream().mapToObj(number -> pullRequests.findWorkspaceHostingRepositoryId(review.workspaceId())
+                                .flatMap(repositoryId -> publications.findDraft(repositoryId, number)))
                         .flatMap(Optional::stream).findFirst(),
-                review.number().stream().mapToObj(number -> pullRequests.findStored(review.repo(), number)).flatMap(Optional::stream).findFirst(),
+                review.number().stream().mapToObj(number -> pullRequests.findWorkspaceStored(review.workspaceId(), review.repo(), number))
+                        .flatMap(Optional::stream).findFirst(),
                 inspectWorktree ? worktreeSync(review, task, runs) : Optional.empty());
     }
 

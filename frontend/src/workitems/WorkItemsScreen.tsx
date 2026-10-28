@@ -118,7 +118,7 @@ export default function WorkItemsScreen({ workspace, tab, github }: { workspace:
           if (next === null) return;
           event.preventDefault(); select(TABS[next][0]);
           event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
-        }}>{label}</button>)}
+        }}>{source === 'github' && workspace.hostingServer?.provider === 'GITLAB' ? 'GitLab issues' : label}</button>)}
     </div>
     <div className="work-sources__panel" id={`work-panel-${active}`} role="tabpanel" aria-labelledby={`work-source-${active}`}>
       {active === 'github' ? github : active === 'jira' ? <JiraScreen workspace={workspace} /> : <LocalWorkItems key={workspace.id} workspace={workspace} />}

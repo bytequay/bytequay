@@ -16,7 +16,7 @@ import { taskAttentionItem } from '../agents/attention';
 import { jiraAttentionItem } from '../jira/attention';
 import { jiraIssueLocation } from '../jira/contracts';
 import type { Bridge } from '../types';
-import { completeHandled, issueAttentionItem, pullRequestItem, type AttentionItem, type Handled } from './attention';
+import { completeHandled, issueAttentionItem, issueAttentionKey, pullRequestItem, type AttentionItem, type Handled } from './attention';
 
 export type AttentionScope = { workspaceId: string; repository: string };
 type Reminder = { item: AttentionItem; until: number };
@@ -73,7 +73,7 @@ function retainedItem(value: unknown, key: string): value is AttentionItem {
     return activity == null || (object(activity) && typeof activity.event === 'string'
       && ['actor', 'requestedReviewer', 'state', 'label', 'excerpt', 'path'].every(field => textOrNull(activity[field])));
   }
-  return value.type === 'issue' && value.pr === null && key === `${value.repo}#${value.number}`;
+  return value.type === 'issue' && value.pr === null && key === issueAttentionKey(value.repo, value.number, value.workspaceId);
 }
 
 /** Refresh the retained reminder even when the ordinary attention query no longer includes it. */
@@ -86,7 +86,7 @@ export async function refreshSnoozedItem(item: AttentionItem, bridge: Bridge): P
     }
     if (item.jira) return jiraAttentionItem((await bridge.getJiraIssue(jiraIssueLocation(item.jira))).issue);
     if (item.pr) {
-      const updated = await bridge.findStoredPullRequest(item.repo, item.number);
+      const updated = await bridge.findStoredPullRequest(item.repo, item.number, item.workspaceId ?? undefined);
       return updated === null ? item : { ...pullRequestItem(updated, 'updated'), workspaceId: item.workspaceId };
     }
     if (item.workspaceId !== null) {
@@ -94,10 +94,11 @@ export async function refreshSnoozedItem(item: AttentionItem, bridge: Bridge): P
         const updated = await bridge.fetchWorkspaceIssue(item.workspaceId, item.number);
         if (updated !== null) return { ...issueAttentionItem(updated, item.repo, item.workspaceId), workspaceName: item.workspaceName };
       }
-      catch { /* Closed issues leave the open-issue cache; their exact GitHub preview remains readable. */ }
+      catch { /* Closed issues leave the open-issue cache; their exact preview remains readable. */ }
     }
     const [owner, repo] = item.repo.split('/');
-    const updated = await bridge.fetchGitHubIssuePreview(owner, repo, item.number);
+    const updated = item.workspaceId === null ? await bridge.fetchGitHubIssuePreview(owner, repo, item.number)
+      : await bridge.fetchWorkspaceIssuePreview(item.workspaceId, item.number);
     return updated.pullRequest ? item : { ...item, title: updated.title, body: updated.body, author: updated.author,
       labels: updated.labels, updatedAt: updated.updatedAt, issueState: updated.state };
   }
@@ -107,7 +108,7 @@ export async function refreshSnoozedItem(item: AttentionItem, bridge: Bridge): P
 function inScope(item: AttentionItem, scope: AttentionScope | undefined): boolean {
   if (scope === undefined) return true;
   if (item.jira) return item.jira.workspace?.id === scope.workspaceId;
-  if (item.type === 'pr') return item.repo.toLowerCase() === scope.repository.toLowerCase();
+  if (item.type === 'pr') return item.workspaceId === null ? item.repo.toLowerCase() === scope.repository.toLowerCase() : item.workspaceId === scope.workspaceId;
   return item.workspaceId === scope.workspaceId;
 }
 

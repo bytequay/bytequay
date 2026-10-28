@@ -139,7 +139,7 @@ public class EpicService
         }
         Read read = EpicSources.ticket(epicId)
                 .map(ticket -> childTickets(ticket, connectionId.orElseThrow(() -> new IllegalArgumentException("A Jira Epic's connection is required"))))
-                .orElseGet(() -> subIssues(epicId));
+                .orElseGet(() -> subIssues(workspaceId, epicId));
         return view(unitOfWork.execute(() -> {
             Epic next = current(workspaceId, epicId).withChildren(read.children(), clock.instant(), read.truncated());
             epics.save(next);
@@ -259,16 +259,20 @@ public class EpicService
                     ticket.orElseThrow().cloudId(), ticket.orElseThrow().issueId());
             return new EpicBreakdowns.Source(issue.key(), issue.title(), issue.body());
         }
-        IssueEpic marker = markers.findEpic(HOST, EpicSources.issueId(epicId)).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
-        long repositoryId = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"))
-                .monitoredRepositoryId();
-        RepositoryIssue issue = issues.find(repositoryId, marker.number())
+        var workspace = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"));
+        IssueEpic marker = markers.findEpic(workspace.issueHost(), EpicSources.issueId(epicId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
+        RepositoryIssue issue = issues.find(workspaces, workspace, marker.number())
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "The Epic's issue is not available locally. Refresh issues first."));
         return new EpicBreakdowns.Source("#" + issue.number(), issue.title(), issue.body());
     }
 
-    private Read subIssues(String epicId)
+    private Read subIssues(String workspaceId, String epicId)
     {
+        var workspace = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"));
+        if (!workspace.isGitHub()) {
+            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, "Fetching GitLab issue children is not supported yet");
+        }
         long issueId = EpicSources.issueId(epicId);
         IssueEpic marker = markers.findEpic(HOST, issueId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
         RepositoryIdentity identity = RepositoryIdentity.valueOf(marker.repo());

@@ -27,7 +27,7 @@ import com.bytequay.persistence.sqlite.repository.HostingAccountJpaRepository;
 import com.bytequay.persistence.sqlite.repository.HostingPullRequestSnapshotJpaRepository;
 import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
-import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
@@ -35,11 +35,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -143,15 +143,9 @@ public class SqliteHostingPullRequestStore
         checkArgument(pullRequest.githubId() > 0, "remote request ID must be positive");
         String remoteId = pullRequest.githubId().toString();
         PullRequestEntity request = requests.findByHostingRepositoryIdAndNumber(target.repository().getId(), pullRequest.number()).orElseGet(() -> {
-            PullRequestEntity created = new PullRequestEntity();
+            PullRequestEntity created = PullRequestEntity.from(pullRequest, observedAt);
             created.setHostingRepository(target.repository());
             created.setRemoteId(remoteId);
-            created.setRepo(pullRequest.repo());
-            created.setNumber(pullRequest.number());
-            created.setTitle("");
-            created.setOrigin(OTHER.name());
-            created.setLabels(ImmutableList.of());
-            created.setSyncedAt(observedAt);
             created.setDashboardVisible(false);
             created.setWorkspaceVisible(false);
             return requests.save(created);
@@ -159,8 +153,21 @@ public class SqliteHostingPullRequestStore
         if (!request.getRemoteId().equals(remoteId)) {
             throw new HostingFailure(INVALID_RESPONSE, "The remote request identity changed for this repository and number");
         }
-        request.setRepo(pullRequest.repo());
-        request.setHtmlUrl(pullRequest.htmlUrl());
+        if (request.getUpdatedAt() == null || !pullRequest.updatedAt().isBefore(request.getUpdatedAt())) {
+            PullRequestEntity updated = PullRequestEntity.from(pullRequest, observedAt);
+            updated.preserveEnrichmentFrom(request);
+            boolean changed = !Objects.equals(request.getUpdatedAt(), updated.getUpdatedAt()) || !Objects.equals(request.getTitle(), updated.getTitle())
+                    || !Objects.equals(request.getState(), updated.getState()) || request.isDraft() != updated.isDraft()
+                    || !ImmutableSet.copyOf(request.getLabels()).equals(ImmutableSet.copyOf(updated.getLabels()));
+            request.updateSummary(pullRequest, observedAt);
+            request.preserveEnrichmentFrom(updated);
+            if (changed) {
+                request.setActivityAt(observedAt);
+            }
+            if ("merged".equalsIgnoreCase(request.getState())) {
+                request.setMonitoredAt(null);
+            }
+        }
         return request;
     }
 

@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import AgentTaskScreen from '../agents/AgentTaskScreen';
 import TaskHeader from '../agents/TaskHeader';
 import { zoomReference, type ZoomedReference } from '../githubReference';
+import { PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
 import { settingsRoute } from '../settings/routes';
 import type { WorkspaceDto } from '../types';
 import { LocalWorkItems } from '../workitems/WorkItemsScreen';
@@ -34,7 +35,8 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
     return () => { active = false; };
   }, [target.workspaceId]);
   const actions = <ZoomActions {...zoom} label={target.kind === 'work' ? 'work item' : 'task'} className={target.kind === 'task' ? 'agt-headbtn' : 'pull-detail__icon-action'} />;
-  return <>
+  return <PullRequestWorkspaceProvider workspaceId={target.workspaceId} server={workspace?.hostingServer ?? undefined}
+    repository={workspace === null ? undefined : `${workspace.monitoredOwner}/${workspace.monitoredRepo}`}>
     {!zoom.full && <ZoomScrim onClose={zoom.close} />}
     <section className={zoom.cardClass} role="dialog" aria-modal="true" data-navigation-layer aria-label={target.kind === 'work' ? 'Local work item' : 'Task'}>
       {workspace === null ? <>
@@ -47,5 +49,5 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
           onOpenPullRequest={number => zoomReference({ kind: 'pull', workspaceId: workspace.id, repo: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, number })}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-agents', workspace.id); }} />}
     </section>
-  </>;
+  </PullRequestWorkspaceProvider>;
 }

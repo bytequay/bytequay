@@ -73,6 +73,8 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     return originalTimeout(handler, delay, ...args);
   }) as typeof window.setTimeout;
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPrs: async () => ({ pullRequests: [row], page: 0, pageSize: 50, totalPullRequests: 1, openPullRequests: 1, hasMore: false }),
@@ -89,7 +91,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     fetchPrDiffCommits: async () => commits,
     refreshPrDiffFiles: async (_repo, _number, base, head) => { comparisons.push([base, head]); return [file('selected.txt')]; },
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'listLocalReviewComments' | 'fetchPullRequestDetailByRef'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'listLocalReviewComments' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
     | 'refreshPrDiffFiles' | 'recordRecentTouch' | 'findAgentReview' | 'findPullRequestTask' | 'listAgentReviews'>;
   Object.assign(window, { bridge });
@@ -110,7 +112,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     flushSync(() => root.render(<PullsScreen repositoryScope={explore ? { workspaceId: 'workspace-1', repository: 'owner/repo' } : undefined} />));
     for (let attempts = 0; attempts < 45 && !host.textContent?.includes('Original description'); attempts++) await settle();
     assert(host.textContent?.includes('Original description') === true && host.querySelector('.attention-visit-status') === null
-      && loadHandled()['owner/repo#7'] === undefined,
+      && loadHandled()['pr:7'] === undefined,
     'A loaded PR must omit the visit label while its attention notification remains visible');
     button('WorkBench').click(); await settle();
     if (explore) {
@@ -217,7 +219,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     await settle();
     assert(host.querySelector('.pull-detail.zoom-card') === null && host.querySelector('.pulls-list') !== null,
       'Escape must leave the zoom layer for the list, even from full screen');
-    assert(host.querySelector('.pull-detail') !== null && loadHandled()['owner/repo#7']?.label === 'Viewed',
+    assert(host.querySelector('.pull-detail') !== null && loadHandled()['pr:7']?.label === 'Viewed',
       'Leaving zoom acknowledges the visit even when the PR remains in the regular detail pane');
     return 'Main PR page shares commit selection, timeline polling, row reconciliation, range invalidation, and the zoom layer';
   }
@@ -239,6 +241,8 @@ export async function runReviewWorkspace(local = false): Promise<string> {
   let listReads = 0;
   let back = 0;
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     getModelSettings: agent.getModelSettings,
@@ -276,7 +280,7 @@ export async function runReviewWorkspace(local = false): Promise<string> {
       commits: [], staged: [], unstaged: [], untracked: [], files: [file('reviewed.txt')] }),
     listLocalReviewComments: async () => [],
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listCodeFiles' | 'listCodeRuns'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listCodeFiles' | 'listCodeRuns'
     | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPrs' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
@@ -395,6 +399,8 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
   // Main keeps one reader per renderer and review: a later subscription silently replaces the earlier one.
   const streams: { listener: (message: AgentStreamMessage) => void; live: boolean }[] = [];
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     getModelSettings: agent.getModelSettings,
@@ -419,7 +425,7 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     fetchPrDiffCommits: async () => commits,
     listLocalReviewComments: async () => [],
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findPullRequestTask' | 'readAgentReviewHistory'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'findPullRequestTask' | 'readAgentReviewHistory'
     | 'subscribeAgentReview' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
@@ -465,6 +471,8 @@ export async function runOverlayChangesStream(): Promise<string> {
   const detail = reviewDetail(review);
   const streams: { listener: (message: AgentStreamMessage) => void; live: boolean }[] = [];
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     getAgentReview: async () => review,
@@ -485,7 +493,7 @@ export async function runOverlayChangesStream(): Promise<string> {
     listLocalReviewComments: async () => [],
     listReviewDiscussions: async () => [],
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'getAgentReview' | 'subscribeAgentReview' | 'findPullRequestTask' | 'fetchAttentionPrs'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'getAgentReview' | 'subscribeAgentReview' | 'findPullRequestTask' | 'fetchAttentionPrs'
     | 'setPrAttentionHandled' | 'fetchMergeMode' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
     | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'listReviewDiscussions' | 'recordRecentTouch'>;
   const originalBridge = window.bridge;
@@ -548,8 +556,8 @@ export async function runMergeWhenReady(): Promise<string> {
   try {
     render(false);
     await settle();
-    assert(action().textContent?.trim() === 'Rebase and merge' && action().disabled,
-      'Direct rebase must remain disabled while CI runs');
+    assert(action().textContent?.trim() === 'Merge' && action().disabled,
+      'Direct merge must remain disabled while CI runs');
     action().click();
     assert(merges.length === 0, 'Disabled direct merge must not send a write');
 
@@ -577,7 +585,7 @@ export async function runMergeWhenReady(): Promise<string> {
     assert(removals.length === 1 && JSON.stringify(removals[0]) === JSON.stringify([detail.repo, detail.number, true]),
       'Cancelling a waiting merge must disable auto-merge once rather than dequeue');
     assert(Number(closes) === 2 && Number(refreshes) === 2, 'Successful cancellation must close and refresh the sheet');
-    return 'Merge when ready schedules and cancels during CI while direct rebase stays blocked';
+    return 'Merge when ready schedules and cancels during CI while direct merge stays blocked';
   }
   finally {
     merging.resolve();
@@ -740,10 +748,12 @@ export async function runReviewSheet(): Promise<string> {
       { filename: 'src/Written.java', status: 'modified', additions: 1, deletions: 0, patch: '@@ -1,2 +1,3 @@\n a\n b\n+int writtenLine = 3;' },
     ],
     fetchPrDiffCommits: async () => [{ sha: diffHead ?? 'head', parentSha: null, message: null, author: null, authoredAt: null }],
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0, following: 0,
       bio: null, location: null, company: null, email: null }),
   } satisfies Pick<Bridge, 'getReviewDraft' | 'confirmReviewDraftReview' | 'saveReviewDraft' | 'addReviewDraftComment' | 'submitReviewDraft' | 'getAgentReview'
-    | 'fetchPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile'>;
+    | 'fetchPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
   const { host, root, dispose } = createFixtureRoot();
@@ -882,6 +892,8 @@ export async function runListSearch(): Promise<string> {
   const lookups: { repo: string; number: number; result: ReturnType<typeof Promise.withResolvers<PullRequestDto>> }[] = [];
   const originalBridge = window.bridge;
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPrs: async () => {
@@ -902,7 +914,7 @@ export async function runListSearch(): Promise<string> {
       ({ full: true as const, detail: page.find(detail => detail.number === number) ?? page[0], status: null }),
     refreshAllPullRequestDetailByRef: async (_repo, number) => page.find(detail => detail.number === number) ?? page[0],
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'lookupPullRequest' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
   const { host, root, dispose } = createFixtureRoot();
@@ -1013,6 +1025,8 @@ export async function runListLoadingRace(trigger: 'sync' | 'attention'): Promise
   let synced = () => {};
   const originalBridge = window.bridge;
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPrs: (workspaceId) => {
@@ -1030,7 +1044,7 @@ export async function runListLoadingRace(trigger: 'sync' | 'attention'): Promise
     fetchPullRequestDetailByRef: async (repo) => ({ ...detail, repo }),
     refreshPullRequestDetailByRef: async (repo) => ({ full: true as const, detail: { ...detail, repo }, status: null }),
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'findAgentReview'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'findAgentReview'
     | 'findPullRequestTask' | 'listAgentReviews' | 'listLocalReviewComments' | 'fetchAttentionPrs'
     | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
@@ -1129,7 +1143,9 @@ export async function runSelectionStability(): Promise<string> {
     const synced: (() => void)[] = [];
     const navigations: number[] = [];
     const bridge = {
-      getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
         following: 0, bio: null, location: null, company: null, email: null }),
       fetchPrs: async (_workspaceId, page) => ({
         pullRequests: (page === 0 ? pageZero : [older, sibling]).map(detail => remotePullRequest(detail, 'bob')),
@@ -1147,7 +1163,7 @@ export async function runSelectionStability(): Promise<string> {
         ({ full: true as const, detail: details.find(detail => detail.number === number) ?? first, status: null }),
       refreshAllPullRequestDetailByRef: async (_repo, number) => details.find(detail => detail.number === number) ?? first,
       recordRecentTouch: async () => {},
-    } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
+    } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
       | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
     Object.assign(window, { bridge });
     flushSync(() => root.render(<PullsScreen key={String(link)} initialPr={link ? { repo: older.repo, number: older.number } : undefined}
@@ -1202,13 +1218,15 @@ export async function runSelectionStability(): Promise<string> {
 export async function runCheckLogs(): Promise<string> {
   const detail = reviewDetail(reviewFixture());
   detail.ciStatus = 'FAILING';
-  detail.checkRuns = [{ githubId: 999, name: 'Unit tests', status: 'completed', conclusion: 'failure',
-    detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301', source: 'check_run',
+  detail.checkRuns = [{ githubId: 301, name: 'Unit tests', status: 'completed', conclusion: 'failure',
+    detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301', source: 'job',
     startedAt: null, completedAt: null, category: 'failing' }];
   type CheckLog = Awaited<ReturnType<Bridge['getPrCheckLog']>>;
   const requests: ReturnType<typeof Promise.withResolvers<CheckLog>>[] = [];
   const opened: string[] = [];
   Object.assign(window, { bridge: {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob' }),
     openExternal: async (url: string) => { opened.push(url); },
     getPrCheckLog: (repo: string, number: number, jobId: number) => {
@@ -1230,7 +1248,7 @@ export async function runCheckLogs(): Promise<string> {
     render();
     await settle();
     assert(requests.length === 0, 'Displaying failed checks must not download logs');
-    click('Open in GitHub');
+    click('Open in browser');
     assert(opened[0] === detail.checkRuns[0].detailsUrl, 'The browser action must open the selected check URL');
     click('Show log');
     assert(button('Loading…').disabled && host.querySelector('[role="status"]')?.textContent === 'Loading log…', 'Loading must be visible and prevent duplicate requests');
@@ -1295,7 +1313,7 @@ export async function runCheckLogs(): Promise<string> {
     render();
     assert(host.querySelector('.pr-check__log') === null, 'Switching PR must clear annotations and download errors');
     click('Show log');
-    detail.checkRuns = [{ ...detail.checkRuns[0], githubId: 1000, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/302' }];
+    detail.checkRuns = [{ ...detail.checkRuns[0], githubId: 302, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/302' }];
     render();
     requests[7].resolve({ text: annotation, unavailableReason: 'Late response for the previous attempt' });
     await settle();
@@ -1502,6 +1520,8 @@ export async function runTitleEdit(): Promise<string> {
     title: 'Fix leaked temp tables on JDBC rollback (ENG-8689: TestPostgreSqlRollbacks.testRollbackMerge)' };
   const writes: { repo: string; number: number; title: string; answer: ReturnType<typeof Promise.withResolvers<void>> }[] = [];
   window.bridge = { ...original,
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => { throw new Error('No viewer in this fixture'); },
     updatePrTitle: (repo, number, title) => {
       const answer = Promise.withResolvers<void>();
@@ -1596,7 +1616,7 @@ export async function runTitleEdit(): Promise<string> {
 }
 
 export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history' | 'closed-history' = 'task', taskPanel = false): Promise<string> {
-  setCached('private-thread-drafts:owner/repo#8', undefined);
+  setCached('private-thread-drafts:8', undefined);
   const at = '2026-10-01T00:00:00Z';
   const detail: PullRequestDetailDto = prDetail({
     id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null,
@@ -1625,6 +1645,8 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     ] }] : [];
   const original = window.bridge;
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPullRequestDetailByRef: async () => detail,
@@ -1661,7 +1683,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
     setPrAttentionHandled: async () => {},
     fetchMergeMode: async () => ({ mergeQueue: false }),
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
     | 'fetchPrDiffCommits' | 'findAgentReview' | 'findTaskAgentReview' | 'listAgentReviews' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
     | 'listReviewDiscussions' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
@@ -1733,12 +1755,13 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' | 'history
 export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'model' | 'workspace' | 'switch' = 'ready'): Promise<string> {
   const repo = `comment-tests/${mode}`;
   const number = 810;
-  setCached(`private-thread-drafts:${repo}#${number}`, undefined);
+  const localId = number + ['ready', 'failure', 'model', 'workspace', 'switch'].indexOf(mode) * 10;
+  setCached(`private-thread-drafts:${localId}`, undefined);
   const review = reviewFixture({ repo, number, workspaceId: 'workspace-1', runs: [], findings: [] });
-  const detail: PullRequestDetailDto = { ...reviewDetail(review), id: number, recentActivity: [
+  const detail: PullRequestDetailDto = { ...reviewDetail(review), id: localId, recentActivity: [
     timelineActivity({ actor: 'carol', eventType: 'commented', timestamp: null, body: 'The caller already handles this exception.', githubId: 8101 }, payload),
   ] };
-  const nextDetail: PullRequestDetailDto = { ...detail, id: number + 1, number: number + 1, title: 'Another pull request', recentActivity: [
+  const nextDetail: PullRequestDetailDto = { ...detail, id: localId + 1, number: number + 1, title: 'Another pull request', recentActivity: [
     timelineActivity({ actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', githubId: 8102 }, payload),
   ] };
   const repository = { owner: 'comment-tests', repo: mode };
@@ -1747,7 +1770,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
     monitoredRepositoryId: 1, monitoredOwner: repository.owner, monitoredRepo: repository.repo, localRepositoryPath: '/managed/repo',
   });
   let watched = false;
-  const cacheKey = `private-thread-drafts:${repo}#${number}`;
+  const cacheKey = `private-thread-drafts:${localId}`;
   const original = window.bridge;
   let prepared: AgentReviewDto | null = null;
   let prepareCount = 0;
@@ -1758,6 +1781,8 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   const saved: TaskDiscussionDto[] = [];
   const catalog = await createPreviewBridge('workspace-1').getModelSettings();
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPullRequestDetailByRef: async (_repo: string, requested: number) => requested === number ? detail : nextDetail,
@@ -1806,7 +1831,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       saved.splice(0, saved.length, thread);
       return thread;
     },
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'fetchAttentionPrs' | 'listWorkspaces' | 'findAgentReview' | 'listAgentReviews'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPullRequestDetailByRef' | 'fetchAttentionPrs' | 'listWorkspaces' | 'findAgentReview' | 'listAgentReviews'
     | 'findPullRequestTask' | 'listLocalReviewComments' | 'listReviewDiscussions' | 'fetchMergeMode' | 'setPrAttentionHandled'
     | 'recordRecentTouch' | 'getModelSettings' | 'prepareReviewWorktree' | 'startAgentReview' | 'askReviewCommentThread'
     | 'searchRepositories' | 'previewWatch' | 'watchRepository'>;
@@ -1830,7 +1855,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
   const send = () => field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
   try {
     mount();
-    await waitFor(() => host.querySelector('.pr-ask-agent') !== null, 'Ask agent must be visible without a task or review');
+    await waitFor(() => host.querySelector('.pr-ask-agent') !== null, `Ask agent must be visible without a task or review (${mode})`);
     host.querySelector<HTMLButtonElement>('.pr-ask-agent')?.click();
     await waitFor(() => host.querySelector('textarea') !== null && !host.textContent?.includes('Loading PR context…'), 'The inline composer must open');
     type('Does their explanation address my concern?');

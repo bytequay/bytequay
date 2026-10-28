@@ -14,9 +14,13 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.ConditionalList;
+import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
+import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -54,7 +58,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
-import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -85,35 +88,13 @@ class TestPullRequestSnapshotService
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PrDiffStore diffs = mock(PrDiffStore.class);
     private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
-    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(gitHub, actions, requests, details, diffs);
+    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(new HostingPullRequestContents(ImmutableList.of(
+            new GitHubPullRequestContentReader(gitHub, actions, mock(GitHubAccountClient.class), Runnable::run))), mock(HostingPullRequestWrites.class), requests, details, diffs);
 
     @BeforeEach
     void setUp()
     {
         when(details.findCredentialScope(1L)).thenReturn(Optional.of(route.scope()));
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"checks", "diff", "range", "content"})
-    void nativeReadersRejectAnotherHostingServerBeforeReadingCredentials(String source)
-    {
-        HostingInstance instance = new HostingInstance(100, GITLAB, URI.create("https://code.example"), URI.create("https://code.example/api/v4"));
-        HostingReadSession selected = new HostingReadSession(300, "connected-account",
-                new HostingAccess(instance, "gitlab-token"));
-        PullRequestRead other = new PullRequestRead(selected,
-                new HostingRepository(200, 100, "99", "owner/repo", URI.create("https://code.example/owner/repo"),
-                        URI.create("https://code.example/owner/repo.git"), Optional.empty(), Optional.of("main")), 7, "alice");
-        Runnable read = switch (source) {
-            case "checks" -> () -> snapshots.refreshChecks(other, 1L);
-            case "diff" -> () -> snapshots.refreshDefaultDiff(other, 1L);
-            case "range" -> () -> snapshots.refreshDiff(other, 1L, BASE, HEAD);
-            case "content" -> () -> snapshots.refreshFileContent(other, 1L, "a.txt", BASE, HEAD);
-            default -> throw new AssertionError(source);
-        };
-
-        assertThatThrownBy(read::run).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("GitHub.com");
-
-        verifyNoInteractions(requests, gitHub, actions, details, diffs);
     }
 
     @ParameterizedTest

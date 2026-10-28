@@ -37,6 +37,8 @@ function installPullRequestBridge(bridge: ReturnType<typeof createPreviewBridge>
     refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
     fetchPrDiffFiles: async (): Promise<[]> => [],
     fetchPrDiffCommits: async (): Promise<[]> => [],
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async (): Promise<null> => null,
     findAgentReview: async (): Promise<null> => null,
   } });

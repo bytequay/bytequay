@@ -32,6 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.HttpMethod.GET;
 import static org.springframework.test.web.client.ExpectedCount.manyTimes;
 import static org.springframework.test.web.client.ExpectedCount.times;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withServerError;
@@ -64,6 +65,24 @@ class TestCherryPickPullRequestLookup
         assertThat(association(result, SHA).title()).isEqualTo("Fix Hive coercion");
         assertThat(association(result, SHA).mergedAt()).isEqualTo("2026-08-03T10:00:00Z");
         assertThat(warnings).isEmpty();
+        server.verify();
+    }
+
+    @Test
+    void usesTheSelectedWorkspaceCredentialWithoutResolvingTheDefaultAccount()
+    {
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
+        server.expect(requestTo(url(SHA)))
+                .andExpect(header("Authorization", "Bearer workspace-token"))
+                .andRespond(withStatus(HttpStatus.OK).contentType(MediaType.APPLICATION_JSON).body("[]"));
+        CherryPickPullRequestLookup lookup = new CherryPickPullRequestLookup(builder.build(), () -> {
+            throw new AssertionError("must use the selected credential");
+        });
+
+        PullRequestLookupResult result = lookup.lookUpResult("workspace-token", REPOSITORY, ImmutableList.of(SHA), "main", new ArrayList<>());
+
+        assertThat(result.failedShas()).isEmpty();
         server.verify();
     }
 

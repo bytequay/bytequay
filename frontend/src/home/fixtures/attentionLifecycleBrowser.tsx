@@ -443,6 +443,8 @@ async function latestSummary(): Promise<void> {
   const synced: (() => void)[] = [];
   window.bridge = {
     fetchAttentionPrs: () => new Promise<PullRequestDto[]>(resolve => pending.push(resolve)),
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => { throw new Error('Profile unavailable'); },
     listWorkspaces: async (): ReturnType<Bridge['listWorkspaces']> => [],
     listJiraConnections: async (): ReturnType<Bridge['listJiraConnections']> => [],
@@ -451,7 +453,7 @@ async function latestSummary(): Promise<void> {
     fetchPrs: async (): ReturnType<Bridge['fetchPrs']> => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
     onPullRequestsSynced: (callback: () => void) => { synced.push(callback); return noOp; },
   } as unknown as Bridge;
-  for (const key of Object.values(ATTENTION_SEED)) setCached(key, undefined);
+  for (const key of [...Object.values(ATTENTION_SEED), 'workspace-attention:ws-1']) setCached(key, undefined);
   const approved = approvedItem(61).pr;
   assert(approved !== null, 'Stored approval fixture is a pull request');
   const newest = item(51).pr;
@@ -482,8 +484,9 @@ async function latestSummary(): Promise<void> {
       'Both Homes keep the stored approval while their next refresh is pending');
     window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [newest] }));
     await settle();
+    pending.pop()?.([newest]); await settle();
     assert(host.querySelector('.item-row')?.textContent?.includes(newest.title) === true
-      && host.querySelector('.workspace-attention .item-row')?.textContent?.includes(newest.title) === true, 'A fresh summary immediately reaches both Homes');
+      && host.querySelector('.workspace-attention .item-row')?.textContent?.includes(newest.title) === true, 'The global summary and workspace cache read reach their respective Homes');
     pending.forEach(resolve => resolve([])); await settle();
     assert(host.querySelector('.item-row')?.textContent?.includes(newest.title) === true
       && host.querySelector('.workspace-attention .item-row')?.textContent?.includes(newest.title) === true

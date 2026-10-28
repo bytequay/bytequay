@@ -23,7 +23,7 @@ import lombok.Setter;
 import java.time.Instant;
 
 @Entity
-@Table(name = "repository_issue_sync")
+@Table(name = "hosting_issue_sync")
 @Getter
 @Setter
 public class RepositoryIssueSyncEntity

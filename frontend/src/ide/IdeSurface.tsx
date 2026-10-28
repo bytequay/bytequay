@@ -73,11 +73,11 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
   if (request.method.startsWith('github.')) {
     if (!comments) throw new Error('Review actions are no longer available');
     switch (request.method) {
-      case 'github.post': return window.bridge.postPrReviewComment(comments.repo, comments.number, args[2] as InlineReviewCommentDto, args[3] as string);
-      case 'github.reply': return window.bridge.replyToReviewComment(comments.repo, comments.number, args[2] as number, args[3] as string);
-      case 'github.resolve': return window.bridge.setReviewThreadResolved(comments.repo, comments.number, args[2] as number, args[3] as boolean);
-      case 'github.edit': return window.bridge.editPrComment(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as string);
-      case 'github.react': return window.bridge.setPrReaction(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as PullReactionContent, args[5] as boolean | null);
+      case 'github.post': return window.bridge.postPrReviewComment(comments.repo, comments.number, args[2] as InlineReviewCommentDto, args[3] as string, comments.workspaceId);
+      case 'github.reply': return window.bridge.replyToReviewComment(comments.repo, comments.number, args[2] as number, args[3] as string, comments.workspaceId);
+      case 'github.resolve': return window.bridge.setReviewThreadResolved(comments.repo, comments.number, args[2] as number, args[3] as boolean, comments.workspaceId);
+      case 'github.edit': return window.bridge.editPrComment(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as string, comments.workspaceId);
+      case 'github.react': return window.bridge.setPrReaction(comments.repo, comments.number, 'review_comment', args[3] as number, args[4] as PullReactionContent, args[5] as boolean | null, comments.workspaceId);
     }
   }
   switch (request.method) {

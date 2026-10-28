@@ -40,12 +40,12 @@ describe('finding suggestions', () => {
       state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: finding.updatedAt,
     } }, projection);
     expect(html).toContain('Delivery unconfirmed');
-    expect(html).toContain('GitHub did not confirm this comment');
+    expect(html).toContain('The server did not confirm this comment');
     expect(html).toContain('Your comment is saved here');
     expect(html).toContain('Guard the empty value.');
     expect(html).toContain('<button type="button" disabled="">Edit</button>');
     expect(html).toContain('<button type="button" disabled="">Remove</button>');
-    expect(html).not.toContain('Posted to GitHub');
+    expect(html).not.toContain('Posted remotely');
     expect(html).not.toContain('is-published');
     expect(html).not.toContain('Post now');
     expect(html).not.toContain('Add to my review');
@@ -61,7 +61,7 @@ describe('finding suggestions', () => {
     expect(html).toContain('Resolved</span>');
     expect(html).toContain('data-review-closed="true"');
     expect(html).not.toContain('open=""');
-    expect(html).toContain('Posted to GitHub as a review comment');
+    expect(html).toContain('Posted as a review comment');
     expect(html).toContain('>Reopen</button>');
     expect(html).not.toContain('Add to my review');
   });

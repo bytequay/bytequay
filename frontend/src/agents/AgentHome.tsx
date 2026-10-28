@@ -234,7 +234,9 @@ export function AgentHomeView({
   const wide = useWideWindow();
   const attentionScope = useMemo(() => ({ workspaceId, repository }), [workspaceId, repository]);
   if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, error, headerAction }} />;
-  const [owner, repo = ''] = repository.split('/');
+  const slash = repository.lastIndexOf('/');
+  const owner = repository.slice(0, slash);
+  const repo = repository.slice(slash + 1);
   const onToday = todayKeys(today?.agenda ?? null);
   // Open items only: a chip opens the work, and a done or set-aside one has nothing left to start.
   const startHere = today?.agenda?.items.filter(item => item.status === 'open') ?? [];

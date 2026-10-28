@@ -109,9 +109,15 @@ function hasCommitsSinceReview(pr: PullRequestDto): boolean {
   return since != null && pr.headPushedAt !== null && Date.parse(pr.headPushedAt) > Date.parse(since);
 }
 
-export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updated'): AttentionItem {
+export function pullRequestAttentionKey(pr: Pick<PullRequestDto, 'id'>): string { return `pr:${pr.id}`; }
+
+export function issueAttentionKey(repo: string, number: number, workspaceId: string | null): string {
+  return `issue:${workspaceId ?? repo}:${number}`;
+}
+
+export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updated', workspaceId: string | null = null): AttentionItem {
   return {
-    key: `${pr.repo}#${pr.number}`,
+    key: pullRequestAttentionKey(pr),
     type: 'pr',
     kind,
     repo: pr.repo,
@@ -125,14 +131,14 @@ export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updat
     pr,
     body: '',
     commentCount: pr.commentCount,
-    workspaceId: null,
+    workspaceId,
   };
 }
 
 /** The same source identity and snapshot for an issue card and its detail page. */
 export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string | null): AttentionItem {
   return {
-    key: `${repo}#${issue.number}`, sourceKey: `github.com:issue:${issue.id}`, type: 'issue', kind: 'updated',
+    key: issueAttentionKey(repo, issue.number, workspaceId), sourceKey: `${URL.parse(issue.htmlUrl)?.origin ?? workspaceId ?? repo}:issue:${issue.id}`, type: 'issue', kind: 'updated',
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
     createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
     body: issue.body, commentCount: issue.commentCount, workspaceId,

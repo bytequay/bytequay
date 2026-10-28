@@ -398,7 +398,7 @@ describe('handled rows', () => {
   it('drops handled rows from the visible list', () => {
     const candidates = attentionCandidates([pr({ number: 42 }), pr({ id: 2, number: 7, ciStatus: 'FAILING' })]);
 
-    const visible = visibleAttention(candidates, { 'bytequay/app#42': acknowledged }, now);
+    const visible = visibleAttention(candidates, { 'pr:1': acknowledged }, now);
 
     expect(visible.map(row => row.number)).toEqual([7]);
   });
@@ -463,7 +463,7 @@ function snapshot(): RepositoryIssueSnapshotDto {
       body: 'Full stack trace in the first comment.',
       author: 'mona-s',
       authorAvatarUrl: 'https://example.invalid/mona-s.png',
-      htmlUrl: '',
+      htmlUrl: 'https://github.com/bytequay/app/issues/7',
       labels: ['bug'],
       assignees: ['riley'],
       commentCount: 8,
@@ -594,7 +594,7 @@ describe('Jira ticket events', () => {
 
 describe('my pull request cards', () => {
   const now = Date.parse('2026-09-15T00:00:00Z');
-  const own = (number: number, updatedAt: string) => pullRequestItem(pr({ number, author: 'Me', updatedAt }));
+  const own = (number: number, updatedAt: string) => pullRequestItem(pr({ id: number, number, author: 'Me', updatedAt }));
   const older = own(1, '2026-09-01T00:00:00Z');
   const newer = own(2, '2026-09-02T00:00:00Z');
   const newest = own(3, '2026-09-03T00:00:00Z');
@@ -695,8 +695,8 @@ describe('marks kept in the backend', () => {
 
   it('completes a mark the assistant made the first time a list draws its item', async () => {
     const item = pullRequestItem(pr({ updatedAt: '2026-10-19T02:00:00Z' }));
-    const later = pullRequestItem(pr({ number: 2, updatedAt: '2026-10-19T05:00:00Z' }));
-    const snoozed = pullRequestItem(pr({ number: 3, updatedAt: '2026-10-19T02:00:00Z' }));
+    const later = pullRequestItem(pr({ id: 2, number: 2, updatedAt: '2026-10-19T05:00:00Z' }));
+    const snoozed = pullRequestItem(pr({ id: 3, number: 3, updatedAt: '2026-10-19T02:00:00Z' }));
     const byWords = (key: string, kind: 'ACK' | 'SNOOZE', until: string | null): AttentionMarkDto => ({ key, kind, until, seenUpdatedAt: '2026-10-19T03:00:00Z',
       seenActivityVersion: null, label: kind === 'ACK' ? 'acknowledged' : 'tomorrow', snoozedItem: null });
     const { changed } = backend([byWords(item.key, 'ACK', null), byWords(later.key, 'ACK', null), byWords(snoozed.key, 'SNOOZE', '2026-10-20T01:00:00.000Z')], null);

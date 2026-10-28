@@ -32,7 +32,8 @@ afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 function workspaceView(props: Parameters<typeof WorkspaceShell>[0]) {
   const shell = WorkspaceShell(props);
   const surface = shell.type as (props: Parameters<typeof WorkspaceShell>[0]) => ReactElement;
-  return surface(shell.props);
+  const view = surface(shell.props);
+  return (view.props as { children: ReactElement }).children;
 }
 
 /** Captures what a surface asks to zoom; the app itself listens for the same event. */
@@ -92,7 +93,6 @@ describe('watched repository workspace UI', () => {
     const home = renderToStaticMarkup(<WatchedReposGrid
       workspaces={[value]}
       loading={false}
-      prs={[]}
       onOpenWorkspace={() => {}}
       onWatch={() => {}}
     />);

@@ -13,14 +13,10 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.core.domain.GitHubIssuePreview;
+import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RepoRef;
@@ -28,6 +24,9 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.IssueSyncPage;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -43,26 +42,21 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
-import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
-import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.Locks.withLock;
-import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.Checks.normalizeNames;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Owns cached workspace issues, their refresh, and explicit user writes. */
@@ -76,12 +70,10 @@ public class WorkspaceIssueService
     private final WorkspaceStore workspaces;
     private final RepositoryIssueStore issues;
     private final RepositoryIssueDetailStore details;
-    private final GitHubPullRequestWriteClient issueWrites;
-    private final GitHubRepoClient issueReads;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
+    private final List<IssueClient> clients;
     private final RecentTouchRecorder recent;
     private final Clock clock;
-    private final GitHubPullRequestReadClient timelineReads;
     private final AppSettingsStore settings;
     private final Striped<Lock> locks = Striped.lock(64);
 
@@ -89,23 +81,19 @@ public class WorkspaceIssueService
             WorkspaceStore workspaces,
             RepositoryIssueStore issues,
             RepositoryIssueDetailStore details,
-            GitHubPullRequestWriteClient issueWrites,
-            GitHubRepoClient issueReads,
-            CredentialService credentials,
+            WorkspaceHostingService hosting,
+            List<IssueClient> clients,
             RecentTouchRecorder recent,
             Clock clock,
-            GitHubPullRequestReadClient timelineReads,
             AppSettingsStore settings)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.details = requireNonNull(details, "details is null");
-        this.issueWrites = requireNonNull(issueWrites, "issueWrites is null");
-        this.issueReads = requireNonNull(issueReads, "issueReads is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.clients = ImmutableList.copyOf(clients);
         this.recent = requireNonNull(recent, "recent is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.timelineReads = requireNonNull(timelineReads, "timelineReads is null");
         this.settings = requireNonNull(settings, "settings is null");
     }
 
@@ -117,28 +105,33 @@ public class WorkspaceIssueService
      */
     public RepositoryIssuePage list(String workspaceId, int page, int pageSize)
     {
-        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         checkArgument(page >= 0, "page is negative");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        return issues.findPage(
-                workspace.monitoredRepositoryId(),
-                workspace.monitoredRepository(),
-                page,
-                pageSize);
+        return cachedPage(workspace, page, pageSize);
     }
 
-    /** Returns one issue from the local projection without contacting GitHub. */
+    /** Returns one issue from the local projection without contacting its hosting server. */
     public Optional<RepositoryIssue> find(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
+        requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
-        return issues.find(workspace.monitoredRepositoryId(), issueNumber);
+        return workspaces.findHostingRepositoryId(workspaceId).flatMap(id -> issues.find(id, issueNumber));
     }
 
-    /** Returns locally persisted activity and type data without contacting GitHub. */
+    /** Reads an open or closed issue through the workspace's selected hosting account. */
+    public GitHubIssuePreview preview(String workspaceId, int issueNumber)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+        return client(route).preview(route.session().access(), route.repository(), issueNumber);
+    }
+
+    /** Returns locally persisted activity and type data without contacting its hosting server. */
     public RepositoryIssueDetail detail(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return cachedDetail(workspace, issueNumber);
     }
@@ -147,7 +140,7 @@ public class WorkspaceIssueService
      * Posts a user-authored comment to the selected issue.
      *
      * @param workspaceId workspace used to resolve the monitored repository
-     * @param issueNumber GitHub issue number
+     * @param issueNumber repository-scoped issue number
      * @param body non-blank Markdown comment body
      * @return the created comment as a timeline event
      */
@@ -155,16 +148,17 @@ public class WorkspaceIssueService
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             checkText(body, "comment body");
-            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
-            Optional<RepositoryIssue> previous = issues.find(workspace.monitoredRepositoryId(), issueNumber);
-            PrTimelineEvent created = issueWrites.createIssueComment(
-                    credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), body.trim());
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+            long repositoryId = route.repository().id();
+            Optional<RepositoryIssue> previous = issues.find(repositoryId, issueNumber);
+            PrTimelineEvent created = client(route).comment(route.session().access(), route.repository(), issueNumber, body.trim());
             RepositoryIssueDetail current = cachedDetail(workspace, issueNumber);
             details.save(current.append(created));
             if (created.timestamp() != null) {
-                previous.ifPresent(issue -> issues.updateActivity(workspace.monitoredRepositoryId(), issueNumber, issue.commentCount() + 1, created.timestamp()));
+                previous.ifPresent(issue -> issues.updateActivity(repositoryId, issueNumber, issue.commentCount() + 1, created.timestamp()));
             }
-            refreshActivity(workspace, issueNumber);
+            refreshActivity(route, issueNumber);
             recent.issueAction(workspaceId, issueNumber, RecentReason.COMMENTED);
             recent.wroteOnIssue(
                     workspaceId,
@@ -179,28 +173,29 @@ public class WorkspaceIssueService
     public void close(String workspaceId, int issueNumber)
     {
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
-            issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
+            requireWorkspace(workspaces, workspaceId);
+            WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+            client(route).close(route.session().access(), route.repository(), issueNumber);
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
-            issues.delete(workspace.monitoredRepositoryId(), issueNumber);
+            issues.delete(route.repository().id(), issueNumber);
         });
     }
 
     public IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
             String normalized = type;
             if (normalized != null) {
                 checkText(normalized, "issue type");
                 normalized = normalized.trim();
             }
-            String current = issueWrites.updateIssueType(
-                    credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), normalized);
+            WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+            String current = client(route).updateType(route.session().access(), route.repository(), issueNumber, normalized);
             RepositoryIssueDetail detail = cachedDetail(workspace, issueNumber)
                     .withType(current);
             details.save(detail);
-            refreshActivity(workspace, issueNumber);
+            refreshActivity(route, issueNumber);
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             return new IssueTypeOptions(current, detail.availableTypes());
         });
@@ -213,16 +208,16 @@ public class WorkspaceIssueService
             List<String> labels)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
+            requireWorkspace(workspaces, workspaceId);
             List<String> normalizedAssignees = normalizeNames(assignees, "assignees");
             List<String> normalizedLabels = normalizeNames(labels, "labels");
-            GitHubPullRequestWriteClient.IssueMetadata updated = issueWrites.updateIssueMetadata(
-                    credentials.resolveGitHubToken(),
-                    issueRef(workspace, issueNumber),
+            WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+            var updated = client(route).updateMetadata(
+                    route.session().access(), route.repository(), issueNumber,
                     normalizedAssignees,
                     normalizedLabels);
             issues.updateMetadata(
-                    workspace.monitoredRepositoryId(),
+                    route.repository().id(),
                     issueNumber,
                     updated.assignees(),
                     updated.labels(),
@@ -244,16 +239,15 @@ public class WorkspaceIssueService
             }
             WorkspaceOperationLocks.withLock(candidate.id(), () -> {
                 Workspace workspace = requireWorkspace(workspaces, candidate.id());
-                Lock lock = locks.get(workspace.monitoredRepositoryId());
+                WorkspaceHostingRead route = hosting.captureRead(workspace.id());
+                Lock lock = locks.get(route.repository().id());
                 withLock(lock, () -> {
-                    GitHubCredential credential = credentials.resolveGitHubCredential();
-                    Optional<RepositoryIssue> issue = issueReads.fetchIssue(credential.token(), workspace.monitoredRepository(), issueNumber);
-                    requireSameAccount(credential);
+                    Optional<RepositoryIssue> issue = client(route).find(route.session().access(), route.repository(), issueNumber);
                     if (issue.isPresent()) {
-                        issues.saveSyncPage(workspace.monitoredRepositoryId(), ImmutableList.of(issue.orElseThrow()));
+                        issues.saveSyncPage(route.repository().id(), ImmutableList.of(issue.orElseThrow()));
                     }
                     else {
-                        issues.delete(workspace.monitoredRepositoryId(), issueNumber);
+                        issues.delete(route.repository().id(), issueNumber);
                     }
                     return null;
                 });
@@ -264,13 +258,10 @@ public class WorkspaceIssueService
     /** Incremental open-card changes and closures; a completed cursor survives sleep and restarts. */
     public void refreshRecentIssues()
     {
-        Set<Long> refreshed = new HashSet<>();
+        Set<String> refreshed = new HashSet<>();
         for (Workspace workspace : workspaces.findAll()) {
-            if (!workspace.isGitHub() || !refreshed.add(workspace.monitoredRepositoryId())) {
-                continue;
-            }
             try {
-                WorkspaceOperationLocks.withLock(workspace.id(), () -> refreshRecentIssuesLocked(workspace.id()));
+                WorkspaceOperationLocks.withLock(workspace.id(), () -> refreshRecentIssuesLocked(workspace.id(), refreshed));
             }
             catch (RuntimeException failure) {
                 if (isRateLimit(failure) || failure instanceof ResponseStatusException response && response.getStatusCode().value() == 401) {
@@ -281,14 +272,16 @@ public class WorkspaceIssueService
         }
     }
 
-    private void refreshRecentIssuesLocked(String workspaceId)
+    private void refreshRecentIssuesLocked(String workspaceId, Set<String> refreshed)
     {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        Lock lock = locks.get(workspace.monitoredRepositoryId());
+        requireWorkspace(workspaces, workspaceId);
+        WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+        if (!refreshed.add(route.session().cacheScope() + ":" + route.repository().id())) {
+            return;
+        }
+        Lock lock = locks.get(route.repository().id());
         withLock(lock, () -> {
-            GitHubCredential credential = credentials.resolveGitHubCredential();
-            String checkpointKey = "github.issues.checkpoint." + credential.profile().login().toLowerCase(Locale.ROOT)
-                    + "." + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT);
+            String checkpointKey = "hosting.issues.checkpoint." + route.session().cacheScope() + "." + route.repository().id();
             Instant startedAt = clock.instant();
             Optional<Instant> checkpoint = settings.get(checkpointKey).flatMap(WorkspaceIssueService::parseInstant)
                     .filter(at -> !at.isAfter(startedAt));
@@ -297,24 +290,17 @@ public class WorkspaceIssueService
             }
             Instant since = checkpoint.map(at -> at.minus(Duration.ofMinutes(5))).orElse(startedAt.minus(Duration.ofHours(1)));
             for (int page = 1; ; page++) {
-                GitHubRepoClient.ChangedIssuePage fetched = issueReads.fetchChangedIssuesPage(credential.token(), workspace.monitoredRepository(), since, page);
-                requireSameAccount(credential);
-                issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.openIssues());
-                fetched.closedNumbers().forEach(number -> issues.delete(workspace.monitoredRepositoryId(), number));
+                IssueSyncPage fetched = client(route).list(route.session().access(), route.repository(), Optional.of(since), page);
+                issues.saveSyncPage(route.repository().id(), fetched.openIssues());
+                fetched.closedNumbers().forEach(number -> issues.delete(route.repository().id(), number));
                 if (!fetched.hasNext()) {
                     break;
                 }
-                checkState(page != MAX_SYNC_PAGES, "Recent GitHub issue refresh exceeded 5000 rows");
+                checkState(page != MAX_SYNC_PAGES, "Recent issue refresh exceeded 5000 rows");
             }
-            requireSameAccount(credential);
             settings.put(checkpointKey, startedAt.toString());
             return null;
         });
-    }
-
-    private void requireSameAccount(GitHubCredential credential)
-    {
-        checkState(credentials.cachedLogin().filter(login -> login.equalsIgnoreCase(credential.profile().login())).isPresent(), "GitHub account changed during issue refresh");
     }
 
     private static Optional<Instant> parseInstant(String value)
@@ -333,8 +319,8 @@ public class WorkspaceIssueService
      */
     public void refreshIssuesOlderThan(String workspaceId, Duration age)
     {
-        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
-        Optional<Instant> synced = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 1).syncedAt();
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Optional<Instant> synced = cachedPage(workspace, 0, 1).syncedAt();
         if (synced.filter(at -> at.plus(age).isAfter(clock.instant())).isEmpty()) {
             refreshIssues(workspaceId);
         }
@@ -343,10 +329,11 @@ public class WorkspaceIssueService
     public RepositoryIssuePage refreshIssues(String workspaceId)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
-            return refreshLocked(workspaceId, workspace.monitoredRepositoryId(), () -> {
-                refreshIssueRows(workspace);
-                return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 50);
+            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+            return refreshLocked(workspaceId, route.repository().id(), () -> {
+                refreshIssueRows(route);
+                return issues.findPage(route.repository().id(), workspace.monitoredRepository(), 0, 50);
             });
         });
     }
@@ -354,19 +341,16 @@ public class WorkspaceIssueService
     public RepositoryIssueDetail refreshDetail(String workspaceId, int issueNumber)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
+            requireWorkspace(workspaces, workspaceId);
             checkArgument(issueNumber > 0, "issueNumber must be positive");
-            return refreshLocked(workspaceId, workspace.monitoredRepositoryId() + ":" + issueNumber, () -> {
-                String token = credentials.resolveGitHubToken();
+            WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+            return refreshLocked(workspaceId, route.repository().id() + ":" + issueNumber, () -> {
+                RepositoryIssueDetail fetched = client(route).detail(route.session().access(), route.repository(), issueNumber);
                 RepositoryIssueDetail detail = new RepositoryIssueDetail(
-                        workspace.monitoredRepositoryId(),
-                        issueNumber,
-                        fetchTimeline(token, issueRef(workspace, issueNumber)),
-                        issueReads.fetchIssueType(token, workspace.monitoredRepository(), issueNumber),
-                        issueReads.fetchIssueTypes(token, workspace.monitoredRepository()),
+                        route.repository().id(), issueNumber, fetched.timeline(), fetched.currentType(), fetched.availableTypes(),
                         Optional.of(clock.instant()));
                 details.save(detail);
-                return details.find(workspace.monitoredRepositoryId(), issueNumber)
+                return details.find(route.repository().id(), issueNumber)
                         .orElseThrow(() -> new IllegalStateException("Issue detail refresh was not persisted"));
             });
         });
@@ -385,35 +369,24 @@ public class WorkspaceIssueService
         });
     }
 
-    private void refreshIssueRows(Workspace workspace)
+    private void refreshIssueRows(WorkspaceHostingRead route)
     {
-        String token = credentials.resolveGitHubToken();
         Set<Long> open = new HashSet<>();
         for (int page = 1; ; page++) {
-            GitHubRepoClient.IssuePage fetched = issueReads.fetchOpenIssuesPage(token, workspace.monitoredRepository(), page);
-            issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.issues());
-            fetched.issues().forEach(issue -> open.add(issue.id()));
+            IssueSyncPage fetched = client(route).list(route.session().access(), route.repository(), Optional.empty(), page);
+            issues.saveSyncPage(route.repository().id(), fetched.openIssues());
+            fetched.openIssues().forEach(issue -> open.add(issue.id()));
             if (!fetched.hasNext()) {
                 break;
             }
-            checkState(page != MAX_SYNC_PAGES, "GitHub issue refresh exceeded 5000 rows");
+            checkState(page != MAX_SYNC_PAGES, "Issue refresh exceeded 5000 rows");
         }
-        issues.completeSync(workspace.monitoredRepositoryId(), open, clock.instant());
-    }
-
-    private List<PrTimelineEvent> fetchTimeline(String token, PullRequestRef issue)
-    {
-        return Stream.concat(
-                        timelineReads.fetchPrTimeline(token, issue).stream()
-                                .filter(event -> !"commented".equals(event.event())),
-                        timelineReads.fetchPrIssueComments(token, issue).stream())
-                .sorted(Comparator.comparing(PrTimelineEvent::timestamp, Comparator.nullsLast(Comparator.naturalOrder())))
-                .collect(toImmutableList());
+        issues.completeSync(route.repository().id(), open, clock.instant());
     }
 
     private RuntimeException refreshFailure(String workspaceId, RuntimeException failure)
     {
-        if (isRateLimit(failure)) {
+        if (isRateLimit(failure) || failure instanceof HostingFailure) {
             return failure;
         }
         String reference = UUID.randomUUID().toString();
@@ -423,27 +396,43 @@ public class WorkspaceIssueService
 
     private RepositoryIssueDetail cachedDetail(Workspace workspace, int issueNumber)
     {
-        return details.find(workspace.monitoredRepositoryId(), issueNumber)
-                .orElseGet(() -> RepositoryIssueDetail.empty(workspace.monitoredRepositoryId(), issueNumber));
+        return workspaces.findHostingRepositoryId(workspace.id()).flatMap(id -> details.find(id, issueNumber))
+                .orElseGet(() -> RepositoryIssueDetail.empty(workspaces.findHostingRepositoryId(workspace.id()).orElse(workspace.monitoredRepositoryId()), issueNumber));
     }
 
-    private static PullRequestRef issueRef(Workspace workspace, int issueNumber)
+    private RepositoryIssuePage cachedPage(Workspace workspace, int page, int pageSize)
     {
-        checkArgument(issueNumber > 0, "issueNumber must be positive");
-        return PullRequestRef.of(
-                workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), issueNumber);
+        return workspaces.findHostingRepositoryId(workspace.id()).map(id -> issues.findPage(id, workspace.monitoredRepository(), page, pageSize))
+                .orElseGet(() -> new RepositoryIssuePage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(),
+                        ImmutableList.of(), page, pageSize, 0, false, Optional.empty()));
     }
 
-    private void refreshActivity(Workspace workspace, int issueNumber)
+    public GitHubIssueSource source(String workspaceId, int number, boolean requireOpen)
+    {
+        WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+        return client(route).source(route.session().access(), route.repository(), number, requireOpen);
+    }
+
+    public GitHubIssueSource create(String workspaceId, String title, String body)
+    {
+        WorkspaceHostingRead route = hosting.captureRead(workspaceId);
+        return client(route).create(route.session().access(), route.repository(), title, body);
+    }
+
+    private IssueClient client(WorkspaceHostingRead route)
+    {
+        return clients.stream().filter(client -> client.provider() == route.session().access().server().provider()).findFirst().orElseThrow();
+    }
+
+    private void refreshActivity(WorkspaceHostingRead route, int issueNumber)
     {
         try {
-            GitHubRepoClient.IssueActivity activity = issueReads.fetchIssueActivity(
-                    credentials.resolveGitHubToken(), workspace.monitoredRepository(), issueNumber);
-            issues.updateActivity(workspace.monitoredRepositoryId(), issueNumber, activity.commentCount(), activity.updatedAt());
+            var activity = client(route).activity(route.session().access(), route.repository(), issueNumber);
+            issues.updateActivity(route.repository().id(), issueNumber, activity.commentCount(), activity.updatedAt());
         }
         catch (RuntimeException failure) {
-            // The GitHub write already succeeded; failing it here would invite posting the same comment twice.
-            log.warn("Issue {}/{} activity refresh failed after a successful write", workspace.monitoredRepository().fullName(), issueNumber, failure);
+            // The remote write already succeeded; failing it here would invite posting the same comment twice.
+            log.warn("Issue {}/{} activity refresh failed after a successful write", route.repository().fullPath(), issueNumber, failure);
         }
     }
 

@@ -68,7 +68,6 @@ import static java.util.Objects.requireNonNull;
 public class IssueContextBridgeResolverImpl
         implements BridgeResolver<IssueContextBridge>
 {
-    private static final String HOST = "github.com";
     private static final int MAXIMUM_EVENTS = 20;
     private static final int MAXIMUM_EVENT_BODY = 2_000;
     private static final int MAXIMUM_EPIC_DESCRIPTION = 12_000;
@@ -208,9 +207,9 @@ public class IssueContextBridgeResolverImpl
     /** The Epic's issue while the workspace still monitors its repository and the store still holds that same issue. */
     private Optional<RepositoryIssue> epicIssue(String workspaceId, long issueId)
     {
-        return sources.findEpic(HOST, issueId).flatMap(marker -> workspaces.findById(workspaceId)
-                        .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(marker.repo()))
-                        .flatMap(workspace -> issues.find(workspace.monitoredRepositoryId(), marker.number())))
+        return workspaces.findById(workspaceId).flatMap(workspace -> sources.findEpic(workspace.issueHost(), issueId)
+                        .filter(marker -> workspace.monitoredRepository().fullName().equalsIgnoreCase(marker.repo()))
+                        .flatMap(marker -> issues.find(workspaces, workspace, marker.number())))
                 .filter(issue -> issue.id() == issueId);
     }
 
@@ -277,9 +276,9 @@ public class IssueContextBridgeResolverImpl
         IssueTask link = scope(taskId).orElseThrow(() -> new AgentConflictException("This task no longer has readable issue context."));
         Optional<Workspace> workspace = workspaces.findById(link.workspaceId())
                 .filter(value -> value.monitoredRepository().fullName().equalsIgnoreCase(link.source().repo()));
-        Optional<RepositoryIssue> cached = workspace.flatMap(value -> issues.find(value.monitoredRepositoryId(), link.source().number()))
+        Optional<RepositoryIssue> cached = workspace.flatMap(value -> issues.find(workspaces, value, link.source().number()))
                 .filter(issue -> issue.id() == link.source().issueId());
-        Optional<RepositoryIssueDetail> detail = workspace.flatMap(value -> details.find(value.monitoredRepositoryId(), link.source().number()));
+        Optional<RepositoryIssueDetail> detail = workspace.flatMap(value -> details.find(workspaces, value, link.source().number()));
         ObjectNode result = objectMapper.createObjectNode();
         result.put("source", "ByteQuay local data only; no remote request was made.");
         result.put("warning", "Accepted issue text is the saved assignment. Cached metadata and timeline may be stale; "

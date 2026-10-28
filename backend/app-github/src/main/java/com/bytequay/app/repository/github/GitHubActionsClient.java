@@ -239,8 +239,12 @@ public class GitHubActionsClient
     @Override
     public CiHeadSnapshot inspect(PullRequestRef pullRequest)
     {
+        return inspect(token(), pullRequest);
+    }
+
+    public CiHeadSnapshot inspect(String pat, PullRequestRef pullRequest)
+    {
         requireNonNull(pullRequest, "pullRequest is null");
-        String pat = token();
         PullRequestResponse response = fetchPullRequest(pat, pullRequest);
         if (response.user() == null || response.head() == null || response.base() == null
                 || response.user().login() == null || response.head().sha() == null
@@ -294,10 +298,15 @@ public class GitHubActionsClient
     /** Uses the same full download and excerpt selection without creating task-owned storage. */
     public String readJobLog(PullRequestRef pullRequest, long jobId)
     {
+        return readJobLog(token(), pullRequest, jobId);
+    }
+
+    public String readJobLog(String pat, PullRequestRef pullRequest, long jobId)
+    {
         try {
             Path temporary = Files.createTempFile("bytequay-ci-", ".log");
             try {
-                Optional<String> unavailable = retrieveLog(token(), pullRequest, jobId, temporary);
+                Optional<String> unavailable = retrieveLog(pat, pullRequest, jobId, temporary);
                 if (unavailable.isPresent()) {
                     throw new ResponseStatusException(HttpStatus.NOT_FOUND, unavailable.orElseThrow());
                 }
@@ -316,8 +325,12 @@ public class GitHubActionsClient
     @Override
     public List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId)
     {
+        return readFailureAnnotations(token(), pullRequest, jobId);
+    }
+
+    public List<String> readFailureAnnotations(String pat, PullRequestRef pullRequest, long jobId)
+    {
         requireNonNull(pullRequest, "pullRequest is null");
-        String pat = token();
         List<AnnotationResponse> annotations;
         try {
             // An Actions job is its own check run.
@@ -398,11 +411,15 @@ public class GitHubActionsClient
     @Override
     public CiRerunResult rerunFailedJobs(RerunFailedJobsCommand command)
     {
+        return rerunFailedJobs(token(), command);
+    }
+
+    public CiRerunResult rerunFailedJobs(String pat, RerunFailedJobsCommand command)
+    {
         requireNonNull(command, "command is null");
         if (!command.authorized()) {
             return new CiRerunResult(REJECTED, "Failed-job rerun was not authorized");
         }
-        String pat = token();
         WorkflowRunResponse run = fetchWorkflowRun(pat, command.pullRequest(), command.workflowRunId());
         Optional<String> conclusion = Optional.ofNullable(run.conclusion())
                 .map(value -> value.toLowerCase(Locale.ROOT));

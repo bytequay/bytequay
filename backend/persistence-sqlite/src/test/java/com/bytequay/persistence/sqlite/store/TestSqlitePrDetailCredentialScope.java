@@ -97,7 +97,7 @@ class TestSqlitePrDetailCredentialScope
         PrTimelineEvent local = new PrTimelineEvent(null, "commented", "alice", NOW, "local action", Optional.of("local-action"));
         timeline.saveAndFlush(new PrTimelineEntity().updateFrom(prId, local));
         views.markViewed(prId);
-        ReviewDraft draft = drafts.save(ReviewDraft.empty("owner/project", 7, NOW));
+        ReviewDraft draft = drafts.save(ReviewDraft.empty("owner/project#7", "owner/project", 7, NOW));
 
         store.clearRemote(prId);
         entities.flush();
@@ -110,7 +110,7 @@ class TestSqlitePrDetailCredentialScope
         assertThat(timeline.findByPrIdOrderByTimestampAscIdAsc(prId)).singleElement().satisfies(event -> assertThat(event.toDomain()).isEqualTo(local));
         assertThat(requests.findByIdAndHostingRepositoryIsNull(prId)).isPresent();
         assertThat(views.findByPrIds(ImmutableSet.of(prId))).containsKey(prId);
-        assertThat(drafts.find("owner/project", 7)).contains(draft);
+        assertThat(drafts.find("owner/project#7")).contains(draft);
 
         store.saveMetadata(prId, detail());
         store.setCredentialScope(prId, "github-global:new-revision");

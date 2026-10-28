@@ -64,10 +64,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   let writes = 0;
   const bridge = {
     getRepositoryAvatar: async () => null,
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0,
       followers: 0, following: 0, bio: null, location: null, company: null, email: null }),
     saveRecentDraft: async () => {},
-  } satisfies Pick<Bridge, 'getRepositoryAvatar' | 'getUserProfile' | 'saveRecentDraft'>;
+  } satisfies Pick<Bridge, 'getRepositoryAvatar' | 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'saveRecentDraft'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: new Proxy(bridge, {
     get(target, property) {
       if (property in target) return Reflect.get(target, property);

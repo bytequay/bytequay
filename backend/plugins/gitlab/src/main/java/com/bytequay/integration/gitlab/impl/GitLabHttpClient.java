@@ -19,6 +19,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectReader;
+import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.type.LogicalType;
@@ -47,6 +48,7 @@ final class GitLabHttpClient
 {
     private final HttpClient http;
     private final ObjectReader reader;
+    private final ObjectWriter writer;
 
     GitLabHttpClient(HttpClient http, ObjectMapper mapper)
     {
@@ -72,10 +74,36 @@ final class GitLabHttpClient
         decoder.coercionConfigFor(LogicalType.POJO).setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail);
         decoder.coercionConfigFor(LogicalType.Collection).setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail);
         this.reader = decoder.reader();
+        this.writer = mapper.writer();
         checkArgument(http.followRedirects() == HttpClient.Redirect.NEVER, "hosting clients must not forward credentials through redirects");
     }
 
     <T> Response<T> get(HostingAccess access, String path, Optional<String> validator, Class<T> responseType)
+    {
+        return request(access, "GET", path, validator, Optional.empty(), responseType);
+    }
+
+    String getText(HostingAccess access, String path)
+    {
+        return request(access, "GET", path, Optional.empty(), Optional.empty(), String.class).body().orElseThrow();
+    }
+
+    <T> Response<T> post(HostingAccess access, String path, Object body, Class<T> responseType)
+    {
+        return request(access, "POST", path, Optional.empty(), Optional.of(body), responseType);
+    }
+
+    <T> Response<T> put(HostingAccess access, String path, Object body, Class<T> responseType)
+    {
+        return request(access, "PUT", path, Optional.empty(), Optional.of(body), responseType);
+    }
+
+    <T> Response<T> delete(HostingAccess access, String path, Class<T> responseType)
+    {
+        return request(access, "DELETE", path, Optional.empty(), Optional.empty(), responseType);
+    }
+
+    private <T> Response<T> request(HostingAccess access, String method, String path, Optional<String> validator, Optional<Object> body, Class<T> responseType)
     {
         requireNonNull(access, "access is null");
         requireNonNull(validator, "validator is null");
@@ -89,14 +117,19 @@ final class GitLabHttpClient
                     .header("Authorization", "Bearer " + token)
                     .header("Accept", "application/json");
             validator.ifPresent(value -> request.header("If-None-Match", value));
-            HttpResponse<byte[]> response = readResponse(request.GET().build());
+            HttpRequest.BodyPublisher payload = body.isPresent()
+                    ? HttpRequest.BodyPublishers.ofByteArray(writer.writeValueAsBytes(body.orElseThrow())) : HttpRequest.BodyPublishers.noBody();
+            if (body.isPresent()) {
+                request.header("Content-Type", "application/json");
+            }
+            HttpResponse<byte[]> response = readResponse(request.method(method, payload).build());
             int status = response.statusCode();
             Optional<String> etag = response.headers().firstValue("etag");
             if (status == 304 && validator.isPresent()) {
                 return new Response<>(Optional.empty(), etag.or(() -> validator), false);
             }
             switch (status) {
-                case 200 -> {}
+                case 200, 201, 202, 204 -> {}
                 case 401 -> throw new HostingFailure(AUTHENTICATION_REQUIRED, "GitLab authentication is required");
                 case 403 -> throw new HostingFailure(FORBIDDEN, "GitLab denied access with this account");
                 case 404 -> throw new HostingFailure(MISSING_OR_INACCESSIBLE, "The GitLab resource is missing or inaccessible to this account");
@@ -109,12 +142,16 @@ final class GitLabHttpClient
                     throw new HostingFailure(INVALID_RESPONSE, "GitLab returned an unexpected response; check the configured API address");
                 }
             }
-            T body = reader.forType(responseType).readValue(response.body());
-            if (body == null) {
+            if (responseType == Void.class) {
+                return new Response<>(Optional.empty(), etag, false);
+            }
+            T decoded = responseType == String.class ? responseType.cast(new String(response.body(), StandardCharsets.UTF_8))
+                    : reader.forType(responseType).readValue(response.body());
+            if (decoded == null) {
                 throw new HostingFailure(INVALID_RESPONSE, "GitLab returned no valid object");
             }
             boolean hasNext = response.headers().allValues("Link").stream().anyMatch(link -> link.contains("rel=\"next\""));
-            return new Response<>(Optional.of(body), etag, hasNext);
+            return new Response<>(Optional.of(decoded), etag, hasNext);
         }
         catch (IOException e) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned invalid JSON");

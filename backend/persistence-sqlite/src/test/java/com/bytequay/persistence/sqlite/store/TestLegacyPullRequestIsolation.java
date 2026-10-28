@@ -40,7 +40,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import java.net.URI;
 import java.time.Instant;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.OptionalInt;
 
@@ -88,7 +87,7 @@ class TestLegacyPullRequestIsolation
 
         assertThat(stored.id()).isNotEqualTo(hosted.getId());
         assertThat(legacy.findIdByRepoAndNumber("OWNER/PROJECT", 7)).contains(stored.id());
-        assertThat(legacy.findById(hosted.getId())).isEmpty();
+        assertThat(legacy.findById(hosted.getId())).hasValueSatisfying(row -> assertThat(row.title()).isEqualTo("Hosted title"));
         assertThat(legacy.findPage(0, 50).pullRequests()).extracting(PullRequest::id).containsExactly(stored.id());
         assertThat(legacy.findPage(0, 50).totalPullRequests()).isEqualTo(1);
         assertThat(legacy.findPage(0, 50).openPullRequests()).isEqualTo(1);
@@ -104,37 +103,50 @@ class TestLegacyPullRequestIsolation
     }
 
     @Test
-    void legacyIdReadsAndUpdatesCannotReachHostedRows()
+    void localIdReadsAndUpdatesReachOnlyTheSelectedHostedRow()
     {
         PullRequestEntity hosted = hosted(HostingProvider.GITLAB, 7);
+        PullRequest pathOnly = legacy.saveObserved(fetched(7, "Legacy title"));
         PrActivitySummary activity = new PrActivitySummary("commented", Optional.of("alice"), NOW, Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of("Private discussion"), Optional.empty(), OptionalInt.empty());
         hosted.setCardActivity(activity);
         hosted.setDiscussionActivityAt(NOW);
         hosted.setAttentionActivityAt(NOW);
         rows.saveAndFlush(hosted);
-        PullRequest before = hosted.toDomain(null);
         long id = hosted.getId();
 
-        assertThat(legacy.findActivities(ImmutableSet.of(id))).isEmpty();
-        assertThat(legacy.findDiscussionActivityAt(id)).isEmpty();
-        assertThat(legacy.findDiscussionActivities(ImmutableSet.of(id))).isEmpty();
-        assertThat(legacy.findAttentionActivities(ImmutableSet.of(id))).isEmpty();
-        legacy.updateTitle(id, "Unexpected title");
-        legacy.updateDetails(id, raw("Unexpected detail"));
+        assertThat(legacy.findActivities(ImmutableSet.of(id))).containsExactlyEntriesOf(ImmutableMap.of(id, activity));
+        assertThat(legacy.findDiscussionActivityAt(id)).contains(NOW);
+        assertThat(legacy.findDiscussionActivities(ImmutableSet.of(id))).containsExactlyEntriesOf(ImmutableMap.of(id, NOW));
+        assertThat(legacy.findAttentionActivities(ImmutableSet.of(id))).containsExactlyEntriesOf(ImmutableMap.of(id, NOW));
+        legacy.setMonitored(id, true);
+        assertThat(legacy.findById(id).orElseThrow().monitoredAt()).isNotNull();
+        legacy.updateTitle(id, "Updated title");
+        assertThat(legacy.findById(id).orElseThrow().title()).isEqualTo("Updated title");
+        legacy.updateDetails(id, raw("Updated detail"));
         legacy.updateEnrichment(id, NOW.plusSeconds(1), PullRequestDetail.CiStatus.FAILING, 1, 2, 3, true, "clean", NOW, "other",
                 ImmutableList.of("reviewer"), PullRequest.Origin.REVIEW_REQUESTED, Optional.of(NOW.plusSeconds(1)), Optional.of("APPROVED"), ImmutableMap.of("checks", "changed"));
         legacy.observeActivity(id, Optional.empty(), NOW.plusSeconds(1));
         legacy.observeAttentionActivity(id, NOW.plusSeconds(1));
-        assertThatThrownBy(() -> legacy.setMonitored(id, true)).isInstanceOf(NoSuchElementException.class);
         entities.flush();
         entities.clear();
 
         PullRequestEntity retained = rows.findById(id).orElseThrow();
-        assertThat(retained.toDomain(null)).isEqualTo(before);
-        assertThat(retained.getDiscussionActivityAt()).isEqualTo(NOW);
-        assertThat(retained.getAttentionActivityAt()).isEqualTo(NOW);
+        PullRequest updated = legacy.findById(id).orElseThrow();
+        assertThat(updated.title()).isEqualTo("Updated detail");
+        assertThat(updated.state()).isEqualTo("merged");
+        assertThat(updated.monitoredAt()).isNull();
+        assertThat(updated.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+        assertThat(updated.additions()).isEqualTo(1);
+        assertThat(updated.deletions()).isEqualTo(2);
+        assertThat(updated.commentCount()).isEqualTo(3);
+        assertThat(updated.headRef()).isEqualTo("other");
+        assertThat(updated.requestedReviewers()).containsExactly("reviewer");
+        assertThat(retained.getDiscussionActivityAt()).isEqualTo(NOW.plusSeconds(1));
+        assertThat(retained.getAttentionActivityAt()).isEqualTo(NOW.plusSeconds(1));
         assertThat(retained.getCardActivity()).isEqualTo(activity);
+        assertThat(legacy.findById(pathOnly.id())).contains(pathOnly);
+        assertThat(legacy.findIdByRepoAndNumber(REPO, 7)).contains(pathOnly.id());
     }
 
     @Test

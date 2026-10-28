@@ -235,6 +235,8 @@ export async function runDevelopmentDeliveryScenarios(): Promise<{ name: string;
     refreshPullRequestDetailByRef: async (): Promise<PullRequestDetailRefreshDto> => ({ full: true, detail, status: null }),
     fetchPrDiffFiles: async (): Promise<[]> => [],
     fetchPrDiffCommits: async (): Promise<[]> => [],
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async (): Promise<null> => null,
     fetchRepoUsers: async (): Promise<RepoUserDto[]> => [],
     fetchRepoLabels: async (): Promise<RepoLabelDto[]> => [],

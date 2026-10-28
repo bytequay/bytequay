@@ -82,7 +82,7 @@ export async function run(): Promise<string> {
     await settle();
   };
   const activity = (version: number) => window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', {
-    detail: [{ repo: cached.repo, number: 7, updatedAt: cached.updatedAt, activityAt: String(version), ciStatus: 'PENDING',
+    detail: [{ id: cached.id, repo: cached.repo, number: 7, updatedAt: cached.updatedAt, activityAt: String(version), ciStatus: 'PENDING',
       commentCount: version, headPushedAt: null, reviewDecision: null } as PullRequestDto],
   }));
   try {

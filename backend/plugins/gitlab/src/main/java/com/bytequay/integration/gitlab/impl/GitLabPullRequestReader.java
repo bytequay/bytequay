@@ -102,7 +102,7 @@ public final class GitLabPullRequestReader
             PrRawDetail detail = new PrRawDetail(summary.title(), summary.htmlUrl(), summary.state(), summary.author(), authorAvatar,
                     summary.createdAt(), summary.updatedAt(), summary.mergedAt(), mr.description(), summary.labels(), summary.labelColors(), assignees,
                     Optional.ofNullable(mr.milestone()).map(GitLabMergeRequestResponse.Milestone::title).orElse(null),
-                    summary.draft(), summary.mergeable(), null, UNKNOWN_COUNT, UNKNOWN_COUNT, baseSha == null ? UNKNOWN_COUNT : changedFiles(mr.changesCount()),
+                    summary.draft(), summary.mergeable(), summary.mergeableState(), UNKNOWN_COUNT, UNKNOWN_COUNT, baseSha == null ? UNKNOWN_COUNT : changedFiles(mr.changesCount()),
                     UNKNOWN_COUNT, summary.requestedReviewers(), headSha, mr.sourceBranch(), mr.targetBranch(), baseSha);
             return new PullRequestFetch(Optional.of(summary), response.etag(), Optional.of(detail));
         }
@@ -129,11 +129,16 @@ public final class GitLabPullRequestReader
         List<String> labels = mr.labels().stream().map(label -> checkText(label, "label")).collect(toImmutableList());
         // Assigned reviewers include people who already reviewed; this read cannot establish pending requests or approvals.
         List<String> requestedReviewers = ImmutableList.of();
-        Boolean mergeable = "conflict".equals(mr.detailedMergeStatus()) ? Boolean.FALSE : null;
+        Boolean mergeable = switch (Optional.ofNullable(mr.detailedMergeStatus()).orElse("")) {
+            case "mergeable" -> Boolean.TRUE;
+            case "conflict" -> Boolean.FALSE;
+            default -> null;
+        };
+        String mergeableState = mergeable == null ? null : mergeable ? "clean" : "dirty";
         return new FetchedPullRequest(mr.id(), repository.fullPath(), mr.iid().intValue(), checkText(mr.title(), "title"), author, url,
                 Instant.parse(mr.createdAt()), Instant.parse(mr.updatedAt()), OTHER, labels, ImmutableMap.of(), draft, state,
                 Optional.ofNullable(mr.closedAt()).map(Instant::parse).orElse(null), Optional.ofNullable(mr.mergedAt()).map(Instant::parse).orElse(null),
-                requestedReviewers, mergeable, null, mr.sourceBranch());
+                requestedReviewers, mergeable, mergeableState, mr.sourceBranch());
     }
 
     private static int changedFiles(String value)

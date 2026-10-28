@@ -58,7 +58,7 @@ export function GitLabConnectionForm({ server, onConnected }: {
         throw new Error('Enter a GitLab HTTP or HTTPS server URL without credentials, query parameters, or a fragment.');
       }
       target.pathname = `${target.pathname.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`;
-      target.search = new URLSearchParams({ name: 'ByteQuay', scopes: 'read_api,read_repository' }).toString();
+      target.search = new URLSearchParams({ name: 'ByteQuay', scopes: 'api' }).toString();
       await window.bridge.openExternal(target.href);
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
   };
@@ -87,7 +87,7 @@ export function GitLabConnectionForm({ server, onConnected }: {
     <label>Or use a personal access token<input aria-label="GitLab personal access token" type="password" required value={token} disabled={busy !== null}
       autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
     <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage(); }}>Create access token</button>
-    <p>The shortcut preselects the required permissions: <code>read_api</code> and <code>read_repository</code>. If your server does not preselect them, select both before generating the token.
+    <p>The shortcut preselects the required <code>api</code> permission. If your server does not preselect it, select it before generating the token.
       The token is stored encrypted on this Mac.</p>
     {error !== null && <p role="alert" className="setw-error">{error}</p>}
     <button type="submit" className="setw-btn" disabled={busy !== null || token.trim() === ''}>{busy === 'token' ? 'Connecting…' : 'Connect GitLab'}</button>

@@ -28,7 +28,7 @@ it.each([
   ['shows merge queue removal details and opens failed jobs',
     'runMergeQueueRemoval()', 'opens exact failed jobs', { width: 1280, height: 800 }],
   ['schedules and cancels a queued merge while CI is running',
-    'runMergeWhenReady()', 'schedules and cancels during CI while direct rebase stays blocked', {}],
+    'runMergeWhenReady()', 'schedules and cancels during CI while direct merge stays blocked', {}],
   ['opens distinct development and review tasks and finishes creation after leaving the PR',
     'runAssignedPrActions()', 'Open distinct development and review task conversations', {}],
   ['shows the Epic of a PR as a card on wide pages and a link on narrow ones',

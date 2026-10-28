@@ -43,6 +43,7 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
@@ -135,6 +136,7 @@ public class PullRequestCiBridgeResolverImpl
     {
         return tasks.find(taskId)
                 .filter(task -> task.state() == TaskState.OPEN)
+                .filter(task -> task.workspaceId().flatMap(workspaces::findById).filter(Workspace::isGitHub).isPresent())
                 .filter(task -> (task.interactive() && !task.permissionPolicy().unattended()) || task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX)
                 .filter(task -> task.taskWorktree().isPresent() && task.worktreeRemovedAt().isEmpty());
     }

@@ -396,7 +396,7 @@ async function needsYou() {
   await press('', 'Escape');
   await click('Acknowledge #24830', rows[0]);
   assert(document.querySelector('.cir-needs') === null && text().includes('Nothing needs you right now'), 'Acknowledging must clear the row');
-  assert(Object.keys(loadHandled()).includes('owner/repository#24830'), 'Handling must reach Home too');
+  assert(Object.keys(loadHandled()).includes('pr:9001'), 'Handling must reach Home too');
   await click('Undo');
   assert(document.querySelectorAll('.cir-needs .item-row').length === 1, 'Undo must bring the row back');
   const reads = f.workspaceReads;

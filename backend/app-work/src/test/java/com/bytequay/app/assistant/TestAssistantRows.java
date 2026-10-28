@@ -75,6 +75,7 @@ import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -132,7 +133,8 @@ class TestAssistantRows
                 Optional.of("CHANGES_REQUESTED"), Optional.empty(), Optional.empty(), Optional.of("Please split the retry into its own commit"), Optional.empty(),
                 OptionalInt.empty())));
 
-        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77",
+        when(issues.find(any(), any(), eq(77)))
+                .thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "", "https://github.com/owner/repository/issues/77",
                 ImmutableList.of(), ImmutableList.of(), 0, NOW.minusSeconds(86400), NOW.minusSeconds(900))));
 
         JiraIssue ticket = new JiraIssue("connection", "cloud", "10042", "ICE-7", "https://company.atlassian.net/browse/ICE-7", "Expire snapshots by branch", "As described",
@@ -288,7 +290,7 @@ class TestAssistantRows
     @Test
     void leavesOutARefWhoseStoreCannotBeReadNow()
     {
-        when(issues.find(1, 77)).thenThrow(new IllegalStateException("database is locked"));
+        when(issues.find(any(), any(), eq(77))).thenThrow(new IllegalStateException("database is locked"));
 
         assertThat(rows.rows(ImmutableList.of("issue:owner/repository#77", "work:w22"))).containsOnlyKeys("work:w22");
     }

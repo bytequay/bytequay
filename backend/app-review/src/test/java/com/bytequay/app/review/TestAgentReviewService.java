@@ -2617,23 +2617,26 @@ class TestAgentReviewService
                 1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
                 0, 0, 0, "merged", null, null, null, null, null, null, null, null, null, null);
-        when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(stored));
+        when(fixture.pullRequests.findWorkspaceStored(WORKSPACE, REPO, NUMBER)).thenReturn(Optional.of(stored));
 
         assertThat(fixture.service.start(WORKSPACE, REPO, NUMBER).pullRequest()).contains(stored);
     }
 
     @Test
-    void projectionPreparesTheExistingDraftBeforeShowingItsPreview()
+    void projectionShowsTheSavedDraftWithoutRequiringHostingAuthentication()
     {
-        ReviewDraft saved = ReviewDraft.empty(REPO, NUMBER, NOW).withReview("User notes", "COMMENT", NOW);
-        ReviewDraft prepared = saved.withVersion(1);
-        when(fixture.drafts.find(REPO, NUMBER)).thenReturn(Optional.of(saved));
-        when(fixture.publications.draft(REPO, NUMBER)).thenReturn(prepared);
+        ReviewDraft saved = ReviewDraft.empty("saved-draft", REPO, NUMBER, NOW).withReview("User notes", "COMMENT", NOW);
+        when(fixture.pullRequests.findWorkspaceHostingRepositoryId(WORKSPACE)).thenReturn(Optional.of(20L));
+        when(fixture.publications.findDraft(20, NUMBER)).thenReturn(Optional.of(saved));
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        clearInvocations(fixture.pullRequests, fixture.publications);
+        when(fixture.pullRequests.prepareRead(any(), anyString(), anyInt())).thenThrow(new IllegalStateException("Account disconnected"));
 
-        AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
+        AgentReviewProjection projection = fixture.service.get(reviewId);
 
-        assertThat(projection.draft()).contains(prepared);
-        verify(fixture.publications).draft(REPO, NUMBER);
+        assertThat(projection.draft()).contains(saved);
+        verify(fixture.publications).findDraft(20, NUMBER);
+        verify(fixture.pullRequests, never()).prepareRead(any(), anyString(), anyInt());
     }
 
     @Test

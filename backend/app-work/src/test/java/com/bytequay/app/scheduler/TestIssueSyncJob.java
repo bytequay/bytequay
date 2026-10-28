@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.scheduler;
 
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.RepoRef;
@@ -39,24 +38,22 @@ import static org.mockito.Mockito.when;
 class TestIssueSyncJob
 {
     @Test
-    void scheduledSyncRefreshesEachMonitoredRepositoryOnce()
+    void scheduledSyncVisitsEachWorkspaceUsingItsSelectedAccount()
     {
         WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        CredentialService credentials = mock(CredentialService.class);
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         Workspace gitlab = workspace("gitlab", 1, Optional.of(new HostingServer(HostingProvider.GITLAB,
                 URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
         when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, workspace("first", 1), workspace("second", 1), workspace("third", 2)));
 
-        new IssueSyncJob(issues, workspaces, credentials, mock(AppSettingsService.class)).tick();
+        new IssueSyncJob(issues, workspaces, mock(AppSettingsService.class)).tick();
 
         // A full sync is due only after a few hours; the recent refresh keeps the stored issues current in between.
-        verify(issues, never()).refreshIssuesOlderThan("gitlab", Duration.ofHours(4));
+        verify(issues).refreshIssuesOlderThan("gitlab", Duration.ofHours(4));
         verify(issues).refreshIssuesOlderThan("first", Duration.ofHours(4));
-        verify(issues, never()).refreshIssuesOlderThan("second", Duration.ofHours(4));
+        verify(issues).refreshIssuesOlderThan("second", Duration.ofHours(4));
         verify(issues).refreshIssuesOlderThan("third", Duration.ofHours(4));
-        verify(issues, times(2)).refreshIssuesOlderThan(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
+        verify(issues, times(4)).refreshIssuesOlderThan(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any());
         verify(issues, never()).refreshIssues(org.mockito.ArgumentMatchers.anyString());
     }
 

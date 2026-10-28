@@ -24,6 +24,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriter;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.app.repository.github.actions.CiJob;
@@ -32,8 +33,11 @@ import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
@@ -44,6 +48,7 @@ import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.HandledAction;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -60,6 +65,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestCheckLog;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.PullRequestHistoryPage;
@@ -75,6 +81,7 @@ import com.bytequay.core.domain.RepositoryPickerUser;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.DiscussionProbe;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
@@ -84,6 +91,8 @@ import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestListPage;
+import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.SubmittedReview;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
@@ -133,7 +142,6 @@ import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
 import java.util.stream.IntStream;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -191,6 +199,8 @@ class TestPullRequestService
     @Mock private WebServerApplicationContext applicationContext;
     @Mock private WebServer server;
 
+    private HostingPullRequestContents contents;
+    private HostingPullRequestWrites hostingWrites;
     private PullRequestService service;
     private PullRequestSnapshotService snapshots;
 
@@ -199,7 +209,9 @@ class TestPullRequestService
     @BeforeEach
     void setUp()
     {
-        snapshots = new PullRequestSnapshotService(gitHub, actions, requests, detailStore, diffStore);
+        contents = new HostingPullRequestContents(ImmutableList.of(new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run)));
+        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(new GitHubPullRequestWriter(gitHub, writes, actions)));
+        snapshots = new PullRequestSnapshotService(contents, hostingWrites, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
         session = new HostingReadSession(10, "desktop-scope", new HostingAccess(instance, "pat"));
@@ -473,7 +485,7 @@ class TestPullRequestService
 
     @ParameterizedTest
     @ValueSource(strings = {"https://gitlab.com", "https://gitlab.example"})
-    void legacyLookupRejectsAnotherServerBeforeReadingOrProjecting(String server)
+    void lookupUsesTheSelectedServerWithoutCallingGitHub(String server)
     {
         HostingInstance instance = new HostingInstance(2, GITLAB, URI.create(server), URI.create(server + "/api/v4"));
         HostingReadSession selected = new HostingReadSession(11, "connected-account", new HostingAccess(instance, "gitlab-token"));
@@ -481,9 +493,15 @@ class TestPullRequestService
         HostingRepository repository = new HostingRepository(21, 2, "200", "group/repo", url, url, Optional.empty(), Optional.of("main"));
         PullRequestRead route = new PullRequestRead(selected, repository, 7, "alice");
 
-        assertThatThrownBy(() -> service.lookupPullRequest(route)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("GitHub.com");
+        PullRequest row = storedPullRequest();
+        when(requests.cached(selected, 21, 7)).thenReturn(Optional.of(snapshot(pullRequest())));
+        when(store.findByHostingRepository(21, 7)).thenReturn(Optional.of(row));
+        when(detailStore.findCredentialScope(row.id())).thenReturn(Optional.of(route.scope()));
 
-        verifyNoInteractions(credentialService, connections, requests, store, detailStore, diffStore, gitHub, accounts, actions);
+        assertThat(service.lookupPullRequest(route)).isEqualTo(row);
+
+        verify(store, never()).findIdByRepoAndNumber(anyString(), anyInt());
+        verifyNoInteractions(credentialService, connections, gitHub, accounts, actions, diffStore);
     }
 
     @ParameterizedTest
@@ -647,16 +665,21 @@ class TestPullRequestService
     @Test
     void refreshesTaskBranchRowsImmediatelyWithoutSearchOrDetailReads()
     {
-        workspaceRoute();
+        WorkspaceHostingRead route = workspaceRoute();
         RepoRef repository = RepoRef.of("owner", "repo");
+        RepoRef source = RepoRef.of("contributor", "repo");
         FetchedPullRequest found = pullRequest();
-        when(gitHub.fetchPullRequestsByHead("pat", repository, "contributor:feature")).thenReturn(ImmutableList.of(found));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(branchWorkspace()));
+        when(gitHub.fetchPullRequestIdentities("pat", repository, source, "feature")).thenReturn(ImmutableList.of(
+                new GitHubPullRequestIdentity(PullRequestRef.of("owner", "repo", 7), found.htmlUrl(), source, "feature", "head", repository, "main", "base",
+                        GitHubPullRequestIdentity.State.OPEN, false, "contributor")));
+        when(workspaceHosting.readPullRequest(route, 7)).thenReturn(snapshot(found));
 
         service.syncRepositoryBranch("workspace", "contributor", "feature");
         service.syncRepositoryBranch("workspace", "contributor", "feature");
 
-        verify(gitHub, times(2)).fetchPullRequestsByHead("pat", repository, "contributor:feature");
-        verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(found.withViewerOrigin("me"))));
+        verify(gitHub, times(2)).fetchPullRequestIdentities("pat", repository, source, "feature");
+        verify(store, times(2)).saveObserved(found.withViewerOrigin("me"));
         verifyNoInteractions(detailStore, diffStore);
     }
 
@@ -665,7 +688,8 @@ class TestPullRequestService
     {
         workspaceRoute();
         RepoRef repository = RepoRef.of("owner", "repo");
-        when(gitHub.fetchPullRequestsByHead("pat", repository, "contributor:feature")).thenReturn(ImmutableList.of());
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(branchWorkspace()));
+        when(gitHub.fetchPullRequestIdentities("pat", repository, RepoRef.of("contributor", "repo"), "feature")).thenReturn(ImmutableList.of());
 
         service.syncRepositoryBranch("workspace", "contributor", "feature");
 
@@ -745,6 +769,7 @@ class TestPullRequestService
         assertThatThrownBy(() -> service.setMonitored(row.id(), true))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
         verify(store).findById(row.id());
+        verify(store).findHostingIdentity(row.id());
         verifyNoMoreInteractions(store);
         verifyNoInteractions(gitHub, actions, detailStore, diffStore, viewStateStore, accounts);
     }
@@ -1555,13 +1580,13 @@ class TestPullRequestService
         CiJob passing = new CiJob(302, 101, "build", 3, "completed", Optional.of("success"), "https://github.com/owner/repo/actions/runs/101/job/302", ImmutableList.of());
         CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed, passing));
-        when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect("pat", ref)).thenReturn(new CiHeadSnapshot(
                 ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
-        when(actions.readJobLog(ref, 301)).thenReturn("test failed");
+        when(actions.readJobLog("pat", ref, 301)).thenReturn("test failed");
 
         assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo(new PullRequestCheckLog("test failed", Optional.empty()));
-        when(actions.readFailureAnnotations(ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
+        when(actions.readFailureAnnotations("pat", ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
         assertThat(service.readCheckLog("owner/repo", 7, 301))
                 .isEqualTo(new PullRequestCheckLog("GitHub annotation: The self-hosted runner lost communication with the server.\n\ntest failed", Optional.empty()));
         for (long jobId : ImmutableList.of(302L, 999L)) {
@@ -1583,10 +1608,10 @@ class TestPullRequestService
         CiJob failed = new CiJob(301, 101, "test", 1, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
         CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 1, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed));
-        when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
+        when(actions.inspect("pat", ref)).thenReturn(new CiHeadSnapshot(ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
-        when(actions.readFailureAnnotations(ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."), ImmutableList.of());
-        when(actions.readJobLog(ref, 301)).thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Log unavailable"));
+        when(actions.readFailureAnnotations("pat", ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."), ImmutableList.of());
+        when(actions.readJobLog("pat", ref, 301)).thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Log unavailable"));
 
         assertThat(service.readCheckLog("owner/repo", 7, 301))
                 .isEqualTo(new PullRequestCheckLog("GitHub annotation: The self-hosted runner lost communication with the server.\n", Optional.of("Log unavailable")));
@@ -1603,16 +1628,16 @@ class TestPullRequestService
         CiWorkflowRun failedRun = new CiWorkflowRun(
                 101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failedJob));
-        when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect("pat", ref)).thenReturn(new CiHeadSnapshot(
                 ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222",
                 "https://github.com/owner/repo/pull/7", ImmutableList.of(failedRun)));
-        when(actions.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        when(actions.rerunFailedJobs(eq("pat"), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
 
         service.rerunFailedChecks("owner/repo", 7);
 
         ArgumentCaptor<RerunFailedJobsCommand> command = ArgumentCaptor.forClass(RerunFailedJobsCommand.class);
-        verify(actions).rerunFailedJobs(command.capture());
+        verify(actions).rerunFailedJobs(eq("pat"), command.capture());
         assertThat(command.getValue()).isEqualTo(new RerunFailedJobsCommand(ref, 101, headSha, 3, true));
     }
 
@@ -1861,7 +1886,7 @@ class TestPullRequestService
 
         service.observeWorkspacePullRequest("workspace", 7);
 
-        verify(store).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(fetched.withViewerOrigin("me"))));
+        verify(store).saveObserved(fetched.withViewerOrigin("me"));
         verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt());
     }
 
@@ -2385,9 +2410,9 @@ class TestPullRequestService
         order.verify(detailStore).saveCached(12L, new StoredPrDetail(expected, cached.reviews(), cached.timeline(), cached.checkRuns(),
                 cached.unavailableSections(), cached.viewerCanWrite()));
         order.verify(store).updateTitle(12L, "Updated title");
-        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(recent).pullRequestAction(12L, RecentReason.EDITED, 0);
         verify(detailStore).updateEtag(12L, Optional.empty());
-        verify(requests).invalidate(GITHUB_SERVER, "owner/repo", 7);
+        verify(requests).invalidateRepository(20L, 7);
         verifyNoInteractions(diffStore);
     }
 
@@ -2397,7 +2422,9 @@ class TestPullRequestService
     void rejectsEmptyTitlesBeforeWriting(String title)
     {
         assertThatThrownBy(() -> service.updateTitle("owner/repo", 7, title)).isInstanceOf(IllegalArgumentException.class);
-        verifyNoInteractions(writes, store, detailStore, recent);
+        verify(store).findIdByRepoAndNumber("owner/repo", 7);
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(writes, detailStore, recent);
     }
 
     @Test
@@ -2408,7 +2435,9 @@ class TestPullRequestService
 
         assertThatThrownBy(() -> service.updateTitle("owner/repo", 7, "Updated title")).isSameAs(failure);
 
-        verifyNoInteractions(store, detailStore, recent);
+        verify(store).findIdByRepoAndNumber("owner/repo", 7);
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(detailStore, recent);
     }
 
     @Test
@@ -2420,7 +2449,7 @@ class TestPullRequestService
         service.updateDescription("owner/repo", 7, "Updated description");
 
         verify(writes).updatePullRequestDescription("pat", ref, "Updated description");
-        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(recent).pullRequestAction(12L, RecentReason.EDITED, 0);
         verify(detailStore).updateEtag(12L, Optional.empty());
         verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
@@ -2466,8 +2495,8 @@ class TestPullRequestService
         }
         order.verify(detailStore).saveCached(12L, expected);
         assertThat(detail).isEqualTo(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, expected, true));
-        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
-        verify(recent).wroteOnPullRequest("owner/repo", 7, kind, textKey, "edited");
+        verify(recent).pullRequestAction(12L, RecentReason.EDITED, 0);
+        verify(recent).wroteOnPullRequest(12L, kind, textKey, "edited");
         verifyNoMoreInteractions(writes);
         verifyNoInteractions(gitHub, diffStore);
     }
@@ -2508,7 +2537,7 @@ class TestPullRequestService
 
         assertThat(detail).isEqualTo(PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, cached, true));
         verify(writes).updateReviewComment("pat", ref, 41L, "edited");
-        verify(recent).wroteOnPullRequest("owner/repo", 7, RecentTextKind.COMMENT, "review-comment:41", "edited");
+        verify(recent).wroteOnPullRequest(12L, RecentTextKind.COMMENT, "review-comment:41", "edited");
         verifyNoInteractions(gitHub);
     }
 
@@ -2539,7 +2568,9 @@ class TestPullRequestService
                 () -> service.editComment("owner/repo", 7, "review", -1L, "edited"))) {
             assertThatThrownBy(edit).isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST));
         }
-        verifyNoInteractions(credentialService, writes, store, detailStore, recent);
+        verify(store, times(6)).findIdByRepoAndNumber("owner/repo", 7);
+        verifyNoMoreInteractions(store);
+        verifyNoInteractions(writes, detailStore, recent);
     }
 
     private static StoredPrDetail editableDetail(String commentBody, String replyBody, String reviewBody)
@@ -2585,8 +2616,9 @@ class TestPullRequestService
 
         verify(writes).pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7));
         verify(writes).markReadyForReview("pat", "PR_7");
-        verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
+        verify(recent).pullRequestAction(12L, RecentReason.EDITED, 0);
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(writes, detailStore);
         verifyNoInteractions(diffStore);
     }
@@ -2604,6 +2636,7 @@ class TestPullRequestService
         verify(writes).pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7));
         verify(writes).markReadyForReview("pat", "PR_7");
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(writes, detailStore);
         verifyNoInteractions(recent, diffStore);
     }
@@ -2678,6 +2711,36 @@ class TestPullRequestService
             assertThat(review.body()).isEqualTo("Please fix this");
             assertThat(review.payload().state()).isEqualTo("REQUEST_CHANGES");
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void patchesActualSubmissionEventsWithoutInventingAReviewId(boolean approved)
+    {
+        PullRequestWriter writer = mock(PullRequestWriter.class);
+        when(writer.provider()).thenReturn(GITHUB);
+        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(writer));
+        snapshots = new PullRequestSnapshotService(contents, hostingWrites, requests, detailStore, diffStore);
+        service = newService(Clock.systemUTC());
+        PrReviewState previous = new PrReviewState(null, "another-reviewer", null, false, "APPROVED", null, null, null, "head");
+        PrReviewState approvedReview = new PrReviewState(null, "me", null, false, "APPROVED", null, null, null, "head");
+        PrTimelineEvent note = new PrTimelineEvent(51L, "commented", "me", REVIEWED_AT, "Comment", PrTimelinePayload.builder().build(), Optional.empty());
+        StoredPrDetail cached = new StoredPrDetail(raw(), ImmutableList.of(previous), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenReturn(Optional.of(cached));
+        when(writer.submitReview(any(), any(), eq(7), anyString(), eq("Comment"), eq(ImmutableList.of()), eq("head")))
+                .thenReturn(new SubmittedReview(approved ? Optional.of(approvedReview) : Optional.empty(), ImmutableList.of(note)));
+
+        var posted = service.submitReview("owner/repo", 7, 12L, approved ? "APPROVE" : "COMMENT", "Comment", ImmutableList.of(), "head");
+
+        assertThat(posted.reviewId()).isEmpty();
+        assertThat(posted.threads()).isEmpty();
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).saveCached(eq(12L), saved.capture());
+        assertThat(saved.getValue().timeline()).containsExactly(note);
+        assertThat(saved.getValue().reviews()).contains(previous);
+        assertThat(saved.getValue().reviews()).hasSize(approved ? 2 : 1);
+        verify(viewStateStore).markReviewed(eq(12L), eq(approved ? HandledAction.APPROVED : HandledAction.COMMENTED), eq("head"), any(Instant.class));
     }
 
     @Test
@@ -2847,18 +2910,19 @@ class TestPullRequestService
         verify(writes, never()).submitReview(anyString(), any(), anyString(), anyString(), anyList(), anyString());
     }
 
-    @Test
-    void mergesDirectlyWhenNoQueueIsConfigured()
+    @ParameterizedTest
+    @CsvSource({"squash,squash", "default,rebase", "rebase,rebase"})
+    void mergesDirectlyWhenNoQueueIsConfigured(String strategy, String method)
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
 
-        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash", "displayed-head");
+        MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, strategy, "displayed-head");
 
         assertThat(result.merged()).isTrue();
-        verify(writes).mergePullRequest("pat", ref, new MergePullRequestCommand("squash", Optional.empty(), Optional.empty(), Optional.of("displayed-head")));
+        verify(writes).mergePullRequest("pat", ref, new MergePullRequestCommand(method, Optional.empty(), Optional.empty(), Optional.of("displayed-head")));
         verify(store).setMonitored(12L, false);
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.MERGED), eq("displayed-head"), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
@@ -2892,14 +2956,16 @@ class TestPullRequestService
 
     @ParameterizedTest
     @CsvSource({"squash,false", "squash,true", "rebase,false", "rebase,true", "queue,false", "queue,true", "when-ready,false", "when-ready,true"})
-    void rejectsMergeWithoutTheMatchingLegacyIdentity(String strategy, boolean collidingLegacyRequest)
+    void rejectsMergeWithoutTheMatchingStoredIdentity(String strategy, boolean collidingLegacyRequest)
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(collidingLegacyRequest ? Optional.of(99L) : Optional.empty());
 
         assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, strategy, "displayed-head"))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
 
-        verifyNoInteractions(credentialService, writes, gitHub, actions, viewStateStore, recent, detailStore, diffStore);
+        verify(detailStore, times(collidingLegacyRequest ? 1 : 0)).findCredentialScope(99L);
+        verifyNoMoreInteractions(detailStore);
+        verifyNoInteractions(writes, gitHub, actions, viewStateStore, recent, diffStore);
     }
 
     @Test
@@ -2934,6 +3000,7 @@ class TestPullRequestService
         verify(store, never()).setMonitored(anyLong(), anyBoolean());
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, gitHub, actions);
     }
@@ -2952,6 +3019,7 @@ class TestPullRequestService
         verify(writes, never()).mergePullRequest(anyString(), any(), any());
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, gitHub, actions);
     }
@@ -2973,6 +3041,7 @@ class TestPullRequestService
         verify(writes, never()).mergePullRequest(anyString(), any(), any());
         verify(writes, never()).enqueuePullRequest(anyString(), anyString(), anyString());
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, gitHub, actions, viewStateStore, recent);
     }
@@ -3014,6 +3083,7 @@ class TestPullRequestService
         }
         verify(writes, never()).mergePullRequest(anyString(), any(), any());
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, viewStateStore);
     }
@@ -3468,6 +3538,14 @@ class TestPullRequestService
                 false, mergeable, mergeableState, 4, 2, 1, 0, ImmutableList.of(), "head", "feature", "main", "base");
     }
 
+    private static Workspace branchWorkspace()
+    {
+        RepoRef repository = RepoRef.of("owner", "repo");
+        return new Workspace("workspace", "Repository", 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT,
+                "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repo", Optional.empty(), Optional.empty(),
+                0, REVIEWED_AT, REVIEWED_AT);
+    }
+
     private WorkspaceHostingRead workspaceRoute()
     {
         WorkspaceHostingRead route = workspaceRoute("workspace-scope", "pat", "me");
@@ -3486,8 +3564,8 @@ class TestPullRequestService
 
     private PullRequestService newService(Clock clock)
     {
-        return new PullRequestService(gitHub, writes, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
-                gitHub,
+        return new PullRequestService(gitHub, hostingWrites, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
+                contents,
                 Runnable::run), viewStateStore, recent, credentialService, connections, requests, workspaceHosting, metadata, summaries, workspaces, applicationContext,
                 notifications, syncSettings, issues, writeVersion, clock);
     }

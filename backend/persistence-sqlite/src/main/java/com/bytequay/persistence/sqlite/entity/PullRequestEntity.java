@@ -195,32 +195,37 @@ public class PullRequestEntity
     public static PullRequestEntity from(FetchedPullRequest pr, Instant syncedAt)
     {
         PullRequestEntity entity = new PullRequestEntity();
-        entity.setRepo(pr.repo());
-        entity.setNumber(pr.number());
-        entity.setTitle(pr.title());
-        entity.setAuthor(pr.author());
-        entity.setHtmlUrl(pr.htmlUrl());
-        entity.setCreatedAt(pr.createdAt());
-        entity.setUpdatedAt(pr.updatedAt());
-        entity.setOrigin(pr.origin().name());
-        entity.setLabels(pr.labels());
-        entity.setLabelColors(pr.labelColors());
-        entity.setDraft(pr.draft());
-        entity.setSyncedAt(syncedAt);
+        entity.updateSummary(pr, syncedAt);
+        return entity;
+    }
+
+    public void updateSummary(FetchedPullRequest pr, Instant syncedAt)
+    {
+        this.setRepo(pr.repo());
+        this.setNumber(pr.number());
+        this.setTitle(pr.title());
+        this.setAuthor(pr.author());
+        this.setHtmlUrl(pr.htmlUrl());
+        this.setCreatedAt(pr.createdAt());
+        this.setUpdatedAt(pr.updatedAt());
+        this.setOrigin(pr.origin().name());
+        this.setLabels(pr.labels());
+        this.setLabelColors(pr.labelColors());
+        this.setDraft(pr.draft());
+        this.setSyncedAt(syncedAt);
         // state/closedAt/mergedAt come straight from the GitHub response; the
         // enrichment a fetch cannot report is carried over by preserveEnrichment.
-        entity.setState(pr.mergedAt() != null ? "merged" : pr.state());
-        entity.setClosedAt(pr.closedAt());
-        entity.setMergedAt(pr.mergedAt());
-        entity.setMergeable(pr.mergeable());
-        entity.setMergeableState(pr.mergeableState());
-        entity.setHeadRef(pr.headRef());
-        entity.setRequestedReviewers(pr.requestedReviewers());
-        entity.setActivityAt(pr.updatedAt());
+        this.setState(pr.mergedAt() != null ? "merged" : pr.state());
+        this.setClosedAt(pr.closedAt());
+        this.setMergedAt(pr.mergedAt());
+        this.setMergeable(pr.mergeable());
+        this.setMergeableState(pr.mergeableState());
+        this.setHeadRef(pr.headRef());
+        this.setRequestedReviewers(pr.requestedReviewers());
+        this.setActivityAt(pr.updatedAt());
         if (pr.origin() == PullRequest.Origin.REVIEW_REQUESTED) {
-            entity.setReviewRequestedAt(syncedAt);
+            this.setReviewRequestedAt(syncedAt);
         }
-        return entity;
     }
 
     /** This row as the domain pull request, carrying the given view state. */

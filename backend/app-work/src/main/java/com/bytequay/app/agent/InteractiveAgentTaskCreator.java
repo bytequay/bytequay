@@ -30,9 +30,9 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.AgentTaskStartupProgress.Phase;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -76,7 +76,7 @@ public final class InteractiveAgentTaskCreator
     private final GitCommandRunner git;
     private final AgentTaskStartupProgress progress;
     private final PullRequestStore pullRequests;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
     private final Striped<Lock> creationLocks = Striped.lock(64);
 
     public InteractiveAgentTaskCreator(
@@ -90,7 +90,7 @@ public final class InteractiveAgentTaskCreator
             AppSettingsService settings,
             AgentTaskStartupProgress progress,
             PullRequestStore pullRequests,
-            CredentialService credentials)
+            WorkspaceHostingService hosting)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -102,7 +102,7 @@ public final class InteractiveAgentTaskCreator
         this.settings = requireNonNull(settings, "settings is null");
         this.progress = requireNonNull(progress, "progress is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
     }
 
     public AgentTask create(
@@ -196,14 +196,19 @@ public final class InteractiveAgentTaskCreator
             sendTiming.debug("send-timing phase=task.workspace_lock.wait epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
             return withLock(workspaceLock, () -> {
                 sendTiming.debug("send-timing phase=task.workspace_lock.acquired epochMs={} taskId={} turnId=-", System.currentTimeMillis(), taskId);
-                String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), message);
+                String login = hosting.viewerLogin(workspaceId).orElseThrow(() -> new AgentUnavailableException("Select a hosting account for this workspace"));
+                String branch = TaskBranches.generate(taskId, login, message);
                 try {
                     Result existing = git.run(workspace.repository(), "for-each-ref", "--format=%(refname)",
                             "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch);
                     if (!existing.successful() || existing.truncated()) {
                         throw new AgentStorageException("Cannot check the generated task branch");
                     }
-                    if (!existing.output().isBlank() || !pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), branch).isEmpty()) {
+                    Optional<Long> repositoryId = hosting.cachedRepositoryId(workspaceId);
+                    boolean published = !(repositoryId.isPresent()
+                            ? pullRequests.findByHostingHeadRef(repositoryId.orElseThrow(), branch)
+                            : pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), branch)).isEmpty();
+                    if (!existing.output().isBlank() || published) {
                         branch += "-" + taskId.toString().substring(0, 8);
                     }
                     CreateInteractiveAgentTaskCommand command = new CreateInteractiveAgentTaskCommand(

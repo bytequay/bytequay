@@ -57,6 +57,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -104,6 +105,12 @@ public class SqlitePrDetailStore
         return pullRequestRepo.findByRepoIgnoreCaseAndNumber(repo, number)
                 .map(PullRequestEntity::getId)
                 .flatMap(detailRepo::findSyncedAtByPrId);
+    }
+
+    @Override
+    public Optional<Instant> findSyncedAt(long prId)
+    {
+        return detailRepo.findSyncedAtByPrId(prId);
     }
 
     @Override
@@ -496,11 +503,16 @@ public class SqlitePrDetailStore
         reconcile(
                 reviewRepo,
                 reviewRepo.findByPrId(prId),
-                PrReviewEntity::getGithubId,
+                row -> reviewKey(row.getGithubId(), row.getLogin()),
                 reviews,
-                PrReviewState::githubId,
+                review -> reviewKey(review.githubId(), review.login()),
                 (entity, review) -> (entity == null ? new PrReviewEntity() : entity).updateFrom(prId, review),
                 complete);
+    }
+
+    private static Object reviewKey(Long remoteId, String login)
+    {
+        return remoteId != null ? remoteId : login.toLowerCase(Locale.ROOT);
     }
 
     /**

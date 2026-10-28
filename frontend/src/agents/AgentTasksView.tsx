@@ -47,7 +47,7 @@ import { acceptsImages, createTaskCreationTracker, type AgentBridgePort, type Ta
 import { agentProviderUnavailableFrom, CHECKING_ACCEPTANCE, unconfirmedRequest } from './contracts';
 import { pasteImage } from './clipboard';
 import { ImageAttachment } from './ImageAttachment';
-import { ATTENTION_SEED } from '../home/attention';
+import { ATTENTION_SEED, issueAttentionKey } from '../home/attention';
 import type { TaskAttention } from './attention';
 import { taskArchived, taskBusy } from './taskStatus';
 import { TaskItemCard, TaskItemRow, TaskTypeIcon, viewerInitials, type TaskItemHandlers } from './TaskListCards';
@@ -438,7 +438,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     const acceptCreatedTask = (task: AgentTaskDto) => {
       submissions.settled(request.taskId);
       if (issue !== null) {
-        if (task.issueSource !== null && task.issueSource !== undefined) recordAttentionAction(`${task.issueSource.repo}#${task.issueSource.number}`, 'prompt');
+        if (task.issueSource !== null && task.issueSource !== undefined) recordAttentionAction(issueAttentionKey(task.issueSource.repo, task.issueSource.number, task.workspaceId), 'prompt');
         notifyIssueDevelopmentChanged(issue.id);
       }
       if (sourceJira !== null) notifyJiraChanged();

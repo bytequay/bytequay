@@ -86,28 +86,40 @@ public class SelectedPullRequestDiffReader
      */
     public Read read(String repo, int number, Optional<String> expectedVersion, boolean forceRefresh)
     {
-        requireNonNull(expectedVersion, "expectedVersion is null");
-        expectedVersion.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{64}"), "Expected diff version must be lowercase SHA-256"));
-        checkArgument(expectedVersion.isEmpty() || !forceRefresh, "A diff continuation cannot force refresh");
-        String repository = parseRef(repo, number).repoFullName().toLowerCase(Locale.ROOT);
+        return read(repo, number, Optional.empty(), expectedVersion, forceRefresh);
+    }
+
+    public Read read(String workspaceId, String repo, int number, Optional<String> expectedVersion, boolean forceRefresh)
+    {
+        validateVersion(expectedVersion, forceRefresh);
         if (expectedVersion.isPresent()) {
-            Cached cached = row(repository, number).flatMap(value -> cached(value, false)).orElseThrow(SelectedPullRequestDiffReader::restart);
-            Read read = result(repository, number, cached, false, false);
-            if (!read.version().equals(expectedVersion.orElseThrow())) {
-                throw restart();
-            }
-            return read;
+            return continuation(repo, number, pullRequests.findWorkspaceStored(workspaceId, repo, number), expectedVersion.orElseThrow());
+        }
+        return read(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, forceRefresh);
+    }
+
+    public Read read(PullRequestRead route, Optional<String> expectedVersion, boolean forceRefresh)
+    {
+        return read(route.repository().fullPath(), route.number(), Optional.of(route), expectedVersion, forceRefresh);
+    }
+
+    private Read read(String repo, int number, Optional<PullRequestRead> selectedRoute, Optional<String> expectedVersion, boolean forceRefresh)
+    {
+        validateVersion(expectedVersion, forceRefresh);
+        String repository = selectedRoute.map(route -> route.repository().fullPath()).orElseGet(() -> parseRef(repo, number).repoFullName()).toLowerCase(Locale.ROOT);
+        if (expectedVersion.isPresent()) {
+            return continuation(repository, number, row(repository, number, selectedRoute), expectedVersion.orElseThrow());
         }
 
-        PullRequestRead route = pullRequests.prepareRead(repository, number);
-        Optional<PullRequest> row = row(repository, number);
+        PullRequestRead route = selectedRoute.orElseGet(() -> pullRequests.prepareRead(repository, number));
+        Optional<PullRequest> row = row(repository, number, selectedRoute);
         boolean attempted = false;
         boolean failed = false;
         if (row.isEmpty()) {
             SelectedPullRequestReader.Read hydrated = selected.read(route, SelectedPullRequestReader.Section.PR);
             attempted = hydrated.refreshAttempted();
             failed = hydrated.refreshFailed();
-            row = row(repository, number);
+            row = row(repository, number, selectedRoute);
         }
         Optional<Cached> original = row.flatMap(value -> cached(value, true));
         if (original.isPresent() && !forceRefresh && coordinatesMatch(original.orElseThrow())) {
@@ -115,7 +127,7 @@ public class SelectedPullRequestDiffReader
         }
         try {
             refresh.refreshDiffFiles(route, null, null);
-            Optional<Cached> updated = row(repository, number).flatMap(value -> cached(value, true));
+            Optional<Cached> updated = row(repository, number, selectedRoute).flatMap(value -> cached(value, true));
             Cached available = updated.or(() -> original)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Selected pull request diff has not been refreshed"));
             return result(repository, number, available, true, updated.isEmpty());
@@ -129,9 +141,26 @@ public class SelectedPullRequestDiffReader
         }
     }
 
-    private Optional<PullRequest> row(String repo, int number)
+    private static void validateVersion(Optional<String> expectedVersion, boolean forceRefresh)
     {
-        Optional<PullRequest> row = pullRequests.findStored(repo, number);
+        requireNonNull(expectedVersion, "expectedVersion is null");
+        expectedVersion.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{64}"), "Expected diff version must be lowercase SHA-256"));
+        checkArgument(expectedVersion.isEmpty() || !forceRefresh, "A diff continuation cannot force refresh");
+    }
+
+    private Read continuation(String repo, int number, Optional<PullRequest> row, String version)
+    {
+        Cached cached = row.flatMap(value -> cached(value, false)).orElseThrow(SelectedPullRequestDiffReader::restart);
+        Read read = result(repo, number, cached, false, false);
+        if (!read.version().equals(version)) {
+            throw restart();
+        }
+        return read;
+    }
+
+    private Optional<PullRequest> row(String repo, int number, Optional<PullRequestRead> route)
+    {
+        Optional<PullRequest> row = route.map(pullRequests::findStored).orElseGet(() -> pullRequests.findStored(repo, number));
         row.ifPresent(value -> checkArgument(value.repo().equalsIgnoreCase(repo) && value.number() == number, "Stored PR identity does not match selected request"));
         return row;
     }

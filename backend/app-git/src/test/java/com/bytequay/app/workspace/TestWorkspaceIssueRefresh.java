@@ -17,15 +17,13 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.GitHubIssueClient;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
-import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.store.AppSettingsStore;
@@ -85,20 +83,22 @@ class TestWorkspaceIssueRefresh
     private final RepositoryIssueDetailStore detailStore = mock(RepositoryIssueDetailStore.class);
     private final GitHubRepoClient gitHub = mock(GitHubRepoClient.class);
     private final GitHubPullRequestReadClient issueReads = mock(GitHubPullRequestReadClient.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private WorkspaceIssueService service;
 
     @BeforeEach
     void setUp()
     {
-        when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("alice", null, "", "", 0, 0, 0, null, null, null, null)));
-        when(credentials.cachedLogin()).thenReturn(Optional.of("alice"));
         when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, mock(GitHubPullRequestWriteClient.class), gitHub, credentials,
-                mock(RecentTouchRecorder.class), Clock.fixed(NOW, ZoneOffset.UTC), issueReads, settings);
+        when(workspaceStore.findHostingRepositoryId(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))).map(Workspace::monitoredRepositoryId));
+        when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting,
+                ImmutableList.of(new GitHubIssueClient(gitHub, issueReads, mock(GitHubPullRequestWriteClient.class))),
+                mock(RecentTouchRecorder.class), Clock.fixed(NOW, ZoneOffset.UTC), settings);
     }
 
     @Test
@@ -281,7 +281,7 @@ class TestWorkspaceIssueRefresh
     void recentChangesApplyPagesBeforeAdvancingCheckpointWithoutPruningOtherOpenCards()
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
-        String key = "github.issues.checkpoint.alice.owner/project";
+        String key = "hosting.issues.checkpoint.1:connected-account.100";
         Instant previous = NOW.minusSeconds(600);
         Instant since = previous.minusSeconds(300);
         when(settings.get(key)).thenReturn(Optional.of(previous.toString()));
@@ -322,8 +322,8 @@ class TestWorkspaceIssueRefresh
         service.refreshRecentIssues();
 
         verify(issueStore).saveSyncPage(eq(100L), eq(ImmutableList.of(issue(7))));
-        verify(settings, never()).put(eq("github.issues.checkpoint.alice.owner/project"), anyString());
-        verify(settings).put("github.issues.checkpoint.alice.upstream/project", NOW.toString());
+        verify(settings, never()).put(eq("hosting.issues.checkpoint.1:connected-account.100"), anyString());
+        verify(settings).put("hosting.issues.checkpoint.1:connected-account.300", NOW.toString());
     }
 
     @Test
@@ -333,11 +333,11 @@ class TestWorkspaceIssueRefresh
         Workspace second = workspace("second", 100, DIRECT, Topology.FORK);
         workspaces.put(first.id(), first);
         workspaces.put(second.id(), second);
-        when(settings.get("github.issues.checkpoint.alice.owner/project")).thenReturn(Optional.of(NOW.minusSeconds(119).toString()));
+        when(settings.get("hosting.issues.checkpoint.1:connected-account.100")).thenReturn(Optional.of(NOW.minusSeconds(119).toString()));
 
         service.refreshRecentIssues();
 
-        verify(settings, times(1)).get("github.issues.checkpoint.alice.owner/project");
+        verify(settings, times(1)).get("hosting.issues.checkpoint.1:connected-account.100");
         verifyNoInteractions(gitHub, issueStore);
     }
 
@@ -345,7 +345,7 @@ class TestWorkspaceIssueRefresh
     void futureCheckpointFallsBackToTheRecentHourAfterAClockCorrection()
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
-        String key = "github.issues.checkpoint.alice.owner/project";
+        String key = "hosting.issues.checkpoint.1:connected-account.100";
         when(settings.get(key)).thenReturn(Optional.of(NOW.plusSeconds(86400).toString()));
         when(gitHub.fetchChangedIssuesPage("token", DIRECT, NOW.minusSeconds(3600), 1))
                 .thenReturn(new GitHubRepoClient.ChangedIssuePage(ImmutableList.of(), ImmutableList.of(), false));

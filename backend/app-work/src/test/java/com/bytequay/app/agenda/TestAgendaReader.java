@@ -29,6 +29,7 @@ import com.bytequay.app.team.TeamService;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaTarget;
 import com.bytequay.core.domain.Epic;
@@ -191,6 +192,7 @@ class TestAgendaReader
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.id()).thenReturn("workspace");
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
         when(workspace.createdAt()).thenReturn(SINCE);
@@ -216,7 +218,7 @@ class TestAgendaReader
     {
         @SuppressWarnings("unchecked")
         ObjectProvider<JiraService> jira = mock(ObjectProvider.class);
-        return new AgendaReader(pullRequests, details, credentials, workspaces, notices, mock(AgentTaskStore.class),
+        return new AgendaReader(pullRequests, details, credentials, mock(WorkspaceHostingService.class), workspaces, notices, mock(AgentTaskStore.class),
                 mock(TaskPullRequestOwnership.class), localReviews, items, work, epics,
                 markers, mock(RepositoryIssueStore.class), mock(IssueDevelopmentService.class), jira, mock(JiraActivityReader.class),
                 new TeamService(new InMemoryAppSettingsStore(), mapper, credentials, github, mock(RepositoryMetadataStore.class)), marks, mock(AgendaDone.class));

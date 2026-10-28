@@ -11,8 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import GitLabWorkspace from '../hosting/GitLabWorkspace';
-import HostingPullsScreen from '../hosting/HostingPullsScreen';
 import React, { Activity, useCallback, useEffect, useRef, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import type { TaskAttention } from '../agents/attention';
@@ -30,6 +28,7 @@ import { JiraTicketLayer } from '../jira/JiraScreen';
 import { jiraIssueLocation } from '../jira/contracts';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
+import { PullRequestWorkspaceProvider } from '../pulls/PullRequestWorkspace';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import MemoryPage from '../memory/MemoryPage';
 import { settingsRoute } from '../settings/routes';
@@ -78,15 +77,16 @@ type Props = {
 };
 
 export default function WorkspaceShell(props: Props) {
-  if (props.tab === 'prs') return <HostingPullsScreen key={props.workspace.id} workspace={props.workspace}
-    initialPullRequestNumber={props.initialPullRequestNumber} browserOpen={props.browserOpen}
-    onSelectPullRequest={props.onSelectPullRequest} onClosePullRequest={() => { window.location.hash = workspaceRoute(props.workspace.id, 'prs'); }} />;
-  return props.workspace.hostingServer?.provider === 'GITLAB'
-    ? <GitLabWorkspace workspace={props.workspace} onWorkspaceChanged={props.onWorkspaceChanged} />
-    : <GitHubWorkspaceShell {...props} />;
+  const repository = `${props.workspace.monitoredOwner}/${props.workspace.monitoredRepo}`;
+  if (props.tab === 'prs') return <PullsScreen key={props.workspace.id}
+    repositoryScope={{ workspaceId: props.workspace.id, repository, server: props.workspace.hostingServer ?? undefined }}
+    initialPr={props.initialPullRequestNumber === null ? undefined : { repo: repository, number: props.initialPullRequestNumber }}
+    browserOpen={props.browserOpen}
+    onSelectPullRequest={(reference, mode) => props.onSelectPullRequest(reference.number, mode)} />;
+  return <WorkspaceContent {...props} />;
 }
 
-function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectIssue }: Props) {
+function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectIssue }: Props) {
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
   // The Epic whose view is open over Home, by the identity its work names it with.
   const [openEpic, setOpenEpic] = useState<string | null>(null);
@@ -262,7 +262,7 @@ function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceI
     ? <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />
     : renderPage();
 
-  return page;
+  return <PullRequestWorkspaceProvider workspaceId={workspace.id} server={workspace.hostingServer ?? undefined} repository={monitoredRepository}>{page}</PullRequestWorkspaceProvider>;
 
   function renderPage(): React.JSX.Element {
     if (tab === 'commits') {

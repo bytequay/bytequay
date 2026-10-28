@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { usePullRequestBridge } from '../PullRequestWorkspace';
 import { findingInResults } from '../agent-review/model';
 import { useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useReviewDraft } from '../ReviewDrafts';
-import type { InlineReviewCommentDto, PullRequestDetailDto, UserProfileDto } from '../../types';
+import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestViewer } from '../../types';
 import type { AgentReviewDto, ReviewFindingDto } from '../agent-review/contracts';
 import ReviewFindingCard, { type FindingActions } from '../agent-review/ReviewFindingCard';
 import { useFindingActions } from '../agent-review/useFindingActions';
@@ -48,7 +49,7 @@ export type CodeCommentsOptions = {
   number: number;
   workspaceId?: string;
   canReview: boolean;
-  viewer: UserProfileDto | null;
+  viewer: PullRequestViewer | null;
   pending: InlineReviewCommentDto[];
   onPendingChange: (comments: InlineReviewCommentDto[]) => void;
   threads: ReviewThreads;
@@ -84,7 +85,7 @@ export type CommentContext = {
 type FindingCardProps = {
   review: AgentReviewDto;
   finding: ReviewFindingDto;
-  viewer: UserProfileDto | null;
+  viewer: PullRequestViewer | null;
   actions: FindingActions;
   busy: boolean;
   error: string | null;
@@ -105,6 +106,7 @@ function FindingCard({ review, finding, viewer, actions, busy, error }: FindingC
  * comment anchors only to the current pull request's diff lines; Send to agent takes any line.
  */
 export function useCodeComments(options: CodeCommentsOptions | undefined, context: CommentContext | null, findings?: CodeFindings, findingOverride?: ReturnType<typeof useFindingActions>) {
+  const bridge = usePullRequestBridge();
   const [range, setRange] = useReviewDraft('codeComment:range', NO_RANGE_SELECTION);
   const dispatchRange = (action: Parameters<typeof rangeSelectionReducer>[1]) => setRange(current => rangeSelectionReducer(current, action));
   const [rangePath, setRangePath] = useReviewDraft<string | null>('codeComment:path', null);
@@ -277,7 +279,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
           setError(null);
           const key = commentKey ?? crypto.randomUUID();
           setCommentKey(key);
-          void submitInlineReviewComment(window.bridge, options.repo, options.number, value, key, options.onDetailChange)
+          void submitInlineReviewComment(bridge, options.repo, options.number, value, key, options.onDetailChange)
             .then(close)
             .catch(failure => setError(remoteErrorMessage(failure)))
             .finally(() => setPosting(false));

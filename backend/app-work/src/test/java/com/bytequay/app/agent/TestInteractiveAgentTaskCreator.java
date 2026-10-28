@@ -39,11 +39,10 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.command.GitCommandRunner;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -51,7 +50,6 @@ import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -73,6 +71,7 @@ import java.util.OptionalLong;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -130,9 +129,9 @@ class TestInteractiveAgentTaskCreator
         pullRequests = mock(PullRequestStore.class);
         when(git.run(any(Path.class), eq("for-each-ref"), eq("--format=%(refname)"), any(String.class), any(String.class), any(String.class)))
                 .thenReturn(new GitCommandRunner.Result(0, "", false));
-        CredentialService credentials = mock(CredentialService.class);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("test-token", new UserProfile("Contributor", "", "", "", 0, 0, 0, "", "", "", "")));
-        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, pullRequests, credentials);
+        WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+        when(hosting.viewerLogin(anyString())).thenReturn(Optional.of("Contributor"));
+        creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, pullRequests, hosting);
     }
 
     @Test

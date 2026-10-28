@@ -15,6 +15,7 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
@@ -297,7 +298,9 @@ public class GitHubRepoClient
                     issueLabels(issue),
                     issue.updatedAt(),
                     issue.state(),
-                    issue.pullRequest() != null);
+                    issue.pullRequest() != null,
+                    Optional.ofNullable(issue.htmlUrl()).orElse("https://github.com/" + repo.fullName() + "/issues/" + issueNumber),
+                    Optional.ofNullable(issue.user()).map(GitHubUser::avatarUrl).orElse(""));
         });
     }
 

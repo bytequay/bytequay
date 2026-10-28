@@ -30,9 +30,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /** The fixed SQLite ownership graph removed by the explicit workspace Delete action. */
@@ -132,6 +135,7 @@ final class SqliteWorkspacePurge
                 deleteRepositoryData(repository.getKey(), repository.getValue());
             }
         }
+        deleteHostedRepositoryData(id);
         update("DELETE FROM watched_repo_workspaces WHERE id = :workspaceId", parameters);
         entities.clear();
     }
@@ -169,12 +173,27 @@ final class SqliteWorkspacePurge
                 || normalized.equals("git@github.com:" + fullName);
     }
 
+    private void deleteHostedRepositoryData(String workspaceId)
+    {
+        Optional<Long> repositoryId = hostingRepositoryId(entities.find(WorkspaceEntity.class, workspaceId));
+        Set<Long> retained = entities.createQuery("FROM WorkspaceEntity WHERE id <> :id", WorkspaceEntity.class).setParameter("id", workspaceId)
+                .getResultList().stream().flatMap(workspace -> hostingRepositoryId(workspace).stream()).collect(toImmutableSet());
+        repositoryId.filter(id -> !retained.contains(id)).ifPresent(id -> {
+            for (String entity : ImmutableList.of("RepositoryIssueEntity", "RepositoryIssueDetailEntity", "RepositoryIssueSyncEntity", "RepositoryMetadataEntity")) {
+                entities.createQuery("DELETE FROM " + entity + " WHERE repositoryId = :id").setParameter("id", id).executeUpdate();
+            }
+        });
+    }
+
+    private static Optional<Long> hostingRepositoryId(WorkspaceEntity workspace)
+    {
+        return workspace.hostingBinding().map(binding -> binding.monitoredRepositoryId()).or(() -> workspace.hostingCacheTarget().map(target -> target.repositoryId()));
+    }
+
     private void deleteRepositoryData(long repositoryId, RepoRef repository)
     {
         Map<String, Object> parameters = ImmutableMap.of("repositoryId", repositoryId, "repo", repository.fullName().toLowerCase(Locale.ROOT));
-        for (String table : ImmutableList.of("repository_issue_details", "repository_issue_rows", "repository_issue_sync", "repository_metadata", "commit_enrichment")) {
-            update("DELETE FROM " + table + " WHERE repository_id = :repositoryId", parameters);
-        }
+        update("DELETE FROM commit_enrichment WHERE repository_id = :repositoryId", parameters);
         for (String table : ImmutableList.of("recent_touch", "recent_text")) {
             update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND lower(repo) = :repo", parameters);
         }

@@ -13,11 +13,11 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.workspace.RepositorySearchResult;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.ContributionCalendar;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.RecentEvent;
 import com.bytequay.core.domain.UserCommitSummary;
 import com.bytequay.core.domain.UserProfile;

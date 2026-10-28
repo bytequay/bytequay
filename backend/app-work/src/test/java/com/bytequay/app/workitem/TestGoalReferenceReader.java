@@ -20,6 +20,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
@@ -32,7 +33,6 @@ import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
-import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -67,7 +67,7 @@ class TestGoalReferenceReader
     private static final TaskId TASK = TaskId.random();
 
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
-    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
     private final IssueDevelopmentStore development = mock(IssueDevelopmentStore.class);
     private final JiraService jira = mock(JiraService.class);
@@ -82,6 +82,7 @@ class TestGoalReferenceReader
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.id()).thenReturn(WORKSPACE);
         when(workspace.monitoredRepository()).thenReturn(REPO);
         when(workspace.monitoredRepositoryId()).thenReturn(7L);
@@ -90,17 +91,15 @@ class TestGoalReferenceReader
 
         PullRequest merged = pullRequest(30702, "Retry Iceberg commits", "merged", false);
         PullRequest draft = pullRequest(31264, "Keep deletion vectors in checkpoints", "open", true);
-        when(pullRequests.findIdByRepoAndNumber("owner/repository", 30702)).thenReturn(Optional.of(1L));
-        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31264)).thenReturn(Optional.of(2L));
-        when(pullRequests.findById(1L)).thenReturn(Optional.of(merged));
-        when(pullRequests.findById(2L)).thenReturn(Optional.of(draft));
-        when(pullRequests.findRepositoryPage(eq("owner/repository"), anyInt(), anyInt(), anyString()))
+        when(pullRequests.findWorkspaceStored(WORKSPACE, "owner/repository", 30702)).thenReturn(Optional.of(merged));
+        when(pullRequests.findWorkspaceStored(WORKSPACE, "owner/repository", 31264)).thenReturn(Optional.of(draft));
+        when(pullRequests.listWorkspacePullRequests(eq(WORKSPACE), anyInt(), anyInt(), anyString()))
                 .thenReturn(new PullRequestPage(ImmutableList.of(draft), 0, 8, 1, 1, false));
 
         RepositoryIssue issue = new RepositoryIssue(90, 31190, "Delta Lake checkpoint drops deletion vectors", "", "alice", "",
                 "https://github.com/owner/repository/issues/31190", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW);
-        when(issues.find(7L, 31190)).thenReturn(Optional.of(issue));
-        when(issues.findPage(eq(7L), eq(REPO), anyInt(), anyInt()))
+        when(issues.find(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(31190))).thenReturn(Optional.of(issue));
+        when(issues.findPage(any(), any(), anyInt(), anyInt()))
                 .thenReturn(new RepositoryIssuePage(7L, REPO, ImmutableList.of(issue), 0, 500, 1, false, Optional.of(NOW)));
         when(development.findTask("github.com", 90)).thenReturn(Optional.of(mock(IssueTask.class, withSettings().mockMaker(MockMakers.INLINE))));
 
@@ -127,7 +126,7 @@ class TestGoalReferenceReader
     void absentOpenIssueCacheIsUnknownEvenAfterASuccessfulSync()
     {
         GoalItem saved = new GoalItem(GoalItemKind.ISSUE, "owner/repository#31190", "#31190", "Saved issue", NOW);
-        when(issues.find(7L, 31190)).thenReturn(Optional.empty());
+        when(issues.find(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(31190))).thenReturn(Optional.empty());
         assertThat(reader.view(WORKSPACE, saved).state()).isEqualTo(GoalItemState.UNKNOWN);
         assertThat(reader.view(WORKSPACE, saved).title()).isEqualTo("Saved issue");
     }
@@ -143,11 +142,11 @@ class TestGoalReferenceReader
         when(task.state()).thenReturn(TaskState.COMPLETED);
         assertThat(reader.view(WORKSPACE, saved).state()).isEqualTo(GoalItemState.ENDED);
         PullRequest closed = pullRequest(30702, "Abandoned", "closed", false);
-        when(pullRequests.findById(1L)).thenReturn(Optional.of(closed));
+        when(pullRequests.findWorkspaceStored(WORKSPACE, "owner/repository", 30702)).thenReturn(Optional.of(closed));
         GoalItem pull = new GoalItem(GoalItemKind.PULL_REQUEST, "owner/repository#30702", "#30702", "Saved PR", NOW);
         assertThat(reader.view(WORKSPACE, pull).state()).isEqualTo(GoalItemState.ENDED);
         PullRequest merged = pullRequest(30702, "Merged", "merged", false);
-        when(pullRequests.findById(1L)).thenReturn(Optional.of(merged));
+        when(pullRequests.findWorkspaceStored(WORKSPACE, "owner/repository", 30702)).thenReturn(Optional.of(merged));
         assertThat(reader.view(WORKSPACE, pull).state()).isEqualTo(GoalItemState.MERGED);
     }
 

@@ -155,8 +155,10 @@ provider-specific URLs and normalization. Application services select an adapter
 from the configured server; `app` composes the concrete implementations. The
 adapters depend on `core`, not application services or persistence.
 
-The implemented contracts cover account verification, repository resolution and
-paginated repository PR/MR listing and metadata reads. GitLab.com and company GitLab servers use the same adapter
+The contracts cover accounts, repository metadata, paginated PR/MR and issue
+reads, request discussion, checks, diffs, and explicit remote actions. Existing
+GitHub clients implement the rich contracts through adapters in `app-github`;
+GitLab implements them in `plugins/gitlab`. GitLab.com and company servers use the same adapter
 with configured web/API base URLs, including path prefixes and ports. Credentials
 are encrypted separately from retained object identities. Redirects cannot
 forward tokens, and native GitHub operations reject other hosting servers before
@@ -192,8 +194,11 @@ Hibernate owns the current schema; no migration framework is maintained.
 Legacy desktop rows remain separate because matching repository paths cannot
 establish historical remote identity. Shared metadata is projected onto existing
 desktop PR IDs so drafts, reviews and local timeline events keep their references.
-Legacy lookups and mutations exclude hosted rows. Account changes clear remote
-legacy detail/diff projections while retaining local timeline events.
+Path-only legacy lookups exclude hosted rows. Hosted reads and local mutations
+use the retained repository or PR ID. Account changes clear remote detail/diff
+projections while retaining local timeline events. Review drafts use the retained
+repository ID and request number. Issue caches and repository metadata use local
+hosting repository IDs, so equal project numbers on separate servers cannot collide.
 
 Workspace repository numbers are scoped by the configured server. A GitLab
 workspace retains that server and its selected hosting account/repository binding;
@@ -228,33 +233,43 @@ existing per-command environment, scoped to the selected server and path prefix,
 with redirects disabled for bound accounts. Repository discovery uses the shared paginated reader, ordered
 by update time. The first pass reads recent changes and all open requests; later
 passes stop at the last successful refresh cutoff. Each page is saved as it arrives,
-and the checkpoint advances only after discovery completes. Existing GitHub
-workspaces retain their desktop projection and GitHub card enrichment; GitLab
-refresh writes only the shared cache.
+and the checkpoint advances only after discovery completes. Both adapters populate the existing desktop PR projection. GitHub
+workspaces preserve their historical local IDs; GitLab uses the hosted PR ID.
 Remote writes still require direct user action.
 
 Workspace request lists read the shared cache without credentials or remote
 verification. Explicit bindings select their account directly; unbound GitHub
 workspaces retain the last verified cache target for local reads after restart.
-The list uses shared summaries for remote facts and attaches existing GitHub
-local projections for monitoring and enriched cards. Workspace metadata reads
-use the same local cache target, with a separate refresh through the selected
-account. GitHub rows retain their review surface; GitLab rows show the normalized
-metadata in a read-only overview and open their provider URL for remote actions.
+The same workspace home, navigation, request list, detail, review and work-item
+components render both providers. Rich readers return the existing ByteQuay DTOs;
+provider response records do not reach the UI. Workspace identity accompanies
+remote calls, and the backend resolves the retained repository and selected
+account before choosing an adapter. Local PR IDs identify monitoring, review
+state and timeline storage. Tokens remain in the backend.
 
-### Remaining integration
+Issue refresh, comments, editing and publication use the shared issue client.
+Development task import fetches the provider's request head reference, and draft
+publication uses the selected workspace's writer. CI jobs expose a normalized job
+identity for log reads and explicit retry actions.
 
-Shared metadata storage and backend connection endpoints support both providers.
-The desktop still uses GitHub readers for personal discovery, discussions, checks and diffs,
-and GitHub implementations for remote writes. GitLab diffs, discussions, checks and review actions are not yet
-implemented. GitLab workspaces expose account selection, direct cloning,
-code synchronization, cached merge-request lists and metadata overviews; the UI keeps unported features unavailable, and native
-GitHub consumers exclude GitLab workspaces before reading path- or ID-based data. Extend contracts as those consumers are migrated; keep provider
-protocol details inside each adapter and reuse the shared UI and storage.
+### Provider differences and remaining integration
 
-GitLab.com Free and a company-style self-managed test instance are the intended
-live test environments. Live testing and supported-version qualification remain
-outstanding; fixture tests do not establish full GitLab UI support.
+GitLab approval, notes and discussions map to the existing review DTOs. GitLab
+has no atomic equivalent of a GitHub review containing several comments: if a
+later write fails, the adapter reports which earlier writes succeeded. Unsupported
+request-changes reviews, multi-line review comments and merge-train operations
+fail explicitly. The GitLab project's merge method remains authoritative.
+
+Global GitHub personal discovery, GitHub-specific CI automation, fork/backport
+operations and remote epic-child synchronization still have native GitHub
+consumers. These need their own provider integration before GitLab parity can be
+claimed. GitLab contributor account profiles are unavailable where the API only
+supplies commit author names and emails. GitLab commit history reads the local
+checkout without GitHub avatar or pull-request association enrichment.
+
+GitLab.com Free and a company-style self-managed instance are the intended live
+test environments. Fixture tests cover custom servers and nested namespaces;
+they do not establish compatibility with every self-managed release.
 
 ## Data ownership
 

@@ -48,11 +48,13 @@ public class PullRequestAttentionSyncJob
     @Scheduled(fixedDelay = 60_000, scheduler = "attentionScheduler")
     public void tick()
     {
-        if (!credentials.isGitHubAccountConfigured() || settings.inQuietHours()) {
+        if (settings.inQuietHours()) {
             return;
         }
         try {
-            pullRequests.syncAttentionSummaries();
+            if (credentials.isGitHubAccountConfigured()) {
+                pullRequests.syncAttentionSummaries();
+            }
         }
         catch (RuntimeException failure) {
             if (isRateLimit(failure)) {

@@ -15,7 +15,10 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
@@ -64,7 +67,13 @@ class TestSqliteHostingPullRequestStore
     private SqliteHostingIdentityStore identities;
 
     @Autowired
+    private SqlitePullRequestStore desktop;
+
+    @Autowired
     private SqlitePrViewStateStore views;
+
+    @Autowired
+    private SqlitePrDetailStore details;
 
     @Autowired
     private SqliteReviewDraftStore drafts;
@@ -133,6 +142,73 @@ class TestSqliteHostingPullRequestStore
         assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(fetched);
         assertThat(requests.count()).isEqualTo(3);
         assertThat(snapshots.count()).isEqualTo(3);
+    }
+
+    @Test
+    void retainsApprovalSnapshotsWithoutRemoteReviewIdsWhenTheirSourceIsUnavailable()
+    {
+        Scope scope = scope(GITLAB, "https://gitlab.com");
+        HostingPullRequestSnapshot snapshot = save(scope, "Request", "Body");
+        long id = snapshot.request().id();
+        var approvals = ImmutableList.of(
+                new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null),
+                new PrReviewState(null, "bob", null, false, "APPROVED", null, null, null, null));
+        StoredPrDetail complete = new StoredPrDetail(snapshot.detail(), approvals, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
+        details.saveDiscussion(id, complete, NOW);
+        entities.flush();
+        entities.clear();
+        details.saveDiscussion(id, new StoredPrDetail(snapshot.detail(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(StoredPrDetail.REVIEWS), true), NOW);
+        entities.flush();
+        entities.clear();
+
+        assertThat(details.find(id).orElseThrow().reviews()).containsExactlyInAnyOrderElementsOf(approvals);
+        assertThat(details.find(id).orElseThrow().reviewsComplete()).isFalse();
+        details.saveDiscussion(id, complete, NOW);
+        entities.flush();
+        entities.clear();
+        assertThat(details.find(id).orElseThrow().reviews()).containsExactlyInAnyOrderElementsOf(approvals);
+    }
+
+    @Test
+    void hydratesAnIdentityOnlyRowFromItsCachedSummaryWithoutLosingLocalState()
+    {
+        Scope scope = scope(GITLAB, "https://gitlab.com");
+        HostingPullRequestSnapshot snapshot = save(scope, "Cached title", "Body");
+        long id = snapshot.request().id();
+        PullRequestEntity row = requests.findById(id).orElseThrow();
+        row.setTitle("");
+        row.setAuthor(null);
+        row.setCreatedAt(null);
+        row.setUpdatedAt(null);
+        row.setState(null);
+        row.setOrigin(PullRequest.Origin.OTHER.name());
+        row.setLabels(ImmutableList.of());
+        row.setMonitoredAt(NOW);
+        row.setCiStatus(PullRequestDetail.CiStatus.FAILING);
+        row.setAdditions(5);
+        views.markViewed(id);
+        entities.flush();
+        entities.clear();
+
+        assertThat(desktop.findByHostingRepository(scope.repository().id(), 7)).isEmpty();
+        FetchedPullRequest cached = store.findPage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1, 100).items().getFirst();
+        PullRequest hydrated = desktop.saveHosted(scope.repository().id(), cached);
+        entities.flush();
+        entities.clear();
+
+        assertThat(hydrated.id()).isEqualTo(id);
+        assertThat(hydrated.title()).isEqualTo("Cached title");
+        assertThat(hydrated.author()).isEqualTo(cached.author());
+        assertThat(hydrated.updatedAt()).isEqualTo(cached.updatedAt());
+        assertThat(hydrated.viewedAt()).isNotNull();
+        assertThat(hydrated.monitoredAt()).isEqualTo(NOW);
+        assertThat(hydrated.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+        assertThat(hydrated.additions()).isEqualTo(5);
+        assertThat(desktop.findById(id)).contains(hydrated);
+        assertThat(desktop.findByHostingRepository(scope.repository().id(), 7)).contains(hydrated);
+        assertThat(requests.count()).isEqualTo(1);
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(snapshot);
     }
 
     @Test
@@ -250,7 +326,7 @@ class TestSqliteHostingPullRequestStore
         FetchedPullRequest legacyMetadata = pullRequest(scope, 99, "Legacy title");
         PullRequestEntity legacy = requests.saveAndFlush(PullRequestEntity.from(legacyMetadata, NOW));
         views.markViewed(legacy.getId());
-        ReviewDraft draft = drafts.save(ReviewDraft.empty(legacyMetadata.repo(), legacyMetadata.number(), NOW));
+        ReviewDraft draft = drafts.save(ReviewDraft.empty("saved-draft", legacyMetadata.repo(), legacyMetadata.number(), NOW));
         HostingPullRequestSnapshot hosted = save(scope, "Hosted title", "new-body");
         entities.flush();
         entities.clear();
@@ -260,7 +336,7 @@ class TestSqliteHostingPullRequestStore
         assertThat(retained.getHostingRepository()).isNull();
         assertThat(retained.getTitle()).isEqualTo("Legacy title");
         assertThat(views.findByPrIds(ImmutableSet.of(legacy.getId(), hosted.request().id()))).containsOnlyKeys(legacy.getId());
-        assertThat(drafts.find(legacyMetadata.repo(), legacyMetadata.number())).contains(draft);
+        assertThat(drafts.find(draft.id())).contains(draft);
         assertThat(requests.count()).isEqualTo(2);
     }
 
@@ -288,12 +364,12 @@ class TestSqliteHostingPullRequestStore
         assertThat(requests.count()).isEqualTo(1);
         assertThat(snapshots.count()).isZero();
         PullRequestEntity retained = requests.findById(alice.request().id()).orElseThrow();
-        assertThat(retained.getTitle()).isEmpty();
-        assertThat(retained.getAuthor()).isNull();
-        assertThat(retained.getLabels()).isEmpty();
-        assertThat(retained.getLabelColors()).isNull();
-        assertThat(retained.getRequestedReviewers()).isNull();
-        assertThat(retained.getOrigin()).isEqualTo(PullRequest.Origin.OTHER.name());
+        assertThat(retained.getTitle()).isEqualTo("Alice refreshed");
+        assertThat(retained.getAuthor()).isEqualTo("alice");
+        assertThat(retained.getLabels()).containsExactly("bug");
+        assertThat(retained.getLabelColors()).containsEntry("bug", "ff0000");
+        assertThat(retained.getRequestedReviewers()).isEmpty();
+        assertThat(retained.getOrigin()).isEqualTo(PullRequest.Origin.AUTHORED.name());
         assertThat(requests.findByIdAndHostingRepositoryIsNull(alice.request().id())).isEmpty();
         assertThat(entities.createQuery("SELECT COUNT(d) FROM PrDetailEntity d WHERE d.prId = :id", Long.class)
                 .setParameter("id", alice.request().id()).getSingleResult()).isZero();
@@ -415,6 +491,69 @@ class TestSqliteHostingPullRequestStore
                 fetched, detail(fetched, "body"), Optional.empty(), NOW));
         assertThat(requests.count()).isZero();
         assertThat(snapshots.count()).isZero();
+    }
+
+    @Test
+    void sharedRowsUseTheExistingDesktopProjectionWithoutCrossServerCollisions()
+    {
+        Scope publicServer = scope(GITLAB, "https://gitlab.com");
+        Scope privateServer = scope(GITLAB, "https://git.example.com");
+        HostingPullRequestSnapshot publicRequest = save(publicServer, "Public", "Public body");
+        HostingPullRequestSnapshot privateRequest = save(privateServer, "Private", "Private body");
+        PullRequest legacy = desktop.saveObserved(pullRequest(scope(GITHUB, "https://github.com"), 42, "GitHub"));
+        desktop.setMonitored(publicRequest.request().id(), true);
+        views.markViewed(publicRequest.request().id());
+        entities.flush();
+        entities.clear();
+
+        PullRequest publicRow = desktop.findByHostingRepository(publicServer.repository().id(), 7).orElseThrow();
+        PullRequest privateRow = desktop.findByHostingRepository(privateServer.repository().id(), 7).orElseThrow();
+        assertThat(publicRow.title()).isEqualTo("Public");
+        assertThat(publicRow.author()).isEqualTo("alice");
+        assertThat(publicRow.monitoredAt()).isNotNull();
+        assertThat(publicRow.viewedAt()).isNotNull();
+        assertThat(privateRow.title()).isEqualTo("Private");
+        assertThat(privateRow.monitoredAt()).isNull();
+        assertThat(privateRow.viewedAt()).isNull();
+        assertThat(desktop.findById(publicRow.id())).contains(publicRow);
+        assertThat(desktop.findHostingIdentity(publicRow.id())).contains(publicRequest.request());
+        assertThat(desktop.findHostingIdentity(privateRow.id())).contains(privateRequest.request());
+        assertThat(desktop.findHostingIdentity(legacy.id())).isEmpty();
+        assertThat(desktop.findIdByRepoAndNumber(publicRow.repo(), 7)).contains(legacy.id());
+        assertThat(desktop.findByHostingHeadRef(publicServer.repository().id(), "feature")).extracting(PullRequest::id).containsExactly(publicRow.id());
+    }
+
+    @Test
+    void hostedRefreshPreservesLocalEnrichmentAndAdvancesTheExistingActivityClock()
+    {
+        Scope scope = scope(GITLAB, "https://gitlab.com");
+        HostingPullRequestSnapshot original = save(scope, "Original", "Body");
+        long id = original.request().id();
+        desktop.setMonitored(id, true);
+        views.markViewed(id);
+        PullRequestEntity row = requests.findById(id).orElseThrow();
+        row.setCiStatus(PullRequestDetail.CiStatus.FAILING);
+        row.setAdditions(9);
+        row.setActivityAt(NOW.minusSeconds(10));
+        FetchedPullRequest updated = pullRequest(scope, 42, 7, "Updated", NOW.plusSeconds(5));
+        store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, updated, detail(updated, "Body"), Optional.empty(), NOW.plusSeconds(10));
+        entities.flush();
+        entities.clear();
+
+        PullRequest projected = desktop.findById(id).orElseThrow();
+        assertThat(projected.title()).isEqualTo("Updated");
+        assertThat(projected.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+        assertThat(projected.additions()).isEqualTo(9);
+        assertThat(projected.monitoredAt()).isNotNull();
+        assertThat(projected.viewedAt()).isNotNull();
+        assertThat(projected.activityAt()).isEqualTo(NOW.plusSeconds(10));
+
+        FetchedPullRequest merged = new FetchedPullRequest(updated.githubId(), updated.repo(), updated.number(), updated.title(), updated.author(), updated.htmlUrl(),
+                updated.createdAt(), NOW.plusSeconds(20), updated.origin(), updated.labels(), updated.labelColors(), false, "merged", NOW.plusSeconds(20), NOW.plusSeconds(20),
+                updated.requestedReviewers(), updated.mergeable(), updated.mergeableState(), updated.headRef());
+        store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of(merged));
+        assertThat(desktop.findById(id).orElseThrow().monitoredAt()).isNull();
+        assertThat(desktop.findById(id).orElseThrow().viewedAt()).isNotNull();
     }
 
     @Test

@@ -20,16 +20,19 @@ public record RepositoryIdentity(String owner, String name)
 {
     public RepositoryIdentity
     {
-        checkPart(owner, "owner");
+        checkText(owner, "owner");
+        for (String part : owner.split("/", -1)) {
+            checkPart(part, "namespace");
+        }
         checkPart(name, "name");
     }
 
     public static RepositoryIdentity valueOf(String value)
     {
         checkText(value, "value");
-        String[] parts = value.split("/", -1);
-        checkArgument(parts.length == 2, "repository must use owner/name format");
-        return new RepositoryIdentity(parts[0], parts[1]);
+        int slash = value.lastIndexOf('/');
+        checkArgument(slash > 0 && slash < value.length() - 1, "repository must use namespace/name format");
+        return new RepositoryIdentity(value.substring(0, slash), value.substring(slash + 1));
     }
 
     @Override

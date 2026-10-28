@@ -51,6 +51,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -94,6 +95,9 @@ class TestEpicService
     @BeforeEach
     void setUp()
     {
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(markers.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "org/repo", 7, true, NOW)));
         when(credentials.resolveGitHubToken()).thenReturn("pat");
         when(tickets.getObject()).thenReturn(jira);
@@ -137,6 +141,16 @@ class TestEpicService
     }
 
     @Test
+    void gitLabEpicDoesNotReadGitHubChildrenWithTheSameIssueId()
+    {
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspaces.findById("gitlab-workspace")).thenReturn(Optional.of(workspace));
+        assertThatThrownBy(() -> service.refreshChildren("gitlab-workspace", "ISSUE:https://gitlab.example.test/gitlab:1", Optional.empty()))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Fetching GitLab issue children is not supported yet");
+        verifyNoInteractions(github, credentials, markers);
+    }
+
+    @Test
     void concludingRecordsTheOutcomeOnceAllItsWorkIsDoneAndOnlyConcludedEpicsLeaveTheDrawer()
     {
         doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Conclude the Epic once all its work is done.")).when(work).requireEpicDone("workspace", EPIC);
@@ -158,9 +172,10 @@ class TestEpicService
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.monitoredRepositoryId()).thenReturn(5L);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
-        when(issues.find(5, 7)).thenReturn(Optional.of(new RepositoryIssue(1, 7, "Iceberg REST catalog", "Cache table metadata", "author", "",
+        when(issues.find(any(), any(), eq(7))).thenReturn(Optional.of(new RepositoryIssue(1, 7, "Iceberg REST catalog", "Cache table metadata", "author", "",
                 "https://github.com/org/repo/issues/7", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW)));
         service.propose("workspace", EPIC, Optional.empty());
         verify(breakdowns).start("workspace", EPIC, new EpicBreakdowns.Source("#7", "Iceberg REST catalog", "Cache table metadata"));

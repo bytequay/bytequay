@@ -30,7 +30,7 @@ import { remotePullRequest } from '../PullsScreen';
 const AT = '2026-09-27T00:00:00Z';
 const ROOT = 61;
 const detail = prDetail({
-  id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: null, headRef: 'alice/resolve-owners-through-the-shared-helper-and-its-callers',
+  id: 7, repo: 'owner/repo', number: 7, title: 'Resolve owners', htmlUrl: 'https://github.com/owner/repo/pull/7', headRef: 'alice/resolve-owners-through-the-shared-helper-and-its-callers',
   mergeable: null, mergeableState: null, author: 'alice', createdAt: AT, updatedAt: AT,
   body: 'Resolves owners.', deletions: 1,
   recentActivity: [
@@ -92,8 +92,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     draftTaskDiscussionReply: () => { draftCalls++; return new Promise<string>(resolve => { finishDraft = resolve; }); },
   };
   const originalBridge = window.bridge;
-  const pageBridge: Pick<Bridge, 'getUserProfile' | 'replyToReviewComment' | 'listAgentReviews'> = {
+  const pageBridge: Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'replyToReviewComment' | 'listAgentReviews'> = {
     listAgentReviews: async () => [],
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0, following: 0,
       bio: null, location: null, company: null, email: null }),
     replyToReviewComment: async (...request) => { posted.push(request); },
@@ -183,7 +185,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       const toggle = host.querySelector<HTMLButtonElement>('.pr-overview__branches > .pr-private-toggle');
       assert(toggle !== null, 'The private threads toggle must sit in the branch row');
       // Beside the metadata chips it took a line of its own once the labels filled the row.
-      assert(toggle.previousElementSibling?.getAttribute('aria-label') === 'Open on GitHub', 'The toggle must follow Open on GitHub');
+      assert(toggle.previousElementSibling?.getAttribute('aria-label') === 'Open in browser', 'The toggle must follow Open in browser');
       host.style.width = '640px';
       const state = fixtureElement<HTMLElement>('.pr-overview__branches > .pr-state', host, 'The state pill is missing');
       const branch = fixtureElement<HTMLElement>('.pr-overview__head-branch code', host, 'The head branch is missing');
@@ -221,7 +223,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       const editor = host.querySelector<HTMLTextAreaElement>('[aria-label="Reply to review thread"]');
       assert(editor?.value === '@bob Renamed it to resolveOwner.', `The editor holds "${editor?.value ?? ''}"`);
       assert(host.querySelector('.pr-thread-draft__badge')?.textContent === 'Draft · not posted'
-        && host.textContent?.includes('Posts to GitHub as you') === true && posted.length === 0,
+        && host.textContent?.includes('Posts as you') === true && posted.length === 0,
       'The draft must be marked unposted and nothing may reach GitHub');
     });
 

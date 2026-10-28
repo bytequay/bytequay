@@ -15,13 +15,13 @@ package com.bytequay.app.ci.e2e;
 
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.actions.BoundedCiLog;
 import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.app.repository.github.actions.CiRerunResult;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;

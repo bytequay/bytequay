@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useHostingPresentation } from './pulls/PullRequestWorkspace';
 import { useEffect, useState } from 'react';
 
 type Props = {
@@ -47,6 +48,8 @@ function ownerTile(owner: string): [string, string] {
 export default function RepoAvatar({ owner, repo, size, radius = 5, github = true }: Props) {
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
+  const { server } = useHostingPresentation();
+  github = github && server?.provider !== 'GITLAB';
   const login = owner.trim().toLowerCase();
   const [image, setImage] = useState<{ owner: string; source: string } | null>(null);
   const source = github && image?.owner === login ? image.source : null;

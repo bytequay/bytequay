@@ -20,11 +20,11 @@ import com.bytequay.app.repository.github.GitHubNotificationRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
@@ -48,6 +48,7 @@ import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestCheckLog;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestHistoryPage;
 import com.bytequay.core.domain.PullRequestPage;
@@ -171,7 +172,7 @@ public class PullRequestService
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
-            GitHubPullRequestWriteClient pullRequestWrites,
+            HostingPullRequestWrites pullRequestWrites,
             GitHubRepoClient repositories,
             GitHubAccountClient accounts,
             PullRequestStore store,
@@ -215,8 +216,8 @@ public class PullRequestService
         this.issues = requireNonNull(issues, "issues is null");
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.actions = new PullRequestActions(gitHub, pullRequestWrites, store, snapshots, details, viewStateStore,
-                recent, credentialService, requests, this::getPullRequestDetail);
+        this.actions = new PullRequestActions(pullRequestWrites, store, snapshots, details, viewStateStore,
+                recent, requests, this::getPullRequestDetail, this::findStoredId);
     }
 
     public PullRequestPage listPullRequests(int page, int pageSize)
@@ -307,7 +308,7 @@ public class PullRequestService
         prepareRead(route);
         HostingPullRequestSnapshot metadata = requests.cached(route.session(), route.repository().id(), route.number())
                 .orElseGet(() -> refreshMetadata(route, false));
-        return store.saveObserved(metadata.pullRequest().withViewerOrigin(route.login()));
+        return project(route, metadata.pullRequest().withViewerOrigin(route.login()));
     }
 
     /** Reads the cached description the same way, so it is empty until a detail read has stored the pull request once. */
@@ -319,7 +320,7 @@ public class PullRequestService
     public Optional<String> findStoredDescription(PullRequestRead route)
     {
         prepareRead(route);
-        return findStoredDescription(route.githubRef().repoFullName(), route.number());
+        return findStoredId(route).flatMap(details::find).map(detail -> Optional.ofNullable(detail.raw().body()).orElse(""));
     }
 
     /** Reads cached avatar URLs without loading full details or contacting GitHub. */
@@ -428,10 +429,24 @@ public class PullRequestService
 
     public PullRequest setMonitored(long prId, boolean monitored)
     {
+        return setMonitored(prId, monitored, null);
+    }
+
+    public PullRequest setMonitored(long prId, boolean monitored, String workspaceId)
+    {
         PullRequest row = store.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found"));
         if (monitored && "merged".equalsIgnoreCase(row.state())) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Merged pull requests cannot be monitored");
+        }
+        if (store.findHostingIdentity(prId).isPresent()) {
+            if (monitored && row.monitoredAt() == null) {
+                PullRequestRead route = prepareRead(workspaceId, row.repo(), row.number());
+                checkArgument(storedPullRequestId(route) == prId, "Pull request belongs to another workspace");
+                refreshPullRequestDetailFromGitHub(route);
+            }
+            store.setMonitored(prId, monitored);
+            return store.findById(prId).orElseThrow();
         }
         if (monitored && row.monitoredAt() == null) {
             HostingReadSession session = credentialService.captureHostingRead();
@@ -468,9 +483,8 @@ public class PullRequestService
     public void observeWorkspacePullRequest(String workspaceId, int number)
     {
         WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
-        RepoRef repository = route.githubRepository();
         FetchedPullRequest pullRequest = workspaceHosting.readPullRequest(route, number).pullRequest().withViewerOrigin(route.login());
-        store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest));
+        project(new PullRequestRead(route.session(), route.repository(), number, route.login()), pullRequest);
     }
 
     /**
@@ -548,12 +562,11 @@ public class PullRequestService
         checkText(headOwner, "headOwner");
         checkText(branch, "branch");
         WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
-        RepoRef repository = route.githubRepository();
-        List<FetchedPullRequest> fresh = gitHub.fetchPullRequestsByHead(route.githubToken(), repository, headOwner + ":" + branch).stream()
-                .map(pullRequest -> pullRequest.withViewerOrigin(route.login()))
-                .collect(toImmutableList());
-        if (!fresh.isEmpty()) {
-            store.saveRepositorySyncPage(repository.fullName(), fresh);
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        RepoRef source = RepoRef.of(headOwner, workspace.selectedRepository().repo());
+        PullRequestRead selected = new PullRequestRead(route.session(), route.repository(), 1, route.login());
+        for (var identity : detailFetcher.identitiesByHead(selected, source, branch)) {
+            observeWorkspacePullRequest(workspaceId, identity.pullRequest().number());
         }
     }
 
@@ -591,21 +604,51 @@ public class PullRequestService
         return repositories.fetchLabels(pat, RepoRef.of(ref.owner(), ref.repo()));
     }
 
+    public List<String> listRepositoryTeams(String repo, String workspaceId)
+    {
+        return workspaceId == null || workspaceId.isBlank() ? listRepositoryTeams(repo) : metadata.listTeams(workspaceId);
+    }
+
+    public List<RepositoryLabel> listRepositoryLabels(String repo, String workspaceId)
+    {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return listRepositoryLabels(repo);
+        }
+        RepositoryMetadataSnapshot snapshot = metadata.getSnapshot(workspaceId);
+        checkArgument(snapshot.repository().fullName().equalsIgnoreCase(repo), "Request belongs to another workspace repository");
+        return snapshot.labels();
+    }
+
     public boolean hasMergeQueue(String repo, String baseRef)
     {
-        return actions.hasMergeQueue(repo, baseRef);
+        return actions.hasMergeQueue(prepareRead(repo, 1), baseRef);
     }
 
     public PullRequestCheckLog readCheckLog(String repo, int number, long jobId)
     {
         checkArgument(jobId > 0, "jobId must be positive");
-        return snapshots.readCheckLog(parseRef(repo, number), jobId);
+        return readCheckLog(prepareRead(repo, number), jobId);
     }
 
     public void rerunFailedChecks(String repo, int number)
     {
-        PullRequestRef ref = parseRef(repo, number);
-        snapshots.rerunFailedChecks(ref);
+        rerunFailedChecks(prepareRead(repo, number));
+    }
+
+    public PullRequestCheckLog readCheckLog(PullRequestRead route, long jobId)
+    {
+        checkArgument(jobId > 0, "jobId must be positive");
+        return snapshots.readCheckLog(route, jobId);
+    }
+
+    public void rerunFailedChecks(PullRequestRead route)
+    {
+        snapshots.rerunFailedChecks(route);
+    }
+
+    public boolean hasMergeQueue(String repo, String baseRef, String workspaceId)
+    {
+        return actions.hasMergeQueue(prepareRead(workspaceId, repo, 1), baseRef);
     }
 
     /** Notification ingestion and incremental discovery never wait for full detail warming. */
@@ -1061,7 +1104,7 @@ public class PullRequestService
     public PullRequestDetail getPullRequestDetail(PullRequestRead route)
     {
         prepareRead(route);
-        return store.findIdByRepoAndNumber(route.repository().fullPath(), route.number())
+        return findStoredId(route)
                 .flatMap(id -> snapshots.findDetail(route.repository().fullPath(), route.number(), id))
                 .orElseGet(() -> refreshPullRequestDetailFromGitHub(route).detail());
     }
@@ -1074,6 +1117,70 @@ public class PullRequestService
         return route;
     }
 
+    public PullRequestRead prepareRead(String workspaceId, String repo, int number)
+    {
+        if (workspaceId == null || workspaceId.isBlank()) {
+            return prepareRead(repo, number);
+        }
+        WorkspaceHostingRead selected = workspaceHosting.captureRead(workspaceId);
+        checkArgument(selected.repository().fullPath().equalsIgnoreCase(repo), "Request belongs to another workspace repository");
+        PullRequestRead route = new PullRequestRead(selected.session(), selected.repository(), number, selected.login());
+        prepareRead(route);
+        return route;
+    }
+
+    public String requestHeadRef(PullRequestRead route)
+    {
+        return detailFetcher.headRef(route);
+    }
+
+    public Optional<PullRequest> findStored(PullRequestRead route)
+    {
+        return route.session().access().server().provider() == GITHUB
+                ? findStored(route.repository().fullPath(), route.number()) : store.findByHostingRepository(route.repository().id(), route.number());
+    }
+
+    public Optional<Long> findStoredId(PullRequestRead route)
+    {
+        return route.session().access().server().provider() == GITHUB
+                ? store.findIdByRepoAndNumber(route.repository().fullPath(), route.number())
+                : store.findByHostingRepository(route.repository().id(), route.number()).map(PullRequest::id);
+    }
+
+    public long storedPullRequestId(PullRequestRead route)
+    {
+        return findStoredId(route).orElseThrow(() -> PullRequestSnapshotService.missing("Pull request"));
+    }
+
+    private PullRequest project(PullRequestRead route, FetchedPullRequest summary)
+    {
+        return route.session().access().server().provider() == GITHUB ? store.saveObserved(summary)
+                : store.findByHostingRepository(route.repository().id(), route.number()).orElseGet(() -> store.saveHosted(route.repository().id(), summary));
+    }
+
+    public List<PullRequest> listWorkspaceAttentionCandidates(String workspaceId)
+    {
+        return workspaceHosting.cachedAttention(workspaceId);
+    }
+
+    public boolean hasMergeQueue(PullRequestRead route, String baseRef)
+    {
+        return actions.hasMergeQueue(route, baseRef);
+    }
+
+    public PullRequestPage listWorkspacePullRequests(String workspaceId, int page, int pageSize, String search)
+    {
+        checkPage(page, pageSize);
+        String term = search == null ? "" : search.trim().toLowerCase(Locale.ROOT);
+        String number = term.startsWith("#") ? term.substring(1) : term;
+        List<PullRequest> rows = workspaceHosting.cachedAttention(workspaceId).stream()
+                .filter(row -> term.isEmpty() || row.title().toLowerCase(Locale.ROOT).contains(term) || Integer.toString(row.number()).equals(number))
+                .collect(toImmutableList());
+        int start = Math.min(Math.multiplyExact(page, pageSize), rows.size());
+        int end = Math.min(start + pageSize, rows.size());
+        return new PullRequestPage(rows.subList(start, end), page, pageSize, rows.size(), rows.stream().filter(row -> "open".equals(row.state())).count(), end < rows.size());
+    }
+
     private PullRequestRead requestRead(HostingReadSession session, String repo, int number)
     {
         var repository = connections.findRepository(session, repo).orElseGet(() -> connections.resolveRepository(session, repo));
@@ -1082,8 +1189,7 @@ public class PullRequestService
 
     void prepareRead(PullRequestRead route)
     {
-        PullRequestRef ref = route.githubRef();
-        store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).ifPresent(id -> snapshots.prepareScope(id, route.scope()));
+        findStoredId(route).ifPresent(id -> snapshots.prepareScope(id, route.scope()));
     }
 
     private HostingPullRequestSnapshot refreshMetadata(PullRequestRead route, boolean force)
@@ -1093,7 +1199,7 @@ public class PullRequestService
         }
         catch (HostingFailure failure) {
             if (PullRequestSnapshotService.inaccessible(failure)) {
-                store.findIdByRepoAndNumber(route.repository().fullPath(), route.number()).ifPresent(snapshots::clearRemote);
+                findStoredId(route).ifPresent(snapshots::clearRemote);
             }
             throw failure;
         }
@@ -1163,7 +1269,7 @@ public class PullRequestService
     private DetailRefresh refreshDetailOnce(PullRequestRead route, RefreshPolicy policy)
     {
         prepareRead(route);
-        PullRequestRef ref = route.githubRef();
+        PullRequestRef ref = route.ref();
         DetailKey key = new DetailKey(parseRef(ref.repoFullName().toLowerCase(Locale.ROOT), ref.number()), route.scope());
         DetailWork work = new DetailWork(policy, new CompletableFuture<>());
         DetailWork running = detailRefreshes.putIfAbsent(key, work);
@@ -1200,10 +1306,9 @@ public class PullRequestService
 
     private DetailRefresh refreshDetailGroups(PullRequestRead route, RefreshPolicy policy)
     {
-        PullRequestRef ref = route.githubRef();
-        String pat = route.githubToken();
+        PullRequestRef ref = route.ref();
         String login = route.login();
-        Optional<PullRequest> previousRow = store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).flatMap(store::findById);
+        Optional<PullRequest> previousRow = findStored(route);
         Optional<StoredPrDetail> previous = previousRow.flatMap(row -> details.find(row.id()));
         boolean missing = previous.isEmpty();
         PrDetailFreshness times = previousRow.map(row -> snapshots.findFreshness(row.id())).orElseGet(PrDetailFreshness::unknown);
@@ -1225,13 +1330,13 @@ public class PullRequestService
         if (metadataDue) {
             HostingPullRequestSnapshot fetched = refreshMetadata(route, policy.force() || missingCoordinates || missingHead);
             FetchedPullRequest observed = fetched.pullRequest().withViewerOrigin(login);
-            if (observed.origin() != AUTHORED && notifications.reviewRequests(login).contains(ref)) {
+            if (route.session().access().server().provider() == GITHUB && observed.origin() != AUTHORED && notifications.reviewRequests(login).contains(ref)) {
                 observed = observed.withOrigin(REVIEW_REQUESTED);
             }
-            row = store.saveObserved(observed);
+            row = project(route, observed);
             PrRawDetail raw = fetched.detail();
             full |= previous.filter(value -> !value.raw().equals(raw)).isPresent();
-            boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+            boolean viewerCanWrite = detailFetcher.viewerCanWrite(route);
             detail = snapshots.saveMetadata(row.id(), raw, viewerCanWrite, route);
         }
         PullRequest current = requireNonNull(row, "pull request is missing");
@@ -1245,12 +1350,12 @@ public class PullRequestService
             // A quiet warm reconcile rarely finds anything new, so it asks with ETags first and skips every GraphQL read on 304s.
             // Refreshes someone waits for, opening included, still read everything: thread resolutions change no REST response.
             Optional<DiscussionProbe> probe = policy.warm() && quiet
-                    ? Optional.of(gitHub.probeDiscussion(pat, ref, details.findDiscussionEtags(current.id()))) : Optional.empty();
+                    ? detailFetcher.probeDiscussion(route, details.findDiscussionEtags(current.id())) : Optional.empty();
             if (probe.filter(DiscussionProbe::unchanged).isPresent()) {
                 detail = snapshots.saveDiscussion(current.id(), detail, sourceAt, route);
             }
             else {
-                StoredPrDetail fetched = PullRequestDetailFetcher.await(detailFetcher.fetchDiscussion(pat, ref, detail));
+                StoredPrDetail fetched = PullRequestDetailFetcher.await(detailFetcher.fetchDiscussion(route, detail));
                 detail = snapshots.saveDiscussion(current.id(), fetched, sourceAt, route);
                 // Taken before the refetch, these ETags can only be older than what was saved; a partial save keeps none.
                 boolean complete = fetched.reviewsComplete() && fetched.timelineComplete();
@@ -1321,7 +1426,7 @@ public class PullRequestService
     public List<DiffFile> getPullRequestDiffFiles(PullRequestRead route, String baseSha, String headSha)
     {
         prepareRead(route);
-        return getPullRequestDiffFiles(route.githubRef().repoFullName(), route.number(), baseSha, headSha);
+        return snapshots.getDiffFiles(storedPullRequestId(route), baseSha, headSha);
     }
 
     /** Rejects a cached diff from another head before a review freezes it as evidence. */
@@ -1334,7 +1439,7 @@ public class PullRequestService
     public List<DiffFile> getValidatedPullRequestDiffFiles(PullRequestRead route, String headSha)
     {
         prepareRead(route);
-        return getValidatedPullRequestDiffFiles(route.githubRef().repoFullName(), route.number(), headSha);
+        return snapshots.getValidatedDiffFiles(storedPullRequestId(route), headSha);
     }
 
     public List<DiffCommit> getPullRequestDiffCommits(String repo, int number)
@@ -1346,7 +1451,7 @@ public class PullRequestService
     public List<DiffCommit> getPullRequestDiffCommits(PullRequestRead route)
     {
         prepareRead(route);
-        return getPullRequestDiffCommits(route.githubRef().repoFullName(), route.number());
+        return snapshots.getDiffCommits(storedPullRequestId(route));
     }
 
     /** Returns locally persisted file content without contacting GitHub. */
@@ -1359,7 +1464,7 @@ public class PullRequestService
     public DiffFileContent getPullRequestDiffFileContent(PullRequestRead route, String path, String baseSha, String headSha)
     {
         prepareRead(route);
-        return getPullRequestDiffFileContent(route.githubRef().repoFullName(), route.number(), path, baseSha, headSha);
+        return snapshots.getFileContent(storedPullRequestId(route), path, baseSha, headSha);
     }
 
     void refreshPullRequestDiffFromGitHub(String repo, int number, String baseSha, String headSha)
@@ -1369,9 +1474,7 @@ public class PullRequestService
 
     void refreshPullRequestDiffFromGitHub(PullRequestRead route, String baseSha, String headSha)
     {
-        String repo = route.githubRef().repoFullName();
-        int number = route.number();
-        snapshots.refreshDiff(route, storedPullRequestId(repo, number), baseSha, headSha);
+        snapshots.refreshDiff(route, storedPullRequestId(route), baseSha, headSha);
     }
 
     void refreshPullRequestDiffFileContentFromGitHub(String repo, int number, String path, String baseSha, String headSha)
@@ -1381,65 +1484,118 @@ public class PullRequestService
 
     void refreshPullRequestDiffFileContentFromGitHub(PullRequestRead route, String path, String baseSha, String headSha)
     {
-        String repo = route.githubRef().repoFullName();
-        int number = route.number();
-        snapshots.refreshFileContent(route, storedPullRequestId(repo, number), path, baseSha, headSha);
+        snapshots.refreshFileContent(route, storedPullRequestId(route), path, baseSha, headSha);
     }
 
     public Posted createReviewComment(String repo, int number, InlineReviewComment comment)
     {
-        return actions.createReviewComment(repo, number, comment);
+        return actions.createReviewComment(prepareRead(repo, number), comment);
+    }
+
+    public Posted createReviewComment(PullRequestRead route, InlineReviewComment comment)
+    {
+        return actions.createReviewComment(route, comment);
     }
 
     public PullRequestDetail commentOnPullRequest(String repo, int number, String body)
     {
-        return actions.commentOnPullRequest(repo, number, body);
+        return actions.commentOnPullRequest(prepareRead(repo, number), body);
+    }
+
+    public PullRequestDetail commentOnPullRequest(PullRequestRead route, String body)
+    {
+        return actions.commentOnPullRequest(route, body);
     }
 
     public boolean toggleReaction(String repo, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
     {
-        return actions.toggleReaction(repo, number, target, commentId, content, viewerHasReacted);
+        return actions.toggleReaction(prepareRead(repo, number), target, commentId, content, viewerHasReacted);
+    }
+
+    public boolean toggleReaction(PullRequestRead route, String target, Long commentId, String content, Boolean viewerHasReacted)
+    {
+        return actions.toggleReaction(route, target, commentId, content, viewerHasReacted);
     }
 
     public void updateTitle(String repo, int number, String title)
     {
-        actions.updateTitle(repo, number, title);
+        actions.updateTitle(prepareRead(repo, number), title);
+    }
+
+    public void updateTitle(PullRequestRead route, String title)
+    {
+        actions.updateTitle(route, title);
     }
 
     public void updateDescription(String repo, int number, String description)
     {
-        actions.updateDescription(repo, number, description);
+        actions.updateDescription(prepareRead(repo, number), description);
+    }
+
+    public void updateDescription(PullRequestRead route, String description)
+    {
+        actions.updateDescription(route, description);
     }
 
     public void closePullRequest(String repo, int number)
     {
-        actions.closePullRequest(repo, number);
+        actions.closePullRequest(prepareRead(repo, number));
+    }
+
+    public void closePullRequest(PullRequestRead route)
+    {
+        actions.closePullRequest(route);
     }
 
     public void markReadyForReview(String repo, int number)
     {
-        actions.markReadyForReview(repo, number);
+        actions.markReadyForReview(prepareRead(repo, number));
+    }
+
+    public void markReadyForReview(PullRequestRead route)
+    {
+        actions.markReadyForReview(route);
     }
 
     public void updateMetadata(String repo, int number, List<String> assignees, List<String> labels)
     {
-        actions.updateMetadata(repo, number, assignees, labels);
+        actions.updateMetadata(prepareRead(repo, number), assignees, labels);
+    }
+
+    public void updateMetadata(PullRequestRead route, List<String> assignees, List<String> labels)
+    {
+        actions.updateMetadata(route, assignees, labels);
     }
 
     public void updateReviewerRequest(String repo, int number, String login, boolean requested)
     {
-        actions.updateReviewerRequest(repo, number, login, requested);
+        actions.updateReviewerRequest(prepareRead(repo, number), login, requested);
+    }
+
+    public void updateReviewerRequest(PullRequestRead route, String login, boolean requested)
+    {
+        actions.updateReviewerRequest(route, login, requested);
     }
 
     public void replyToReviewComment(String repo, int number, long commentId, String body)
     {
-        actions.replyToReviewComment(repo, number, commentId, body);
+        actions.replyToReviewComment(prepareRead(repo, number), commentId, body);
+    }
+
+    public void replyToReviewComment(PullRequestRead route, long commentId, String body)
+    {
+        actions.replyToReviewComment(route, commentId, body);
     }
 
     /** Edits a posted comment or review body on GitHub, then patches the cached copies of that body. */
     public PullRequestDetail editComment(String repo, int number, String target, long commentId, String body)
     {
-        return actions.editComment(repo, number, target, commentId, body);
+        return actions.editComment(prepareRead(repo, number), target, commentId, body);
+    }
+
+    public PullRequestDetail editComment(PullRequestRead route, String target, long commentId, String body)
+    {
+        return actions.editComment(route, target, commentId, body);
     }
 
     /** The latest comment of each review thread whose author can push to the repository, read from GitHub now. */
@@ -1450,7 +1606,12 @@ public class PullRequestService
 
     public void setReviewThreadResolved(String repo, int number, long rootCommentId, boolean resolved)
     {
-        actions.setReviewThreadResolved(repo, number, rootCommentId, resolved);
+        actions.setReviewThreadResolved(prepareRead(repo, number), rootCommentId, resolved);
+    }
+
+    public void setReviewThreadResolved(PullRequestRead route, long rootCommentId, boolean resolved)
+    {
+        actions.setReviewThreadResolved(route, rootCommentId, resolved);
     }
 
     /**
@@ -1459,7 +1620,12 @@ public class PullRequestService
      */
     public Posted submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments, String commitId)
     {
-        return actions.submitReview(repo, number, prId, event, body, comments, commitId);
+        return actions.submitReview(prepareRead(repo, number), prId, event, body, comments, commitId);
+    }
+
+    public Posted submitReview(PullRequestRead route, long prId, String event, String body, List<InlineReviewComment> comments, String commitId)
+    {
+        return actions.submitReview(route, prId, event, body, comments, commitId);
     }
 
     /**
@@ -1485,18 +1651,28 @@ public class PullRequestService
     public Optional<String> findHeadSha(PullRequestRead route)
     {
         prepareRead(route);
-        return findHeadSha(route.githubRef().repoFullName(), route.number());
+        return findStoredId(route).flatMap(snapshots::findHeadSha);
     }
 
     /** Merges directly, falling back to GitHub's merge queue when required. */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy, String headSha)
     {
-        return actions.mergePullRequest(repo, number, prId, strategy, headSha);
+        return actions.mergePullRequest(prepareRead(repo, number), prId, strategy, headSha);
+    }
+
+    public MergeResult mergePullRequest(PullRequestRead route, long prId, String strategy, String headSha)
+    {
+        return actions.mergePullRequest(route, prId, strategy, headSha);
     }
 
     public void removeFromMergeQueue(String repo, int number, boolean autoMerge)
     {
-        actions.removeFromMergeQueue(repo, number, autoMerge);
+        actions.removeFromMergeQueue(prepareRead(repo, number), autoMerge);
+    }
+
+    public void removeFromMergeQueue(PullRequestRead route, boolean autoMerge)
+    {
+        actions.removeFromMergeQueue(route, autoMerge);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -1635,10 +1811,28 @@ public class PullRequestService
                 .flatMap(prId -> snapshots.findDetail(repo, number, prId));
     }
 
+    public Optional<PullRequest> findWorkspaceStored(String workspaceId, String repo, int number)
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        checkArgument(workspace.monitoredRepository().fullName().equalsIgnoreCase(repo), "Request belongs to another workspace repository");
+        return workspace.isGitHub() ? findStored(repo, number)
+                : workspaceHosting.cachedRepositoryId(workspaceId).flatMap(id -> store.findByHostingRepository(id, number));
+    }
+
+    public Optional<Long> findWorkspaceHostingRepositoryId(String workspaceId)
+    {
+        return workspaceHosting.cachedRepositoryId(workspaceId);
+    }
+
+    public Optional<PullRequestDetail> findWorkspacePullRequestDetail(String workspaceId, String repo, int number)
+    {
+        return findWorkspaceStored(workspaceId, repo, number).flatMap(row -> snapshots.findDetail(repo, number, row.id()));
+    }
+
     public Optional<PullRequestDetail> findPullRequestDetail(PullRequestRead route)
     {
         prepareRead(route);
-        return findPullRequestDetail(route.githubRef().repoFullName(), route.number());
+        return findStoredId(route).flatMap(id -> snapshots.findDetail(route.repository().fullPath(), route.number(), id));
     }
 
     private void updateListState(long prId, StoredPrDetail detail)

@@ -96,7 +96,7 @@ describe('MarkdownBody', () => {
         kind: 'issue',
         workspaceId: null,
         issue: {
-          title: 'Kerberos Hive container startup times out',
+          title: 'Kerberos Hive container startup times out', htmlUrl: 'https://github.com/owner/repository/issues/30611', authorAvatarUrl: '',
           body: 'The **container** never starts.',
           author: 'octocat',
           labels: ['bug'],

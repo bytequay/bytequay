@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { usePullRequestBridge } from './PullRequestWorkspace';
 import { useEffect, useId, useRef, useState, type ChangeEvent, type KeyboardEvent, type RefObject } from 'react';
 
 const COMMAND = '/test-with-secrets';
@@ -40,6 +41,7 @@ export function usePrCommentCommand({ repository, number, value, onChange, texta
   onChange: (value: string) => void;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 }) {
+  const bridge = usePullRequestBridge();
   const [active, setActive] = useState<CommandMatch | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export function usePrCommentCommand({ repository, number, value, onChange, texta
     const stillCurrent = () => version === request.current && target === currentTarget.current && textareaRef.current?.value === text;
     try {
       // Read the complete PR history, independently of any commit selected in Changes.
-      const commits = await window.bridge.fetchPrDiffCommits(repository, number);
+      const commits = await bridge.fetchPrDiffCommits(repository, number);
       if (!stillCurrent()) return;
       const sha = commits.at(-1)?.sha;
       if (!sha || !/^[a-f0-9]{40}$/i.test(sha)) throw new Error('Missing full commit SHA');

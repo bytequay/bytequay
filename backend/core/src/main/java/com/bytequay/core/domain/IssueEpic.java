@@ -13,9 +13,13 @@
  */
 package com.bytequay.core.domain;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Locale;
 
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.hosting.HostingUrls.canonicalBaseUrl;
+import static com.bytequay.core.hosting.HostingUrls.checkRepositoryPath;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -27,10 +31,10 @@ public record IssueEpic(String host, long issueId, String repo, int number, bool
         requireNonNull(host, "host is null");
         requireNonNull(repo, "repo is null");
         requireNonNull(updatedAt, "updatedAt is null");
-        host = host.toLowerCase(Locale.ROOT);
+        host = host.contains("://") ? canonicalBaseUrl(URI.create(host)).toASCIIString() : host.toLowerCase(Locale.ROOT);
         repo = repo.toLowerCase(Locale.ROOT);
-        checkArgument(host.equals("github.com"), "unsupported GitHub host");
+        checkText(host, "host");
         checkArgument(issueId > 0 && number > 0, "invalid issue identity");
-        checkArgument(repo.matches("[a-z0-9_.-]+/[a-z0-9_.-]+"), "invalid issue repository");
+        checkRepositoryPath(repo);
     }
 }

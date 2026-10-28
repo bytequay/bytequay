@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useHostingPresentation } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import hljs from './highlight';
 import { ArrowUpRight, CircleDot, GitPullRequest, Info, Lightbulb, MessageSquareWarning, OctagonAlert, TriangleAlert, type LucideIcon } from 'lucide-react';
@@ -766,28 +767,39 @@ const ISSUE_NUMBER = /((?<![\p{L}\p{N}_&/])(?:[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+)?
  * icon, title and number; a `compact` one, inside a title that is already a heading, stays `#1234`.
  */
 export function linkIssueNumbers(text: string, repository: string | null | undefined, compact = false): ReactNode[] {
-  const [owner, repo] = repository?.split('/') ?? [];
-  if (!owner || !repo) return [text];
+  if (!repository || !repository.includes('/')) return [text];
   return text.split(ISSUE_NUMBER).map((part, index) => {
     if (index % 2 === 0) return part;
     const hash = part.lastIndexOf('#');
     const number = Number(part.slice(hash + 1));
     if (!Number.isSafeInteger(number)) return part;
-    const [referenceOwner, referenceRepo] = hash === 0 ? [owner, repo] : part.slice(0, hash).split('/');
+    const fullPath = hash === 0 ? repository : part.slice(0, hash);
+    const slash = fullPath.lastIndexOf('/');
+    const referenceOwner = fullPath.slice(0, slash);
+    const referenceRepo = fullPath.slice(slash + 1);
     return (
       // GitHub answers /issues/{number} for pull requests too, so the preview settles which one it is.
-      <ReferenceLink key={`${index}:${referenceOwner}/${referenceRepo}#${number}`} icon={!compact} showTitle={!compact} reference={{
+      <HostingReferenceLink key={`${index}:${referenceOwner}/${referenceRepo}#${number}`} compact={compact} reference={{
         kind: 'issue', owner: referenceOwner, repo: referenceRepo, number, href: `https://github.com/${referenceOwner}/${referenceRepo}/issues/${number}`,
-      }}>{part}</ReferenceLink>
+      }}>{part}</HostingReferenceLink>
     );
   });
+}
+
+function HostingReferenceLink({ reference, compact, children }: { reference: GitHubReference; compact: boolean; children: ReactNode }) {
+  const { server } = useHostingPresentation();
+  if (server?.provider !== 'GITLAB') return <ReferenceLink reference={reference} icon={!compact} showTitle={!compact}>{children}</ReferenceLink>;
+  const href = `${server.webBaseUrl}/${reference.owner}/${reference.repo}/-/issues/${reference.number}`;
+  return <a className="md-link" href={href} onClick={event => { event.preventDefault(); void window.bridge.openInAppBrowser(href); }}>{children}</a>;
 }
 
 export function GitHubReferenceLink({ href, children }: { href: string | null; children: ReactNode }) {
   const reference = href ? parseGitHubReference(href) : null;
   return reference
     ? <ReferenceLink reference={reference}>{children}</ReferenceLink>
-    : <span className="md-link">{children}</span>;
+    : href !== null && /^https?:\/\//i.test(href)
+      ? <a className="md-link" href={href} onClick={event => { event.preventDefault(); void window.bridge.openInAppBrowser(href); }}>{children}</a>
+      : <span className="md-link">{children}</span>;
 }
 
 function referenceKey(reference: GitHubReference): string {
@@ -980,6 +992,16 @@ export default function MarkdownBody({ body, className = '', repository, resolve
   onTaskToggle?: (taskIndex: number, checked: boolean) => void;
   tasksDisabled?: boolean;
 }) {
+  const { server, repository: workspaceRepository } = useHostingPresentation();
+  const hostingLink = useMemo<WebLinkResolver | undefined>(() => server?.provider !== 'GITLAB' ? undefined : href => {
+    try {
+      const url = new URL(href, `${server.webBaseUrl}/${repository ?? workspaceRepository ?? ''}/`);
+      return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null;
+    }
+    catch { return null; }
+  }, [repository, server, workspaceRepository]);
+  const referenceRepository = resolveWebLink === undefined ? repository : undefined;
+  resolveWebLink ??= hostingLink;
   const toggleTask = (event: ChangeEvent<HTMLDivElement>) => {
     if (!onTaskToggle || !(event.target instanceof HTMLInputElement)
         || event.target.dataset.markdownTask === undefined) return;
@@ -993,10 +1015,10 @@ export default function MarkdownBody({ body, className = '', repository, resolve
   // Parsing and highlighting cost far more than the render, and a long thread re-renders on every keystroke and poll.
   const blocks = useMemo(() => {
     const document = extractHttpLinkDefinitions(fenceIndentedCode(body));
-    return <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={resolveWebLink === undefined ? repository : undefined} resolveWebLink={resolveWebLink}
+    return <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={referenceRepository} resolveWebLink={resolveWebLink}
       suggestion={suggestionKey === undefined ? undefined : JSON.parse(suggestionKey) as SuggestionBase}
       tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />;
-  }, [body, repository, resolveWebLink, suggestionKey, tasksInteractive, tasksDisabled]);
+  }, [body, referenceRepository, resolveWebLink, suggestionKey, tasksInteractive, tasksDisabled]);
   return (
     <div className={`markdown-body ${className}`.trim()} onChange={toggleTask}>
       {blocks}

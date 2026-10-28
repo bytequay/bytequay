@@ -173,7 +173,7 @@ export default function ReviewFindingCard({
       outgoing={composer === 'ask' || composer === 'resolve' || composer === 'fix'
         ? null
         : composer === 'post' && lines !== null
-          ? `Posts to GitHub on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
+          ? `Posts a review comment on ${shortPath(lines.path, 28)} ${lines.range} at reviewed commit ${shortSha(finding.validatedHeadSha)}`
           : ''}
       onChange={setText}
       onSubmit={composer === 'ask' ? submit : () => { void submit(); }}
@@ -243,7 +243,7 @@ export default function ReviewFindingCard({
         <span aria-hidden="true">⚠</span>
         <span>
           This finding describes an earlier reviewed commit. Its comment stays attached to that commit and may
-          appear outdated on GitHub. Reassessment can check whether the finding still applies to the latest code.
+          appear outdated on the remote. Reassessment can check whether the finding still applies to the latest code.
         </span>
       </div>
     )}
@@ -275,7 +275,7 @@ export default function ReviewFindingCard({
     {publication.kind === 'uncertain' && (
       <div className="agr-notice is-outdated" role="alert">
         <span aria-hidden="true">⚠</span>
-        <span>GitHub did not confirm this comment. Check the <a href={`https://github.com/${review.repo}/pull/${review.number}`}>pull request on GitHub</a>.
+        <span>The server did not confirm this comment. Check the <a href={review.pullRequest?.htmlUrl}>pull request in your browser</a>.
           {' '}Then open <strong>Submit review</strong> and choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to prepare it again.
           {' '}Your comment is saved here and will not be sent again automatically.</span>
       </div>
@@ -284,7 +284,7 @@ export default function ReviewFindingCard({
       <div className="agr-notice is-published">
         <span aria-hidden="true">✓</span>
         <span>
-          Posted to GitHub as a review comment
+          Posted as a review comment
           {item.publication?.url ? <> · <a href={item.publication.url}>{item.publication.url.split('#').pop()}</a></> : ''}
           . The thread below stays private.
         </span>
@@ -303,7 +303,7 @@ export default function ReviewFindingCard({
           {!accepted && pill.text !== 'Private' && finding.state !== 'RESOLVED' && <span className={`lrc__badge is-${pill.tone}`}>{pill.text}</span>}
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
           <CopyLinkButton label="conversation" value={findingConversation(review, finding)} />
-          {accepted && <span className="lrc__badge is-ready" title="Posted to GitHub in your review">Accepted</span>}</>}
+          {accepted && <span className="lrc__badge is-ready" title="Posted in your review">Accepted</span>}</>}
         code={projection === 'review' && lines !== null && finding.excerpt.length > 0 && <CodeExcerpt path={lines.path}
           lines={finding.excerpt.map((text, index) => ({ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }))} />}
         controls={composer !== 'draft' && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
@@ -333,7 +333,7 @@ export default function ReviewFindingCard({
                 <span className="agr-actions__divider" aria-hidden="true" />
                 <button type="button" className="lrc__action is-add" disabled={actionsDisabled}
                   title={waitingReason ?? (lines === null ? 'Adds this text to your review summary, which you can edit before submitting'
-                    : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.')}
+                    : 'Copies this comment into your pending review. Nothing is sent until you submit.')}
                   onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
                 {lines !== null && <button type="button" className="lrc__action is-primary" disabled={actionsDisabled} title={waitingReason ?? undefined}
                   onClick={() => openComposer('post', findingReviewText(finding))}>Post now</button>}

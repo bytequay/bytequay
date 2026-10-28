@@ -16,7 +16,6 @@ package com.bytequay.app.review;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
@@ -26,8 +25,6 @@ import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryService;
-import com.bytequay.app.repository.github.GitHubIssuePreview;
-import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
@@ -36,6 +33,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -162,7 +160,6 @@ public class ReviewTools
     private final SelectedPullRequestDiffReader selectedPullRequestDiffs;
     private final SelectedCommitPullRequestReader selectedCommitPullRequests;
     private final ContextHistoryReader historySources;
-    private final RepoService repositories;
     private final WorkspaceIssueService issues;
     private final AgentEventService events;
     private final WorkspaceRepositoryService workspaces;
@@ -186,7 +183,6 @@ public class ReviewTools
             SelectedPullRequestDiffReader selectedPullRequestDiffs,
             SelectedCommitPullRequestReader selectedCommitPullRequests,
             ContextHistoryReader historySources,
-            RepoService repositories,
             WorkspaceIssueService issues,
             AgentEventService events,
             WorkspaceRepositoryService workspaces,
@@ -207,7 +203,6 @@ public class ReviewTools
         this.selectedPullRequestDiffs = requireNonNull(selectedPullRequestDiffs, "selectedPullRequestDiffs is null");
         this.selectedCommitPullRequests = requireNonNull(selectedCommitPullRequests, "selectedCommitPullRequests is null");
         this.historySources = requireNonNull(historySources, "historySources is null");
-        this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.events = requireNonNull(events, "events is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -1837,7 +1832,7 @@ public class ReviewTools
 
     private SelectedPullRequestReader.Read selectedPullRequest(Call call, int number, SelectedPullRequestReader.Section section)
     {
-        SelectedPullRequestReader.Read read = selectedPullRequests.read(call.review().repo(), number, section);
+        SelectedPullRequestReader.Read read = selectedPullRequests.read(call.review().workspaceId(), call.review().repo(), number, section);
         if (!read.detail().repo().equalsIgnoreCase(call.review().repo()) || read.detail().number() != number) {
             throw new ReviewInvalidRequestException("number: the selected pull request response has a different repository or number");
         }
@@ -1882,7 +1877,7 @@ public class ReviewTools
 
     private JsonNode issue(Call call, int number, int page)
     {
-        if (pullRequests.findStored(call.review().repo(), number).isPresent()) {
+        if (pullRequests.findWorkspaceStored(call.review().workspaceId(), call.review().repo(), number).isPresent()) {
             return pullRequest(call, number);
         }
         if (workspaces.requireReadyRepository(call.review().workspaceId()).monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
@@ -1891,10 +1886,9 @@ public class ReviewTools
                 return cachedIssue(call, cached.orElseThrow(), page);
             }
         }
-        RepositoryIdentity repository = RepositoryIdentity.valueOf(call.review().repo());
-        GitHubIssuePreview preview = repositories.getIssuePreview(repository.owner(), repository.name(), number);
-        ObjectNode node = issueNode(call, number, preview, "github-selected-preview",
-                "GitHub " + (preview.pullRequest() ? "pull request" : "issue") + " selected preview read by ByteQuay at " + now());
+        GitHubIssuePreview preview = issues.preview(call.review().workspaceId(), number);
+        ObjectNode node = issueNode(call, number, preview, "hosting-selected-preview",
+                "Remote " + (preview.pullRequest() ? "pull request" : "issue") + " selected preview read by ByteQuay at " + now());
         node.set("activity", objectMapper.createObjectNode().put("missing", true).put("completeness", "unavailable")
                 .put("note", "The selected issue preview does not include activity"));
         return node;
@@ -1915,7 +1909,8 @@ public class ReviewTools
             }
         }
         String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; GitHub issue updated at " + issue.updatedAt();
-        GitHubIssuePreview preview = new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false);
+        GitHubIssuePreview preview = new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false,
+                issue.htmlUrl(), issue.authorAvatarUrl());
         ObjectNode node = issueNode(call, issue.number(), preview, "workspace-issue-cache", provenance);
         syncedAt.ifPresentOrElse(at -> node.put("projectionSyncedAt", at.toString()), () -> node.putNull("projectionSyncedAt"));
         node.put("commentCount", issue.commentCount());
@@ -2026,7 +2021,7 @@ public class ReviewTools
         int number = selectedNumber.orElseThrow();
         SelectedPullRequestDiffReader.Read read;
         try {
-            read = selectedPullRequestDiffs.read(call.review().repo(), number, version, refresh);
+            read = selectedPullRequestDiffs.read(call.review().workspaceId(), call.review().repo(), number, version, refresh);
         }
         catch (ResponseStatusException failure) {
             if (failure.getStatusCode().equals(HttpStatus.CONFLICT)) {

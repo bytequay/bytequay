@@ -51,14 +51,15 @@ class TestPullRequestAttentionSyncJob
     }
 
     @Test
-    void skipsWithoutCredentialsAndDuringQuietHours()
+    void refreshesWorkspaceIssuesWithoutGlobalGitHubCredentialsAndSkipsQuietHours()
     {
         job.tick();
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         when(settings.inQuietHours()).thenReturn(true);
         job.tick();
 
-        verifyNoInteractions(pullRequests, issues);
+        verifyNoInteractions(pullRequests);
+        verify(issues).refreshRecentIssues();
     }
 
     @Test

@@ -21,11 +21,12 @@ afterEach(() => { vi.restoreAllMocks(); });
 describe('review attention actions', () => {
   it('records a successful prompt against the pull request card and source task', () => {
     const record = vi.spyOn(attentionVisits, 'recordAttentionAction');
+    const recordPull = vi.spyOn(attentionVisits, 'recordPullRequestAttentionAction');
     recordReviewAttentionAction(reviewFixture({ repo: 'Owner/Repo', sourceTaskId: 'task-1' }), 'prompt');
     expect(record.mock.calls).toEqual([
-      ['Owner/Repo#30304', 'prompt'],
       ['task:task-1', 'prompt'],
     ]);
+    expect(recordPull).toHaveBeenCalledWith('Owner/Repo', 30304, 'prompt', reviewFixture().workspaceId);
   });
 
   it('records a local review update against only its source task', () => {

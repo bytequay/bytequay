@@ -26,7 +26,7 @@ import {
   type AttentionItem,
   type Handled,
 } from '../home/attention';
-import type { PullRequestDto } from '../types';
+import type { PullRequestDto, WorkspaceHostingAttentionDto } from '../types';
 import { ISSUE_DEVELOPMENT_CHANGED } from './issueDevelopment';
 
 export type WorkspaceAttention = {
@@ -46,8 +46,9 @@ export type WorkspaceAttention = {
  */
 export function useWorkspaceAttention(workspaceId: string, repository: string, tasks: TaskAttention): WorkspaceAttention {
   // Opening a workspace again paints the last reads any Home made; the mount still re-reads them.
-  const [prs, setPrs] = useState<PullRequestDto[]>(() => getCached<PullRequestDto[]>(ATTENTION_SEED.prs) ?? []);
-  const [login, setLogin] = useState<string | null>(() => getCached<{ login: string }>(ATTENTION_SEED.profile)?.login ?? null);
+  const cacheKey = `workspace-attention:${workspaceId}`;
+  const [prs, setPrs] = useState<PullRequestDto[]>(() => getCached<WorkspaceHostingAttentionDto>(cacheKey)?.pullRequests ?? []);
+  const [login, setLogin] = useState<string | null>(() => getCached<WorkspaceHostingAttentionDto>(cacheKey)?.login ?? null);
   const [issues, setIssues] = useState<AttentionItem[]>(
     () => (getCached<AttentionItem[]>(ATTENTION_SEED.issues) ?? []).filter(item => item.workspaceId === workspaceId));
   const [handled, setHandled] = useState<Handled>(loadHandled);
@@ -58,38 +59,29 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
   useEffect(() => {
     let active = true;
     let request = 0;
-    const apply = (rows: PullRequestDto[]) => {
-      setCached(ATTENTION_SEED.prs, rows);
-      setPrs(rows);
-    };
     const reload = () => {
       const current = ++request;
-      void window.bridge.fetchAttentionPrs().then(rows => { if (active && current === request) apply(rows); }).catch(() => {});
-    };
-    const updated = (event: Event) => {
-      request++;
-      apply((event as CustomEvent<PullRequestDto[]>).detail);
+      void window.bridge.fetchWorkspaceHostingAttention(workspaceId).then(snapshot => {
+        if (!active || current !== request) return;
+        setCached(cacheKey, snapshot);
+        setPrs(snapshot.pullRequests);
+        setLogin(snapshot.login);
+      }).catch(() => {});
     };
     const handledChanged = () => setHandled(loadHandled());
     reload();
     const stopSync = window.bridge.onPullRequestsSynced(reload);
-    window.addEventListener('bytequay:pr-attention-updated', updated);
+    window.addEventListener('bytequay:pr-attention-updated', reload);
     window.addEventListener('bytequay:pr-monitor-changed', reload);
     window.addEventListener('bytequay:attention-handled-changed', handledChanged);
-    window.bridge.getUserProfile()
-      .then(profile => {
-        setCached(ATTENTION_SEED.profile, profile);
-        if (active) setLogin(profile.login);
-      })
-      .catch(() => {});
     return () => {
       active = false;
       stopSync();
-      window.removeEventListener('bytequay:pr-attention-updated', updated);
+      window.removeEventListener('bytequay:pr-attention-updated', reload);
       window.removeEventListener('bytequay:pr-monitor-changed', reload);
       window.removeEventListener('bytequay:attention-handled-changed', handledChanged);
     };
-  }, [workspaceId]);
+  }, [cacheKey, workspaceId]);
   useEffect(() => {
     if (!login) return;
     let active = true;
@@ -122,8 +114,8 @@ export function useWorkspaceAttention(workspaceId: string, repository: string, t
     };
   }, [login, workspaceId]);
   const candidates = useMemo(() => linkTasks(attentionCandidates(
-    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tickets, tasks.items), login), tasks.tasks),
-  [issues, login, prs, repository, tasks.items, tasks.tasks, tickets]);
+    prs.filter(pr => pr.repo.toLowerCase() === repository.toLowerCase()), issues.concat(tickets, tasks.items), login).map(item => item.pr === null ? item : { ...item, workspaceId }), tasks.tasks),
+  [issues, login, prs, repository, tasks.items, tasks.tasks, tickets, workspaceId]);
   // The same store as Home, so acknowledging here clears the row there too.
   const applyHandled = useCallback((next: Handled) => {
     setHandled(next);

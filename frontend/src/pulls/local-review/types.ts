@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { UserProfileDto } from '../../types';
+import type { PullRequestViewer } from '../../types';
 
 export type LocalReviewMessageDto = {
   id: string;
@@ -61,5 +61,5 @@ export type LocalReviewThreadActions = {
 
 export type LocalReviewThreads = LocalReviewThreadActions & {
   threads: LocalReviewThreadDto[];
-  viewer?: UserProfileDto | null;
+  viewer?: PullRequestViewer | null;
 };

@@ -80,13 +80,14 @@ import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
 import com.bytequay.app.memory.RecipeChecks;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingPullRequestContents;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccounts;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -405,18 +406,20 @@ public class AgentConfiguration
     }
 
     @Bean
-    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            CiAutofixService ci, CredentialService credentials, GitHubPullRequestWriteClient writes, Clock agentClock, DevelopmentBranchService branches,
+    public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore,
+            DevelopmentGitInspector git,
+            CiAutofixService ci, WorkspaceHostingService hosting, HostingPullRequestWrites writes, Clock agentClock, DevelopmentBranchService branches,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor, ReviewFixService reviewFixes)
     {
-        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, credentials, writes, agentClock, branches, reviewFixes);
+        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, hosting, writes, agentClock, branches, reviewFixes);
     }
 
     @Bean
     public DevelopmentGitInspector developmentGitInspector(WorktreeService worktrees, WorkspaceStore workspaces, GitCommandRunner git,
-            CredentialService credentials, GitHubPullRequestReadClient pullRequests, PullRequestTaskStore assignments, PullRequestService cachedPullRequests)
+            CredentialService credentials, HostingPullRequestContents pullRequests, WorkspaceHostingService hosting,
+            PullRequestTaskStore assignments, PullRequestService cachedPullRequests)
     {
-        return new DevelopmentGitInspector(worktrees, workspaces, git, credentials, pullRequests, assignments, cachedPullRequests);
+        return new DevelopmentGitInspector(worktrees, workspaces, git, credentials, pullRequests, hosting, assignments, cachedPullRequests);
     }
 
     @Bean

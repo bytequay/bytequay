@@ -14,6 +14,8 @@
 package com.bytequay.app.review;
 
 import com.bytequay.app.repository.github.GitHubRateLimitException;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PrTimelineComment;
@@ -21,6 +23,10 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetail.CiStatus;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -45,13 +51,13 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -63,16 +69,15 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.ignoreStubs;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -87,6 +92,11 @@ class TestReviewPublicationService
     private static final String REPO = "octo/widgets";
     private static final int NUMBER = 7;
     private static final long PR_ID = 4242L;
+    private static final HostingInstance INSTANCE = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+    private static final PullRequestRead ROUTE = new PullRequestRead(new HostingReadSession(10, "account", new HostingAccess(INSTANCE, "token")),
+            new HostingRepository(20, 1, "repository", REPO, URI.create("https://github.com/" + REPO), URI.create("https://github.com/" + REPO + ".git"),
+                    Optional.empty(), Optional.of("main")), NUMBER, "viewer");
+    private static final String DRAFT_ID = "20#7";
     private static final String REVIEW_ID = "review-1";
     private static final String RUN_ID = "run-1";
     private static final String FINDING_ID = "finding-1";
@@ -106,12 +116,13 @@ class TestReviewPublicationService
         reviews = new InMemoryAgentReviewStore();
         pullRequests = mock(PullRequestService.class);
         service = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
+        when(pullRequests.prepareRead(anyString(), eq(REPO), eq(NUMBER))).thenReturn(ROUTE);
     }
 
     @Test
     void aPullRequestWithoutADraftGetsAnEmptyCommentReview()
     {
-        ReviewDraft draft = service.draft(REPO, NUMBER);
+        ReviewDraft draft = service.draft(ROUTE);
 
         assertThat(draft.repo()).isEqualTo(REPO);
         assertThat(draft.number()).isEqualTo(NUMBER);
@@ -120,7 +131,24 @@ class TestReviewPublicationService
         assertThat(draft.version()).isZero();
         assertThat(draft.event()).isEqualTo("COMMENT").isNotEqualTo("APPROVE");
         assertThat(ReviewDraft.DEFAULT_EVENT).isEqualTo("COMMENT");
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
+    }
+
+    @Test
+    void draftsWithTheSamePathAndNumberOnDifferentServersStaySeparate()
+    {
+        HostingInstance gitLab = new HostingInstance(2, HostingProvider.GITLAB,
+                URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        PullRequestRead other = new PullRequestRead(new HostingReadSession(11, "account", new HostingAccess(gitLab, "token")),
+                new HostingRepository(21, 2, "repository", REPO, URI.create("https://gitlab.example.com/" + REPO),
+                        URI.create("https://gitlab.example.com/" + REPO + ".git"), Optional.empty(), Optional.of("main")), NUMBER, "viewer");
+
+        service.saveReview(ROUTE, 0, "GitHub review", "COMMENT");
+        service.saveReview(other, 0, "GitLab review", "COMMENT");
+
+        assertThat(service.findDraft(20, NUMBER).orElseThrow().body()).isEqualTo("GitHub review");
+        assertThat(service.findDraft(21, NUMBER).orElseThrow().body()).isEqualTo("GitLab review");
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -128,16 +156,16 @@ class TestReviewPublicationService
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
 
-        ReviewDraft afterManual = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Rename this"));
-        ReviewDraft afterFinding = service.addFinding(REPO, NUMBER, afterManual.version(), REVIEW_ID, FINDING_ID);
-        ReviewDraft afterEdit = service.editItem(REPO, NUMBER, afterFinding.version(), lastItemId(afterFinding), "Reworded", true);
-        ReviewDraft afterSave = service.saveReview(REPO, NUMBER, afterEdit.version(), "Overall notes", "REQUEST_CHANGES");
-        ReviewDraft afterRemove = service.removeItem(REPO, NUMBER, afterSave.version(), lastItemId(afterSave));
+        ReviewDraft afterManual = service.addManual(ROUTE, 0, manual("src/Main.java", 12, "Rename this"));
+        ReviewDraft afterFinding = service.addFinding(ROUTE, afterManual.version(), REVIEW_ID, FINDING_ID);
+        ReviewDraft afterEdit = service.editItem(ROUTE, afterFinding.version(), lastItemId(afterFinding), "Reworded", true);
+        ReviewDraft afterSave = service.saveReview(ROUTE, afterEdit.version(), "Overall notes", "REQUEST_CHANGES");
+        ReviewDraft afterRemove = service.removeItem(ROUTE, afterSave.version(), lastItemId(afterSave));
 
         assertThat(ImmutableList.of(afterManual.version(), afterFinding.version(), afterEdit.version(), afterSave.version(), afterRemove.version()))
                 .containsExactly(1L, 2L, 3L, 4L, 5L);
         assertThat(afterRemove.items()).hasSize(1);
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -146,17 +174,17 @@ class TestReviewPublicationService
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
 
         reviews.put(open.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("You resolved this finding locally");
 
         reviews.put(open.withState(ReviewFinding.State.WITHDRAWN, Optional.of("misread the diff"), NOW));
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("The agent withdrew this finding");
 
-        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE).items()).isEmpty();
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -169,18 +197,18 @@ class TestReviewPublicationService
         reviews.put(lines);
         reviews.put(whole);
 
-        ReviewDraft first = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
+        ReviewDraft first = service.addFinding(ROUTE, 0, REVIEW_ID, "f-whole");
         assertThat(first.items()).isEmpty();
         assertThat(first.body()).isEqualTo("Nit: commit subject\n\nCommit message: name the behavior, not the file.");
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, first.version(), REVIEW_ID, "f-whole"))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, first.version(), REVIEW_ID, "f-whole"))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already in your review");
 
         // It follows text the user already wrote, and a finding with lines still becomes an inline comment.
-        ReviewDraft written = service.saveReview(REPO, NUMBER, first.version(), "Thanks for the fix.", "COMMENT");
-        ReviewDraft second = service.addFinding(REPO, NUMBER, written.version(), REVIEW_ID, "f-whole");
+        ReviewDraft written = service.saveReview(ROUTE, first.version(), "Thanks for the fix.", "COMMENT");
+        ReviewDraft second = service.addFinding(ROUTE, written.version(), REVIEW_ID, "f-whole");
         assertThat(second.body()).isEqualTo("Thanks for the fix.\n\nNit: commit subject\n\nCommit message: name the behavior, not the file.");
-        assertThat(service.addFinding(REPO, NUMBER, second.version(), REVIEW_ID, FINDING_ID).items()).hasSize(1);
-        verifyNoInteractions(pullRequests);
+        assertThat(service.addFinding(ROUTE, second.version(), REVIEW_ID, FINDING_ID).items()).hasSize(1);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -192,23 +220,23 @@ class TestReviewPublicationService
         reviews.put(new ReviewFinding("f-removed", REVIEW_ID, RUN_ID, 2, "Nit: description", "Describe the migration.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
                 ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
-        ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
-        added = service.addFinding(REPO, NUMBER, added.version(), REVIEW_ID, "f-removed");
+        ReviewDraft added = service.addFinding(ROUTE, 0, REVIEW_ID, "f-whole");
+        added = service.addFinding(ROUTE, added.version(), REVIEW_ID, "f-removed");
         // The user deletes the second finding's text before submitting, so only the first one goes out.
-        ReviewDraft edited = service.saveReview(REPO, NUMBER, added.version(), "Nit: commit subject\n\nCommit message: name the behavior.", "COMMENT");
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(edited.body()), any(), anyString())).thenReturn(posted());
+        ReviewDraft edited = service.saveReview(ROUTE, added.version(), "Nit: commit subject\n\nCommit message: name the behavior.", "COMMENT");
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(edited.body()), any(), anyString())).thenReturn(posted());
 
-        ReviewDraft submitted = service.submit(REPO, NUMBER, edited.version(), edited.body(), "COMMENT", REVIEWED_HEAD).draft();
+        ReviewDraft submitted = service.submit(ROUTE, edited.version(), edited.body(), "COMMENT", REVIEWED_HEAD).draft();
 
         assertThat(submitted.body()).isEmpty();
         assertThat(submitted.postedSummaryFindingIds()).containsExactly("f-whole");
         assertThat(submitted.summaryFindingIds()).containsExactly("f-removed");
         assertThat(reviews.findFinding("f-whole")).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
         assertThat(reviews.findFinding("f-removed")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, submitted.version(), REVIEW_ID, "f-whole"))
-                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already posted to GitHub");
-        assertThat(service.addFinding(REPO, NUMBER, submitted.version(), REVIEW_ID, "f-removed").body()).isEqualTo("Nit: description\n\nDescribe the migration.");
+        assertThatThrownBy(() -> service.addFinding(ROUTE, submitted.version(), REVIEW_ID, "f-whole"))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already posted to the remote");
+        assertThat(service.addFinding(ROUTE, submitted.version(), REVIEW_ID, "f-removed").body()).isEqualTo("Nit: description\n\nDescribe the migration.");
     }
 
     @Test
@@ -217,7 +245,7 @@ class TestReviewPublicationService
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(open);
 
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
 
         ReviewDraftItem item = draft.items().getFirst();
         assertThat(item.source()).isEqualTo(Source.AGENT_FINDING);
@@ -231,7 +259,7 @@ class TestReviewPublicationService
         assertThat(item.included()).isTrue();
         assertThat(item.publication()).isEmpty();
         assertThat(reviews.findFinding(FINDING_ID)).contains(open);
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -241,7 +269,7 @@ class TestReviewPublicationService
         reviews.put(finding);
         reviews.setRun(acceptedReport(finding, true, false));
 
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
 
         assertThat(draft.items()).singleElement().satisfies(item -> {
             assertThat(item.findingId()).contains(FINDING_ID);
@@ -249,10 +277,10 @@ class TestReviewPublicationService
         });
         ReviewFinding revised = finding.revised(finding.title(), "New claim after acceptance", finding.severity(), finding.anchor(), finding.evidence(), REVIEWED_HEAD, NOW);
         reviews.put(revised);
-        ReviewDraft cleared = service.removeItem(REPO, NUMBER, draft.version(), lastItemId(draft));
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, cleared.version(), REVIEW_ID, FINDING_ID))
+        ReviewDraft cleared = service.removeItem(ROUTE, draft.version(), lastItemId(draft));
+        assertThatThrownBy(() -> service.addFinding(ROUTE, cleared.version(), REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source revision");
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -262,11 +290,11 @@ class TestReviewPublicationService
         reviews.put(finding);
         reviews.setRun(acceptedReport(finding, false, false));
 
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source revision");
 
-        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE).items()).isEmpty();
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -278,11 +306,11 @@ class TestReviewPublicationService
                 original.outdated(), original.version(), original.createdAt(), original.updatedAt(), original.memories(), ReviewFinding.Origin.DISCUSSION, Optional.empty()));
         reviews.setRun(run(ReviewRun.State.ACCEPTED).withStep(ReviewStep.explanation(), NOW));
 
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source commit");
 
-        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE).items()).isEmpty();
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -294,16 +322,16 @@ class TestReviewPublicationService
         ReviewFinding revised = original.revised(original.title(), "Clarified after discussion", original.severity(), original.anchor(), original.evidence(), REVIEWED_HEAD, NOW);
         reviews.put(revised);
 
-        ReviewDraft promoted = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft promoted = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         assertThat(promoted.items().getFirst().findingRevision()).hasValue(2);
         assertThat(promoted.items().getFirst().body()).isEqualTo("Finding 1\n\nClarified after discussion");
-        ReviewDraft edited = service.editItem(REPO, NUMBER, promoted.version(), lastItemId(promoted), "My own wording", true);
+        ReviewDraft edited = service.editItem(ROUTE, promoted.version(), lastItemId(promoted), "My own wording", true);
         reviews.put(revised.revised(revised.title(), "Another clarification", revised.severity(), revised.anchor(), revised.evidence(), REVIEWED_HEAD, NOW));
 
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(edited);
+        assertThat(service.draft(ROUTE)).isEqualTo(edited);
         assertThat(edited.items().getFirst().body()).isEqualTo("My own wording");
         assertThat(edited.items().getFirst().findingRevision()).hasValue(2);
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -317,11 +345,11 @@ class TestReviewPublicationService
         ReviewValidation rejection = validation(3, finding, false, false);
         reviews.setRun(earlierSupport.withStep(collection, NOW).withStep(collection.next(ReviewStep.Kind.VALIDATE).withValidation(rejection), NOW));
 
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source revision");
 
-        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE).items()).isEmpty();
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -338,26 +366,26 @@ class TestReviewPublicationService
         reviews.setRun(acceptedReport(carried, true, false));
         reviews.runs.addFirst(failed);
 
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
 
         assertThat(draft.items().getFirst().findingId()).contains(FINDING_ID);
         assertThat(draft.items().getFirst().findingRevision()).hasValue(carried.revision());
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
     void aProvisionalFindingCannotBeAddedButAnExistingSnapshotCanBeSent()
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         reviews.setRun(run(ReviewRun.State.RUNNING));
 
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(ROUTE, draft.version(), REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review");
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
 
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
-        assertThat(service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft)).publishedItemIds()).containsExactly(lastItemId(draft));
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(posted());
+        assertThat(service.publishItem(ROUTE, draft.version(), lastItemId(draft)).publishedItemIds()).containsExactly(lastItemId(draft));
     }
 
     @Test
@@ -368,10 +396,10 @@ class TestReviewPublicationService
         reviews.put(pending);
         reviews.put(pending.revised("Null guard", "Guard the null case", Optional.of("medium"), pending.anchor(),
                 ImmutableList.of(new ReviewEvidence("E1", "Frozen source", "reviewed head", "return value;", "Confirmed the null path")), REVIEWED_HEAD, NOW));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
 
         assertThat(draft.items().getFirst().findingRevision()).hasValue(2);
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -379,9 +407,11 @@ class TestReviewPublicationService
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
 
-        assertThatThrownBy(() -> service.addFinding("octo/other", NUMBER, 0, REVIEW_ID, FINDING_ID))
+        assertThatThrownBy(() -> service.addFinding(new PullRequestRead(ROUTE.session(),
+                new HostingRepository(21, 1, "other", "octo/other", URI.create("https://github.com/octo/other"),
+                        URI.create("https://github.com/octo/other.git"), Optional.empty(), Optional.of("main")), NUMBER, "viewer"), 0, REVIEW_ID, FINDING_ID))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("different pull request");
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -389,13 +419,13 @@ class TestReviewPublicationService
     {
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(open);
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
 
-        ReviewDraft edited = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "  Guard it, and say why  ", true);
+        ReviewDraft edited = service.editItem(ROUTE, draft.version(), lastItemId(draft), "  Guard it, and say why  ", true);
 
         assertThat(edited.items().getFirst().body()).isEqualTo("Guard it, and say why");
         assertThat(reviews.findFinding(FINDING_ID)).contains(open);
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
@@ -408,12 +438,12 @@ class TestReviewPublicationService
         ReviewFinding removed = finding("f-removed", 5, "src/E.java", 50, 50, "Removed later");
         ImmutableList.of(resolved, withdrawn, outdated, revised, removed).forEach(reviews::put);
 
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Still fine"));
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-resolved");
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-withdrawn");
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-outdated");
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-revised");
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "f-removed");
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/Main.java", 12, "Still fine"));
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, "f-resolved");
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, "f-withdrawn");
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, "f-outdated");
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, "f-revised");
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, "f-removed");
 
         reviews.put(resolved.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
         reviews.put(withdrawn.withState(ReviewFinding.State.WITHDRAWN, Optional.of("misread the diff"), NOW));
@@ -421,15 +451,15 @@ class TestReviewPublicationService
         reviews.put(revised.revised("Revised title", "Rewritten body", Optional.empty(), revised.anchor(), ImmutableList.of(), REVIEWED_HEAD, NOW));
         reviews.findings.remove(removed.id());
 
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(draft);
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE)).isEqualTo(draft);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
 
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString())).thenReturn(posted());
-        service.submit(REPO, NUMBER, draft.version(), "", "COMMENT", REVIEWED_HEAD);
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString())).thenReturn(posted());
+        service.submit(ROUTE, draft.version(), "", "COMMENT", REVIEWED_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
         assertThat(sent.getValue()).extracting(InlineReviewComment::body)
                 .containsExactly("Still fine", "Finding 1\n\nResolved later", "Finding 2\n\nWithdrawn later", "Finding 3\n\nOutdated later",
                         "Finding 4\n\nRevised later", "Finding 5\n\nRemoved later");
@@ -440,97 +470,97 @@ class TestReviewPublicationService
     {
         ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(original.pendingReassessment(NOW));
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(posted());
 
-        service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+        service.publishItem(ROUTE, draft.version(), lastItemId(draft));
 
         ArgumentCaptor<InlineReviewComment> sent = ArgumentCaptor.captor();
-        verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
+        verify(pullRequests).createReviewComment(eq(ROUTE), sent.capture());
         assertThat(sent.getValue().commitId()).isEqualTo(REVIEWED_HEAD);
         assertThat(sent.getValue().line()).isEqualTo(131);
-        verifyNoMoreInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
     void approvalWithoutCommentsUsesTheViewedCommitAfterTheHeadChanges()
     {
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(REPO, NUMBER, PR_ID, "APPROVE", "", ImmutableList.of(), REVIEWED_HEAD)).thenReturn(posted());
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(ROUTE, PR_ID, "APPROVE", "", ImmutableList.of(), REVIEWED_HEAD)).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, 0, "", "APPROVE", REVIEWED_HEAD);
+        service.submit(ROUTE, 0, "", "APPROVE", REVIEWED_HEAD);
 
-        verify(pullRequests).submitReview(REPO, NUMBER, PR_ID, "APPROVE", "", ImmutableList.of(), REVIEWED_HEAD);
-        verify(pullRequests, never()).findHeadSha(REPO, NUMBER);
+        verify(pullRequests).submitReview(ROUTE, PR_ID, "APPROVE", "", ImmutableList.of(), REVIEWED_HEAD);
+        verify(pullRequests, never()).findHeadSha(ROUTE);
     }
 
     @Test
     void olderInlineCommentsDoNotMoveTheVerdictOffTheViewedCommit()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Older comment"));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/Main.java", 12, "Older comment"));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, draft.version(), "Looks good", "APPROVE", CURRENT_HEAD);
+        service.submit(ROUTE, draft.version(), "Looks good", "APPROVE", CURRENT_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), comments.capture(), eq(REVIEWED_HEAD));
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), comments.capture(), eq(REVIEWED_HEAD));
         assertThat(comments.getValue()).singleElement().satisfies(comment -> assertThat(comment.body()).isEqualTo("Older comment"));
-        verify(pullRequests).submitReview(REPO, NUMBER, PR_ID, "APPROVE", "Looks good", ImmutableList.of(), CURRENT_HEAD);
+        verify(pullRequests).submitReview(ROUTE, PR_ID, "APPROVE", "Looks good", ImmutableList.of(), CURRENT_HEAD);
     }
 
     @Test
     void olderCommentsNeedReviewTextBeforeRequestingChangesOrPublishingAnything()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Older comment"));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/Main.java", 12, "Older comment"));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
 
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, draft.version(), " ", "REQUEST_CHANGES", CURRENT_HEAD))
+        assertThatThrownBy(() -> service.submit(ROUTE, draft.version(), " ", "REQUEST_CHANGES", CURRENT_HEAD))
                 .hasMessageContaining("Add review text").hasMessageContaining("earlier commits");
 
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(draft);
-        verify(pullRequests).getPullRequestDetail(REPO, NUMBER);
-        verifyNoMoreInteractions(pullRequests);
+        assertThat(service.draft(ROUTE)).isEqualTo(draft);
+        verify(pullRequests).getPullRequestDetail(ROUTE);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
 
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
-        service.submit(REPO, NUMBER, draft.version(), "Please address the earlier comment", "REQUEST_CHANGES", CURRENT_HEAD);
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        service.submit(ROUTE, draft.version(), "Please address the earlier comment", "REQUEST_CHANGES", CURRENT_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), comments.capture(), eq(REVIEWED_HEAD));
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), comments.capture(), eq(REVIEWED_HEAD));
         assertThat(comments.getValue()).singleElement().satisfies(comment -> assertThat(comment.body()).isEqualTo("Older comment"));
-        verify(pullRequests).submitReview(REPO, NUMBER, PR_ID, "REQUEST_CHANGES", "Please address the earlier comment", ImmutableList.of(), CURRENT_HEAD);
+        verify(pullRequests).submitReview(ROUTE, PR_ID, "REQUEST_CHANGES", "Please address the earlier comment", ImmutableList.of(), CURRENT_HEAD);
     }
 
     @Test
     void missingViewedCommitCannotReserveOrPublishAReview()
     {
-        ReviewDraft before = service.draft(REPO, NUMBER);
+        ReviewDraft before = service.draft(ROUTE);
 
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, 0, "", "APPROVE", null)).hasMessageContaining("Refresh the pull request");
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, 0, "", "APPROVE", " ")).hasMessageContaining("Refresh the pull request");
+        assertThatThrownBy(() -> service.submit(ROUTE, 0, "", "APPROVE", null)).hasMessageContaining("Refresh the pull request");
+        assertThatThrownBy(() -> service.submit(ROUTE, 0, "", "APPROVE", " ")).hasMessageContaining("Refresh the pull request");
 
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(before);
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE)).isEqualTo(before);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
     void submitGroupsEachOriginalCommitAndPlacesTheCurrentHeadVerdictLast()
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/Main.java", 12, "Rename this").withCommitId(CURRENT_HEAD));
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, FINDING_ID);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/Main.java", 12, "Rename this").withCommitId(CURRENT_HEAD));
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, FINDING_ID);
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES", CURRENT_HEAD);
+        service.submit(ROUTE, draft.version(), "Please fix these", "REQUEST_CHANGES", CURRENT_HEAD);
 
         ArgumentCaptor<String> events = ArgumentCaptor.captor();
         ArgumentCaptor<String> bodies = ArgumentCaptor.captor();
         ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
-        verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), events.capture(), bodies.capture(), comments.capture(), anyString());
+        verify(pullRequests, times(2)).submitReview(eq(ROUTE), eq(PR_ID), events.capture(), bodies.capture(), comments.capture(), anyString());
         assertThat(events.getAllValues()).containsExactly("COMMENT", "REQUEST_CHANGES");
         assertThat(bodies.getAllValues()).containsExactly("", "Please fix these");
         assertThat(comments.getAllValues().getFirst()).singleElement().satisfies(item -> assertThat(item.commitId()).isEqualTo(REVIEWED_HEAD));
@@ -541,17 +571,17 @@ class TestReviewPublicationService
     void publishItemSendsTheExactReviewedLocation()
     {
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenAnswer(invocation -> {
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.createReviewComment(eq(ROUTE), any(InlineReviewComment.class))).thenAnswer(invocation -> {
             assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
             return posted();
         });
 
-        service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+        service.publishItem(ROUTE, draft.version(), lastItemId(draft));
 
         ArgumentCaptor<InlineReviewComment> sent = ArgumentCaptor.captor();
-        verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
+        verify(pullRequests).createReviewComment(eq(ROUTE), sent.capture());
         InlineReviewComment comment = sent.getValue();
         assertThat(comment.path()).isEqualTo("src/Service.java");
         assertThat(comment.body()).isEqualTo("Finding 1\n\nGuard the null case");
@@ -562,7 +592,7 @@ class TestReviewPublicationService
         assertThat(comment.commitId()).isEqualTo(REVIEWED_HEAD);
         assertThat(reviews.findFinding(FINDING_ID)).hasValueSatisfying(finding -> {
             assertThat(finding.state()).isEqualTo(ReviewFinding.State.RESOLVED);
-            assertThat(finding.stateReason()).contains("Accepted and posted to GitHub");
+            assertThat(finding.stateReason()).contains("Accepted and posted to the remote");
             assertThat(finding.resolvedByTaskId()).isEmpty();
         });
     }
@@ -572,20 +602,20 @@ class TestReviewPublicationService
     {
         reviews.put(finding(FINDING_ID, 1, "src/A.java", 1, 1, "First"));
         reviews.put(finding("excluded", 2, "src/B.java", 2, 2, "Excluded"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        draft = service.addFinding(REPO, NUMBER, draft.version(), REVIEW_ID, "excluded");
-        draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "Not included", false);
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
+        draft = service.addFinding(ROUTE, draft.version(), REVIEW_ID, "excluded");
+        draft = service.editItem(ROUTE, draft.version(), lastItemId(draft), "Not included", false);
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
 
-        ReviewDraft published = service.submit(REPO, NUMBER, draft.version(), "", "COMMENT", REVIEWED_HEAD).draft();
+        ReviewDraft published = service.submit(ROUTE, draft.version(), "", "COMMENT", REVIEWED_HEAD).draft();
 
         assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
         assertThat(reviews.findFinding("excluded")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
         ReviewFinding reopened = reviews.findFinding(FINDING_ID).orElseThrow().withState(ReviewFinding.State.OPEN, Optional.empty(), NOW);
         reviews.put(reopened);
 
-        service.submit(REPO, NUMBER, published.version(), "Another review", "COMMENT", REVIEWED_HEAD);
+        service.submit(ROUTE, published.version(), "Another review", "COMMENT", REVIEWED_HEAD);
 
         assertThat(reviews.findFinding(FINDING_ID)).contains(reopened);
         assertThat(reviews.findFinding("excluded")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
@@ -596,15 +626,15 @@ class TestReviewPublicationService
     {
         ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(original);
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         reviews.put(original.revised("New title", "Different wording", Optional.empty(),
                 Optional.of(new ReviewAnchor("src/Service.java", "RIGHT", 119, 132, ImmutableList.of())), ImmutableList.of(), CURRENT_HEAD, NOW));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(posted());
 
-        service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+        service.publishItem(ROUTE, draft.version(), lastItemId(draft));
 
         ArgumentCaptor<InlineReviewComment> sent = ArgumentCaptor.captor();
-        verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
+        verify(pullRequests).createReviewComment(eq(ROUTE), sent.capture());
         assertThat(sent.getValue().commitId()).isEqualTo(REVIEWED_HEAD);
         assertThat(sent.getValue().body()).isEqualTo("Finding 1\n\nGuard the null case");
         assertThat(sent.getValue().line()).isEqualTo(131);
@@ -620,17 +650,17 @@ class TestReviewPublicationService
                     return input.orElseThrow();
                 ```""";
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 119, body));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         assertThat(draft.items().getFirst().body()).isEqualTo("Finding 1\n\n" + body);
-        verifyNoInteractions(pullRequests);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), any(), anyString())).thenReturn(posted());
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), any(), anyString())).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, draft.version(), "Suggested fix", "COMMENT", REVIEWED_HEAD);
+        service.submit(ROUTE, draft.version(), "Suggested fix", "COMMENT", REVIEWED_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), sent.capture(), anyString());
         assertThat(sent.getValue()).singleElement().satisfies(comment -> {
             assertThat(comment.body()).isEqualTo("Finding 1\n\n" + body);
             assertThat(comment.path()).isEqualTo("src/Service.java");
@@ -646,23 +676,23 @@ class TestReviewPublicationService
     {
         ReviewDraftItem reply = new ReviewDraftItem("reply", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "old.java", "RIGHT", 1,
                 OptionalInt.empty(), "Reply", true, Optional.empty(), Optional.empty(), OptionalLong.of(61));
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, reply);
+        ReviewDraft draft = service.addManual(ROUTE, 0, reply);
         String replyId = lastItemId(draft);
-        draft = service.editItem(REPO, NUMBER, draft.version(), replyId, "Edited reply", true);
-        draft = service.addManual(REPO, NUMBER, draft.version(), manual("A.java", 3, "Older comment").withCommitId(REVIEWED_HEAD));
-        draft = service.addManual(REPO, NUMBER, draft.version(), manual("B.java", 4, "Head comment").withCommitId(CURRENT_HEAD));
+        draft = service.editItem(ROUTE, draft.version(), replyId, "Edited reply", true);
+        draft = service.addManual(ROUTE, draft.version(), manual("A.java", 3, "Older comment").withCommitId(REVIEWED_HEAD));
+        draft = service.addManual(ROUTE, draft.version(), manual("B.java", 4, "Head comment").withCommitId(CURRENT_HEAD));
         assertThat(draft.items().getFirst().replyToCommentId()).hasValue(61);
         assertThat(draft.items().getFirst().commitId()).isEmpty();
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, draft.version(), "", "APPROVE", CURRENT_HEAD);
+        service.submit(ROUTE, draft.version(), "", "APPROVE", CURRENT_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
         assertThat(sent.getValue()).extracting(InlineReviewComment::body).containsExactly("Older comment");
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq(""), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("APPROVE"), eq(""), sent.capture(), anyString());
         assertThat(sent.getValue()).extracting(InlineReviewComment::body).containsExactly("Head comment", "Edited reply");
         assertThat(sent.getValue().getLast().replyToCommentId()).hasValue(61);
     }
@@ -670,21 +700,21 @@ class TestReviewPublicationService
     @Test
     void submitSendsOnlyTheIncludedUnpublishedItems()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
-        draft = service.addManual(REPO, NUMBER, draft.version(), manual("src/B.java", 20, "Not this one"));
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Rename this"));
+        draft = service.addManual(ROUTE, draft.version(), manual("src/B.java", 20, "Not this one"));
         String excluded = lastItemId(draft);
-        draft = service.addManual(REPO, NUMBER, draft.version(), manual("src/C.java", 30, "Extract a helper"));
-        draft = service.editItem(REPO, NUMBER, draft.version(), excluded, "Not this one", false);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("REQUEST_CHANGES"), eq("Please fix these"), any(), anyString())).thenReturn(posted());
+        draft = service.addManual(ROUTE, draft.version(), manual("src/C.java", 30, "Extract a helper"));
+        draft = service.editItem(ROUTE, draft.version(), excluded, "Not this one", false);
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("REQUEST_CHANGES"), eq("Please fix these"), any(), anyString())).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES", REVIEWED_HEAD);
+        service.submit(ROUTE, draft.version(), "Please fix these", "REQUEST_CHANGES", REVIEWED_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("REQUEST_CHANGES"), eq("Please fix these"), sent.capture(), anyString());
-        verify(pullRequests).getPullRequestDetail(REPO, NUMBER);
-        verifyNoMoreInteractions(pullRequests);
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("REQUEST_CHANGES"), eq("Please fix these"), sent.capture(), anyString());
+        verify(pullRequests).getPullRequestDetail(ROUTE);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
         assertThat(sent.getValue()).extracting(InlineReviewComment::body).containsExactly("Rename this", "Extract a helper");
     }
 
@@ -693,17 +723,17 @@ class TestReviewPublicationService
     {
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(open);
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "My own review comment", true);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
+        draft = service.editItem(ROUTE, draft.version(), lastItemId(draft), "My own review comment", true);
         reviews.put(open.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
 
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), any(), anyString())).thenReturn(posted());
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), any(), anyString())).thenReturn(posted());
 
-        ReviewPublicationService.Publication result = service.submit(REPO, NUMBER, draft.version(), "Please fix these", "COMMENT", REVIEWED_HEAD);
+        ReviewPublicationService.Publication result = service.submit(ROUTE, draft.version(), "Please fix these", "COMMENT", REVIEWED_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), sent.capture(), anyString());
         assertThat(sent.getValue()).containsExactly(new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD,
                 OptionalLong.empty()));
         assertThat(result.publishedItemIds()).containsExactly(lastItemId(draft));
@@ -715,14 +745,14 @@ class TestReviewPublicationService
     {
         ReviewFinding open = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         reviews.put(open);
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        draft = service.editItem(REPO, NUMBER, draft.version(), lastItemId(draft), "My own review comment", true);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
+        draft = service.editItem(ROUTE, draft.version(), lastItemId(draft), "My own review comment", true);
         reviews.put(open.withState(ReviewFinding.State.WITHDRAWN, Optional.of("misread the diff"), NOW));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(posted());
 
-        ReviewPublicationService.Publication result = service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+        ReviewPublicationService.Publication result = service.publishItem(ROUTE, draft.version(), lastItemId(draft));
 
-        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD,
+        verify(pullRequests).createReviewComment(ROUTE, new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD,
                 OptionalLong.empty()));
         assertThat(result.publishedItemIds()).containsExactly(lastItemId(draft));
     }
@@ -730,83 +760,83 @@ class TestReviewPublicationService
     @Test
     void aPublishedItemIsNeverSentAgainByEitherRoute()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Rename this"));
         String itemId = lastItemId(draft);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenReturn(posted());
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Anything else?"), any(), anyString())).thenReturn(posted());
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.createReviewComment(eq(ROUTE), any(InlineReviewComment.class))).thenReturn(posted());
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Anything else?"), any(), anyString())).thenReturn(posted());
 
-        long version = service.publishItem(REPO, NUMBER, draft.version(), itemId).draft().version();
+        long version = service.publishItem(ROUTE, draft.version(), itemId).draft().version();
 
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, version, itemId))
+        assertThatThrownBy(() -> service.publishItem(ROUTE, version, itemId))
                 .isInstanceOf(ReviewConflictException.class)
-                .hasMessageContaining("already posted to GitHub");
+                .hasMessageContaining("already posted to the remote");
 
-        service.submit(REPO, NUMBER, version, "Anything else?", "COMMENT", REVIEWED_HEAD);
+        service.submit(ROUTE, version, "Anything else?", "COMMENT", REVIEWED_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Anything else?"), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Anything else?"), sent.capture(), anyString());
         assertThat(sent.getValue()).isEmpty();
-        verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class));
+        verify(pullRequests, times(1)).createReviewComment(eq(ROUTE), any(InlineReviewComment.class));
     }
 
     @Test
     void aFailedSendLeavesTheItemUncertainAndBlocksAResend()
     {
         reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Rename this"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         String itemId = lastItemId(draft);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class))).thenThrow(new IllegalStateException("github is unreachable"));
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.createReviewComment(eq(ROUTE), any(InlineReviewComment.class))).thenThrow(new IllegalStateException("github is unreachable"));
 
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), itemId))
+        assertThatThrownBy(() -> service.publishItem(ROUTE, draft.version(), itemId))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessage("github is unreachable");
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = service.draft(ROUTE);
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(after.items().getFirst().published()).isFalse();
         assertThat(after.items().getFirst().body()).isEqualTo("Finding 1\n\nRename this");
         assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
         // A send whose outcome is unknown is never retried from here; the refusal is what keeps a duplicate comment off GitHub.
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT", REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
-        assertThatThrownBy(() -> service.editItem(REPO, NUMBER, after.version(), itemId, "Changed", true)).hasMessageContaining("unknown outcome");
-        assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
-        verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class));
+        assertThatThrownBy(() -> service.publishItem(ROUTE, after.version(), itemId)).hasMessageContaining("unknown outcome");
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        assertThatThrownBy(() -> service.submit(ROUTE, after.version(), "Review", "COMMENT", REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.editItem(ROUTE, after.version(), itemId, "Changed", true)).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.removeItem(ROUTE, after.version(), itemId)).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(1)).createReviewComment(eq(ROUTE), any(InlineReviewComment.class));
     }
 
     @Test
     void aReviewWhoseSendHasAnUnknownOutcomeWaitsForTheUserBeforeItCanGoAgain()
     {
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any(), anyString()))
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any(), anyString()))
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not answer"))
                 .thenReturn(posted());
 
         // No comment rides along, so only the review's own state can stop a second approval.
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, 0, "Looks good", "APPROVE", REVIEWED_HEAD)).hasMessageContaining("GitHub did not answer");
+        assertThatThrownBy(() -> service.submit(ROUTE, 0, "Looks good", "APPROVE", REVIEWED_HEAD)).hasMessageContaining("GitHub did not answer");
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = service.draft(ROUTE);
         assertThat(after.reviewPublication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(after.body()).isEqualTo("Looks good");
         assertThat(after.event()).isEqualTo("APPROVE");
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), after.body(), after.event(), REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
-        assertThatThrownBy(() -> service.saveReview(REPO, NUMBER, after.version(), "Looks good!", "APPROVE")).hasMessageContaining("unknown outcome");
-        verify(pullRequests, times(1)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString());
+        assertThatThrownBy(() -> service.submit(ROUTE, after.version(), after.body(), after.event(), REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.saveReview(ROUTE, after.version(), "Looks good!", "APPROVE")).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(1)).submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString());
 
-        ReviewDraft missing = service.confirmReview(REPO, NUMBER, after.version(), false);
+        ReviewDraft missing = service.confirmReview(ROUTE, after.version(), false);
 
         assertThat(missing.reviewPublication()).isEmpty();
         assertThat(missing.body()).isEqualTo("Looks good");
         assertThat(missing.event()).isEqualTo("APPROVE");
-        assertThatThrownBy(() -> service.confirmReview(REPO, NUMBER, missing.version(), true)).hasMessageContaining("Only a review with unconfirmed delivery");
-        ReviewDraft resent = service.submit(REPO, NUMBER, missing.version(), missing.body(), missing.event(), REVIEWED_HEAD).draft();
+        assertThatThrownBy(() -> service.confirmReview(ROUTE, missing.version(), true)).hasMessageContaining("Only a review with unconfirmed delivery");
+        ReviewDraft resent = service.submit(ROUTE, missing.version(), missing.body(), missing.event(), REVIEWED_HEAD).draft();
         assertThat(resent.body()).isEmpty();
         assertThat(resent.reviewPublication()).isEmpty();
-        verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString());
+        verify(pullRequests, times(2)).submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString());
     }
 
     @Test
@@ -815,23 +845,23 @@ class TestReviewPublicationService
         reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
                 ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
-        ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenThrow(new IllegalStateException("Read timed out"));
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, added.version(), added.body(), "COMMENT", REVIEWED_HEAD)).hasMessage("Read timed out");
-        ReviewDraft uncertain = service.draft(REPO, NUMBER);
+        ReviewDraft added = service.addFinding(ROUTE, 0, REVIEW_ID, "f-whole");
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenThrow(new IllegalStateException("Read timed out"));
+        assertThatThrownBy(() -> service.submit(ROUTE, added.version(), added.body(), "COMMENT", REVIEWED_HEAD)).hasMessage("Read timed out");
+        ReviewDraft uncertain = service.draft(ROUTE);
         assertThat(reviews.findFinding("f-whole")).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
 
-        ReviewDraft found = service.confirmReview(REPO, NUMBER, uncertain.version(), true);
+        ReviewDraft found = service.confirmReview(ROUTE, uncertain.version(), true);
 
         assertThat(found.reviewPublication()).isEmpty();
         assertThat(found.body()).isEmpty();
         assertThat(found.event()).isEqualTo(ReviewDraft.DEFAULT_EVENT);
         assertThat(found.postedSummaryFindingIds()).containsExactly("f-whole");
         assertThat(reviews.findFinding("f-whole")).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, found.version(), REVIEW_ID, "f-whole")).hasMessageContaining("already posted to GitHub");
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, found.version(), found.body(), found.event(), REVIEWED_HEAD)).hasMessageContaining("Add a comment or review text");
-        verify(pullRequests, times(1)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString());
+        assertThatThrownBy(() -> service.addFinding(ROUTE, found.version(), REVIEW_ID, "f-whole")).hasMessageContaining("already posted to the remote");
+        assertThatThrownBy(() -> service.submit(ROUTE, found.version(), found.body(), found.event(), REVIEWED_HEAD)).hasMessageContaining("Add a comment or review text");
+        verify(pullRequests, times(1)).submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString());
     }
 
     @Test
@@ -840,21 +870,21 @@ class TestReviewPublicationService
         reviews.put(new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 1, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
                 Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
                 ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC, Optional.empty()));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenAnswer(invocation -> {
-            ReviewDraft sending = service.draft(REPO, NUMBER);
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenAnswer(invocation -> {
+            ReviewDraft sending = service.draft(ROUTE);
             assertThat(sending.reviewPublication().orElseThrow().state()).isEqualTo(ReviewPublication.State.RESERVED);
-            assertThatThrownBy(() -> service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES")).hasMessageContaining("being sent");
-            assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, sending.version(), REVIEW_ID, "f-whole")).hasMessageContaining("being sent");
-            assertThatThrownBy(() -> service.confirmReview(REPO, NUMBER, sending.version(), false)).hasMessageContaining("Only a review with unconfirmed delivery");
+            assertThatThrownBy(() -> service.saveReview(ROUTE, sending.version(), "Next review notes", "REQUEST_CHANGES")).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.addFinding(ROUTE, sending.version(), REVIEW_ID, "f-whole")).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.confirmReview(ROUTE, sending.version(), false)).hasMessageContaining("Only a review with unconfirmed delivery");
             return posted();
         });
 
-        ReviewDraft after = service.submit(REPO, NUMBER, 0, "Submitted notes", "REQUEST_CHANGES", REVIEWED_HEAD).draft();
+        ReviewDraft after = service.submit(ROUTE, 0, "Submitted notes", "REQUEST_CHANGES", REVIEWED_HEAD).draft();
 
         assertThat(after.reviewPublication()).isEmpty();
         assertThat(after.body()).isEmpty();
-        assertThat(service.addFinding(REPO, NUMBER, after.version(), REVIEW_ID, "f-whole").body()).isEqualTo("Nit: commit subject\n\nCommit message: name the behavior.");
+        assertThat(service.addFinding(ROUTE, after.version(), REVIEW_ID, "f-whole").body()).isEqualTo("Nit: commit subject\n\nCommit message: name the behavior.");
     }
 
     @Test
@@ -862,67 +892,67 @@ class TestReviewPublicationService
     {
         ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
         ReviewDraftItem original = manual("src/A.java", 10, "My edited comment").withPublication(Optional.of(uncertain));
-        ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withReview("Saved review", "REQUEST_CHANGES", NOW)
+        ReviewDraft saved = drafts.save(ReviewDraft.empty(DRAFT_ID, REPO, NUMBER, NOW).withReview("Saved review", "REQUEST_CHANGES", NOW)
                 .withItems(ImmutableList.of(original), NOW));
 
-        assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, saved.version() - 1, original.id())).hasMessageContaining("changed in another window");
-        assertThat(service.draft(REPO, NUMBER).items()).containsExactly(original);
+        assertThatThrownBy(() -> service.confirmNotPosted(ROUTE, saved.version() - 1, original.id())).hasMessageContaining("changed in another window");
+        assertThat(service.draft(ROUTE).items()).containsExactly(original);
 
-        ReviewDraft pending = service.confirmNotPosted(REPO, NUMBER, saved.version(), original.id());
+        ReviewDraft pending = service.confirmNotPosted(ROUTE, saved.version(), original.id());
 
         assertThat(pending.items()).containsExactly(original.withPublication(Optional.empty()));
         assertThat(pending.body()).isEqualTo(saved.body());
         assertThat(pending.event()).isEqualTo(saved.event());
         assertThat(pending.version()).isEqualTo(saved.version() + 1);
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
 
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(posted());
-        ReviewDraft posted = service.publishItem(REPO, NUMBER, pending.version(), original.id()).draft();
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(posted());
+        ReviewDraft posted = service.publishItem(ROUTE, pending.version(), original.id()).draft();
         assertThat(posted.items().getFirst().published()).isTrue();
         assertThat(posted.items().getFirst().publication().orElseThrow().attemptId()).isNotEqualTo(uncertain.attemptId());
-        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment(
+        verify(pullRequests).createReviewComment(ROUTE, new InlineReviewComment(
                 original.path(), original.body(), original.line(), original.side(), null, null, REVIEWED_HEAD, OptionalLong.empty()));
     }
 
     @Test
     void confirmingDeliveryCannotResetPendingOrSuccessfulComments()
     {
-        ReviewDraft saved = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Comment"));
+        ReviewDraft saved = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Comment"));
         for (Optional<ReviewPublication> publication : ImmutableList.of(Optional.<ReviewPublication>empty(),
                 Optional.of(new ReviewPublication("posted", ReviewPublication.State.PUBLISHED, OptionalLong.of(1), OptionalLong.of(2), Optional.empty(), NOW)))) {
             ReviewDraft current = drafts.save(saved.withItems(ImmutableList.of(saved.items().getFirst().withPublication(publication)), NOW));
-            assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, current.version(), lastItemId(current)))
+            assertThatThrownBy(() -> service.confirmNotPosted(ROUTE, current.version(), lastItemId(current)))
                     .isInstanceOf(ReviewConflictException.class).hasMessageContaining("Only a comment with unconfirmed delivery");
-            assertThatThrownBy(() -> service.confirmPosted(REPO, NUMBER, current.version(), lastItemId(current)))
+            assertThatThrownBy(() -> service.confirmPosted(ROUTE, current.version(), lastItemId(current)))
                     .isInstanceOf(ReviewConflictException.class).hasMessageContaining("Only a comment with unconfirmed delivery");
-            assertThat(service.draft(REPO, NUMBER)).isEqualTo(current);
+            assertThat(service.draft(ROUTE)).isEqualTo(current);
             saved = current;
         }
-        verifyNoInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
     void aCommentFoundOnGitHubIsRecordedAsPostedAndNeverSentAgain()
     {
         reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Delivered after all"));
-        ReviewDraft added = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft added = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
         ReviewDraftItem original = added.items().getFirst().withPublication(Optional.of(uncertain));
         ReviewDraft saved = drafts.save(added.withItems(ImmutableList.of(original), NOW));
 
-        ReviewDraft confirmed = service.confirmPosted(REPO, NUMBER, saved.version(), original.id());
+        ReviewDraft confirmed = service.confirmPosted(ROUTE, saved.version(), original.id());
 
         assertThat(confirmed.items().getFirst().published()).isTrue();
         assertThat(confirmed.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("failed-send");
         assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.RESOLVED);
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, confirmed.version(), original.id())).hasMessageContaining("already posted to GitHub");
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Thanks"), any(), anyString())).thenReturn(posted());
-        service.submit(REPO, NUMBER, confirmed.version(), "Thanks", "COMMENT", REVIEWED_HEAD);
+        assertThatThrownBy(() -> service.publishItem(ROUTE, confirmed.version(), original.id())).hasMessageContaining("already posted to the remote");
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Thanks"), any(), anyString())).thenReturn(posted());
+        service.submit(ROUTE, confirmed.version(), "Thanks", "COMMENT", REVIEWED_HEAD);
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Thanks"), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq("Thanks"), sent.capture(), anyString());
         assertThat(sent.getValue()).isEmpty();
-        verify(pullRequests, never()).createReviewComment(any(), anyInt(), any());
+        verify(pullRequests, never()).createReviewComment(any(PullRequestRead.class), any());
     }
 
     @Test
@@ -931,86 +961,86 @@ class TestReviewPublicationService
         ReviewPublication reserved = new ReviewPublication(
                 "before-restart", ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), Instant.EPOCH);
         ReviewDraftItem item = manual("src/A.java", 10, "Was it sent?").withPublication(Optional.of(reserved));
-        drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withReview("Was the review sent?", "APPROVE", NOW).withReviewPublication(Optional.of(reserved), NOW)
+        drafts.save(ReviewDraft.empty(DRAFT_ID, REPO, NUMBER, NOW).withReview("Was the review sent?", "APPROVE", NOW).withReviewPublication(Optional.of(reserved), NOW)
                 .withItems(ImmutableList.of(item), NOW));
 
-        ReviewDraft restarted = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(REPO, NUMBER);
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        ReviewDraft restarted = new ReviewPublicationService(drafts, reviews.service, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC)).draft(ROUTE);
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
 
         assertThat(restarted.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(restarted.items().getFirst().publication().orElseThrow().attemptId()).isEqualTo("before-restart");
         assertThat(restarted.reviewPublication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, restarted.version(), "Review", "COMMENT", REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
-        ReviewDraft pending = service.confirmNotPosted(REPO, NUMBER, restarted.version(), item.id());
+        assertThatThrownBy(() -> service.submit(ROUTE, restarted.version(), "Review", "COMMENT", REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
+        ReviewDraft pending = service.confirmNotPosted(ROUTE, restarted.version(), item.id());
         assertThat(pending.items().getFirst().publication()).isEmpty();
         // The review text waits for its own answer.
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, pending.version(), pending.body(), pending.event(), REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
-        assertThat(service.confirmReview(REPO, NUMBER, pending.version(), false).reviewPublication()).isEmpty();
-        verify(pullRequests, never()).submitReview(any(), anyInt(), anyLong(), any(), any(), any(), anyString());
+        assertThatThrownBy(() -> service.submit(ROUTE, pending.version(), pending.body(), pending.event(), REVIEWED_HEAD)).hasMessageContaining("unknown outcome");
+        assertThat(service.confirmReview(ROUTE, pending.version(), false).reviewPublication()).isEmpty();
+        verify(pullRequests, never()).submitReview(any(PullRequestRead.class), anyLong(), any(), any(), any(), anyString());
     }
 
     @Test
     void aSendWhoseResultCannotBeSavedReadsAsUncertainInsteadOfSending()
     {
         reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Rename this"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         IllegalStateException locked = new IllegalStateException("database is locked");
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenAnswer(invocation -> {
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenAnswer(invocation -> {
             drafts.failNextSave(locked);
             return posted();
         });
 
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft))).isSameAs(locked);
+        assertThatThrownBy(() -> service.publishItem(ROUTE, draft.version(), lastItemId(draft))).isSameAs(locked);
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = service.draft(ROUTE);
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
         assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), lastItemId(after))).hasMessageContaining("unknown outcome");
-        verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any());
+        assertThatThrownBy(() -> service.publishItem(ROUTE, after.version(), lastItemId(after))).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(1)).createReviewComment(eq(ROUTE), any());
     }
 
     @Test
     void aSendGitHubRefusedReturnsToThePendingReview()
     {
         reviews.put(finding(FINDING_ID, 1, "src/A.java", 10, 10, "Rename this"));
-        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        ReviewDraft draft = service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID);
         ResponseStatusException invalid = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Line could not be resolved");
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(invalid);
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenThrow(invalid);
 
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft))).isSameAs(invalid);
+        assertThatThrownBy(() -> service.publishItem(ROUTE, draft.version(), lastItemId(draft))).isSameAs(invalid);
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = service.draft(ROUTE);
         assertThat(after.items().getFirst().publication()).isEmpty();
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenThrow(new GitHubRateLimitException("secondary", NOW.getEpochSecond() + 60));
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT", REVIEWED_HEAD)).isInstanceOf(GitHubRateLimitException.class);
-        assertThat(service.draft(REPO, NUMBER).items().getFirst().publication()).isEmpty();
-        assertThat(service.draft(REPO, NUMBER).reviewPublication()).isEmpty();
-        assertThat(service.draft(REPO, NUMBER).body()).isEqualTo("Review");
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenThrow(new GitHubRateLimitException("secondary", NOW.getEpochSecond() + 60));
+        assertThatThrownBy(() -> service.submit(ROUTE, after.version(), "Review", "COMMENT", REVIEWED_HEAD)).isInstanceOf(GitHubRateLimitException.class);
+        assertThat(service.draft(ROUTE).items().getFirst().publication()).isEmpty();
+        assertThat(service.draft(ROUTE).reviewPublication()).isEmpty();
+        assertThat(service.draft(ROUTE).body()).isEqualTo("Review");
         assertThat(reviews.findFinding(FINDING_ID)).map(ReviewFinding::state).contains(ReviewFinding.State.OPEN);
     }
 
     @Test
     void aFailedPullRequestLookupReservesAndSendsNothing()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Rename this"));
         IllegalStateException unreachable = new IllegalStateException("github is unreachable");
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenThrow(unreachable);
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenThrow(unreachable);
 
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, draft.version(), "Review", "COMMENT", REVIEWED_HEAD)).isSameAs(unreachable);
+        assertThatThrownBy(() -> service.submit(ROUTE, draft.version(), "Review", "COMMENT", REVIEWED_HEAD)).isSameAs(unreachable);
 
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(draft);
-        verify(pullRequests, never()).submitReview(any(), anyInt(), anyLong(), any(), any(), any(), anyString());
+        assertThat(service.draft(ROUTE)).isEqualTo(draft);
+        verify(pullRequests, never()).submitReview(any(PullRequestRead.class), anyLong(), any(), any(), any(), anyString());
     }
 
     @Test
     void postNowRecordsTheLinkGitHubReturned()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Rename this"));
         PrTimelineEvent created = thread("src/A.java", comment(9001L, 77L, "Rename this", null));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of(created)));
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of(created)));
 
-        ReviewPublicationService.Publication result = service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+        ReviewPublicationService.Publication result = service.publishItem(ROUTE, draft.version(), lastItemId(draft));
 
         ReviewPublication publication = result.draft().items().getFirst().publication().orElseThrow();
         assertThat(publication.remoteCommentId()).hasValue(9001L);
@@ -1023,97 +1053,97 @@ class TestReviewPublicationService
     void aCommentPostedNowIsSentOnceUnderItsKey()
     {
         PrTimelineEvent created = thread("src/A.java", comment(9001L, 77L, "Rename this", null));
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of(created)));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenReturn(new PullRequestService.Posted(detail(), OptionalLong.empty(), ImmutableList.of(created)));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
 
-        assertThat(service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
+        assertThat(service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
         // The answer was lost on its way to the screen, so the box sends the same key again.
-        assertThat(service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
+        assertThat(service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
 
-        assertThat(service.draft(REPO, NUMBER).items()).singleElement().satisfies(item -> {
+        assertThat(service.draft(ROUTE).items()).singleElement().satisfies(item -> {
             assertThat(item.id()).isEqualTo(COMMENT_KEY);
             assertThat(item.published()).isTrue();
             assertThat(item.publication().orElseThrow().remoteCommentId()).hasValue(9001L);
         });
-        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/A.java", "Rename this", 10, "RIGHT", null, null, REVIEWED_HEAD, OptionalLong.empty()));
-        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+        verify(pullRequests).createReviewComment(ROUTE, new InlineReviewComment("src/A.java", "Rename this", 10, "RIGHT", null, null, REVIEWED_HEAD, OptionalLong.empty()));
+        verify(pullRequests, times(1)).createReviewComment(any(PullRequestRead.class), any());
     }
 
     @Test
     void aCommentPostedNowWithAnUnknownOutcomeWaitsForTheUserBeforeItCanGoAgain()
     {
         ResponseStatusException lost = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not answer");
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(lost).thenReturn(posted());
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenThrow(lost).thenReturn(posted());
 
-        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this")))
+        assertThatThrownBy(() -> service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this")))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY))
                 .hasMessageContaining("may have been posted")
                 .hasCauseReference(lost);
 
-        ReviewDraft uncertain = service.draft(REPO, NUMBER);
+        ReviewDraft uncertain = service.draft(ROUTE);
         assertThat(uncertain.items()).singleElement().satisfies(item -> {
             assertThat(item.id()).isEqualTo(COMMENT_KEY);
             assertThat(item.publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
             assertThat(item.body()).isEqualTo("Rename this");
         });
         // Neither another click nor reworded text from the same box goes out while GitHub may already have the comment.
-        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this, please")))
+        assertThatThrownBy(() -> service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this, please")))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("may have been posted");
-        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+        verify(pullRequests, times(1)).createReviewComment(any(PullRequestRead.class), any());
 
         // Confirmed not posted: the box's current text then goes out as that same comment, not beside it.
-        service.confirmNotPosted(REPO, NUMBER, uncertain.version(), COMMENT_KEY);
-        service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this, please"));
+        service.confirmNotPosted(ROUTE, uncertain.version(), COMMENT_KEY);
+        service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this, please"));
 
-        assertThat(service.draft(REPO, NUMBER).items()).singleElement().satisfies(item -> {
+        assertThat(service.draft(ROUTE).items()).singleElement().satisfies(item -> {
             assertThat(item.published()).isTrue();
             assertThat(item.body()).isEqualTo("Rename this, please");
         });
-        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/A.java", "Rename this, please", 10, "RIGHT", null, null, REVIEWED_HEAD, OptionalLong.empty()));
-        verify(pullRequests, times(2)).createReviewComment(any(), anyInt(), any());
+        verify(pullRequests).createReviewComment(ROUTE, new InlineReviewComment("src/A.java", "Rename this, please", 10, "RIGHT", null, null, REVIEWED_HEAD, OptionalLong.empty()));
+        verify(pullRequests, times(2)).createReviewComment(any(PullRequestRead.class), any());
     }
 
     @Test
     void aCommentConfirmedPostedIsNotSentAgainFromItsBox()
     {
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(new IllegalStateException("Read timed out"));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).hasMessageContaining("may have been posted");
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenThrow(new IllegalStateException("Read timed out"));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        assertThatThrownBy(() -> service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).hasMessageContaining("may have been posted");
 
-        service.confirmPosted(REPO, NUMBER, service.draft(REPO, NUMBER).version(), COMMENT_KEY);
+        service.confirmPosted(ROUTE, service.draft(ROUTE).version(), COMMENT_KEY);
 
-        assertThat(service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
-        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+        assertThat(service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isEqualTo(detail());
+        verify(pullRequests, times(1)).createReviewComment(any(PullRequestRead.class), any());
     }
 
     @Test
     void aCommentGitHubRefusedLeavesNothingBehindAndCanBeSentAgain()
     {
         ResponseStatusException invalid = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Line could not be resolved");
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenThrow(invalid).thenReturn(posted());
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenThrow(invalid).thenReturn(posted());
 
-        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isSameAs(invalid);
+        assertThatThrownBy(() -> service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isSameAs(invalid);
 
         // Nothing went out, so the box keeps the only copy and nothing waits in the review.
-        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
-        service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 11, "Rename this"));
-        assertThat(service.draft(REPO, NUMBER).items()).singleElement().matches(ReviewDraftItem::published);
-        verify(pullRequests, times(2)).createReviewComment(any(), anyInt(), any());
+        assertThat(service.draft(ROUTE).items()).isEmpty();
+        service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 11, "Rename this"));
+        assertThat(service.draft(ROUTE).items()).singleElement().matches(ReviewDraftItem::published);
+        verify(pullRequests, times(2)).createReviewComment(any(PullRequestRead.class), any());
     }
 
     @Test
     void aCommentStillSendingIsNotSentTwice()
     {
-        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenAnswer(invocation -> {
-            assertThat(service.draft(REPO, NUMBER).items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.RESERVED);
-            assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).hasMessageContaining("being sent");
+        when(pullRequests.createReviewComment(eq(ROUTE), any())).thenAnswer(invocation -> {
+            assertThat(service.draft(ROUTE).items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.RESERVED);
+            assertThatThrownBy(() -> service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).hasMessageContaining("being sent");
             return posted();
         });
 
-        service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"));
+        service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"));
 
-        verify(pullRequests, times(1)).createReviewComment(any(), anyInt(), any());
+        verify(pullRequests, times(1)).createReviewComment(any(PullRequestRead.class), any());
     }
 
     @Test
@@ -1121,30 +1151,30 @@ class TestReviewPublicationService
     {
         ReviewDraftItem finding = new ReviewDraftItem(COMMENT_KEY, Source.AGENT_FINDING, Optional.of(FINDING_ID), OptionalInt.of(1), "src/A.java", "RIGHT", 10,
                 OptionalInt.empty(), "Finding text", true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty());
-        ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(finding), NOW));
+        ReviewDraft saved = drafts.save(ReviewDraft.empty(DRAFT_ID, REPO, NUMBER, NOW).withItems(ImmutableList.of(finding), NOW));
 
-        assertThatThrownBy(() -> service.postComment(REPO, NUMBER, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isInstanceOf(ReviewConflictException.class);
+        assertThatThrownBy(() -> service.postComment(ROUTE, COMMENT_KEY, manual("src/A.java", 10, "Rename this"))).isInstanceOf(ReviewConflictException.class);
 
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(saved);
-        verifyNoInteractions(pullRequests);
+        assertThat(service.draft(ROUTE)).isEqualTo(saved);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
     void submitMatchesEachCommentByFileAndTextWithinItsReview()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
-        draft = service.addManual(REPO, NUMBER, draft.version(), new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/B.java", "RIGHT", 20,
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Rename this"));
+        draft = service.addManual(ROUTE, draft.version(), new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/B.java", "RIGHT", 20,
                 OptionalInt.of(18), "Split this", true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty()));
         // GitHub reports no start line for this range and an older review carries the same text; neither may block the match.
         PrTimelineEvent range = thread("src/B.java", comment(9002L, 501L, "Split this", null));
         PrTimelineEvent older = thread("src/A.java", comment(8000L, 400L, "Rename this", null));
         PrTimelineEvent current = thread("src/A.java", comment(9001L, 501L, "Rename this", null));
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString()))
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString()))
                 .thenReturn(new PullRequestService.Posted(detail(), OptionalLong.of(501L), ImmutableList.of(older, range, current)));
 
-        ReviewPublicationService.Publication result = service.submit(REPO, NUMBER, draft.version(), "", "COMMENT", REVIEWED_HEAD);
+        ReviewPublicationService.Publication result = service.submit(ROUTE, draft.version(), "", "COMMENT", REVIEWED_HEAD);
 
         assertThat(result.draft().items()).extracting(item -> item.publication().orElseThrow().remoteCommentId()).containsExactly(OptionalLong.of(9001L), OptionalLong.of(9002L));
         assertThat(result.draft().items()).extracting(item -> item.publication().orElseThrow().remoteReviewId()).containsOnly(OptionalLong.of(501L));
@@ -1154,14 +1184,14 @@ class TestReviewPublicationService
     @Test
     void aSuccessfulSubmitResetsTheReviewAndMarksTheItemsPublished()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 10, "Rename this"));
         String itemId = lastItemId(draft);
-        draft = service.saveReview(REPO, NUMBER, draft.version(), "Please fix these", "REQUEST_CHANGES");
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any(), anyString())).thenReturn(posted());
+        draft = service.saveReview(ROUTE, draft.version(), "Please fix these", "REQUEST_CHANGES");
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), eq("APPROVE"), eq("Looks good"), any(), anyString())).thenReturn(posted());
 
-        ReviewPublicationService.Publication published = service.submit(REPO, NUMBER, draft.version(), "Looks good", "APPROVE", REVIEWED_HEAD);
+        ReviewPublicationService.Publication published = service.submit(ROUTE, draft.version(), "Looks good", "APPROVE", REVIEWED_HEAD);
 
         assertThat(published.publishedItemIds()).containsExactly(itemId);
         assertThat(published.draft().body()).isEmpty();
@@ -1170,25 +1200,25 @@ class TestReviewPublicationService
         ReviewDraftItem item = published.draft().items().getFirst();
         assertThat(item.published()).isTrue();
         assertThat(item.publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.PUBLISHED);
-        assertThat(service.draft(REPO, NUMBER)).isEqualTo(published.draft());
+        assertThat(service.draft(ROUTE)).isEqualTo(published.draft());
     }
 
     @Test
     void partialGroupedFailureKeepsSuccessfulItemsAndReleasesOnlyUnsentItems()
     {
         String middle = "c".repeat(40);
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 1, "First"));
-        draft = service.addManual(REPO, NUMBER, draft.version(), manual("src/B.java", 2, "Second").withCommitId(middle));
-        draft = service.addManual(REPO, NUMBER, draft.version(), manual("src/C.java", 3, "Third").withCommitId(CURRENT_HEAD));
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString()))
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 1, "First"));
+        draft = service.addManual(ROUTE, draft.version(), manual("src/B.java", 2, "Second").withCommitId(middle));
+        draft = service.addManual(ROUTE, draft.version(), manual("src/C.java", 3, "Third").withCommitId(CURRENT_HEAD));
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString()))
                 .thenReturn(posted()).thenThrow(new IllegalStateException("Reply lost"));
         long version = draft.version();
 
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, version, "Final summary", "APPROVE", CURRENT_HEAD)).hasMessage("Reply lost");
+        assertThatThrownBy(() -> service.submit(ROUTE, version, "Final summary", "APPROVE", CURRENT_HEAD)).hasMessage("Reply lost");
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = service.draft(ROUTE);
         assertThat(after.items().get(0).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.PUBLISHED));
         assertThat(after.items().get(1).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.UNCERTAIN));
         assertThat(after.items()).extracting(ReviewDraftItem::published).containsExactly(true, false, false);
@@ -1196,15 +1226,15 @@ class TestReviewPublicationService
         // The summary rides the last batch, so it never left and waits for no confirmation.
         assertThat(after.body()).isEqualTo("Final summary");
         assertThat(after.reviewPublication()).isEmpty();
-        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), after.body(), after.event(), CURRENT_HEAD)).hasMessageContaining("unknown outcome");
-        verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString());
+        assertThatThrownBy(() -> service.submit(ROUTE, after.version(), after.body(), after.event(), CURRENT_HEAD)).hasMessageContaining("unknown outcome");
+        verify(pullRequests, times(2)).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString());
 
-        ReviewDraft ready = service.confirmNotPosted(REPO, NUMBER, after.version(), after.items().get(1).id());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
-        ReviewPublicationService.Publication retried = service.submit(REPO, NUMBER, ready.version(), ready.body(), ready.event(), CURRENT_HEAD);
+        ReviewDraft ready = service.confirmNotPosted(ROUTE, after.version(), after.items().get(1).id());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        ReviewPublicationService.Publication retried = service.submit(ROUTE, ready.version(), ready.body(), ready.event(), CURRENT_HEAD);
         assertThat(retried.publishedItemIds()).containsExactly(after.items().get(1).id(), after.items().get(2).id());
         ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
-        verify(pullRequests, times(4)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), comments.capture(), anyString());
+        verify(pullRequests, times(4)).submitReview(eq(ROUTE), eq(PR_ID), any(), any(), comments.capture(), anyString());
         assertThat(comments.getAllValues().stream().flatMap(List::stream).map(InlineReviewComment::body))
                 .containsExactly("First", "Second", "Second", "Third");
     }
@@ -1212,24 +1242,24 @@ class TestReviewPublicationService
     @Test
     void reservedItemsCannotBeChangedAndNewerReviewTextSurvivesSubmission()
     {
-        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 1, "First"));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenAnswer(invocation -> {
-            ReviewDraft sending = service.draft(REPO, NUMBER);
+        ReviewDraft draft = service.addManual(ROUTE, 0, manual("src/A.java", 1, "First"));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenAnswer(invocation -> {
+            ReviewDraft sending = service.draft(ROUTE);
             String itemId = lastItemId(sending);
             // A COMMENT without text reserves no review text, so the user may start the next one meanwhile.
             assertThat(sending.reviewPublication()).isEmpty();
-            assertThatThrownBy(() -> service.editItem(REPO, NUMBER, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
-            assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("being sent");
-            assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
-            assertThatThrownBy(() -> service.confirmPosted(REPO, NUMBER, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
-            service.saveReview(REPO, NUMBER, sending.version(), "Next review notes", "REQUEST_CHANGES");
+            assertThatThrownBy(() -> service.editItem(ROUTE, sending.version(), itemId, "Changed", true)).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.removeItem(ROUTE, sending.version(), itemId)).hasMessageContaining("being sent");
+            assertThatThrownBy(() -> service.confirmNotPosted(ROUTE, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
+            assertThatThrownBy(() -> service.confirmPosted(ROUTE, sending.version(), itemId)).hasMessageContaining("Only a comment with unconfirmed delivery");
+            service.saveReview(ROUTE, sending.version(), "Next review notes", "REQUEST_CHANGES");
             return posted();
         });
 
-        service.submit(REPO, NUMBER, draft.version(), "", "COMMENT", REVIEWED_HEAD);
+        service.submit(ROUTE, draft.version(), "", "COMMENT", REVIEWED_HEAD);
 
-        ReviewDraft after = service.draft(REPO, NUMBER);
+        ReviewDraft after = service.draft(ROUTE);
         assertThat(after.items().getFirst().body()).isEqualTo("First");
         assertThat(after.body()).isEqualTo("Next review notes");
         assertThat(after.event()).isEqualTo("REQUEST_CHANGES");
@@ -1240,18 +1270,18 @@ class TestReviewPublicationService
     {
         ReviewDraftItem old = new ReviewDraftItem("old", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/A.java", "RIGHT", 1,
                 OptionalInt.empty(), "User wording", true, Optional.empty(), Optional.empty(), OptionalLong.empty());
-        drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(old), NOW));
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
-        ReviewDraft preview = service.draft(REPO, NUMBER);
+        drafts.save(ReviewDraft.empty(DRAFT_ID, REPO, NUMBER, NOW).withItems(ImmutableList.of(old), NOW));
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(REVIEWED_HEAD));
+        ReviewDraft preview = service.draft(ROUTE);
         assertThat(preview.items().getFirst().commitId()).contains(REVIEWED_HEAD);
-        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
-        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
-        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
+        when(pullRequests.findHeadSha(ROUTE)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(ROUTE)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(ROUTE), eq(PR_ID), any(), any(), any(), anyString())).thenReturn(posted());
 
-        service.submit(REPO, NUMBER, preview.version(), "", "COMMENT", REVIEWED_HEAD);
+        service.submit(ROUTE, preview.version(), "", "COMMENT", REVIEWED_HEAD);
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
-        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
+        verify(pullRequests).submitReview(eq(ROUTE), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
         assertThat(sent.getValue()).singleElement().satisfies(item -> assertThat(item.commitId()).isEqualTo(REVIEWED_HEAD));
     }
 
@@ -1265,8 +1295,8 @@ class TestReviewPublicationService
                 Optional.empty());
         reviews.put(provisional);
 
-        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID)).hasMessageContaining("accepted review of its source revision");
-        verifyNoInteractions(pullRequests);
+        assertThatThrownBy(() -> service.addFinding(ROUTE, 0, REVIEW_ID, FINDING_ID)).hasMessageContaining("accepted review of its source revision");
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     private static ReviewRun acceptedReport(ReviewFinding finding, boolean supported, boolean selected)
@@ -1397,9 +1427,9 @@ class TestReviewPublicationService
         }
 
         @Override
-        public Optional<ReviewDraft> find(String repo, int number)
+        public Optional<ReviewDraft> find(String id)
         {
-            return Optional.ofNullable(stored.get(repo.toLowerCase(Locale.ROOT) + "#" + number));
+            return Optional.ofNullable(stored.get(id));
         }
 
         @Override

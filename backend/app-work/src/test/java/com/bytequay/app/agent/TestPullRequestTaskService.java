@@ -35,7 +35,7 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -49,9 +49,7 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
-import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -63,6 +61,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockMakers;
 
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -97,7 +96,8 @@ class TestPullRequestTaskService
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
     private final ManagedWorktreeService worktrees = mock(ManagedWorktreeService.class, withSettings().mockMaker(MockMakers.INLINE));
-    private final PullRequestStore rows = mock(PullRequestStore.class);
+    private final PullRequestRead selected = new PullRequestRead(HostingTestFixture.route("upstream/repo", "token").session(),
+            HostingTestFixture.route("upstream/repo", "token").repository(), 7, "alice");
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final CredentialService credentials = mock(CredentialService.class);
@@ -109,7 +109,7 @@ class TestPullRequestTaskService
     private final PullRequestDetail detail = mock(PullRequestDetail.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AtomicReference<AgentTask> created = new AtomicReference<>();
     private final PullRequestTaskService service = new PullRequestTaskService(assignments, taskStore, tasks, workspaces, repositories, worktrees,
-            rows, pullRequests, refresh, credentials, models, settings, drivers, git);
+            pullRequests, refresh, credentials, models, settings, drivers, git);
 
     @BeforeEach
     void setUp()
@@ -118,8 +118,9 @@ class TestPullRequestTaskService
         when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("upstream", "repo"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("alice", "", "", "", 0, 0, 0, "", "", "", "")));
-        when(pullRequests.getPullRequestDetail("upstream/repo", 7)).thenReturn(detail);
+        when(pullRequests.prepareRead("workspace", "upstream/repo", 7)).thenReturn(selected);
+        when(pullRequests.requestHeadRef(selected)).thenReturn("refs/pull/7/head");
+        when(pullRequests.getPullRequestDetail(selected)).thenReturn(detail);
         when(detail.repo()).thenReturn("upstream/repo");
         when(detail.number()).thenReturn(7);
         when(detail.author()).thenReturn("Alice");
@@ -127,7 +128,7 @@ class TestPullRequestTaskService
         when(detail.body()).thenReturn("Why this change matters");
         when(detail.headRef()).thenReturn("external-feature");
         when(detail.baseRef()).thenReturn("main");
-        when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of(HEAD));
+        when(pullRequests.findHeadSha(selected)).thenReturn(Optional.of(HEAD));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, false, "codex", "Codex", "model", "Model", Optional.of("high")));
         when(settings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
@@ -137,7 +138,7 @@ class TestPullRequestTaskService
                 Optional.of("test"), "ready", AgentCapabilities.none()));
         when(repositories.requireReadyRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", REPOSITORY, 1,
                 RepoRef.of("alice", "repo"), OptionalLong.of(2), RepoRef.of("upstream", "repo"), "upstream", "origin", "main", ImmutableList.of()));
-        when(git.run(eq(REPOSITORY), anyList())).thenReturn(new GitCommandRunner.Result(0, "", false));
+        when(git.run(eq(REPOSITORY), eq(Duration.ofMinutes(2)), any(), anyList())).thenReturn(new GitCommandRunner.Result(0, "", false));
         when(git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/assigned-pr/7^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, HEAD, false));
         when(git.run(REPOSITORY, "merge-base", HEAD, "refs/remotes/upstream/main"))
@@ -171,8 +172,8 @@ class TestPullRequestTaskService
         assertThat(task.taskWorktree().orElseThrow().startCommit()).isEqualTo(HEAD);
         assertThat(task.repository().owner()).isEqualTo("alice");
         assertThat(task.defaults().developmentAutomation()).contains(automation);
-        verify(git).run(REPOSITORY, ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "upstream",
-                "+refs/pull/7/head:refs/bytequay/assigned-pr/7", "+refs/heads/main:refs/remotes/upstream/main"));
+        verify(git).run(eq(REPOSITORY), eq(Duration.ofMinutes(2)), any(), eq(ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "upstream",
+                "+refs/pull/7/head:refs/bytequay/assigned-pr/7", "+refs/heads/main:refs/remotes/upstream/main")));
         ArgumentCaptor<PullRequestTask> assignment = ArgumentCaptor.forClass(PullRequestTask.class);
         verify(assignments).insert(assignment.capture());
         assertThat(assignment.getValue().initialContext()).contains("upstream/repo#7", HEAD, BASE, "external-feature", "Why this change matters");
@@ -194,7 +195,7 @@ class TestPullRequestTaskService
         assertThat(created.get().defaults().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
         assertThat(created.get().sessionReference()).contains(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "saved-conversation"));
         verify(tasks, times(1)).createInteractive(any());
-        verify(refresh, times(1)).refreshAllDetail("upstream/repo", 7);
+        verify(refresh, times(1)).refreshAllDetail(selected);
     }
 
     @ParameterizedTest
@@ -210,8 +211,7 @@ class TestPullRequestTaskService
             when(assignments.find("workspace", "upstream/repo", 7)).thenReturn(Optional.empty());
             PullRequest row = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
             when(row.headRef()).thenReturn(completed.taskWorktree().orElseThrow().generatedBranch());
-            when(rows.findIdByRepoAndNumber("upstream/repo", 7)).thenReturn(Optional.of(7L));
-            when(rows.findById(7L)).thenReturn(Optional.of(row));
+            when(pullRequests.findWorkspaceStored("workspace", "upstream/repo", 7)).thenReturn(Optional.of(row));
             when(taskStore.listByWorkspace("workspace")).thenReturn(ImmutableList.of(completed));
         }
         String currentHead = "c".repeat(40);
@@ -219,7 +219,7 @@ class TestPullRequestTaskService
                 .thenReturn(new GitCommandRunner.Result(0, currentHead, false));
         when(git.run(REPOSITORY, "merge-base", currentHead, "refs/remotes/upstream/main"))
                 .thenReturn(new GitCommandRunner.Result(0, BASE, false));
-        when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of(currentHead));
+        when(pullRequests.findHeadSha(selected)).thenReturn(Optional.of(currentHead));
         when(detail.body()).thenReturn("Current PR context");
         DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
         when(settings.developmentAutomation()).thenReturn(automation);
@@ -301,7 +301,7 @@ class TestPullRequestTaskService
         verifyNoInteractions(git, tasks);
         when(driver.probe()).thenReturn(new AgentProviderStatus(AgentLaneId.CODEX_CLI, AgentProviderStatus.Readiness.READY,
                 Optional.of("test"), "ready", AgentCapabilities.none()));
-        when(pullRequests.findHeadSha("upstream/repo", 7)).thenReturn(Optional.of("c".repeat(40)));
+        when(pullRequests.findHeadSha(selected)).thenReturn(Optional.of("c".repeat(40)));
         assertThatThrownBy(() -> service.assign("workspace", "upstream/repo", 7)).hasMessageContaining("PR changed");
         verify(tasks, never()).createInteractive(any());
     }
@@ -343,8 +343,7 @@ class TestPullRequestTaskService
         when(assignments.findByTaskId(anyString())).thenReturn(Optional.empty());
         PullRequest row = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
         when(row.headRef()).thenReturn(task.taskWorktree().orElseThrow().generatedBranch());
-        when(rows.findIdByRepoAndNumber("upstream/repo", 7)).thenReturn(Optional.of(7L));
-        when(rows.findById(7L)).thenReturn(Optional.of(row));
+        when(pullRequests.findWorkspaceStored("workspace", "upstream/repo", 7)).thenReturn(Optional.of(row));
         when(taskStore.listByWorkspace("workspace")).thenReturn(ImmutableList.of(task));
         assertThat(service.assign("workspace", "upstream/repo", 7)).isEqualTo(task);
         verify(tasks, times(1)).createInteractive(any());
@@ -357,8 +356,7 @@ class TestPullRequestTaskService
         when(assignments.find(anyString(), anyString(), eq(7))).thenReturn(Optional.empty());
         PullRequest row = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
         when(row.headRef()).thenReturn("patch-1");
-        when(rows.findIdByRepoAndNumber("upstream/repo", 7)).thenReturn(Optional.of(7L));
-        when(rows.findById(7L)).thenReturn(Optional.of(row));
+        when(pullRequests.findWorkspaceStored("workspace", "upstream/repo", 7)).thenReturn(Optional.of(row));
         when(taskStore.listByWorkspace("workspace")).thenReturn(ImmutableList.of(task));
         when(worktrees.currentBranch(task.taskWorktree().orElseThrow())).thenReturn(Optional.of("patch-1"));
 

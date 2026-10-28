@@ -64,12 +64,12 @@ public class TaskPullRequestOwnership
             return false;
         }
         if (assignments.findByTaskId(task.id().toString()).filter(assigned -> assigned.repo().equalsIgnoreCase(repo) && assigned.number() == number).isPresent()) {
-            return !open || pullRequests.findIdByRepoAndNumber(repo, number).flatMap(pullRequests::findById).filter(TaskPullRequestOwnership::isOpen).isPresent();
+            return !open || find(task.workspaceId().orElseThrow(), repo, number).filter(TaskPullRequestOwnership::isOpen).isPresent();
         }
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new AgentConflictException("Task worktree is unavailable"));
         // The agent may have renamed the branch; the current branch is read only when the generated one does not match.
-        return headBranchOf(repo, number, worktree.generatedBranch(), open, false)
-                || worktrees.currentBranch(worktree).filter(branch -> headBranchOf(repo, number, branch, open, true)).isPresent();
+        return headBranchOf(worktree.workspaceId(), repo, number, worktree.generatedBranch(), open, false)
+                || worktrees.currentBranch(worktree).filter(branch -> headBranchOf(worktree.workspaceId(), repo, number, branch, open, true)).isPresent();
     }
 
     /**
@@ -88,13 +88,13 @@ public class TaskPullRequestOwnership
     {
         return assignedPullRequests(task).flatMap(assigned -> assigned.stream().findFirst())
                 .or(() -> task.taskWorktree().flatMap(worktree -> workspaces.findById(worktree.workspaceId())
-                        .flatMap(workspace -> newestLive(pullRequests.findByHeadRef(workspace.monitoredRepository().fullName(), worktree.generatedBranch())))));
+                        .flatMap(workspace -> newestLive(byHead(worktree.workspaceId(), workspace.monitoredRepository().fullName(), worktree.generatedBranch())))));
     }
 
     public Optional<List<PullRequest>> assignedPullRequests(AgentTask task)
     {
         return assignments.findByTaskId(task.id().toString())
-                .map(pr -> pullRequests.findIdByRepoAndNumber(pr.repo(), pr.number()).flatMap(pullRequests::findById).stream().collect(toImmutableList()));
+                .map(pr -> find(pr.workspaceId(), pr.repo(), pr.number()).stream().collect(toImmutableList()));
     }
 
     public List<String> branches(TaskWorktree worktree)
@@ -116,7 +116,7 @@ public class TaskPullRequestOwnership
     public List<PullRequest> branchPullRequests(RepoRef repository, TaskWorktree worktree, List<String> branches)
     {
         return branches.stream()
-                .flatMap(branch -> pullRequests.findByHeadRef(repository.fullName(), branch).stream()
+                .flatMap(branch -> byHead(worktree.workspaceId(), repository.fullName(), branch).stream()
                         .filter(pr -> branch.equals(worktree.generatedBranch()) || pr.origin() == PullRequest.Origin.AUTHORED))
                 .sorted(comparingInt(PullRequest::number).reversed())
                 .collect(toImmutableList());
@@ -138,9 +138,23 @@ public class TaskPullRequestOwnership
                 .or(() -> pullRequests.stream().filter(pr -> "merged".equals(pr.state())).max(newest));
     }
 
-    private boolean headBranchOf(String repo, int number, String branch, boolean open, boolean authored)
+    private Optional<PullRequest> find(String workspaceId, String repo, int number)
     {
-        return pullRequests.findByHeadRef(repo, branch).stream()
+        return workspaces.findById(workspaceId).flatMap(workspace -> workspace.isGitHub()
+                ? pullRequests.findIdByRepoAndNumber(repo, number).flatMap(pullRequests::findById)
+                : workspaces.findHostingRepositoryId(workspaceId).flatMap(id -> pullRequests.findByHostingRepository(id, number)));
+    }
+
+    private List<PullRequest> byHead(String workspaceId, String repo, String branch)
+    {
+        return workspaces.findById(workspaceId).filter(workspace -> !workspace.isGitHub())
+                .map(workspace -> workspaces.findHostingRepositoryId(workspaceId).map(id -> pullRequests.findByHostingHeadRef(id, branch)).orElse(ImmutableList.of()))
+                .orElseGet(() -> pullRequests.findByHeadRef(repo, branch));
+    }
+
+    private boolean headBranchOf(String workspaceId, String repo, int number, String branch, boolean open, boolean authored)
+    {
+        return byHead(workspaceId, repo, branch).stream()
                 .anyMatch(pr -> pr.number() == number && (!open || isOpen(pr)) && (!authored || pr.origin() == PullRequest.Origin.AUTHORED));
     }
 }

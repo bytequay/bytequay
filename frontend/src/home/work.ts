@@ -243,11 +243,11 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
   }
 
   // An issue assigned to the viewer is their work and is already listed; one they only opened waits on others.
-  const listedIssues = new Set(items.flatMap(item => item.source === 'issue' ? [item.key.toLowerCase()] : []));
+  const listedIssues = new Set(items.flatMap(item => item.source === 'issue' ? [`${item.target.repo}#${item.target.number}`.toLowerCase()] : []));
   for (const issue of authored) {
     const key = `${issue.repo}#${issue.number}`;
     if (listedIssues.has(key.toLowerCase())) continue;
-    const workspaceId = candidates.find(item => item.type === 'issue' && item.key.toLowerCase() === key.toLowerCase())?.workspaceId ?? null;
+    const workspaceId = candidates.find(item => item.type === 'issue' && `${item.repo}#${item.number}`.toLowerCase() === key.toLowerCase())?.workspaceId ?? null;
     const linked = claim(live.filter(({ task, workspace }) => task.issueSource?.number === issue.number
       && workspace.repository.toLowerCase() === issue.repo.toLowerCase()));
     const card = workItem({
@@ -295,7 +295,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
     items.push(workItem({
       key: item.key, source: 'pr', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
       ended: prState(pr) === 'merged' ? 'Merged' : prState(pr) === 'closed' ? 'Closed' : null,
-      target: target('PULL', { repo: item.repo, number: item.number }),
+      target: target('PULL', { repo: item.repo, number: item.number, workspaceId: item.workspaceId }),
     }, claim(linked), [{ repo: item.repo, number: item.number, title: item.title, state: prState(pr), row: pr }], rows, activity));
   }
 

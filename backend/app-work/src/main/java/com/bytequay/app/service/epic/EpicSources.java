@@ -15,7 +15,6 @@ package com.bytequay.app.service.epic;
 
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.IssueEpic;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -25,7 +24,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Locale;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -37,8 +35,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class EpicSources
 {
-    private static final String HOST = "github.com";
-    private static final String ISSUE = "ISSUE:" + HOST + ":";
+    private static final String ISSUE = "ISSUE:";
     private static final String JIRA = "JIRA:";
     private static final String LOCAL = "LOCAL:";
 
@@ -74,9 +71,10 @@ public class EpicSources
         }
         Optional<Ticket> ticket = ticket(epicId);
         if (ticket.isEmpty()) {
-            String repository = workspaces.findById(workspaceId).filter(Workspace::isGitHub)
-                    .map(workspace -> workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)).orElse("");
-            return markers.findEpic(HOST, issueId(epicId)).filter(IssueEpic::isEpic).filter(epic -> epic.repo().equals(repository)).isPresent();
+            long issueId = issueId(epicId);
+            return workspaces.findById(workspaceId).filter(workspace -> epicId.startsWith(ISSUE + workspace.issueHost() + ":"))
+                    .flatMap(workspace -> markers.findEpic(workspace.issueHost(), issueId).filter(IssueEpic::isEpic)
+                            .filter(epic -> epic.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()))).isPresent();
         }
         JiraService tickets = jira.getObject();
         String cloudId = ticket.orElseThrow().cloudId();
@@ -87,8 +85,8 @@ public class EpicSources
     /** The stable GitHub issue id of an issue Epic. */
     public static long issueId(String epicId)
     {
-        checkArgument(epicId.startsWith(ISSUE), "Expected a GitHub issue Epic identity");
-        return Long.parseLong(epicId.substring(ISSUE.length()));
+        checkArgument(epicId.startsWith(ISSUE), "Expected an issue Epic identity");
+        return Long.parseLong(epicId.substring(epicId.lastIndexOf(':') + 1));
     }
 
     public static String localEpicId(String itemId)

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
+import { useHostingPresentation } from './pulls/PullRequestWorkspace';
 
 type Props = {
   login: string;
@@ -44,11 +45,12 @@ function avatarHandle(login: string): string {
  * slot and its text would wrap at 3 chars per line.
  */
 function Avatar({ login, avatarUrl, size = 20, className, allowGitHubFallback = true }: Props) {
+  const { server } = useHostingPresentation();
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const classes = ['avatar', className].filter(Boolean).join(' ');
   const hasLogin = login.trim().length > 0;
   const source = avatarUrl?.trim()
-    || (allowGitHubFallback && hasLogin
+    || (allowGitHubFallback && server?.provider !== 'GITLAB' && hasLogin
       ? `https://github.com/${encodeURIComponent(avatarHandle(login))}.png?size=${size * 2}`
       : null);
 

@@ -16,6 +16,8 @@ package com.bytequay.core.store;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
+import com.bytequay.core.domain.Workspace;
+import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
@@ -27,6 +29,18 @@ public interface RepositoryIssueStore
     RepositoryIssuePage findPage(long repositoryId, RepoRef repository, int page, int pageSize);
 
     Optional<RepositoryIssue> find(long repositoryId, int issueNumber);
+
+    default Optional<RepositoryIssue> find(WorkspaceStore workspaces, Workspace workspace, int number)
+    {
+        return workspaces.findHostingRepositoryId(workspace.id()).flatMap(id -> find(id, number));
+    }
+
+    default RepositoryIssuePage findPage(WorkspaceStore workspaces, Workspace workspace, int page, int pageSize)
+    {
+        return workspaces.findHostingRepositoryId(workspace.id()).map(id -> findPage(id, workspace.monitoredRepository(), page, pageSize))
+                .orElseGet(() -> new RepositoryIssuePage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(),
+                        ImmutableList.of(), page, pageSize, 0, false, Optional.empty()));
+    }
 
     /** Stores fetched open issues; a row that already holds the same issue is not written again. */
     void saveSyncPage(long repositoryId, List<RepositoryIssue> issues);

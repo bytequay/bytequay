@@ -39,7 +39,7 @@ import type {
   Bridge,
   ModelProviderDto,
   PullRequestDetailDto,
-  UserProfileDto,
+  PullRequestViewer,
 } from '../../types';
 import { useNow } from '../../useNow';
 import { workspaceRoute } from '../../workspaces/model';
@@ -106,7 +106,7 @@ export default function AgentReviewTab({
   detail?: PullRequestDetailDto | null;
   /** The workspace whose managed clone the review runs in; without one there is nothing to check out. */
   workspaceId: string | undefined;
-  viewer: UserProfileDto | null;
+  viewer: PullRequestViewer | null;
   review: AgentReviewDto | null;
   onReviewChange: (review: AgentReviewDto) => void;
   onNavigateToChanges: (target: ReviewNavigationTarget) => void;

@@ -29,6 +29,8 @@ import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +39,7 @@ import org.mockito.InOrder;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.WebServer;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -45,6 +48,8 @@ import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -200,8 +205,29 @@ class TestCommitHistoryService
         verify(store, never()).findRefreshMetadata("missing");
     }
 
+    @Test
+    void gitLabHistoryDoesNotReadGitHubEnrichmentWithTheSameRemoteRepositoryId()
+    {
+        WorkspaceSummary summary = unlinkedSummary();
+        ready(new WorkspaceSummary(summary.id(), summary.name(), summary.selectedRepositoryId(), summary.selectedOwner(), summary.selectedRepo(), null, null, null,
+                summary.monitoredRepositoryId(), summary.monitoredOwner(), summary.monitoredRepo(), summary.topology(), summary.defaultBranch(), null,
+                summary.localRepositoryPath(), summary.lastCodeSyncAt(), summary.lastMetadataSyncAt(), summary.displayOrder(),
+                new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.test/team"), URI.create("https://gitlab.example.test/team/api/v4"))));
+        Commit commit = commit("same-sha", Optional.empty());
+        when(git.log(REPOSITORY, "origin/main", 50)).thenReturn(ImmutableList.of(commit));
+
+        CommitHistorySnapshot snapshot = service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 50);
+
+        assertThat(snapshot.commits()).singleElement().satisfies(item -> {
+            assertThat(item.author()).isEqualTo("Example Author");
+            assertThat(item.pullRequestNumber()).isEmpty();
+        });
+        verify(store, never()).findEnrichment(anyLong(), any());
+    }
+
     private void ready(WorkspaceSummary summary, RemoteSource... extraRemotes)
     {
+        when(workspaces.getWorkspace(WORKSPACE_ID)).thenReturn(summary);
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID,
                 REPOSITORY,

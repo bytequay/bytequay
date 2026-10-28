@@ -13,13 +13,17 @@
  */
 package com.bytequay.core.domain;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Locale;
 
+import static com.bytequay.core.hosting.HostingUrls.canonicalBaseUrl;
+import static com.bytequay.core.hosting.HostingUrls.checkRepositoryPath;
+import static com.bytequay.core.hosting.HostingUrls.requireWithinBase;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** The accepted issue context, retained independently of GitHub's open-issue cache. */
+/** The accepted issue context, retained independently of the open-issue cache. */
 public record GitHubIssueSource(String host, long issueId, String repo, int number, String url, String title, String body, Instant updatedAt)
 {
     public GitHubIssueSource
@@ -30,12 +34,15 @@ public record GitHubIssueSource(String host, long issueId, String repo, int numb
         requireNonNull(title, "title is null");
         requireNonNull(body, "body is null");
         requireNonNull(updatedAt, "updatedAt is null");
-        host = host.toLowerCase(Locale.ROOT);
+        host = host.contains("://") ? canonicalBaseUrl(URI.create(host)).toASCIIString() : host.toLowerCase(Locale.ROOT);
         repo = repo.toLowerCase(Locale.ROOT);
-        checkArgument(host.equals("github.com"), "unsupported GitHub host");
         checkArgument(issueId > 0 && number > 0, "invalid issue identity");
-        checkArgument(repo.matches("[a-z0-9_.-]+/[a-z0-9_.-]+"), "invalid issue repository");
-        checkArgument(url.equalsIgnoreCase("https://" + host + "/" + repo + "/issues/" + number), "issue URL does not match its identity");
+        checkRepositoryPath(repo);
+        URI base = canonicalBaseUrl(URI.create(host.contains("://") ? host : "https://" + host));
+        String checked = requireWithinBase(URI.create(url), base).toASCIIString();
+        String prefix = base + "/" + repo;
+        checkArgument(checked.equalsIgnoreCase(prefix + "/issues/" + number) || checked.equalsIgnoreCase(prefix + "/-/issues/" + number),
+                "issue URL does not match its identity");
         checkArgument(!title.isBlank(), "title must not be blank");
     }
 }

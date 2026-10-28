@@ -85,7 +85,7 @@ async function closeKeepsIssue(): Promise<void> {
   try {
     flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={7} onSelectIssue={() => {}} />));
     await settle();
-    assert(host.querySelector('.attention-visit-status') === null && loadHandled()['upstream/app#7'] === undefined,
+    assert(host.querySelector('.attention-visit-status') === null && loadHandled()['issue:workspace-1:7'] === undefined,
       'Viewing an issue retains its notification without a visit label while its detail stays open');
     type('Fixed in #30786'); await settle();
     const close = host.querySelector<HTMLButtonElement>('.pr-composer__close');
@@ -98,12 +98,12 @@ async function closeKeepsIssue(): Promise<void> {
     assert(host.querySelector('.attention-visit-status') === null,
       'Completed issue actions do not add a visit label to the toolbar');
     open(8); await settle();
-    assert(loadHandled()['upstream/app#7']?.label === 'Updated state · Posted 1 comment', 'Leaving the issue acknowledges the completed visit');
+    assert(loadHandled()['issue:workspace-1:7']?.label === 'Updated state · Posted 1 comment', 'Leaving the issue acknowledges the completed visit');
     assert(row(7) === undefined && host.querySelector('.issues-list__count')?.textContent === '2', 'Leaving the closed issue drops it from the open list');
     type('Draft for #8'); await settle();
     open(9); await settle();
     assert(composer().value === '', 'A draft never follows the reader to another issue');
-    assert(loadHandled()['upstream/app#8']?.label === 'Viewed', 'Unsent draft text does not count as a posted comment');
+    assert(loadHandled()['issue:workspace-1:8']?.label === 'Viewed', 'Unsent draft text does not count as a posted comment');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
@@ -145,7 +145,7 @@ async function zoomsOneIssue(): Promise<void> {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     await settle();
     assert(closed === 1, 'Escape leaves the zoom layer');
-    assert(baseHost.querySelector('.issues-detail') !== null && loadHandled()['upstream/app#8']?.label === 'Viewed',
+    assert(baseHost.querySelector('.issues-detail') !== null && loadHandled()['issue:workspace-1:8']?.label === 'Viewed',
       'Leaving zoom handles the issue while the original detail stays mounted');
   }
   finally { flushSync(() => { root.unmount(); baseRoot.unmount(); }); host.remove(); baseHost.remove(); }
@@ -356,14 +356,14 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 
 async function closedIssueReminder(): Promise<void> {
   let preview = { title: 'Closed issue title', body: 'Latest closed issue description', author: 'alice', labels: ['fixed'],
-    updatedAt: '2026-09-25T10:00:00Z', state: 'closed', pullRequest: false };
+    updatedAt: '2026-09-25T10:00:00Z', state: 'closed', pullRequest: false, htmlUrl: 'https://github.com/upstream/app/issues/99', authorAvatarUrl: '' };
   const repository = { owner: 'upstream', repo: 'app' };
   let previewReads = 0;
   window.bridge = {
     fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({ repositoryId: 40, repository, issues: [], page: 0, pageSize: 50, totalIssues: 0, hasMore: false, syncedAt: null }),
     fetchWorkspaceIssue: async (): Promise<null> => null,
-    fetchGitHubIssuePreview: async (owner: string, repo: string, number: number) => {
-      assert(owner === 'upstream' && repo === 'app' && number === 99, 'The fallback reads the exact original issue');
+    fetchWorkspaceIssuePreview: async (workspaceId: string, number: number) => {
+      assert(workspaceId === 'workspace-1' && number === 99, 'The fallback reads the exact original issue');
       previewReads++; return preview;
     },
     getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({ repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),
@@ -391,7 +391,7 @@ async function closedIssueReminder(): Promise<void> {
     host.querySelector<HTMLButtonElement>('[aria-label="Refresh"]')?.click(); await settle();
     assert(previewReads === 2 && host.textContent?.includes(preview.body), 'Manual refresh updates the closed issue preview');
     host.querySelector<HTMLButtonElement>('[aria-label="Close issue details"]')?.click(); await settle();
-    assert(loadHandled()['upstream/app#99']?.label === 'Viewed' && loadHandled()['upstream/app#99']?.seenUpdatedAt === preview.updatedAt,
+    assert(loadHandled()['issue:workspace-1:99']?.label === 'Viewed' && loadHandled()['issue:workspace-1:99']?.seenUpdatedAt === preview.updatedAt,
       'Closing acknowledges the exact latest preview that was read');
     const latestReminder = await refreshSnoozedItem(reminder, window.bridge);
     assert(visibleAttention([latestReminder], loadHandled(), Date.now()).length === 0,

@@ -30,7 +30,6 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.InMemoryMemoryStore;
 import com.bytequay.app.memory.MemoryFixtures;
 import com.bytequay.app.memory.MemoryService;
-import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -42,6 +41,7 @@ import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
@@ -215,7 +215,7 @@ class TestReviewTools
         memoryStore = new InMemoryMemoryStore();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
-                repositories, issues, events, workspaces, git, objectMapper, locks, assignments, sourceAssignments,
+                issues, events, workspaces, git, objectMapper, locks, assignments, sourceAssignments,
                 new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, credentials, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -272,8 +272,8 @@ class TestReviewTools
         assertThat(scope.path("requiredReviewFiles").isArray()).isTrue();
         assertThat(call("review_get_context", ImmutableMap.of("kind", "diff")).has("error")).isFalse();
         assertThat(call("review_get_context", ImmutableMap.of("kind", "pr")).path("error").isMissingNode()).isFalse();
-        verify(selectedPullRequests, never()).read(anyString(), anyInt(), any());
-        verify(selectedPullRequestDiffs, never()).read(anyString(), anyInt(), any(), anyBoolean());
+        verify(selectedPullRequests, never()).read(anyString(), anyString(), anyInt(), any());
+        verify(selectedPullRequestDiffs, never()).read(anyString(), anyString(), anyInt(), any(), anyBoolean());
     }
 
     @Test
@@ -421,7 +421,7 @@ class TestReviewTools
     {
         String observed = "d".repeat(40);
         PullRequestDetail detail = pullRequestDetail(42, "body " + "x".repeat(9000), ImmutableList.of(), ImmutableList.of(), ImmutableList.of("checks"));
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.PR)).thenReturn(new SelectedPullRequestReader.Read(detail,
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.PR)).thenReturn(new SelectedPullRequestReader.Read(detail,
                 Optional.of(NOW.minusSeconds(30)), Optional.of(NOW.minusSeconds(10)), Optional.of(observed), true, false, false, false));
         ReviewRun frozen = store.findRun(RUN_ID).orElseThrow();
 
@@ -462,7 +462,7 @@ class TestReviewTools
         CountDownLatch queued = new CountDownLatch(1);
         ReentrantLock reviewLock = (ReentrantLock) locks.lock(REVIEW_ID);
         PullRequestDetail detail = pullRequestDetail(42, "Selected cached body", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.PR)).thenAnswer(_ -> {
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.PR)).thenAnswer(_ -> {
             assertThat(reviewLock.isHeldByCurrentThread()).isTrue();
             assertThat(((ReentrantLock) WorkspaceOperationLocks.get(WORKSPACE_ID)).isHeldByCurrentThread()).isFalse();
             hydrating.countDown();
@@ -514,7 +514,7 @@ class TestReviewTools
     void relatedPullRequestMetadataUsesItsOwnIdentityAndNeverBorrowsFrozenCoordinates()
     {
         PullRequestDetail detail = pullRequestDetail(7, "Historical change", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(selectedPullRequests.read(REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.of("d".repeat(40)), false));
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.of("d".repeat(40)), false));
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "pr", "number", 7));
 
@@ -545,7 +545,7 @@ class TestReviewTools
                 .collect(toImmutableList());
         PullRequestDetail detail = pullRequestDetail(42, "Metadata", activity, checks, ImmutableList.of("reviewThreads"));
         SelectedPullRequestReader.Section section = kind.equals("timeline") ? SelectedPullRequestReader.Section.TIMELINE : SelectedPullRequestReader.Section.CHECKS;
-        when(selectedPullRequests.read(REPO, 42, section)).thenReturn(selected(detail, Optional.of("d".repeat(40)), true));
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, section)).thenReturn(selected(detail, Optional.of("d".repeat(40)), true));
         String field = kind.equals("timeline") ? "items" : "checks";
         int writes = store.runUpdates();
 
@@ -589,7 +589,7 @@ class TestReviewTools
     {
         PullRequestDetail.CheckRun check = new PullRequestDetail.CheckRun(null, null, null, null, null, null, null, null, null);
         PullRequestDetail detail = pullRequestDetail(42, "Metadata", ImmutableList.of(), ImmutableList.of(check), ImmutableList.of());
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.CHECKS)).thenReturn(selected(detail, Optional.of(HEAD_SHA), false));
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.CHECKS)).thenReturn(selected(detail, Optional.of(HEAD_SHA), false));
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "checks")).at("/checks/0");
 
@@ -625,7 +625,7 @@ class TestReviewTools
                 new PrTimelineComment(52L, "author", null, false, NOW, replyBody, null, 7L, 51L, ImmutableList.of()));
         PullRequestDetail.ActivityItem thread = new PullRequestDetail.ActivityItem("reviewer", "review_thread", NOW, null, 51L,
                 PrTimelinePayload.builder().path(DIFF_PATH).line(2).side("RIGHT").resolved(true).outdated(true).comments(comments).build());
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.of(thread), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
 
         JsonNode timeline = call("review_get_context", ImmutableMap.of("kind", "timeline"));
@@ -652,7 +652,7 @@ class TestReviewTools
 
         PullRequestDetail.ActivityItem changed = new PullRequestDetail.ActivityItem("reviewer", "review_thread", NOW, null, 51L,
                 PrTimelinePayload.builder(thread.payload()).resolved(false).build());
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.of(changed), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
         int writes = store.runUpdates();
         assertThat(call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51", "page", 2, "threadVersion", version))
@@ -735,7 +735,7 @@ class TestReviewTools
     void aPullRequestThatCannotBeReadOwesNoThreadVerdicts()
     {
         when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE)).thenThrow(new IllegalStateException("GitHub is unreachable"));
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.TIMELINE)).thenThrow(new IllegalStateException("GitHub is unreachable"));
         readSource();
         Map<String, Object> report = finish("finish", ImmutableList.of(assessment(1, "REJECTED")));
 
@@ -748,7 +748,7 @@ class TestReviewTools
 
     private void selectThreads(PullRequestDetail.ActivityItem... threads)
     {
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.copyOf(threads), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
     }
 
@@ -774,9 +774,9 @@ class TestReviewTools
         PullRequest row = new PullRequest(7, REPO, 7, "Known pull request", "alice", "https://example.com/7", NOW, NOW, PullRequest.Origin.OTHER,
                 ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE,
                 1, 0, 0, "merged", null, NOW, null, null, null, null, null, null, null, null);
-        when(pullRequests.findStored(REPO, 7)).thenReturn(Optional.of(row));
+        when(pullRequests.findWorkspaceStored(WORKSPACE_ID, REPO, 7)).thenReturn(Optional.of(row));
         PullRequestDetail detail = pullRequestDetail(7, "Cached PR body", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(selectedPullRequests.read(REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.empty(), false));
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 7, SelectedPullRequestReader.Section.PR)).thenReturn(selected(detail, Optional.empty(), false));
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 7));
 
@@ -784,7 +784,7 @@ class TestReviewTools
         assertThat(result.path("source").asText()).isEqualTo("selected-pull-request");
         assertThat(result.path("body").asText()).isEqualTo("Cached PR body");
         assertThat(result.path("number").asInt()).isEqualTo(7);
-        verify(selectedPullRequests).read(REPO, 7, SelectedPullRequestReader.Section.PR);
+        verify(selectedPullRequests).read(WORKSPACE_ID, REPO, 7, SelectedPullRequestReader.Section.PR);
         verifyNoInteractions(repositories, issues, workspaces);
     }
 
@@ -876,17 +876,18 @@ class TestReviewTools
     @Test
     void uncachedIssueUsesOnlyTheExactSelectedPreview()
     {
-        when(repositories.getIssuePreview("acme", "widgets", 42))
-                .thenReturn(new GitHubIssuePreview("Closed issue", "Retained limitation", "alice", ImmutableList.of("bug"), NOW, "closed", false));
+        when(issues.preview(WORKSPACE_ID, 42))
+                .thenReturn(new GitHubIssuePreview("Closed issue", "Retained limitation", "alice", ImmutableList.of("bug"), NOW, "closed", false,
+                        "https://github.com/acme/widgets/issues/42", ""));
 
         JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
 
-        assertThat(context.path("source").asText()).isEqualTo("github-selected-preview");
+        assertThat(context.path("source").asText()).isEqualTo("hosting-selected-preview");
         assertThat(context.path("state").asText()).isEqualTo("closed");
         assertThat(context.path("updatedAt").asText()).isEqualTo(NOW.toString());
         assertThat(context.at("/activity/missing").asBoolean()).isTrue();
         assertThat(context.at("/activity/completeness").asText()).isEqualTo("unavailable");
-        verify(repositories).getIssuePreview("acme", "widgets", 42);
+        verify(issues).preview(WORKSPACE_ID, 42);
         verify(issues).find(WORKSPACE_ID, 42);
         verify(issues, never()).detail(WORKSPACE_ID, 42);
         verify(issues, never()).refreshDetail(WORKSPACE_ID, 42);
@@ -896,15 +897,10 @@ class TestReviewTools
     @Test
     void issueContextCannotUseAnotherMonitoredRepositorysSameNumber()
     {
-        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
-                RepoRef.of("acme", "widgets"), OptionalLong.of(2), RepoRef.of("upstream", "widgets"), "upstream", "origin", "main", ImmutableList.of()));
-        when(repositories.getIssuePreview("acme", "widgets", 42))
-                .thenReturn(new GitHubIssuePreview("Selected issue", "Correct repository", "alice", ImmutableList.of(), NOW, "open", false));
-
-        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
-
-        assertThat(context.path("body").asText()).isEqualTo("Correct repository");
-        verify(repositories).getIssuePreview("acme", "widgets", 42);
+        when(pullRequests.findWorkspaceStored(WORKSPACE_ID, REPO, 42))
+                .thenThrow(new IllegalArgumentException("Request belongs to another workspace repository"));
+        assertThatThrownBy(() -> call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another workspace");
         verifyNoInteractions(issues);
     }
 
@@ -1795,12 +1791,12 @@ class TestReviewTools
         SelectedPullRequestDiffReader.Read initial = new SelectedPullRequestDiffReader.Read(files, DIFF_VERSION, Optional.of("a".repeat(40)),
                 Optional.of(NOW.minusSeconds(30)), Optional.of(30), NOW, true, true, gaps);
         SelectedPullRequestDiffReader.Read continuation = relatedDiff(files);
-        when(selectedPullRequestDiffs.read(REPO, 19, Optional.empty(), true)).thenReturn(initial);
-        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(continuation);
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 19, Optional.empty(), true)).thenReturn(initial);
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(continuation);
 
         JsonNode index = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "refresh", true));
 
-        verify(selectedPullRequestDiffs).read(REPO, 19, Optional.empty(), true);
+        verify(selectedPullRequestDiffs).read(WORKSPACE_ID, REPO, 19, Optional.empty(), true);
         assertThat(index.path("repository").asText()).isEqualTo(REPO);
         assertThat(index.path("number").asInt()).isEqualTo(19);
         assertThat(index.path("diffVersion").asText()).isEqualTo(DIFF_VERSION);
@@ -1845,7 +1841,7 @@ class TestReviewTools
     {
         String patch = "@@ -1 +1 @@\n+" + "😀".repeat(4200) + "tail\n";
         SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(new DiffFile(" related.txt ", "modified", 1, 1, patch)));
-        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
         ReviewRun before = store.findRun(RUN_ID).orElseThrow();
         int writes = store.runUpdates();
         StringBuilder reconstructed = new StringBuilder();
@@ -1893,7 +1889,7 @@ class TestReviewTools
     void relatedDiffKeepsUnavailableAndEmptyPatchArtifactsDistinct()
     {
         SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(new DiffFile("unavailable", "modified", 1, 1, null), new DiffFile("empty", "renamed", 0, 0, "")));
-        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
         JsonNode unavailable = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", "unavailable", "diffVersion", DIFF_VERSION));
         assertThat(unavailable.path("patchAvailable").asBoolean()).isFalse();
         assertThat(unavailable.path("patch").isNull()).isTrue();
@@ -1908,7 +1904,7 @@ class TestReviewTools
         assertThat(store.findRun(RUN_ID).orElseThrow().evidence().get(empty.path("evidenceRef").asText()).excerpt()).isEmpty();
         assertThat(store.runUpdates()).isEqualTo(1);
         SelectedPullRequestDiffReader.Read emptyArtifact = relatedDiff(ImmutableList.of());
-        when(selectedPullRequestDiffs.read(REPO, 20, Optional.empty(), false)).thenReturn(emptyArtifact);
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 20, Optional.empty(), false)).thenReturn(emptyArtifact);
         JsonNode index = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 20));
         assertThat(index.path("files")).isEmpty();
         assertThat(index.path("pages").asInt()).isEqualTo(1);
@@ -1953,13 +1949,13 @@ class TestReviewTools
     @Test
     void relatedDiffContinuationsAndUnavailableReadsReturnActionableErrors()
     {
-        when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false))
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 19, Optional.of(DIFF_VERSION), false))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Changed artifact"));
         JsonNode changed = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "diffVersion", DIFF_VERSION));
         assertThat(changed.at("/error/field").asText()).isEqualTo("diffVersion");
         assertThat(changed.at("/error/message").asText()).contains("restart");
-        verify(selectedPullRequestDiffs).read(REPO, 19, Optional.of(DIFF_VERSION), false);
-        when(selectedPullRequestDiffs.read(REPO, 20, Optional.empty(), false))
+        verify(selectedPullRequestDiffs).read(WORKSPACE_ID, REPO, 19, Optional.of(DIFF_VERSION), false);
+        when(selectedPullRequestDiffs.read(WORKSPACE_ID, REPO, 20, Optional.empty(), false))
                 .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "No artifact"));
         JsonNode unavailable = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 20));
         assertThat(unavailable.at("/error/field").asText()).isEqualTo("number");
@@ -2184,7 +2180,7 @@ class TestReviewTools
     {
         store.updateRun(run(RUN_ID, 1, PATCH, false));
         PullRequestDetail detail = pullRequestDetail(42, "Input change", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.PR)).thenReturn(new SelectedPullRequestReader.Read(detail,
+        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.PR)).thenReturn(new SelectedPullRequestReader.Read(detail,
                 Optional.of(NOW), Optional.of(NOW), Optional.of(HEAD_SHA), false, false, false, false));
         String metadataRef = call("review_get_context", ImmutableMap.of("kind", "pr")).path("evidenceRef").asText();
         Map<String, Object> map = ImmutableMap.of("operationKey", "metadata-map", "changeMap", "The PR describes changed input handling",

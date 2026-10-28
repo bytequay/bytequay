@@ -49,7 +49,7 @@ export function workspaceMetadataState(workspace: WorkspaceDto, now = Date.now()
 
 export function workspaceSyncState(workspace: WorkspaceDto, now = Date.now()): SyncState {
   const code = workspaceCodeState(workspace);
-  return code === 'ready' && workspace.hostingServer?.provider !== 'GITLAB' ? workspaceMetadataState(workspace, now) : code;
+  return code === 'ready' ? workspaceMetadataState(workspace, now) : code;
 }
 
 export function syncStateColor(state: SyncState): string {

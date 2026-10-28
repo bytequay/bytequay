@@ -66,7 +66,6 @@ const AUTHORED_ISSUES_REFRESH_MS = 5 * 60 * 1000;
 const SEED = {
   profile: ATTENTION_SEED.profile,
   workspaces: 'home:workspaces',
-  prs: 'home:prs',
   attention: ATTENTION_SEED.prs,
   issues: ATTENTION_SEED.issues,
   authoredIssues: 'home:authored-issues',
@@ -109,7 +108,6 @@ function HomePage({
   const [profile, setProfile] = useState<UserProfileDto | null>(() => getCached<UserProfileDto>(SEED.profile) ?? null);
   const [workspaces, setWorkspaces] = useState<WorkspaceDto[]>(() => getCached<WorkspaceDto[]>(SEED.workspaces) ?? []);
   const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
-  const [prs, setPrs] = useState<PullRequestDto[] | null>(() => getCached<PullRequestDto[]>(SEED.prs) ?? null);
   const [attentionPrs, setAttentionPrs] = useState<PullRequestDto[] | null>(
     () => getCached<PullRequestDto[]>(SEED.attention) ?? null);
   const [attentionError, setAttentionError] = useState<string | null>(null);
@@ -147,7 +145,8 @@ function HomePage({
     };
     const updated = (event: Event) => {
       request++;
-      const rows = (event as CustomEvent<PullRequestDto[]>).detail;
+      const rows = (event as CustomEvent<PullRequestDto[] | undefined>).detail;
+      if (rows === undefined) { reload(); return; }
       setCached(SEED.attention, rows);
       setAttentionPrs(rows);
       setAttentionError(null);
@@ -202,14 +201,11 @@ function HomePage({
     }
     setLoading(false);
 
-    window.bridge.fetchPrs(undefined, 0, 50)
-      .then(page => { setCached(SEED.prs, page.pullRequests); setPrs(page.pullRequests); })
-      .catch(() => {});
   }
 
   // Issue snapshots are local reads per watched repository; keyed on the id
   // list so the 1.5s workspace poll doesn't refire the fan-out.
-  const workspaceKey = workspaces.filter(workspace => workspace.hostingServer?.provider !== 'GITLAB').map(workspace => workspace.id).join(',');
+  const workspaceKey = workspaces.map(workspace => workspace.id).join(',');
   const login = profile?.login;
 
   // Home remounts on every tab switch, so share the activity feed cache until it
@@ -250,7 +246,7 @@ function HomePage({
   }, [login]);
 
   useEffect(() => {
-    if (!login || workspaceKey === '') {
+    if (workspaceKey === '') {
       setIssueAttentionError(null);
       setIssueItems([]);
       setCached(SEED.issues, []);
@@ -264,10 +260,11 @@ function HomePage({
       const current = ++request;
       const ids = workspaceKey.split(',');
       void Promise.allSettled(ids.map(workspaceId =>
-        window.bridge.fetchWorkspaceIssueAttention(workspaceId, reads.get(workspaceId)?.etag ?? null)
-          .then(read => {
+        Promise.all([window.bridge.fetchWorkspaceIssueAttention(workspaceId, reads.get(workspaceId)?.etag ?? null),
+          window.bridge.getWorkspaceHostingViewer(workspaceId)])
+          .then(([read, viewerLogin]) => {
             if (read.snapshot === null || current !== request) return false;
-            reads.set(workspaceId, { etag: read.etag, items: issueAttentionItems(read.snapshot, workspaceId, login) });
+            reads.set(workspaceId, { etag: read.etag, items: issueAttentionItems(read.snapshot, workspaceId, viewerLogin ?? '') });
             return true;
           }, (failure: unknown) => {
             if (current === request) reads.delete(workspaceId);
@@ -293,7 +290,7 @@ function HomePage({
       window.clearInterval(timer);
       window.removeEventListener(ISSUE_DEVELOPMENT_CHANGED, changed);
     };
-  }, [login, workspaceKey]);
+  }, [workspaceKey]);
 
   // A failed read keeps the last list: My Work's background refreshes stay quiet.
   useEffect(() => {
@@ -315,7 +312,7 @@ function HomePage({
     };
   }, [login]);
 
-  const taskWorkspaces = useMemo(() => workspaces.filter(workspace => workspace.hostingServer?.provider !== 'GITLAB').map(workspace => ({
+  const taskWorkspaces = useMemo(() => workspaces.map(workspace => ({
     id: workspace.id, name: workspace.name, repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
   })), [workspaces]);
   const tasks = useTaskAttention(taskWorkspaces);
@@ -424,7 +421,6 @@ function HomePage({
       <WatchedReposGrid
         workspaces={workspaces}
         loading={loading}
-        prs={prs ?? []}
         onOpenWorkspace={onOpenWorkspace}
         onWatch={() => setShowModal(true)}
       />

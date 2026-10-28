@@ -420,7 +420,8 @@ class TestRecentService
     @Test
     void recordsAndFindsTicketsByStableIdentityKeyAndWorkspace()
     {
-        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), details, mock(RepositoryIssueStore.class), workspaces, credentials, CLOCK);
+        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), details, mock(RepositoryIssueStore.class), workspaces,
+                mock(com.bytequay.core.store.HostingIdentityStore.class), credentials, CLOCK);
         RecentItem ticket = jiraTicket("cloud-one", Optional.of("ws-1"));
         writer.read(ticket, 19);
         assertThat(service.stream(everything(), null).rows()).isEmpty();

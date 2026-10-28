@@ -32,6 +32,8 @@ function mount(failReviewerCall = 0, holdWrites = false) {
   const assigneeWrites: Parameters<Bridge['updatePrMetadata']>[] = [];
   const pending: ReturnType<typeof Promise.withResolvers<void>>[] = [];
   window.bridge = { ...previous,
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => { throw new Error('No viewer in this fixture'); },
     fetchRepoUsers: async () => ['alice', 'bob', 'carol', 'approved'].map(login => ({ login, avatarUrl: null, bot: false })),
     fetchRepoTeams: async () => ['bytequay/core'],

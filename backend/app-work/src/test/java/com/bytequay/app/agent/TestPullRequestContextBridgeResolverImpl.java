@@ -73,6 +73,7 @@ class TestPullRequestContextBridgeResolverImpl
         when(tasks.find(id)).thenReturn(Optional.of(task));
         when(assignments.findByTaskId(id.toString())).thenReturn(Optional.of(new PullRequestTask(id.toString(), "workspace", "owner/repo", 7, snapshot)));
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("owner", "repo"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
     }

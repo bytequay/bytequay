@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { usePullRequestBridge } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import { Fragment, useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
@@ -18,6 +19,7 @@ import { createPortal } from 'react-dom';
 import Avatar from '../Avatar';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { parseUnifiedDiff, type DiffRow } from '../diffParse';
+import { pullRequestAttentionKey } from '../home/attention';
 import { recordAttentionAction } from '../home/useAttentionVisit';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import type {
@@ -28,7 +30,7 @@ import type {
   InlineReviewCommentDto,
   PullRequestDetailDto,
   PullRequestDto,
-  UserProfileDto,
+  PullRequestViewer,
 } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { useResizablePane } from '../useResizablePane';
@@ -66,7 +68,7 @@ export type DiffAgentComment = {
  */
 export type AgentReviewProjection = {
   review: AgentReviewDto;
-  viewer: UserProfileDto | null;
+  viewer: PullRequestViewer | null;
   headSha?: string;
   /** The range Agent review asked to show; a new token re-scrolls even to the same lines. */
   navigation: ReviewNavigationTarget | null;
@@ -161,6 +163,7 @@ export default function PullChanges({
   onDetailChange,
   ...diff
 }: PullChangesProps) {
+  const bridge = usePullRequestBridge();
   return (
     <DiffViewer
       {...diff}
@@ -174,7 +177,7 @@ export default function PullChanges({
         onDetailChange,
       }}
       loadFileContent={(path, baseSha, headSha) =>
-        window.bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha)}
+        bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha)}
     />
   );
 }
@@ -634,7 +637,7 @@ function revealedGap(hidden: number, expansions: number, edge: 'leading' | 'betw
 
 export type ReviewLineComposerProps = {
   heading: string;
-  viewer?: UserProfileDto | null;
+  viewer?: PullRequestViewer | null;
   review?: { repo: string; workspaceId?: string };
   canReview: boolean;
   /** Why Add to review and Post now are unavailable on this range, given instead of letting GitHub refuse it. */
@@ -755,11 +758,12 @@ function DiffFileCard({
   onAskAgent?: DiffViewerProps['onAskAgent'];
   onAskAgentDisabled?: string | null;
   fullDiff: boolean;
-  viewer?: UserProfileDto | null;
+  viewer?: PullRequestViewer | null;
   loadFileContent?: DiffViewerProps['loadFileContent'];
   open: boolean;
   onToggle: () => void;
 }) {
+  const bridge = usePullRequestBridge();
   const hunks = useMemo(() => open ? parseUnifiedDiff(file.patch) : [], [file.patch, open]);
   const blocks = changeBlocks(file.additions, file.deletions);
   const filenameStart = file.filename.lastIndexOf('/') + 1;
@@ -927,7 +931,7 @@ function DiffFileCard({
     commentKey.current ??= crypto.randomUUID();
     try {
       await submitInlineReviewComment(
-        window.bridge, review.repo, review.number, value, commentKey.current, review.onDetailChange);
+        bridge, review.repo, review.number, value, commentKey.current, review.onDetailChange);
       closeComposer();
     }
     catch (error) {
@@ -1264,7 +1268,7 @@ function UnplacedReviewThreads({ reviewThreads, viewerLogin, activities, label }
 
 type PendingReviewCardProps = {
   comment: InlineReviewCommentDto;
-  viewer?: UserProfileDto | null;
+  viewer?: PullRequestViewer | null;
   repository: string;
   suggestion?: SuggestionBase;
   editBody: string | null;
@@ -1329,8 +1333,9 @@ export async function submitInlineReviewComment(
   key: string,
   onDetailChange: (detail: PullRequestDetailDto) => void,
 ) {
-  onDetailChange(await bridge.postPrReviewComment(repo, number, comment, key));
-  recordAttentionAction(`${repo}#${number}`, 'comment');
+  const detail = await bridge.postPrReviewComment(repo, number, comment, key);
+  onDetailChange(detail);
+  recordAttentionAction(pullRequestAttentionKey(detail), 'comment');
 }
 
 /** Stands in while a file card has no review; its actions are unreachable without one. */

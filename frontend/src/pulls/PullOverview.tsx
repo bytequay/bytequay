@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { usePullRequestBridge, usePullRequestWorkspace, useHostingPresentation } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import { remoteErrorMessage } from '../remoteError';
@@ -20,7 +21,8 @@ import Avatar from '../Avatar';
 import CopyLinkButton from '@bytequay/ui/CopyLinkButton';
 import { parseUnifiedDiff } from '../diffParse';
 import { openWebLink } from '../githubReference';
-import { recordAttentionAction } from '../home/useAttentionVisit';
+import { pullRequestAttentionKey } from '../home/attention';
+import { recordPullRequestAttentionAction, recordAttentionAction } from '../home/useAttentionVisit';
 import LearnFromPullButton from '../memory/LearnFromPullButton';
 import ReplayReviewButton from '../memory/ReplayReviewButton';
 import { relativeTime } from '@bytequay/ui/relativeTime';
@@ -37,7 +39,7 @@ import type {
   PullTimelinePayloadDto,
   RepoLabelDto,
   RepoUserDto,
-  UserProfileDto,
+  PullRequestViewer,
 } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
@@ -78,16 +80,19 @@ export type PullDetailUpdater = (
 ) => void;
 
 /** The signed-in account, for review composers, local pending comments, and editing your own comments. */
-export function useViewer(enabled: boolean): UserProfileDto | null {
-  const [viewer, setViewer] = useState<UserProfileDto | null>(null);
+export function useViewer(enabled: boolean): PullRequestViewer | null {
+  const bridge = usePullRequestBridge();
+  const workspaceId = usePullRequestWorkspace();
+  const [viewer, setViewer] = useState<PullRequestViewer | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    window.bridge.getUserProfile()
+    (workspaceId === undefined ? bridge.getUserProfile()
+      : bridge.getWorkspaceHostingViewer(workspaceId).then(login => login === null ? null : { login, avatarUrl: null }))
       .then(profile => { if (live) setViewer(profile); })
       .catch(() => { /* the composer just falls back to an initial */ });
     return () => { live = false; };
-  }, [enabled]);
+  }, [bridge, enabled, workspaceId]);
   return viewer;
 }
 
@@ -110,6 +115,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
   onDetailUpdate?: PullDetailUpdater;
   onDetailChange?: (detail: PullRequestDetailDto) => void;
 }) {
+  const bridge = usePullRequestBridge();
   const [quotedReply, setQuotedReply] = useState<QuoteRequest>();
   const viewerLogin = useViewer(true)?.login;
   // Only the user's own pull requests come from their development tasks, so only those can deliver an Epic's work.
@@ -162,9 +168,9 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
             <code title={detail.headRef ?? pr.headRef ?? undefined}><bdi>{detail.headRef ?? pr.headRef ?? 'branch unavailable'}</bdi></code>
             <CopyLinkButton value={detail.headRef ?? pr.headRef ?? ''} label="head branch" />
           </span>
-          <button type="button" aria-label="Open on GitHub" title="Open on GitHub"
-            onClick={() => { void window.bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>
-            <Avatar login="github" size={18} />
+          <button type="button" aria-label="Open in browser" title="Open in browser"
+            onClick={() => { void bridge.openInAppBrowser(detail.htmlUrl ?? pr.htmlUrl); }}>
+            <ExternalLink size={18} />
           </button>
           {privateThreads !== undefined && <PrivateThreadsToggle threads={privateThreads} />}
           {epic !== null && <PullRequestEpicLink value={epic} />}
@@ -180,7 +186,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
       <Metadata detail={detail} contributorsWorkspaceId={contributorsWorkspaceId} onDetailUpdate={onDetailUpdate} />
       {detail.unavailableSections.length > 0 && (
         <div className="pr-unavailable" role="status">
-          Some GitHub sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
+          Some sections are temporarily unavailable: {detail.unavailableSections.join(', ')}.
         </div>
       )}
 
@@ -213,13 +219,13 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, work
         onDraftChange={body => { void saveDraft(pr.repo, pr.number, body); }}
         onClose={state?.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
           ? async () => {
-              await window.bridge.closePr(pr.repo, pr.number);
-              recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
+              await bridge.closePr(pr.repo, pr.number);
+              recordAttentionAction(pullRequestAttentionKey(pr), 'update');
               await onRefresh();
             }
           : undefined}
         onSubmit={async body => {
-          await submitPullRequestComment(window.bridge, pr.repo, pr.number, body, onDetailChange);
+          await submitPullRequestComment(bridge, pr.repo, pr.number, body, onDetailChange);
         }}
       />
     </ReviewCommentIndex>
@@ -231,6 +237,7 @@ function PullTitle({ pr, detail, onDetailUpdate }: {
   detail: PullRequestDetailDto;
   onDetailUpdate: PullDetailUpdater;
 }) {
+  const bridge = usePullRequestBridge();
   const title = detail.title ?? pr.title;
   const canEdit = detail.viewerCanWrite || pr.origin === 'AUTHORED';
   const [edit, setEdit] = useState<{ base: string; draft: string } | null>(null);
@@ -254,9 +261,9 @@ function PullTitle({ pr, detail, onDetailUpdate }: {
     setSaving(true);
     setError(null);
     try {
-      await window.bridge.updatePrTitle(detail.repo, detail.number, nextTitle);
+      await bridge.updatePrTitle(detail.repo, detail.number, nextTitle);
       onDetailUpdate(detail.repo, detail.number, current => ({ ...current, title: nextTitle }));
-      recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
+      recordAttentionAction(pullRequestAttentionKey(detail), 'update');
       setEdit(null);
     }
     catch (failure) {
@@ -302,6 +309,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
   contributorsWorkspaceId?: string;
   onDetailUpdate: PullDetailUpdater;
 }) {
+  const bridge = usePullRequestBridge();
   const [open, setOpen] = useState<MetadataPickerKind | null>(null);
   const [repoUsers, setRepoUsers] = useState<RepoUserDto[]>([]);
   const [repoTeams, setRepoTeams] = useState<string[] | null>(null);
@@ -346,14 +354,14 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
     const requestKey = key;
     setLoading(true);
     const request = kind === 'labels'
-      ? window.bridge.fetchRepoLabels(visibleDetail.repo).then(labels => {
+      ? bridge.fetchRepoLabels(visibleDetail.repo).then(labels => {
           if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoLabels(labels);
         })
       : Promise.all([
-          needsUsers && window.bridge.fetchRepoUsers(visibleDetail.repo, contributorsWorkspaceId).then(users => {
+          needsUsers && bridge.fetchRepoUsers(visibleDetail.repo, contributorsWorkspaceId).then(users => {
             if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoUsers(users);
           }),
-          needsTeams && window.bridge.fetchRepoTeams(visibleDetail.repo).then(teams => {
+          needsTeams && bridge.fetchRepoTeams(visibleDetail.repo).then(teams => {
             if (requestId === optionsRequest.current && requestKey === optionsKey.current) setRepoTeams(teams);
           }),
         ]);
@@ -382,7 +390,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
     onDetailUpdate(visibleDetail.repo, visibleDetail.number, optimistic);
     try {
       await action();
-      recordAttentionAction(`${visibleDetail.repo}#${visibleDetail.number}`, 'update');
+      recordAttentionAction(pullRequestAttentionKey(visibleDetail), 'update');
       onDetailUpdate(visibleDetail.repo, visibleDetail.number, optimistic);
       setOptimisticDetail(null);
       setOpen(null);
@@ -408,19 +416,19 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
       confirmed = apply(confirmed);
       if (optionsKey.current === key) setOptimisticDetail({ key, value: confirmed });
       onDetailUpdate(visibleDetail.repo, visibleDetail.number, apply);
-      recordAttentionAction(`${visibleDetail.repo}#${visibleDetail.number}`, 'update');
+      recordAttentionAction(pullRequestAttentionKey(visibleDetail), 'update');
     };
     try {
       if (kind === 'assignees') {
         const removed = new Set(changes.filter(candidate => !candidate.selected).map(candidate => candidate.login.toLowerCase()));
         const next = [...visibleDetail.assignees.filter(login => !removed.has(login.toLowerCase())),
           ...changes.filter(candidate => candidate.selected).map(candidate => candidate.login)];
-        await window.bridge.updatePrMetadata(visibleDetail.repo, visibleDetail.number, next, visibleDetail.labels.map(label => label.name));
+        await bridge.updatePrMetadata(visibleDetail.repo, visibleDetail.number, next, visibleDetail.labels.map(label => label.name));
         commit(current => ({ ...current, assignees: next }));
       }
       else {
         for (const candidate of changes) {
-          await window.bridge.updatePrReviewer(visibleDetail.repo, visibleDetail.number, candidate.login, candidate.selected);
+          await bridge.updatePrReviewer(visibleDetail.repo, visibleDetail.number, candidate.login, candidate.selected);
           // Keep successful writes when a later reviewer fails, so retry only sends the remaining changes.
           commit(current => ({ ...current, reviewers: candidate.selected
             ? current.reviewers.some(reviewer => reviewer.login.toLowerCase() === candidate.login.toLowerCase()) ? current.reviewers
@@ -500,7 +508,7 @@ function Metadata({ detail, contributorsWorkspaceId, onDetailUpdate }: {
             void update(
               current => ({ ...current, labels: next }),
               current => current.labels === next ? { ...current, labels: previous } : current,
-              () => window.bridge.updatePrMetadata(
+              () => bridge.updatePrMetadata(
                 visibleDetail.repo, visibleDetail.number, visibleDetail.assignees, next.map(value => value.name)),
             );
           }} />}
@@ -719,6 +727,7 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
   onDetailUpdate: PullDetailUpdater;
   onQuote: (body: string) => void;
 }) {
+  const bridge = usePullRequestBridge();
   const actor = detail.author ?? fallbackAuthor ?? 'Unknown author';
   const key = `${detail.repo.toLowerCase()}#${detail.number}`;
   const serverBody = detail.body ?? '';
@@ -768,8 +777,8 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
     setLocalBody({ key, value: nextBody });
     onDetailUpdate(detail.repo, detail.number, current => ({ ...current, body: nextBody }));
     try {
-      await window.bridge.updatePrDescription(detail.repo, detail.number, nextBody);
-      recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
+      await bridge.updatePrDescription(detail.repo, detail.number, nextBody);
+      recordAttentionAction(pullRequestAttentionKey(detail), 'update');
       onDetailUpdate(detail.repo, detail.number, current => ({ ...current, body: nextBody }));
       return true;
     }
@@ -1083,6 +1092,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   showCode?: boolean;
   pendingReview?: React.ContextType<typeof PendingReviewComments>;
 }) {
+  const bridge = usePullRequestBridge();
   const { payload } = activity;
   const hostPending = useContext(PendingReviewComments);
   const pending = pendingReview ?? hostPending;
@@ -1119,8 +1129,8 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     setPosting(true);
     setError('');
     try {
-      await window.bridge.replyToReviewComment(pr.repo, pr.number, rootCommentId, body.trim());
-      recordAttentionAction(`${pr.repo}#${pr.number}`, 'comment');
+      await bridge.replyToReviewComment(pr.repo, pr.number, rootCommentId, body.trim());
+      recordAttentionAction(pullRequestAttentionKey(pr), 'comment');
     }
     catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not post reply.');
@@ -1145,8 +1155,8 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
       current, activity.githubId, rootCommentId, desired));
     try {
-      await window.bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, desired);
-      recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
+      await bridge.setReviewThreadResolved(pr.repo, pr.number, rootCommentId, desired);
+      recordAttentionAction(pullRequestAttentionKey(pr), 'update');
       onDetailUpdate(pr.repo, pr.number, current => updateReviewThreadResolution(
         current, activity.githubId, rootCommentId, desired));
     }
@@ -1219,7 +1229,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
           <span className="pr-thread-draft__badge">Draft · not posted</span>
           <span>Written by the agent from your private thread. Edit it before you post.</span>
         </div>}
-        note={drafted && <span className="pr-thread-draft__note">Posts to GitHub as you</span>}>
+        note={drafted && <span className="pr-thread-draft__note">Posts as you</span>}>
         <BetterWordsButton text={body} textareaRef={textareaRef} repository={pr.repo} workspaceId={workspaceId}
           disabled={preview || posting}
           onError={failure => setError(failure === null ? '' : remoteErrorMessage(failure))} />
@@ -1351,6 +1361,7 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
   onDetailUpdate: PullDetailUpdater;
   onClose: () => void;
 }) {
+  const bridge = usePullRequestBridge();
   const [preview, setPreview] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -1361,8 +1372,8 @@ export function CommentEditor({ pr, target, commentId, body, draft, suggestion, 
     setSaving(true);
     setError('');
     try {
-      const response = await window.bridge.editPrComment(pr.repo, pr.number, target, commentId, draft);
-      recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
+      const response = await bridge.editPrComment(pr.repo, pr.number, target, commentId, draft);
+      recordAttentionAction(pullRequestAttentionKey(pr), 'update');
       onDetailUpdate(pr.repo, pr.number, current => mergePullRequestWriteDetail(current, response));
       onClose();
     }
@@ -1421,6 +1432,8 @@ export function reviewThreadSuggestion(payload: PullTimelinePayloadDto): Suggest
 }
 
 function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; headRef: string | null; pr: PullRequestDto }) {
+  const { server } = useHostingPresentation();
+  const webBaseUrl = server?.webBaseUrl ?? 'https://github.com';
   const activity = activities[0];
   const { payload } = activity;
   const actor = displayActor(activity.actor || 'github');
@@ -1430,7 +1443,7 @@ function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; hea
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
         <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
         {payload.actorBot && <span className="pr-bot">Bot</span>}
-        <span>{eventText(activity, activities, headRef)}</span>
+        <span>{eventText(activity, activities, headRef, webBaseUrl)}</span>
         <time dateTime={activity.timestamp ?? undefined}>{relativeTime(activity.timestamp, { style: 'long' })}</time>
       </div>
     );
@@ -1462,7 +1475,7 @@ function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; hea
       <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
       <div>
         {payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
-        <span>{eventText(activity, activities, headRef)}</span>
+        <span>{eventText(activity, activities, headRef, webBaseUrl)}</span>
         <time> · {relativeTime(activity.timestamp)}</time>
         {activity.eventType === 'removed_from_merge_queue' && <MergeQueueRemoval activity={activity} repo={pr.repo} number={pr.number} />}
       </div>
@@ -1470,7 +1483,7 @@ function CompactEvent({ activities, headRef, pr }: { activities: Activity[]; hea
   );
 }
 
-function eventText(activity: Activity, activities: Activity[], headRef: string | null) {
+function eventText(activity: Activity, activities: Activity[], headRef: string | null, webBaseUrl: string) {
   const p = activity.payload;
   switch (activity.eventType) {
     case 'labeled': return <>added <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
@@ -1485,8 +1498,8 @@ function eventText(activity: Activity, activities: Activity[], headRef: string |
       if (reviewers.length === 0) return <>requested a review</>;
       return <>requested a review from {reviewers.slice(0, 3).map((reviewer, index) => {
         const [owner, team] = reviewer.split('/');
-        const href = team ? `https://github.com/orgs/${encodeURIComponent(owner)}/teams/${encodeURIComponent(team)}`
-          : `https://github.com/${encodeURIComponent(reviewer)}`;
+        const href = team ? `${webBaseUrl}/orgs/${encodeURIComponent(owner)}/teams/${encodeURIComponent(team)}`
+          : `${webBaseUrl}/${encodeURIComponent(reviewer)}`;
         return <span key={reviewer}>{index === 0 ? '' : index === reviewers.length - 1 ? ' and ' : ', '}
           <a href={href} onClick={event => { event.preventDefault(); void openWebLink(href); }}><strong>{reviewer}</strong></a>
         </span>;
@@ -1510,6 +1523,7 @@ function eventText(activity: Activity, activities: Activity[], headRef: string |
     case 'closed': return <>closed this</>;
     case 'merged': return <>merged</>;
     case 'reopened': return <>reopened this</>;
+    case 'system_note':
     case 'ci_autofix': return <>{activity.body ?? 'updated this pull request'}</>;
     default: return <>{activity.eventType.replaceAll('_', ' ')}</>;
   }
@@ -1578,6 +1592,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
   detail: PullRequestDetailDto;
   onRefresh: () => Promise<void>;
 }) {
+  const bridge = usePullRequestBridge();
   const [rerunning, setRerunning] = useState(false);
   const [rerunRequested, setRerunRequested] = useState(false);
   const [rerunError, setRerunError] = useState<string | null>(null);
@@ -1594,9 +1609,7 @@ function ChecksCard({ pr, detail, onRefresh }: {
   const running = detail.checkRuns.some(check => check.status === 'in_progress');
   const SummaryIcon = passing ? CircleCheck : failing ? CircleX : pending ? running ? LoaderCircle : Clock3 : CircleDot;
   const canRerun = detail.viewerCanWrite && detail.checkRuns.some(check =>
-    check.category === 'failing'
-      && check.source === 'check_run'
-      && check.detailsUrl?.includes('/actions/runs/'));
+    check.category === 'failing' && checkJobId(check) !== null);
   useEffect(() => {
     if (detail.ciStatus !== 'FAILING') setRerunRequested(false);
   }, [detail.ciStatus]);
@@ -1604,8 +1617,8 @@ function ChecksCard({ pr, detail, onRefresh }: {
     setRerunning(true);
     setRerunError(null);
     try {
-      await window.bridge.rerunFailedPrChecks(pr.repo, pr.number);
-      recordAttentionAction(`${pr.repo}#${pr.number}`, 'update');
+      await bridge.rerunFailedPrChecks(pr.repo, pr.number);
+      recordAttentionAction(pullRequestAttentionKey(pr), 'update');
       setRerunRequested(true);
       await onRefresh();
     }
@@ -1644,17 +1657,8 @@ function ChecksCard({ pr, detail, onRefresh }: {
   );
 }
 
-export function githubActionsJobId(check: PullRequestDetailDto['checkRuns'][number]): number | null {
-  if (check.source !== 'check_run' || !check.detailsUrl) return null;
-  try {
-    const url = new URL(check.detailsUrl);
-    const match = url.pathname.match(/^\/[^/]+\/[^/]+\/actions\/runs\/\d+\/job\/(\d+)\/?$/);
-    const id = Number(match?.[1]);
-    return url.origin === 'https://github.com' && Number.isSafeInteger(id) && id > 0 ? id : null;
-  }
-  catch {
-    return null;
-  }
+export function checkJobId(check: PullRequestDetailDto['checkRuns'][number]): number | null {
+  return check.source === 'job' && Number.isSafeInteger(check.githubId) && (check.githubId ?? 0) > 0 ? check.githubId : null;
 }
 
 const CI_LOG_KEYWORDS = /(\b(?:errors?|exceptions?|failed|failures?|fatal|panic|traceback|assertion|assert|mismatch|\w*(?:Exception|Error))\b|\b(?:Caused by|Suppressed|timed out|segmentation fault|cannot find symbol)\b:?)/gi;
@@ -1664,6 +1668,7 @@ function CiLogText({ text }: { text: string }) {
 }
 
 function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailDto['checkRuns'][number] }) {
+  const bridge = usePullRequestBridge();
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [log, setLog] = useState<string | null>(null);
@@ -1671,13 +1676,13 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
   const [browserError, setBrowserError] = useState<string | null>(null);
   const logId = useId();
   const logLabel = loading ? 'Loading…' : error ? 'Retry log' : expanded ? 'Hide log' : 'Show log';
-  const jobId = githubActionsJobId(check);
+  const jobId = checkJobId(check);
   const browserUrl = check.detailsUrl && /^https?:\/\//i.test(check.detailsUrl) ? check.detailsUrl : null;
   const openBrowser = async () => {
     if (browserUrl === null) return;
     setBrowserError(null);
     try {
-      await window.bridge.openExternal(browserUrl);
+      await bridge.openExternal(browserUrl);
     }
     catch (failure) {
       setBrowserError(remoteErrorMessage(failure));
@@ -1693,7 +1698,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
     setLoading(true);
     setError(null);
     try {
-      const result = await window.bridge.getPrCheckLog(pr.repo, pr.number, jobId);
+      const result = await bridge.getPrCheckLog(pr.repo, pr.number, jobId);
       setLog(previous => result.unavailableReason === null ? result.text : result.text || previous);
       setError(result.unavailableReason);
     }
@@ -1716,12 +1721,12 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
       <span className="pr-check__actions">
         {check.source === 'status' && <small>status</small>}
         {check.category === 'failing' && <>
-          <button type="button" disabled={browserUrl === null} aria-label="Open in GitHub" title="Open in GitHub"
+          <button type="button" disabled={browserUrl === null} aria-label="Open in browser" title="Open in browser"
             onClick={() => { void openBrowser(); }}>
             <ExternalLink size={16} aria-hidden="true" />
           </button>
           <button type="button" aria-label={logLabel} aria-expanded={expanded} aria-controls={logId} disabled={loading || jobId === null}
-            title={jobId === null ? 'Inline logs are available for GitHub Actions jobs' : logLabel}
+            title={jobId === null ? 'Inline logs are available for jobs' : logLabel}
             onClick={() => { void toggleLog(); }}>
             {loading ? <span className="bq-spinner is-spinning"><LoaderCircle size={16} aria-hidden="true" /></span>
               : error ? <RotateCw size={16} aria-hidden="true" /> : <FileText size={16} aria-hidden="true" />}
@@ -1733,7 +1738,7 @@ function CheckRow({ pr, check }: { pr: PullRequestDto; check: PullRequestDetailD
         {loading && <div role="status">Loading log…</div>}
         {error && <div role="alert">{error}</div>}
         {log !== null && <>
-          <p>{error ? 'GitHub failure annotations. Open in GitHub for job details.' : 'Diagnostic excerpt. Open in GitHub for the complete log.'}</p>
+          <p>{error ? 'Failure annotations. Open in browser for job details.' : 'Diagnostic excerpt. Open in browser for the complete log.'}</p>
           <pre tabIndex={0} aria-label={`${check.name ?? 'Check'} log`}><CiLogText text={log || 'This job returned an empty log.'} /></pre>
         </>}
       </div>}
@@ -2098,7 +2103,9 @@ function useReactionAction(
   enabled = true,
   onChange?: ReactionChange,
 ): ReactionAction | undefined {
-  const key = `${repo.toLowerCase()}#${number}:${target}:${commentId ?? ''}`;
+  const bridge = usePullRequestBridge();
+  const workspaceId = usePullRequestWorkspace();
+  const key = `${workspaceId ?? ''}:${repo.toLowerCase()}#${number}:${target}:${commentId ?? ''}`;
   const [local, setLocal] = useState<{ key: string; reactions: PullReactionDto[] } | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -2144,8 +2151,8 @@ function useReactionAction(
       onChange?.(optimistic);
     }
     try {
-      const result = await submitPullReaction(window.bridge, { repo, number, target, commentId, reactions: base }, content);
-      recordAttentionAction(`${repo}#${number}`, 'update');
+      const result = await submitPullReaction(bridge, { repo, number, target, commentId, reactions: base }, content);
+      recordPullRequestAttentionAction(repo, number, 'update', workspaceId);
       const confirmed = applyViewerReaction(
         optimistic ?? base, content, result.viewerHasReacted);
       confirmation.current = { key, content, viewerHasReacted: result.viewerHasReacted };
@@ -2216,8 +2223,9 @@ export async function submitPullRequestComment(
   body: string,
   onDetailChange: (detail: PullRequestDetailDto) => void,
 ) {
-  onDetailChange(await bridge.commentPr(repo, number, body));
-  recordAttentionAction(`${repo}#${number}`, 'comment');
+  const detail = await bridge.commentPr(repo, number, body);
+  onDetailChange(detail);
+  recordAttentionAction(pullRequestAttentionKey(detail), 'comment');
 }
 
 function Reactions({ reactions, reaction, alwaysShowPicker = false }: {

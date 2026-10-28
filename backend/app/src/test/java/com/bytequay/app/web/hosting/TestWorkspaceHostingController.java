@@ -24,6 +24,7 @@ import com.bytequay.app.workspace.WorkspacePullRequestRow;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
@@ -90,11 +91,14 @@ class TestWorkspaceHostingController
     {
         FetchedPullRequest summary = snapshot().pullRequest();
         when(hosting.cachedPullRequests("workspace", 2, 25))
-                .thenReturn(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, Optional.empty())), true));
+                .thenReturn(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary,
+                        new PullRequest(50, summary.repo(), summary.number(), summary.title(), summary.author(), summary.htmlUrl(), summary.createdAt(), summary.updatedAt(),
+                                summary.origin(), summary.labels(), ImmutableMap.of(), summary.draft(), null, null, null, summary.requestedReviewers(), null,
+                                0, 0, 0, summary.state(), null, null, null, null, null, summary.headRef(), null, null, null, null))), true));
 
         mvc().perform(get(BASE + "/requests").header(SESSION_HEADER, SESSION).param("page", "2").param("pageSize", "25"))
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].summary.title").value("Change"))
-                .andExpect(jsonPath("$.items[0].github").isEmpty()).andExpect(jsonPath("$.hasNext").value(true));
+                .andExpect(jsonPath("$.items[0].pullRequest.id").value(50)).andExpect(jsonPath("$.hasNext").value(true));
         verifyNoInteractions(repositories);
     }
 

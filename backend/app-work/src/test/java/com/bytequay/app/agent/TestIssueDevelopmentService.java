@@ -24,9 +24,8 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workitem.WorkItemService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
@@ -56,9 +55,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -81,25 +82,27 @@ class TestIssueDevelopmentService
     private final AgentTaskStore taskStore = mock(AgentTaskStore.class);
     private final AgentUnitOfWork unitOfWork = mock(AgentUnitOfWork.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
-    private final GitHubRepoClient github = mock(GitHubRepoClient.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceIssueService remote = mock(WorkspaceIssueService.class);
     private final AtomicReference<IssueTask> linked = new AtomicReference<>();
     private final AtomicReference<IssueEpic> epic = new AtomicReference<>();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final TaskId taskId = TaskId.random();
     private final WorkItemService workItems = mock(WorkItemService.class);
     private final IssueDevelopmentService service = new IssueDevelopmentService(sources, issues, workspaces, tasks, taskStore,
-            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, workItems, mock(JiraIssueTaskStore.class), mock(JiraService.class));
+            unitOfWork, remote, Clock.fixed(NOW, ZoneOffset.UTC), turns, workItems, mock(JiraIssueTaskStore.class), mock(JiraService.class));
 
     @BeforeEach
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
+        when(workspace.id()).thenReturn("workspace");
+        when(workspaces.findHostingRepositoryId("workspace")).thenReturn(Optional.of(2L));
         when(workspace.monitoredRepository()).thenReturn(REPO);
         when(workspace.monitoredRepositoryId()).thenReturn(2L);
         when(workspaces.findById(anyString())).thenReturn(Optional.of(workspace));
-        when(issues.find(2, 7)).thenReturn(Optional.of(new RepositoryIssue(70, 7, SOURCE.title(), SOURCE.body(), "alice", "", SOURCE.url(),
+        when(issues.find(any(), any(), eq(7))).thenReturn(Optional.of(new RepositoryIssue(70, 7, SOURCE.title(), SOURCE.body(), "alice", "", SOURCE.url(),
                 ImmutableList.of(), ImmutableList.of("alice"), 0, NOW, NOW)));
         when(sources.findEpic("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(epic.get()));
         when(sources.findTask("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
@@ -113,8 +116,7 @@ class TestIssueDevelopmentService
             return null;
         }).when(sources).insertTask(any());
         when(unitOfWork.execute(any())).thenAnswer(invocation -> invocation.<AgentUnitOfWork.Work<?>>getArgument(0).run());
-        when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(github.fetchOpenIssueSource("token", REPO, 7)).thenReturn(SOURCE);
+        when(remote.source("workspace", 7, true)).thenReturn(SOURCE);
         when(task.id()).thenReturn(taskId);
         when(task.workspaceId()).thenReturn(Optional.of("workspace"));
         when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
@@ -127,7 +129,7 @@ class TestIssueDevelopmentService
         verifyNoInteractions(workItems);
         assertThat(service.setEpic("workspace", 7, false).isEpic()).isFalse();
         verify(workItems).releaseEpic("workspace", "ISSUE:github.com:70");
-        verifyNoInteractions(github, tasks, taskStore);
+        verifyNoInteractions(remote, tasks, taskStore);
     }
 
     @Test
@@ -163,15 +165,15 @@ class TestIssueDevelopmentService
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new AssertionError("must not create");
         })).isInstanceOf(AgentConflictException.class).hasMessageContaining("Epic");
-        verifyNoInteractions(github, taskStore, tasks);
-        verify(credentials, never()).resolveGitHubToken();
+        verifyNoInteractions(remote, taskStore, tasks);
+        verify(remote, never()).source(anyString(), anyInt(), anyBoolean());
     }
 
     @Test
     void changedDescriptionRefreshesCacheAndRequiresAcceptanceBeforeCreation()
     {
         GitHubIssueSource changed = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), "New scope", NOW.plusSeconds(1));
-        when(github.fetchOpenIssueSource("token", REPO, 7)).thenReturn(changed);
+        when(remote.source("workspace", 7, true)).thenReturn(changed);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new AssertionError("must not create");
         })).isInstanceOf(AgentConflictException.class).hasMessageStartingWith("Issue changed.");
@@ -183,7 +185,7 @@ class TestIssueDevelopmentService
     void commentOnlyUpdateAcceptsFreshSnapshotAndSuppliesSourceContext()
     {
         GitHubIssueSource comment = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), SOURCE.body(), NOW.plusSeconds(1));
-        when(github.fetchOpenIssueSource("token", REPO, 7)).thenReturn(comment);
+        when(remote.source("workspace", 7, true)).thenReturn(comment);
         assertThat(service.start("workspace", taskId, INPUT, "Please add regression coverage", source -> {
             service.persistTask(task, source, "Please add regression coverage");
             return task;
@@ -197,7 +199,7 @@ class TestIssueDevelopmentService
     void commentOnlyUpdateDoesNotInvalidateRetryAfterProviderPreflightFailure()
     {
         GitHubIssueSource comment = new GitHubIssueSource("github.com", 70, REPO.fullName(), 7, SOURCE.url(), SOURCE.title(), SOURCE.body(), NOW.plusSeconds(1));
-        when(github.fetchOpenIssueSource("token", REPO, 7)).thenReturn(comment);
+        when(remote.source("workspace", 7, true)).thenReturn(comment);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new IllegalStateException("provider not ready");
         })).hasMessage("provider not ready");
@@ -210,6 +212,7 @@ class TestIssueDevelopmentService
     {
         Workspace changed = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(changed.isGitHub()).thenReturn(true);
+        when(changed.issueHost()).thenReturn("github.com");
         when(changed.monitoredRepository()).thenReturn(RepoRef.of("different", "upstream"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(changed));
         assertThatThrownBy(() -> service.persistTask(task, SOURCE, "Implement"))
@@ -225,7 +228,7 @@ class TestIssueDevelopmentService
         assertThat(service.start("another-workspace", TaskId.random(), INPUT, "Different draft", ignored -> {
             throw new AssertionError("must reuse existing task");
         })).isSameAs(task);
-        verifyNoInteractions(github);
+        verifyNoInteractions(remote);
         verify(tasks).getInteractive("workspace", taskId);
     }
 
@@ -268,25 +271,25 @@ class TestIssueDevelopmentService
     void retryUsesAcceptedSourceAfterCacheEvictionAndRejectsChangedInstructions()
     {
         service.persistTask(task, SOURCE, "Implement");
-        when(issues.find(2, 7)).thenReturn(Optional.empty());
+        when(issues.find(any(), any(), eq(7))).thenReturn(Optional.empty());
         assertThat(service.start("workspace", taskId, INPUT, "Implement", accepted -> {
             assertThat(accepted).isEqualTo(SOURCE);
             return task;
         })).isSameAs(task);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Changed", ignored -> task))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("request changed");
-        verifyNoInteractions(github);
+        verifyNoInteractions(remote);
         verify(issues, never()).find(anyLong(), anyInt());
     }
 
     @Test
     void attentionReturnsTheWholeCachedRepositoryWithoutCredentialsOrRemoteReads()
     {
-        RepositoryIssue cached = issues.find(2, 7).orElseThrow();
+        RepositoryIssue cached = issues.find(workspaces, workspaces.findById("workspace").orElseThrow(), 7).orElseThrow();
         RepositoryIssuePage page = new RepositoryIssuePage(2, REPO, ImmutableList.of(cached), 0, Integer.MAX_VALUE, 1, false, Optional.of(NOW));
-        when(issues.findPage(2, REPO, 0, Integer.MAX_VALUE)).thenReturn(page);
+        when(issues.findPage(any(), any(), eq(0), eq(Integer.MAX_VALUE))).thenReturn(page);
         assertThat(service.attention("workspace")).isSameAs(page);
-        verifyNoInteractions(credentials, github);
+        verifyNoInteractions(remote);
     }
 
     @Test
@@ -314,7 +317,7 @@ class TestIssueDevelopmentService
             assertThat(second.get(5, TimeUnit.SECONDS)).isSameAs(task);
         }
         assertThat(creations.get()).isEqualTo(1);
-        verify(github).fetchOpenIssueSource("token", REPO, 7);
+        verify(remote).source("workspace", 7, true);
     }
 
     @Test

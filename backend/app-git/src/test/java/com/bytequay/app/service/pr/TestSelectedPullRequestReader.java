@@ -112,16 +112,16 @@ class TestSelectedPullRequestReader
         assertThat(read.incomplete()).isFalse();
         verifyNoInteractions(refresh);
         verify(pullRequests).prepareRead(route);
-        verify(pullRequests).findStored(REPO, NUMBER);
+        verify(pullRequests).findStored(route);
     }
 
     @Test
     void missingDetailForcesFullHydrationAndRereadsPersistedRaw()
     {
         StoredPrDetail hydrated = stored(NOW, NEW_HEAD, ImmutableList.of());
-        when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row(UPDATED, "open", null)), Optional.of(row(NOW, "open", null)));
+        when(pullRequests.findStored(route)).thenReturn(Optional.of(row(UPDATED, "open", null)), Optional.of(row(NOW, "open", null)));
         when(details.find(ID)).thenReturn(Optional.empty(), Optional.of(hydrated));
-        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW));
+        when(details.findSyncedAt(ID)).thenReturn(Optional.of(NOW));
         when(details.findFreshness(ID)).thenReturn(freshness(NOW, NOW));
         when(refresh.refreshDetail(route)).thenReturn(PullRequestDetailRefresh.full(project(hydrated)));
 
@@ -143,9 +143,9 @@ class TestSelectedPullRequestReader
     void missingRowHydratesOnlyTheSelectedPullRequest()
     {
         StoredPrDetail hydrated = stored(UPDATED, HEAD, ImmutableList.of());
-        when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.empty(), Optional.of(row(UPDATED, "open", null)));
+        when(pullRequests.findStored(route)).thenReturn(Optional.empty(), Optional.of(row(UPDATED, "open", null)));
         when(details.find(ID)).thenReturn(Optional.of(hydrated));
-        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW));
+        when(details.findSyncedAt(ID)).thenReturn(Optional.of(NOW));
         when(details.findFreshness(ID)).thenReturn(freshness(NOW, NOW));
         when(refresh.refreshDetail(route)).thenReturn(PullRequestDetailRefresh.full(project(hydrated)));
 
@@ -282,7 +282,7 @@ class TestSelectedPullRequestReader
         Instant originalCacheTime = NOW.minusSeconds(600);
         cached(row(NOW, "open", null), old, Optional.of(originalCacheTime));
         when(details.find(ID)).thenReturn(Optional.of(old), Optional.of(partialWrite));
-        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(originalCacheTime), Optional.of(NOW));
+        when(details.findSyncedAt(ID)).thenReturn(Optional.of(originalCacheTime), Optional.of(NOW));
         when(refresh.refreshDetail(route)).thenThrow(new IllegalStateException("Refresh failed after saving its row"));
 
         Read read = reader.read(REPO, NUMBER, Section.PR);
@@ -308,7 +308,7 @@ class TestSelectedPullRequestReader
         switch (outcome) {
             case "missing" -> when(details.find(ID)).thenReturn(Optional.of(old), Optional.empty());
             case "error" -> when(details.find(ID)).thenReturn(Optional.of(old)).thenThrow(new IllegalStateException("Cache reread failed"));
-            case "wrong-repository" -> when(pullRequests.findStored(REPO, NUMBER))
+            case "wrong-repository" -> when(pullRequests.findStored(route))
                     .thenReturn(Optional.of(row(NOW, "open", null)), Optional.of(row("another/repository", NUMBER, NOW, "open", null)));
             default -> throw new IllegalArgumentException(outcome);
         }
@@ -326,7 +326,7 @@ class TestSelectedPullRequestReader
     void noCachePropagatesExistingRefreshFailure()
     {
         ResponseStatusException failure = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub unavailable");
-        when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.empty());
+        when(pullRequests.findStored(route)).thenReturn(Optional.empty());
         when(refresh.refreshDetail(route)).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
@@ -354,7 +354,7 @@ class TestSelectedPullRequestReader
         String state = monitoredClosed ? "closed" : "open";
         StoredPrDetail stored = stored(UPDATED, HEAD, ImmutableList.of(), state);
         cached(row(UPDATED, state, monitoredClosed ? UPDATED : null), stored, Optional.of(NOW.minusSeconds(30)));
-        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(Optional.of(NOW.minusSeconds(30)), Optional.of(NOW));
+        when(details.findSyncedAt(ID)).thenReturn(Optional.of(NOW.minusSeconds(30)), Optional.of(NOW));
         when(details.findFreshness(ID)).thenReturn(freshness(NOW.minusSeconds(30), UPDATED), freshness(NOW, UPDATED));
         when(refresh.refreshChecks(route)).thenReturn(PullRequestDetailRefresh.status(project(stored)));
 
@@ -373,7 +373,7 @@ class TestSelectedPullRequestReader
     @ValueSource(booleans = {false, true})
     void rejectsMismatchedStoredRowBeforeReadingItsDetail(boolean wrongNumber)
     {
-        when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row(wrongNumber ? REPO : "another/repository", wrongNumber ? 8 : NUMBER, UPDATED, "open", null)));
+        when(pullRequests.findStored(route)).thenReturn(Optional.of(row(wrongNumber ? REPO : "another/repository", wrongNumber ? 8 : NUMBER, UPDATED, "open", null)));
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("identity");
         verifyNoInteractions(details, refresh);
@@ -381,9 +381,9 @@ class TestSelectedPullRequestReader
 
     private void cached(PullRequest row, StoredPrDetail stored, Optional<Instant> cacheTime)
     {
-        when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row));
+        when(pullRequests.findStored(route)).thenReturn(Optional.of(row));
         when(details.find(ID)).thenReturn(Optional.of(stored));
-        when(details.findSyncedAt(REPO, NUMBER)).thenReturn(cacheTime);
+        when(details.findSyncedAt(ID)).thenReturn(cacheTime);
         when(details.findFreshness(ID)).thenReturn(new PrDetailFreshness(cacheTime, cacheTime, cacheTime, Optional.ofNullable(stored.raw().updatedAt())));
         when(pullRequests.discussionSourceUpdatedAt(row)).thenReturn(row.updatedAt());
     }

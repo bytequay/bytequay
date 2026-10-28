@@ -699,7 +699,7 @@ describe('the finding card', () => {
       }]),
     });
     const html = card(published, { ...finding, state });
-    expect(html).toContain('Posted to GitHub as a review comment');
+    expect(html).toContain('Posted as a review comment');
     expect(html).toContain('The thread below stays private');
     expect(html).toContain('discussion_r2201456');
     expect(html).toContain('<button type="button" class="lrc__ask">Ask reviewer</button>');

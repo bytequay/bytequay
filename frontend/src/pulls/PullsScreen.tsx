@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { PullRequestWorkspaceProvider, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
@@ -26,13 +27,13 @@ import '../css/pulls.css';
 import '../css/review-tasks.css';
 import { isFindShortcut } from '../FindBar';
 import { getCached } from '../dataCache';
-import { ATTENTION_SEED, pullRequestItem } from '../home/attention';
+import { ATTENTION_SEED, pullRequestAttentionKey, pullRequestItem } from '../home/attention';
 import PinButton from '../home/PinButton';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import type { NavigationMode } from '../navigationHistory';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import Toast from '../Toast';
-import type { AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, UserProfileDto } from '../types';
+import type { AgentTaskDto, Bridge, HostingServerDto, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, PullRequestViewer } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
 import { useResizablePane } from '../useResizablePane';
@@ -329,7 +330,11 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
   );
 }
 
-export default function PullsScreen({
+export default function PullsScreen(props: Parameters<typeof PullsContent>[0]) {
+  return <PullRequestWorkspaceProvider workspaceId={props.repositoryScope?.workspaceId} server={props.repositoryScope?.server} repository={props.repositoryScope?.repository}><PullsContent {...props} /></PullRequestWorkspaceProvider>;
+}
+
+function PullsContent({
   initialPr,
   initialReviewId,
   initialReview,
@@ -344,13 +349,14 @@ export default function PullsScreen({
   initialReviewId?: string;
   /** That review when the caller has just read it; only the first load uses it, so a retry reads it again. */
   initialReview?: AgentReviewDto;
-  repositoryScope?: { workspaceId: string; repository: string };
+  repositoryScope?: { workspaceId: string; repository: string; server?: HostingServerDto };
   browserOpen?: boolean;
   onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
   /** Opens only initialPr over the current page, without list reads or navigation. */
   onClose?: () => void;
   reviewWorkspace?: { onBack: () => void; headerAction?: ReactNode };
 }) {
+  const bridge = usePullRequestBridge();
   const singlePullRequest = onClose !== undefined || reviewWorkspace !== undefined;
   const scopedWorkspaceId = repositoryScope?.workspaceId;
   const scopedRepository = repositoryScope?.repository;
@@ -359,7 +365,7 @@ export default function PullsScreen({
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[]>([]);
   const [viewerLogin, setViewerLogin] = useState<string | null>();
-  const [viewer, setViewer] = useState<UserProfileDto | null>(null);
+  const [viewer, setViewer] = useState<PullRequestViewer | null>(null);
   /** The open review of the selected pull request, loaded once per selection and kept live by its tab. */
   const [reviewContext, setReviewContext] = useState<(AgentReviewContext & { key: string; error: string | null }) | null>(null);
   const preloadedReview = useRef(initialReview);
@@ -409,7 +415,7 @@ export default function PullsScreen({
   }, []);
   const closePane = useMemo(() => onClose === undefined ? undefined : () => withCodeDrafts(() => {
     const pr = selectedPullRequest.current?.pr;
-    if (pr !== undefined) void completeAttentionVisit(`${pr.repo}#${pr.number}`);
+    if (pr !== undefined) void completeAttentionVisit(pullRequestAttentionKey(pr));
     onClose();
   }), [withCodeDrafts, onClose]);
   const navigate = (route: string): void => withCodeDrafts(() => {
@@ -424,7 +430,7 @@ export default function PullsScreen({
   const leaveZoom = useCallback(() => {
     if (closePane === undefined) {
       const pr = selectedPullRequest.current?.pr;
-      if (pr !== undefined) void completeAttentionVisit(`${pr.repo}#${pr.number}`);
+      if (pr !== undefined) void completeAttentionVisit(pullRequestAttentionKey(pr));
       setDetailZoomed(false);
     }
     else closePane();
@@ -484,15 +490,15 @@ export default function PullsScreen({
 
   useEffect(() => {
     let cancelled = false;
-    void window.bridge.getUserProfile()
-      .then(profile => {
-        if (cancelled) return;
-        setViewerLogin(profile.login);
-        setViewer(profile);
-      })
-      .catch(() => { if (!cancelled) setViewerLogin(null); });
+    const read = scopedWorkspaceId === undefined ? bridge.getUserProfile()
+      : bridge.getWorkspaceHostingViewer(scopedWorkspaceId).then(login => login === null ? null : { login, avatarUrl: null });
+    void read.then(profile => {
+      if (cancelled) return;
+      setViewerLogin(profile?.login ?? null);
+      setViewer(profile);
+    }).catch(() => { if (!cancelled) setViewerLogin(null); });
     return () => { cancelled = true; };
-  }, []);
+  }, [bridge, scopedWorkspaceId]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     const selected = selectedPullRequest.current;
@@ -521,9 +527,9 @@ export default function PullsScreen({
   const readList = useCallback(async (throughPage?: number): Promise<PullRequestPageDto> => {
     const { workspaceId, page } = listContext.current;
     // Replace the loaded range together so refreshes never remove and reload the lower rows.
-    const pages = await Promise.all(Array.from({ length: (throughPage ?? page) + 1 }, (_, index) => window.bridge.fetchPrs(workspaceId, index, PAGE_SIZE)));
+    const pages = await Promise.all(Array.from({ length: (throughPage ?? page) + 1 }, (_, index) => bridge.fetchPrs(workspaceId, index, PAGE_SIZE)));
     return { ...pages[pages.length - 1], pullRequests: [...new Map(pages.flatMap(result => result.pullRequests).map(pr => [pr.id, pr])).values()] };
-  }, []);
+  }, [bridge]);
 
   const loadList = useCallback(async (throughPage?: number) => {
     const request = ++listRequest.current;
@@ -545,8 +551,8 @@ export default function PullsScreen({
 
   useEffect(() => {
     if (singlePullRequest) return;
-    return window.bridge.onPullRequestsSynced(() => { void loadList(); });
-  }, [loadList, singlePullRequest]);
+    return bridge.onPullRequestsSynced(() => { void loadList(); });
+  }, [bridge, loadList, singlePullRequest]);
 
   useEffect(() => {
     let knownIds: Set<number> | null = null;
@@ -571,7 +577,7 @@ export default function PullsScreen({
     setError(null);
     setSyncError(null);
     try {
-      await window.bridge.syncPrs(workspaceId);
+      await bridge.syncPrs(workspaceId);
       const current = listContext.current;
       if (current.workspaceId !== workspaceId) return;
       request = ++listRequest.current;
@@ -593,7 +599,7 @@ export default function PullsScreen({
     finally {
       setSyncing(false);
     }
-  }, [applyPage, readList, repositoryScope?.workspaceId]);
+  }, [applyPage, bridge, readList, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     if (singlePullRequest) return;
@@ -618,7 +624,7 @@ export default function PullsScreen({
       || search.trim() !== query || hasExactNumber) return;
     let cancelled = false;
     setNumberLookup({ repo: scopedRepository, number: exactNumber, loading: true, error: null });
-    void window.bridge.lookupPullRequest(scopedRepository, exactNumber)
+    void bridge.lookupPullRequest(scopedRepository, exactNumber)
       .then(pr => {
         if (cancelled) return;
         setPrs(current => current.some(row => row.id === pr.id) ? current : [...current, pr]);
@@ -628,7 +634,7 @@ export default function PullsScreen({
         if (!cancelled) setNumberLookup({ repo: scopedRepository, number: exactNumber, loading: false, error: remoteErrorMessage(failure) });
       });
     return () => { cancelled = true; };
-  }, [singlePullRequest, loading, error, scopedRepository, exactNumber, search, query, hasExactNumber]);
+  }, [singlePullRequest, loading, error, scopedRepository, exactNumber, search, query, hasExactNumber, bridge]);
 
   const selectTab = useCallback((next: PullTab) => {
     setTab(next);
@@ -671,7 +677,7 @@ export default function PullsScreen({
     loadingMoreRequest.current = true;
     setLoadingMore(true);
     try {
-      const result = await window.bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE);
+      const result = await bridge.fetchPrs(repositoryScope?.workspaceId, page + 1, PAGE_SIZE);
       if (request !== listRequest.current) return;
       setPrs(current => {
         const loaded = new Set(current.map(pr => pr.id));
@@ -687,7 +693,7 @@ export default function PullsScreen({
       loadingMoreRequest.current = false;
       setLoadingMore(false);
     }
-  }, [hasMore, page, repositoryScope?.workspaceId]);
+  }, [bridge, hasMore, page, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const marker = loadMoreMarker.current;
@@ -719,7 +725,7 @@ export default function PullsScreen({
     // Not an effect cleanup: this effect re-runs on every prs change (the first row's
     // own detail load is one), which would abandon the lookup and leave that row showing.
     const stillRouting = () => routingInitialPr.current === initialPrKey;
-    window.bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number).then(value => {
+    bridge.fetchPullRequestDetailByRef(initialPr.repo, initialPr.number).then(value => {
       if (!stillRouting()) return;
       // Rebuilding the whole attention list takes seconds; its next push replaces a row built from the detail.
       const remote = getCached<PullRequestDto[]>(ATTENTION_SEED.prs)?.find(pr => pr.id === value.id) ?? remotePullRequest(value, viewerLogin ?? undefined);
@@ -729,7 +735,7 @@ export default function PullsScreen({
     }).catch(e => {
       if (stillRouting()) setError(e instanceof Error ? e.message : String(e));
     });
-  }, [initialPr, loading, prs, viewerLogin]);
+  }, [bridge, initialPr, loading, prs, viewerLogin]);
 
   // Exact numbers cross tabs so a closed or unrelated PR is still reachable.
   // Text and author searches keep filtering the loaded rows within the selected tab.
@@ -862,8 +868,8 @@ export default function PullsScreen({
     let cancelled = false;
     const preloaded = preloadedReview.current?.id === requestedReviewId ? preloadedReview.current : undefined;
     preloadedReview.current = undefined;
-    void loadAgentReviewContext(window.bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, preloaded ?? requestedReviewId,
-      authored ? window.bridge.findPullRequestTask : undefined)
+    void loadAgentReviewContext(bridge, selectedPrRepo, selectedPrNumber, scopedWorkspaceId, preloaded ?? requestedReviewId,
+      authored ? bridge.findPullRequestTask : undefined)
       .then(context => {
         if (!cancelled) setReviewContext({ ...context, key: reviewKey, error: null });
       })
@@ -873,20 +879,20 @@ export default function PullsScreen({
           : { key: reviewKey, workspaceId: undefined, review: null, developerTask: null, error: remoteErrorMessage(failure) });
       });
     return () => { cancelled = true; };
-  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored]);
+  }, [scopedWorkspaceId, selectedPrRepo, selectedPrNumber, reviewKey, reviewReload, requestedReviewId, authored, bridge]);
 
   // The worktree is what Tears of time binds to, so a development task wins however the pull request was opened.
   useEffect(() => {
     if (codeTaskKey === null || workspaceId === undefined || selectedPrRepo === undefined || selectedPrNumber === undefined) return;
     let cancelled = false;
-    void findCodeTask(window.bridge, workspaceId, selectedPrRepo, selectedPrNumber)
+    void findCodeTask(bridge, workspaceId, selectedPrRepo, selectedPrNumber)
       // A failed lookup falls back to the review host; the task window still offers the task's own Tears of time.
       .catch((): null => null)
       .then(task => {
         if (!cancelled) setCodeTaskLookup({ key: codeTaskKey, task });
       });
     return () => { cancelled = true; };
-  }, [codeTaskKey, workspaceId, selectedPrRepo, selectedPrNumber, reviewReload]);
+  }, [codeTaskKey, workspaceId, selectedPrRepo, selectedPrNumber, reviewReload, bridge]);
 
   const updateReview = useCallback((updated: AgentReviewDto) => {
     setReviewContext(current => current !== null && current.key === reviewKey
@@ -900,7 +906,7 @@ export default function PullsScreen({
   // Summary and Tears of time each follow the review while shown. PR and Changes draw its findings and their
   // threads too; main keeps one reader per review, so this one runs only while neither of those tabs is shown.
   const followedReviewId = reviewWorkspace === undefined && review?.state === 'OPEN' && (detailTab === 'overview' || detailTab === 'files') ? review.id : null;
-  useEffect(() => followedReviewId === null ? undefined : followAgentReview(window.bridge, followedReviewId, updateReview), [followedReviewId, updateReview]);
+  useEffect(() => followedReviewId === null ? undefined : followAgentReview(bridge, followedReviewId, updateReview), [bridge, followedReviewId, updateReview]);
 
   const privateThreads = usePullCommentThreads({
     pr: selectedPr, workspaceId, review, task: codeTask, loading: reviewLoading || codeTaskLoading, error: reviewError,
@@ -922,7 +928,7 @@ export default function PullsScreen({
     setMonitoringIds(current => [...current, row.id]);
     setMonitorError(null);
     try {
-      const updated = await window.bridge.setPrMonitored(row.id, !row.monitored);
+      const updated = await bridge.setPrMonitored(row.id, !row.monitored);
       setPrs(current => current.map(pr => pr.id === updated.id ? updated : pr));
       window.dispatchEvent(new CustomEvent('bytequay:pr-monitor-changed'));
     }
@@ -1006,14 +1012,14 @@ export default function PullsScreen({
 
   const paneShown = paneOpen && (selectedPr !== null || awaitingInitialPr);
   const askAgent = detail === null ? undefined : codeTask !== null ? async (comment: DiffAgentComment) => {
-    const current = await window.bridge.getAgentTask(codeTask.id, codeTask.workspaceId);
+    const current = await bridge.getAgentTask(codeTask.id, codeTask.workspaceId);
     await localReview.create(comment, { taskId: current.id, workspaceId: current.workspaceId,
       repo: detail.repo, number: detail.number, expectedTaskVersion: current.version });
   } : review?.state !== 'OPEN' || review.number === null ? undefined : async (comment: DiffAgentComment) => {
-    const current = await window.bridge.getAgentReview(review.id);
+    const current = await bridge.getAgentReview(review.id);
     await localReview.create(comment, { taskId: current.task.id, workspaceId: current.workspaceId,
       repo: detail.repo, number: detail.number, expectedTaskVersion: current.task.version });
-    updateReview(await window.bridge.getAgentReview(review.id));
+    updateReview(await bridge.getAgentReview(review.id));
   };
 
   return (
@@ -1262,7 +1268,7 @@ export default function PullsScreen({
             {summaryTabKey !== null && summaryTabKey === reviewKey && <div className="pull-detail__body pull-detail__review" hidden={detailTab !== 'review'}>
               {codeTask !== null ? <DevelopmentLearningPanel task={codeTask} repository={detail.repo} refreshKey={codeTask.version}
                 refining={codeTask.developmentContinuationUnfinished} disabledReason={codeTask.state === 'OPEN' ? null : 'The development task is closed'}
-                localReview={localReview} bridge={window.bridge} onSelectCommit={selectCommit}
+                localReview={localReview} bridge={bridge} onSelectCommit={selectCommit}
                 review={{ workspaceId: codeTask.workspaceId, active: detailTab === 'review', onReviewChange: updateReview, onSelectCommit: selectCommit,
                   focusFindingId, focusReviewCard: reviewCardFocus, onNavigateToChanges: navigateToChanges }} />
                 : <AgentReviewTab key={`${detail.repo.toLowerCase()}#${detail.number}`} detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
@@ -1344,7 +1350,7 @@ export function remotePullRequest(detail: PullRequestDetailDto, viewerLogin?: st
     number: detail.number,
     title: detail.title ?? `${detail.repo} #${detail.number}`,
     author: detail.author,
-    htmlUrl: detail.htmlUrl ?? `https://github.com/${detail.repo}/pull/${detail.number}`,
+    htmlUrl: detail.htmlUrl ?? '',
     createdAt: detail.createdAt,
     updatedAt: detail.updatedAt ?? detail.createdAt ?? new Date(0).toISOString(),
     origin,
@@ -1427,7 +1433,9 @@ export function PullDetailHeader({
   /** Conversation identity survives independently of a reviewer or a retained worktree. */
   developerTask?: PullRequestTaskLink | null;
 }) {
-  useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr));
+  const bridge = usePullRequestBridge();
+  const workspaceId = usePullRequestWorkspace();
+  useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr, 'updated', workspaceId ?? null));
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
   const [mergeOpen, setMergeOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
@@ -1485,11 +1493,11 @@ export function PullDetailHeader({
     if (!canMerge || conflicts || !detail?.baseRef) return;
     setMergeQueue(undefined);
     let cancelled = false;
-    void window.bridge.fetchMergeMode(detail.repo, detail.baseRef)
+    void bridge.fetchMergeMode(detail.repo, detail.baseRef)
       .then(mode => { if (!cancelled) setMergeQueue(mode.mergeQueue); })
       .catch(() => { if (!cancelled) setMergeQueue(null); });
     return () => { cancelled = true; };
-  }, [canMerge, draft, conflicts, detail?.repo, detail?.number, detail?.baseRef]);
+  }, [canMerge, draft, conflicts, detail?.repo, detail?.number, detail?.baseRef, bridge]);
 
   return (
     <header className="pull-detail__header pull-detail__header--tabs">
@@ -1526,8 +1534,8 @@ export function PullDetailHeader({
           {agentTab}
         </nav>
         <div className="pull-detail__header-actions">
-          {pr !== null && <PinButton className="pull-detail__icon-action" item={{ key: `${pr.repo}#${pr.number}`, title: detail?.title ?? pr.title,
-            reference: `${pr.repo} #${pr.number}`, target: { kind: 'pull', repo: pr.repo, number: pr.number } }} />}
+          {pr !== null && <PinButton className="pull-detail__icon-action" item={{ key: pullRequestAttentionKey(pr), title: detail?.title ?? pr.title,
+            reference: `${pr.repo} #${pr.number}`, target: { kind: 'pull', repo: pr.repo, number: pr.number, workspaceId } }} />}
           {zoom
             ? <ZoomActions {...zoom} label="pull request details" className="pull-detail__icon-action" />
             : onClose ? <button className="pull-detail__icon-action" type="button"
@@ -1619,7 +1627,7 @@ export function mergeActionLabel(mergeQueue: boolean | null | undefined, conflic
   if (conflicts) return 'Conflicts';
   if (mergeQueue === undefined) return 'Loading merge status';
   if (mergeQueue === null) return 'Merge status unavailable';
-  return mergeQueue ? 'Merge when ready' : 'Rebase and merge';
+  return mergeQueue ? 'Merge when ready' : 'Merge';
 }
 
 export function unresolvedReviewCount(detail: PullRequestDetailDto) {
@@ -1702,6 +1710,7 @@ export function ReviewDialog({
   ) => void;
   onClose: () => void;
 }) {
+  const bridge = usePullRequestBridge();
   // Without an agent review the sheet loads the draft itself: every review leaves through it, so a
   // send whose outcome is unknown stays recorded and cannot go out twice.
   const [loadedDraft, setLoadedDraft] = useState<ReviewDraftDto | null>(null);
@@ -1739,15 +1748,15 @@ export function ReviewDialog({
   useEffect(() => {
     if (hasReviewDraft) return;
     let live = true;
-    window.bridge.getReviewDraft(detail.repo, detail.number).then(value => { if (live) setLoadedDraft(value); }, failed);
+    bridge.getReviewDraft(detail.repo, detail.number).then(value => { if (live) setLoadedDraft(value); }, failed);
     return () => { live = false; };
-  }, [hasReviewDraft, detail.repo, detail.number, failed]);
+  }, [hasReviewDraft, detail.repo, detail.number, failed, bridge]);
 
   // A draft write can leave the draft changed even when it fails, so the sheet re-reads it.
   const reloadReview = useCallback(() => {
-    if (review !== null) void window.bridge.getAgentReview(review.id).then(onReviewChange, () => {});
-    else void window.bridge.getReviewDraft(detail.repo, detail.number).then(setLoadedDraft, () => {});
-  }, [review, onReviewChange, detail.repo, detail.number]);
+    if (review !== null) void bridge.getAgentReview(review.id).then(onReviewChange, () => {});
+    else void bridge.getReviewDraft(detail.repo, detail.number).then(setLoadedDraft, () => {});
+  }, [review, bridge, onReviewChange, detail.repo, detail.number]);
 
   const showDraft = (updated: ReviewDraftDto) => {
     if (review !== null) onReviewChange({ ...review, draft: updated });
@@ -1793,7 +1802,7 @@ export function ReviewDialog({
     setUnsavedClose(false);
     setError(null);
     try {
-      savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
+      savedDraft.current = await bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
       reloadReview();
       onClose();
     }
@@ -1806,7 +1815,7 @@ export function ReviewDialog({
       inFlight.current = false;
       setSaving(false);
     }
-  }, [body, event, detail.repo, detail.number, onClose, reloadReview, failed, commentEdit, reviewSend, draft]);
+  }, [commentEdit, reviewSend, body, event, draft, reloadReview, onClose, bridge, detail.repo, detail.number, failed]);
 
   const removePromoted = async (itemId: string) => {
     if (draft === null || inFlight.current) return;
@@ -1814,7 +1823,7 @@ export function ReviewDialog({
     setSaving(true);
     setError(null);
     try {
-      const updated = await window.bridge.removeReviewDraftComment(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, itemId);
+      const updated = await bridge.removeReviewDraftComment(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, itemId);
       if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current?.event) savedDraft.current = updated;
     }
     catch (value) {
@@ -1835,8 +1844,8 @@ export function ReviewDialog({
     try {
       const version = savedDraft.current?.version ?? draft.version;
       const updated = posted
-        ? await window.bridge.confirmReviewDraftCommentPosted(detail.repo, detail.number, version, itemId)
-        : await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, version, itemId);
+        ? await bridge.confirmReviewDraftCommentPosted(detail.repo, detail.number, version, itemId)
+        : await bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, version, itemId);
       if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current?.event) savedDraft.current = updated;
       showDraft(updated);
       if (posted && review !== null) reloadReview();
@@ -1857,7 +1866,7 @@ export function ReviewDialog({
     setSaving(true);
     setError(null);
     try {
-      const updated = await window.bridge.confirmReviewDraftReview(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, posted);
+      const updated = await bridge.confirmReviewDraftReview(detail.repo, detail.number, savedDraft.current?.version ?? draft.version, posted);
       // The locked box showed the sent text; posted clears it, so Submit cannot send it again.
       savedDraft.current = updated;
       setBody(updated.body);
@@ -1885,7 +1894,7 @@ export function ReviewDialog({
     ...promoted.map(item => ({ key: item.id, comment: { ...item, commitId: draftCommentCommit(item, review?.findings ?? []) },
       remove: () => { void removePromoted(item.id); },
       save: async (text: string, version: number) => {
-        const updated = await window.bridge.editReviewDraftComment(detail.repo, detail.number, version, item.id, text, item.included);
+        const updated = await bridge.editReviewDraftComment(detail.repo, detail.number, version, item.id, text, item.included);
         if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current?.event) savedDraft.current = updated;
         showDraft(updated);
       } })),
@@ -1916,11 +1925,11 @@ export function ReviewDialog({
   useEffect(() => {
     if (!hasOutgoing) return;
     let live = true;
-    Promise.all([window.bridge.fetchPrDiffFiles(detail.repo, detail.number), window.bridge.fetchPrDiffCommits(detail.repo, detail.number)])
+    Promise.all([bridge.fetchPrDiffFiles(detail.repo, detail.number), bridge.fetchPrDiffCommits(detail.repo, detail.number)])
       .then(([files, commits]) => { if (live) setSnapshot({ files, headSha: commits.at(-1)?.sha ?? null }); })
       .catch(() => { /* the cards just omit the commented line */ });
     return () => { live = false; };
-  }, [detail.repo, detail.number, hasOutgoing]);
+  }, [detail.repo, detail.number, hasOutgoing, bridge]);
 
   // Line numbers of a comment written on selected commits belong to that range, not to the stored diff.
   const codeLines = (comment: InlineReviewCommentDto | ReviewDraftItemDto) => {
@@ -1941,23 +1950,23 @@ export function ReviewDialog({
       if (!reviewedHead) throw new Error('Refresh the pull request before submitting a review.');
       const saved = savedDraft.current;
       if (saved === null) throw new Error('The review draft loaded after you started editing. Close and reopen to review its latest text.');
-      savedDraft.current = await window.bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
+      savedDraft.current = await bridge.saveReviewDraft(detail.repo, detail.number, saved.version, body, event);
       let remaining = pendingComments;
       let version = savedDraft.current.version;
       for (const comment of remaining) {
-        savedDraft.current = await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
+        savedDraft.current = await bridge.addReviewDraftComment(detail.repo, detail.number, version, {
           path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body, commitId: comment.commitId, replyToCommentId: comment.replyToCommentId,
         });
         version = savedDraft.current.version;
         remaining = remaining.filter(value => value !== comment);
         onPendingCommentsChange(remaining);
       }
-      await window.bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event, reviewedHead);
-      recordAttentionAction(`${detail.repo}#${detail.number}`, event === 'COMMENT' ? 'comment' : 'review',
+      await bridge.submitReviewDraft(detail.repo, detail.number, version, body.trim(), event, reviewedHead);
+      recordAttentionAction(pullRequestAttentionKey(detail), event === 'COMMENT' ? 'comment' : 'review',
         event === 'COMMENT' ? Math.max(1, pendingComments.length + promoted.length + Number(body.trim().length > 0)) : 1);
       reloadReview();
       // The draft answers with itself alone; the stored detail already carries the new review.
-      void window.bridge.fetchPullRequestDetailByRef(detail.repo, detail.number)
+      void bridge.fetchPullRequestDetailByRef(detail.repo, detail.number)
         .then(reviewed => onReviewSubmitted(reviewed, event), () => {});
       onClose();
     }
@@ -1999,10 +2008,10 @@ export function ReviewDialog({
           <span className="pull-diff-pending__badge">{reviewSend === 'UNCERTAIN' ? 'Delivery unconfirmed' : 'Sending…'}</span>
           {reviewSend === 'UNCERTAIN' && <>
             <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
-              title="I found this review on GitHub. Mark it posted so it is never sent again."
+              title="I found this review on the remote. Mark it posted so it is never sent again."
               onClick={() => { void confirmReview(true); }}>Confirmed posted</button>
             <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
-              title="I checked GitHub and this review is not there. Unlock it without sending it."
+              title="I checked the remote and this review is not there. Unlock it without sending it."
               onClick={() => { void confirmReview(false); }}>Confirmed not posted</button>
           </>}
         </div>}
@@ -2026,10 +2035,10 @@ export function ReviewDialog({
                   menu={<>
                     {publication?.state === 'UNCERTAIN' && <>
                       <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
-                        title="I found this comment on GitHub. Mark it posted so it is never sent again."
+                        title="I found this comment on the remote. Mark it posted so it is never sent again."
                         onClick={() => { void confirmDelivery(key, true); }}>Confirmed posted</button>
                       <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
-                        title="I checked GitHub and this comment is not there. Return it to pending without sending it."
+                        title="I checked the remote and this comment is not there. Return it to pending without sending it."
                         onClick={() => { void confirmDelivery(key, false); }}>Confirmed not posted</button>
                     </>}
                     <button className="pr-review-sheet__edit" type="button" disabled={busy || locked || commentEdit !== null}
@@ -2071,7 +2080,7 @@ export function ReviewDialog({
           description="Submit feedback that must be addressed before merging."
           onChange={() => { edited.current = true; setEvent('REQUEST_CHANGES'); }} />}
         {unconfirmed && <div className="pr-review-sheet__error" role="alert">
-          An earlier comment or review is still sending or its delivery is unconfirmed. Check the <a href={`https://github.com/${detail.repo}/pull/${detail.number}`}>pull request on GitHub</a>.
+          An earlier comment or review is still sending or its delivery is unconfirmed. Check the <a href={detail.htmlUrl ?? undefined}>pull request in your browser</a>.
           {' '}For each unconfirmed one, choose <strong>Confirmed posted</strong> if it is there, or <strong>Confirmed not posted</strong> to return it to pending, then submit your review.
         </div>}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
@@ -2102,6 +2111,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   onRefresh: () => Promise<void>;
   onDetailUpdate?: PullDetailUpdater;
 }) {
+  const bridge = usePullRequestBridge();
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { pending, failing, successful, unresolved, checksReported, state } = mergeStatus(detail);
@@ -2134,17 +2144,17 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
     setError(null);
     try {
       if (action === 'ready') {
-        await window.bridge.markPrReadyForReview(detail.repo, detail.number);
+        await bridge.markPrReadyForReview(detail.repo, detail.number);
         onDetailUpdate(detail.repo, detail.number, current => ({ ...current, draft: false }));
       }
       else if (action === 'remove') {
-        await window.bridge.removePrFromMergeQueue(detail.repo, detail.number, autoMerge);
+        await bridge.removePrFromMergeQueue(detail.repo, detail.number, autoMerge);
       }
       else {
         if (!detail.headSha) throw new Error('Refresh the pull request before merging.');
-        await window.bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'when-ready' : 'rebase', detail.headSha);
+        await bridge.mergePr(pr.id, detail.repo, detail.number, mergeQueue ? 'when-ready' : 'default', detail.headSha);
       }
-      recordAttentionAction(`${detail.repo}#${detail.number}`, 'update');
+      recordAttentionAction(pullRequestAttentionKey(detail), 'update');
       submitted.current = true;
       if (!mounted.current) return;
       onClose();
@@ -2171,7 +2181,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
           {scheduled ? <X size={14} aria-hidden="true" /> : <PullRequestIcon />}
           {queued ? submitting ? 'Removing…' : 'Remove from merge queue'
             : autoMerge ? submitting ? 'Cancelling…' : 'Cancel scheduled merge'
-            : submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
+            : submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Merge' : 'Merge when ready'}
         </button>
     </>}>
         <div className={`pr-merge-status-card${blocked && !queued ? ' is-danger' : ''}`}>
@@ -2195,7 +2205,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
               : detail.draft ? 'Draft pull request'
                 : !detail.viewerCanWrite ? 'Checks complete'
                   : typeof mergeQueue !== 'boolean' ? mergeActionLabel(mergeQueue)
-                    : mergeQueue ? 'Merge queue is enabled' : 'Ready to rebase and merge'}</strong>
+                    : mergeQueue ? 'Merge queue is enabled' : 'Ready to merge'}</strong>
         </div>
         {conflicts && !queued && <PullRequestConflictFiles key={`${detail.repo}#${detail.number}:${detail.baseRef}:${detail.updatedAt}`}
           repo={detail.repo} number={detail.number} />}
@@ -2283,7 +2293,7 @@ function DetailBody({
   taskActions?: ReactNode;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
-  viewer: UserProfileDto | null;
+  viewer: PullRequestViewer | null;
   review: AgentReviewDto | null;
   reviewNavigation: ReviewNavigationTarget | null;
   onReviewChange: (review: AgentReviewDto) => void;
@@ -2335,7 +2345,7 @@ function DetailBody({
     source={privateThreads}
     taskActions={taskActions}
     localReview={localReview}
-    key={`${pr.repo.toLowerCase()}#${pr.number}`}
+    key={pr.id}
     pr={pr}
     detail={detail}
     contributorsWorkspaceId={contributorsWorkspaceId}
@@ -2348,7 +2358,7 @@ function DetailBody({
 
 /** The conversation and its private threads, whose view state the key resets for each pull request. */
 function PullConversation({ source, ...overview }: { source?: PrivateThreadSource } & Omit<ComponentProps<typeof PullOverview>, 'privateThreads'>) {
-  const privateThreads = usePrivateThreads(source, `${overview.pr.repo.toLowerCase()}#${overview.pr.number}`);
+  const privateThreads = usePrivateThreads(source, String(overview.pr.id));
   return <PullOverview {...overview} privateThreads={privateThreads} />;
 }
 

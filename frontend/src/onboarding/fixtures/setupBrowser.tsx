@@ -75,6 +75,8 @@ function harness(step: SetupStep = 'APPEARANCE', available = true, connected = f
     listWorkspaces: async () => [], fetchRecentChanges: async () => [],
     fetchRecent: async () => ({ day: null, rows: [], nextCursor: null, endOfWindow: true, activeDays: [], retentionDays: 14 }),
     fetchAttentionPrs: async () => [], onPullRequestsSynced: () => () => {},
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => { throw new Error('No profile in fixture'); },
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
   };

@@ -33,6 +33,8 @@ public interface PrDetailStore
 {
     Optional<Instant> findSyncedAt(String repo, int number);
 
+    Optional<Instant> findSyncedAt(long prId);
+
     Optional<StoredPrDetail> find(long prId);
 
     Optional<String> findCredentialScope(long prId);

@@ -16,7 +16,7 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.GitHubIssueClient;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
@@ -48,7 +48,6 @@ import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -67,44 +66,45 @@ class TestWorkspaceIssueService
     private final GitHubPullRequestWriteClient issueWrites = mock(GitHubPullRequestWriteClient.class);
     private final GitHubRepoClient issueReads = mock(GitHubRepoClient.class);
     private final GitHubPullRequestReadClient timelineReads = mock(GitHubPullRequestReadClient.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
     private WorkspaceIssueService service;
 
     @BeforeEach
     void setUp()
     {
-        when(credentials.resolveGitHubToken()).thenReturn("token");
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        service = new WorkspaceIssueService(
-                workspaceStore,
-                issueStore,
-                detailStore,
-                issueWrites,
-                issueReads,
-                credentials,
-                recent,
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                timelineReads,
-                mock(AppSettingsStore.class));
+        when(workspaceStore.findHostingRepositoryId(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))).map(Workspace::monitoredRepositoryId));
+        when(hosting.captureRead(org.mockito.ArgumentMatchers.anyString()))
+                .thenAnswer(invocation -> WorkspaceIssueTestData.route(workspaces.get(invocation.getArgument(0))));
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting,
+                ImmutableList.of(new GitHubIssueClient(issueReads, timelineReads, issueWrites)), recent, Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
     }
 
     @Test
-    void excludesGitLabFromGitHubIssueReadsWritesAndBackgroundRefresh()
+    void gitLabUsesItsAdapterAndLocalRepositoryCache()
     {
         Workspace gitlab = new Workspace("gitlab", "GitLab project", 100, DIRECT, Optional.empty(), Optional.empty(), 100, DIRECT,
                 Topology.DIRECT, "main", "https://gitlab.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/gitlab-project",
                 Optional.empty(), Optional.empty(), 0, NOW, NOW,
                 Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
         workspaces.put("gitlab", gitlab);
-        when(workspaceStore.findAll()).thenReturn(ImmutableList.of(gitlab));
+        var route = WorkspaceIssueTestData.route(gitlab);
+        var client = mock(com.bytequay.core.hosting.IssueClient.class);
+        when(client.provider()).thenReturn(GITLAB);
+        when(client.comment(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7), org.mockito.ArgumentMatchers.eq("Comment")))
+                .thenReturn(event(1, "commented", NOW));
+        when(client.activity(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7)))
+                .thenReturn(new com.bytequay.core.hosting.IssueActivity(1, NOW));
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, ImmutableList.of(client), recent,
+                Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
+        when(hosting.captureRead("gitlab")).thenReturn(route);
 
-        assertThatThrownBy(() -> service.list("gitlab", 0, 50)).isInstanceOf(WorkspaceException.class);
-        assertThatThrownBy(() -> service.comment("gitlab", 7, "Comment")).isInstanceOf(WorkspaceException.class);
-        service.refreshRecentIssues();
-
-        verifyNoInteractions(issueStore, detailStore, credentials, issueReads, issueWrites, timelineReads);
+        assertThat(service.comment("gitlab", 7, "Comment").event()).isEqualTo("commented");
+        verify(client).comment(route.session().access(), route.repository(), 7, "Comment");
+        verifyNoInteractions(issueReads, issueWrites, timelineReads);
     }
 
     @Test
@@ -121,7 +121,7 @@ class TestWorkspaceIssueService
         assertThat(service.find("direct", 7)).contains(issue(7));
         verify(issueStore).findPage(100, DIRECT, 2, 50);
         verify(issueStore).find(100, 7);
-        verifyNoInteractions(credentials, issueWrites, issueReads, timelineReads);
+        verifyNoInteractions(hosting, issueWrites, issueReads, timelineReads);
     }
 
     @Test
@@ -133,7 +133,7 @@ class TestWorkspaceIssueService
 
         assertThat(service.detail("direct", 7)).isSameAs(detail);
         assertThat(service.detail("direct", 8)).isEqualTo(RepositoryIssueDetail.empty(100, 8));
-        verifyNoInteractions(credentials, issueWrites, issueReads, timelineReads);
+        verifyNoInteractions(hosting, issueWrites, issueReads, timelineReads);
     }
 
     @Test

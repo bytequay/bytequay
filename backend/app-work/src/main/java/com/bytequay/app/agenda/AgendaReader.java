@@ -45,6 +45,7 @@ import com.bytequay.app.workitem.GoalItemView;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workitem.WorkItemView;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.AgendaCalendar;
 import com.bytequay.core.domain.AgendaDay;
 import com.bytequay.core.domain.AgendaItem;
@@ -118,11 +119,11 @@ public class AgendaReader
     private static final int WEEK_REFS = 10;
     private static final Set<String> REPLY_EVENTS = ImmutableSet.of("commented", "reviewed", "review_commented");
     private static final List<String> SEVERITIES = ImmutableList.of("critical", "high", "medium", "low", "nit");
-    private static final String GITHUB = "github.com";
 
     private final PullRequestService pullRequests;
     private final PrDetailStore details;
     private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
     private final WorkspaceStore workspaces;
     private final AppNoticeService notices;
     private final AgentTaskStore tasks;
@@ -143,7 +144,7 @@ public class AgendaReader
     AgendaReader(
             PullRequestService pullRequests,
             PrDetailStore details,
-            CredentialService credentials,
+            CredentialService credentials, WorkspaceHostingService hosting,
             WorkspaceStore workspaces,
             AppNoticeService notices,
             AgentTaskStore tasks,
@@ -164,6 +165,7 @@ public class AgendaReader
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.details = requireNonNull(details, "details is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.notices = requireNonNull(notices, "notices is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -234,7 +236,7 @@ public class AgendaReader
         List<Ask> asks = new ArrayList<>();
         asks.addAll(pullRequestAsks(involved, viewer, mentioned, afterReview, circles));
         for (Workspace workspace : watched) {
-            asks.addAll(read("issues of " + workspace.id(), () -> issueAsks(workspace, viewer, circles, refs, snoozed), ImmutableList.of()));
+            asks.addAll(read("issues of " + workspace.id(), () -> issueAsks(workspace, hosting.viewerLogin(workspace.id()), circles, refs, snoozed), ImmutableList.of()));
         }
         asks.addAll(ticketAsks(tickets, refs));
         asks.sort(Comparator.comparing((Ask ask) -> !ask.circle()).thenComparing(ask -> ask.since().orElse(Instant.MAX)));
@@ -491,7 +493,7 @@ public class AgendaReader
 
     private List<Ask> issueAsks(Workspace workspace, Optional<String> viewer, List<TeamCircle> circles, Map<String, RefInfo> refs, Set<String> snoozed)
     {
-        if (viewer.isEmpty() || !workspace.isGitHub()) {
+        if (viewer.isEmpty()) {
             return ImmutableList.of();
         }
         String repo = workspace.monitoredRepository().fullName();
@@ -500,7 +502,7 @@ public class AgendaReader
             if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase) || snoozed.contains(markKey(repo, issue.number()))) {
                 continue;
             }
-            String ref = AgendaRefs.issue(repo, issue.number());
+            String ref = AgendaRefs.issue(workspace, repo, issue.number());
             refs.putIfAbsent(ref, new RefInfo(Optional.of(issue.updatedAt()), Optional.of(workspace.id()), AgendaTarget.issue(repo, issue.number(), workspace.id())));
             asks.add(new Ask(ref, "assigned_issue", clip(issue.title(), TITLE), Optional.of(issue.author()), circle(circles, repo, issue.author()),
                     Optional.of(issue.updatedAt()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
@@ -586,11 +588,8 @@ public class AgendaReader
                     .map(issue -> new EpicSource(issue.key() + " " + issue.title(), AgendaTarget.jira(issue.connectionId(), issue.cloudId(), issue.id(),
                             Optional.of(workspace.id()))));
         }
-        if (!workspace.isGitHub()) {
-            return Optional.empty();
-        }
-        Optional<IssueEpic> marker = markers.findEpic(GITHUB, EpicSources.issueId(epicId));
-        return marker.map(found -> new EpicSource(issues.find(workspace.monitoredRepositoryId(), found.number()).map(RepositoryIssue::title).orElse("#" + found.number()),
+        Optional<IssueEpic> marker = markers.findEpic(workspace.issueHost(), EpicSources.issueId(epicId));
+        return marker.map(found -> new EpicSource(issues.find(workspaces, workspace, found.number()).map(RepositoryIssue::title).orElse("#" + found.number()),
                 AgendaTarget.issue(found.repo(), found.number(), workspace.id())));
     }
 

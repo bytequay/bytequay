@@ -22,11 +22,10 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workitem.GoalReferenceReader;
 import com.bytequay.app.workitem.WorkItemService;
 import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
@@ -60,7 +59,6 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class IssueDevelopmentService
 {
-    private static final String HOST = "github.com";
     private final IssueDevelopmentStore sources;
     private final JiraIssueTaskStore jiraSources;
     private final JiraService jira;
@@ -70,15 +68,14 @@ public class IssueDevelopmentService
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turns;
     private final AgentUnitOfWork unitOfWork;
-    private final GitHubRepoClient github;
-    private final CredentialService credentials;
+    private final WorkspaceIssueService remote;
     private final Clock clock;
     private final WorkItemService workItems;
     private final Striped<Lock> sourceLocks = Striped.lock(64);
 
     public IssueDevelopmentService(IssueDevelopmentStore sources, RepositoryIssueStore issues, WorkspaceStore workspaces,
-            AgentTaskService tasks, AgentTaskStore taskStore, AgentUnitOfWork unitOfWork, GitHubRepoClient github,
-            CredentialService credentials, Clock clock, AgentTurnStore turns, WorkItemService workItems, JiraIssueTaskStore jiraSources, JiraService jira)
+            AgentTaskService tasks, AgentTaskStore taskStore, AgentUnitOfWork unitOfWork, WorkspaceIssueService remote,
+            Clock clock, AgentTurnStore turns, WorkItemService workItems, JiraIssueTaskStore jiraSources, JiraService jira)
     {
         this.sources = requireNonNull(sources, "sources is null");
         this.jiraSources = requireNonNull(jiraSources, "jiraSources is null");
@@ -88,39 +85,39 @@ public class IssueDevelopmentService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
-        this.github = requireNonNull(github, "github is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.remote = requireNonNull(remote, "remote is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.turns = requireNonNull(turns, "turns is null");
     }
 
-    public Metadata metadata(long issueId)
+    public Metadata metadata(String workspaceId, long issueId)
     {
-        return new Metadata(sources.findEpic(HOST, issueId).map(IssueEpic::isEpic).orElse(false),
-                sources.findTask(HOST, issueId).map(link -> new TaskLink(link.taskId(), link.workspaceId())));
+        String host = workspace(workspaceId).issueHost();
+        return new Metadata(sources.findEpic(host, issueId).map(IssueEpic::isEpic).orElse(false),
+                sources.findTask(host, issueId).map(link -> new TaskLink(link.taskId(), link.workspaceId())));
     }
 
     public Metadata setEpic(String workspaceId, int number, boolean epic)
     {
-        Workspace workspace = WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId);
+        Workspace workspace = WorkspaceException.requireWorkspace(workspaces, workspaceId);
         RepositoryIssue issue = issue(workspace, number);
-        Lock lock = sourceLocks.get(issue.id());
+        Lock lock = sourceLocks.get(workspace.issueHost() + ":" + issue.id());
         return withLock(lock, () -> {
             return unitOfWork.execute(() -> {
-                sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, epic, clock.instant()));
+                sources.saveEpic(new IssueEpic(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(), number, epic, clock.instant()));
                 if (!epic) {
-                    workItems.releaseEpic(workspaceId, WorkItemLink.issueIdentity(HOST, issue.id()));
+                    workItems.releaseEpic(workspaceId, WorkItemLink.issueIdentity(workspace.issueHost(), issue.id()));
                 }
-                return metadata(issue.id());
+                return metadata(workspaceId, issue.id());
             });
         });
     }
 
     public RepositoryIssuePage attention(String workspaceId)
     {
-        Workspace workspace = WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId);
-        return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, Integer.MAX_VALUE);
+        Workspace workspace = WorkspaceException.requireWorkspace(workspaces, workspaceId);
+        return issues.findPage(workspaces, workspace, 0, Integer.MAX_VALUE);
     }
 
     public Optional<Source<GitHubIssueSource>> source(String taskId)
@@ -152,34 +149,34 @@ public class IssueDevelopmentService
     /** Holds the same canonical issue lock as Epic changes through task creation and initial-turn admission. */
     public AgentTask start(String workspaceId, TaskId taskId, IssueSourceInput input, String instructions, Function<GitHubIssueSource, AgentTask> create)
     {
-        Workspace workspace = WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId);
-        Lock lock = sourceLocks.get(input.issueId());
+        Workspace workspace = WorkspaceException.requireWorkspace(workspaces, workspaceId);
+        Lock lock = sourceLocks.get(workspace.issueHost() + ":" + input.issueId());
         return withLock(lock, () -> {
-            Optional<IssueTask> linked = sources.findTask(HOST, input.issueId());
+            Optional<IssueTask> linked = sources.findTask(workspace.issueHost(), input.issueId());
             if (linked.isPresent()) {
                 IssueTask link = linked.orElseThrow();
                 checkArgument(link.source().number() == input.number()
                         && link.source().repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()), "Issue does not belong to this workspace");
                 Optional<AgentTask> resumed = resume(workspaceId, taskId, input.replaces(), instructions,
                         new Attempt(link.taskId(), link.workspaceId(), link.instructions(), "issue"),
-                        () -> metadata(input.issueId()).isEpic(), () -> create.apply(link.source()));
+                        () -> metadata(workspaceId, input.issueId()).isEpic(), () -> create.apply(link.source()));
                 if (resumed.isPresent()) {
                     return resumed.orElseThrow();
                 }
             }
             RepositoryIssue cached = issue(workspace, input.number());
             checkArgument(cached.id() == input.issueId(), "Issue identity changed");
-            if (metadata(input.issueId()).isEpic()) {
+            if (metadata(workspaceId, input.issueId()).isEpic()) {
                 throw new AgentConflictException("This issue is an Epic. Unmark it before starting development.");
             }
-            workItems.requireStartable(workspaceId, WorkItemLink.issueIdentity(HOST, input.issueId()));
+            workItems.requireStartable(workspaceId, WorkItemLink.issueIdentity(workspace.issueHost(), input.issueId()));
             if (!cached.updatedAt().equals(input.updatedAt())) {
                 throw changed();
             }
-            GitHubIssueSource fresh = github.fetchOpenIssueSource(credentials.resolveGitHubToken(), workspace.monitoredRepository(), input.number());
+            GitHubIssueSource fresh = remote.source(workspaceId, input.number(), true);
             checkArgument(fresh.issueId() == input.issueId(), "Issue identity changed");
             if (!fresh.title().equals(cached.title()) || !fresh.body().equals(cached.body())) {
-                issues.updateContent(workspace.monitoredRepositoryId(), input.number(), fresh.title(), fresh.body(), fresh.updatedAt());
+                workspaces.findHostingRepositoryId(workspaceId).ifPresent(id -> issues.updateContent(id, input.number(), fresh.title(), fresh.body(), fresh.updatedAt()));
                 throw changed();
             }
             if (taskStore.find(taskId).isPresent()) {
@@ -194,7 +191,7 @@ public class IssueDevelopmentService
     {
         unitOfWork.execute(() -> {
             Workspace current = workspace(task.workspaceId().orElseThrow());
-            if (!current.monitoredRepository().fullName().equalsIgnoreCase(source.repo())) {
+            if (!current.issueHost().equals(source.host()) || !current.monitoredRepository().fullName().equalsIgnoreCase(source.repo())) {
                 throw new AgentConflictException("Workspace issue repository changed. Refresh the issue before starting development.");
             }
             taskStore.insert(task);
@@ -311,7 +308,7 @@ public class IssueDevelopmentService
 
     private RepositoryIssue issue(Workspace workspace, int number)
     {
-        return issues.find(workspace.monitoredRepositoryId(), number)
+        return issues.find(workspaces, workspace, number)
                 .orElseThrow(() -> new AgentConflictException("Issue is no longer available locally. Refresh issues before starting development."));
     }
 

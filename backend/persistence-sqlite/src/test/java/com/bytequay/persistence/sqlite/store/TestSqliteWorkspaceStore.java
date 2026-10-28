@@ -29,6 +29,7 @@ import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.review.LocalRun;
@@ -39,6 +40,7 @@ import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -89,6 +91,9 @@ class TestSqliteWorkspaceStore
 
     @Autowired
     private SqliteLocalRunStore localRuns;
+
+    @Autowired
+    private SqliteRepositoryIssueStore issueCache;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -258,8 +263,10 @@ class TestSqliteWorkspaceStore
         }
         settings.put("workspace.linked-work." + removed.id(), "[]");
         settings.put("linked-work.source.target-task", removed.id());
+        store.saveHostingCacheTarget(removed.id(), new HostingCacheTarget(1, 300, "connected-account"));
+        store.saveHostingCacheTarget(retained.id(), new HostingCacheTarget(1, 300, "connected-account"));
+        issueCache.completeSync(300, ImmutableSet.of(), NOW);
         for (long repositoryId : ImmutableList.of(200L, 201L, 300L)) {
-            jdbc.update("INSERT INTO repository_issue_sync (repository_id, synced_at) VALUES (?, ?)", repositoryId, NOW.toString());
             jdbc.update("INSERT INTO commit_enrichment (repository_id, sha, last_seen_at) VALUES (?, 'sha', ?)", repositoryId, NOW.toString());
         }
         long ownedPr = insertPullRequest("contributor/project", 1, false, false);
@@ -281,7 +288,7 @@ class TestSqliteWorkspaceStore
         assertThat(jdbc.queryForList("SELECT work_item_id FROM work_item_identity", String.class)).containsExactly(retained.id() + ":work");
         assertThat(jdbc.queryForList("SELECT setting_key FROM app_settings", String.class))
                 .containsExactlyInAnyOrder("workspace.agentModel." + retained.id(), "workspace.commitsTargetBranch." + retained.id());
-        assertThat(jdbc.queryForList("SELECT repository_id FROM repository_issue_sync ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
+        assertThat(issueCache.findPage(300, RepoRef.of("upstream", "project"), 0, 50).syncedAt()).contains(NOW);
         assertThat(jdbc.queryForList("SELECT repository_id FROM commit_enrichment ORDER BY repository_id", Long.class)).containsExactly(201L, 300L);
         assertThat(jdbc.queryForList("SELECT id FROM pull_requests ORDER BY id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);
         assertThat(jdbc.queryForList("SELECT pr_id FROM pr_view_state ORDER BY pr_id", Long.class)).containsExactly(sharedPr, dashboardPr, monitoredPr);
@@ -293,11 +300,11 @@ class TestSqliteWorkspaceStore
         Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
         Workspace retained = store.createOrGet(direct("retained", 100, 1));
         jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES ('remote', ?, 'extra', 'git@github.com:contributor/project.git')", retained.id());
-        jdbc.update("INSERT INTO repository_issue_sync (repository_id, synced_at) VALUES (200, ?)", NOW.toString());
+        issueCache.completeSync(200, ImmutableSet.of(), NOW);
 
         store.delete(removed.id());
 
-        assertThat(jdbc.queryForList("SELECT repository_id FROM repository_issue_sync", Long.class)).containsExactly(200L);
+        assertThat(issueCache.findPage(200, RepoRef.of("contributor", "project"), 0, 50).syncedAt()).contains(NOW);
         assertThat(jdbc.queryForList("SELECT id FROM workspace_remote_sources", String.class)).containsExactly("remote");
     }
 

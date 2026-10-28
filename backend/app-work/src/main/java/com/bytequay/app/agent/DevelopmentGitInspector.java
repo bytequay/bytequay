@@ -20,10 +20,11 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.Workspace;
@@ -57,7 +58,8 @@ public class DevelopmentGitInspector
     private final WorkspaceStore workspaces;
     private final GitCommandRunner git;
     private final CredentialService credentials;
-    private final GitHubPullRequestReadClient pullRequests;
+    private final HostingPullRequestContents pullRequests;
+    private final WorkspaceHostingService hosting;
     private final PullRequestTaskStore assignments;
     private final PullRequestService cachedPullRequests;
 
@@ -66,7 +68,7 @@ public class DevelopmentGitInspector
             WorkspaceStore workspaces,
             GitCommandRunner git,
             CredentialService credentials,
-            GitHubPullRequestReadClient pullRequests,
+            HostingPullRequestContents pullRequests, WorkspaceHostingService hosting,
             PullRequestTaskStore assignments,
             PullRequestService cachedPullRequests)
     {
@@ -75,6 +77,7 @@ public class DevelopmentGitInspector
         this.git = requireNonNull(git, "git is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.cachedPullRequests = requireNonNull(cachedPullRequests, "cachedPullRequests is null");
     }
@@ -87,7 +90,7 @@ public class DevelopmentGitInspector
         Workspace workspace = workspace(worktree);
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
         Optional<PullRequestRef> assigned = assignedPullRequest(worktree);
-        Optional<PullRequestDetail> detail = assigned.map(pr -> cachedPullRequests.findPullRequestDetail(pr.repoFullName(), pr.number())
+        Optional<PullRequestDetail> detail = assigned.map(pr -> cachedPullRequests.findWorkspacePullRequestDetail(worktree.workspaceId(), pr.repoFullName(), pr.number())
                 .orElseThrow(() -> new IllegalStateException("Assigned pull request details are unavailable; reload the PR before continuing")));
         String baseBranch = detail.map(pr -> Optional.ofNullable(pr.baseRef())
                         .orElseThrow(() -> new IllegalStateException("Assigned pull request base is unavailable; reload the PR before continuing")))
@@ -240,8 +243,10 @@ public class DevelopmentGitInspector
 
     private DevelopmentPublicationFacts readPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
+        var selected = hosting.captureRead(worktree.workspaceId());
+        var reader = pullRequests.reader(selected.session());
         Optional<GitHubPullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
-            GitHubPullRequestIdentity current = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(worktree.workspaceId()), pr);
+            GitHubPullRequestIdentity current = reader.identity(selected.session().access(), selected.repository(), pr.number());
             checkState(current.pullRequest().equals(pr) && current.state() == GitHubPullRequestIdentity.State.OPEN
                             && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
                             && current.baseRepository().equals(route.baseRepository()) && current.baseBranch().equals(route.baseBranch()),
@@ -264,8 +269,8 @@ public class DevelopmentGitInspector
             checkSha(values[0], "remote SHA");
             remoteHead = Optional.of(values[0]);
         }
-        List<GitHubPullRequestIdentity> matches = assigned.map(ImmutableList::of).orElseGet(() -> ImmutableList.copyOf(pullRequests.fetchPullRequestIdentities(
-                credentials.resolveGitHubToken(worktree.workspaceId()), route.baseRepository(), route.headRepository(), route.headBranch())));
+        List<GitHubPullRequestIdentity> matches = assigned.<List<GitHubPullRequestIdentity>>map(ImmutableList::of)
+                .orElseGet(() -> reader.identitiesByHead(selected.session().access(), selected.repository(), route.headRepository(), route.headBranch()));
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }
 

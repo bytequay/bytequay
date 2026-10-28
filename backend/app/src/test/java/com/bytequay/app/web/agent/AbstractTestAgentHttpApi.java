@@ -29,14 +29,22 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingCacheTarget;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingAccount;
+import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -67,6 +75,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -78,6 +87,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
 
 import static com.bytequay.app.git.GitTestSupport.configureUser;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
@@ -188,6 +198,9 @@ abstract class AbstractTestAgentHttpApi
     protected RepositoryIssueStore issueRows;
 
     @Autowired
+    protected HostingIdentityStore hostingIdentities;
+
+    @Autowired
     protected WorkItemStore workItems;
 
     @MockitoBean
@@ -258,7 +271,24 @@ abstract class AbstractTestAgentHttpApi
                 0,
                 now,
                 now));
+        useWorkspaceHosting("contributor");
         when(provisioning.synchronizeCode(workspaceId)).thenReturn(new WorkspaceCodeSyncResult(workspaceId, true, Optional.of(now), ImmutableSet.of()));
+    }
+
+    protected void useWorkspaceHosting(String login)
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        var instance = hostingIdentities.upsertInstance(new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        var account = hostingIdentities.upsertAccount(instance.id(), new RemoteHostingAccount(login, login));
+        HostingReadSession session = new HostingReadSession(account.id(), "test-workspace:" + workspaceId, new HostingAccess(instance, "pat"));
+        String path = workspace.monitoredRepository().fullName();
+        var hosted = hostingIdentities.upsertRepository(instance.id(), new RemoteHostingRepository(Long.toString(workspace.monitoredRepositoryId()), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(),
+                Optional.of(workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()))));
+        workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(account.id(), hosted.id(), session.credentialScope()));
+        when(workspaceHosting.captureRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, hosted, login));
+        when(workspaceHosting.viewerLogin(workspaceId)).thenReturn(Optional.of(login));
+        when(workspaceHosting.cachedRepositoryId(workspaceId)).thenReturn(Optional.of(hosted.id()));
     }
 
     protected Map<String, Object> createTaskBody(String laneId)

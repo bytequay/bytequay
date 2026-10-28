@@ -812,7 +812,7 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     unsettled = false;
     press('Approve #31377');
     await settle();
-    assert(JSON.stringify(steps) === '[["save","owner/repository",31377,3,"","APPROVE"],["submit","owner/repository",31377,4,"","APPROVE","abc123"]]',
+    assert(JSON.stringify(steps) === '[["save","owner/repository",31377,3,"","APPROVE","ws1"],["submit","owner/repository",31377,4,"","APPROVE","abc123","ws1"]]',
       `Approve goes through the review draft, as the review sheet does: ${JSON.stringify(steps)}`);
     assert(view.calls.closed === 0, 'A card’s button never opens the card it sits on');
 
@@ -836,12 +836,12 @@ async function actsOnAPullRequestFromItsCard(): Promise<void> {
     assert(merging.some(button => button.textContent === 'Merging…') && merging.every(button => button.disabled), 'While it merges, the button says so and none can be pressed');
     release();
     await settle();
-    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"owner/repository",31377,"rebase","abc123"]' && refusal('#31377') === undefined,
+    assert(JSON.stringify(steps.at(-1)) === '["merge",31377,"owner/repository",31377,"default","abc123","ws1"]' && refusal('#31377') === undefined,
       `Once ready, it merges only the head commit the check saw: ${JSON.stringify(steps.at(-1))}`);
 
     press('Close #31402');
     await settle();
-    assert(JSON.stringify(steps.at(-1)) === '["close","owner/repository",31402]', `Close closes the user's own pull request: ${JSON.stringify(steps.at(-1))}`);
+    assert(JSON.stringify(steps.at(-1)) === '["close","owner/repository",31402,"ws1"]', `Close closes the user's own pull request: ${JSON.stringify(steps.at(-1))}`);
 
     const opened: unknown[] = [];
     const listener = (event: Event) => { opened.push((event as CustomEvent).detail); };

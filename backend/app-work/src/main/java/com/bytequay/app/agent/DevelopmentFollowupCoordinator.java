@@ -29,10 +29,10 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
-import com.bytequay.app.repository.github.CreatedPullRequest;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
+import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.core.domain.CreatedPullRequest;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,8 +63,8 @@ public class DevelopmentFollowupCoordinator
     private final DevelopmentGitInspector git;
     private final Executor executor;
     private final CiAutofixService ci;
-    private final CredentialService credentials;
-    private final GitHubPullRequestWriteClient writes;
+    private final WorkspaceHostingService hosting;
+    private final HostingPullRequestWrites writes;
     private final Clock clock;
     private final DevelopmentBranchService branches;
     private final ReviewFixService reviewFixes;
@@ -72,7 +72,7 @@ public class DevelopmentFollowupCoordinator
     private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
     public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
-            Executor executor, CiAutofixService ci, CredentialService credentials, GitHubPullRequestWriteClient writes, Clock clock, DevelopmentBranchService branches,
+            Executor executor, CiAutofixService ci, WorkspaceHostingService hosting, HostingPullRequestWrites writes, Clock clock, DevelopmentBranchService branches,
             ReviewFixService reviewFixes)
     {
         this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
@@ -81,7 +81,7 @@ public class DevelopmentFollowupCoordinator
         this.git = requireNonNull(git, "git is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.ci = requireNonNull(ci, "ci is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.branches = requireNonNull(branches, "branches is null");
@@ -587,9 +587,10 @@ public class DevelopmentFollowupCoordinator
             return "Pushed " + window.localHead() + "; pull request " + pullRequest.url() + " already tracks this branch.";
         }
         String head = route.headRepository().equals(route.baseRepository()) ? route.headBranch() : route.headRepository().owner() + ":" + route.headBranch();
-        CreatedPullRequest created = writes.createPullRequest(
-                credentials.resolveGitHubToken(worktree.workspaceId()),
-                route.baseRepository(), head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
+        var selected = hosting.captureRead(worktree.workspaceId());
+        checkState(selected.repository().fullPath().equals(route.baseRepository().fullName()), "The publication repository changed");
+        CreatedPullRequest created = writes.forSession(selected.session()).create(selected.session().access(), selected.repository(),
+                head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
         return "Pushed " + window.localHead() + "; created draft pull request " + created.url();
     }
 

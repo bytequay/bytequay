@@ -27,18 +27,21 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -94,7 +97,8 @@ class TestDevelopmentGitInspector
 
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final CredentialService credentials = mock(CredentialService.class);
-    private final GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
+    private final PullRequestContentReader pullRequests = mock(PullRequestContentReader.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
     private final PullRequestService cachedPullRequests = mock(PullRequestService.class);
     private TestGitRunner git;
@@ -128,14 +132,18 @@ class TestDevelopmentGitInspector
         run(repository, "init", "--bare", bareRemote.toString());
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(false, "main")));
         when(credentials.gitAuthenticationEnvironment(eq(WORKSPACE_ID), anyCollection())).thenReturn(ImmutableMap.of());
-        when(credentials.resolveGitHubToken(WORKSPACE_ID)).thenReturn("test-token");
+        when(pullRequests.provider()).thenReturn(HostingProvider.GITHUB);
+        when(hosting.captureRead(WORKSPACE_ID)).thenAnswer(ignored ->
+                HostingTestFixture.route(workspaces.findById(WORKSPACE_ID).orElseThrow().monitoredRepository().fullName(), "test-token"));
         worktreeService = new ManagedWorktreeService(paths, workspaces, git, mock(IdeRuntimeService.class));
         TaskId taskId = TaskId.random();
         worktree = worktreeService.provision(new ProvisionWorktreeCommand(
                 taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), baseSha, TaskBranches.generate(taskId, "user", "Development test")));
         task = created(worktree.taskId(), true, "Development test", TitleSource.USER, AgentLaneId.CODEX_CLI,
                 worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
-        inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials, pullRequests, assignments, cachedPullRequests);
+        inspector = new DevelopmentGitInspector(worktreeService, workspaces, git, credentials,
+                new HostingPullRequestContents(ImmutableList.of(pullRequests)), hosting, assignments, cachedPullRequests);
+        org.mockito.Mockito.clearInvocations(pullRequests);
     }
 
     @Test
@@ -283,7 +291,7 @@ class TestDevelopmentGitInspector
         assertThat(baseline.local().branch()).isEqualTo(worktree.generatedBranch());
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
-        when(pullRequests.fetchPullRequestIdentity("test-token", assigned.pullRequest())).thenReturn(assigned);
+        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(assigned);
         DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, baseline.route());
         assertThat(facts.matchingPullRequests()).containsExactly(assigned);
         assertThat(facts.remoteHeadSha()).contains(baseSha);
@@ -294,7 +302,7 @@ class TestDevelopmentGitInspector
         assertThat(run(bareRemote, "rev-parse", "refs/heads/" + assigned.headBranch())).isEqualTo(head);
         assertThat(git.run(bareRemote, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).exitCode()).isEqualTo(1);
         assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
-        verify(pullRequests, never()).fetchPullRequestIdentities(anyString(), any(), any(), anyString());
+        verify(pullRequests, never()).identitiesByHead(any(), any(), any(), anyString());
     }
 
     @ParameterizedTest
@@ -308,12 +316,12 @@ class TestDevelopmentGitInspector
                 change.equals("fork") ? BASE_REPOSITORY : assigned.headRepository(), change.equals("head") ? "other-head" : assigned.headBranch(), assigned.headSha(),
                 assigned.baseRepository(), change.equals("base") ? "other-base" : assigned.baseBranch(), assigned.baseSha(),
                 change.equals("closed") ? GitHubPullRequestIdentity.State.CLOSED : assigned.state(), assigned.draft(), assigned.author());
-        when(pullRequests.fetchPullRequestIdentity("test-token", assigned.pullRequest())).thenReturn(changed);
+        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(changed);
 
         assertThatThrownBy(() -> inspector.inspectPublication(worktree, route)).hasMessageContaining("Assigned pull request destination changed");
 
         assertThat(git.remoteReads).isZero();
-        verify(pullRequests, never()).fetchPullRequestIdentities(anyString(), any(), any(), anyString());
+        verify(pullRequests, never()).identitiesByHead(any(), any(), any(), anyString());
     }
 
     @Test
@@ -333,9 +341,10 @@ class TestDevelopmentGitInspector
     void assignedPullRequestCaptureRequiresItsCachedDestination(String missing)
     {
         GitHubPullRequestIdentity assigned = assignPullRequest(false);
-        PullRequestDetail cached = cachedPullRequests.findPullRequestDetail(assigned.pullRequest().repoFullName(), assigned.pullRequest().number()).orElseThrow();
+        PullRequestDetail cached = cachedPullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, assigned.pullRequest().repoFullName(),
+                assigned.pullRequest().number()).orElseThrow();
         switch (missing) {
-            case "details" -> when(cachedPullRequests.findPullRequestDetail(assigned.pullRequest().repoFullName(), assigned.pullRequest().number()))
+            case "details" -> when(cachedPullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, assigned.pullRequest().repoFullName(), assigned.pullRequest().number()))
                     .thenReturn(Optional.empty());
             case "head" -> when(cached.headRef()).thenReturn(null);
             case "base" -> when(cached.baseRef()).thenReturn(null);
@@ -384,7 +393,8 @@ class TestDevelopmentGitInspector
             inspector.pushDevelopmentHead(worktree, baseline.route(), baseSha, Optional.empty());
         }
         if (kind.equals("pull-request")) {
-            when(pullRequests.fetchPullRequestIdentities("test-token", REPOSITORY, REPOSITORY, worktree.generatedBranch()))
+            when(pullRequests.identitiesByHead(any(), any(),
+                    eq(REPOSITORY), eq(worktree.generatedBranch())))
                     .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
                             "https://github.com/alice/project/pull/12", REPOSITORY, worktree.generatedBranch(), baseSha,
                             REPOSITORY, "main", baseSha, GitHubPullRequestIdentity.State.CLOSED, true, "alice")));
@@ -412,7 +422,8 @@ class TestDevelopmentGitInspector
             run(repository, "push", bareRemote.toString(), baseSha + ":refs/heads/" + branch);
         }
         if (kind.equals("pull-request")) {
-            when(pullRequests.fetchPullRequestIdentities("test-token", REPOSITORY, REPOSITORY, branch))
+            when(pullRequests.identitiesByHead(any(), any(),
+                    eq(REPOSITORY), eq(branch)))
                     .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
                             "https://github.com/alice/project/pull/12", REPOSITORY, branch, baseSha,
                             REPOSITORY, "main", baseSha, GitHubPullRequestIdentity.State.CLOSED, true, "alice")));
@@ -549,7 +560,8 @@ class TestDevelopmentGitInspector
         GitHubPullRequestIdentity wrongBase = new GitHubPullRequestIdentity(
                 PullRequestRef.of("acme", "project", 12), "https://github.com/acme/project/pull/12", REPOSITORY,
                 worktree.generatedBranch(), baseSha, BASE_REPOSITORY, "release", baseSha, GitHubPullRequestIdentity.State.OPEN, true, "alice");
-        when(pullRequests.fetchPullRequestIdentities("test-token", BASE_REPOSITORY, REPOSITORY, worktree.generatedBranch()))
+        when(pullRequests.identitiesByHead(any(), any(),
+                    eq(REPOSITORY), eq(worktree.generatedBranch())))
                 .thenReturn(ImmutableList.of(wrongBase));
 
         DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, route);
@@ -824,7 +836,7 @@ class TestDevelopmentGitInspector
         PullRequestDetail cached = mock(PullRequestDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(cached.headRef()).thenReturn("existing-pr");
         when(cached.baseRef()).thenReturn("release");
-        when(cachedPullRequests.findPullRequestDetail(baseRepository.fullName(), 12)).thenReturn(Optional.of(cached));
+        when(cachedPullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, baseRepository.fullName(), 12)).thenReturn(Optional.of(cached));
         return new GitHubPullRequestIdentity(ref, "https://github.com/" + baseRepository.fullName() + "/pull/12", REPOSITORY,
                 "existing-pr", baseSha, baseRepository, "release", baseSha, GitHubPullRequestIdentity.State.OPEN, false, "alice");
     }

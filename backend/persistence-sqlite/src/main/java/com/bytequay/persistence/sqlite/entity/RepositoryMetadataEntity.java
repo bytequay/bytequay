@@ -35,7 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 
 @Entity
-@Table(name = "repository_metadata")
+@Table(name = "hosting_repository_metadata")
 @Getter
 @Setter
 public class RepositoryMetadataEntity

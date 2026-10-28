@@ -1050,7 +1050,9 @@ async function threadSnapshotIdenticalPoll(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const originalBridge = window.bridge;
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
-    ...originalBridge, getUserProfile: async () => { throw new Error('Profile unavailable'); },
+    ...originalBridge, getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
+    getUserProfile: async () => { throw new Error('Profile unavailable'); },
   } });
   const cases: Array<[string, () => Promise<void>]> = [
     ['Thread snapshots reject stale reads and writes across task changes', threadSnapshotRaces],

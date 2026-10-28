@@ -63,6 +63,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     return originalTimeout(handler, delay, ...args);
   }) as typeof window.setTimeout;
   const stubs = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     readAgentReviewHistory: async (_id, taskId, before, after) => agent.readAgentHistory(taskId, before, after),
@@ -96,7 +98,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     addReviewDraftComment: async (_repo, _number, version, comment) => { added.push(comment); return (saved = { ...saved, version: version + 1 }); },
     submitReviewDraft: async (...request) => { submissions.push(request); },
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'getUserProfile' | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'readAgentReviewHistory' | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
     | 'refreshPrDiffFiles' | 'readWorktreeChanges' | 'getAgentReview' | 'findAgentReview' | 'findPullRequestTask' | 'listWorkspaces'
     | 'listLocalReviewComments' | 'listCodeFiles' | 'listCodeRuns' | 'listAgentReviews' | 'subscribeAgentReview'
@@ -257,6 +259,8 @@ export async function runDraftCommentEdit(): Promise<string> {
   let published = 0;
   let closed = false;
   const bridge = {
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => { throw new Error('No viewer available'); },
     betterWords: async (text, repo, workspaceId) => {
       assert(text === 'Original finding' && repo === currentReview.repo && workspaceId === currentReview.workspaceId,
@@ -295,7 +299,7 @@ export async function runDraftCommentEdit(): Promise<string> {
       published++;
     },
     fetchPullRequestDetailByRef: async () => stored,
-  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview' | 'editReviewDraftComment'
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview' | 'editReviewDraftComment'
     | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef' | 'betterWords' | 'confirmReviewDraftCommentNotPosted'>;
   const previous = window.bridge;
   Object.assign(window, { bridge });
@@ -394,7 +398,9 @@ export async function runConfirmedPublication(): Promise<string> {
         return updated;
       };
       const bridge = {
-        getUserProfile: async () => { throw new Error('No viewer available'); },
+        getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
+    getUserProfile: async () => { throw new Error('No viewer available'); },
         fetchPrDiffFiles: async () => files,
         fetchPrDiffCommits: async () => commits,
         getAgentReview: async () => { reads++; return savedReview; },
@@ -403,7 +409,7 @@ export async function runConfirmedPublication(): Promise<string> {
           assert(posted, 'This scenario confirms a posted review');
           return confirm();
         },
-      } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview'
+      } satisfies Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview'
         | 'confirmReviewDraftCommentPosted' | 'confirmReviewDraftReview'>;
       Object.assign(window, { bridge });
       const render = () => root.render(<ReviewDialog key={String(summary)} pr={remotePullRequest(stored, 'bob')} detail={stored}

@@ -15,11 +15,11 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;

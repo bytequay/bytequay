@@ -77,8 +77,8 @@ public class SqliteRepositoryIssueStore
     {
         List<RepositoryIssue> fresh = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
         // An unchanged issue leaves its loaded row clean, so Hibernate writes only the rows that changed.
-        Map<Long, RepositoryIssueEntity> stored = issueRows.findAllById(fresh.stream().map(RepositoryIssue::id).toList()).stream()
-                .collect(toMap(RepositoryIssueEntity::getId, identity()));
+        Map<Long, RepositoryIssueEntity> stored = issueRows.findAllById(fresh.stream().map(issue -> RepositoryIssueEntity.key(repositoryId, issue.id())).toList()).stream()
+                .collect(toMap(RepositoryIssueEntity::getRemoteId, identity()));
         issueRows.saveAll(fresh.stream()
                 .map(issue -> {
                     RepositoryIssueEntity entity = stored.get(issue.id());
@@ -98,7 +98,7 @@ public class SqliteRepositoryIssueStore
         requireNonNull(openIssueIds, "openIssueIds is null");
         List<Long> stale = issueRows.findIdsByRepositoryId(repositoryId).stream().filter(id -> !openIssueIds.contains(id)).collect(ImmutableList.toImmutableList());
         if (!stale.isEmpty()) {
-            issueRows.deleteAllByIdInBatch(stale);
+            issueRows.deleteAllByIdInBatch(stale.stream().map(id -> RepositoryIssueEntity.key(repositoryId, id)).toList());
         }
         RepositoryIssueSyncEntity entity = repository.findById(repositoryId)
                 .orElseGet(RepositoryIssueSyncEntity::new);

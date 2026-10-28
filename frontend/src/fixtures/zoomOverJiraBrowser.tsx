@@ -95,6 +95,8 @@ function installBridge() {
     listJiraAttention: async () => [ticket],
     fetchAttentionPrs: async () => [],
     onPullRequestsSynced: () => () => {},
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => { throw new Error('No profile in this fixture'); },
     fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
     listJiraBoards: async () => [{ id: 828, name: 'Connectors', type: 'scrum' }],
@@ -107,6 +109,7 @@ function installBridge() {
       return detail();
     },
     listWorkspaces: async () => [{ id: 'workspace', name: 'Repository', monitoredOwner: 'owner', monitoredRepo: 'repository' } as WorkspaceDto],
+    fetchWorkspaceIssueAttention: async () => ({ etag: null, snapshot: null }),
     fetchWorkspaceIssue: async () => issue,
     fetchWorkspaceIssues: async () => ({ repositoryId: 40, repository, issues: [issue], page: 0, pageSize: 50, totalIssues: 1, hasMore: false, syncedAt: null }),
     getWorkspaceMetadata: async () => ({ repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),

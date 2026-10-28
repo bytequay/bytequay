@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { usePullRequestBridge } from './PullRequestWorkspace';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DiffCommitDto, DiffFileDto, PullRequestDetailDto } from '../types';
 import type { CommitRange } from './PullChanges';
@@ -71,6 +72,7 @@ export function usePullRequestChanges(
   target: PullRequestChangesTarget | null,
   { active = true, revision = null }: { active?: boolean; revision?: string | null } = {},
 ): PullRequestChangesSource {
+  const bridge = usePullRequestBridge();
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [selection, setSelection] = useState<Selection | CommitSelection | null>(null);
   const [history, setHistory] = useState<{ scope: string; commits: DiffCommitDto[]; files: DiffFileDto[] } | null>(null);
@@ -108,18 +110,18 @@ export function usePullRequestChanges(
     }
     const request = selected === null
       ? Promise.all([
-        window.bridge.fetchPrDiffFiles(repo, number),
-        window.bridge.fetchPrDiffCommits(repo, number),
+        bridge.fetchPrDiffFiles(repo, number),
+        bridge.fetchPrDiffCommits(repo, number),
       ]).then(([files, loadedCommits]) => {
         if (live && currentKey.current === key) setHistory({ scope, commits: loadedCommits, files });
         return files;
       })
-      : window.bridge.refreshPrDiffFiles(repo, number, selected.baseSha, selected.headSha);
+      : bridge.refreshPrDiffFiles(repo, number, selected.baseSha, selected.headSha);
     request
       .then(files => apply(files))
       .catch((failure: unknown) => apply([], remoteErrorMessage(failure)));
     return () => { live = false; };
-  }, [active, key, number, repo, result, scope, selected]);
+  }, [active, bridge, key, number, repo, result, scope, selected]);
 
   const changeCommitRange = useCallback((range: CommitRange) => {
     if (range === null) {

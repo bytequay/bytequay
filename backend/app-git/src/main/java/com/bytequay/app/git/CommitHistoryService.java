@@ -29,6 +29,7 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -116,7 +117,7 @@ public class CommitHistoryService
         // first guarantees a concurrent completion causes one later reload.
         CommitRefreshStatus refresh = status(workspaceId);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
-        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty()
+        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty() || !hasGitHubEnrichment(workspaceId)
                 ? ImmutableMap.of()
                 : store.findEnrichment(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
                 .commits().stream()
@@ -254,7 +255,12 @@ public class CommitHistoryService
 
     private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
     {
-        String token = credentials.resolveGitHubToken();
+        if (!hasGitHubEnrichment(context.workspaceId())) {
+            // GitLab history comes from the checkout; this enrichment cache contains GitHub identities only.
+            refs.forEach(ref -> git.log(context.repository(), ref.gitRef(), MAX_COMMITS));
+            return ImmutableList.of();
+        }
+        String token = credentials.resolveGitHubToken(context.workspaceId());
         Instant now = clock.instant();
         Map<EnrichmentKey, CommitEnrichment> updates = new LinkedHashMap<>();
         for (ResolvedCommitHistoryRef ref : refs) {
@@ -267,6 +273,12 @@ public class CommitHistoryService
             enrich(context, ref, token, now).forEach(value -> updates.merge(new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryService::merge));
         }
         return updates.values();
+    }
+
+    private boolean hasGitHubEnrichment(String workspaceId)
+    {
+        var server = workspaces.getWorkspace(workspaceId).hostingServer();
+        return server == null || server.provider() == HostingProvider.GITHUB;
     }
 
     private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, String token, Instant now)
@@ -293,7 +305,7 @@ public class CommitHistoryService
                 .filter(commit -> CommitEnrichment.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
                 .toList();
-        PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(repository, dueAssociations, ref.providerRef(), new ArrayList<>());
+        PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(token, repository, dueAssociations, ref.providerRef(), new ArrayList<>());
         checkState(associationSnapshot.failedShas().isEmpty(), "commit pull-request synchronization failed");
         Map<String, PullRequestAssociation> associations = associationSnapshot.associations().stream()
                 .collect(toImmutableMap(PullRequestLookupResult.Association::sha, PullRequestLookupResult.Association::pullRequest));

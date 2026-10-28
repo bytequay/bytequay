@@ -47,6 +47,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -118,14 +119,14 @@ class TestAgendaDone
                 Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
                 Optional.empty(), 0, MADE, MADE);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
-        when(issues.find(1, 77)).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "",
+        when(issues.find(any(), any(), eq(77))).thenReturn(Optional.of(new RepositoryIssue(901, 77, "Snapshot ids in $snapshots", "body", "marlo-t", "",
                 "https://github.com/owner/repository/issues/77", ImmutableList.of(), ImmutableList.of(), 0, MADE, MADE)));
         AgendaItem start = new AgendaItem("issue:owner/repository#77", AgendaItem.Action.START, "Start “Snapshot ids in $snapshots”", "Snapshot ids", "", Optional.empty(),
                 Optional.of("ws1"), AgendaTarget.issue("owner/repository", 77, "ws1"), Optional.empty());
 
-        when(issueDevelopment.metadata(901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.empty()));
+        when(issueDevelopment.metadata("ws1", 901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.empty()));
         assertThat(status(day(start, ImmutableMap.of()), start).state()).isEqualTo(AgendaDone.Status.State.OPEN);
-        when(issueDevelopment.metadata(901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("t1", "ws1"))));
+        when(issueDevelopment.metadata("ws1", 901)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("t1", "ws1"))));
         assertThat(status(day(start, ImmutableMap.of()), start).text()).contains("Started");
     }
 

@@ -57,6 +57,12 @@ public class WorkspaceHostingController
         return binding;
     }
 
+    @GetMapping("/viewer")
+    public Optional<String> viewer(@PathVariable String workspaceId)
+    {
+        return hosting.viewerLogin(workspaceId);
+    }
+
     @GetMapping("/requests")
     public WorkspacePullRequestPage cachedRequests(@PathVariable String workspaceId,
             @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "50") int pageSize)

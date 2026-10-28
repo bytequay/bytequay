@@ -14,13 +14,13 @@
 package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.integration.jira.JiraIssue;
 import org.springframework.stereotype.Service;
@@ -31,7 +31,6 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
-import static com.bytequay.app.workspace.WorkspaceException.requireGitHub;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -42,17 +41,15 @@ public class WorkItemPublicationService
 {
     private final WorkItemService work;
     private final WorkspaceStore workspaces;
-    private final GitHubRepoClient github;
-    private final CredentialService credentials;
+    private final WorkspaceIssueService issues;
     private final JiraService jira;
     private final Clock clock;
 
-    public WorkItemPublicationService(WorkItemService work, WorkspaceStore workspaces, GitHubRepoClient github, CredentialService credentials, JiraService jira, Clock clock)
+    public WorkItemPublicationService(WorkItemService work, WorkspaceStore workspaces, WorkspaceIssueService issues, JiraService jira, Clock clock)
     {
         this.work = requireNonNull(work, "work is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.github = requireNonNull(github, "github is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.issues = requireNonNull(issues, "issues is null");
         this.jira = requireNonNull(jira, "jira is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -60,15 +57,11 @@ public class WorkItemPublicationService
     public WorkItemView publish(String workspaceId, String id, Publication request)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        if (request.source() == UnifiedWorkItem.Source.GITHUB) {
-            requireGitHub(workspace);
-        }
         WorkItem item = work.requireItem(workspaceId, id);
         checkArgument(request.source() == UnifiedWorkItem.Source.GITHUB || request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
         checkArgument(item.links().stream().noneMatch(link -> request.source() == UnifiedWorkItem.Source.GITHUB ? link.issueSource().isPresent()
                 : link.jiraSource().isPresent()), "This work already has a source on that provider");
         checkArgument(item.title().length() <= (request.source() == UnifiedWorkItem.Source.GITHUB ? 256 : 255), "Shorten the title before publishing");
-        Optional<String> token = request.source() == UnifiedWorkItem.Source.GITHUB ? Optional.of(credentials.resolveGitHubToken(workspaceId)) : Optional.empty();
         if (request.source() == UnifiedWorkItem.Source.JIRA) {
             checkArgument(jira.publicationTypes(request.connectionId().orElseThrow(), request.cloudId().orElseThrow(), request.project().orElseThrow()).stream()
                     .anyMatch(type -> type.id().equals(request.issueTypeId().orElseThrow())), "Choose an available Jira work type");
@@ -79,10 +72,16 @@ public class WorkItemPublicationService
         WorkItemLink source;
         try {
             source = request.source() == UnifiedWorkItem.Source.GITHUB
-                    ? GoalReferenceReader.issueLink(github.publishWorkItem(token.orElseThrow(), workspace.monitoredRepository(),
+                    ? GoalReferenceReader.issueLink(issues.create(workspaceId,
                             item.title(), item.acceptanceCriteria()), clock.instant())
                     : GoalReferenceReader.jiraLink(jira.publishWorkItem(request.connectionId().orElseThrow(), request.cloudId().orElseThrow(), request.project().orElseThrow(),
                             request.issueTypeId().orElseThrow(), item.title(), item.acceptanceCriteria()), clock.instant());
+        }
+        catch (HostingFailure failure) {
+            if (failure.kind() != HostingFailure.Kind.UNAVAILABLE && failure.kind() != HostingFailure.Kind.INVALID_RESPONSE) {
+                work.publicationRejected(workspaceId, id, operation);
+            }
+            throw failure;
         }
         catch (ResponseStatusException failure) {
             int status = failure.getStatusCode().value();
@@ -98,9 +97,6 @@ public class WorkItemPublicationService
     public WorkItemView reconcile(String workspaceId, String id, Publication request, String key)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        if (request.source() == UnifiedWorkItem.Source.GITHUB) {
-            requireGitHub(workspace);
-        }
         WorkItem item = work.requireItem(workspaceId, id);
         checkArgument(item.revision() == request.expectedRevision(), "Work changed; refresh before linking");
         Optional<WorkItemEvent> pending = item.history().stream().filter(event -> event.action().equals("PUBLISH_STARTED")
@@ -109,8 +105,7 @@ public class WorkItemPublicationService
                 "Choose the same destination as the pending publication: " + event.detail()));
         WorkItemLink source;
         if (request.source() == UnifiedWorkItem.Source.GITHUB) {
-            source = GoalReferenceReader.issueLink(github.fetchIssueSource(credentials.resolveGitHubToken(workspaceId), workspace.monitoredRepository(),
-                    Integer.parseInt(key.replace("#", ""))), clock.instant());
+            source = GoalReferenceReader.issueLink(issues.source(workspaceId, Integer.parseInt(key.replace("#", "")), false), clock.instant());
         }
         else {
             checkArgument(request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
@@ -126,7 +121,8 @@ public class WorkItemPublicationService
 
     private static String destination(Workspace workspace, Publication request)
     {
-        return request.source() == UnifiedWorkItem.Source.GITHUB ? "GITHUB " + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)
+        return request.source() == UnifiedWorkItem.Source.GITHUB
+                ? (workspace.isGitHub() ? "GITHUB" : workspace.issueHost()) + " " + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)
                 : "JIRA " + request.connectionId().orElseThrow() + "/" + request.cloudId().orElseThrow() + "/" + request.project().orElseThrow().toUpperCase(Locale.ROOT);
     }
 

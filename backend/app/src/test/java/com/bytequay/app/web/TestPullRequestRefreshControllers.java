@@ -16,7 +16,8 @@ package com.bytequay.app.web;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.config.WriteVersion;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.pr.PullRequestCheckLog;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -30,9 +31,14 @@ import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.PullRequestCheckLog;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -41,6 +47,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -49,7 +56,11 @@ import java.util.OptionalInt;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.notNullValue;
 import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.ignoreStubs;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -69,30 +80,33 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class TestPullRequestRefreshControllers
 {
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
+    private static final HostingReadSession SESSION = new HostingReadSession(1, "account", new HostingAccess(
+            new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")), "token"));
 
     @Test
     void openingRequestsFreshDiscussionWithoutForcingTheEntireSnapshot()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(refresh.refreshOpenedDetail("owner/repo", 7)).thenReturn(PullRequestDetailRefresh.full(detail()));
+        when(refresh.refreshOpenedDetail(read("owner/repo", 7))).thenReturn(PullRequestDetailRefresh.full(detail()));
 
         standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
                 .perform(post("/prs/detail/refresh").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("opened", "true"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.full").value(true));
 
-        verify(refresh).refreshOpenedDetail("owner/repo", 7);
+        verify(refresh).refreshOpenedDetail(read("owner/repo", 7));
         verifyNoMoreInteractions(refresh);
-        verifyNoInteractions(pullRequests);
+        verify(pullRequests).prepareRead(null, "owner/repo", 7);
+        verifyNoMoreInteractions(pullRequests);
     }
 
     @Test
     void attentionKeepsTheFlatPullRequestShapeAndIncludesCachedActivity()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         String avatar = "https://avatars.githubusercontent.com/u/123?v=4";
         List<PullRequest> candidates = ImmutableList.of(attentionPullRequest(12), attentionPullRequest(13));
@@ -143,7 +157,7 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).findCachedFailingChecks(candidates);
         verify(pullRequests).findMentioned(candidates);
         verify(pullRequests).attentionVersion();
-        verifyNoMoreInteractions(pullRequests);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
 
@@ -151,7 +165,7 @@ class TestPullRequestRefreshControllers
     void answersAnUnchangedAttentionListWithoutRebuildingIt()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         when(pullRequests.attentionVersion()).thenReturn("boot-7-42");
         when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of());
@@ -185,10 +199,10 @@ class TestPullRequestRefreshControllers
     void looksUpStoredPullRequestsWithoutOpeningOrRefreshingThem()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.findStored("owner/repository", 12)).thenReturn(Optional.of(attentionPullRequest(12)));
-        when(pullRequests.findStored("owner/repository", 13)).thenReturn(Optional.empty());
+        when(pullRequests.findStored(read("owner/repository", 12))).thenReturn(Optional.of(attentionPullRequest(12)));
+        when(pullRequests.findStored(read("owner/repository", 13))).thenReturn(Optional.empty());
         var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
 
         mvc.perform(get("/prs/stored").queryParam("repo", "owner/repository").queryParam("number", "12"))
@@ -199,9 +213,9 @@ class TestPullRequestRefreshControllers
                 .andExpect(status().isOk())
                 .andExpect(content().string("null"));
 
-        verify(pullRequests).findStored("owner/repository", 12);
-        verify(pullRequests).findStored("owner/repository", 13);
-        verifyNoMoreInteractions(pullRequests);
+        verify(pullRequests).findStored(read("owner/repository", 12));
+        verify(pullRequests).findStored(read("owner/repository", 13));
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
 
@@ -209,10 +223,10 @@ class TestPullRequestRefreshControllers
     void readsStoredDescriptionsWithoutOpeningOrRefreshingThePullRequest()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.findStoredDescription("owner/repository", 12)).thenReturn(Optional.of("Fixes the flaky test"));
-        when(pullRequests.findStoredDescription("owner/repository", 13)).thenReturn(Optional.empty());
+        when(pullRequests.findStoredDescription(read("owner/repository", 12))).thenReturn(Optional.of("Fixes the flaky test"));
+        when(pullRequests.findStoredDescription(read("owner/repository", 13))).thenReturn(Optional.empty());
         var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh)).build();
 
         mvc.perform(get("/prs/stored/description").queryParam("repo", "owner/repository").queryParam("number", "12"))
@@ -222,9 +236,9 @@ class TestPullRequestRefreshControllers
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"body\":null}", true));
 
-        verify(pullRequests).findStoredDescription("owner/repository", 12);
-        verify(pullRequests).findStoredDescription("owner/repository", 13);
-        verifyNoMoreInteractions(pullRequests);
+        verify(pullRequests).findStoredDescription(read("owner/repository", 12));
+        verify(pullRequests).findStoredDescription(read("owner/repository", 13));
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
 
@@ -232,17 +246,17 @@ class TestPullRequestRefreshControllers
     void readsCheckLogWithoutRefreshingOrWritingThePullRequest()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.readCheckLog("owner/repo", 7, 301)).thenReturn(new PullRequestCheckLog("test failed\n", Optional.empty()));
+        when(pullRequests.readCheckLog(read("owner/repo", 7), 301)).thenReturn(new PullRequestCheckLog("test failed\n", Optional.empty()));
 
         standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
                 .perform(get("/prs/checks/log").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("jobId", "301"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.text").value("test failed\n"))
                 .andExpect(jsonPath("$.unavailableReason").value(nullValue()));
-        verify(pullRequests).readCheckLog("owner/repo", 7, 301);
-        verifyNoMoreInteractions(pullRequests);
+        verify(pullRequests).readCheckLog(read("owner/repo", 7), 301);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
 
@@ -250,18 +264,18 @@ class TestPullRequestRefreshControllers
     void returnsCheckAnnotationsAlongsideTheLogDownloadFailure()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         String annotations = "GitHub annotation: The self-hosted runner lost communication with the server.\n";
-        when(pullRequests.readCheckLog("owner/repo", 7, 301)).thenReturn(new PullRequestCheckLog(annotations, Optional.of("GitHub Actions log is missing or expired")));
+        when(pullRequests.readCheckLog(read("owner/repo", 7), 301)).thenReturn(new PullRequestCheckLog(annotations, Optional.of("GitHub Actions log is missing or expired")));
 
         standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
                 .perform(get("/prs/checks/log").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("jobId", "301"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.text").value(annotations))
                 .andExpect(jsonPath("$.unavailableReason").value("GitHub Actions log is missing or expired"));
-        verify(pullRequests).readCheckLog("owner/repo", 7, 301);
-        verifyNoMoreInteractions(pullRequests);
+        verify(pullRequests).readCheckLog(read("owner/repo", 7), 301);
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
 
@@ -269,7 +283,7 @@ class TestPullRequestRefreshControllers
     void marksDraftReadyForReviewOnlyThroughTheWriteEndpoint()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
         var mvc = standaloneSetup(controller).build();
 
@@ -279,14 +293,14 @@ class TestPullRequestRefreshControllers
         mvc.perform(post("/prs/ready-for-review").queryParam("repo", "owner/repo").queryParam("number", "7"))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).markReadyForReview("owner/repo", 7);
+        verify(pullRequests).markReadyForReview(read("owner/repo", 7));
     }
 
     @Test
     void removesFromMergeQueueOnlyThroughTheWriteEndpoint()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
 
         mvc.perform(get("/prs/merge-queue").queryParam("repo", "owner/repo").queryParam("number", "7"))
@@ -295,17 +309,17 @@ class TestPullRequestRefreshControllers
         mvc.perform(delete("/prs/merge-queue").queryParam("repo", "owner/repo").queryParam("number", "7"))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).removeFromMergeQueue("owner/repo", 7, false);
+        verify(pullRequests).removeFromMergeQueue(read("owner/repo", 7), false);
         mvc.perform(delete("/prs/merge-queue").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("autoMerge", "true"))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).removeFromMergeQueue("owner/repo", 7, true);
+        verify(pullRequests).removeFromMergeQueue(read("owner/repo", 7), true);
     }
 
     @Test
     void dashboardRefreshCompletesBeforeTheRequestReturns()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         PullRequestController controller = new PullRequestController(pullRequests, refresh);
 
@@ -317,7 +331,7 @@ class TestPullRequestRefreshControllers
     @Test
     void dashboardListRefreshUsesTheExistingNarrowSync()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         PullRequestController controller = new PullRequestController(pullRequests, refresh);
 
@@ -330,7 +344,7 @@ class TestPullRequestRefreshControllers
     void dashboardListRefreshReportsAnInFlightRefresh()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         PullRequestController controller = new PullRequestController(pullRequests, refresh);
         doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "refresh already in progress"))
@@ -345,9 +359,9 @@ class TestPullRequestRefreshControllers
     void forwardsPullRequestReactionToggleRequestWithoutKnownViewerState()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
-        when(pullRequests.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", null)).thenReturn(true);
+        when(pullRequests.toggleReaction(read("owner/repo", 7), "issue_comment", 41L, "heart", null)).thenReturn(true);
 
         standaloneSetup(controller).build().perform(post("/prs/reactions")
                         .queryParam("repo", "owner/repo")
@@ -359,14 +373,14 @@ class TestPullRequestRefreshControllers
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.viewerHasReacted").value(true));
 
-        verify(pullRequests).toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", null);
+        verify(pullRequests).toggleReaction(read("owner/repo", 7), "issue_comment", 41L, "heart", null);
     }
 
     @Test
     void forwardsDesiredPullRequestReactionState()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
 
         standaloneSetup(controller).build().perform(post("/prs/reactions")
@@ -379,14 +393,14 @@ class TestPullRequestRefreshControllers
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.viewerHasReacted").value(false));
 
-        verify(pullRequests).toggleReaction("owner/repo", 7, "pull_request", null, "heart", false);
+        verify(pullRequests).toggleReaction(read("owner/repo", 7), "pull_request", null, "heart", false);
     }
 
     @Test
     void forwardsPullRequestDescriptionUpdate()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
 
         standaloneSetup(controller).build().perform(patch("/prs/description")
@@ -398,14 +412,14 @@ class TestPullRequestRefreshControllers
                                 """))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).updateDescription("owner/repo", 7, "Updated description");
+        verify(pullRequests).updateDescription(read("owner/repo", 7), "Updated description");
     }
 
     @Test
     void forwardsTitleEdits()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
 
         standaloneSetup(controller).build().perform(patch("/prs/title")
@@ -417,16 +431,16 @@ class TestPullRequestRefreshControllers
                                 """))
                 .andExpect(status().isNoContent());
 
-        verify(pullRequests).updateTitle("owner/repo", 7, "Updated title");
+        verify(pullRequests).updateTitle(read("owner/repo", 7), "Updated title");
     }
 
     @Test
     void forwardsCommentEditsAndRejectsAMissingCommentIdBeforeTheService()
             throws Exception
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
-        when(pullRequests.editComment("owner/repo", 7, "review_comment", 41L, "Edited")).thenReturn(detail());
+        when(pullRequests.editComment(read("owner/repo", 7), "review_comment", 41L, "Edited")).thenReturn(detail());
         var mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
 
         mvc.perform(patch("/prs/comments")
@@ -448,19 +462,19 @@ class TestPullRequestRefreshControllers
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.message").value("commentId is required"));
 
-        verify(pullRequests).editComment("owner/repo", 7, "review_comment", 41L, "Edited");
-        verifyNoMoreInteractions(pullRequests);
+        verify(pullRequests).editComment(read("owner/repo", 7), "review_comment", 41L, "Edited");
+        verifyNoMoreInteractions(ignoreStubs(pullRequests));
     }
 
     @Test
     void returnsTheDetailProducedByCommentWrites()
     {
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
         PullRequestDetail detail = detail();
-        when(pullRequests.commentOnPullRequest("owner/repo", 7, "hello")).thenReturn(detail);
+        when(pullRequests.commentOnPullRequest(read("owner/repo", 7), "hello")).thenReturn(detail);
 
-        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"))).isSameAs(detail);
+        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"), null)).isSameAs(detail);
     }
 
     @Test
@@ -471,7 +485,7 @@ class TestPullRequestRefreshControllers
         WorkspaceController controller = new WorkspaceController(
                 mock(WorkspaceRepositoryService.class),
                 mock(WorkspaceDeletionService.class),
-                mock(PullRequestService.class),
+                pullRequests(),
                 mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class),
                 issues,
@@ -493,7 +507,7 @@ class TestPullRequestRefreshControllers
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         WorkspaceController controller = new WorkspaceController(
-                workspaces, deletion, mock(PullRequestService.class), mock(PullRequestRefreshService.class),
+                workspaces, deletion, pullRequests(), mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
@@ -524,7 +538,7 @@ class TestPullRequestRefreshControllers
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         CredentialService credentials = mock(CredentialService.class);
         WorkspaceController controller = new WorkspaceController(
-                workspaces, deletion, mock(PullRequestService.class), refresh,
+                workspaces, deletion, pullRequests(), refresh,
                 mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class), new WriteVersion());
@@ -551,7 +565,7 @@ class TestPullRequestRefreshControllers
     void workspaceRefreshCompletesBeforeTheRequestReturns()
     {
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
-        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestService pullRequests = pullRequests();
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(
                 workspaces,
@@ -569,6 +583,20 @@ class TestPullRequestRefreshControllers
 
         verify(refresh).refreshWorkspace("workspace-id");
         verifyNoInteractions(workspaces);
+    }
+
+    private static PullRequestService pullRequests()
+    {
+        PullRequestService service = mock(PullRequestService.class);
+        when(service.prepareRead(any(), anyString(), anyInt())).thenAnswer(call -> read(call.getArgument(1), call.getArgument(2)));
+        return service;
+    }
+
+    private static PullRequestRead read(String repo, int number)
+    {
+        URI url = URI.create("https://github.com/" + repo);
+        return new PullRequestRead(SESSION,
+                new HostingRepository(1, 1, "repository", repo, url, url, Optional.empty(), Optional.of("main")), number, "viewer");
     }
 
     private static WorkspaceSummary workspaceSummary(String id, long repositoryId)

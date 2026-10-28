@@ -55,8 +55,8 @@ function code(text: string): string {
   return `${fence}\n${text}\n${fence}`;
 }
 
-function source(repo: string, number: number | null): string {
-  return `Repository: ${repo}\n${number !== null && number > 0 ? `Pull request: https://github.com/${repo}/pull/${number}` : 'Source: local development (no pull request)'}`;
+function source(repo: string, number: number | null, htmlUrl?: string): string {
+  return `Repository: ${repo}\n${number !== null && number > 0 ? `Pull request: ${htmlUrl ?? `${repo}#${number}`}` : 'Source: local development (no pull request)'}`;
 }
 
 /** Recognize complete generated requests; ordinary mentions and copied findings stay user text. */
@@ -105,7 +105,7 @@ export function findingConversation(review: AgentReviewDto, finding: ReviewFindi
     .sort((left, right) => right.ordinal - left.ordinal)[0];
   const messages = messagesFor(review, finding.id);
   return [
-    '# Local review conversation', introduction, source(review.repo, review.number),
+    '# Local review conversation', introduction, source(review.repo, review.number, review.pullRequest?.htmlUrl),
     `Review: ${review.id}\nTask: ${review.task.id}\nFinding: ${finding.label} (${finding.id}) · revision ${finding.revision}\nReviewer: ${review.task.laneLabel}`,
     ...(review.sourceTaskId ? [`Source development task: ${review.sourceTaskId}`] : []),
     `Reviewed commit: ${finding.validatedHeadSha}\nLocation: ${lines === null ? 'Whole change' : `${lines.path} ${lines.range} (${lines.side})`}`,

@@ -210,8 +210,8 @@ class TestGitLabPullRequestReader
             assertThat(summary.repo()).isEqualTo("group/subgroup/repo");
             assertThat(summary.state()).isEqualTo("open");
             assertThat(summary.requestedReviewers()).isEmpty();
-            assertThat(summary.mergeable()).isNull();
-            assertThat(summary.mergeableState()).isNull();
+            assertThat(summary.mergeable()).isTrue();
+            assertThat(summary.mergeableState()).isEqualTo("clean");
         });
         assertThat(result.detail()).hasValueSatisfying(detail -> {
             assertThat(detail.headRef()).isEqualTo("feature/nested");
@@ -399,8 +399,8 @@ class TestGitLabPullRequestReader
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"checking", "mergeable", "not_approved", "future_status"})
-    void doesNotInventGitHubMergeabilityFromGitLabStatus(String status)
+    @ValueSource(strings = {"checking", "not_approved", "future_status"})
+    void keepsUnknownMergeabilityUnknown(String status)
     {
         reply.set(new Reply(200, mr().put("detailed_merge_status", status).toString(), Optional.empty()));
 
@@ -415,7 +415,10 @@ class TestGitLabPullRequestReader
     {
         reply.set(new Reply(200, mr().put("detailed_merge_status", "conflict").toString(), Optional.empty()));
 
-        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail().orElseThrow().mergeable()).isFalse();
+        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+            assertThat(detail.mergeable()).isFalse();
+            assertThat(detail.mergeableState()).isEqualTo("dirty");
+        });
     }
 
     @ParameterizedTest

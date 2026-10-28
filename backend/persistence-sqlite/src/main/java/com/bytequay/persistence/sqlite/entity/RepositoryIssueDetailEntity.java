@@ -28,7 +28,7 @@ import java.util.List;
 import java.util.Optional;
 
 @Entity
-@Table(name = "repository_issue_details")
+@Table(name = "hosting_issue_details")
 @Setter
 public class RepositoryIssueDetailEntity
 {

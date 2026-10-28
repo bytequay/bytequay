@@ -24,12 +24,12 @@ import java.util.List;
 import java.util.Optional;
 
 public interface RepositoryIssueRowJpaRepository
-        extends JpaRepository<RepositoryIssueEntity, Long>
+        extends JpaRepository<RepositoryIssueEntity, String>
 {
     Page<RepositoryIssueEntity> findByRepositoryId(long repositoryId, Pageable pageable);
 
     Optional<RepositoryIssueEntity> findByRepositoryIdAndNumber(long repositoryId, int number);
 
-    @Query("select issue.id from RepositoryIssueEntity issue where issue.repositoryId = :repositoryId")
+    @Query("select issue.remoteId from RepositoryIssueEntity issue where issue.repositoryId = :repositoryId")
     List<Long> findIdsByRepositoryId(@Param("repositoryId") long repositoryId);
 }

@@ -54,6 +54,7 @@ class TestEpicSources
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("Owner", "Repository"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(tickets.getObject()).thenReturn(jira);

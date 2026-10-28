@@ -92,6 +92,8 @@ export async function run(): Promise<string[]> {
   const agent = createPreviewBridge(review.workspaceId);
   const bridge = {
     findPullRequestTask: async () => null,
+    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'reader', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     getModelSettings: agent.getModelSettings,
@@ -112,7 +114,7 @@ export async function run(): Promise<string[]> {
       sourceFingerprint: 'review-head', baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'review',
       files: [], commits: [], staged: [], unstaged: [], untracked: [], truncated: false }),
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'findPullRequestTask' | 'getUserProfile' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
+  } satisfies Pick<Bridge, 'findPullRequestTask' | 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
     | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'recordRecentTouch'>;
   const previous = window.bridge;

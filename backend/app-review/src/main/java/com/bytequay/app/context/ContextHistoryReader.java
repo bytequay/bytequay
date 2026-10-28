@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.context;
 
-import com.bytequay.app.repository.github.GitHubIssuePreview;
-import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
 import com.bytequay.app.utils.ContextText;
@@ -22,6 +20,7 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.GitHubIssuePreview;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -57,17 +56,15 @@ public class ContextHistoryReader
 
     private final SelectedPullRequestReader pullRequests;
     private final SelectedPullRequestDiffReader diffs;
-    private final RepoService repositories;
     private final WorkspaceIssueService issues;
     private final Clock clock;
 
     public ContextHistoryReader(
-            SelectedPullRequestReader pullRequests, SelectedPullRequestDiffReader diffs, RepoService repositories,
+            SelectedPullRequestReader pullRequests, SelectedPullRequestDiffReader diffs,
             WorkspaceIssueService issues, Clock clock)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.diffs = requireNonNull(diffs, "diffs is null");
-        this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
@@ -89,13 +86,14 @@ public class ContextHistoryReader
         checkArgument(number > 0, "The history number must be positive");
         return switch (kind) {
             case PR -> pullRequest(workspace, number);
-            case ISSUE -> issue(workspace, workspace.monitoredRepositoryId(), number);
+            case ISSUE -> issue(workspace, number);
         };
     }
 
     private Read pullRequest(WorkspaceRepositoryContext workspace, int number)
     {
-        SelectedPullRequestReader.Read read = pullRequests.read(workspace.monitoredRepository().fullName(), number, SelectedPullRequestReader.Section.TIMELINE);
+        SelectedPullRequestReader.Read read = pullRequests.read(workspace.workspaceId(), workspace.monitoredRepository().fullName(), number,
+                SelectedPullRequestReader.Section.TIMELINE);
         PullRequestDetail detail = read.detail();
         checkArgument(detail.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()) && detail.number() == number,
                 "The selected PR identity differs from the requested history");
@@ -121,7 +119,7 @@ public class ContextHistoryReader
         }
         boolean refreshFailed = read.refreshFailed();
         try {
-            SelectedPullRequestDiffReader.Read diff = diffs.read(workspace.monitoredRepository().fullName(), number, Optional.empty(), false);
+            SelectedPullRequestDiffReader.Read diff = diffs.read(workspace.workspaceId(), workspace.monitoredRepository().fullName(), number, Optional.empty(), false);
             refreshFailed |= diff.refreshFailed();
             gaps.addAll(diff.gaps());
             body.line("Default diff artifact: " + diff.version() + "; separately observed head=" + diff.observedHeadSha().orElse("unknown")
@@ -143,12 +141,13 @@ public class ContextHistoryReader
                 "mergedAt=" + detail.mergedAt(), provenance, body, refreshFailed, gaps);
     }
 
-    private Read issue(WorkspaceRepositoryContext workspace, long repositoryId, int number)
+    private Read issue(WorkspaceRepositoryContext workspace, int number)
     {
         // Open-only issue rows cannot prove terminal state, including when an old row survives a recent close.
-        GitHubIssuePreview preview = repositories.getIssuePreview(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), number);
+        GitHubIssuePreview preview = issues.preview(workspace.workspaceId(), number);
         checkArgument(!preview.pullRequest() && preview.state().equals("closed"), "History requires a closed issue, not an open issue or pull request");
         RepositoryIssueDetail detail = issues.detail(workspace.workspaceId(), number);
+        long repositoryId = detail.repositoryId();
         checkIssueIdentity(detail, repositoryId, number);
         boolean refreshFailed = false;
         boolean refreshAttempted = detail.refreshedAt().isEmpty() || detail.refreshedAt().orElseThrow().isBefore(preview.updatedAt());

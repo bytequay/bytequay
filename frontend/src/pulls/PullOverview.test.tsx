@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
 import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
-import PullOverview, { appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isAutoMergeEnabled, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
+import PullOverview, { appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, checkJobId, isAutoMergeEnabled, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '@bytequay/ui/relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import type { AgentReviewDto } from './agent-review/contracts';
@@ -119,7 +119,7 @@ describe('PullOverview', () => {
 
     expect(actions).toHaveLength(2);
     expect(popup).toContain('Ready for review</button>');
-    expect(popup).toContain(`${mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}</button>`);
+    expect(popup).toContain(`${mergeQueue === false ? 'Merge' : 'Merge when ready'}</button>`);
     expect(actions[0]).toContain('disabled=""');
     expect(actions[1].includes('disabled=""')).toBe(mergeQueue === undefined);
   });
@@ -145,7 +145,7 @@ describe('PullOverview', () => {
     const popup = renderToStaticMarkup(<MergeDialog {...props} />);
     const actions = popup.match(/<button class="is-primary"[^>]*>/g) ?? [];
     expect(popup).toContain('Waiting for checks');
-    expect(popup).toContain(`${mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}</button>`);
+    expect(popup).toContain(`${mergeQueue === false ? 'Merge' : 'Merge when ready'}</button>`);
     expect(actions[1].includes('disabled=""')).toBe(mergeQueue !== true);
 
     const mergePr = vi.fn(async () => {});
@@ -243,10 +243,10 @@ describe('PullOverview', () => {
       expect(onClose).toHaveBeenCalledOnce();
       return refresh.promise;
     });
+    vi.stubGlobal('window', { bridge: { removePrFromMergeQueue, mergePr } });
     const submit = captureMergeSubmit({
       pr: pullRequest(), detail: autoMerge ? scheduledDetail() : queuedDetail(), mergeQueue: undefined, onClose, onRefresh,
     });
-    vi.stubGlobal('window', { bridge: { removePrFromMergeQueue, mergePr } });
     try {
       expect(removePrFromMergeQueue).not.toHaveBeenCalled();
       submit();
@@ -283,11 +283,11 @@ describe('PullOverview', () => {
   it.each([true, false])('does not route a disabled popup action to another endpoint (draft: %s)', draft => {
     const markPrReadyForReview = vi.fn();
     const mergePr = vi.fn();
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
     const submit = captureMergeSubmit({
       pr: pullRequest(), detail: { ...detail(), draft, viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' },
       mergeQueue: true, onClose: () => {}, onRefresh: async () => {},
     }, draft ? 'merge' : 'ready');
-    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
     submit();
     expect(markPrReadyForReview).not.toHaveBeenCalled();
     expect(mergePr).not.toHaveBeenCalled();
@@ -327,10 +327,10 @@ describe('PullOverview', () => {
       expect(onClose).toHaveBeenCalledOnce();
       return refresh.promise;
     });
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
     const submit = captureMergeSubmit({
       pr: pullRequest(), detail: { ...detail(), draft: true }, mergeQueue: true, onClose, onRefresh, onDetailUpdate,
     }, 'ready');
-    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
     try {
       expect(markPrReadyForReview).not.toHaveBeenCalled();
       submit();
@@ -360,10 +360,10 @@ describe('PullOverview', () => {
     const onDetailUpdate = vi.fn();
     const onClose = vi.fn();
     const onRefresh = vi.fn(async () => {});
+    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
     const submit = captureMergeSubmit({
       pr: pullRequest(), detail: { ...detail(), draft: true }, mergeQueue: false, onClose, onRefresh, onDetailUpdate,
     }, 'ready');
-    vi.stubGlobal('window', { bridge: { markPrReadyForReview, mergePr } });
     submit();
     write.reject(new Error('Write access is required'));
     await write.promise.catch(() => {});
@@ -730,11 +730,11 @@ describe('PullOverview', () => {
       return refresh.promise;
     });
     const value: PullRequestDetailDto = { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' };
-    const submit = captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue, onClose, onRefresh });
     vi.stubGlobal('window', { bridge: { mergePr } });
+    const submit = captureMergeSubmit({ pr: pullRequest(), detail: value, mergeQueue, onClose, onRefresh });
     try {
       submit();
-      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'when-ready' : 'rebase', value.headSha);
+      expect(mergePr).toHaveBeenCalledWith(1, 'owner/repo', 42, mergeQueue ? 'when-ready' : 'default', value.headSha);
       expect(onClose).not.toHaveBeenCalled();
       expect(onRefresh).not.toHaveBeenCalled();
 
@@ -757,10 +757,10 @@ describe('PullOverview', () => {
     const mergePr = vi.fn(() => merge.promise);
     const onClose = vi.fn();
     const onRefresh = vi.fn(async () => {});
+    vi.stubGlobal('window', { bridge: { mergePr } });
     const submit = captureMergeSubmit({
       pr: pullRequest(), detail: { ...detail(), viewerCanWrite: true, checkRuns: [], ciStatus: 'PASSING' }, mergeQueue: true, onClose, onRefresh,
     });
-    vi.stubGlobal('window', { bridge: { mergePr } });
     submit();
     merge.reject(new Error('Pull request cannot be queued'));
     await merge.promise.catch(() => {});
@@ -795,9 +795,9 @@ describe('PullOverview', () => {
     expect(html).toContain('main');
     expect(html).toContain('feature/overview');
     expect(html).toContain('class="pr-copy-button" aria-label="Copy head branch" title="Copy head branch"');
-    expect(html).toContain('aria-label="Open on GitHub" title="Open on GitHub"');
-    expect(html).toContain('src="https://github.com/github.png?size=36"');
-    expect(html.indexOf('feature/overview')).toBeLessThan(html.indexOf('aria-label="Open on GitHub"'));
+    expect(html).toContain('aria-label="Open in browser" title="Open in browser"');
+    expect(html).toContain('lucide-external-link');
+    expect(html.indexOf('feature/overview')).toBeLessThan(html.indexOf('aria-label="Open in browser"'));
     expect(html.indexOf('added <span')).toBeLessThan(html.indexOf('changed the title from'));
     expect(html).toContain('src/Example.java:L12');
     expect(html).toContain('Resolved');
@@ -984,27 +984,27 @@ describe('PullOverview', () => {
     expect(html).toContain('aria-label="Cancelled"');
   });
 
-  it('offers browser and inline log actions only on failed checks, using the Actions job ID', () => {
+  it('offers browser and inline log actions only on failed checks, using the normalized job ID', () => {
     const value = detail();
-    const check = { ...value.checkRuns[0], githubId: 999, detailsUrl: 'https://github.com/owner/repo/actions/runs/101/job/301' };
+    const check = { ...value.checkRuns[0], githubId: 301, source: 'job', detailsUrl: 'https://git.example/group/repo/-/jobs/301' };
     value.checkRuns = [check, { ...check, githubId: 2, category: 'successful' }, { ...check, githubId: 3, source: 'status', detailsUrl: 'https://ci.example/job/3' }];
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
-    expect(html.match(/aria-label="Open in GitHub"/g)).toHaveLength(2);
+    expect(html.match(/aria-label="Open in browser"/g)).toHaveLength(3);
     expect(html.match(/aria-label="Show log"/g)).toHaveLength(2);
-    expect(html).toContain('Inline logs are available for GitHub Actions jobs');
+    expect(html).toContain('Inline logs are available for jobs');
     expect(html).not.toContain('pr-check__log');
-    expect(githubActionsJobId(check)).toBe(301);
-    for (const url of [null, 'invalid', 'https://ci.example/actions/runs/101/job/301', 'https://github.com/owner/repo/actions/runs/101',
-      'https://github.com/owner/repo/actions/runs/101/job/0', 'https://github.com/owner/repo/actions/runs/101/job/99999999999999999']) {
-      expect(githubActionsJobId({ ...check, detailsUrl: url })).toBeNull();
+    expect(checkJobId(check)).toBe(301);
+    for (const githubId of [null, 0, -1, Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(checkJobId({ ...check, githubId })).toBeNull();
     }
-    expect(githubActionsJobId({ ...check, source: 'status' })).toBeNull();
+    expect(checkJobId({ ...check, source: 'status' })).toBeNull();
   });
 
   it('offers failed GitHub Actions reruns to viewers with write access', () => {
     const value = detail();
     value.viewerCanWrite = true;
-    value.checkRuns[0].detailsUrl = 'https://github.com/owner/repo/actions/runs/101/job/301';
+    value.checkRuns[0].source = 'job';
+    value.checkRuns[0].githubId = 301;
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
@@ -1530,7 +1530,7 @@ describe('PullOverview', () => {
     );
 
     expect(mergeActionLabel(true)).toBe('Merge when ready');
-    expect(mergeActionLabel(false)).toBe('Rebase and merge');
+    expect(mergeActionLabel(false)).toBe('Merge');
     expect(mergeActionLabel(undefined)).toBe('Loading merge status');
     expect(mergeActionLabel(null)).toBe('Merge status unavailable');
     expect(mergeActionLabel(true, true)).toBe('Conflicts');
@@ -1762,7 +1762,7 @@ describe('the pane tab row', () => {
     expect(html).toContain('aria-label="Zoom pull request details"');
     expect(html).not.toContain('Change source');
     expect(html).not.toContain('requested your review');
-    expect(html).not.toContain('Open on GitHub');
+    expect(html).not.toContain('Open in browser');
     expect(html).toContain('WorkBench');
     expect(html).not.toContain('Files changed');
     expect(html).not.toContain('Summary');

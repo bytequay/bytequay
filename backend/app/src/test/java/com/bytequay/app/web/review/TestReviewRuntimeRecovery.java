@@ -49,8 +49,15 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
@@ -71,6 +78,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -116,8 +124,9 @@ class TestReviewRuntimeRecovery
             new AgentServingGate(), launchStore, taskStore, turnStore, mock(AgentTurnService.class));
     private final MemoryService memories = mock(MemoryService.class);
     private final ReviewPublicationService publications = mock(ReviewPublicationService.class);
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final ReviewController controller = new ReviewController(
-            reviews, publications, turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
+            reviews, publications, pullRequests, turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
             memories, new WriteVersion());
 
     @Test
@@ -272,6 +281,11 @@ class TestReviewRuntimeRecovery
             throws Exception
     {
         MockMvc mvc = standaloneSetup(controller).setControllerAdvice(new GlobalExceptionHandler()).build();
+        HostingInstance server = new HostingInstance(1, HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        URI repositoryUrl = URI.create("https://github.com/owner/repo");
+        PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "account", new HostingAccess(server, "token")),
+                new HostingRepository(1, 1, "repository", "owner/repo", repositoryUrl, repositoryUrl, Optional.empty(), Optional.of("main")), 7, "viewer");
+        when(pullRequests.prepareRead(null, "owner/repo", 7)).thenReturn(route);
         String key = "6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b";
         // The comment box's own shape, startSide included.
         String comment = """
@@ -283,7 +297,7 @@ class TestReviewRuntimeRecovery
         mvc.perform(post("/api/agent-review/drafts/items/{key}/post", "new").param("repo", "owner/repo").param("number", "7").contentType("application/json").content(comment))
                 .andExpect(status().isBadRequest());
 
-        verify(publications).postComment("owner/repo", 7, key, new ReviewDraftItem("new", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(),
+        verify(publications).postComment(route, key, new ReviewDraftItem("new", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(),
                 "src/Main.java", "RIGHT", 18, OptionalInt.empty(), "Please simplify this", true, Optional.empty(), Optional.of("head-sha"), OptionalLong.empty()));
         verifyNoMoreInteractions(publications);
     }

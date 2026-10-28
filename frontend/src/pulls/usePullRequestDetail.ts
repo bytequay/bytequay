@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { usePullRequestBridge } from './PullRequestWorkspace';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
 import {
@@ -91,6 +92,7 @@ export function usePullRequestDetail(
   target: PullRequestTarget | null,
   { active = true, onDetail, onStatus }: PullRequestDetailOptions = {},
 ): PullRequestDetailSource {
+  const bridge = usePullRequestBridge();
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -177,7 +179,7 @@ export function usePullRequestDetail(
         const checksOnly = !opened && !refreshRequested && Date.now() - lastDetailRefresh < DETAIL_REFRESH_INTERVAL;
         if (!checksOnly) refreshRequested = false;
         const requestMutationVersion = mutationVersion.current;
-        request = window.bridge.refreshPullRequestDetailByRef(repo, number, checksOnly, opened);
+        request = bridge.refreshPullRequestDetailByRef(repo, number, checksOnly, opened);
         refreshInFlight.current = request;
         const value = await request;
         if (cancelled) return;
@@ -217,7 +219,7 @@ export function usePullRequestDetail(
       }
     };
     const changed = (event: Event) => {
-      const row = (event as CustomEvent<PullRequestDto[]>).detail.find(value => pullRequestKey(value) === key);
+      const row = (event as CustomEvent<PullRequestDto[] | undefined>).detail?.find(value => value.id === applied.current?.id);
       if (row === undefined) return;
       const version = JSON.stringify([row.updatedAt, row.activityAt, row.ciStatus, row.headPushedAt, row.reviewDecision, row.commentCount]);
       const current = applied.current;
@@ -241,7 +243,7 @@ export function usePullRequestDetail(
     const initialMutationVersion = mutationVersion.current;
     (known
       ? Promise.resolve()
-      : window.bridge.fetchPullRequestDetailByRef(repo, number)
+      : bridge.fetchPullRequestDetailByRef(repo, number)
         .then(value => { if (!cancelled) apply(value, initialMutationVersion); })
         .catch(failure => { if (!cancelled) setError(remoteErrorMessage(failure)); }))
       .finally(() => {
@@ -258,7 +260,7 @@ export function usePullRequestDetail(
       window.removeEventListener(ZOOM_REFERENCE, reopened);
       clearTimer();
     };
-  }, [active, apply, key, number, repo]);
+  }, [active, apply, bridge, key, number, repo]);
 
   const refresh = useCallback(async () => {
     if (repo === null || number === null || key !== currentKey.current) return;
@@ -268,7 +270,7 @@ export function usePullRequestDetail(
     if (key !== currentKey.current) return;
     setLoading(true);
     const requestMutationVersion = mutationVersion.current;
-    const request = window.bridge.refreshAllPullRequestDetailByRef(repo, number);
+    const request = bridge.refreshAllPullRequestDetailByRef(repo, number);
     refreshInFlight.current = request;
     try {
       apply(await request, requestMutationVersion);
@@ -281,7 +283,7 @@ export function usePullRequestDetail(
       if (refreshInFlight.current === request) refreshInFlight.current = null;
       if (key === currentKey.current) setLoading(false);
     }
-  }, [apply, key, number, repo]);
+  }, [apply, bridge, key, number, repo]);
 
   const update = useCallback<PullDetailUpdater>((updatedRepo, updatedNumber, change) => {
     const current = applied.current;

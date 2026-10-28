@@ -238,7 +238,7 @@ export type AgentReviewDto = {
   byteQuayTurnIds: string[];
   draft: ReviewDraftDto | null;
   /** The stored pull request's title and state; null until ByteQuay has stored the pull request. */
-  pullRequest: { title: string; state: string; draft: boolean } | null;
+  pullRequest: { title: string; state: string; draft: boolean; htmlUrl: string } | null;
   /** Set on one side of a replay: the merged pull request it reviews at a past head, and whether this side has memory. */
   replay?: { id: string; number: number; memory: boolean };
 };
@@ -590,6 +590,7 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
     byteQuayTurnIds: strings(review.byteQuayTurnIds),
     draft: review.draft === null || review.draft === undefined ? null : parseReviewDraft(review.draft),
     pullRequest: pullRequest === null ? null : {
+      htmlUrl: text(pullRequest.htmlUrl, 'pull request URL'),
       title: text(pullRequest.title, 'pull request title'),
       state: text(pullRequest.state, 'pull request state'),
       draft: flag(pullRequest.draft),

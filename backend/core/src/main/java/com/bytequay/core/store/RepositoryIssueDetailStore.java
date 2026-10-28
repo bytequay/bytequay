@@ -14,12 +14,18 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.RepositoryIssueDetail;
+import com.bytequay.core.domain.Workspace;
 
 import java.util.Optional;
 
 public interface RepositoryIssueDetailStore
 {
     Optional<RepositoryIssueDetail> find(long repositoryId, int issueNumber);
+
+    default Optional<RepositoryIssueDetail> find(WorkspaceStore workspaces, Workspace workspace, int number)
+    {
+        return workspaces.findHostingRepositoryId(workspace.id()).flatMap(id -> find(id, number));
+    }
 
     void save(RepositoryIssueDetail detail);
 }

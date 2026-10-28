@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
@@ -30,7 +31,6 @@ import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
-import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -59,13 +59,12 @@ import static java.util.stream.Collectors.toMap;
 @Service
 public class GoalReferenceReader
 {
-    private static final String HOST = "github.com";
     private static final int CANDIDATES_PER_KIND = 8;
     private static final int ISSUE_SCAN = 500;
     private static final int TASK_SCAN = 100;
 
     private final WorkspaceStore workspaces;
-    private final PullRequestStore pullRequests;
+    private final PullRequestService pullRequests;
     private final RepositoryIssueStore issues;
     private final IssueDevelopmentStore development;
     private final ObjectProvider<JiraService> jira;
@@ -75,7 +74,7 @@ public class GoalReferenceReader
     private final PullRequestTaskStore assignments;
     private final TaskPullRequestOwnership pullOwnership;
 
-    public GoalReferenceReader(WorkspaceStore workspaces, PullRequestStore pullRequests, RepositoryIssueStore issues,
+    public GoalReferenceReader(WorkspaceStore workspaces, PullRequestService pullRequests, RepositoryIssueStore issues,
             IssueDevelopmentStore development, ObjectProvider<JiraService> jira, AgentTaskService tasks, Clock clock,
             JiraIssueTaskStore jiraTasks, PullRequestTaskStore assignments, TaskPullRequestOwnership pullOwnership)
     {
@@ -96,14 +95,10 @@ public class GoalReferenceReader
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Resolver resolver = new Resolver(workspace);
         String term = query.trim().toLowerCase(Locale.ROOT);
-        Stream<GoalItemView> pulls = workspace.isGitHub()
-                ? pullRequests.findRepositoryPage(workspace.monitoredRepository().fullName(), 0, CANDIDATES_PER_KIND, term)
-                        .pullRequests().stream().map(resolver::pullRequestView)
-                : Stream.empty();
-        Stream<GoalItemView> repositoryIssues = workspace.isGitHub()
-                ? issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, ISSUE_SCAN).issues().stream()
-                        .filter(issue -> matches(term, "#" + issue.number(), issue.title())).limit(CANDIDATES_PER_KIND).map(resolver::issueView)
-                : Stream.empty();
+        Stream<GoalItemView> pulls = pullRequests.listWorkspacePullRequests(workspaceId, 0, CANDIDATES_PER_KIND, term)
+                .pullRequests().stream().map(resolver::pullRequestView);
+        Stream<GoalItemView> repositoryIssues = issues.findPage(workspaces, workspace, 0, ISSUE_SCAN).issues().stream()
+                .filter(issue -> matches(term, "#" + issue.number(), issue.title())).limit(CANDIDATES_PER_KIND).map(resolver::issueView);
         Stream<GoalItemView> tickets = jira.getObject().cachedIssues().stream()
                 .filter(issue -> issue.workspace().filter(assigned -> assigned.id().equals(workspaceId)).isPresent())
                 .filter(issue -> matches(term, issue.key(), issue.title())).limit(CANDIDATES_PER_KIND).map(resolver::jiraView);
@@ -128,7 +123,7 @@ public class GoalReferenceReader
             case ISSUE -> {
                 NumberedKey ref = NumberedKey.parse(canonical);
                 checkArgument(ref.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()), "Issue belongs to another workspace");
-                yield WorkItemLink.issueIdentity(HOST, issues.find(workspace.monitoredRepositoryId(), ref.number()).orElseThrow().id());
+                yield WorkItemLink.issueIdentity(workspace.issueHost(), issues.find(workspaces, workspace, ref.number()).orElseThrow().id());
             }
             case JIRA -> {
                 String[] parts = canonical.split(":", 3);
@@ -139,12 +134,12 @@ public class GoalReferenceReader
             case TASK -> WorkItemLink.taskIdentity(canonical);
             case PULL_REQUEST -> {
                 checkArgument(NumberedKey.parse(canonical).repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()), "PR belongs to another workspace");
-                yield "PULL_REQUEST:github.com:" + canonical;
+                yield "PULL_REQUEST:" + workspace.issueHost() + ":" + canonical;
             }
         };
         if (kind == GoalItemKind.ISSUE) {
-            RepositoryIssue issue = issues.find(workspace.monitoredRepositoryId(), NumberedKey.parse(canonical).number()).orElseThrow();
-            return issueLink(new GitHubIssueSource(HOST, issue.id(), workspace.monitoredRepository().fullName(), issue.number(), issue.htmlUrl(),
+            RepositoryIssue issue = issues.find(workspaces, workspace, NumberedKey.parse(canonical).number()).orElseThrow();
+            return issueLink(new GitHubIssueSource(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(), issue.number(), issue.htmlUrl(),
 
                     issue.title(), issue.body(), issue.updatedAt()), clock.instant());
         }
@@ -164,7 +159,8 @@ public class GoalReferenceReader
         result.add(link);
         Optional<String> taskId = switch (link.reference().kind()) {
             case TASK -> Optional.of(link.reference().key());
-            case ISSUE -> development.findTask(HOST, Long.parseLong(link.identity().substring(link.identity().lastIndexOf(':') + 1)))
+            case ISSUE -> development.findTask(requireWorkspace(workspaces, workspaceId).issueHost(),
+                            Long.parseLong(link.identity().substring(link.identity().lastIndexOf(':') + 1)))
                     .map(value -> scopedTask(workspaceId, value.workspaceId(), value.taskId()));
             case JIRA -> {
                 String[] parts = link.reference().key().split(":", 3);
@@ -274,8 +270,8 @@ public class GoalReferenceReader
         Optional<GoalItemView> find(GoalItemKind kind, String key)
         {
             return switch (kind) {
-                case PULL_REQUEST -> workspace.isGitHub() ? pullRequest(key) : Optional.empty();
-                case ISSUE -> workspace.isGitHub() ? issue(key) : Optional.empty();
+                case PULL_REQUEST -> pullRequest(key);
+                case ISSUE -> issue(key);
                 case JIRA -> jiraTicket(key);
                 case TASK -> task(key);
             };
@@ -290,7 +286,9 @@ public class GoalReferenceReader
         private Optional<GoalItemView> pullRequest(String key)
         {
             NumberedKey ref = NumberedKey.parse(key);
-            return pullRequests.findIdByRepoAndNumber(ref.repo(), ref.number()).flatMap(pullRequests::findById).map(this::pullRequestView);
+            return ownRepository(ref.repo())
+                    ? pullRequests.findWorkspaceStored(workspace.id(), ref.repo(), ref.number()).map(this::pullRequestView)
+                    : Optional.empty();
         }
 
         GoalItemView pullRequestView(PullRequest pull)
@@ -312,12 +310,12 @@ public class GoalReferenceReader
             if (!ownRepository(ref.repo())) {
                 return Optional.empty();
             }
-            return issues.find(workspace.monitoredRepositoryId(), ref.number()).map(this::issueView);
+            return issues.find(workspaces, workspace, ref.number()).map(this::issueView);
         }
 
         GoalItemView issueView(RepositoryIssue issue)
         {
-            boolean developing = development.findTask(HOST, issue.id()).isPresent();
+            boolean developing = development.findTask(workspace.issueHost(), issue.id()).isPresent();
             String label = "#" + issue.number();
             return new GoalItemView(GoalItemKind.ISSUE, GoalItem.numberedKey(workspace.monitoredRepository().fullName(), issue.number()), label, issue.title(),
                     developing ? GoalItemState.WORKING : GoalItemState.IDLE, "Open", false, Optional.of(issue.htmlUrl()),

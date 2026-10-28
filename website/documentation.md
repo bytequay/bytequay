@@ -124,14 +124,13 @@ application's client ID in `glab` first, as described in the
 The CLI keeps one active account per server; use personal access tokens to keep
 additional accounts connected. Disconnecting in ByteQuay does not sign out of `glab`.
 
-To connect with a personal access token instead, select `read_api` and
-`read_repository`. This option also works when browser sign-in is unavailable.
+To connect with a personal access token instead, select `api`. This option also works when browser sign-in is unavailable.
 
 Choose **Create access token** to open that server's token settings in your
 browser with the ByteQuay name and required permissions prefilled. Sign in to
 GitLab normally, create the token, then paste it into ByteQuay and choose
 **Connect GitLab**. If your server does not preselect the permissions, select
-`read_api` and `read_repository` yourself before generating the token.
+`api` yourself before generating the token.
 
 Enter the full **Project path**, such as `group/subgroup/project`, and choose
 **Find project**. Check the account, server and project, then choose **Create
@@ -140,17 +139,17 @@ workspace** fetches updates; **Choose GitLab account** switches accounts on the
 same server. Accounts can also be connected or disconnected in **Settings →
 Integrations → GitLab**.
 
-Open **Merge requests** in the workspace to browse cached requests. **Sync merge requests**
-updates them using the selected account; **Load more** reads the next cached
-page. Search and state filters apply to loaded rows. Select a merge request to
-read its description, status, branches, labels and assignees in
-ByteQuay. Saved details appear while the selected account checks for updates;
-you can refresh them again from the overview. GitHub workspaces use the same
-cached list and keep their existing review and monitoring controls.
+GitLab workspaces use the same workspace home, request list, review detail,
+Work items and Tasks as GitHub workspaces. Refresh reads through the selected
+account. Open a request to read its discussion, checks and changes, add comments,
+approve or merge. Work items lists the project's issues and can start a task from
+one. Task publication creates a merge request through the workspace account.
 
-GitLab diffs, discussions, checks, review actions, issues, agent tasks and delivery
-inside ByteQuay are not available yet. Use **Open in GitLab** for those features,
-uploaded attachments and GitLab-specific references in descriptions.
+GitLab supports a different set of review operations. Request-changes reviews,
+multi-line review comments, merge trains, GitHub-specific CI automation and
+remote epic-child synchronization are not yet integrated. The app reports
+unsupported remote actions explicitly. Project settings control GitLab merge
+methods. Use **Open in GitLab** for unsupported operations.
 
 ### Plan the day with Today
 

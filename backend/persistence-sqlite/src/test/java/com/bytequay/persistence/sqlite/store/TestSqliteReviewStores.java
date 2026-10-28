@@ -63,6 +63,7 @@ import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
 class TestSqliteReviewStores
         extends AbstractTestSqliteStore
 {
@@ -402,7 +403,7 @@ class TestSqliteReviewStores
                 "RIGHT", 42, OptionalInt.empty(), "Reply to the existing discussion", true, Optional.empty(), Optional.empty(), OptionalLong.of(61));
         reply = reply.withPublication(Optional.of(new ReviewPublication(
                 "attempt-2", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW.plusSeconds(11))));
-        ReviewDraft draft = ReviewDraft.empty("ByteQuay/Sample", 7, NOW)
+        ReviewDraft draft = ReviewDraft.empty("bytequay/sample#7", "ByteQuay/Sample", 7, NOW)
                 .withReview("Close, but the counter is wrong.", "REQUEST_CHANGES", NOW.plusSeconds(1))
                 .withItems(ImmutableList.of(manual, promoted, reply), NOW.plusSeconds(2))
                 .withSummaryFindings(ImmutableList.of("finding-pending"), ImmutableList.of("finding-posted"), NOW.plusSeconds(3))
@@ -413,8 +414,8 @@ class TestSqliteReviewStores
         entityManager.clear();
 
         assertThat(saved).isEqualTo(draft);
-        assertThat(draftStore.find("bytequay/sample", 7)).contains(draft);
-        ReviewDraft stored = draftStore.find("bytequay/sample", 7).orElseThrow();
+        assertThat(draftStore.find("bytequay/sample#7")).contains(draft);
+        ReviewDraft stored = draftStore.find("bytequay/sample#7").orElseThrow();
         assertThat(stored.items()).containsExactly(manual, promoted, reply);
         assertThat(stored.items().get(0).published()).isFalse();
         assertThat(stored.items().get(1).published()).isTrue();
@@ -422,7 +423,7 @@ class TestSqliteReviewStores
 
         draftStore.save(stored.withReviewPublication(Optional.empty(), NOW.plusSeconds(5)));
         entityManager.clear();
-        assertThat(draftStore.find("bytequay/sample", 7).orElseThrow().reviewPublication()).isEmpty();
+        assertThat(draftStore.find("bytequay/sample#7").orElseThrow().reviewPublication()).isEmpty();
     }
 
     @Test
@@ -430,13 +431,13 @@ class TestSqliteReviewStores
     {
         ReviewDraftItem item = new ReviewDraftItem("item-retained", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
                 "RIGHT", 42, OptionalInt.empty(), "User-edited wording", true, Optional.empty(), Optional.of(HEAD_SHA), OptionalLong.empty());
-        ReviewDraft saved = draftStore.save(ReviewDraft.empty("bytequay/sample", 7, NOW)
+        ReviewDraft saved = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "bytequay/sample", 7, NOW)
                 .withReview("Retained summary", "REQUEST_CHANGES", NOW).withItems(ImmutableList.of(item), NOW));
         entityManager.createNativeQuery("UPDATE pr_review_draft SET items_json = json_remove(items_json, '$[0].commitId') WHERE id = :id")
                 .setParameter("id", saved.id()).executeUpdate();
         entityManager.clear();
 
-        ReviewDraft retained = draftStore.find("bytequay/sample", 7).orElseThrow();
+        ReviewDraft retained = draftStore.find("bytequay/sample#7").orElseThrow();
 
         assertThat(retained.body()).isEqualTo("Retained summary");
         assertThat(retained.event()).isEqualTo("REQUEST_CHANGES");
@@ -534,21 +535,21 @@ class TestSqliteReviewStores
     @Test
     void savesDraftOnFirstWriteAndRejectsStaleVersions()
     {
-        ReviewDraft saved = draftStore.save(ReviewDraft.empty("ByteQuay/Sample", 7, NOW));
+        ReviewDraft saved = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "ByteQuay/Sample", 7, NOW));
 
         assertThat(saved.version()).isEqualTo(0);
         assertThat(saved.repo()).isEqualTo("bytequay/sample");
-        assertThat(draftStore.find("BYTEQUAY/SAMPLE", 7)).contains(saved);
-        assertThat(draftStore.find("bytequay/sample", 9)).isEmpty();
+        assertThat(draftStore.find("bytequay/sample#7")).contains(saved);
+        assertThat(draftStore.find("bytequay/sample#9")).isEmpty();
 
         ReviewDraft updated = draftStore.save(saved.withReview("Looks good.", "APPROVE", NOW.plusSeconds(1)));
 
         assertThat(updated.version()).isEqualTo(1);
-        assertThat(draftStore.find("ByteQuay/Sample", 7)).contains(updated);
+        assertThat(draftStore.find("bytequay/sample#7")).contains(updated);
         assertThatThrownBy(() -> draftStore.save(saved.withReview("Written against the old draft.", "COMMENT", NOW.plusSeconds(2))))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("version changed");
-        assertThatThrownBy(() -> draftStore.save(ReviewDraft.empty("bytequay/other", 9, NOW).withVersion(3)))
+        assertThatThrownBy(() -> draftStore.save(ReviewDraft.empty("bytequay/other#9", "bytequay/other", 9, NOW).withVersion(3)))
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("version changed");
     }
@@ -582,7 +583,8 @@ class TestSqliteReviewStores
         store.insertReview(newReview("review-published", "workspace-published", "bytequay/published", 7, "task-published", NOW).closed(NOW));
         store.insertRun(newRun("run-published", "review-published"));
         ReviewFinding finding = store.insertFinding(newFinding("finding-published", "review-published", "run-published"));
-        ReviewDraft pending = draftStore.save(ReviewDraft.empty("bytequay/published", 7, NOW).withSummaryFindings(ImmutableList.of(finding.id()), ImmutableList.of(), NOW));
+        ReviewDraft pending = draftStore.save(ReviewDraft.empty("bytequay/published#7", "bytequay/published", 7, NOW)
+                .withSummaryFindings(ImmutableList.of(finding.id()), ImmutableList.of(), NOW));
         ReviewDraft published = pending.withSummaryFindings(ImmutableList.of(), ImmutableList.of(finding.id()), NOW.plusSeconds(1));
         ReviewFinding concurrent = store.updateFinding(finding.withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m1", "Keep the guard"))));
 
@@ -590,13 +592,13 @@ class TestSqliteReviewStores
                 ImmutableList.of(finding.withState(ReviewFinding.State.RESOLVED, Optional.empty(), NOW.plusSeconds(1)))))
                 .isInstanceOf(ReviewConflictException.class);
 
-        assertThat(draftStore.find(pending.repo(), pending.number())).contains(pending);
+        assertThat(draftStore.find(pending.id())).contains(pending);
         assertThat(store.findFinding(finding.id())).contains(concurrent);
 
         ReviewFinding resolved = concurrent.withState(ReviewFinding.State.RESOLVED, Optional.of("Accepted and posted to GitHub"), NOW.plusSeconds(2));
         ReviewDraft saved = draftStore.savePublished(published, ImmutableList.of(resolved));
 
-        assertThat(draftStore.find(pending.repo(), pending.number())).contains(saved);
+        assertThat(draftStore.find(pending.id())).contains(saved);
         assertThat(saved.postedSummaryFindingIds()).containsExactly(finding.id());
         assertThat(store.findFinding(finding.id())).contains(resolved.withVersion(concurrent.version() + 1));
     }

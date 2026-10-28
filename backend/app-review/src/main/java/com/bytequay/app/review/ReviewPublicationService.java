@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.PullRequestDetail;
@@ -62,10 +63,10 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The user's local pending review for one pull request, and the only path from it to GitHub.
+ * The user's local pending review for one pull request, and the only path from it to the remote.
  *
  * <p>Nothing here publishes by itself: every send is one explicit user action that revalidates the
- * pull request and the exact saved item payload before ByteQuay's existing GitHub
+ * pull request and the exact saved item payload before ByteQuay's hosting
  * write path is called.
  */
 @Service
@@ -74,9 +75,9 @@ public class ReviewPublicationService
     private static final Logger log = LoggerFactory.getLogger(ReviewPublicationService.class);
     private static final List<String> EVENTS = ImmutableList.of("COMMENT", "APPROVE", "REQUEST_CHANGES");
     private static final int MAX_BODY = 60_000;
-    // GitHub answers these before acting on a write, as do the checks before one; the work-item publish uses the same set.
+    // The server answers these before acting on a write, as do the checks before one; the work-item publish uses the same set.
     private static final Set<Integer> REFUSED = ImmutableSet.of(400, 401, 403, 404, 422, 429);
-    private static final String UNCONFIRMED_COMMENT = "GitHub did not confirm this comment, so it may have been posted. Check the pull request on GitHub, "
+    private static final String UNCONFIRMED_COMMENT = "The server did not confirm this comment, so it may have been posted. Check the pull request on the remote, "
             + "then open Submit review and choose Confirmed posted or Confirmed not posted.";
 
     private final ReviewDraftStore drafts;
@@ -96,16 +97,16 @@ public class ReviewPublicationService
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    public ReviewDraft draft(String repo, int number)
+    public ReviewDraft draft(PullRequestRead route)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = stored(repo, number);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = stored(route);
             if (draft.items().stream().noneMatch(item -> item.commitId().isEmpty() && item.publication().isEmpty())) {
                 return draft;
             }
             Optional<String> head = draft.items().stream().anyMatch(item -> item.source() == ReviewDraftItem.Source.MANUAL
                     && item.replyToCommentId().isEmpty() && item.commitId().isEmpty())
-                    ? pullRequests.findHeadSha(repo, number) : Optional.empty();
+                    ? pullRequests.findHeadSha(route) : Optional.empty();
             List<ReviewDraftItem> items = draft.items().stream().map(item -> {
                 if (item.replyToCommentId().isPresent() || item.commitId().isPresent() || item.publication().isPresent()) {
                     return item;
@@ -121,14 +122,14 @@ public class ReviewPublicationService
     }
 
     /** Adds a manual inline comment to the draft. */
-    public ReviewDraft addManual(String repo, int number, long expectedVersion, ReviewDraftItem item)
+    public ReviewDraft addManual(PullRequestRead route, long expectedVersion, ReviewDraftItem item)
     {
         requireNonNull(item, "item is null");
         if (item.source() != ReviewDraftItem.Source.MANUAL) {
             throw new ReviewInvalidRequestException("A manual comment cannot claim a finding source");
         }
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewDraftItem manual = new ReviewDraftItem(
                     UUID.randomUUID().toString(),
                     ReviewDraftItem.Source.MANUAL,
@@ -141,7 +142,7 @@ public class ReviewPublicationService
                     body(item.body()),
                     true,
                     Optional.empty(),
-                    item.replyToCommentId().isPresent() ? Optional.empty() : item.commitId().or(() -> pullRequests.findHeadSha(repo, number)), item.replyToCommentId());
+                    item.replyToCommentId().isPresent() ? Optional.empty() : item.commitId().or(() -> pullRequests.findHeadSha(route)), item.replyToCommentId());
             return drafts.save(draft.withItems(append(draft.items(), manual), now()));
         });
     }
@@ -151,16 +152,16 @@ public class ReviewPublicationService
      * identity and body; editing either side never changes the other. Confirmed publication resolves
      * the source finding locally.
      */
-    public ReviewDraft addFinding(String repo, int number, long expectedVersion, String reviewId, String findingId)
+    public ReviewDraft addFinding(PullRequestRead route, long expectedVersion, String reviewId, String findingId)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewFinding finding = requireFinding(reviewId, findingId);
             if (publishedFindings(draft).contains(findingId)) {
-                throw new ReviewConflictException("This finding was already posted to GitHub");
+                throw new ReviewConflictException("This finding was already posted to the remote");
             }
             requirePromotable(finding);
-            requireAcceptedReview(repo, number, finding);
+            requireAcceptedReview(route, finding);
             String text = body(finding.title().strip() + "\n\n" + finding.body().strip());
             if (finding.anchor().isEmpty()) {
                 // A finding about the whole pull request has no line to comment on, so it joins the review's own text, which the user edits before submitting.
@@ -195,16 +196,16 @@ public class ReviewPublicationService
         });
     }
 
-    public ReviewDraft editItem(String repo, int number, long expectedVersion, String itemId, String body, boolean included)
+    public ReviewDraft editItem(PullRequestRead route, long expectedVersion, String itemId, String body, boolean included)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
                 throw new ReviewConflictException("This comment is being sent; wait for the result before changing it");
             }
             if (item.published()) {
-                throw new ReviewConflictException("This comment was already posted to GitHub");
+                throw new ReviewConflictException("This comment was already posted to the remote");
             }
             requireKnownOutcome(item);
             ReviewDraftItem edited = item.withBody(body(body)).withIncluded(included);
@@ -212,37 +213,37 @@ public class ReviewPublicationService
         });
     }
 
-    public ReviewDraft removeItem(String repo, int number, long expectedVersion, String itemId)
+    public ReviewDraft removeItem(PullRequestRead route, long expectedVersion, String itemId)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             if (item.publication().filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent()) {
                 throw new ReviewConflictException("This comment is being sent; wait for the result before changing it");
             }
             if (item.published()) {
-                throw new ReviewConflictException("A posted comment cannot be removed from here; remote changes need a separate action on GitHub");
+                throw new ReviewConflictException("A posted comment cannot be removed from here; remote changes need a separate action on the remote");
             }
             requireKnownOutcome(item);
             return drafts.save(draft.withItems(draft.items().stream().filter(candidate -> !candidate.id().equals(itemId)).collect(toImmutableList()), now()));
         });
     }
 
-    /** The user checked GitHub and confirmed this uncertain comment is absent; preparing it again never sends it. */
-    public ReviewDraft confirmNotPosted(String repo, int number, long expectedVersion, String itemId)
+    /** The user checked the remote and confirmed this uncertain comment is absent; preparing it again never sends it. */
+    public ReviewDraft confirmNotPosted(PullRequestRead route, long expectedVersion, String itemId)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewDraftItem item = requireUncertain(draft, itemId);
             return drafts.save(draft.withItems(replace(draft.items(), item.withPublication(Optional.empty())), now()));
         });
     }
 
-    /** The user found this uncertain comment on GitHub; it counts as posted and is never sent again. */
-    public ReviewDraft confirmPosted(String repo, int number, long expectedVersion, String itemId)
+    /** The user found this uncertain comment on the remote; it counts as posted and is never sent again. */
+    public ReviewDraft confirmPosted(PullRequestRead route, long expectedVersion, String itemId)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewDraftItem item = requireUncertain(draft, itemId);
             ReviewPublication posted = new ReviewPublication(
                     item.publication().orElseThrow().attemptId(), ReviewPublication.State.PUBLISHED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), now());
@@ -251,13 +252,13 @@ public class ReviewPublicationService
     }
 
     /**
-     * The user checked GitHub for review text whose send has an unknown outcome. Found, it counts as
+     * The user checked the remote for review text whose send has an unknown outcome. Found, it counts as
      * submitted, the way a successful send leaves it; missing, it waits for an explicit Submit again.
      */
-    public ReviewDraft confirmReview(String repo, int number, long expectedVersion, boolean posted)
+    public ReviewDraft confirmReview(PullRequestRead route, long expectedVersion, boolean posted)
     {
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             if (draft.reviewPublication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isEmpty()) {
                 throw new ReviewConflictException("Only a review with unconfirmed delivery can be marked as posted or not posted");
             }
@@ -267,21 +268,21 @@ public class ReviewPublicationService
     }
 
     /** Persists the review text and event the sheet holds; new drafts default to COMMENT. */
-    public ReviewDraft saveReview(String repo, int number, long expectedVersion, String body, String event)
+    public ReviewDraft saveReview(PullRequestRead route, long expectedVersion, String body, String event)
     {
         String chosen = requireEvent(event);
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             requireReviewEditable(draft);
             return drafts.save(draft.withReview(body == null ? "" : body.strip(), chosen, now()));
         });
     }
 
     /** Publishes exactly one previewed item, reserving it first so no other route can send it twice. */
-    public Publication publishItem(String repo, int number, long expectedVersion, String itemId)
+    public Publication publishItem(PullRequestRead route, long expectedVersion, String itemId)
     {
-        Reservation reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        Reservation reservation = withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             ReviewDraftItem item = requireItem(draft, itemId);
             requireSendable(ImmutableList.of(item));
             String attemptId = UUID.randomUUID().toString();
@@ -292,12 +293,12 @@ public class ReviewPublicationService
         try {
             PullRequestService.Posted posted;
             try {
-                posted = pullRequests.createReviewComment(repo, number, comment(reservation.items().getFirst()));
+                posted = pullRequests.createReviewComment(route, comment(reservation.items().getFirst()));
             }
             catch (RuntimeException failure) {
-                return releaseAfterFailure(repo, number, reservation, failure, false);
+                return releaseAfterFailure(route, reservation, failure, false);
             }
-            return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, reservation, posted, false));
+            return withLock(locks.get(draftId(route)), () -> settle(route, reservation, posted, false));
         }
         finally {
             inFlight.remove(reservation.attemptId());
@@ -310,12 +311,12 @@ public class ReviewPublicationService
      * instead of making another: one still sending or with an unknown outcome is refused until the
      * user confirms it in the review sheet, and one already posted is not sent again.
      */
-    public PullRequestDetail postComment(String repo, int number, String itemId, ReviewDraftItem comment)
+    public PullRequestDetail postComment(PullRequestRead route, String itemId, ReviewDraftItem comment)
     {
         requireNonNull(itemId, "itemId is null");
         requireNonNull(comment, "comment is null");
-        Optional<Reservation> reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = stored(repo, number);
+        Optional<Reservation> reservation = withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = stored(route);
             Optional<ReviewDraftItem> earlier = draft.items().stream().filter(item -> item.id().equals(itemId)).findFirst();
             if (earlier.filter(ReviewDraftItem::published).isPresent()) {
                 return Optional.empty();
@@ -332,18 +333,18 @@ public class ReviewPublicationService
             return Optional.of(new Reservation(attemptId, saved, ImmutableList.of(item)));
         });
         if (reservation.isEmpty()) {
-            return pullRequests.getPullRequestDetail(repo, number);
+            return pullRequests.getPullRequestDetail(route);
         }
         Reservation sending = reservation.get();
         try {
             PullRequestService.Posted posted;
             try {
-                posted = pullRequests.createReviewComment(repo, number, comment(sending.items().getFirst()));
+                posted = pullRequests.createReviewComment(route, comment(sending.items().getFirst()));
             }
             catch (RuntimeException failure) {
-                throw failedPost(repo, number, sending, failure);
+                throw failedPost(route, sending, failure);
             }
-            withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, sending, posted, false));
+            withLock(locks.get(draftId(route)), () -> settle(route, sending, posted, false));
             return posted.detail();
         }
         finally {
@@ -352,17 +353,17 @@ public class ReviewPublicationService
     }
 
     /**
-     * A comment posted now whose send threw. GitHub refused it before acting, so nothing went out: it
+     * A comment posted now whose send threw. The server refused it before acting, so nothing went out: it
      * leaves the draft and its box keeps the text. Any other failure may have landed, so it stays in
-     * the draft as unconfirmed until the user checks GitHub.
+     * the draft as unconfirmed until the user checks the remote.
      */
-    private RuntimeException failedPost(String repo, int number, Reservation reservation, RuntimeException failure)
+    private RuntimeException failedPost(PullRequestRead route, Reservation reservation, RuntimeException failure)
     {
-        log.warn("Comment {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
+        log.warn("Comment {} for {}#{} failed: {}", reservation.attemptId(), route.repository().fullPath(), route.number(), failure.toString());
         boolean refused = refused(failure);
         String itemId = reservation.items().getFirst().id();
-        withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = stored(repo, number);
+        withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = stored(route);
             return drafts.save(draft.withItems(draft.items().stream()
                     .filter(item -> !refused || !item.id().equals(itemId))
                     .map(item -> item.id().equals(itemId) ? item.withPublication(Optional.of(uncertain(reservation.attemptId(), now()))) : item)
@@ -372,7 +373,7 @@ public class ReviewPublicationService
     }
 
     /** Publishes the included, eligible items with the user's chosen review text and event. */
-    public Publication submit(String repo, int number, long expectedVersion, String body, String event, String headSha)
+    public Publication submit(PullRequestRead route, long expectedVersion, String body, String event, String headSha)
     {
         if (headSha == null || headSha.isBlank()) {
             throw new ReviewInvalidRequestException("Refresh the pull request before submitting a review");
@@ -380,12 +381,12 @@ public class ReviewPublicationService
         String chosen = requireEvent(event);
         String text = body == null ? "" : body.strip();
         // Before reserving, so a failed lookup leaves nothing to reconcile.
-        long prId = prId(repo, number);
-        Reservation reservation = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = expect(repo, number, expectedVersion);
+        long prId = prId(route);
+        Reservation reservation = withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = expect(route, expectedVersion);
             if (draft.reviewPublication().isPresent()
                     || draft.items().stream().anyMatch(item -> item.publication().filter(value -> value.state() != ReviewPublication.State.PUBLISHED).isPresent())) {
-                throw new ReviewConflictException("An earlier send is in flight or has an unknown outcome; check it on GitHub before submitting again");
+                throw new ReviewConflictException("An earlier send is in flight or has an unknown outcome; check it on the remote before submitting again");
             }
             List<ReviewDraftItem> sending = draft.items().stream().filter(item -> item.included() && !item.published()).collect(toImmutableList());
             requireSendable(sending);
@@ -399,7 +400,7 @@ public class ReviewPublicationService
             String attemptId = UUID.randomUUID().toString();
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             sending.forEach(item -> items.set(indexOf(items, item.id()), reserve(item, attemptId)));
-            // A plain COMMENT without text adds nothing to GitHub beyond its comments, which carry their own reservations.
+            // A plain COMMENT without text adds nothing to the remote beyond its comments, which carry their own reservations.
             Optional<ReviewPublication> review = text.isEmpty() && chosen.equals("COMMENT") ? Optional.empty() : Optional.of(reserved(attemptId));
             ReviewDraft reserved = drafts.save(draft.withReview(text, chosen, now()).withReviewPublication(review, now()).withItems(items, now()));
             inFlight.add(attemptId);
@@ -434,16 +435,16 @@ public class ReviewPublicationService
                 Reservation group = new Reservation(reservation.attemptId(), reservation.draft(), batch);
                 PullRequestService.Posted posted;
                 try {
-                    posted = pullRequests.submitReview(repo, number, prId, last ? chosen : "COMMENT", last ? text : "",
+                    posted = pullRequests.submitReview(route, prId, last ? chosen : "COMMENT", last ? text : "",
                             batch.stream().map(this::comment).collect(toImmutableList()),
                             batch.stream().filter(item -> item.replyToCommentId().isEmpty()).flatMap(item -> item.commitId().stream()).findFirst().orElse(headSha));
                 }
                 catch (RuntimeException failure) {
                     // The review text rides the last batch, so a failure before it leaves the text unsent too.
-                    releaseUnsent(repo, number, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()), !last);
-                    return releaseAfterFailure(repo, number, group, failure, last);
+                    releaseUnsent(route, reservation, batches.subList(index + 1, batches.size()).stream().flatMap(List::stream).collect(toImmutableList()), !last);
+                    return releaseAfterFailure(route, group, failure, last);
                 }
-                Publication result = withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> settle(repo, number, group, posted, last));
+                Publication result = withLock(locks.get(draftId(route)), () -> settle(route, group, posted, last));
                 published.addAll(result.publishedItemIds());
                 result.uncertainReason().ifPresent(notices::add);
                 settled = result.draft();
@@ -455,13 +456,13 @@ public class ReviewPublicationService
         }
     }
 
-    private void releaseUnsent(String repo, int number, Reservation reservation, List<ReviewDraftItem> unsent, boolean reviewUnsent)
+    private void releaseUnsent(PullRequestRead route, Reservation reservation, List<ReviewDraftItem> unsent, boolean reviewUnsent)
     {
         if (unsent.isEmpty() && !reviewUnsent) {
             return;
         }
-        withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = stored(repo, number);
+        withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = stored(route);
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             for (ReviewDraftItem item : unsent) {
                 int index = indexOf(items, item.id());
@@ -481,9 +482,9 @@ public class ReviewPublicationService
      * the whole-pull-request findings it carried, so no restart in between can leave either to be
      * submitted twice.
      */
-    private Publication settle(String repo, int number, Reservation reservation, PullRequestService.Posted posted, boolean carriedReview)
+    private Publication settle(PullRequestRead route, Reservation reservation, PullRequestService.Posted posted, boolean carriedReview)
     {
-        ReviewDraft draft = stored(repo, number);
+        ReviewDraft draft = stored(route);
         List<ReviewDraftItem> items = new ArrayList<>(draft.items());
         List<String> published = new ArrayList<>();
         List<String> ambiguous = new ArrayList<>();
@@ -511,7 +512,7 @@ public class ReviewPublicationService
                 : Optional.of(
                         ambiguous.size()
                                 + (ambiguous.size() == 1 ? " comment was" : " comments were")
-                                + " sent, but GitHub's reply did not identify them; they are not sent again");
+                                + " sent, but the server's reply did not identify them; they are not sent again");
         ReviewDraft settled = draft.withItems(items, now());
         if (carriedReview) {
             settled = withReviewOutcome(submitted(settled, reservation.draft().body(), reservation.draft().event()), reservation.attemptId(), Optional.empty());
@@ -526,7 +527,7 @@ public class ReviewPublicationService
                 .filter(findingId -> !alreadyPublished.contains(findingId))
                 .flatMap(findingId -> reviews.findFinding(findingId).stream())
                 .filter(finding -> finding.state() != ReviewFinding.State.RESOLVED)
-                .map(finding -> finding.withState(ReviewFinding.State.RESOLVED, Optional.of("Accepted and posted to GitHub"), now()))
+                .map(finding -> finding.withState(ReviewFinding.State.RESOLVED, Optional.of("Accepted and posted to the remote"), now()))
                 .collect(toImmutableList());
         return drafts.savePublished(published, resolved);
     }
@@ -538,7 +539,7 @@ public class ReviewPublicationService
     }
 
     /**
-     * The draft once a review carrying {@code sent} is on GitHub: the whole-pull-request findings in
+     * The draft once a review carrying {@code sent} is on the remote: the whole-pull-request findings in
      * that text count as posted, and the text and event are cleared unless they changed since.
      */
     private ReviewDraft submitted(ReviewDraft draft, String sent, String sentEvent)
@@ -554,17 +555,17 @@ public class ReviewPublicationService
     }
 
     /**
-     * A send that threw. A refusal GitHub answers before acting sent nothing, so those items, and the
+     * A send that threw. A refusal the server answers before acting sent nothing, so those items, and the
      * review text when this batch carried it, return to the pending review. Any other failure may
      * have landed: they stay uncertain rather than released, nothing may resend them, and the user
      * sees why.
      */
-    private Publication releaseAfterFailure(String repo, int number, Reservation reservation, RuntimeException failure, boolean carriedReview)
+    private Publication releaseAfterFailure(PullRequestRead route, Reservation reservation, RuntimeException failure, boolean carriedReview)
     {
-        log.warn("Review publication {} for {}#{} failed: {}", reservation.attemptId(), repo, number, failure.toString());
+        log.warn("Review publication {} for {}#{} failed: {}", reservation.attemptId(), route.repository().fullPath(), route.number(), failure.toString());
         Optional<ReviewPublication> outcome = refused(failure) ? Optional.empty() : Optional.of(uncertain(reservation.attemptId(), now()));
-        return withLock(locks.get(AgentReviewService.normalize(repo) + "#" + number), () -> {
-            ReviewDraft draft = stored(repo, number);
+        return withLock(locks.get(draftId(route)), () -> {
+            ReviewDraft draft = stored(route);
             List<ReviewDraftItem> items = new ArrayList<>(draft.items());
             for (ReviewDraftItem sent : reservation.items()) {
                 int index = indexOf(items, sent.id());
@@ -580,7 +581,7 @@ public class ReviewPublicationService
 
     /**
      * The remote comment for one sent item, only when its file, or the thread it answers, and its text
-     * identify it unambiguously among what the send returned. Lines are not compared: GitHub reports a
+     * identify it unambiguously among what the send returned. Lines are not compared: the server reports a
      * thread's start line inconsistently.
      */
     private static Optional<Remote> match(PullRequestService.Posted posted, ReviewDraftItem item)
@@ -605,7 +606,7 @@ public class ReviewPublicationService
             });
         }
         if (items.stream().anyMatch(ReviewDraftItem::published)) {
-            throw new ReviewConflictException("A comment in this review was already posted to GitHub");
+            throw new ReviewConflictException("A comment in this review was already posted to the remote");
         }
         if (items.stream().map(ReviewDraftItem::publication).anyMatch(publication -> publication.filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent())) {
             throw new ReviewConflictException("Another send of this review is already in flight");
@@ -618,11 +619,11 @@ public class ReviewPublicationService
         draft.reviewPublication().ifPresent(publication -> {
             throw new ReviewConflictException(publication.state() == ReviewPublication.State.RESERVED
                     ? "Your review is being sent; wait for the result before changing it"
-                    : "An earlier send of your review has an unknown outcome; check the pull request on GitHub before changing it");
+                    : "An earlier send of your review has an unknown outcome; check the pull request on the remote before changing it");
         });
     }
 
-    /** GitHub, or a check before the write, answered without acting, so nothing went out. */
+    /** The server, or a check before the write, answered without acting, so nothing went out. */
     private static boolean refused(RuntimeException failure)
     {
         return failure instanceof ResponseStatusException response && REFUSED.contains(response.getStatusCode().value());
@@ -651,7 +652,7 @@ public class ReviewPublicationService
     private static Optional<String> uncertainReason(ReviewDraftItem item)
     {
         return item.publication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN)
-                .map(ignored -> "An earlier send of this comment has an unknown outcome; check the pull request on GitHub before sending it again");
+                .map(ignored -> "An earlier send of this comment has an unknown outcome; check the pull request on the remote before sending it again");
     }
 
     /** A saved comment belongs to the user; its source finding no longer controls publication. */
@@ -684,9 +685,9 @@ public class ReviewPublicationService
                 item.commitId().orElse(null), item.replyToCommentId());
     }
 
-    private long prId(String repo, int number)
+    private long prId(PullRequestRead route)
     {
-        return pullRequests.getPullRequestDetail(repo, number).id();
+        return pullRequests.getPullRequestDetail(route).id();
     }
 
     private ReviewFinding requireFinding(String reviewId, String findingId)
@@ -696,9 +697,9 @@ public class ReviewPublicationService
                 .orElseThrow(() -> new ReviewNotFoundException("Finding not found: " + findingId));
     }
 
-    private void requireAcceptedReview(String repo, int number, ReviewFinding finding)
+    private void requireAcceptedReview(PullRequestRead route, ReviewFinding finding)
     {
-        acceptedReviewProblem(repo, number, finding, finding.validatedHeadSha()).ifPresent(reason -> {
+        acceptedReviewProblem(route, finding, finding.validatedHeadSha()).ifPresent(reason -> {
             throw new ReviewConflictException(reason);
         });
         boolean validated = reviews.listRuns(finding.reviewId()).stream()
@@ -715,10 +716,11 @@ public class ReviewPublicationService
         }
     }
 
-    private Optional<String> acceptedReviewProblem(String repo, int number, ReviewFinding finding, String commit)
+    private Optional<String> acceptedReviewProblem(PullRequestRead route, ReviewFinding finding, String commit)
     {
         Optional<AgentReview> owner = reviews.findReview(finding.reviewId())
-                .filter(review -> review.repo().equalsIgnoreCase(AgentReviewService.normalize(repo)) && review.number().stream().anyMatch(value -> value == number));
+                .filter(review -> review.repo().equalsIgnoreCase(route.repository().fullPath()) && review.number().stream().anyMatch(value -> value == route.number())
+                        && pullRequests.prepareRead(review.workspaceId(), review.repo(), review.number().orElseThrow()).repository().id() == route.repository().id());
         if (owner.isEmpty()) {
             return Optional.of("This finding belongs to a different pull request");
         }
@@ -806,10 +808,24 @@ public class ReviewPublicationService
         return text;
     }
 
-    private ReviewDraft stored(String repo, int number)
+    public Optional<ReviewDraft> findDraft(long repositoryId, int number)
     {
-        String repository = AgentReviewService.normalize(repo);
-        ReviewDraft draft = drafts.find(repository, number).orElseGet(() -> ReviewDraft.empty(repository, number, now()));
+        return drafts.find(repositoryId + "#" + number).map(this::effective);
+    }
+
+    private static String draftId(PullRequestRead route)
+    {
+        return route.repository().id() + "#" + route.number();
+    }
+
+    private ReviewDraft stored(PullRequestRead route)
+    {
+        return effective(drafts.find(draftId(route))
+                .orElseGet(() -> ReviewDraft.empty(draftId(route), route.repository().fullPath(), route.number(), now())));
+    }
+
+    private ReviewDraft effective(ReviewDraft draft)
+    {
         List<ReviewDraftItem> items = draft.items().stream().map(item -> item.withPublication(effective(item.publication(), draft.updatedAt()))).collect(toImmutableList());
         return draft.withItems(items, draft.updatedAt()).withReviewPublication(effective(draft.reviewPublication(), draft.updatedAt()), draft.updatedAt());
     }
@@ -819,9 +835,9 @@ public class ReviewPublicationService
         return publication.map(value -> value.state() == ReviewPublication.State.RESERVED && !inFlight.contains(value.attemptId()) ? uncertain(value.attemptId(), at) : value);
     }
 
-    private ReviewDraft expect(String repo, int number, long expectedVersion)
+    private ReviewDraft expect(PullRequestRead route, long expectedVersion)
     {
-        ReviewDraft draft = stored(repo, number);
+        ReviewDraft draft = stored(route);
         if (draft.version() != expectedVersion) {
             throw new ReviewConflictException("Your pending review changed in another window; reload it");
         }

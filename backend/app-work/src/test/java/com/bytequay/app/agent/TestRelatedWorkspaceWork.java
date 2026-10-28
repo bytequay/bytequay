@@ -53,18 +53,17 @@ import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.backport.BackportChainService;
 import com.bytequay.app.git.command.GitCommandRunner;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AppSettingsStore;
@@ -175,9 +174,8 @@ class TestRelatedWorkspaceWork
         when(provisioning.synchronizeCode("iceberg")).thenReturn(new WorkspaceCodeSyncResult("iceberg", true, Optional.of(Instant.EPOCH), ImmutableSet.of()));
         var localRepository = repositories.requireLocalRepository("iceberg");
         when(repositories.requireReadyRepository("iceberg")).thenReturn(localRepository);
-        var credentials = mock(CredentialService.class);
-        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("test-token",
-                new UserProfile("tester", "", "", "", 0, 0, 0, "", "", "", "")));
+        var hosting = mock(WorkspaceHostingService.class);
+        when(hosting.viewerLogin(anyString())).thenReturn(Optional.of("tester"));
         when(taskService.getInteractive(anyString(), any())).thenAnswer(call -> {
             AgentTask task = taskData.get(call.getArgument(1));
             if (task == null) {
@@ -194,7 +192,7 @@ class TestRelatedWorkspaceWork
             return target;
         });
         creator = new InteractiveAgentTaskCreator(taskService, turnService, drivers, models, repositories, provisioning, git, appSettings,
-                new AgentTaskStartupProgress(), mock(PullRequestStore.class), credentials);
+                new AgentTaskStartupProgress(), mock(PullRequestStore.class), hosting);
         when(turnService.start(any())).thenAnswer(call -> {
             StartAgentTurnCommand request = call.getArgument(0);
             AgentTurn turn = accepted(request.taskId(), request.idempotencyKey());

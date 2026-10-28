@@ -14,6 +14,10 @@
 package com.bytequay.app.web.hosting;
 
 import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.RepositoryMetadataReader;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.bytequay.integration.gitlab.GitLabIntegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -37,6 +41,30 @@ public class HostingConfiguration
     HostingIntegration gitLabHostingIntegration(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper)
     {
         return GitLabIntegration.create(http, mapper);
+    }
+
+    @Bean
+    PullRequestContentReader gitLabPullRequestContents(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper)
+    {
+        return GitLabIntegration.contents(http, mapper);
+    }
+
+    @Bean
+    PullRequestWriter gitLabPullRequestWriter(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper)
+    {
+        return GitLabIntegration.writer(http, mapper);
+    }
+
+    @Bean
+    IssueClient gitLabIssues(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper)
+    {
+        return GitLabIntegration.issues(http, mapper);
+    }
+
+    @Bean
+    RepositoryMetadataReader gitLabRepositoryMetadata(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper)
+    {
+        return GitLabIntegration.metadata(http, mapper);
     }
 
     @Bean(destroyMethod = "close")

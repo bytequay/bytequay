@@ -29,14 +29,18 @@ import java.util.List;
 
 @Entity
 @Table(
-        name = "repository_issue_rows",
-        indexes = @Index(name = "idx_repository_issue_updated", columnList = "repository_id,updated_at"))
+        name = "hosting_issue_rows",
+        indexes = @Index(name = "idx_hosting_issue_updated", columnList = "repository_id,updated_at"))
 public class RepositoryIssueEntity
-        extends AssignedIdEntity<Long>
+        extends AssignedIdEntity<String>
 {
     @Id
     @Getter(onMethod_ = @Override)
-    private Long id;
+    private String id;
+
+    @Column(name = "remote_id", nullable = false)
+    @Getter
+    private Long remoteId;
 
     @Column(name = "repository_id", nullable = false)
     private Long repositoryId;
@@ -80,8 +84,14 @@ public class RepositoryIssueEntity
 
     public RepositoryIssueEntity(long repositoryId, RepositoryIssue issue)
     {
-        this.id = issue.id();
+        this.id = key(repositoryId, issue.id());
+        this.remoteId = issue.id();
         update(repositoryId, issue);
+    }
+
+    public static String key(long repositoryId, long remoteId)
+    {
+        return repositoryId + ":" + remoteId;
     }
 
     public void update(long repositoryId, RepositoryIssue issue)
@@ -102,7 +112,7 @@ public class RepositoryIssueEntity
 
     public RepositoryIssue toDomain()
     {
-        return new RepositoryIssue(id, number, title, body, author, authorAvatarUrl, htmlUrl, labels, assignees, commentCount, createdAt, updatedAt);
+        return new RepositoryIssue(remoteId, number, title, body, author, authorAvatarUrl, htmlUrl, labels, assignees, commentCount, createdAt, updatedAt);
     }
 
     public void updateMetadata(List<String> assignees, List<String> labels, Instant updatedAt)

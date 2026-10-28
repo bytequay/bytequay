@@ -13,9 +13,14 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.agent.AgentController;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
@@ -23,6 +28,10 @@ import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.servlet.HandlerMapping;
 
+import java.net.URI;
+import java.util.Optional;
+
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -53,9 +62,14 @@ class TestGitHubTransportErrors
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        when(pullRequests.openPullRequestDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
-        when(refresh.refreshDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
-        when(refresh.refreshAllDetail("owner/repo", 7)).thenThrow(new ResourceAccessException("Operation timed out"));
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "account", new HostingAccess(instance, "token")),
+                new HostingRepository(1, 1, "1", "owner/repo", URI.create("https://github.com/owner/repo"),
+                        URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main")), 7, "contributor");
+        when(pullRequests.prepareRead(null, "owner/repo", 7)).thenReturn(route);
+        when(pullRequests.openPullRequestDetail(route)).thenThrow(new ResourceAccessException("Operation timed out"));
+        when(refresh.refreshDetail(route)).thenThrow(new ResourceAccessException("Operation timed out"));
+        when(refresh.refreshAllDetail(route)).thenThrow(new ResourceAccessException("Operation timed out"));
         var mvc = standaloneSetup(new PullRequestController(pullRequests, refresh))
                 .setControllerAdvice(new GlobalExceptionHandler()).build();
 

@@ -208,8 +208,8 @@ export default function AssistantPanel({ open, chatEnabled = true, notices, open
       return Promise.resolve();
     }
     // A review draft the user wrote goes out from the pull request's own review, never from a one-click button.
-    if (action === 'approve') return approvePull(target.repo, target.number, head).then(sent => sent ? refresh() : show(target));
-    const acted = action === 'merge' ? mergePull(target.repo, target.number, head) : closePull(target.repo, target.number);
+    if (action === 'approve') return approvePull(target.repo, target.number, head, target.workspaceId ?? undefined).then(sent => sent ? refresh() : show(target));
+    const acted = action === 'merge' ? mergePull(target.repo, target.number, head, target.workspaceId ?? undefined) : closePull(target.repo, target.number, target.workspaceId ?? undefined);
     return acted.then(refresh);
   };
   const noticeAction = (action: Promise<void>, message: string, then?: () => void) => {

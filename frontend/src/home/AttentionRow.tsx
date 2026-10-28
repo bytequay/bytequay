@@ -88,7 +88,7 @@ export function itemRelation(item: AttentionItem, match?: TeamAttentionMatch | n
 function pinTarget(item: AttentionItem): PinnedItem['target'] | null {
   if (item.task) return { kind: 'task', workspaceId: item.task.dto.workspaceId, taskId: item.task.dto.id };
   if (item.jira) return { kind: 'jira', ...jiraIssueLocation(item.jira) };
-  if (item.type === 'pr') return { kind: 'pull', repo: item.repo, number: item.number };
+  if (item.type === 'pr') return { kind: 'pull', repo: item.repo, number: item.number, workspaceId: item.workspaceId ?? undefined };
   return item.workspaceId === null ? null : { kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId };
 }
 
@@ -369,12 +369,12 @@ function useStoredDescription(item: AttentionItem): string | null | undefined {
   useEffect(() => {
     if (!pull) return;
     let current = true;
-    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number))
+    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number, item.workspaceId ?? undefined))
       .then(stored => { if (current) setDescription(stored?.body ?? null); })
       .catch(() => { if (current) setDescription(null); });
     return () => { current = false; };
     // An update may come with a newly stored description, so an open card reads again.
-  }, [pull, item.repo, item.number, item.updatedAt]);
+  }, [pull, item.repo, item.number, item.updatedAt, item.workspaceId]);
   return description;
 }
 

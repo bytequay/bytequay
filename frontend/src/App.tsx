@@ -53,6 +53,7 @@ import {
 } from './settings/routes';
 import type { InAppBrowserState, PullRequestDto, RecentRowDto, RecentWordHitDto, SetupPreferencesDto, WorkspaceDto } from './types';
 import { applyAttentionUpdate } from './attentionUpdates';
+import { PullRequestWorkspaceProvider } from './pulls/PullRequestWorkspace';
 import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
@@ -643,7 +644,7 @@ function AppContent() {
   }), [backToApp, initialAgentTaskId, layers, navigatePage, navigateTo, openTaskComposer, status, taskSwitcher, workspace]);
 
   const inWorkspace = page === 'workspaces' && workspace !== null;
-  const taskAttention = useTaskAttention(status === 'ready' && inWorkspace && workspace.hostingServer?.provider !== 'GITLAB'
+  const taskAttention = useTaskAttention(status === 'ready' && inWorkspace
     ? [{ id: workspace.id, name: '', repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}` }] : []);
   const tasksWaiting = Object.values(taskAttention.activity).filter(activity => activity.pendingApproval != null).length;
 
@@ -812,18 +813,21 @@ function AppContent() {
                   initialPr={layer}
                   repositoryScope={layer.workspaceId === undefined
                     ? undefined
-                    : { workspaceId: layer.workspaceId, repository: layer.repo }}
+                    : { workspaceId: layer.workspaceId, repository: layer.repo, server: (workspace?.id === layer.workspaceId ? workspace : settingsWorkspaces.find(item => item.id === layer.workspaceId))?.hostingServer ?? undefined }}
                   browserOpen={browserOpen}
                   onClose={() => closeLayer(key)}
                 />
               )}
               {layer.kind === 'issue' && (
+                <PullRequestWorkspaceProvider workspaceId={layer.workspaceId} repository={layer.repo}
+                  server={(workspace?.id === layer.workspaceId ? workspace : settingsWorkspaces.find(item => item.id === layer.workspaceId))?.hostingServer ?? undefined}>
                 <WorkspaceIssuesScreen
                   workspaceId={layer.workspaceId}
                   repository={layer.repo}
                   initialIssueNumber={layer.number}
                   onClose={() => closeLayer(key)}
                 />
+                </PullRequestWorkspaceProvider>
               )}
               {(layer.kind === 'work' || layer.kind === 'task') && <WorkspaceItemLayer target={layer} onClose={() => closeLayer(key)} />}
               {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} draft={layer.draft} replaces={layer.replaces} send={layer.send} onClose={() => closeLayer(key)} />}

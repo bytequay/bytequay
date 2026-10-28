@@ -30,15 +30,15 @@ final class WorkspaceIssueHttpContract
 {
     private WorkspaceIssueHttpContract() {}
 
-    static Issue issue(RepositoryIssue issue, IssueDevelopmentService development)
+    static Issue issue(String workspaceId, RepositoryIssue issue, IssueDevelopmentService development)
     {
-        IssueDevelopmentService.Metadata metadata = development.metadata(issue.id());
+        IssueDevelopmentService.Metadata metadata = development.metadata(workspaceId, issue.id());
         return new Issue(issue, metadata.isEpic(), metadata.developmentTask());
     }
 
-    static Page page(RepositoryIssuePage page, IssueDevelopmentService development)
+    static Page page(String workspaceId, RepositoryIssuePage page, IssueDevelopmentService development)
     {
-        return new Page(page.repositoryId(), page.repository(), page.issues().stream().map(issue -> issue(issue, development)).collect(toImmutableList()),
+        return new Page(page.repositoryId(), page.repository(), page.issues().stream().map(issue -> issue(workspaceId, issue, development)).collect(toImmutableList()),
                 page.page(), page.pageSize(), page.totalIssues(), page.hasMore(), page.syncedAt());
     }
 

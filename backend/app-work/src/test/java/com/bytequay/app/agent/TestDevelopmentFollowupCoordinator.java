@@ -40,14 +40,15 @@ import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
-import com.bytequay.app.repository.github.CreatedPullRequest;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.domain.CreatedPullRequest;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -79,6 +80,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
@@ -107,8 +109,9 @@ class TestDevelopmentFollowupCoordinator
     private final AgentTurnStore turnStore = mock(AgentTurnStore.class);
     private final DevelopmentGitInspector git = mock(DevelopmentGitInspector.class);
     private final CiAutofixService ci = mock(CiAutofixService.class);
-    private final CredentialService credentials = mock(CredentialService.class);
-    private final GitHubPullRequestWriteClient writes = mock(GitHubPullRequestWriteClient.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final HostingPullRequestWrites dispatch = mock(HostingPullRequestWrites.class);
+    private final PullRequestWriter writes = mock(PullRequestWriter.class);
     private final Clock clock = mock(Clock.class);
     private final ArrayDeque<Runnable> pending = new ArrayDeque<>();
     private final List<AgentTurn> history = new ArrayList<>();
@@ -118,7 +121,7 @@ class TestDevelopmentFollowupCoordinator
     private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
     private List<ReviewThreadReply> reviewReplies = ImmutableList.of();
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, pending::add, ci, credentials, writes, clock, branches, reviewFixes);
+            turns, turnStore, git, pending::add, ci, hosting, dispatch, clock, branches, reviewFixes);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -153,7 +156,8 @@ class TestDevelopmentFollowupCoordinator
         });
         when(git.branchHeld(eq(worktree), anyString())).thenAnswer(call -> held.contains(call.<String>getArgument(1)));
         when(ci.startDevelopment(any(), any(), any(), any())).thenAnswer(ignored -> ciRun());
-        when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
+        when(hosting.captureRead("workspace")).thenAnswer(ignored -> HostingTestFixture.route(route.baseRepository().fullName(), "token"));
+        when(dispatch.forSession(any())).thenReturn(writes);
         doAnswer(call -> {
             Runnable action = call.getArgument(2);
             action.run();
@@ -331,7 +335,7 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Do not push"));
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME));
         verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writes, never()).markReady(any(), any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -410,7 +414,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
         noFollowup();
         verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writes, never()).markReady(any(), any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
@@ -618,7 +622,7 @@ class TestDevelopmentFollowupCoordinator
 
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
-        verify(writes).createPullRequest("token", route.baseRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().matchingPullRequests()).containsExactly(pr(HEAD, true));
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
@@ -659,7 +663,7 @@ class TestDevelopmentFollowupCoordinator
         order.verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
-        verify(writes, never()).createPullRequest(anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(writes, never()).create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -970,7 +974,7 @@ class TestDevelopmentFollowupCoordinator
         var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> {
             throw new RejectedExecutionException("stopped");
         },
-                ci, credentials, writes, clock, branches, reviewFixes);
+                ci, hosting, dispatch, clock, branches, reviewFixes);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }
@@ -1053,7 +1057,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.empty());
-        verify(writes).createPullRequest("token", route.baseRepository(), route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
+        verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
@@ -1081,7 +1085,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(renamed, route, HEAD, Optional.empty());
-        verify(writes).createPullRequest("token", route.baseRepository(), renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
+        verifyCreated(renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
         verify(git, never()).pushDevelopmentHead(eq(worktree), any(), anyString(), any());
@@ -1168,7 +1172,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.of(BASE));
-        verify(writes, never()).createPullRequest(anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(writes, never()).create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
     }
 
@@ -1212,13 +1216,22 @@ class TestDevelopmentFollowupCoordinator
 
         advance();
 
-        verify(writes).createPullRequest("token", new RepoRef("upstream", "repo"), "forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
+        verifyCreated("forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
     }
 
     /**
      * Models the remote the way publication moves it: the push lands the revision, and creating the
      * pull request is what makes one appear on the branch.
      */
+    private void verifyCreated(String head, String base, String title, String body, boolean draft)
+    {
+        var access = org.mockito.ArgumentCaptor.forClass(com.bytequay.core.hosting.HostingAccess.class);
+        verify(writes).create(access.capture(), eq(HostingTestFixture.route(route.baseRepository().fullName(), "token").repository()),
+                eq(head), eq(base), eq(title), eq(body), eq(draft));
+        assertThat(access.getValue().token()).isEqualTo("token");
+        assertThat(access.getValue().server()).isEqualTo(HostingTestFixture.route(route.baseRepository().fullName(), "token").session().access().server());
+    }
+
     private AtomicReference<DevelopmentPublicationFacts> trackedRemote(Optional<String> remoteHead, Optional<GitHubPullRequestIdentity> existing)
     {
         AtomicReference<DevelopmentPublicationFacts> remote = new AtomicReference<>(publication(remoteHead, existing));
@@ -1227,7 +1240,7 @@ class TestDevelopmentFollowupCoordinator
             remote.set(publication(Optional.of(HEAD), existing.map(ignored -> pr(HEAD, true))));
             return null;
         }).when(git).pushDevelopmentHead(worktree, route, HEAD, remoteHead);
-        when(writes.createPullRequest(anyString(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+        when(writes.create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenAnswer(call -> {
                     remote.set(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
                     return new CreatedPullRequest(1, 7, pr(HEAD, true).url());
@@ -1272,7 +1285,7 @@ class TestDevelopmentFollowupCoordinator
                 "development-ci:" + taskId + ":" + HEAD)), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(ci, never()).advance(any());
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writes, never()).markReady(any(), any(), anyInt());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -1363,7 +1376,7 @@ class TestDevelopmentFollowupCoordinator
         else {
             verify(ci, never()).startDevelopment(any(), any(), any(), any());
         }
-        verify(writes, never()).markReadyForReview(any(), any());
+        verify(writes, never()).markReady(any(), any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }

@@ -11,8 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.pr;
+package com.bytequay.app.service.hosting;
 
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -23,6 +25,9 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +37,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.stubbing.Answer;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -40,6 +46,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -51,20 +58,42 @@ import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 
 @ExtendWith(MockitoExtension.class)
-class TestPullRequestDetailFetcher
+class TestGitHubPullRequestContentReader
 {
     private static final PullRequestRef REF = PullRequestRef.of("owner", "repo", 7);
 
     @Mock private GitHubPullRequestReadClient gitHub;
+    @Mock private GitHubActionsClient actions;
+    @Mock private GitHubAccountClient accounts;
 
-    private PullRequestDetailFetcher fetcher;
+    private GitHubPullRequestContentReader fetcher;
 
     @BeforeEach
     void setUp()
     {
-        fetcher = new PullRequestDetailFetcher(gitHub, Runnable::run);
+        fetcher = new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run);
         lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of());
+    }
+
+    @Test
+    void normalizesOnlyExecutableJobsAndPreservesTheirConditionalCache()
+    {
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        HostingAccess access = new HostingAccess(instance, "pat");
+        HostingRepository repository = new HostingRepository(2, 1, "99", "owner/repo", URI.create("https://github.com/owner/repo"),
+                URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main"));
+        PrCheckRunState cachedJob = new PrCheckRunState(42L, "test", "completed", "failure",
+                "https://github.com/owner/repo/actions/runs/5/job/42", "job", null, null);
+        PrCheckRunState nativeCheck = new PrCheckRunState(42L, "test", "completed", "failure", cachedJob.detailsUrl(), "check_run", null, null);
+        PrCheckRunState external = new PrCheckRunState(44L, "external", "completed", "success", "https://checks.example/job/44", "check_run", null, null);
+        when(actions.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(nativeCheck), Optional.of("checks"), Optional.empty()))
+                .thenReturn(new GitHubActionsClient.PrCheckRunsFetch(ImmutableList.of(nativeCheck, external), Optional.of("checks"), Optional.empty()));
+
+        var result = fetcher.checks(access, repository, 7, "head", ImmutableList.of(cachedJob), Optional.of("checks"), Optional.empty());
+
+        assertThat(result.checkRuns()).containsExactly(cachedJob, external);
+        assertThat(result.checkRunsEtag()).contains("checks");
     }
 
     @Test
@@ -77,7 +106,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
         StoredPrDetail existing = new StoredPrDetail(raw("head"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(check), ImmutableList.of(), true);
 
-        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing));
+        StoredPrDetail stored = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing));
 
         assertThat(stored.raw().body()).isEqualTo("body");
         assertThat(stored.reviews()).containsExactly(review);
@@ -93,7 +122,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(null);
         when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(null);
 
-        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()));
+        StoredPrDetail stored = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing()));
 
         assertThat(stored.reviews()).isEmpty();
         assertThat(stored.timeline()).isEmpty();
@@ -103,8 +132,8 @@ class TestPullRequestDetailFetcher
     @Test
     void preservesMarkdownLinksAndCodeInDiscussionBodies()
     {
-        String body = "Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)\n"
-                + "Keep `#31610` and `https://github.com/trinodb/trino/pull/31610` literal.";
+        String body = "Upstream PR: [owner/project#31610](https://github.com/owner/project/pull/31610)\n"
+                + "Keep `#31610` and `https://github.com/owner/project/pull/31610` literal.";
         Instant commentedAt = Instant.parse("2026-08-15T10:00:00Z");
         PrTimelineEvent issueComment = comment(1L, "alice", commentedAt, body);
         PrTimelineComment reviewComment = new PrTimelineComment(2L, "bob", null, false, commentedAt, body, null, null, null, ImmutableList.of());
@@ -113,7 +142,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of(issueComment));
         when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of(thread));
 
-        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()));
+        StoredPrDetail stored = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing()));
 
         assertThat(stored.timeline()).containsExactly(issueComment, thread);
     }
@@ -123,7 +152,7 @@ class TestPullRequestDetailFetcher
     {
         StoredPrDetail existing = new StoredPrDetail(raw(null), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS), false);
 
-        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing));
+        StoredPrDetail stored = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing));
 
         assertThat(stored.checkRuns()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly(StoredPrDetail.CHECKS);
@@ -137,7 +166,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
 
-        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()));
+        StoredPrDetail stored = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing()));
 
         assertThat(stored.reviews()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly("reviews");
@@ -149,7 +178,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrReviews("pat", REF)).thenThrow(new GitHubRateLimitException("secondary", 60));
         when(gitHub.fetchPrTimeline("pat", REF)).thenThrow(new GitHubRateLimitException("secondary", 60));
 
-        assertThatThrownBy(() -> PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()))).isInstanceOf(GitHubRateLimitException.class);
+        assertThatThrownBy(() -> GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing()))).isInstanceOf(GitHubRateLimitException.class);
     }
 
     @Test
@@ -172,12 +201,12 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrReviews("pat", REF)).thenAnswer(blocked);
         when(gitHub.fetchPrTimeline("pat", REF)).thenAnswer(blocked);
         var executor = Executors.newVirtualThreadPerTaskExecutor();
-        var discussion = new PullRequestDetailFetcher(gitHub, executor).fetchDiscussion("pat", REF, existing());
+        var discussion = new GitHubPullRequestContentReader(gitHub, actions, accounts, executor).fetchDiscussion("pat", REF, existing());
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
         AtomicBoolean interruptRestored = new AtomicBoolean();
         Thread caller = Thread.startVirtualThread(() -> {
             try {
-                PullRequestDetailFetcher.await(discussion);
+                GitHubPullRequestContentReader.await(discussion);
             }
             catch (RuntimeException caught) {
                 failure.set(caught);
@@ -213,7 +242,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of(timelineCopy, labeled));
         when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of(issueCopy));
 
-        StoredPrDetail stored = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()));
+        StoredPrDetail stored = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing()));
 
         assertThat(stored.timeline()).containsExactly(labeled, issueCopy);
     }
@@ -225,7 +254,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrTimeline("pat", REF)).thenReturn(ImmutableList.of());
         when(gitHub.fetchPrIssueComments("pat", REF)).thenReturn(ImmutableList.of());
 
-        PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing()));
+        GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing()));
 
         verify(gitHub).fetchPrTimeline("pat", REF);
         verify(gitHub).fetchPrIssueComments("pat", REF);
@@ -237,7 +266,7 @@ class TestPullRequestDetailFetcher
         PrRawDetail raw = raw("head");
         StoredPrDetail existing = new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), false);
 
-        StoredPrDetail refreshed = PullRequestDetailFetcher.await(fetcher.fetchDiscussion("pat", REF, existing));
+        StoredPrDetail refreshed = GitHubPullRequestContentReader.await(fetcher.fetchDiscussion("pat", REF, existing));
 
         assertThat(refreshed.raw()).isSameAs(raw);
         verify(gitHub).fetchPrIssueComments("pat", REF);

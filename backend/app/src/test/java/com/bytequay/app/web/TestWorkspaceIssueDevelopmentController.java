@@ -63,7 +63,8 @@ class TestWorkspaceIssueDevelopmentController
         RepositoryIssue issue = new RepositoryIssue(70, 7, "Fix selection", "Description", "alice", "", "https://github.com/owner/repo/issues/7",
                 ImmutableList.of("bug"), ImmutableList.of("alice"), 0, now, now);
         when(issues.find("workspace", 7)).thenReturn(Optional.of(issue));
-        when(development.metadata(70)).thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("task-id", "original-workspace"))));
+        when(development.metadata("workspace", 70))
+                .thenReturn(new IssueDevelopmentService.Metadata(false, Optional.of(new IssueDevelopmentService.TaskLink("task-id", "original-workspace"))));
         mvc.perform(get("/api/workspaces/workspace/issues/7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(70))

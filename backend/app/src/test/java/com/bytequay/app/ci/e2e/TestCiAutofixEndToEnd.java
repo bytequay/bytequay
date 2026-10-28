@@ -43,7 +43,6 @@ import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubDeliveryChecks;
-import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
@@ -51,14 +50,21 @@ import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.ci.CiAutofixAttempt.CiResult;
 import com.bytequay.core.ci.CiAutofixRun;
+import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -84,10 +90,12 @@ import org.springframework.context.annotation.Primary;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestClient;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -100,12 +108,14 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -167,6 +177,9 @@ class TestCiAutofixEndToEnd
 
     @MockitoBean
     private GhCliService gh;
+
+    @MockitoSpyBean
+    private WorkspaceHostingService hosting;
 
     @Autowired
     private AgentEventService events;
@@ -241,6 +254,13 @@ class TestCiAutofixEndToEnd
         E2eGitRepository repository = fixture.repository();
         PullRequestRef pr = repository.pullRequest();
         RepoRef repo = RepoRef.of(pr.owner(), pr.repo());
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        HostingReadSession session = new HostingReadSession(1, "account", new HostingAccess(instance, "test-token"));
+        HostingRepository retained = new HostingRepository(1, 1,
+                Long.toString(workspaces.findById(fixture.workspaceId()).orElseThrow().monitoredRepositoryId()), repo.fullName(),
+                URI.create("https://github.com/" + repo.fullName()), URI.create("https://github.com/" + repo.fullName() + ".git"),
+                Optional.empty(), Optional.of(E2eGitRepository.BASE_REF));
+        doReturn(new WorkspaceHostingRead(session, retained, "author")).when(hosting).captureRead(fixture.workspaceId());
         DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(ScriptedAgentDriver.LANE));
         TaskId sourceTaskId = TaskId.random();
         AgentTask source = tasks.createInteractive(new CreateInteractiveAgentTaskCommand(

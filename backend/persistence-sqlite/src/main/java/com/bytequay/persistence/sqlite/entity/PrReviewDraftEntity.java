@@ -30,7 +30,7 @@ import java.util.Optional;
 
 import static com.bytequay.persistence.sqlite.entity.JsonGuard.REVIEW;
 
-/** The user's local pending review for one pull request; keyed by repository and number so it outlives the cached row. */
+/** The user's local pending review for one pull request; keyed by the hosting repository identity and number so it outlives the cached row. */
 @Entity
 @Table(name = "pr_review_draft")
 public class PrReviewDraftEntity

@@ -73,6 +73,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -176,8 +177,9 @@ class TestWorkspaceHostingService
         verifyNoInteractions(credentials);
     }
 
-    @Test
-    void readsTheExplicitBindingCacheLocallyAndKeepsGitHubEnrichment()
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void readsTheExplicitBindingCacheLocallyAndKeepsGitHubEnrichment(boolean hasProjection)
     {
         workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
         workspaces.saveHostingCacheTarget("workspace", new HostingCacheTarget(21, 32, "old-workspace-scope"));
@@ -186,12 +188,18 @@ class TestWorkspaceHostingService
                 OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 4, 2, 3, "open", null, null,
                 null, null, null, "topic", NOW, null, null, null);
         when(snapshots.findPage(20, 31, CONNECTED_ACCOUNT, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
-        when(legacy.findIdByRepoAndNumber(summary.repo(), 7)).thenReturn(Optional.of(12L));
-        when(legacy.findById(12)).thenReturn(Optional.of(github));
+        when(legacy.findIdByRepoAndNumber(summary.repo(), 7)).thenReturn(hasProjection ? Optional.of(12L) : Optional.empty());
+        if (hasProjection) {
+            when(legacy.findById(12)).thenReturn(Optional.of(github));
+        }
+        else {
+            when(legacy.saveObserved(summary)).thenReturn(github);
+        }
 
         assertThat(service.cachedPullRequests("workspace", 2, 25))
-                .isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, Optional.of(github))), true));
+                .isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, github)), true));
         verify(snapshots).findPage(20, 31, CONNECTED_ACCOUNT, 2, 25);
+        verify(legacy, times(hasProjection ? 0 : 1)).saveObserved(summary);
         verifyNoInteractions(identities, credentials, repositories, requests, desktop);
     }
 
@@ -207,12 +215,17 @@ class TestWorkspaceHostingService
         FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
         when(snapshots.findPage(20, 31, "github-workspace:workspace", 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
 
-        assertThat(service.cachedPullRequests("workspace", 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, Optional.empty()));
+        PullRequest projected = projected(summary);
+        when(legacy.findIdByRepoAndNumber(summary.repo(), summary.number())).thenReturn(Optional.of(12L));
+        when(legacy.findById(12L)).thenReturn(Optional.of(projected));
+
+        assertThat(service.cachedPullRequests("workspace", 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, projected));
         verifyNoInteractions(identities, credentials, repositories, requests, desktop);
     }
 
-    @Test
-    void readsGitLabCacheWithoutGitHubProjectionOrConnectedCredentials()
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void readsGitLabCacheThroughTheSharedProjectionWithoutConnectedCredentials(boolean hasProjection)
     {
         gitLab("https://git.company.test/gitlab");
         Workspace workspace = service.watch(40, 60, Optional.empty());
@@ -221,8 +234,16 @@ class TestWorkspaceHostingService
         FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
         when(snapshots.findPage(40, 60, CONNECTED_ACCOUNT, 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
 
-        assertThat(service.cachedPullRequests(workspace.id(), 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, Optional.empty()));
-        verifyNoInteractions(identities, credentials, repositories, requests, desktop, legacy);
+        PullRequest projected = projected(summary);
+        when(legacy.findByHostingRepository(60, summary.number())).thenReturn(hasProjection ? Optional.of(projected) : Optional.empty());
+        if (!hasProjection) {
+            when(legacy.saveHosted(60, summary)).thenReturn(projected);
+        }
+
+        assertThat(service.cachedPullRequests(workspace.id(), 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, projected));
+        verify(legacy).findByHostingRepository(60, summary.number());
+        verify(legacy, times(hasProjection ? 0 : 1)).saveHosted(60, summary);
+        verifyNoInteractions(identities, credentials, repositories, requests, desktop);
     }
 
     @Test
@@ -426,6 +447,13 @@ class TestWorkspaceHostingService
         PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, NOW, NOW, null, "Description", ImmutableList.of(), ImmutableMap.of(),
                 ImmutableList.of(), null, false, null, null, 0, 0, 0, 0, ImmutableList.of(), "a".repeat(40), "topic", "main", "b".repeat(40));
         return new PullRequestFetch(Optional.of(summary), Optional.of("etag"), Optional.of(detail));
+    }
+
+    private static PullRequest projected(FetchedPullRequest summary)
+    {
+        return new PullRequest(12, summary.repo(), summary.number(), summary.title(), summary.author(), summary.htmlUrl(), NOW, NOW,
+                OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 4, 2, 3, "open", null, null,
+                null, null, null, "topic", NOW, null, null, null);
     }
 
     private static HostingPullRequestSnapshot snapshot(long accountId, long repositoryId, String scope)

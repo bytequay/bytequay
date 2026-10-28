@@ -13,21 +13,38 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.google.common.collect.ImmutableList;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
+
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 
 final class WorkspaceIssueTestData
 {
     static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
     private WorkspaceIssueTestData() {}
+
+    static WorkspaceHostingRead route(Workspace workspace)
+    {
+        var server = workspace.hostingServer().orElse(GITHUB_SERVER);
+        HostingAccess access = new HostingAccess(new HostingInstance(1, server.provider(), server.webBaseUrl(), server.apiBaseUrl()), "token");
+        String url = server.webBaseUrl() + "/" + workspace.monitoredRepository().fullName();
+        HostingRepository repository = new HostingRepository(workspace.monitoredRepositoryId(), 1, Long.toString(workspace.monitoredRepositoryId()),
+                workspace.monitoredRepository().fullName(), URI.create(url), URI.create(url + ".git"), Optional.empty(), Optional.of("main"));
+        return new WorkspaceHostingRead(new HostingReadSession(1, "connected-account", access), repository, "alice");
+    }
 
     static PrTimelineEvent event(long id, String type, Instant timestamp)
     {

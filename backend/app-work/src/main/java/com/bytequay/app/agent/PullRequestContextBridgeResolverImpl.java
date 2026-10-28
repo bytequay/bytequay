@@ -20,6 +20,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.PullRequestContextBridge;
 import com.bytequay.core.domain.PrDetailFreshness;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
@@ -87,7 +88,10 @@ public class PullRequestContextBridgeResolverImpl
             text = assignment.initialContext();
         }
         else {
-            Optional<Long> row = rows.findIdByRepoAndNumber(assignment.repo(), assignment.number());
+            Optional<Long> row = workspaces.findById(assignment.workspaceId()).flatMap(workspace -> workspace.isGitHub()
+                    ? rows.findIdByRepoAndNumber(assignment.repo(), assignment.number())
+                    : workspaces.findHostingRepositoryId(workspace.id())
+                            .flatMap(repositoryId -> rows.findByHostingRepository(repositoryId, assignment.number())).map(PullRequest::id));
             Optional<StoredPrDetail> cached = row.flatMap(details::find);
             PrDetailFreshness freshness = row.map(details::findFreshness).orElseGet(PrDetailFreshness::unknown);
             result.put("status", cached.isPresent() ? "cached" : "missing").put("mayBeStale", true);

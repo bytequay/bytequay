@@ -14,9 +14,7 @@
 package com.bytequay.app.workitem;
 
 import com.bytequay.app.jira.JiraService;
-import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
@@ -53,10 +51,9 @@ class TestWorkItemPublicationService
 {
     private final WorkItemService work = mock(WorkItemService.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
-    private final GitHubRepoClient github = mock(GitHubRepoClient.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
     private final JiraService jira = mock(JiraService.class);
-    private final WorkItemPublicationService service = new WorkItemPublicationService(work, workspaces, github, credentials, jira, Clock.systemUTC());
+    private final WorkItemPublicationService service = new WorkItemPublicationService(work, workspaces, issues, jira, Clock.systemUTC());
     private final WorkItemPublicationService.Publication request = new WorkItemPublicationService.Publication(UnifiedWorkItem.Source.GITHUB, 0,
             Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     private final RepoRef repo = RepoRef.of("org", "repo");
@@ -66,31 +63,37 @@ class TestWorkItemPublicationService
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.monitoredRepository()).thenReturn(repo);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
-        when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
         when(work.requireItem("workspace", "local")).thenReturn(item());
         when(work.beginPublication(eq("workspace"), eq("local"), eq(0L), anyString(), eq("GITHUB org/repo"))).thenReturn(item());
     }
 
     @Test
-    void gitLabWorkspaceCannotPublishOrReconcileAGitHubIssue()
+    void publishesGitLabThroughTheSameWorkspaceIssueService()
     {
         when(workspaces.findById("workspace").orElseThrow().isGitHub()).thenReturn(false);
+        when(workspaces.findById("workspace").orElseThrow().issueHost()).thenReturn("https://gitlab.example.com/team");
+        var source = new GitHubIssueSource("https://gitlab.example.com/team", 42, "org/repo", 9,
+                "https://gitlab.example.com/team/org/repo/-/issues/9", "Private repair", "Full accepted context", Instant.EPOCH);
+        when(issues.create("workspace", "Private repair", "Full accepted context")).thenReturn(source);
+        when(work.beginPublication(eq("workspace"), eq("local"), eq(0L), anyString(), eq("https://gitlab.example.com/team org/repo"))).thenReturn(item());
 
-        assertThatThrownBy(() -> service.publish("workspace", "local", request)).isInstanceOf(WorkspaceException.class);
-        assertThatThrownBy(() -> service.reconcile("workspace", "local", request, "1")).isInstanceOf(WorkspaceException.class);
-        verifyNoInteractions(work, credentials, github, jira);
+        service.publish("workspace", "local", request);
+
+        verify(issues).create("workspace", "Private repair", "Full accepted context");
+        verify(work).published(eq("workspace"), eq("local"), argThat(link -> link.issueSource().orElseThrow().equals(source)), anyString());
     }
 
     @Test
     void aPublicationClaimsThePreviewBeforeSendingOnlyItsTitleAndBodyAndAttachesTheReturnedIdentity()
     {
-        when(github.publishWorkItem("token", repo, "Private repair", "Full accepted context")).thenReturn(source());
+        when(issues.create("workspace", "Private repair", "Full accepted context")).thenReturn(source());
         service.publish("workspace", "local", request);
-        var order = inOrder(work, github);
+        var order = inOrder(work, issues);
         order.verify(work).beginPublication(eq("workspace"), eq("local"), eq(0L), anyString(), eq("GITHUB org/repo"));
-        order.verify(github).publishWorkItem("token", repo, "Private repair", "Full accepted context");
+        order.verify(issues).create("workspace", "Private repair", "Full accepted context");
         order.verify(work).published(eq("workspace"), eq("local"), argThat(link -> link.issueSource().orElseThrow().issueId() == 42), anyString());
         verifyNoInteractions(jira);
     }
@@ -100,17 +103,17 @@ class TestWorkItemPublicationService
     {
         when(work.beginPublication(anyString(), anyString(), anyLong(), anyString(), anyString())).thenThrow(new IllegalArgumentException("Work changed"));
         assertThatThrownBy(() -> service.publish("workspace", "local", request)).hasMessage("Work changed");
-        verifyNoInteractions(github, jira);
+        verifyNoInteractions(issues, jira);
     }
 
     @Test
     void anUncertainResponseKeepsItsPendingClaimButADefiniteRejectionSettlesIt()
     {
-        when(github.publishWorkItem(anyString(), any(), anyString(), anyString())).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
+        when(issues.create(anyString(), anyString(), anyString())).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
         assertThatThrownBy(() -> service.publish("workspace", "local", request)).isInstanceOf(ResponseStatusException.class);
         verify(work, never()).publicationRejected(anyString(), anyString(), anyString());
         verify(work, never()).published(anyString(), anyString(), any(), anyString());
-        doThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)).when(github).publishWorkItem(anyString(), any(), anyString(), anyString());
+        doThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)).when(issues).create(anyString(), anyString(), anyString());
         assertThatThrownBy(() -> service.publish("workspace", "local", request)).isInstanceOf(ResponseStatusException.class);
         verify(work).publicationRejected(eq("workspace"), eq("local"), anyString());
     }
@@ -122,11 +125,11 @@ class TestWorkItemPublicationService
         var wrong = new WorkItemPublicationService.Publication(UnifiedWorkItem.Source.JIRA, 0,
                 Optional.of("connection"), Optional.of("site"), Optional.of("ENG"), Optional.empty());
         assertThatThrownBy(() -> service.reconcile("workspace", "local", wrong, "ENG-42")).hasMessageContaining("same destination");
-        verifyNoInteractions(github, jira);
-        when(github.fetchIssueSource("token", repo, 9)).thenReturn(source());
+        verifyNoInteractions(issues, jira);
+        when(issues.source("workspace", 9, false)).thenReturn(source());
         service.reconcile("workspace", "local", request, "#9");
         verify(work).published(eq("workspace"), eq("local"), argThat(link -> link.issueSource().orElseThrow().issueId() == 42), eq("attempt"));
-        verify(github, never()).publishWorkItem(anyString(), any(), anyString(), anyString());
+        verify(issues, never()).create(anyString(), anyString(), anyString());
     }
 
     private static WorkItem item(WorkItemEvent... history)

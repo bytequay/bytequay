@@ -17,6 +17,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
@@ -35,6 +36,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -154,11 +157,41 @@ public class WorkspaceHostingService
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        PullRequestListPage found = cacheTarget(workspaceId).map(value -> requests.cachedPage(value, page, pageSize))
+        Optional<HostingCacheTarget> target = cacheTarget(workspaceId);
+        PullRequestListPage found = target.map(value -> requests.cachedPage(value, page, pageSize))
                 .orElseGet(() -> new PullRequestListPage(ImmutableList.of(), false));
-        return new WorkspacePullRequestPage(found.items().stream().map(summary -> new WorkspacePullRequestRow(summary, workspace.isGitHub()
-                ? pullRequests.findIdByRepoAndNumber(summary.repo(), summary.number()).flatMap(pullRequests::findById) : Optional.empty()))
-                .collect(toImmutableList()), found.hasNext());
+        return new WorkspacePullRequestPage(found.items().stream().map(summary -> {
+            PullRequest row = workspace.isGitHub()
+                    ? pullRequests.findIdByRepoAndNumber(summary.repo(), summary.number()).flatMap(pullRequests::findById)
+                            .orElseGet(() -> pullRequests.saveObserved(summary))
+                    : pullRequests.findByHostingRepository(target.orElseThrow().repositoryId(), summary.number())
+                            .orElseGet(() -> pullRequests.saveHosted(target.orElseThrow().repositoryId(), summary));
+            return new WorkspacePullRequestRow(summary, row);
+        }).collect(toImmutableList()), found.hasNext());
+    }
+
+    public Optional<Long> cachedRepositoryId(String workspaceId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        return cacheTarget(workspaceId).map(HostingCacheTarget::repositoryId);
+    }
+
+    public Optional<String> viewerLogin(String workspaceId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        return cacheTarget(workspaceId).flatMap(target -> identities.findAccount(target.accountId())).map(HostingAccount::login);
+    }
+
+    public List<PullRequest> cachedAttention(String workspaceId)
+    {
+        List<PullRequest> rows = new ArrayList<>();
+        for (int page = 1; ; page++) {
+            WorkspacePullRequestPage found = cachedPullRequests(workspaceId, page, 100);
+            found.items().forEach(row -> rows.add(row.pullRequest()));
+            if (!found.hasNext()) {
+                return ImmutableList.copyOf(rows);
+            }
+        }
     }
 
     public HostingPullRequestSnapshot readPullRequest(String workspaceId, int number)

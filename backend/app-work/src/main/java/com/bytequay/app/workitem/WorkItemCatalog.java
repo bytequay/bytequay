@@ -93,10 +93,10 @@ public class WorkItemCatalog
         }
         if (localOnly) {
             // Local rows need only their own remote references and parent Epics, not every cached issue and ticket.
-            items.stream().flatMap(item -> item.links().stream()).map(WorkItemLink::reference).filter(reference -> workspace.isGitHub() && reference.kind() == GoalItemKind.ISSUE)
+            items.stream().flatMap(item -> item.links().stream()).map(WorkItemLink::reference).filter(reference -> reference.kind() == GoalItemKind.ISSUE)
                     .map(reference -> GoalReferenceReader.NumberedKey.parse(reference.key()))
                     .filter(reference -> reference.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()))
-                    .forEach(reference -> issues.find(workspace.monitoredRepositoryId(), reference.number())
+                    .forEach(reference -> issues.find(workspaces, workspace, reference.number())
                             .ifPresent(issue -> addIssue(result, owners, views, workspace, issue)));
             items.stream().flatMap(item -> item.links().stream()).filter(link -> link.reference().kind() == GoalItemKind.JIRA)
                     .flatMap(link -> EpicSources.ticket(link.identity()).stream())
@@ -110,15 +110,13 @@ public class WorkItemCatalog
                             .ifPresent(issue -> addJira(result, owners, views, issue)));
         }
         else {
-            if (workspace.isGitHub()) {
-                int page = 0;
-                RepositoryIssuePage found;
-                do {
-                    found = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), page++, 100);
-                    found.issues().forEach(issue -> addIssue(result, owners, views, workspace, issue));
-                }
-                while (found.hasMore());
+            int page = 0;
+            RepositoryIssuePage found;
+            do {
+                found = issues.findPage(workspaces, workspace, page++, 100);
+                found.issues().forEach(issue -> addIssue(result, owners, views, workspace, issue));
             }
+            while (found.hasMore());
             for (JiraIssue issue : jira.cachedIssues()) {
                 if (issue.workspace().filter(value -> value.id().equals(workspaceId)).isPresent()) {
                     addJira(result, owners, views, issue);
@@ -128,23 +126,24 @@ public class WorkItemCatalog
         // The issue cache may not hold an Epic's issue; its mark still names it by number, so work in it shows and opens its Epic.
         String repository = workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT);
         items.stream().flatMap(item -> item.epicId().stream()).distinct()
-                .filter(epicId -> workspace.isGitHub() && epicId.startsWith("ISSUE:github.com:") && !owners.containsKey(epicId) && !result.containsKey(epicId))
-                .forEach(epicId -> markers.findEpic("github.com", EpicSources.issueId(epicId)).filter(epic -> epic.isEpic() && epic.repo().equals(repository)).ifPresent(epic -> {
-                    Optional<RepositoryIssue> cached = localOnly ? issues.find(workspace.monitoredRepositoryId(), epic.number()) : Optional.empty();
-                    if (cached.isPresent()) {
-                        addIssue(result, owners, views, workspace, cached.orElseThrow());
-                        return;
-                    }
-                    GoalItem reference = new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(epic.repo(), epic.number()), "#" + epic.number(), "", epic.updatedAt());
-                    result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.GITHUB, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
-                            Optional.empty()));
-                }));
+                .filter(epicId -> epicId.startsWith("ISSUE:" + workspace.issueHost() + ":") && !owners.containsKey(epicId) && !result.containsKey(epicId))
+                .forEach(epicId -> markers.findEpic(workspace.issueHost(), EpicSources.issueId(epicId))
+                        .filter(epic -> epic.isEpic() && epic.repo().equals(repository)).ifPresent(epic -> {
+                            Optional<RepositoryIssue> cached = localOnly ? issues.find(workspaces, workspace, epic.number()) : Optional.empty();
+                            if (cached.isPresent()) {
+                                addIssue(result, owners, views, workspace, cached.orElseThrow());
+                                return;
+                            }
+                            GoalItem reference = new GoalItem(GoalItemKind.ISSUE, GoalItem.numberedKey(epic.repo(), epic.number()), "#" + epic.number(), "", epic.updatedAt());
+                            result.put(epicId, new UnifiedWorkItem(epicId, UnifiedWorkItem.Source.GITHUB, "", "", "Epic", false, epic.updatedAt(), Optional.of(reference),
+                                    Optional.empty()));
+                        }));
         return result.values().stream().sorted(Comparator.comparing(UnifiedWorkItem::updatedAt).reversed()).collect(toImmutableList());
     }
 
     private static void addIssue(Map<String, UnifiedWorkItem> result, Map<String, String> owners, Map<String, WorkItemView> views, Workspace workspace, RepositoryIssue issue)
     {
-        WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", issue.id(), workspace.monitoredRepository().fullName(),
+        WorkItemLink link = GoalReferenceReader.issueLink(new GitHubIssueSource(workspace.issueHost(), issue.id(), workspace.monitoredRepository().fullName(),
                 issue.number(), issue.htmlUrl(), issue.title(), issue.body(), issue.updatedAt()), issue.updatedAt());
         add(result, owners, views, link, issue.title(), issue.body(), "Open", false);
     }

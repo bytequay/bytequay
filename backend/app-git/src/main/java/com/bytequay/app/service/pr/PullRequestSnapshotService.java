@@ -13,26 +13,21 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.repository.github.ConditionalList;
-import com.bytequay.app.repository.github.GitHubActionsClient;
-import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
+import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PullRequestCheckLog;
 import com.bytequay.core.domain.PullRequestDetail;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.base.Throwables;
@@ -55,7 +50,6 @@ import java.util.function.UnaryOperator;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.joining;
 
 /** Owns persisted pull-request detail and diff snapshots. */
 @Service
@@ -63,16 +57,17 @@ public class PullRequestSnapshotService
 {
     private static final StoredPrDiff EMPTY_DIFF = new StoredPrDiff(ImmutableList.of(), ImmutableList.of());
 
-    private final GitHubPullRequestReadClient gitHub;
-    private final GitHubActionsClient actions;
+    private final HostingPullRequestContents contents;
+    private final HostingPullRequestWrites writes;
     private final HostingPullRequestService requests;
     private final PrDetailStore details;
     private final PrDiffStore diffs;
 
-    public PullRequestSnapshotService(GitHubPullRequestReadClient gitHub, GitHubActionsClient actions, HostingPullRequestService requests, PrDetailStore details, PrDiffStore diffs)
+    public PullRequestSnapshotService(HostingPullRequestContents contents, HostingPullRequestWrites writes, HostingPullRequestService requests,
+            PrDetailStore details, PrDiffStore diffs)
     {
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.actions = requireNonNull(actions, "actions is null");
+        this.contents = requireNonNull(contents, "contents is null");
+        this.writes = requireNonNull(writes, "writes is null");
         this.requests = requireNonNull(requests, "requests is null");
         this.details = requireNonNull(details, "details is null");
         this.diffs = requireNonNull(diffs, "diffs is null");
@@ -84,51 +79,14 @@ public class PullRequestSnapshotService
                 .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId, repo, number, stored, stored.viewerCanWrite()));
     }
 
-    PullRequestCheckLog readCheckLog(PullRequestRef pullRequest, long jobId)
+    PullRequestCheckLog readCheckLog(PullRequestRead route, long jobId)
     {
-        CiHeadSnapshot head = actions.inspect(pullRequest);
-        boolean failedJob = head.workflowRuns().stream()
-                .flatMap(run -> run.jobs().stream())
-                .anyMatch(job -> job.id() == jobId && job.actionableFailure());
-        if (!failedJob) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "This failed job is no longer part of the current PR checks. Refresh the pull request.");
-        }
-        String annotations = actions.readFailureAnnotations(pullRequest, jobId).stream()
-                .map(message -> "GitHub annotation: " + message + "\n")
-                .collect(joining());
-        try {
-            String log = actions.readJobLog(pullRequest, jobId);
-            return new PullRequestCheckLog(annotations.isEmpty() ? log : annotations + "\n" + log, Optional.empty());
-        }
-        catch (ResponseStatusException failure) {
-            return new PullRequestCheckLog(annotations, Optional.ofNullable(failure.getReason()).or(() -> Optional.of("GitHub Actions log retrieval failed")));
-        }
+        return contents.reader(route.session()).readCheckLog(route.session().access(), route.repository(), route.number(), jobId);
     }
 
-    void rerunFailedChecks(PullRequestRef pullRequest)
+    void rerunFailedChecks(PullRequestRead route)
     {
-        CiHeadSnapshot head = actions.inspect(pullRequest);
-        List<CiWorkflowRun> failedRuns = head.workflowRuns().stream()
-                .filter(run -> run.jobs().stream().anyMatch(job -> job.actionableFailure()))
-                .collect(toImmutableList());
-        if (failedRuns.isEmpty()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "No failed GitHub Actions jobs are available to rerun");
-        }
-
-        int accepted = 0;
-        String rejection = "GitHub did not accept the failed-job rerun";
-        for (CiWorkflowRun run : failedRuns) {
-            CiRerunResult result = actions.rerunFailedJobs(new RerunFailedJobsCommand(pullRequest, run.id(), head.headSha(), run.attempt(), true));
-            if (result.outcome() == CiRerunResult.Outcome.ACCEPTED) {
-                accepted++;
-            }
-            else {
-                rejection = result.reason();
-            }
-        }
-        if (accepted == 0) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, rejection);
-        }
+        writes.forSession(route.session()).rerunFailedChecks(route.session().access(), route.repository(), route.number());
     }
 
     List<DiffFile> getDiffFiles(long prId, String baseSha, String headSha)
@@ -242,21 +200,15 @@ public class PullRequestSnapshotService
 
     StoredPrDetail refreshChecks(PullRequestRead route, long prId)
     {
-        PullRequestRef pullRequest = route.githubRef();
         prepareScope(prId, route.scope());
         StoredPrDetail existing = details.find(prId).orElseThrow(() -> missing("Pull request detail"));
         PrRawDetail raw = existing.raw();
         if (raw.headSha() == null || raw.headSha().isBlank()) {
-            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no head commit for checks");
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Hosting provider returned no head commit for checks");
         }
-        PrCheckRunsFetch checks = readRemote(prId, () -> actions.refreshPrCheckRuns(
-                        route.githubToken(),
-                        pullRequest.owner(),
-                        pullRequest.repo(),
-                        raw.headSha(),
-                        existing.checkRuns(),
-                        details.findCheckRunsEtag(prId),
-                        details.findCommitStatusesEtag(prId)));
+        PullRequestContentReader.Checks checks = readRemote(prId, () -> contents.reader(route.session()).checks(
+                route.session().access(), route.repository(), route.number(), raw.headSha(), existing.checkRuns(),
+                details.findCheckRunsEtag(prId), details.findCommitStatusesEtag(prId)));
         StoredPrDetail stored = new StoredPrDetail(
                 raw,
                 existing.reviews(),
@@ -264,7 +216,7 @@ public class PullRequestSnapshotService
                 checks.checkRuns(),
                 existing.unavailableSections().stream()
                         .filter(section -> !"checks".equals(section))
-                        .collect(ImmutableList.toImmutableList()),
+                        .collect(toImmutableList()),
                 existing.viewerCanWrite());
         details.saveStatus(prId, stored);
         details.setCredentialScope(prId, route.scope());
@@ -280,7 +232,6 @@ public class PullRequestSnapshotService
 
     void refreshDefaultDiff(PullRequestRead route, long prId)
     {
-        PullRequestRef pullRequest = route.githubRef();
         prepareScope(prId, route.scope());
         StoredPrDiff stored = diffs.find(prId, null, null).orElse(EMPTY_DIFF);
         Optional<StoredPrDetail> detail = details.find(prId);
@@ -288,7 +239,7 @@ public class PullRequestSnapshotService
         if (raw.filter(value -> value.baseSha() != null && value.headSha() != null).isEmpty()) {
             PrRawDetail fetched = readRemote(prId, () -> requests.refresh(route.session(), route.repository().id(), route.number(), true)).detail();
             if (fetched.baseSha() == null || fetched.headSha() == null) {
-                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no diff commit coordinates");
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Hosting provider returned no diff commit coordinates");
             }
             raw = Optional.of(saveMetadata(prId, fetched, detail.map(StoredPrDetail::viewerCanWrite).orElse(false), route).raw());
         }
@@ -296,8 +247,8 @@ public class PullRequestSnapshotService
         Optional<String> headSha = raw.map(PrRawDetail::headSha);
         boolean sameCoordinates = baseSha.isPresent() && headSha.isPresent() && stored.baseSha().equals(baseSha) && stored.headSha().equals(headSha);
         PrDiffEtags etags = sameCoordinates ? diffs.findDefaultEtags(prId) : PrDiffEtags.none();
-        ConditionalList<DiffFile> files = readRemote(prId, () -> gitHub.fetchPrDiffFiles(route.githubToken(), pullRequest, stored.files(), etags.files()));
-        ConditionalList<DiffCommit> commits = readRemote(prId, () -> gitHub.fetchPrDiffCommits(route.githubToken(), pullRequest, stored.commits(), etags.commits()));
+        PullRequestContentReader.Diff fetched = readRemote(prId, () -> contents.reader(route.session()).diff(
+                route.session().access(), route.repository(), route.number(), Optional.empty(), Optional.empty(), stored, etags));
         if (baseSha.isPresent() && headSha.isPresent()) {
             // The default endpoints follow a moving PR. Do not label their bytes with coordinates that moved during retrieval.
             PrRawDetail verified = readRemote(prId, () -> requests.refresh(route.session(), route.repository().id(), route.number(), true)).detail();
@@ -306,14 +257,13 @@ public class PullRequestSnapshotService
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request changed while fetching its diff; refresh again");
             }
         }
-        diffs.saveDefault(prId, new StoredPrDiff(files.orElse(stored.files()), commits.orElse(stored.commits()),
+        diffs.saveDefault(prId, new StoredPrDiff(fetched.files(), fetched.commits(),
                         sameCoordinates ? stored.fileContents() : ImmutableMap.of(), baseSha, headSha, Optional.of(Instant.now())),
-                new PrDiffEtags(files.etag(), commits.etag()));
+                fetched.etags());
     }
 
     void refreshDiff(PullRequestRead route, long prId, String baseSha, String headSha)
     {
-        PullRequestRef pullRequest = route.githubRef();
         prepareScope(prId, route.scope());
         validateRange(baseSha, headSha);
         if (baseSha == null) {
@@ -324,19 +274,19 @@ public class PullRequestSnapshotService
             PrRawDetail fetched = readRemote(prId, () -> requests.refresh(route.session(), route.repository().id(), route.number(), false)).detail();
             saveMetadata(prId, fetched, false, route);
         }
-        Map<String, DiffFileContent> contents = diffs.find(prId, baseSha, headSha)
+        Map<String, DiffFileContent> fileContents = diffs.find(prId, baseSha, headSha)
                 .filter(stored -> stored.baseSha().equals(Optional.of(baseSha)) && stored.headSha().equals(Optional.of(headSha)))
                 .map(StoredPrDiff::fileContents)
                 .orElseGet(ImmutableMap::of);
-        List<DiffFile> files = readRemote(prId, () -> gitHub.fetchPrDiffFiles(route.githubToken(), pullRequest, baseSha, headSha));
-        StoredPrDiff fetched = new StoredPrDiff(files, ImmutableList.of(), contents,
+        List<DiffFile> files = readRemote(prId, () -> contents.reader(route.session()).diff(route.session().access(), route.repository(), route.number(),
+                Optional.of(baseSha), Optional.of(headSha), EMPTY_DIFF, PrDiffEtags.none()).files());
+        StoredPrDiff fetched = new StoredPrDiff(files, ImmutableList.of(), fileContents,
                 Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now()));
         diffs.save(prId, baseSha, headSha, fetched);
     }
 
     void refreshFileContent(PullRequestRead route, long prId, String path, String baseSha, String headSha)
     {
-        PullRequestRef pullRequest = route.githubRef();
         prepareScope(prId, route.scope());
         checkText(path, "path");
         validateRange(baseSha, headSha);
@@ -349,7 +299,8 @@ public class PullRequestSnapshotService
         if (stored.baseSha().equals(Optional.of(contentBase)) && stored.headSha().equals(Optional.of(contentHead)) && stored.fileContents().containsKey(path)) {
             return;
         }
-        DiffFileContent content = readRemote(prId, () -> gitHub.fetchPrDiffFileContent(route.githubToken(), pullRequest, path, contentBase, contentHead));
+        DiffFileContent content = readRemote(prId, () -> contents.reader(route.session()).fileContent(
+                route.session().access(), route.repository(), route.number(), path, contentBase, contentHead));
         if (baseSha == null) {
             if (!diffs.saveDefaultFileContent(prId, contentBase, contentHead, path, content)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request diff changed while fetching file content; refresh again");

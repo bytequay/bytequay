@@ -16,15 +16,13 @@ package com.bytequay.app.workspace;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PullRequest;
 
-import java.util.Optional;
-
 import static java.util.Objects.requireNonNull;
 
-public record WorkspacePullRequestRow(FetchedPullRequest summary, Optional<PullRequest> github)
+public record WorkspacePullRequestRow(FetchedPullRequest summary, PullRequest pullRequest)
 {
     public WorkspacePullRequestRow
     {
         requireNonNull(summary, "summary is null");
-        requireNonNull(github, "github is null");
+        requireNonNull(pullRequest, "pullRequest is null");
     }
 }

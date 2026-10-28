@@ -8,6 +8,9 @@
 .hosting-form input, .hosting-accounts select { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--surface-inset); color: var(--text-1); }
 .hosting-form p, .hosting-panel > p { color: var(--text-3); font-size: 13px; line-height: 1.5; margin: 0; }
 .hosting-form button { justify-self: start; }
+.hosting-cli-setup { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
+.hosting-cli-setup h2 { margin: 0; font-size: 15px; }
+.hosting-cli-setup ol { display: grid; gap: 12px; margin: 0; padding-left: 22px; font-size: 13px; }
 
 .hosting-request-row { display: flex; flex-direction: column; align-items: flex-start; width: 100%; gap: 9px; text-align: left; }
 .hosting-request-action { font-size: 12px; color: var(--fg-link); }

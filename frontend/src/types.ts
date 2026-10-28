@@ -360,6 +360,7 @@ export type WatchRepositoryCommand = {
 };
 
 export type HostingServerDto = { provider: 'GITHUB' | 'GITLAB'; webBaseUrl: string; apiBaseUrl: string };
+export type GitLabCliStatusDto = { ready: boolean; homebrewAvailable: boolean };
 export type HostingConnectionDto = {
   account: { id: number; instanceId: number; remoteId: string; login: string };
   instance: HostingServerDto & { id: number };
@@ -1750,6 +1751,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   listHostingAccounts: () => Promise<HostingConnectionDto[]>;
   connectHostingAccount: (request: HostingServerDto & { token: string }) => Promise<HostingConnectionDto>;
   connectHostingCliAccount: (request: HostingServerDto) => Promise<HostingConnectionDto>;
+  getGitLabCliStatus: () => Promise<GitLabCliStatusDto>;
+  installGitLabCli: () => Promise<GitLabCliStatusDto>;
   disconnectHostingAccount: (accountId: number) => Promise<void>;
   resolveHostingRepository: (accountId: number, fullPath: string) => Promise<HostingRepositoryDto>;
   createHostingWorkspace: (accountId: number, repositoryId: number) => Promise<WorkspaceDto>;

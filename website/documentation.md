@@ -108,10 +108,15 @@ memory.
 ### Set up a GitLab workspace
 
 In **Workspaces → Watch repository**, choose **GitLab**. Select a saved account,
-or choose **Sign in with GitLab** to use your normal email or SSO login in the
-browser. Install GitLab CLI 1.125 or newer with `brew install glab`, or update it
-with `brew upgrade glab`. The server defaults to `https://gitlab.com`; enter your
-company GitLab HTTPS URL when needed, including its port or path prefix.
+or follow the GitLab setup guide. It checks for GitLab CLI 1.125 or newer.
+Choose **Install and sign in** to run `brew install glab`, verify the installation,
+then open browser login. When the CLI is already ready, choose **Sign in with
+GitLab** directly. Use your normal email or SSO login in the browser.
+
+If Homebrew is missing, choose **Open Homebrew setup**, install it, then choose
+**Check again**. The same guide appears in **Settings → Integrations → GitLab**.
+The server defaults to `https://gitlab.com`; enter your company GitLab HTTPS URL
+when needed, including its port or path prefix.
 
 GitLab CLI owns browser authorization and token refresh. It requests its standard
 API and repository permissions. For a company server, configure its public OAuth

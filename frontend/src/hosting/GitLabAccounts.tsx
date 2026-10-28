@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { HostingConnectionDto, HostingServerDto } from '../types';
+import { useCallback, useEffect, useState } from 'react';
+import type { GitLabCliStatusDto, HostingConnectionDto, HostingServerDto } from '../types';
 import './hosting.css';
 
 export function GitLabConnectionForm({ server, onConnected }: {
@@ -21,14 +21,30 @@ export function GitLabConnectionForm({ server, onConnected }: {
 }) {
   const [url, setUrl] = useState(server?.webBaseUrl ?? 'https://gitlab.com');
   const [token, setToken] = useState('');
-  const [busy, setBusy] = useState<'cli' | 'token' | null>(null);
+  const [busy, setBusy] = useState<'install' | 'cli' | 'token' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cliStatus, setCliStatus] = useState<GitLabCliStatusDto | null>(null);
+  const [checking, setChecking] = useState(true);
+  const checkCli = useCallback(async () => {
+    setChecking(true); setError(null);
+    try { setCliStatus(await window.bridge.getGitLabCliStatus()); }
+    catch (failure) { setCliStatus(null); setError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { setChecking(false); }
+  }, []);
+  useEffect(() => { void checkCli(); }, [checkCli]);
   const connect = async (cli: boolean) => {
     if (busy !== null) return;
     setBusy(cli ? 'cli' : 'token'); setError(null);
     const webBaseUrl = url.trim().replace(/\/+$/, '');
     const target: HostingServerDto = { provider: 'GITLAB', webBaseUrl, apiBaseUrl: server?.apiBaseUrl ?? `${webBaseUrl}/api/v4` };
     try {
+      if (cli && !cliStatus?.ready) {
+        setBusy('install');
+        const installed = await window.bridge.installGitLabCli();
+        setCliStatus(installed);
+        if (!installed.ready) throw new Error('GitLab CLI is not ready. Check again or use a personal access token.');
+        setBusy('cli');
+      }
       const account = await (cli ? window.bridge.connectHostingCliAccount(target) : window.bridge.connectHostingAccount({ ...target, token: token.trim() }));
       setToken(''); onConnected(account);
     } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
@@ -52,11 +68,27 @@ export function GitLabConnectionForm({ server, onConnected }: {
   }}>
     <label>GitLab server<input aria-label="GitLab server" type="url" required value={url} disabled={busy !== null || server !== undefined}
       onChange={event => setUrl(event.target.value)} placeholder="https://gitlab.example.com" /></label>
-    <button type="button" className="setw-btn-primary" disabled={busy !== null} onClick={() => { void connect(true); }}>
-      {busy === 'cli' ? 'Waiting for GitLab…' : 'Sign in with GitLab'}
-    </button>
-    <p>Use your normal email or SSO sign-in in the browser. Requires GitLab CLI 1.125 or newer: <code>brew install glab</code> or <code>brew upgrade glab</code>.
-      GitLab CLI requests its standard API and repository permissions.</p>
+    <section className="hosting-cli-setup" aria-label="GitLab sign-in setup">
+      <h2>Connect with GitLab CLI</h2>
+      <ol>
+        <li><strong>Install GitLab CLI</strong>
+          <p role="status">{checking ? 'Checking GitLab CLI…' : cliStatus?.ready ? 'GitLab CLI is ready.' : 'GitLab CLI 1.125 or newer is required.'}</p></li>
+        <li><strong>Sign in in your browser</strong><p>Use your normal email or SSO login. GitLab CLI requests its standard API and repository permissions.</p></li>
+      </ol>
+      {cliStatus !== null && (cliStatus.ready || cliStatus.homebrewAvailable) && <>
+        {!cliStatus.ready && <p>Runs <code>brew install glab</code>, then opens GitLab in your browser.</p>}
+        <button type="button" className="setw-btn-primary" disabled={busy !== null || checking} onClick={() => { void connect(true); }}>
+          {busy === 'install' ? 'Installing GitLab CLI…' : busy === 'cli' ? 'Waiting for GitLab…' : cliStatus.ready ? 'Sign in with GitLab' : 'Install and sign in'}
+        </button>
+      </>}
+      {cliStatus !== null && !cliStatus.ready && !cliStatus.homebrewAvailable && <>
+        <p>Install Homebrew first, then check again. You can also connect with a personal access token below.</p>
+        <button type="button" className="setw-btn" disabled={busy !== null || checking} onClick={() => {
+          void window.bridge.openExternal('https://brew.sh').catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+        }}>Open Homebrew setup</button>
+      </>}
+      <button type="button" className="setw-link" disabled={busy !== null || checking} onClick={() => { void checkCli(); }}>Check again</button>
+    </section>
     <label>Or use a personal access token<input aria-label="GitLab personal access token" type="password" required value={token} disabled={busy !== null}
       autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
     <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage(); }}>Create access token</button>

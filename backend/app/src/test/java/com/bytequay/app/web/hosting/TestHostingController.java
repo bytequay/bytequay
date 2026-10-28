@@ -15,6 +15,8 @@ package com.bytequay.app.web.hosting;
 
 import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.agent.runtime.AgentServingGate;
+import com.bytequay.app.service.gitlab.GitLabCliStatus;
+import com.bytequay.app.service.gitlab.GlabCliService;
 import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
@@ -97,12 +99,15 @@ class TestHostingController
     private final HostingPullRequestService requests = mock(HostingPullRequestService.class);
     private final WorkspaceHostingService workspaces = mock(WorkspaceHostingService.class);
     private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
+    private final GlabCliService cli = mock(GlabCliService.class);
 
     @ParameterizedTest
     @CsvSource({
             "GET,/api/hosting/accounts",
             "POST,/api/hosting/accounts",
             "POST,/api/hosting/cli/login",
+            "GET,/api/hosting/gitlab/cli",
+            "POST,/api/hosting/gitlab/cli/install",
             "DELETE,/api/hosting/accounts/7/credential",
             "POST,/api/hosting/accounts/7/repositories/resolve",
             "POST,/api/hosting/accounts/7/workspaces",
@@ -124,6 +129,37 @@ class TestHostingController
                         .contentType(MediaType.APPLICATION_JSON).content(CONNECT_BODY))
                 .andExpect(status().isForbidden());
 
+        verifyNoInteractions(connections, requests, cli);
+    }
+
+    @Test
+    void checksGitLabCliSetupWithoutInstallingOrAuthenticating()
+            throws Exception
+    {
+        when(cli.status()).thenReturn(new GitLabCliStatus(false, true));
+
+        mvc(connections).perform(get("/api/hosting/gitlab/cli").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ready").value(false))
+                .andExpect(jsonPath("$.homebrewAvailable").value(true));
+
+        verify(cli).status();
+        verifyNoMoreInteractions(cli);
+        verifyNoInteractions(connections, requests);
+    }
+
+    @Test
+    void installsGitLabCliOnlyThroughAnExplicitPost()
+            throws Exception
+    {
+        when(cli.install()).thenReturn(new GitLabCliStatus(true, true));
+
+        mvc(connections).perform(post("/api/hosting/gitlab/cli/install").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.ready").value(true));
+
+        verify(cli).install();
+        verifyNoMoreInteractions(cli);
         verifyNoInteractions(connections, requests);
     }
 
@@ -419,7 +455,7 @@ class TestHostingController
                 Path.of("/tmp/agent-claude-home"));
         ObjectMapper mapper = Jackson2ObjectMapperBuilder.json().modules(new Jdk8Module(), new JavaTimeModule())
                 .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build();
-        return standaloneSetup(new HostingController(service, requests, workspaces, repositories))
+        return standaloneSetup(new HostingController(service, requests, workspaces, repositories), new GitLabSetupController(cli))
                 .setControllerAdvice(new GlobalExceptionHandler(), new HostingExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                 .addFilters(new AgentRequestFilter(properties, mapper, new AgentServingGate()))

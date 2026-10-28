@@ -211,6 +211,7 @@ export async function run() {
     let account: HostingConnectionDto | null = null;
     let githubReads = 0;
     window.bridge.listHostingAccounts = async () => account === null ? [] : [account];
+    window.bridge.getGitLabCliStatus = async () => ({ ready: true, homebrewAvailable: true });
     window.bridge.connectHostingAccount = async server => {
       account = { account: { id: 1, instanceId: 1, remoteId: '42', login: 'developer' }, instance: { id: 1, ...server }, connected: true };
       return account;

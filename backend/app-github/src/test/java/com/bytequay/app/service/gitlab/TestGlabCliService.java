@@ -17,12 +17,14 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -32,11 +34,14 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.assertArg;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestGlabCliService
@@ -45,6 +50,95 @@ class TestGlabCliService
             HostingProvider.GITLAB, URI.create("https://gitlab.example.com:8443/tools"), URI.create("https://api.example.com:8443/tools/api/v4"));
     private static final String BINARY = "/fake/glab";
     private static final String SECRET = "test-credential";
+
+    @Test
+    void statusReportsMissingToolsWithoutStartingCommands()
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GlabCliService service = spy(new GlabCliService(runner));
+        doReturn(Optional.empty()).when(service).findBinary("glab");
+        doReturn(Optional.empty(), Optional.of("/fake/brew")).when(service).findBinary("brew");
+
+        assertThat(service.status()).isEqualTo(new GitLabCliStatus(false, false));
+        assertThat(service.status()).isEqualTo(new GitLabCliStatus(false, true));
+        verifyNoInteractions(runner);
+    }
+
+    @Test
+    void statusChecksOnlyTheCliVersion()
+            throws Exception
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GlabCliService service = spy(new GlabCliService(runner));
+        doReturn(Optional.of(BINARY)).when(service).findBinary("glab");
+        doReturn(Optional.of("/fake/brew")).when(service).findBinary("brew");
+        when(runner.runCommand(any(), anyMap(), anyList(), any(), anyInt())).thenReturn(
+                new GitCommandRunner.Result(0, "glab 1.124.0", false), new GitCommandRunner.Result(0, "glab 1.125.0", false));
+
+        assertThat(service.status().ready()).isFalse();
+        assertThat(service.status().ready()).isTrue();
+
+        verify(runner, times(2)).runCommand(any(), anyMap(), eq(ImmutableList.of(BINARY, "--version")), eq(Duration.ofSeconds(30)), anyInt());
+        verifyNoMoreInteractions(runner);
+    }
+
+    @Test
+    void installsWithHomebrewAndRechecksBeforeReportingReady()
+            throws Exception
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GlabCliService service = spy(new GlabCliService(runner));
+        doReturn(Optional.of("/fake/brew")).when(service).findBinary("brew");
+        doReturn(Optional.of(BINARY)).when(service).findBinary("glab");
+        when(runner.runCommand(any(), anyMap(), anyList(), any(), anyInt())).thenReturn(
+                new GitCommandRunner.Result(0, "installation output", true), new GitCommandRunner.Result(0, "glab 1.125.0", false));
+
+        assertThat(service.install()).isEqualTo(new GitLabCliStatus(true, true));
+
+        verify(runner).runCommand(eq(Path.of(System.getProperty("user.home"))),
+                eq(ImmutableMap.of("HOMEBREW_NO_ASK", "1", "HOMEBREW_NO_INSTALL_UPGRADE", "", "HOMEBREW_NO_INSTALL_CLEANUP", "1")),
+                eq(ImmutableList.of("/fake/brew", "install", "glab")), eq(Duration.ofMinutes(10)), eq(16 * 1024));
+        verify(runner).runCommand(any(), anyMap(), eq(ImmutableList.of(BINARY, "--version")), eq(Duration.ofSeconds(30)), anyInt());
+        verifyNoMoreInteractions(runner);
+    }
+
+    @Test
+    void missingHomebrewDoesNotAttemptInstallation()
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GlabCliService service = spy(new GlabCliService(runner));
+        doReturn(Optional.empty()).when(service).findBinary("brew");
+
+        assertThatThrownBy(service::install).isInstanceOf(ResponseStatusException.class).hasMessageContaining("brew.sh");
+        verifyNoInteractions(runner);
+    }
+
+    @Test
+    void failedInstallationStopsWithoutReportingReadyOrExposingOutput()
+            throws Exception
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GlabCliService service = spy(new GlabCliService(runner));
+        doReturn(Optional.of("/fake/brew")).when(service).findBinary("brew");
+        when(runner.runCommand(any(), anyMap(), anyList(), any(), anyInt())).thenReturn(new GitCommandRunner.Result(1, SECRET, false));
+
+        assertThatThrownBy(service::install).isInstanceOf(ResponseStatusException.class).hasMessageContaining("installation failed").hasMessageNotContaining(SECRET);
+        verify(service, never()).status();
+    }
+
+    @Test
+    void installationRequiresASupportedCliAfterHomebrewFinishes()
+            throws Exception
+    {
+        GitCommandRunner runner = mock(GitCommandRunner.class);
+        GlabCliService service = spy(new GlabCliService(runner));
+        doReturn(Optional.of("/fake/brew")).when(service).findBinary("brew");
+        doReturn(Optional.of(BINARY)).when(service).findBinary("glab");
+        when(runner.runCommand(any(), anyMap(), anyList(), any(), anyInt())).thenReturn(
+                new GitCommandRunner.Result(0, "", false), new GitCommandRunner.Result(0, "glab 1.124.0", false));
+
+        assertThatThrownBy(service::install).isInstanceOf(ResponseStatusException.class).hasMessageContaining("still unavailable");
+    }
 
     @Test
     void browserLoginBindsServerAndClearsAmbientCredentials()

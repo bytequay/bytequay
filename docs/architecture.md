@@ -168,6 +168,9 @@ current credentials through the shared hosting connection flow. Each CLI-backed
 read verifies the remote account before using the selected account's cache.
 Tokens stay in the backend, and disconnect removes ByteQuay's connection without
 changing the CLI's login.
+GitLab setup checks local CLI readiness without authenticating. An explicit
+installation click runs the fixed Homebrew command, verifies readiness, then
+continues to browser sign-in. Installation state is not persisted.
 
 ### Accounts, identity and storage
 

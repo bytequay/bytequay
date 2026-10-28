@@ -67,6 +67,38 @@ public class GlabCliService
         return HostingProvider.GITLAB;
     }
 
+    public GitLabCliStatus status()
+    {
+        boolean ready = findBinary("glab").map(binary -> supportedVersion(run(
+                ImmutableMap.of("GLAB_CHECK_UPDATE", "false", "GLAB_SHOW_WHATS_NEW", "false"),
+                ImmutableList.of(binary, "--version"), READ_TIMEOUT, UPGRADE))).orElse(false);
+        return new GitLabCliStatus(ready, findBinary("brew").isPresent());
+    }
+
+    public GitLabCliStatus install()
+    {
+        String brew = findBinary("brew").orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Install Homebrew from brew.sh, then check again, or use a personal access token."));
+        try {
+            GitCommandRunner.Result result = runner.runCommand(Path.of(System.getProperty("user.home")),
+                    ImmutableMap.of("HOMEBREW_NO_ASK", "1", "HOMEBREW_NO_INSTALL_UPGRADE", "", "HOMEBREW_NO_INSTALL_CLEANUP", "1"),
+                    ImmutableList.of(brew, "install", "glab"), Duration.ofMinutes(10), MAX_OUTPUT_BYTES);
+            // Installation output is not parsed; a successful install may exceed the capture limit.
+            if (!result.successful()) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitLab CLI installation failed. Run brew install glab in Terminal for details, then check again.");
+            }
+        }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GitLab CLI installation was interrupted. Check again before retrying.");
+        }
+        GitLabCliStatus status = status();
+        if (!status.ready()) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GitLab CLI is still unavailable after installation. " + UPGRADE);
+        }
+        return status;
+    }
+
     @Override
     public void login(HostingServer server)
     {
@@ -77,13 +109,7 @@ public class GlabCliService
     {
         Map<String, String> environment = environment(server);
         String version = run(environment, ImmutableList.of(binary, "--version"), READ_TIMEOUT, UPGRADE);
-        Matcher match = VERSION.matcher(version);
-        try {
-            if (!match.find() || Integer.parseInt(match.group(1)) < 1 || Integer.parseInt(match.group(1)) == 1 && Integer.parseInt(match.group(2)) < 125) {
-                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, UPGRADE);
-            }
-        }
-        catch (NumberFormatException failure) {
+        if (!supportedVersion(version)) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, UPGRADE);
         }
         run(environment, ImmutableList.of(binary, "auth", "login", "--hostname", server.webBaseUrl().getAuthority(), "--web", "--use-keyring",
@@ -155,13 +181,28 @@ public class GlabCliService
                 .buildOrThrow();
     }
 
-    private static String binary()
+    private String binary()
+    {
+        return findBinary("glab").orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, UPGRADE));
+    }
+
+    Optional<String> findBinary(String name)
     {
         Stream<Path> fromPath = Stream.of(System.getenv().getOrDefault("PATH", "").split(":"))
-                .filter(directory -> !directory.isBlank()).map(directory -> Path.of(directory).resolve("glab"));
-        return Stream.concat(Stream.of(Path.of("/opt/homebrew/bin/glab"), Path.of("/usr/local/bin/glab")), fromPath)
-                .filter(Files::isExecutable).map(Path::toString).findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, UPGRADE));
+                .filter(directory -> !directory.isBlank()).map(directory -> Path.of(directory).resolve(name));
+        return Stream.concat(Stream.of(Path.of("/opt/homebrew/bin", name), Path.of("/usr/local/bin", name)), fromPath)
+                .filter(Files::isExecutable).map(Path::toString).findFirst();
+    }
+
+    private static boolean supportedVersion(String version)
+    {
+        Matcher match = VERSION.matcher(version);
+        try {
+            return match.find() && (Integer.parseInt(match.group(1)) > 1 || Integer.parseInt(match.group(1)) == 1 && Integer.parseInt(match.group(2)) >= 125);
+        }
+        catch (NumberFormatException failure) {
+            return false;
+        }
     }
 
     private record HelperResponse(String type, @JsonProperty("instance_url") Optional<String> instanceUrl, Optional<HelperToken> token)

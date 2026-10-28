@@ -17,7 +17,6 @@ import { remoteErrorMessage } from '../../remoteError';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import IdeWorkingCopy from '../../ide/IdeWorkingCopy';
-import IdeCostNotice from '../../ide/IdeCostNotice';
 import ArchivedCode from './ArchivedCode';
 import type { CodeCommentsOptions } from './useCodeComments';
 import { shortSha } from './codeModel';
@@ -163,12 +162,10 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
 
   return (
     <div className="ct-empty agr-empty">
-      <div className="agr-empty__title">No working copy yet</div>
       <p>
-        Create a local worktree from this pull request&apos;s branch to browse files, edit code, and run tests.
-        ByteQuay checks out the latest PR commit. You can start an agent review later using this working copy.
+        Create a local worktree to browse files, edit code, and run tests.
+        Uses additional memory, CPU, and disk space; indexing takes time. No AI agent starts or tokens are used.
       </p>
-      <IdeCostNotice />
       <div className="agr-empty__actions">
         <button type="button" className="agr-action is-primary" disabled={starting} onClick={start}>
           {starting ? 'Creating worktree…' : 'Create worktree to explore'}

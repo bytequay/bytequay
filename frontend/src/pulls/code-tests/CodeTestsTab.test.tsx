@@ -54,9 +54,9 @@ describe('CodeTestsTab', () => {
   it('offers exploration with a memory notice before starting any review', () => {
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={null}
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
-    expect(html).toContain('No working copy yet');
+    expect(html).not.toContain('No working copy yet');
     expect(html).toContain('Create worktree to explore');
-    expect(html).toContain('local code server');
+    expect(html).toContain('Create a local worktree');
     expect(html).toContain('additional memory');
     expect(html).not.toContain('>Start review</button>');
   });

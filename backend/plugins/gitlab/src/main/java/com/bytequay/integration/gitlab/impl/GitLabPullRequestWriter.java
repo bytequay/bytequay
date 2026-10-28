@@ -28,7 +28,6 @@ import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.SubmittedReview;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -79,18 +78,21 @@ public final class GitLabPullRequestWriter
     public PrTimelineEvent createReviewComment(HostingAccess access, HostingRepository repository, int number, InlineReviewComment comment)
     {
         validateComment(comment);
-        if (comment.replyToCommentId().isPresent()) {
-            Discussion discussion = discussion(access, repository, number, comment.replyToCommentId().orElseThrow());
-            Note reply = http.post(access, request(access, repository, number) + "/discussions/" + encode(discussion.id()) + "/notes", new Body(comment.body()),
-                    Note.class).body().orElseThrow();
-            return thread(new Discussion(discussion.id(), ImmutableList.<Note>builder().addAll(discussion.notes()).add(reply).build()), url(repository, number));
-        }
         String path = request(access, repository, number);
         MergeRequest current = get(access, path, MergeRequest.class);
+        if (comment.replyToCommentId().isPresent()) {
+            Discussion discussion = discussion(access, repository, number, comment.replyToCommentId().orElseThrow());
+            Note reply = http.post(access, path + "/discussions/" + encode(discussion.id()) + "/notes", new Body(comment.body()),
+                    Note.class).body().orElseThrow();
+            if (reply.id() == null && reply.summary() != null) {
+                return commandResult(reply.summary());
+            }
+            return thread(new Discussion(discussion.id(), ImmutableList.<Note>builder().addAll(discussion.notes()).add(reply).build(), null), url(repository, number), current);
+        }
         checkHead(current, comment.commitId());
-        Position position = position(access, path, current, comment);
-        Discussion created = http.post(access, path + "/discussions", new DiscussionBody(comment.body(), position), Discussion.class).body().orElseThrow();
-        return thread(created, url(repository, number));
+        GitLabDiffPosition position = position(pages(access, path + "/diffs", FileDiff[].class), current, comment);
+        checkRevision(current, get(access, path, MergeRequest.class));
+        return createDiscussion(access, repository, number, comment.body(), position, current);
     }
 
     @Override
@@ -116,6 +118,7 @@ public final class GitLabPullRequestWriter
             case "+1" -> "thumbsup";
             case "-1" -> "thumbsdown";
             case "hooray" -> "tada";
+            case "laugh" -> "smile";
             default -> content;
         };
         Optional<Award> existing = pages(access, path, Award[].class).stream().filter(award -> award.name().equals(emoji) && award.user().id() == viewer.id()).findFirst();
@@ -190,11 +193,20 @@ public final class GitLabPullRequestWriter
         MergeRequest current = get(access, path, MergeRequest.class);
         checkHead(current, commitId);
         Optional<User> viewer = "APPROVE".equals(event) ? Optional.of(get(access, "user", User.class)) : Optional.empty();
+        List<FileDiff> files = comments.stream().anyMatch(comment -> comment.replyToCommentId().isEmpty())
+                ? pages(access, path + "/diffs", FileDiff[].class) : ImmutableList.of();
         List<PrTimelineEvent> events = new ArrayList<>();
         int published = 0;
         try {
             for (InlineReviewComment comment : comments) {
-                events.add(createReviewComment(access, repository, number, comment));
+                if (comment.replyToCommentId().isPresent()) {
+                    events.add(createReviewComment(access, repository, number, comment));
+                }
+                else {
+                    GitLabDiffPosition position = position(files, current, comment);
+                    checkRevision(current, get(access, path, MergeRequest.class));
+                    events.add(createDiscussion(access, repository, number, comment.body(), position, current));
+                }
                 published++;
             }
             if (body != null && !body.isBlank()) {
@@ -279,9 +291,21 @@ public final class GitLabPullRequestWriter
         return new CreatedPullRequest(created.id(), created.iid(), url);
     }
 
-    private Position position(HostingAccess access, String path, MergeRequest current, InlineReviewComment comment)
+    private PrTimelineEvent createDiscussion(HostingAccess access, HostingRepository repository, int number, String body, GitLabDiffPosition position, MergeRequest current)
     {
-        FileDiff file = pages(access, path + "/diffs", FileDiff[].class).stream().filter(diff -> diff.newPath().equals(comment.path()) || diff.oldPath().equals(comment.path()))
+        Discussion created = http.post(access, request(access, repository, number) + "/discussions", new DiscussionBody(body, position), Discussion.class).body().orElseThrow();
+        if (created.id() == null && created.summary() != null) {
+            return commandResult(created.summary());
+        }
+        return thread(created, url(repository, number), current);
+    }
+
+    private static GitLabDiffPosition position(List<FileDiff> files, MergeRequest current, InlineReviewComment comment)
+    {
+        if (current.diffRefs() == null || !current.sha().equals(current.diffRefs().headSha())) {
+            throw new HostingFailure(REVISION_CONFLICT, "GitLab has not prepared the current merge request diff");
+        }
+        FileDiff file = files.stream().filter(diff -> diff.newPath().equals(comment.path()) || diff.oldPath().equals(comment.path()))
                 .findFirst().orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "The file is not present in the current merge request diff"));
         int oldLine = 0;
         int newLine = 0;
@@ -297,7 +321,7 @@ public final class GitLabPullRequestWriter
                 if (("LEFT".equals(comment.side()) && oldPresent && oldLine == comment.line())
                         || ("RIGHT".equals(comment.side()) && newPresent && newLine == comment.line())) {
                     DiffRefs refs = current.diffRefs();
-                    return new Position("text", refs.baseSha(), refs.startSha(), refs.headSha(), file.oldPath(), file.newPath(),
+                    return new GitLabDiffPosition("text", refs.baseSha(), refs.startSha(), refs.headSha(), file.oldPath(), file.newPath(),
                             oldPresent ? oldLine : null, newPresent ? newLine : null);
                 }
                 oldLine += oldPresent ? 1 : 0;
@@ -344,6 +368,14 @@ public final class GitLabPullRequestWriter
         }
     }
 
+    private static void checkRevision(MergeRequest expected, MergeRequest current)
+    {
+        checkHead(current, expected.sha());
+        if (!expected.diffRefs().equals(current.diffRefs())) {
+            throw new HostingFailure(REVISION_CONFLICT, "The merge request diff changed; refresh before submitting");
+        }
+    }
+
     private static void validateComment(InlineReviewComment comment)
     {
         if (comment.replyToCommentId().isPresent()) {
@@ -355,20 +387,27 @@ public final class GitLabPullRequestWriter
 
     private static PrTimelineEvent note(Note note, String url)
     {
+        if (note.id() == null && note.summary() != null) {
+            return commandResult(note.summary());
+        }
         return new PrTimelineEvent(note.id(), "commented", note.author().username(), Instant.parse(note.createdAt()), note.body(),
                 PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(url + "#note_" + note.id()).build(), Optional.empty());
     }
 
-    private static PrTimelineEvent thread(Discussion discussion, String url)
+    private static PrTimelineEvent commandResult(List<String> summary)
+    {
+        return new PrTimelineEvent(null, "system_note", null, null, String.join("\n", summary), PrTimelinePayload.empty(), Optional.empty());
+    }
+
+    private static PrTimelineEvent thread(Discussion discussion, String url, MergeRequest current)
     {
         Note root = discussion.notes().getFirst();
-        Position position = root.position();
+        GitLabDiffPosition position = root.position();
         List<PrTimelineComment> comments = discussion.notes().stream().map(note -> new PrTimelineComment(note.id(), note.author().username(), note.author().avatarUrl(), false,
                 Instant.parse(note.createdAt()), note.body(), url + "#note_" + note.id(), null, note == root ? null : root.id(), ImmutableList.of())).collect(toImmutableList());
         PrTimelinePayload.Builder payload = PrTimelinePayload.builder().comments(comments).resolved(root.resolved()).htmlUrl(url + "#note_" + root.id());
         if (position != null) {
-            payload.path(position.newLine() == null ? position.oldPath() : position.newPath()).line(position.newLine() == null ? position.oldLine() : position.newLine())
-                    .side(position.newLine() == null ? "LEFT" : "RIGHT");
+            position.applyTo(payload, current.sha(), current.diffRefs() == null ? null : current.diffRefs().startSha());
         }
         return new PrTimelineEvent(root.id(), "review_thread", root.author().username(), Instant.parse(root.createdAt()), root.body(), payload.build(), Optional.empty());
     }
@@ -401,13 +440,7 @@ public final class GitLabPullRequestWriter
     private record Sha(String sha) {}
     private record Merge(String sha, boolean squash) {}
     private record Create(@JsonProperty("source_branch") String source, @JsonProperty("target_branch") String target, String title, String description) {}
-    private record DiscussionBody(String body, Position position) {}
-
-    @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Position(@JsonProperty("position_type") String type, @JsonProperty("base_sha") String baseSha, @JsonProperty("start_sha") String startSha,
-            @JsonProperty("head_sha") String headSha, @JsonProperty("old_path") String oldPath, @JsonProperty("new_path") String newPath,
-            @JsonProperty("old_line") Integer oldLine, @JsonProperty("new_line") Integer newLine) {}
+    private record DiscussionBody(String body, GitLabDiffPosition position) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record DiffRefs(@JsonProperty("base_sha") String baseSha, @JsonProperty("start_sha") String startSha, @JsonProperty("head_sha") String headSha) {}
@@ -427,10 +460,10 @@ public final class GitLabPullRequestWriter
     private record User(long id, String username, @JsonProperty("avatar_url") String avatarUrl) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Note(long id, String body, User author, @JsonProperty("created_at") String createdAt, boolean resolved, Position position) {}
+    private record Note(Long id, String body, User author, @JsonProperty("created_at") String createdAt, boolean resolved, GitLabDiffPosition position, List<String> summary) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Discussion(String id, List<Note> notes) {}
+    private record Discussion(String id, List<Note> notes, List<String> summary) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record FileDiff(@JsonProperty("old_path") String oldPath, @JsonProperty("new_path") String newPath, String diff) {}

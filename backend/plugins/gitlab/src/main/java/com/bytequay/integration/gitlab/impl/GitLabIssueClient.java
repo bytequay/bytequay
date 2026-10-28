@@ -124,6 +124,10 @@ public final class GitLabIssueClient
             events.add(event.event("closed".equals(event.state()) ? "closed" : "reopened", PrTimelinePayload.empty()));
         }
         for (ResourceEvent event : all(access, path + "/resource_label_events?", ResourceEvent[].class)) {
+            // GitLab retains these events after the label has been deleted.
+            if (event.label() == null) {
+                continue;
+            }
             events.add(event.event("add".equals(event.action()) ? "labeled" : "unlabeled",
                     PrTimelinePayload.builder().label(event.label().name()).labelColor(color(event.label().color())).build()));
         }
@@ -324,10 +328,13 @@ public final class GitLabIssueClient
     private record Milestone(String title) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Note(long id, String body, GitLabIssueUser author, boolean system, @JsonProperty("created_at") String createdAt)
+    private record Note(Long id, String body, GitLabIssueUser author, boolean system, @JsonProperty("created_at") String createdAt, List<String> summary)
     {
         PrTimelineEvent event(String issueUrl)
         {
+            if (id == null && summary != null) {
+                return new PrTimelineEvent(null, "system", null, null, String.join("\n", summary), PrTimelinePayload.empty(), Optional.empty());
+            }
             return new PrTimelineEvent(id, system ? "system" : "commented", author.username(), Instant.parse(createdAt), body,
                     PrTimelinePayload.builder().actorAvatarUrl(author.avatarUrl()).htmlUrl(issueUrl + "#note_" + id).build(), Optional.empty());
         }

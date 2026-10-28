@@ -300,7 +300,7 @@ public class PullRequestSnapshotService
             return;
         }
         DiffFileContent content = readRemote(prId, () -> contents.reader(route.session()).fileContent(
-                route.session().access(), route.repository(), route.number(), path, contentBase, contentHead));
+                route.session().access(), route.repository(), route.number(), path, contentBase, contentHead, baseSha == null));
         if (baseSha == null) {
             if (!diffs.saveDefaultFileContent(prId, contentBase, contentHead, path, content)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request diff changed while fetching file content; refresh again");

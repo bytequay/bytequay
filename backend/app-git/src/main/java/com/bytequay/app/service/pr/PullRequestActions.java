@@ -110,11 +110,13 @@ final class PullRequestActions
         PrTimelineEvent created = writes.forSession(route.session()).createReviewComment(route.session().access(), route.repository(), route.number(), comment);
         PullRequestDetail detail = afterWrite(route, () -> {
             PullRequestDetail patched = patchCachedTimeline(route, prId, created);
-            prId.ifPresent(id -> markReviewed(id, "COMMENT", comment.commitId()));
-            recordComment(route, "review-comment", created, comment.body());
+            if (created.githubId() != null) {
+                prId.ifPresent(id -> markReviewed(id, "COMMENT", comment.commitId()));
+                recordComment(route, "review-comment", created, comment.body());
+            }
             return patched;
         }, before);
-        return new Posted(detail, OptionalLong.empty(), ImmutableList.of(created));
+        return new Posted(detail, OptionalLong.empty(), created.githubId() == null ? ImmutableList.of() : ImmutableList.of(created));
     }
 
     PullRequestDetail commentOnPullRequest(PullRequestRead route, String body)
@@ -124,7 +126,9 @@ final class PullRequestActions
         PrTimelineEvent created = writes.forSession(route.session()).comment(route.session().access(), route.repository(), route.number(), body);
         return afterWrite(route, () -> {
             PullRequestDetail detail = patchCachedTimeline(route, rowId.apply(route), created);
-            recordComment(route, "comment", created, body);
+            if (created.githubId() != null) {
+                recordComment(route, "comment", created, body);
+            }
             return detail;
         }, before);
     }
@@ -386,6 +390,9 @@ final class PullRequestActions
         List<PrTimelineEvent> events = submitted.events();
         PullRequestDetail detail = afterWrite(route, () -> {
             PullRequestDetail patched = patchCachedReview(route, prId, created, events);
+            if (created.isEmpty() && events.stream().allMatch(item -> item.githubId() == null)) {
+                return patched;
+            }
             markReviewed(prId, normalizedEvent, commitId);
             recordReview(route, normalizedEvent, reviewBody, created.orElse(null));
             reviewComments.forEach(inline -> recent.wroteOnPullRequest(
@@ -407,6 +414,10 @@ final class PullRequestActions
     private PullRequestDetail patchCachedReview(PullRequestRead route, long prId, Optional<PrReviewState> created, List<PrTimelineEvent> events)
     {
         requireNonNull(created, "created is null");
+        if (events.stream().anyMatch(event -> event.githubId() == null)) {
+            invalidatePullRequestCaches(route);
+            return readDetail.apply(route);
+        }
         Optional<StoredPrDetail> patched = snapshots.patchDetail(prId, cached -> {
             List<PrReviewState> reviews = new ArrayList<>(cached.reviews());
             created.ifPresent(value -> {
@@ -563,10 +574,14 @@ final class PullRequestActions
     private PullRequestDetail patchCachedTimeline(PullRequestRead route, Optional<Long> prId, PrTimelineEvent created)
     {
         requireNonNull(created, "created is null");
+        if (created.githubId() == null) {
+            // A command-only comment changes remote state without creating a note.
+            invalidatePullRequestCaches(route);
+            return readDetail.apply(route);
+        }
         Optional<StoredPrDetail> patched = prId.flatMap(id -> snapshots.patchDetail(id, cached -> {
             List<PrTimelineEvent> timeline = new ArrayList<>(cached.timeline());
-            timeline.removeIf(event -> created.githubId() != null
-                    && created.githubId().equals(event.githubId())
+            timeline.removeIf(event -> created.githubId().equals(event.githubId())
                     && created.event().equals(event.event()));
             timeline.add(created);
             return new StoredPrDetail(cached.raw(), cached.reviews(), timeline, cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());

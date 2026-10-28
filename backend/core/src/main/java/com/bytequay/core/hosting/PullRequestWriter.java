@@ -25,8 +25,10 @@ public interface PullRequestWriter
 {
     HostingProvider provider();
 
+    /** Returns the note, or a command result with no remote ID when no note was created. */
     PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body);
 
+    /** Returns the thread, or a command result with no remote ID when no note was created. */
     PrTimelineEvent createReviewComment(HostingAccess access, HostingRepository repository, int number, InlineReviewComment comment);
 
     void replyToReviewComment(HostingAccess access, HostingRepository repository, int number, long commentId, String body);

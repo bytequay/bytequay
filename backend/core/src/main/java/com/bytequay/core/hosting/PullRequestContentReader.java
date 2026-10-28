@@ -57,7 +57,8 @@ public interface PullRequestContentReader
 
     PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId);
 
-    DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha);
+    /** Full diff coordinates identify the request revision; explicit ranges always compare the supplied endpoints directly. */
+    DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff);
 
     record Checks(List<PrCheckRunState> checkRuns, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag)
     {

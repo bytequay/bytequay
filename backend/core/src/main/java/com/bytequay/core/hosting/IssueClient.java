@@ -40,6 +40,7 @@ public interface IssueClient
 
     GitHubIssueSource create(HostingAccess access, HostingRepository repository, String title, String body);
 
+    /** Returns the note, or a command result with no remote ID when no note was created. */
     PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body);
 
     void close(HostingAccess access, HostingRepository repository, int number);

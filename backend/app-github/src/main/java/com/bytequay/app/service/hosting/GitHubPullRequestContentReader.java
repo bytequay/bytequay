@@ -220,7 +220,7 @@ public class GitHubPullRequestContentReader
     }
 
     @Override
-    public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha)
+    public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff)
     {
         return gitHub.fetchPrDiffFileContent(access.token(), ref(access, repository, number), path, baseSha, headSha);
     }

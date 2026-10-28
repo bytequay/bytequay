@@ -2293,6 +2293,99 @@ class TestPullRequestService
         verifyNoInteractions(diffStore, gitHub);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"comment", "review", "inline", "reply-review"})
+    void acceptedCommandClearsRemoteCachesAndSurvivesAFailedRefresh(String kind)
+    {
+        PullRequestWriter writer = mock(PullRequestWriter.class);
+        when(writer.provider()).thenReturn(GITHUB);
+        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(writer));
+        snapshots = new PullRequestSnapshotService(contents, hostingWrites, requests, detailStore, diffStore);
+        service = newService(Clock.systemUTC());
+        PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
+        var inline = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
+        var reply = new InlineReviewComment("", "/close", 0, null, null, null, null, OptionalLong.of(10));
+        List<InlineReviewComment> comments = "reply-review".equals(kind) ? ImmutableList.of(reply) : ImmutableList.of();
+        if ("review".equals(kind) || "reply-review".equals(kind)) {
+            when(writer.submitReview(any(), any(), eq(7), eq("COMMENT"), eq("/close"), eq(comments), eq("head")))
+                    .thenReturn(new SubmittedReview(Optional.empty(), ImmutableList.of(result)));
+        }
+        else if ("inline".equals(kind)) {
+            when(writer.createReviewComment(any(), any(), eq(7), eq(inline))).thenReturn(result);
+        }
+        else {
+            when(writer.comment(any(), any(), eq(7), eq("/close"))).thenReturn(result);
+        }
+        AtomicReference<Optional<StoredPrDetail>> cached = new AtomicReference<>(Optional.of(stored()));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
+        when(detailStore.find(12L)).thenAnswer(ignored -> cached.get());
+        doAnswer(ignored -> {
+            cached.set(Optional.empty());
+            return null;
+        }).when(detailStore).clearRemote(12L);
+        when(requests.refresh(session, 20, 7, false)).thenThrow(new IllegalStateException("unavailable"));
+
+        PullRequestDetail detail;
+        if ("comment".equals(kind)) {
+            detail = service.commentOnPullRequest("owner/repo", 7, "/close");
+        }
+        else {
+            var posted = "inline".equals(kind) ? service.createReviewComment("owner/repo", 7, inline)
+                    : service.submitReview("owner/repo", 7, 12L, "COMMENT", "/close", comments, "head");
+            assertThat(posted.threads()).isEmpty();
+            detail = posted.detail();
+        }
+
+        assertThat(detail).isNotNull();
+        verify(detailStore).clearRemote(12L);
+        verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(requests).refresh(session, 20, 7, false);
+        verify(detailStore, never()).saveCached(anyLong(), any());
+        verifyNoInteractions(recent);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void commandOnlyCommentsReturnRefreshedDetailWithoutRecordingAReview(boolean review)
+    {
+        PullRequestWriter writer = mock(PullRequestWriter.class);
+        when(writer.provider()).thenReturn(GITHUB);
+        hostingWrites = new HostingPullRequestWrites(ImmutableList.of(writer));
+        var comment = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
+        PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
+        if (review) {
+            when(writer.submitReview(any(), any(), eq(7), eq("COMMENT"), eq(""), eq(ImmutableList.of(comment)), eq("head")))
+                    .thenReturn(new SubmittedReview(Optional.empty(), ImmutableList.of(result)));
+        }
+        else {
+            when(writer.createReviewComment(any(), any(), eq(7), eq(comment))).thenReturn(result);
+        }
+        PullRequestDetail before = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), true);
+        PrRawDetail closed = new PrRawDetail(null, null, "closed", null, null, null, REVIEWED_AT, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
+                false, true, "clean", 4, 2, 1, 0, ImmutableList.of(), "head", "feature", "main", "base");
+        StoredPrDetail latest = new StoredPrDetail(closed, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
+        PullRequestDetail refreshed = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, latest, true);
+        AtomicReference<PullRequestDetail> detail = new AtomicReference<>(before);
+        doAnswer(ignored -> {
+            detail.set(refreshed);
+            return null;
+        }).when(detailStore).clearRemote(12L);
+        var requestActions = new PullRequestActions(hostingWrites, store, snapshots, detailStore, viewStateStore, recent, requests,
+                route -> detail.get(), route -> Optional.of(12L));
+
+        PullRequestRead route = read(PullRequestRef.of("owner", "repo", 7));
+        var posted = review ? requestActions.submitReview(route, 12L, "COMMENT", "", ImmutableList.of(comment), "head")
+                : requestActions.createReviewComment(route, comment);
+
+        assertThat(posted.detail()).isSameAs(refreshed);
+        assertThat(posted.detail().state()).isEqualTo("closed");
+        assertThat(posted.threads()).isEmpty();
+        verify(detailStore).clearRemote(12L);
+        verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
+        verify(detailStore, never()).saveCached(anyLong(), any());
+        verifyNoInteractions(recent, viewStateStore);
+    }
+
     @Test
     void postsInlineCommentAndReturnsPatchedCachedTimeline()
     {
@@ -2714,8 +2807,8 @@ class TestPullRequestService
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void patchesActualSubmissionEventsWithoutInventingAReviewId(boolean approved)
+    @CsvSource({"false,true", "true,true", "true,false"})
+    void patchesActualSubmissionEventsWithoutInventingAReviewId(boolean approved, boolean commented)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
         when(writer.provider()).thenReturn(GITHUB);
@@ -2725,19 +2818,21 @@ class TestPullRequestService
         PrReviewState previous = new PrReviewState(null, "another-reviewer", null, false, "APPROVED", null, null, null, "head");
         PrReviewState approvedReview = new PrReviewState(null, "me", null, false, "APPROVED", null, null, null, "head");
         PrTimelineEvent note = new PrTimelineEvent(51L, "commented", "me", REVIEWED_AT, "Comment", PrTimelinePayload.builder().build(), Optional.empty());
+        String body = commented ? "Comment" : "";
+        List<PrTimelineEvent> events = commented ? ImmutableList.of(note) : ImmutableList.of();
         StoredPrDetail cached = new StoredPrDetail(raw(), ImmutableList.of(previous), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(cached));
-        when(writer.submitReview(any(), any(), eq(7), anyString(), eq("Comment"), eq(ImmutableList.of()), eq("head")))
-                .thenReturn(new SubmittedReview(approved ? Optional.of(approvedReview) : Optional.empty(), ImmutableList.of(note)));
+        when(writer.submitReview(any(), any(), eq(7), anyString(), eq(body), eq(ImmutableList.of()), eq("head")))
+                .thenReturn(new SubmittedReview(approved ? Optional.of(approvedReview) : Optional.empty(), events));
 
-        var posted = service.submitReview("owner/repo", 7, 12L, approved ? "APPROVE" : "COMMENT", "Comment", ImmutableList.of(), "head");
+        var posted = service.submitReview("owner/repo", 7, 12L, approved ? "APPROVE" : "COMMENT", body, ImmutableList.of(), "head");
 
         assertThat(posted.reviewId()).isEmpty();
         assertThat(posted.threads()).isEmpty();
         ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).saveCached(eq(12L), saved.capture());
-        assertThat(saved.getValue().timeline()).containsExactly(note);
+        assertThat(saved.getValue().timeline()).containsExactlyElementsOf(events);
         assertThat(saved.getValue().reviews()).contains(previous);
         assertThat(saved.getValue().reviews()).hasSize(approved ? 2 : 1);
         verify(viewStateStore).markReviewed(eq(12L), eq(approved ? HandledAction.APPROVED : HandledAction.COMMENTED), eq("head"), any(Instant.class));

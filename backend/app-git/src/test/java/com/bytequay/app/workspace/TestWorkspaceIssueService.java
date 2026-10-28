@@ -27,6 +27,7 @@ import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.IssueClient;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -34,6 +35,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.time.Clock;
@@ -46,12 +49,14 @@ import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestWorkspaceIssueService
@@ -105,6 +110,58 @@ class TestWorkspaceIssueService
         assertThat(service.comment("gitlab", 7, "Comment").event()).isEqualTo("commented");
         verify(client).comment(route.session().access(), route.repository(), 7, "Comment");
         verifyNoInteractions(issueReads, issueWrites, timelineReads);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void commandOnlyCommentRefreshesTheIssueWithoutCountingOrStoringAFabricatedNote(boolean closed)
+    {
+        Workspace workspace = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        workspaces.put("direct", workspace);
+        var route = WorkspaceIssueTestData.route(workspace);
+        when(hosting.captureRead("direct")).thenReturn(route);
+        var client = mock(IssueClient.class);
+        when(client.provider()).thenReturn(GITHUB);
+        PrTimelineEvent result = new PrTimelineEvent(null, "system", null, null, "Command applied", Optional.empty());
+        String command = closed ? "/close" : "/label ~bug";
+        when(client.comment(route.session().access(), route.repository(), 7, command)).thenReturn(result);
+        when(client.find(route.session().access(), route.repository(), 7)).thenReturn(closed ? Optional.empty() : Optional.of(issue(7)));
+        var refreshed = detail(100, 7, "Task", event(12, "system", NOW));
+        when(client.detail(route.session().access(), route.repository(), 7)).thenReturn(refreshed);
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, ImmutableList.of(client), recent,
+                Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
+
+        assertThat(service.comment("direct", 7, command)).isSameAs(result);
+
+        verify(detailStore).save(refreshed);
+        if (closed) {
+            verify(issueStore).delete(100, 7);
+        }
+        else {
+            verify(issueStore).saveSyncPage(100, ImmutableList.of(issue(7)));
+        }
+        verify(recent).issueAction("direct", 7, RecentReason.EDITED);
+        verifyNoMoreInteractions(recent);
+        verifyNoInteractions(issueReads, issueWrites, timelineReads);
+    }
+
+    @Test
+    void acceptedCommandStillSucceedsWhenTheIssueRefreshFails()
+    {
+        Workspace workspace = workspace("direct", 100, DIRECT, Topology.DIRECT);
+        workspaces.put("direct", workspace);
+        var route = WorkspaceIssueTestData.route(workspace);
+        when(hosting.captureRead("direct")).thenReturn(route);
+        var client = mock(IssueClient.class);
+        when(client.provider()).thenReturn(GITHUB);
+        PrTimelineEvent result = new PrTimelineEvent(null, "system", null, null, "Closed", Optional.empty());
+        when(client.comment(route.session().access(), route.repository(), 7, "/close")).thenReturn(result);
+        when(client.find(route.session().access(), route.repository(), 7)).thenThrow(new IllegalStateException("unavailable"));
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, ImmutableList.of(client), recent,
+                Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
+
+        assertThat(service.comment("direct", 7, "/close")).isSameAs(result);
+        verifyNoInteractions(detailStore, recent);
     }
 
     @Test

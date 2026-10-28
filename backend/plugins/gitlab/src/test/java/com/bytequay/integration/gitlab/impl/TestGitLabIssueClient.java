@@ -92,6 +92,20 @@ class TestGitLabIssueClient
     }
 
     @Test
+    void commandOnlyCommentSucceedsWithoutInventingANoteIdentity()
+    {
+        replies.put("POST /gitlab/api/v4/projects/42/issues/7/notes", new Reply(202,
+                "{\"commands_changes\":{\"state_event\":\"close\"},\"summary\":[\"Closed this issue.\"]}", false));
+
+        var result = client.comment(access, repository, 7, "/close");
+
+        assertThat(result.githubId()).isNull();
+        assertThat(result.timestamp()).isNull();
+        assertThat(result.event()).isEqualTo("system");
+        assertThat(result.body()).isEqualTo("Closed this issue.");
+    }
+
+    @Test
     void listsIncrementalIssuesUsingProjectIdsAndPreservesPagination()
     {
         replies.put("GET /gitlab/api/v4/projects/42/issues?scope=all&state=all&order_by=updated_at&sort=asc&per_page=100&page=2&updated_after=2026-10-01T00%3A00%3A00Z",
@@ -136,19 +150,24 @@ class TestGitLabIssueClient
     }
 
     @Test
-    void combinesNotesAndResourceEventsInTheExistingTimeline()
+    void deletedLabelsDoNotHideNotesOrOtherResourceEvents()
     {
         replies.put("GET /gitlab/api/v4/projects/42/issues/7/notes?sort=asc&order_by=created_at&per_page=100&page=1", new Reply(200, "[" + note() + "]", false));
         replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_state_events?&per_page=100&page=1", new Reply(200,
                 "[{\"id\":9,\"state\":\"closed\",\"created_at\":\"2026-10-01T00:01:00Z\",\"user\":{\"username\":\"alice\"}}]", false));
-        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_label_events?&per_page=100&page=1", new Reply(200, "[]", false));
+        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_label_events?&per_page=100&page=1", new Reply(200, """
+                [{"id":10,"action":"add","label":null,"created_at":"2026-10-01T00:02:00Z","user":{"username":"alice"}},
+                {"id":11,"action":"add","label":{"name":"bug","color":"#ff0000"},"created_at":"2026-10-01T00:03:00Z","user":{"username":"alice"}}]
+                """, false));
         replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_milestone_events?&per_page=100&page=1", new Reply(200, "[]", false));
 
         var detail = client.detail(access, repository, 7);
 
         assertThat(detail.repositoryId()).isEqualTo(900);
-        assertThat(detail.timeline()).extracting(event -> event.event()).containsExactly("commented", "closed");
+        assertThat(detail.timeline()).extracting(event -> event.event()).containsExactly("commented", "closed", "labeled");
         assertThat(detail.timeline().getFirst().body()).isEqualTo("Please fix this");
+        assertThat(detail.timeline().getLast().payload().label()).isEqualTo("bug");
+        assertThat(detail.timeline().getLast().payload().labelColor()).isEqualTo("ff0000");
         assertThat(detail.availableTypes()).containsExactly("issue", "incident");
     }
 

@@ -19,6 +19,7 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineComment;
@@ -39,6 +40,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -47,9 +49,13 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.function.Supplier;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
@@ -58,6 +64,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Throwables.throwIfUnchecked;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.lang.Math.toIntExact;
 import static java.util.stream.Collectors.counting;
@@ -139,7 +146,7 @@ public final class GitLabPullRequestContentReader
                 .map(approval -> new PrReviewState(null, approval.user().username(), approval.user().avatarUrl(), false,
                         "APPROVED", null, null, existing.raw().htmlUrl(), existing.raw().headSha())).collect(toImmutableList()));
         List<PrTimelineEvent> timeline = new ArrayList<>(optional(StoredPrDetail.TIMELINE, unavailable,
-                () -> discussions(access, path, existing.raw().htmlUrl(), unavailable)));
+                () -> discussions(access, path, existing.raw(), unavailable)));
         if (unavailable.contains(StoredPrDetail.TIMELINE)) {
             unavailable.add(StoredPrDetail.COMMENTS);
             unavailable.add(StoredPrDetail.REVIEW_THREADS);
@@ -159,34 +166,69 @@ public final class GitLabPullRequestContentReader
         return new StoredPrDetail(existing.raw(), reviews, timeline, existing.checkRuns(), unavailable, existing.viewerCanWrite());
     }
 
-    private List<PrTimelineEvent> discussions(HostingAccess access, String path, String url, List<String> unavailable)
+    private List<PrTimelineEvent> discussions(HostingAccess access, String path, PrRawDetail raw, List<String> unavailable)
     {
+        List<Discussion> discussions = pages(access, path + "/discussions", Discussion[].class);
+        Map<Long, List<PrReaction>> reactions = noteReactions(access, path, discussions, unavailable);
         List<PrTimelineEvent> events = new ArrayList<>();
-        for (Discussion discussion : pages(access, path + "/discussions", Discussion[].class)) {
+        String url = raw.htmlUrl();
+        for (Discussion discussion : discussions) {
             if (discussion.notes().isEmpty()) {
                 continue;
             }
             Note root = discussion.notes().getFirst();
-            if (root.position() == null) {
+            if (discussion.individualNote() || root.system()) {
                 for (Note note : discussion.notes()) {
-                    List<PrReaction> reactions = note.system() ? ImmutableList.of()
-                            : optional(StoredPrDetail.REACTIONS, unavailable, () -> reactions(access, path + "/notes/" + note.id()));
                     events.add(new PrTimelineEvent(note.id(), note.system() ? "system_note" : "commented", note.author().username(), instant(note.createdAt()), note.body(),
                             PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(url + "#note_" + note.id())
-                                    .reactions(reactions).build(), Optional.empty()));
+                                    .reactions(reactions.getOrDefault(note.id(), ImmutableList.of())).build(), Optional.empty()));
                 }
                 continue;
             }
-            Position position = root.position();
+            GitLabDiffPosition position = root.position();
             List<PrTimelineComment> comments = discussion.notes().stream().map(note -> new PrTimelineComment(note.id(), note.author().username(), note.author().avatarUrl(),
                     false, instant(note.createdAt()), note.body(), url + "#note_" + note.id(), null, note == root ? null : root.id(),
-                    optional(StoredPrDetail.REACTIONS, unavailable, () -> reactions(access, path + "/notes/" + note.id())))).collect(toImmutableList());
-            events.add(new PrTimelineEvent(root.id(), "review_thread", root.author().username(), instant(root.createdAt()), root.body(),
-                    PrTimelinePayload.builder().actorAvatarUrl(root.author().avatarUrl()).htmlUrl(url + "#note_" + root.id())
-                            .path(position.newLine() == null ? position.oldPath() : position.newPath()).line(position.newLine() == null ? position.oldLine() : position.newLine())
-                            .side(position.newLine() == null ? "LEFT" : "RIGHT").resolved(root.resolved()).comments(comments).build(), Optional.empty()));
+                    reactions.getOrDefault(note.id(), ImmutableList.of()))).collect(toImmutableList());
+            PrTimelinePayload.Builder payload = PrTimelinePayload.builder().actorAvatarUrl(root.author().avatarUrl()).htmlUrl(url + "#note_" + root.id())
+                    .resolved(root.resolved()).comments(comments);
+            if (position != null) {
+                position.applyTo(payload, raw.headSha(), raw.baseSha());
+            }
+            events.add(new PrTimelineEvent(root.id(), "review_thread", root.author().username(), instant(root.createdAt()), root.body(), payload.build(), Optional.empty()));
         }
         return ImmutableList.copyOf(events);
+    }
+
+    private Map<Long, List<PrReaction>> noteReactions(HostingAccess access, String path, List<Discussion> discussions, List<String> unavailable)
+    {
+        Map<Long, Future<List<PrReaction>>> pending = new LinkedHashMap<>();
+        try (var executor = Executors.newFixedThreadPool(4, Thread.ofVirtual().factory())) {
+            try {
+                discussions.stream().flatMap(discussion -> discussion.notes().stream()).filter(note -> !note.system())
+                        .forEach(note -> pending.computeIfAbsent(note.id(), id -> executor.submit(() -> reactions(access, path + "/notes/" + id))));
+                ImmutableMap.Builder<Long, List<PrReaction>> result = ImmutableMap.builder();
+                pending.forEach((id, future) -> result.put(id, optional(StoredPrDetail.REACTIONS, unavailable, () -> awaitReactions(future))));
+                return result.buildOrThrow();
+            }
+            finally {
+                pending.values().forEach(future -> future.cancel(true));
+            }
+        }
+    }
+
+    private static List<PrReaction> awaitReactions(Future<List<PrReaction>> future)
+    {
+        try {
+            return future.get();
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new HostingFailure(UNAVAILABLE, "GitLab reaction read was interrupted");
+        }
+        catch (ExecutionException e) {
+            throwIfUnchecked(e.getCause());
+            throw new HostingFailure(UNAVAILABLE, "Could not read GitLab reactions");
+        }
     }
 
     @Override
@@ -201,20 +243,21 @@ public final class GitLabPullRequestContentReader
         Pipeline pipeline = request.headPipeline();
         String path = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId()) + "/pipelines/" + pipeline.id();
         List<PrCheckRunState> checks = new ArrayList<>(pages(access, path + "/jobs", Job[].class).stream()
-                .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "job", job.startedAt(), job.finishedAt())).collect(toImmutableList()));
+                .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "job", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
         checks.addAll(pages(access, path + "/bridges", Job[].class).stream()
-                .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "status", job.startedAt(), job.finishedAt())).collect(toImmutableList()));
+                .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "status", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
         if (checks.isEmpty()) {
-            checks = ImmutableList.of(check(pipeline.id(), "Pipeline #" + pipeline.id(), pipeline.status(), pipeline.webUrl(), "status", null, null));
+            checks = ImmutableList.of(check(pipeline.id(), "Pipeline #" + pipeline.id(), pipeline.status(), pipeline.webUrl(), "status", null, null, false));
         }
         return new Checks(checks, Optional.empty(), Optional.empty());
     }
 
-    private static PrCheckRunState check(long id, String name, String state, String url, String source, String startedAt, String completedAt)
+    private static PrCheckRunState check(long id, String name, String state, String url, String source, String startedAt, String completedAt, boolean allowFailure)
     {
         String conclusion = switch (state) {
             case "success" -> "success";
-            case "failed" -> "failure";
+            case "failed" -> allowFailure ? "neutral" : "failure";
+            case "manual" -> allowFailure ? "skipped" : null;
             case "canceled" -> "cancelled";
             case "skipped" -> "skipped";
             default -> null;
@@ -245,8 +288,8 @@ public final class GitLabPullRequestContentReader
         }
         return new Diff(files.stream().map(file -> {
             String patch = file.collapsed() || file.tooLarge() ? null : file.diff();
-            int additions = patch == null ? 0 : (int) patch.lines().filter(line -> line.startsWith("+") && !line.startsWith("+++")).count();
-            int deletions = patch == null ? 0 : (int) patch.lines().filter(line -> line.startsWith("-") && !line.startsWith("---")).count();
+            int additions = patch == null ? 0 : (int) patch.lines().filter(line -> line.startsWith("+")).count();
+            int deletions = patch == null ? 0 : (int) patch.lines().filter(line -> line.startsWith("-")).count();
             return new DiffFile(file.newPath(), file.newFile() ? "added" : file.deletedFile() ? "removed" : file.renamedFile() ? "renamed" : "modified",
                     additions, deletions, patch);
         }).collect(toImmutableList()), commits, PrDiffEtags.none());
@@ -278,15 +321,26 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha)
+    public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff)
     {
         String target = project(access, repository);
         MergeRequest request = get(access, request(access, repository, number), MergeRequest.class);
         String source = request.sourceProjectId() == null ? target : "projects/" + request.sourceProjectId();
-        Compare compare = get(access, target + "/repository/compare?from=" + encode(baseSha) + "&to=" + encode(headSha) + "&straight=true", Compare.class);
+        String contentBase = baseSha;
+        if (fullDiff) {
+            DiffRefs refs = request.diffRefs();
+            if (refs == null || refs.baseSha() == null || !headSha.equals(request.sha()) || !headSha.equals(refs.headSha()) || !baseSha.equals(refs.startSha())) {
+                throw new HostingFailure(REVISION_CONFLICT, "The merge request diff changed; refresh before opening file content");
+            }
+            contentBase = refs.baseSha();
+        }
+        Compare compare = get(access, target + "/repository/compare?from=" + encode(contentBase) + "&to=" + encode(headSha) + "&straight=true", Compare.class);
+        if (compare.compareTimeout()) {
+            throw new HostingFailure(UNAVAILABLE, "GitLab comparison timed out; the diff is incomplete");
+        }
         FileDiff diff = compare.diffs().stream().filter(file -> file.newPath().equals(path)).findFirst().orElse(null);
         String oldPath = Optional.ofNullable(diff).map(FileDiff::oldPath).orElse(path);
-        return new DiffFileContent(diff != null && diff.newFile() ? null : file(access, target, oldPath, baseSha),
+        return new DiffFileContent(diff != null && diff.newFile() ? null : file(access, target, oldPath, contentBase),
                 diff != null && diff.deletedFile() ? null : file(access, source, path, headSha));
     }
 
@@ -324,6 +378,7 @@ public final class GitLabPullRequestContentReader
             case "thumbsup" -> "+1";
             case "thumbsdown" -> "-1";
             case "tada" -> "hooray";
+            case "smile" -> "laugh";
             default -> entry.getKey();
         }, toIntExact(entry.getValue()), null)).collect(toImmutableList());
     }
@@ -334,6 +389,9 @@ public final class GitLabPullRequestContentReader
             return supplier.get();
         }
         catch (HostingFailure failure) {
+            if (Thread.currentThread().isInterrupted()) {
+                throw failure;
+            }
             switch (failure.kind()) {
                 case AUTHENTICATION_REQUIRED, RATE_LIMITED -> throw failure;
                 default -> {
@@ -404,14 +462,10 @@ public final class GitLabPullRequestContentReader
     private record Approvals(@JsonProperty("approved_by") List<Approval> approvedBy) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Discussion(String id, List<Note> notes) {}
+    private record Discussion(String id, @JsonProperty("individual_note") boolean individualNote, List<Note> notes) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Note(long id, String body, User author, @JsonProperty("created_at") String createdAt, boolean system, boolean resolved, Position position) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Position(@JsonProperty("new_path") String newPath, @JsonProperty("old_path") String oldPath,
-            @JsonProperty("new_line") Integer newLine, @JsonProperty("old_line") Integer oldLine) {}
+    private record Note(long id, String body, User author, @JsonProperty("created_at") String createdAt, boolean system, boolean resolved, GitLabDiffPosition position) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Commit(String id, @JsonProperty("parent_ids") List<String> parentIds, String message,
@@ -430,11 +484,11 @@ public final class GitLabPullRequestContentReader
             @JsonProperty("diff_refs") DiffRefs diffRefs, @JsonProperty("head_pipeline") Pipeline headPipeline) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha) {}
+    private record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Job(long id, String name, String status, @JsonProperty("web_url") String webUrl,
-            @JsonProperty("started_at") String startedAt, @JsonProperty("finished_at") String finishedAt) {}
+            @JsonProperty("started_at") String startedAt, @JsonProperty("finished_at") String finishedAt, @JsonProperty("allow_failure") boolean allowFailure) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record FileDiff(@JsonProperty("old_path") String oldPath, @JsonProperty("new_path") String newPath, String diff,

@@ -36,6 +36,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
@@ -219,6 +220,33 @@ class TestPullRequestSnapshotService
     {
         assertThatThrownBy(() -> snapshots.getValidatedDiffFiles(1L, invalid)).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(diffs, gitHub, details);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void fileContentReaderDistinguishesDefaultDiffFromAnExplicitRangeWithTheSameEndpoints(boolean fullDiff)
+    {
+        var reader = mock(PullRequestContentReader.class);
+        when(reader.provider()).thenReturn(GITHUB_SERVER.provider());
+        var service = new PullRequestSnapshotService(new HostingPullRequestContents(ImmutableList.of(reader)),
+                mock(HostingPullRequestWrites.class), requests, details, diffs);
+        String base = fullDiff ? null : BASE;
+        String head = fullDiff ? null : HEAD;
+        var stored = new StoredPrDiff(diff().files(), ImmutableList.of(), ImmutableMap.of(), Optional.of(BASE), Optional.of(HEAD), Optional.of(UPDATED));
+        var content = new DiffFileContent("before", "after");
+        when(diffs.find(1L, base, head)).thenReturn(Optional.of(stored));
+        when(reader.fileContent(route.session().access(), route.repository(), 7, "a.txt", BASE, HEAD, fullDiff)).thenReturn(content);
+        when(diffs.saveDefaultFileContent(1L, BASE, HEAD, "a.txt", content)).thenReturn(true);
+
+        service.refreshFileContent(route, 1L, "a.txt", base, head);
+
+        verify(reader).fileContent(route.session().access(), route.repository(), 7, "a.txt", BASE, HEAD, fullDiff);
+        if (fullDiff) {
+            verify(diffs).saveDefaultFileContent(1L, BASE, HEAD, "a.txt", content);
+        }
+        else {
+            verify(diffs).saveFileContent(1L, BASE, HEAD, "a.txt", content);
+        }
     }
 
     @Test

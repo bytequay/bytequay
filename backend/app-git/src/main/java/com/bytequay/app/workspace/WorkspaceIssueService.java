@@ -153,6 +153,24 @@ public class WorkspaceIssueService
             long repositoryId = route.repository().id();
             Optional<RepositoryIssue> previous = issues.find(repositoryId, issueNumber);
             PrTimelineEvent created = client(route).comment(route.session().access(), route.repository(), issueNumber, body.trim());
+            if (created.githubId() == null) {
+                // Command-only writes have no note to append; refresh the state they changed.
+                try {
+                    Optional<RepositoryIssue> issue = client(route).find(route.session().access(), route.repository(), issueNumber);
+                    if (issue.isPresent()) {
+                        issues.saveSyncPage(repositoryId, ImmutableList.of(issue.orElseThrow()));
+                    }
+                    else {
+                        issues.delete(repositoryId, issueNumber);
+                    }
+                    details.save(client(route).detail(route.session().access(), route.repository(), issueNumber));
+                    recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
+                }
+                catch (RuntimeException failure) {
+                    log.warn("Issue command succeeded but its local refresh failed: {}", failure.toString());
+                }
+                return created;
+            }
             RepositoryIssueDetail current = cachedDetail(workspace, issueNumber);
             details.save(current.append(created));
             if (created.timestamp() != null) {

@@ -34,13 +34,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -134,7 +132,6 @@ public class BackportDrafts
         String summary = "Backports the source change: " + clip(sourceTitle.replaceAll("[\\r\\n]+", " ").strip(), 1024) + ".";
         PullRequestDraft fallback = new PullRequestDraft(fallbackTitle, summary + "\n\n" + (template.isBlank() ? "" : template.strip() + "\n\n") + provenance);
         List<String> titles = recentTitles(hop.route(), target);
-        PullRequestDraft result;
         try {
             String context = MAPPER.writeValueAsString(ImmutableMap.<String, Object>builder()
                     .put("rootSourceTitle", clip(sourceTitle, 1024))
@@ -164,15 +161,12 @@ public class BackportDrafts
             if (!body.contains(sourceReference) || !body.contains(rootReference) || !body.contains(hop.sourceTipSha())) {
                 body += "\n\n" + provenance;
             }
-            result = new PullRequestDraft(title, body);
+            return new PullRequestDraft(title, body);
         }
         catch (JsonProcessingException | RuntimeException failure) {
             log.debug("Using the source title and destination template for backport {} hop {}", chain.id(), index, failure);
-            result = fallback;
+            return fallback;
         }
-        PullRequestDraft accepted = result;
-        source.ifPresent(value -> value.withCurrent(() -> null));
-        return target.withCurrent(() -> accepted);
     }
 
     private WorkspaceHostingRead capture(BackportChain.Route route)
@@ -191,7 +185,6 @@ public class BackportDrafts
             return selected.map(route -> hosting.readPullRequest(route, chain.sourcePullRequest().orElseThrow().number()).detail());
         }
         catch (RuntimeException failure) {
-            requireOptionalFailure(failure);
             log.debug("Backport source description is unavailable for {}", chain.id(), failure);
             return Optional.empty();
         }
@@ -202,33 +195,12 @@ public class BackportDrafts
         try {
             String query = "repo:" + selected.githubRepository().fullName() + " is:pr is:merged merged:>=" + LocalDate.now(clock.withZone(ZoneOffset.UTC)).minusDays(90)
                     + " base:\"" + route.branch().replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-            List<String> titles = pullRequests.searchPullRequestsPaged(selected.githubToken(), query, 1, 20).items().stream()
+            return pullRequests.searchPullRequestsPaged(selected.githubToken(), query, 1, 20).items().stream()
                     .map(pr -> clip(pr.title(), 1024)).filter(title -> !title.isBlank()).collect(toImmutableList());
-            return selected.withCurrent(() -> titles);
         }
         catch (RuntimeException failure) {
-            requireOptionalFailure(failure);
             log.debug("Backport title examples are unavailable for {}", route.repository().fullName(), failure);
             return ImmutableList.of();
-        }
-    }
-
-    private static void requireOptionalFailure(RuntimeException failure)
-    {
-        boolean rejected = Throwables.getCausalChain(failure).stream().anyMatch(cause -> {
-            if (cause instanceof HostingFailure hosting) {
-                return switch (hosting.kind()) {
-                    case AUTHENTICATION_REQUIRED, FORBIDDEN, MISSING_OR_INACCESSIBLE, REVISION_CONFLICT -> true;
-                    default -> false;
-                };
-            }
-            return cause instanceof ResponseStatusException response && switch (response.getStatusCode().value()) {
-                case 401, 403, 404, 409 -> true;
-                default -> false;
-            };
-        });
-        if (rejected) {
-            throw failure;
         }
     }
 

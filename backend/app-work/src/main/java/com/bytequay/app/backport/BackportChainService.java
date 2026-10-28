@@ -613,8 +613,7 @@ public class BackportChainService
         if (!selected.repository().remoteId().equals(Long.toString(route.repositoryId()))) {
             throw new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Backport workspace repository changed; refresh the accepted route");
         }
-        T result = remote.apply(selected);
-        return selected.withCurrent(() -> result);
+        return remote.apply(selected);
     }
 
     private static PullRequestRef canonical(WorkspaceHostingRead route, PullRequestRef pullRequest)

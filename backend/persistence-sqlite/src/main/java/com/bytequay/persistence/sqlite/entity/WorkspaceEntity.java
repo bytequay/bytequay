@@ -35,8 +35,6 @@ import java.time.Instant;
 import java.util.Objects;
 import java.util.Optional;
 
-import static com.google.common.base.Preconditions.checkState;
-
 @Entity
 @Table(name = "watched_repo_workspaces")
 @DynamicUpdate
@@ -84,9 +82,6 @@ public class WorkspaceEntity
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "upstream_hosting_repository_id")
     private HostingRepositoryEntity upstreamHostingRepository;
-
-    @Column(name = "hosting_binding_generation")
-    private Long hostingBindingGeneration;
 
     @Column(nullable = false)
     private String monitoredOwner;
@@ -143,7 +138,6 @@ public class WorkspaceEntity
         if (selectedRepositoryId > 0 && (selectedRepositoryId != workspace.selectedRepositoryId()
                 || !Objects.equals(upstreamRepositoryId, workspace.upstreamRepositoryId().orElse(null))
                 || monitoredRepositoryId != workspace.monitoredRepositoryId() || topology != workspace.topology())) {
-            advanceHostingGeneration();
             hostingAccount = null;
             selectedHostingRepository = null;
             upstreamHostingRepository = null;
@@ -174,27 +168,14 @@ public class WorkspaceEntity
     public Optional<WorkspaceHostingBinding> hostingBinding()
     {
         return Optional.ofNullable(hostingAccount).map(account -> new WorkspaceHostingBinding(id, account.getId(), selectedHostingRepository.getId(),
-                Optional.ofNullable(upstreamHostingRepository).map(HostingRepositoryEntity::getId), hostingBindingGeneration));
-    }
-
-    public long hostingGeneration()
-    {
-        return Optional.ofNullable(hostingBindingGeneration).orElse(0L);
+                Optional.ofNullable(upstreamHostingRepository).map(HostingRepositoryEntity::getId)));
     }
 
     public void bindHosting(HostingAccountEntity account, HostingRepositoryEntity selected, Optional<HostingRepositoryEntity> upstream)
     {
-        advanceHostingGeneration();
         hostingAccount = account;
         selectedHostingRepository = selected;
         upstreamHostingRepository = upstream.orElse(null);
-    }
-
-    private void advanceHostingGeneration()
-    {
-        long previous = hostingGeneration();
-        checkState(previous < Long.MAX_VALUE, "Workspace hosting binding generation is exhausted");
-        hostingBindingGeneration = previous + 1;
     }
 
     public Workspace toDomain()

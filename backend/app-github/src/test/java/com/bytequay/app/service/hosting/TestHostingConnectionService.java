@@ -41,16 +41,11 @@ import org.junit.jupiter.params.provider.ValueSource;
 import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -59,7 +54,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -75,8 +69,6 @@ class TestHostingConnectionService
     private final PullRequestReader requests = mock(PullRequestReader.class);
     private final HostingInstance instance = new HostingInstance(10, GITLAB, URI.create("https://git.company.test/code"), URI.create("https://git.company.test/code/api/v4"));
     private final HostingAccount account = new HostingAccount(20, 10, "42", "alice");
-    private final AtomicLong generation = new AtomicLong(1);
-    private final AtomicReference<Optional<HostingCredential>> credential = new AtomicReference<>(Optional.of(new HostingCredential(20, 1, "first-secret")));
     private final HostingConnectionService service = new HostingConnectionService(identities, credentials,
             ImmutableList.of(new HostingIntegration(GITLAB, accounts, repositories, requests)));
 
@@ -85,15 +77,9 @@ class TestHostingConnectionService
     {
         when(identities.listInstances()).thenReturn(ImmutableList.of(instance));
         when(identities.listAccounts(10)).thenReturn(ImmutableList.of(account));
-        when(credentials.generation(20)).thenAnswer(ignored -> generation.get());
         when(identities.findAccount(20)).thenReturn(Optional.of(account));
         when(identities.findInstance(10)).thenReturn(Optional.of(instance));
-        when(credentials.find(20)).thenAnswer(ignored -> credential.get());
-        doAnswer(ignored -> {
-            credential.set(Optional.empty());
-            generation.incrementAndGet();
-            return null;
-        }).when(credentials).delete(20);
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "first-secret")));
     }
 
     @Test
@@ -139,35 +125,14 @@ class TestHostingConnectionService
         });
         when(identities.upsertInstance(server)).thenReturn(instance);
         when(identities.upsertAccount(10, new RemoteHostingAccount("42", "alice"))).thenReturn(account);
-        AtomicBoolean active = new AtomicBoolean(true);
 
-        HostingReadSession session = service.verifySession(server, "external-revision", 1, () -> "external-token", guard(active));
+        HostingReadSession session = service.verifySession(server, "external", "external-token");
 
         assertThat(service.account(session)).isEqualTo(account);
         assertThat(session.access().server()).isEqualTo(server);
         assertThat(session.access().token()).isEqualTo("external-token");
         assertThat(service.readSession(20).access().token()).isEqualTo("first-secret");
         verify(credentials, never()).save(anyLong(), anyString());
-
-        active.set(false);
-        assertThatThrownBy(session.access()::token).isInstanceOf(HostingFailure.class);
-        assertThatThrownBy(() -> service.account(session)).isInstanceOf(HostingFailure.class);
-    }
-
-    @Test
-    void externalSessionChangeDuringVerificationCannotRetainIdentity()
-    {
-        AtomicBoolean active = new AtomicBoolean(true);
-        when(accounts.verify(any())).thenAnswer(ignored -> {
-            active.set(false);
-            return new RemoteHostingAccount("42", "alice");
-        });
-
-        assertThatThrownBy(() -> service.verifySession(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()),
-                "external-revision", 1, () -> "external-token", guard(active))).isInstanceOf(HostingFailure.class);
-        verify(identities, never()).upsertInstance(any());
-        verify(identities, never()).upsertAccount(anyLong(), any());
-        verifyNoInteractions(credentials);
     }
 
     @Test
@@ -199,57 +164,6 @@ class TestHostingConnectionService
     }
 
     @Test
-    void disconnectCancelsAnEarlierReconnect()
-    {
-        when(accounts.verify(any())).thenAnswer(ignored -> {
-            service.disconnect(20);
-            return new RemoteHostingAccount("42", "alice");
-        });
-        assertThatThrownBy(() -> service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "reconnect-secret"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(credentials, never()).save(anyLong(), anyString());
-        verify(identities, never()).upsertAccount(anyLong(), any());
-    }
-
-    @Test
-    void reconnectCannotOverwriteALaterCredentialReplacement()
-    {
-        when(accounts.verify(any())).thenAnswer(ignored -> {
-            generation.incrementAndGet();
-            credential.set(Optional.of(new HostingCredential(20, 2, "newer-secret")));
-            return new RemoteHostingAccount("42", "alice");
-        });
-        assertThatThrownBy(() -> service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "older-secret"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(credentials, never()).save(anyLong(), anyString());
-    }
-
-    @Test
-    void replacementInvalidatesFetchBeforeIdentityIsSaved()
-    {
-        when(repositories.findByPath(any(), eq("team/subgroup/project"))).thenAnswer(ignored -> {
-            credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
-            return remoteRepository();
-        });
-        assertThatThrownBy(() -> service.resolveRepository(20, "team/subgroup/project"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(identities, never()).upsertRepository(anyLong(), any());
-    }
-
-    @Test
-    void disconnectInvalidatesFetchAndPreservesRetainedIdentity()
-    {
-        when(repositories.findByPath(any(), anyString())).thenAnswer(ignored -> {
-            service.disconnect(20);
-            return remoteRepository();
-        });
-        assertThatThrownBy(() -> service.resolveRepository(20, "team/subgroup/project"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
-        verify(credentials).delete(20);
-        verify(identities, never()).upsertRepository(anyLong(), any());
-    }
-
-    @Test
     void repositoryIdLookupRetainsTheStoredIdentityAfterARename()
     {
         RemoteHostingRepository renamed = new RemoteHostingRepository("99", "new/group/project", URI.create("https://git.company.test/code/new/group/project"),
@@ -269,57 +183,13 @@ class TestHostingConnectionService
         verify(identities).upsertRepository(10, renamed);
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void credentialChangesInvalidateRepositoryIdLookupBeforeSaving(boolean disconnect)
-    {
-        when(repositories.findById(any(), eq("99"))).thenAnswer(ignored -> {
-            if (disconnect) {
-                service.disconnect(20);
-            }
-            else {
-                credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
-            }
-            return remoteRepository();
-        });
-
-        assertThatThrownBy(() -> service.resolveRepositoryById(20, "99"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(disconnect ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
-        verify(identities, never()).upsertRepository(anyLong(), any());
-    }
-
-    @Test
-    void currentCredentialAllowsLocalAcceptance()
-    {
-        assertThat(service.withCurrentCredential(20, 1, () -> "accepted")).isEqualTo("accepted");
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void credentialChangesPreventLocalAcceptance(boolean disconnect)
-    {
-        if (disconnect) {
-            service.disconnect(20);
-        }
-        else {
-            credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
-        }
-        AtomicBoolean accepted = new AtomicBoolean();
-
-        assertThatThrownBy(() -> service.withCurrentCredential(20, 1, () -> {
-            accepted.set(true);
-            return "accepted";
-        })).isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(disconnect ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
-        assertThat(accepted).isFalse();
-    }
-
     @Test
     void doesNotRouteAcrossHostingInstances()
     {
         HostingRepository other = new HostingRepository(31, 11, "99", "owner/repo", URI.create("https://github.com/owner/repo"),
                 URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main"));
         when(identities.findRepository(31)).thenReturn(Optional.of(other));
-        assertThatThrownBy(() -> service.readPullRequest(20, 31, 1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.readPullRequest(service.readSession(20), 31, 1, Optional.empty(), Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(requests);
     }
 
@@ -329,12 +199,12 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(metadata());
-        service.readPullRequest(20, 30, 7);
+        service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.empty());
         verify(requests).fetch(any(HostingAccess.class), eq(repository), eq(7), eq(Optional.empty()));
     }
 
     @Test
-    void forwardsValidatorOnlyForTheCapturedCredentialGeneration()
+    void forwardsValidatorForTheSelectedAccountAndRepository()
     {
         HostingRepository repository = storedRepository();
         PullRequestFetch unchanged = new PullRequestFetch(Optional.empty(), Optional.of("\"v1\""));
@@ -345,57 +215,7 @@ class TestHostingConnectionService
             return unchanged;
         });
 
-        assertThat(service.readPullRequest(20, 30, 7, 1, Optional.of(repository.fullPath()), unchanged.etag())).isSameAs(unchanged);
-    }
-
-    @Test
-    void rejectsOldGenerationBeforeDispatchingItsValidator()
-    {
-        credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
-
-        assertThatThrownBy(() -> service.readPullRequest(20, 30, 7, 1, Optional.of(storedRepository().fullPath()), Optional.of("\"v1\"")))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verifyNoInteractions(requests);
-    }
-
-    @Test
-    void replacementAfterGenerationCheckCannotSendValidatorWithNewToken()
-    {
-        HostingRepository repository = storedRepository();
-        when(identities.findRepository(30)).thenAnswer(ignored -> {
-            credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
-            return Optional.of(repository);
-        });
-        AtomicReference<String> sentToken = new AtomicReference<>();
-        when(requests.fetch(any(), eq(repository), eq(7), any())).thenAnswer(call -> {
-            HostingAccess access = call.getArgument(0);
-            sentToken.set(access.token());
-            return metadata();
-        });
-
-        assertThatThrownBy(() -> service.readPullRequest(20, 30, 7, 1, Optional.of(repository.fullPath()), Optional.of("\"v1\"")))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        assertThat(sentToken).hasNullValue();
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void credentialChangesRejectConditionalResults(boolean disconnect)
-    {
-        HostingRepository repository = storedRepository();
-        when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), any())).thenAnswer(ignored -> {
-            if (disconnect) {
-                service.disconnect(20);
-            }
-            else {
-                credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
-            }
-            return new PullRequestFetch(Optional.empty(), Optional.of("\"v1\""));
-        });
-
-        assertThatThrownBy(() -> service.readPullRequest(20, 30, 7, 1, Optional.of(repository.fullPath()), Optional.of("\"v1\"")))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(disconnect ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
+        assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.of(repository.fullPath()), unchanged.etag())).isSameAs(unchanged);
     }
 
     @Test
@@ -406,7 +226,7 @@ class TestHostingConnectionService
         PullRequestFetch result = metadata();
         when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
 
-        assertThat(service.readPullRequest(20, 30, 7, 1, Optional.of("old/group/project"), Optional.of("\"v1\""))).isSameAs(result);
+        assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.of("old/group/project"), Optional.of("\"v1\""))).isSameAs(result);
         verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
     }
 
@@ -421,10 +241,10 @@ class TestHostingConnectionService
 
         assertThatThrownBy(() -> {
             if (renamed) {
-                service.readPullRequest(20, 30, 7, 1, Optional.of("old/group/project"), Optional.of("\"v1\""));
+                service.readPullRequest(service.readSession(20), 30, 7, Optional.of("old/group/project"), Optional.of("\"v1\""));
             }
             else {
-                service.readPullRequest(20, 30, 7);
+                service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.empty());
             }
         }).isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
@@ -445,7 +265,7 @@ class TestHostingConnectionService
         PullRequestFetch result = metadata();
         when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
 
-        assertThat(service.readPullRequest(20, 30, 7, 1, Optional.empty(), Optional.of("\"unscoped\""))).isSameAs(result);
+        assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.of("\"unscoped\""))).isSameAs(result);
         verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
     }
 
@@ -453,21 +273,6 @@ class TestHostingConnectionService
     {
         return new RemoteHostingRepository("99", "team/subgroup/project", URI.create("https://git.company.test/code/team/subgroup/project"),
                 URI.create("https://git.company.test/code/team/subgroup/project.git"), Optional.empty(), Optional.empty());
-    }
-
-    private static HostingReadSession.Guard guard(AtomicBoolean active)
-    {
-        return new HostingReadSession.Guard()
-        {
-            @Override
-            public <T> T withCurrent(Supplier<T> action)
-            {
-                if (!active.get()) {
-                    throw new HostingFailure(REVISION_CONFLICT, "The credential changed");
-                }
-                return action.get();
-            }
-        };
     }
 
     private static HostingRepository storedRepository()

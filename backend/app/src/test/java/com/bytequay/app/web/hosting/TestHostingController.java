@@ -95,8 +95,7 @@ class TestHostingController
             "DELETE,/api/hosting/accounts/7/credential",
             "POST,/api/hosting/accounts/7/repositories/resolve",
             "GET,/api/hosting/accounts/7/repositories/11/requests/17",
-            "GET,/api/hosting/accounts/7/repositories/11/requests/17/cached",
-            "DELETE,/api/hosting/accounts/7/repositories/11/requests/17/cache"})
+            "GET,/api/hosting/accounts/7/repositories/11/requests/17/cached"})
     void protectsEveryHostingEndpointWithTheDesktopSession(String method, String path)
             throws Exception
     {
@@ -177,14 +176,13 @@ class TestHostingController
                 ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
         PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, Instant.EPOCH, Instant.EPOCH, null, "Account-specific details", ImmutableList.of(),
                 ImmutableMap.of(), ImmutableList.of(), null, false, null, null, -1, -1, -1, -1, ImmutableList.of(), "head", "topic", "main", "base");
-        when(requests.refresh(7, 11, 17)).thenReturn(new HostingPullRequestSnapshot(new HostingPullRequest(50, 11, 17, "99"), 7, HostingPullRequestSnapshot.CONNECTED_ACCOUNT, 4, summary, detail,
+        when(requests.refresh(7, 11, 17)).thenReturn(new HostingPullRequestSnapshot(new HostingPullRequest(50, 11, 17, "99"), 7, HostingPullRequestSnapshot.CONNECTED_ACCOUNT, summary, detail,
                 Optional.of("etag"), Instant.EPOCH));
         String body = mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/17").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.request.id").value(50))
                 .andExpect(jsonPath("$.request.repositoryId").value(11))
                 .andExpect(jsonPath("$.accountId").value(7))
-                .andExpect(jsonPath("$.credentialGeneration").value(4))
                 .andExpect(jsonPath("$.detail.body").value("Account-specific details"))
                 .andExpect(jsonPath("$.detail.additions").value(-1))
                 .andReturn().getResponse().getContentAsString();
@@ -193,16 +191,13 @@ class TestHostingController
     }
 
     @Test
-    void readsAndEvictsOnlyTheSelectedAccountCache()
+    void readsOnlyTheSelectedAccountCache()
             throws Exception
     {
         when(requests.cached(7, 11, 17)).thenReturn(Optional.empty());
         mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/17/cached").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk());
-        mvc(connections).perform(delete("/api/hosting/accounts/7/repositories/11/requests/17/cache").header(SESSION_HEADER, SESSION))
-                .andExpect(status().isOk());
         verify(requests).cached(7, 11, 17);
-        verify(requests).evict(7, 11, 17);
         verifyNoInteractions(connections);
     }
 
@@ -286,16 +281,12 @@ class TestHostingController
     {
         HostingIdentityStore identities = mock(HostingIdentityStore.class);
         HostingCredentialStore credentials = mock(HostingCredentialStore.class);
-        when(identities.findAccount(7)).thenReturn(Optional.of(ACCOUNT));
-        when(identities.findInstance(3)).thenReturn(Optional.of(INSTANCE));
         HostingConnectionService service = new HostingConnectionService(identities, credentials, ImmutableList.of());
 
         mvc(service).perform(delete("/api/hosting/accounts/7/credential").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk());
 
         verify(credentials).delete(7);
-        verify(identities).findAccount(7);
-        verify(identities).findInstance(3);
         verifyNoMoreInteractions(identities, credentials);
     }
 

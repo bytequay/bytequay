@@ -79,8 +79,6 @@ import com.bytequay.app.repository.github.actions.CiStep;
 import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.hosting.HostingPullRequestService;
-import com.bytequay.app.service.pr.PullRequestSnapshotService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -101,8 +99,6 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
-import com.bytequay.core.store.PrDetailStore;
-import com.bytequay.core.store.PrDiffStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
@@ -135,7 +131,6 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -146,7 +141,6 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
@@ -171,9 +165,6 @@ class TestCiAutofixService
     private GitHubActionsClient gitHub;
     private final GitHubPullRequestWriteClient writes = mock(GitHubPullRequestWriteClient.class);
     private final GitHubPullRequestReadClient pullRequestReads = mock(GitHubPullRequestReadClient.class);
-    private final HostingPullRequestService hostingRequests = mock(HostingPullRequestService.class);
-    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(
-            pullRequestReads, mock(com.bytequay.app.repository.github.GitHubActionsClient.class), hostingRequests, mock(PrDetailStore.class), mock(PrDiffStore.class));
     private AgentTaskService taskService;
     private AgentTurnService turnService;
     private AgentCompletionService completionService;
@@ -1083,9 +1074,7 @@ class TestCiAutofixService
         run = service.advance(run.id());
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().writeStartedAt()).isPresent();
-        var order = inOrder(writes, hostingRequests);
-        order.verify(writes).updatePullRequestDescription("token", PULL_REQUEST, "- Fixes #31178.");
-        order.verify(hostingRequests).invalidate(GITHUB_SERVER, PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
+        verify(writes).updatePullRequestDescription("token", PULL_REQUEST, "- Fixes #31178.");
         when(gitHub.readDescription(PULL_REQUEST)).thenReturn("- Fixes #31178.");
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().appliedAt()).isPresent();
@@ -1142,7 +1131,6 @@ class TestCiAutofixService
         }).when(writes).updatePullRequestDescription(any(), any(), any());
         CiAutofixRun current = run;
         assertThatThrownBy(() -> service.advance(current.id())).hasMessageContaining("response lost");
-        verify(hostingRequests).invalidate(GITHUB_SERVER, PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
         CiAutofixService restarted = service(store);
         run = restarted.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().appliedAt()).isPresent();
@@ -2114,9 +2102,7 @@ class TestCiAutofixService
         run = service.advance(service.advance(run.id()).id());
 
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
-        var order = inOrder(writes, hostingRequests);
-        order.verify(writes).markReadyForReview("token", "pr-node");
-        order.verify(hostingRequests).invalidate(GITHUB_SERVER, PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
+        verify(writes).markReadyForReview("token", "pr-node");
         verify(turnService, never()).start(any());
     }
 
@@ -2414,7 +2400,6 @@ class TestCiAutofixService
                 gitHub,
                 writes,
                 pullRequestReads,
-                snapshots,
                 taskService,
                 turnService,
                 completionService,

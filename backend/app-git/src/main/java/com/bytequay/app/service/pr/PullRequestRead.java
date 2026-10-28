@@ -17,8 +17,6 @@ import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.hosting.HostingRepository;
 
-import java.util.function.Supplier;
-
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -40,11 +38,6 @@ public record PullRequestRead(HostingReadSession session, HostingRepository repo
     public String scope()
     {
         return session.cacheScope() + ":" + repository.id();
-    }
-
-    public <T> T withCurrent(Supplier<T> action)
-    {
-        return session.withCurrent(action);
     }
 
     public PullRequestRef githubRef()

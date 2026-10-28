@@ -18,7 +18,6 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
-import java.util.UUID;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -64,17 +63,6 @@ public class SqliteCredentialStore
 
     @Override
     @Transactional
-    public String revision()
-    {
-        CredentialEntity entity = jpaRepository.findFirstByOrderByIdAsc().orElseThrow(() -> new IllegalStateException("Credential is not configured"));
-        return Optional.ofNullable(entity.getReadRevision()).orElseGet(() -> {
-            entity.setReadRevision(UUID.randomUUID().toString());
-            return jpaRepository.save(entity).getReadRevision();
-        });
-    }
-
-    @Override
-    @Transactional
     public void save(String token, String source)
     {
         String trimmed = requireNonNull(token, "token is null").trim();
@@ -83,7 +71,6 @@ public class SqliteCredentialStore
         CredentialEntity entity = jpaRepository.findFirstByOrderByIdAsc().orElseGet(CredentialEntity::new);
         entity.setCiphertext(cipher.encrypt(trimmed));
         entity.setSource(source);
-        entity.setReadRevision(UUID.randomUUID().toString());
         jpaRepository.save(entity);
         cachedSecret = null;
     }

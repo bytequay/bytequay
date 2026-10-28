@@ -25,7 +25,6 @@ import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.module.SimpleModule;
 import com.fasterxml.jackson.databind.type.LogicalType;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -34,9 +33,6 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -48,22 +44,13 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
 
 final class GitHubHttpClient
 {
-    private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-
     private final HttpClient http;
     private final ObjectReader reader;
-    private final Duration timeout;
 
     GitHubHttpClient(HttpClient http, ObjectMapper mapper)
-    {
-        this(http, mapper, Duration.ofSeconds(30));
-    }
-
-    GitHubHttpClient(HttpClient http, ObjectMapper mapper, Duration timeout)
     {
         this.http = requireNonNull(http, "http is null");
         ObjectMapper responseMapper = requireNonNull(mapper, "mapper is null").copy();
@@ -86,8 +73,6 @@ final class GitHubHttpClient
                 .without(DeserializationFeature.ACCEPT_FLOAT_AS_INT, DeserializationFeature.ACCEPT_SINGLE_VALUE_AS_ARRAY,
                         DeserializationFeature.UNWRAP_SINGLE_VALUE_ARRAYS, DeserializationFeature.ACCEPT_EMPTY_STRING_AS_NULL_OBJECT,
                         DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT);
-        this.timeout = requireNonNull(timeout, "timeout is null");
-        checkArgument(!timeout.isNegative() && !timeout.isZero(), "timeout must be positive");
         checkArgument(http.followRedirects() == HttpClient.Redirect.NEVER, "hosting clients must not forward credentials through redirects");
     }
 
@@ -106,7 +91,7 @@ final class GitHubHttpClient
         URI endpoint = URI.create(access.server().apiBaseUrl().toASCIIString() + "/" + path);
         try {
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
-                    .timeout(timeout)
+                    .timeout(Duration.ofSeconds(30))
                     .header("Authorization", "Bearer " + access.token())
                     .header("Accept", "application/vnd.github+json")
                     .header("X-GitHub-Api-Version", "2022-11-28");
@@ -145,26 +130,14 @@ final class GitHubHttpClient
 
     private HttpResponse<byte[]> send(HttpRequest request)
     {
-        CompletableFuture<HttpResponse<byte[]>> response = http.sendAsync(request, info -> boundedBody());
         try {
-            // The request timeout alone does not bound a response body that stalls after headers.
-            return response.get(timeout.toNanos(), NANOSECONDS);
-        }
-        catch (TimeoutException e) {
-            response.cancel(true);
-            throw new HostingFailure(UNAVAILABLE, "GitHub response timed out");
+            return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
         }
         catch (InterruptedException e) {
-            response.cancel(true);
             Thread.currentThread().interrupt();
             throw new HostingFailure(UNAVAILABLE, "GitHub request was interrupted");
         }
-        catch (ExecutionException e) {
-            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-                if (cause instanceof HostingFailure failure) {
-                    throw failure;
-                }
-            }
+        catch (IOException e) {
             throw new HostingFailure(UNAVAILABLE, "Could not read GitHub; check connectivity and certificate trust");
         }
     }
@@ -177,17 +150,6 @@ final class GitHubHttpClient
             checkArgument(!segment.equals(".") && !segment.equals(".."), "invalid repository path");
         }
         return "repos/" + fullPath;
-    }
-
-    private static HttpResponse.BodySubscriber<byte[]> boundedBody()
-    {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        return HttpResponse.BodySubscribers.mapping(HttpResponse.BodySubscribers.ofByteArrayConsumer(chunk -> chunk.ifPresent(value -> {
-            if (value.length > MAX_RESPONSE_BYTES - bytes.size()) {
-                throw new HostingFailure(INVALID_RESPONSE, "GitHub response exceeded the permitted size");
-            }
-            bytes.writeBytes(value);
-        })), ignored -> bytes.toByteArray());
     }
 
     private static Optional<Duration> retryAfter(HttpResponse<?> response)

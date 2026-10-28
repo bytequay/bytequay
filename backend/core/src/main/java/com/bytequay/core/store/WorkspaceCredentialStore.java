@@ -26,9 +26,6 @@ public interface WorkspaceCredentialStore
 
     Optional<String> getLogin(String workspaceId);
 
-    /** Selection revision survives override removal so an earlier fallback cannot become current again. */
-    String revision(String workspaceId);
-
     void save(String workspaceId, String token, String login);
 
     void delete(String workspaceId);

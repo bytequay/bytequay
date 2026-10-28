@@ -22,11 +22,9 @@ import jakarta.persistence.JoinColumn;
 import jakarta.persistence.MapsId;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
-import jakarta.persistence.Version;
 import lombok.AccessLevel;
 import lombok.Getter;
 
-import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 @Entity
@@ -42,16 +40,7 @@ class HostingCredentialEntity
     @JoinColumn(name = "account_id", nullable = false)
     private HostingAccountEntity account;
 
-    @Version
     @Column(nullable = false)
-    private Long version;
-
-    @Column(nullable = false)
-    @Getter(AccessLevel.PACKAGE)
-    private long generation;
-
-    // A tombstone retains the generation after disconnect, without retaining the secret.
-    @Column
     @Getter(AccessLevel.PACKAGE)
     private String ciphertext;
 
@@ -60,13 +49,10 @@ class HostingCredentialEntity
     HostingCredentialEntity(HostingAccountEntity account)
     {
         this.account = requireNonNull(account, "account is null");
-        this.accountId = requireNonNull(account.getId(), "account id is null");
     }
 
     void update(String ciphertext)
     {
-        checkState(generation < Long.MAX_VALUE, "Hosting credential generation is exhausted");
-        generation++;
-        this.ciphertext = ciphertext;
+        this.ciphertext = requireNonNull(ciphertext, "ciphertext is null");
     }
 }

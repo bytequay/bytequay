@@ -52,7 +52,6 @@ import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 
 class TestGitLabPullRequestReader
 {
@@ -98,7 +97,7 @@ class TestGitLabPullRequestReader
         base = "http://127.0.0.1:" + server.getAddress().getPort() + "/gitlab";
         http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)).followRedirects(HttpClient.Redirect.NEVER).build();
         HostingInstance instance = new HostingInstance(1, GITLAB, URI.create(base), URI.create(base + "/api/v4"));
-        access = new HostingAccess(instance, () -> "secret-token");
+        access = new HostingAccess(instance, "secret-token");
         repository = new HostingRepository(2, 1, "42", "group/subgroup/repo", URI.create(base + "/group/subgroup/repo"),
                 URI.create(base + "/group/subgroup/repo.git"), Optional.empty(), Optional.of("main"));
         reader = new GitLabPullRequestReader(http, MAPPER);
@@ -204,14 +203,6 @@ class TestGitLabPullRequestReader
     void rejectsASecondJsonValueAfterValidMetadata()
     {
         reply.set(new Reply(200, mr() + " {}", Optional.empty()));
-
-        assertInvalidResponse();
-    }
-
-    @Test
-    void boundsResponseSize()
-    {
-        reply.set(new Reply(200, "{\"oversized\":\"" + "x".repeat(2 * 1024 * 1024) + "\"}", Optional.empty()));
 
         assertInvalidResponse();
     }
@@ -395,28 +386,6 @@ class TestGitLabPullRequestReader
     }
 
     @Test
-    void boundsTheWholeResponseWhenTheServerStallsAfterHeaders()
-    {
-        CountDownLatch headers = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        stalledBody(headers, release);
-        GitLabHttpClient bounded = new GitLabHttpClient(http, MAPPER, Duration.ofMillis(500));
-        try {
-            assertTimeoutPreemptively(Duration.ofSeconds(3), () ->
-                    assertThatThrownBy(() -> bounded.get(access, "stalled", Optional.empty(), GitLabAccountResponse.class))
-                            .isInstanceOfSatisfying(HostingFailure.class, failure -> {
-                                assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.UNAVAILABLE);
-                                assertThat(failure.getMessage()).contains("timed out");
-                                assertThat(failure.getCause()).isNull();
-                            }));
-            assertThat(headers.getCount()).isZero();
-        }
-        finally {
-            release.countDown();
-        }
-    }
-
-    @Test
     void cancelsTheExchangeAndPreservesInterruption()
             throws InterruptedException
     {
@@ -452,7 +421,7 @@ class TestGitLabPullRequestReader
     @Test
     void verifiesAnAccountBeforeItsServerHasALocalIdentity()
     {
-        HostingAccess unpersisted = new HostingAccess(new HostingServer(GITLAB, URI.create(base), URI.create(base + "/api/v4")), () -> "secret-token");
+        HostingAccess unpersisted = new HostingAccess(new HostingServer(GITLAB, URI.create(base), URI.create(base + "/api/v4")), "secret-token");
         reply.set(new Reply(200, "{\"id\":123,\"username\":\"alice\",\"new_account_field\":true}", Optional.empty()));
 
         assertThat(new GitLabConnectionClient(http, MAPPER).verify(unpersisted).login()).isEqualTo("alice");
@@ -463,7 +432,7 @@ class TestGitLabPullRequestReader
     @ValueSource(strings = {"secret-token\r\nInjected: true", "secret-token\n", "secret-token\t", "secret-token ", "secret-tokené"})
     void rejectsUnsafeTokensWithoutExposingThem(String token)
     {
-        HostingAccess invalid = new HostingAccess(new HostingInstance(1, GITLAB, URI.create(base), URI.create(base + "/api/v4")), () -> token);
+        HostingAccess invalid = new HostingAccess(new HostingInstance(1, GITLAB, URI.create(base), URI.create(base + "/api/v4")), token);
 
         assertThatThrownBy(() -> reader.fetch(invalid, repository, 17, Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> {

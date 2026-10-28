@@ -338,42 +338,28 @@ public class WorkspaceRepositoryService
     public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
     {
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
-        record UpstreamSnapshot(Workspace workspace, long generation) {}
-        UpstreamSnapshot observed = WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(store, workspaceId);
-            if (!workspace.upstreamRepositoryId().equals(upstreamRepositoryId)
-                    && (codeRefreshes.contains(workspaceId) || store.hasActiveWorkflows(workspaceId))) {
-                throw WorkspaceException.busy();
-            }
-            return new UpstreamSnapshot(workspace, store.hostingGeneration(workspaceId));
-        });
-        if (observed.workspace().upstreamRepositoryId().equals(upstreamRepositoryId)) {
-            return observed.workspace();
+        Workspace workspace = requireWorkspace(store, workspaceId);
+        if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
+            return workspace;
         }
-        Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(observed.workspace(), id));
-        Workspace saved = WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(store, workspaceId);
-            if (store.hostingGeneration(workspaceId) != observed.generation()) {
-                throw WorkspaceException.previewChanged();
-            }
-            if (codeRefreshes.contains(workspaceId) || store.hasActiveWorkflows(workspaceId)) {
-                throw WorkspaceException.busy();
-            }
-            Instant now = clock.instant();
-            Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
-            Workspace linked = workspace.withRepositoryRouting(
-                    workspace.selectedRepository(),
-                    upstream.map(UserRepo::id),
-                    upstreamRef,
-                    upstream.map(UserRepo::id).orElse(workspace.selectedRepositoryId()),
-                    upstreamRef.orElse(workspace.selectedRepository()),
-                    workspace.defaultBranch(),
-                    workspace.originCloneUrl(),
-                    upstream.map(UserRepo::defaultBranch),
-                    upstream.map(UserRepo::cloneUrl),
-                    now);
-            return store.save(linked.withMetadataSyncAt(Optional.empty(), now));
-        });
+        if (codeRefreshes.contains(workspace.id()) || store.hasActiveWorkflows(workspace.id())) {
+            throw WorkspaceException.busy();
+        }
+        Optional<UserRepo> upstream = upstreamRepositoryId.map(id -> requireUpstream(workspace, id));
+        Instant now = clock.instant();
+        Optional<RepoRef> upstreamRef = upstream.map(value -> RepoRef.of(value.owner(), value.name()));
+        Workspace linked = workspace.withRepositoryRouting(
+                workspace.selectedRepository(),
+                upstream.map(UserRepo::id),
+                upstreamRef,
+                upstream.map(UserRepo::id).orElse(workspace.selectedRepositoryId()),
+                upstreamRef.orElse(workspace.selectedRepository()),
+                workspace.defaultBranch(),
+                workspace.originCloneUrl(),
+                upstream.map(UserRepo::defaultBranch),
+                upstream.map(UserRepo::cloneUrl),
+                now);
+        Workspace saved = store.save(linked.withMetadataSyncAt(Optional.empty(), now));
         return requestSyncAfterConfigurationChange(saved.id());
     }
 
@@ -390,13 +376,11 @@ public class WorkspaceRepositoryService
         if (trimmed.isEmpty() || trimmed.length() > 200) {
             throw WorkspaceException.invalidRepository("Workspace name must be 1 to 200 characters.");
         }
-        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(store, workspaceId);
-            if (workspace.name().equals(trimmed)) {
-                return workspace;
-            }
-            return store.save(workspace.withName(trimmed, clock.instant()));
-        });
+        Workspace workspace = requireWorkspace(store, workspaceId);
+        if (workspace.name().equals(trimmed)) {
+            return workspace;
+        }
+        return store.save(workspace.withName(trimmed, clock.instant()));
     }
 
     /**

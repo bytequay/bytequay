@@ -17,6 +17,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.pr.PullRequestService.Posted;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.HandledAction;
@@ -56,6 +57,7 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Supplier;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.Checks.normalizeNames;
@@ -76,6 +78,7 @@ final class PullRequestActions
     private final PrViewStateStore viewStateStore;
     private final RecentTouchRecorder recent;
     private final CredentialService credentialService;
+    private final HostingPullRequestService requests;
     private final BiFunction<String, Integer, PullRequestDetail> readDetail;
 
     PullRequestActions(
@@ -87,6 +90,7 @@ final class PullRequestActions
             PrViewStateStore viewStateStore,
             RecentTouchRecorder recent,
             CredentialService credentialService,
+            HostingPullRequestService requests,
             BiFunction<String, Integer, PullRequestDetail> readDetail)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -97,6 +101,7 @@ final class PullRequestActions
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.requests = requireNonNull(requests, "requests is null");
         this.readDetail = requireNonNull(readDetail, "readDetail is null");
     }
 
@@ -148,9 +153,10 @@ final class PullRequestActions
      *
      * <p>Writers read the detail they fall back to before writing, so a failed read sends nothing.
      */
-    private static <T> T afterWrite(String repo, int number, Supplier<T> step, T fallback)
+    private <T> T afterWrite(String repo, int number, Supplier<T> step, T fallback)
     {
         try {
+            requests.invalidate(GITHUB_SERVER, repo, number);
             return step.get();
         }
         catch (RuntimeException failure) {
@@ -159,7 +165,7 @@ final class PullRequestActions
         }
     }
 
-    private static void afterWrite(String repo, int number, Runnable step)
+    private void afterWrite(String repo, int number, Runnable step)
     {
         afterWrite(repo, number, () -> {
             step.run();

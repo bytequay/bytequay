@@ -23,7 +23,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.service.pr.PullRequestSnapshotService;
 import com.bytequay.app.workspace.ManagedWorkspaceGit;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -73,7 +72,6 @@ public class WorkspacePullRequestService
     private final CredentialService credentials;
     private final ManagedWorkspaceGit git;
     private final PullRequestService pullRequestCatalog;
-    private final PullRequestSnapshotService snapshots;
     private final CiAutofixService ciAutofix;
     private final Clock clock;
     private final WorkspaceRelationships relationships;
@@ -90,7 +88,6 @@ public class WorkspacePullRequestService
             CredentialService credentials,
             ManagedWorkspaceGit git,
             PullRequestService pullRequestCatalog,
-            PullRequestSnapshotService snapshots,
             CiAutofixService ciAutofix,
             Clock clock,
             WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads)
@@ -103,7 +100,6 @@ public class WorkspacePullRequestService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.git = requireNonNull(git, "git is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
-        this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.ciAutofix = requireNonNull(ciAutofix, "ciAutofix is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
@@ -348,10 +344,8 @@ public class WorkspacePullRequestService
         String token = credentials.resolveGitHubToken(workspace.id());
         String nodeId = pullRequests.pullRequestNodeId(token, pullRequestRef(workspace, execution))
                 .orElseThrow(() -> WorkspaceException.deliveryFailed("GitHub returned no pull request node ID"));
-        snapshots.write(pullRequestRef(workspace, execution), () -> {
-            pullRequests.markReadyForReview(token, nodeId);
-            pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
-        });
+        pullRequests.markReadyForReview(token, nodeId);
+        pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
     }
 
     /**
@@ -375,10 +369,8 @@ public class WorkspacePullRequestService
             }
             try {
                 if (closePullRequest && identity.state() == GitHubPullRequestIdentity.State.OPEN) {
-                    snapshots.write(pullRequestRef(workspace, execution), () -> {
-                        pullRequests.closePullRequest(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
-                        pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
-                    });
+                    pullRequests.closePullRequest(credentials.resolveGitHubToken(workspace.id()), pullRequestRef(workspace, execution));
+                    pullRequestCatalog.observeWorkspacePullRequest(workspace.id(), pullRequestNumber(execution));
                 }
             }
             catch (RuntimeException failure) {

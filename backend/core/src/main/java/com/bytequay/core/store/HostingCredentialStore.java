@@ -21,11 +21,8 @@ public interface HostingCredentialStore
 {
     Optional<HostingCredential> find(long accountId);
 
-    /** Last authorization generation, including a deletion tombstone; zero before the first change. */
-    long generation(long accountId);
-
     HostingCredential save(long accountId, String token);
 
-    /** Removes authorization without removing its generation history or retained account identity. */
+    /** Removes authorization while retaining the account identity. */
     void delete(long accountId);
 }

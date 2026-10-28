@@ -84,12 +84,6 @@ public class HostingController
         return requests.cached(accountId, repositoryId, number);
     }
 
-    @DeleteMapping("/accounts/{accountId}/repositories/{repositoryId}/requests/{number}/cache")
-    public void evictPullRequest(@PathVariable long accountId, @PathVariable long repositoryId, @PathVariable int number)
-    {
-        requests.evict(accountId, repositoryId, number);
-    }
-
     public record ConnectRequest(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl, String token)
     {
         public ConnectRequest

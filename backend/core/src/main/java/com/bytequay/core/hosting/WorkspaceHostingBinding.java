@@ -20,7 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Retained hosting identities selected for an existing workspace; repository IDs are ByteQuay-owned. */
-public record WorkspaceHostingBinding(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId, long generation)
+public record WorkspaceHostingBinding(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
 {
     public WorkspaceHostingBinding
     {
@@ -29,7 +29,6 @@ public record WorkspaceHostingBinding(String workspaceId, long accountId, long s
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
         upstreamRepositoryId.ifPresent(id -> checkArgument(id > 0 && id != selectedRepositoryId, "upstreamRepositoryId must be positive and differ from selectedRepositoryId"));
-        checkArgument(generation > 0, "generation must be positive");
     }
 
     public long monitoredRepositoryId()

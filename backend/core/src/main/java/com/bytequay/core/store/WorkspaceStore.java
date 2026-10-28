@@ -45,9 +45,6 @@ public interface WorkspaceStore
 
     Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId);
 
-    /** Survives binding invalidation so a delayed bind cannot overwrite a changed workspace route. */
-    long hostingGeneration(String workspaceId);
-
     /** Attaches retained GitHub.com identities without changing the workspace's existing repository IDs or local data. */
     WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 

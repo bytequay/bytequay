@@ -89,7 +89,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Supplier;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
@@ -687,21 +686,6 @@ class TestBackportChainService
     }
 
     @Test
-    void capturedAccountRejectsAnIdentityThatFinishesAfterRebinding()
-    {
-        WorkspaceHostingRead read = hostingReads.get("p4");
-        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Account changed");
-        when(prs.fetchPullRequestIdentity("fixture-token", PullRequestRef.of("test", "p4", 4))).thenAnswer(call -> {
-            doThrow(failure).when(read.session().guard()).withCurrent(any());
-            return remote.get(4);
-        });
-
-        assertThatThrownBy(() -> service().start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
-                .isSameAs(failure);
-        assertThat(saved).isEmpty();
-    }
-
-    @Test
     void anotherRepositoryBindingCannotReadTheSavedSource()
     {
         when(hosting.captureRead("p4")).thenReturn(hostingReads.get("p2"));
@@ -714,10 +698,8 @@ class TestBackportChainService
 
     private static WorkspaceHostingRead selected(int number, String token)
     {
-        HostingReadSession.Guard guard = mock(HostingReadSession.Guard.class);
-        when(guard.withCurrent(any())).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        HostingReadSession session = new HostingReadSession(1, "source-" + number, 1, new HostingAccess(instance, () -> guard.withCurrent(() -> token)), guard);
+        HostingReadSession session = new HostingReadSession(1, "source-" + number, new HostingAccess(instance, token));
         String path = "test/p" + number;
         HostingRepository repository = new HostingRepository(number, 1, Integer.toString(number), path, URI.create("https://github.com/" + path),
                 URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main"));

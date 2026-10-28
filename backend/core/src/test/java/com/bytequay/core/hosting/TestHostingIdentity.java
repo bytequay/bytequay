@@ -112,10 +112,10 @@ class TestHostingIdentity
     @Test
     void credentialsDoNotExposeTheirSecretInDiagnostics()
     {
-        HostingCredential credential = new HostingCredential(4, 9, "private-token");
+        HostingCredential credential = new HostingCredential(4, "private-token");
         assertThat(credential.secret()).isEqualTo("private-token");
-        assertThat(credential.toString()).contains("accountId=4", "generation=9", "<redacted>").doesNotContain("private-token");
-        assertThatIllegalArgumentException().isThrownBy(() -> new HostingCredential(4, 0, "private-token"));
+        assertThat(credential.toString()).contains("accountId=4", "<redacted>").doesNotContain("private-token");
+        assertThatIllegalArgumentException().isThrownBy(() -> new HostingCredential(0, "private-token"));
         assertThatIllegalArgumentException().isThrownBy(() -> new HostingAccount(0, 1, "42", "alice"));
     }
 }

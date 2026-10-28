@@ -129,11 +129,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Consumer;
-import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -146,7 +144,6 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -184,7 +181,6 @@ class TestPullRequestService
     @Mock private CredentialService credentialService;
     @Mock private HostingConnectionService connections;
     @Mock private HostingPullRequestService requests;
-    @Mock private HostingReadSession.Guard sessionGuard;
     private HostingReadSession session;
     @Mock private WorkspaceHostingService workspaceHosting;
     @Mock private WorkspaceMetadataService metadata;
@@ -203,11 +199,9 @@ class TestPullRequestService
     {
         snapshots = new PullRequestSnapshotService(gitHub, actions, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
-        lenient().when(sessionGuard.withCurrent(any())).thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(0).get());
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        session = new HostingReadSession(10, "desktop-scope", 1, new HostingAccess(instance, () -> sessionGuard.withCurrent(() -> "pat")), sessionGuard);
+        session = new HostingReadSession(10, "desktop-scope", new HostingAccess(instance, "pat"));
         lenient().when(credentialService.captureHostingRead()).thenReturn(session);
-        lenient().when(credentialService.cachedHostingRead()).thenReturn(Optional.of(session));
         lenient().when(connections.account(session)).thenReturn(new HostingAccount(10, 1, "100", "me"));
         lenient().when(connections.resolveRepository(eq(session), anyString())).thenAnswer(invocation -> hostingRepository(invocation.getArgument(1)));
         lenient().when(connections.findRepository(eq(session), anyString())).thenAnswer(invocation -> Optional.of(hostingRepository(invocation.getArgument(1))));
@@ -457,9 +451,9 @@ class TestPullRequestService
     void exactLookupKeepsTheExplicitAccountForCacheAndRefresh(boolean cached)
     {
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        HostingReadSession selected = new HostingReadSession(11, "connected-account", 2, new HostingAccess(instance, () -> "selected-token"), sessionGuard);
+        HostingReadSession selected = new HostingReadSession(11, "connected-account", new HostingAccess(instance, "selected-token"));
         PullRequestRead route = new PullRequestRead(selected, hostingRepository("owner/repo"), 7, "alice");
-        HostingPullRequestSnapshot metadata = new HostingPullRequestSnapshot(new HostingPullRequest(112, 20, 7, pullRequest().githubId().toString()), 11, "connected-account", 2,
+        HostingPullRequestSnapshot metadata = new HostingPullRequestSnapshot(new HostingPullRequest(112, 20, 7, pullRequest().githubId().toString()), 11, "connected-account",
                 pullRequest(), raw(), Optional.of("selected-etag"), Instant.now());
         PullRequest row = storedPullRequest();
         when(requests.cached(selected, 20, 7)).thenReturn(cached ? Optional.of(metadata) : Optional.empty());
@@ -479,9 +473,7 @@ class TestPullRequestService
     void legacyLookupRejectsAnotherServerBeforeReadingOrProjecting(String server)
     {
         HostingInstance instance = new HostingInstance(2, GITLAB, URI.create(server), URI.create(server + "/api/v4"));
-        HostingReadSession selected = new HostingReadSession(11, "connected-account", 1, new HostingAccess(instance, () -> {
-            throw new AssertionError("The unsupported operation must not read the account token");
-        }), sessionGuard);
+        HostingReadSession selected = new HostingReadSession(11, "connected-account", new HostingAccess(instance, "gitlab-token"));
         URI url = URI.create(server + "/group/repo");
         HostingRepository repository = new HostingRepository(21, 2, "200", "group/repo", url, url, Optional.empty(), Optional.of("main"));
         PullRequestRead route = new PullRequestRead(selected, repository, 7, "alice");
@@ -556,10 +548,8 @@ class TestPullRequestService
     }
 
     @Test
-    void cacheOnlyReadsDoNotVerifyAnUnselectedAccount()
+    void cacheOnlyReadsDoNotRequireAnAccount()
     {
-        when(credentialService.cachedHostingRead()).thenReturn(Optional.empty());
-
         assertThat(service.findStoredDescription("owner/repo", 7)).isEmpty();
         assertThat(service.findHeadSha("owner/repo", 7)).isEmpty();
         assertThat(service.findPullRequestDetail("owner/repo", 7)).isEmpty();
@@ -567,7 +557,7 @@ class TestPullRequestService
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
 
         verify(credentialService, never()).captureHostingRead();
-        verifyNoInteractions(connections, requests, gitHub, actions, accounts, store, detailStore, diffStore);
+        verifyNoInteractions(connections, requests, gitHub, actions, accounts, detailStore, diffStore);
     }
 
     @Test
@@ -1083,69 +1073,6 @@ class TestPullRequestService
         verify(summaries).fetchSummaries("pat", ImmutableList.of(ref), "me");
         verifyNoMoreInteractions(summaries);
         verifyNoInteractions(detailStore, diffStore, actions, accounts, metadata);
-    }
-
-    @Test
-    void workspaceSummaryRejectsAWriteThatFinishesDuringTheRemoteRead()
-    {
-        workspaceRoute();
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
-        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenAnswer(ignored -> {
-            snapshots.write(ref, () -> null);
-            return ImmutableList.of(summary(pullRequest(), PullRequestDetail.CiStatus.PASSING, "old"));
-        });
-
-        assertThatThrownBy(() -> service.syncWorkspace("workspace")).isInstanceOf(HostingFailure.class);
-
-        verify(store, never()).saveObserved(any());
-        verifyNoInteractions(viewStateStore);
-    }
-
-    @ParameterizedTest
-    @ValueSource(strings = {"unchanged", "route", "write"})
-    void workspaceReplyProbeRunsOutsideAcceptanceAndRechecksBeforeSaving(String change)
-    {
-        WorkspaceRouteGuard guard = new WorkspaceRouteGuard();
-        WorkspaceHostingRead route = workspaceRoute("scope", "pat", "me", guard);
-        when(workspaceHosting.captureRead("workspace")).thenReturn(route);
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        guard.readMonitor = snapshots.captureRead(ref).guard();
-        FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null).withViewerOrigin("me");
-        PullRequest row = storedPullRequest(fetched);
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
-        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenAnswer(ignored -> {
-            assertThat(guard.accepting).isFalse();
-            return ImmutableList.of(summary(fetched, PullRequestDetail.CiStatus.PASSING, "reply"));
-        });
-        when(store.saveObserved(fetched)).thenReturn(row);
-        PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.COMMENTED, "head");
-        when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
-        when(summaries.hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply")).thenAnswer(ignored -> {
-            assertThat(guard.accepting).isFalse();
-            if (change.equals("route")) {
-                guard.current = false;
-            }
-            if (change.equals("write")) {
-                snapshots.write(ref, () -> null);
-            }
-            return true;
-        });
-
-        if (change.equals("unchanged")) {
-            service.syncWorkspace("workspace");
-            verify(viewStateStore).markNeedsReview(row.id());
-            verify(store).updateEnrichment(row.id(), fetched.updatedAt(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1,
-                    null, null, REVIEWED_AT, "feature", ImmutableList.of(), row.origin(), Optional.empty(), Optional.of("APPROVED"),
-                    ImmutableMap.of("summary", "reply"));
-        }
-        else {
-            assertThatThrownBy(() -> service.syncWorkspace("workspace")).isInstanceOf(HostingFailure.class);
-            verify(viewStateStore, never()).markNeedsReview(anyLong());
-            verify(store, never()).updateEnrichment(anyLong(), any(), any(), anyInt(), anyInt(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any());
-        }
     }
 
     @Test
@@ -1678,11 +1605,8 @@ class TestPullRequestService
                 "https://github.com/owner/repo/pull/7", ImmutableList.of(failedRun)));
         when(actions.rerunFailedJobs(any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
 
-        PullRequestReadGuard.Read previous = snapshots.captureRead(ref);
         service.rerunFailedChecks("owner/repo", 7);
 
-        assertThatThrownBy(() -> previous.accept(() -> true))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
         ArgumentCaptor<RerunFailedJobsCommand> command = ArgumentCaptor.forClass(RerunFailedJobsCommand.class);
         verify(actions).rerunFailedJobs(command.capture());
         assertThat(command.getValue()).isEqualTo(new RerunFailedJobsCommand(ref, 101, headSha, 3, true));
@@ -1808,41 +1732,10 @@ class TestPullRequestService
                         .build());
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void globalRepositoryReadRejectsCredentialChangesDuringDiscoveryOrSummary(boolean discovery)
-    {
-        AtomicBoolean current = new AtomicBoolean(true);
-        doAnswer(invocation -> {
-            if (!current.get()) {
-                throw new HostingFailure(REVISION_CONFLICT, "Desktop credential changed");
-            }
-            return invocation.<Supplier<?>>getArgument(0).get();
-        }).when(sessionGuard).withCurrent(any());
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(ignored -> {
-            if (discovery) {
-                current.set(false);
-            }
-            return new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false);
-        });
-        if (!discovery) {
-            when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me"))).thenAnswer(ignored -> {
-                current.set(false);
-                return ImmutableList.of(summary(pullRequest(), PullRequestDetail.CiStatus.PASSING, "stale"));
-            });
-        }
-
-        assertThatThrownBy(() -> service.syncRepository(RepoRef.of("owner", "repo"))).isInstanceOf(HostingFailure.class);
-
-        verify(store, never()).saveObserved(any());
-        verify(store, times(discovery ? 0 : 2)).saveRepositorySyncPage(anyString(), anyList());
-        verify(syncSettings, times(discovery ? 0 : 1)).put(anyString(), anyString());
-    }
-
     @Test
     void workspaceSyncUsesTheSelectedAccountInsteadOfTheGlobalCredential()
     {
-        WorkspaceHostingRead route = workspaceRoute("selected-account", "workspace-pat", "alice", new WorkspaceRouteGuard());
+        WorkspaceHostingRead route = workspaceRoute("selected-account", "workspace-pat", "alice");
         when(workspaceHosting.captureRead("workspace")).thenReturn(route);
         when(gitHub.searchPullRequestsPaged(eq("workspace-pat"), anyString(), eq(1), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
@@ -1860,8 +1753,8 @@ class TestPullRequestService
     {
         AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
         service = serviceAt(now);
-        WorkspaceHostingRead first = workspaceRoute("scope-one", "pat-one", "me", new WorkspaceRouteGuard());
-        WorkspaceHostingRead second = workspaceRoute("scope-two", "pat-two", "me", new WorkspaceRouteGuard());
+        WorkspaceHostingRead first = workspaceRoute("scope-one", "pat-one", "me");
+        WorkspaceHostingRead second = workspaceRoute("scope-two", "pat-two", "me");
         when(workspaceHosting.captureRead("workspace")).thenReturn(first, first, second);
         Map<String, String> settings = new HashMap<>();
         when(syncSettings.get(anyString())).thenAnswer(invocation -> Optional.ofNullable(settings.get(invocation.<String>getArgument(0))));
@@ -1884,95 +1777,6 @@ class TestPullRequestService
         verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat-two"), anyString(), eq(1), eq(100));
         assertThat(settings.keySet()).hasSize(2).anySatisfy(key -> assertThat(key).contains("scope-one"))
                 .anySatisfy(key -> assertThat(key).contains("scope-two"));
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void workspaceDiscoveryRejectsAChangedRouteOrConcurrentWrite(boolean routeChanged)
-    {
-        WorkspaceRouteGuard guard = new WorkspaceRouteGuard();
-        WorkspaceHostingRead route = workspaceRoute("scope", "pat", "me", guard);
-        when(workspaceHosting.captureRead("workspace")).thenReturn(route);
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(ignored -> {
-            if (routeChanged) {
-                guard.current = false;
-            }
-            else {
-                snapshots.write(PullRequestRef.of("owner", "repo", 7), () -> null);
-            }
-            return new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false);
-        });
-
-        assertThatThrownBy(() -> service.syncWorkspace("workspace"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        verify(store, never()).saveRepositorySyncPage(anyString(), anyList());
-        verify(syncSettings, never()).put(anyString(), anyString());
-        verifyNoInteractions(summaries);
-    }
-
-    @Test
-    void workspaceDiscoveryRechecksRoutingBeforeTheNextPage()
-    {
-        WorkspaceRouteGuard guard = new WorkspaceRouteGuard();
-        WorkspaceHostingRead route = workspaceRoute("scope", "pat", "me", guard);
-        when(workspaceHosting.captureRead("workspace")).thenReturn(route);
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), true));
-        when(store.saveRepositorySyncPage(anyString(), anyList())).thenAnswer(ignored -> {
-            guard.current = false;
-            return ImmutableList.of(storedPullRequest());
-        });
-
-        assertThatThrownBy(() -> service.syncWorkspace("workspace")).isInstanceOf(HostingFailure.class);
-
-        verify(gitHub).searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100));
-        verifyNoMoreInteractions(gitHub);
-        verify(syncSettings, never()).put(anyString(), anyString());
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void branchDiscoveryRejectsAChangedRouteOrConcurrentWrite(boolean routeChanged)
-    {
-        WorkspaceRouteGuard guard = new WorkspaceRouteGuard();
-        WorkspaceHostingRead route = workspaceRoute("scope", "pat", "me", guard);
-        when(workspaceHosting.captureRead("workspace")).thenReturn(route);
-        when(gitHub.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "contributor:feature")).thenAnswer(ignored -> {
-            if (routeChanged) {
-                guard.current = false;
-            }
-            else {
-                snapshots.write(PullRequestRef.of("owner", "repo", 7), () -> null);
-            }
-            return ImmutableList.of(pullRequest());
-        });
-
-        assertThatThrownBy(() -> service.syncRepositoryBranch("workspace", "contributor", "feature")).isInstanceOf(HostingFailure.class);
-
-        verifyNoInteractions(store);
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {true, false})
-    void exactWorkspaceReadRejectsAChangedRouteOrConcurrentWrite(boolean routeChanged)
-    {
-        WorkspaceRouteGuard guard = new WorkspaceRouteGuard();
-        WorkspaceHostingRead route = workspaceRoute("scope", "pat", "me", guard);
-        when(workspaceHosting.captureRead("workspace")).thenReturn(route);
-        when(workspaceHosting.readPullRequest(route, 7)).thenAnswer(ignored -> {
-            if (routeChanged) {
-                guard.current = false;
-            }
-            else {
-                snapshots.write(PullRequestRef.of("owner", "repo", 7), () -> null);
-            }
-            return snapshot(pullRequest());
-        });
-
-        assertThatThrownBy(() -> service.observeWorkspacePullRequest("workspace", 7)).isInstanceOf(HostingFailure.class);
-
-        verifyNoInteractions(store);
     }
 
     @Test
@@ -2039,7 +1843,7 @@ class TestPullRequestService
 
     @ParameterizedTest
     @ValueSource(strings = {"", "previous-scope"})
-    void cachedReadsClearOnlyRemoteProjectionsWhenTheirCredentialOwnerIsMissingOrDifferent(String owner)
+    void explicitReadsClearOnlyRemoteProjectionsWhenTheirCredentialOwnerIsMissingOrDifferent(String owner)
     {
         AtomicReference<Optional<StoredPrDetail>> cached = new AtomicReference<>(Optional.of(stored()));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -2050,7 +1854,7 @@ class TestPullRequestService
             return null;
         }).when(detailStore).clearRemote(12L);
 
-        assertThat(service.findPullRequestDetail("owner/repo", 7)).isEmpty();
+        assertThat(service.findPullRequestDetail(read(PullRequestRef.of("owner", "repo", 7)))).isEmpty();
 
         verify(detailStore).clearRemote(12L);
         verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
@@ -2062,7 +1866,7 @@ class TestPullRequestService
     void explicitDetailReadClearsAnotherAccountsRemoteProjection()
     {
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        HostingReadSession selected = new HostingReadSession(11, "connected-account", 2, new HostingAccess(instance, () -> "selected-token"), sessionGuard);
+        HostingReadSession selected = new HostingReadSession(11, "connected-account", new HostingAccess(instance, "selected-token"));
         PullRequestRead route = new PullRequestRead(selected, hostingRepository("owner/repo"), 7, "alice");
         AtomicReference<Optional<StoredPrDetail>> cached = new AtomicReference<>(Optional.of(stored()));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -2078,32 +1882,6 @@ class TestPullRequestService
         verify(diffStore).deleteByPrIds(ImmutableSet.of(12L));
         verify(detailStore, never()).deleteByPrIds(any());
         verifyNoInteractions(credentialService, connections, requests, writes, viewStateStore);
-    }
-
-    @Test
-    void metadataCompletionAfterCredentialChangeCannotWriteDesktopProjections()
-    {
-        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.of(Instant.now()), Optional.of(Instant.now()),
-                Optional.of(pullRequest().updatedAt())));
-        AtomicBoolean current = new AtomicBoolean(true);
-        HostingFailure changed = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "selection changed");
-        doAnswer(invocation -> {
-            if (!current.get()) {
-                throw changed;
-            }
-            return invocation.<Supplier<?>>getArgument(0).get();
-        }).when(sessionGuard).withCurrent(any());
-        when(requests.refresh(session, 20, 7, false)).thenAnswer(ignored -> {
-            current.set(false);
-            return snapshot(pullRequest());
-        });
-
-        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isSameAs(changed);
-
-        verify(store, never()).saveObserved(any());
-        verify(detailStore, never()).saveMetadata(anyLong(), any());
-        verify(detailStore, never()).clearRemote(anyLong());
-        verifyNoInteractions(actions, accounts, diffStore);
     }
 
     @ParameterizedTest
@@ -2136,8 +1914,7 @@ class TestPullRequestService
         assertThat(result.body()).isEqualTo("body");
         assertThat(result.approvalCount()).isEqualTo(1);
         assertThat(result.viewerCanWrite()).isTrue();
-        verify(credentialService).captureHostingRead();
-        verifyNoMoreInteractions(credentialService);
+        verifyNoInteractions(credentialService);
     }
 
     @Test
@@ -2180,12 +1957,12 @@ class TestPullRequestService
         when(detailStore.find(12L)).thenReturn(Optional.empty());
         service = spy(service);
         doReturn(new PullRequestService.DetailRefresh(true, refreshed))
-                .when(service).refreshPullRequestDetailFromGitHub(read(PullRequestRef.of("owner", "repo", 7)));
+                .when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
         PullRequestDetail result = service.getPullRequestDetail("owner/repo", 7);
 
         assertThat(result.body()).isEqualTo("body");
-        verify(service).refreshPullRequestDetailFromGitHub(read(PullRequestRef.of("owner", "repo", 7)));
+        verify(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
         verify(detailStore).find(12L);
     }
 
@@ -2194,7 +1971,7 @@ class TestPullRequestService
     {
         ResponseStatusException notFound = new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request does not exist");
         service = spy(service);
-        doThrow(notFound).when(service).refreshPullRequestDetailFromGitHub(read(PullRequestRef.of("owner", "repo", 7)));
+        doThrow(notFound).when(service).refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
         assertThatThrownBy(() -> service.getPullRequestDetail("owner/repo", 7))
                 .isSameAs(notFound);
@@ -2520,80 +2297,6 @@ class TestPullRequestService
     }
 
     @Test
-    void reactionRejectsTheOlderConditionalRefreshAndPreservesCachedDetail()
-    {
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        Optional<String> originalEtag = Optional.of("\"etag-1\"");
-        AtomicReference<Optional<String>> etag = new AtomicReference<>(originalEtag);
-        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.of(Instant.now()), Optional.of(Instant.EPOCH), Optional.of(pullRequest().updatedAt())));
-        doAnswer(invocation -> {
-            etag.set(invocation.getArgument(1));
-            return null;
-        }).when(detailStore).updateEtag(eq(12L), any());
-        when(requests.refresh(session, 20, ref.number(), false)).thenAnswer(invocation -> {
-            service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", true);
-            return snapshot(pullRequest());
-        });
-        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        assertThat(service.getPullRequestDetail("owner/repo", 7).body()).isEqualTo("body");
-        assertThat(etag.get()).isEmpty();
-        verify(detailStore, never()).deleteByPrIds(any());
-        verify(detailStore, never()).saveMetadata(anyLong(), any());
-        verify(detailStore, never()).saveStatus(anyLong(), any());
-
-        verify(requests).invalidate(GITHUB_SERVER, "owner/repo", 7);
-        when(requests.cached(session, 20, ref.number())).thenReturn(Optional.empty());
-        IllegalStateException stopAfterRequest = new IllegalStateException("stop after invalidated request");
-        doThrow(stopAfterRequest).when(requests).refresh(session, 20, ref.number(), false);
-        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7)).isSameAs(stopAfterRequest);
-    }
-
-    @Test
-    void titleWriteAfterMetadataFetchRejectsItsLaterProjection()
-    {
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.of(Instant.now()), Optional.of(Instant.now()),
-                Optional.of(pullRequest().updatedAt())));
-        when(requests.refresh(session, 20, ref.number(), false)).thenReturn(snapshot(pullRequest()));
-        when(accounts.fetchViewerCanWrite("pat", RepoRef.of("owner", "repo"))).thenAnswer(ignored -> {
-            service.updateTitle("owner/repo", 7, "New title");
-            return true;
-        });
-
-        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        verify(store).updateTitle(12L, "New title");
-        verify(detailStore).saveCached(eq(12L), argThat(detail -> detail.raw().title().equals("New title")));
-        verify(detailStore, never()).saveMetadata(anyLong(), any());
-        verify(detailStore, never()).saveDiscussion(anyLong(), any(), any());
-        verify(requests).invalidate(GITHUB_SERVER, "owner/repo", 7);
-    }
-
-    @Test
-    void commentPublicationCannotBeOverwrittenByAnOlderDiscussionRead()
-    {
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PrTimelineEvent comment = new PrTimelineEvent(500L, "commented", "me", Instant.now(), "New comment", Optional.empty());
-        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.now()), Optional.of(Instant.EPOCH), Optional.of(Instant.now()),
-                Optional.of(pullRequest().updatedAt())));
-        when(writes.createIssueComment("pat", ref, "New comment")).thenReturn(comment);
-        when(gitHub.fetchPrReviews("pat", ref)).thenAnswer(ignored -> {
-            service.commentOnPullRequest("owner/repo", 7, "New comment");
-            return ImmutableList.of();
-        });
-
-        assertThatThrownBy(() -> service.refreshPullRequestDetailFromGitHub("owner/repo", 7))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        verify(detailStore).saveCached(eq(12L), argThat(detail -> detail.timeline().contains(comment)));
-        verify(detailStore, never()).saveDiscussion(anyLong(), any(), any());
-        verify(requests).invalidate(GITHUB_SERVER, "owner/repo", 7);
-    }
-
-    @Test
     void updatesTheTitleOnGitHubAndInBothCachedProjections()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
@@ -2611,6 +2314,7 @@ class TestPullRequestService
         order.verify(store).updateTitle(12L, "Updated title");
         verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
         verify(detailStore).updateEtag(12L, Optional.empty());
+        verify(requests).invalidate(GITHUB_SERVER, "owner/repo", 7);
         verifyNoInteractions(diffStore);
     }
 
@@ -3644,7 +3348,7 @@ class TestPullRequestService
 
     private static HostingPullRequestSnapshot snapshot(FetchedPullRequest summary, PrRawDetail detail)
     {
-        return new HostingPullRequestSnapshot(new HostingPullRequest(112, 20, summary.number(), summary.githubId().toString()), 10, "desktop-scope", 1,
+        return new HostingPullRequestSnapshot(new HostingPullRequest(112, 20, summary.number(), summary.githubId().toString()), 10, "desktop-scope",
                 summary, detail, Optional.of("etag-1"), Instant.now());
     }
 
@@ -3693,45 +3397,18 @@ class TestPullRequestService
 
     private WorkspaceHostingRead workspaceRoute()
     {
-        WorkspaceHostingRead route = workspaceRoute("workspace-scope", "pat", "me", new WorkspaceRouteGuard());
+        WorkspaceHostingRead route = workspaceRoute("workspace-scope", "pat", "me");
         when(workspaceHosting.captureRead("workspace")).thenReturn(route);
         return route;
     }
 
-    private static WorkspaceHostingRead workspaceRoute(String scope, String token, String login, HostingReadSession.Guard guard)
+    private static WorkspaceHostingRead workspaceRoute(String scope, String token, String login)
     {
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        HostingReadSession session = new HostingReadSession(1, scope, 1, new HostingAccess(instance, () -> guard.withCurrent(() -> token)), guard);
+        HostingReadSession session = new HostingReadSession(1, scope, new HostingAccess(instance, token));
         URI url = URI.create("https://github.com/owner/repo");
         HostingRepository repository = new HostingRepository(1, instance.id(), "123", "owner/repo", url, url, Optional.empty(), Optional.of("main"));
         return new WorkspaceHostingRead(session, repository, login);
-    }
-
-    private static final class WorkspaceRouteGuard
-            implements HostingReadSession.Guard
-    {
-        private boolean current = true;
-        private boolean accepting;
-        private Object readMonitor;
-
-        @Override
-        public <T> T withCurrent(Supplier<T> action)
-        {
-            if (readMonitor != null) {
-                assertThat(Thread.holdsLock(readMonitor)).isFalse();
-            }
-            if (!current) {
-                throw new HostingFailure(REVISION_CONFLICT, "Workspace route changed");
-            }
-            boolean previous = accepting;
-            accepting = true;
-            try {
-                return action.get();
-            }
-            finally {
-                accepting = previous;
-            }
-        }
     }
 
     private PullRequestService newService(Clock clock)

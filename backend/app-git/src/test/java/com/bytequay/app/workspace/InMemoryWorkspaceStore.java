@@ -34,7 +34,6 @@ final class InMemoryWorkspaceStore
     private final Map<String, Workspace> byId = new LinkedHashMap<>();
     private final Set<String> unwatched = new HashSet<>();
     private final Map<String, WorkspaceHostingBinding> bindings = new LinkedHashMap<>();
-    private final Map<String, Long> hostingGenerations = new LinkedHashMap<>();
 
     @Override
     public synchronized List<Workspace> findAll()
@@ -105,7 +104,6 @@ final class InMemoryWorkspaceStore
                 || !previous.upstreamRepositoryId().equals(workspace.upstreamRepositoryId())
                 || previous.monitoredRepositoryId() != workspace.monitoredRepositoryId() || previous.topology() != workspace.topology())) {
             bindings.remove(workspace.id());
-            hostingGenerations.merge(workspace.id(), 1L, Math::addExact);
         }
         return workspace;
     }
@@ -117,18 +115,10 @@ final class InMemoryWorkspaceStore
     }
 
     @Override
-    public synchronized long hostingGeneration(String workspaceId)
-    {
-        checkArgument(byId.containsKey(workspaceId), "Workspace not found: %s", workspaceId);
-        return hostingGenerations.getOrDefault(workspaceId, 0L);
-    }
-
-    @Override
     public synchronized WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {
-        long generation = Math.addExact(hostingGeneration(workspaceId), 1L);
-        WorkspaceHostingBinding binding = new WorkspaceHostingBinding(workspaceId, accountId, selectedRepositoryId, upstreamRepositoryId, generation);
-        hostingGenerations.put(workspaceId, generation);
+        checkArgument(byId.containsKey(workspaceId), "Workspace not found: %s", workspaceId);
+        WorkspaceHostingBinding binding = new WorkspaceHostingBinding(workspaceId, accountId, selectedRepositoryId, upstreamRepositoryId);
         bindings.put(workspaceId, binding);
         return binding;
     }
@@ -139,6 +129,5 @@ final class InMemoryWorkspaceStore
         byId.remove(workspaceId);
         unwatched.remove(workspaceId);
         bindings.remove(workspaceId);
-        hostingGenerations.remove(workspaceId);
     }
 }

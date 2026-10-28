@@ -20,7 +20,6 @@ import com.bytequay.core.hosting.HostingRepository;
 
 import java.net.URI;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 
@@ -31,14 +30,7 @@ final class PullRequestReadFixture
     static PullRequestRead route(String repository, int number)
     {
         HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
-        HostingReadSession session = new HostingReadSession(2, "selected", 1, new HostingAccess(instance, () -> "pat"), new HostingReadSession.Guard()
-        {
-            @Override
-            public <T> T withCurrent(Supplier<T> action)
-            {
-                return action.get();
-            }
-        });
+        HostingReadSession session = new HostingReadSession(2, "selected", new HostingAccess(instance, "pat"));
         return new PullRequestRead(session, new HostingRepository(3, 1, "4", repository,
                 URI.create("https://github.com/" + repository), URI.create("https://github.com/" + repository + ".git"), Optional.empty(), Optional.of("main")), number, "alice");
     }

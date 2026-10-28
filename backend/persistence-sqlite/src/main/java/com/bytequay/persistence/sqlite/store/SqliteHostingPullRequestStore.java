@@ -68,7 +68,7 @@ public class SqliteHostingPullRequestStore
 
     @Override
     @Transactional
-    public HostingPullRequestSnapshot save(long accountId, long repositoryId, String credentialScope, long credentialGeneration, FetchedPullRequest pullRequest, PrRawDetail detail,
+    public HostingPullRequestSnapshot save(long accountId, long repositoryId, String credentialScope, FetchedPullRequest pullRequest, PrRawDetail detail,
             Optional<String> etag, Instant validatedAt)
     {
         requireNonNull(pullRequest, "pullRequest is null");
@@ -76,7 +76,6 @@ public class SqliteHostingPullRequestStore
         checkOptionalText(etag, "etag");
         requireNonNull(validatedAt, "validatedAt is null");
         checkText(credentialScope, "credentialScope");
-        checkArgument(credentialGeneration > 0, "credentialGeneration must be positive");
         checkArgument(pullRequest.githubId() > 0, "remote request ID must be positive");
         Target target = target(accountId, repositoryId, pullRequest.number());
         String remoteId = pullRequest.githubId().toString();
@@ -99,7 +98,7 @@ public class SqliteHostingPullRequestStore
         }
         HostingPullRequestSnapshotEntity snapshot = snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, pullRequest.number())
                 .orElseGet(() -> new HostingPullRequestSnapshotEntity(request, target.account()));
-        snapshot.update(new HostingPullRequestSnapshot(request.hostingIdentity(), accountId, credentialScope, credentialGeneration, pullRequest, detail, etag, validatedAt));
+        snapshot.update(new HostingPullRequestSnapshot(request.hostingIdentity(), accountId, credentialScope, pullRequest, detail, etag, validatedAt));
         request.setRepo(pullRequest.repo());
         request.setHtmlUrl(pullRequest.htmlUrl());
         return snapshots.save(snapshot).toDomain();

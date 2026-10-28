@@ -94,7 +94,7 @@ class TestGitHubIntegration
         integration = GitHubIntegration.create(http, new ObjectMapper().findAndRegisterModules());
         URI base = URI.create("http://127.0.0.1:" + server.getAddress().getPort());
         URI webBase = URI.create("https://github.example");
-        access = new HostingAccess(new HostingInstance(1, HostingProvider.GITHUB, webBase, base.resolve("/api/v3")), () -> "private-token");
+        access = new HostingAccess(new HostingInstance(1, HostingProvider.GITHUB, webBase, base.resolve("/api/v3")), "private-token");
         repository = new HostingRepository(2, 1, "42", "bytequay/bytequay", webBase.resolve("/bytequay/bytequay"),
                 webBase.resolve("/bytequay/bytequay.git"), Optional.empty(), Optional.of("main"));
     }
@@ -482,36 +482,6 @@ class TestGitHubIntegration
     }
 
     @Test
-    void boundsResponseBodies()
-    {
-        serve(METADATA_PATH, 200, " ".repeat(2 * 1024 * 1024 + 1), ImmutableMap.of());
-        assertThatThrownBy(() -> integration.pullRequests().fetch(access, repository, 7, Optional.empty()))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE))
-                .hasMessageContaining("permitted size");
-    }
-
-    @Test
-    @Timeout(5)
-    void boundsTheWholeExchangeWhenTheBodyStallsAfterHeaders()
-            throws InterruptedException
-    {
-        CountDownLatch headersSent = new CountDownLatch(1);
-        CountDownLatch releaseBody = new CountDownLatch(1);
-        serveStalledBody(headersSent, releaseBody);
-        GitHubHttpClient client = new GitHubHttpClient(http, new ObjectMapper(), Duration.ofMillis(250));
-
-        try {
-            assertThatThrownBy(() -> client.get(access, "user", GitHubAccountResponse.class))
-                    .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(UNAVAILABLE))
-                    .hasNoCause();
-            assertThat(headersSent.await(1, SECONDS)).isTrue();
-        }
-        finally {
-            releaseBody.countDown();
-        }
-    }
-
-    @Test
     @Timeout(5)
     void cancelsAnInterruptedExchangeAndPreservesTheInterruptFlag()
             throws InterruptedException
@@ -558,9 +528,9 @@ class TestGitHubIntegration
     @Test
     void refusesWrongInstancesAndUnsafeCredentialsBeforeSending()
     {
-        HostingAccess other = new HostingAccess(new HostingInstance(3, HostingProvider.GITHUB, access.server().webBaseUrl(), access.server().apiBaseUrl()), () -> "token");
+        HostingAccess other = new HostingAccess(new HostingInstance(3, HostingProvider.GITHUB, access.server().webBaseUrl(), access.server().apiBaseUrl()), "token");
         assertThatThrownBy(() -> integration.pullRequests().fetch(other, repository, 7, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
-        HostingAccess unsafe = new HostingAccess(access.server(), () -> "secret\r\nheader");
+        HostingAccess unsafe = new HostingAccess(access.server(), "secret\r\nheader");
         assertThatThrownBy(() -> integration.accounts().verify(unsafe))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED))
                 .hasMessageNotContaining("secret");

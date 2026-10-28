@@ -18,9 +18,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Optional;
-import java.util.UUID;
 
-import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -55,18 +53,6 @@ public class SqliteWorkspaceCredentialStore
 
     @Override
     @Transactional
-    public String revision(String workspaceId)
-    {
-        checkText(workspaceId, "workspaceId");
-        WorkspaceCredentialEntity entity = jpaRepository.findById(workspaceId).orElseGet(() -> new WorkspaceCredentialEntity(workspaceId, "", ""));
-        if (entity.getReadRevision() == null) {
-            entity.setReadRevision(UUID.randomUUID().toString());
-        }
-        return jpaRepository.save(entity).getReadRevision();
-    }
-
-    @Override
-    @Transactional
     public void save(String workspaceId, String token, String login)
     {
         requireNonNull(workspaceId, "workspaceId is null");
@@ -84,10 +70,6 @@ public class SqliteWorkspaceCredentialStore
     @Transactional
     public void delete(String workspaceId)
     {
-        checkText(workspaceId, "workspaceId");
-        // Empty values erase the secret while retaining a revision under the existing non-null schema.
-        WorkspaceCredentialEntity entity = jpaRepository.findById(workspaceId).orElseGet(() -> new WorkspaceCredentialEntity(workspaceId, "", ""));
-        entity.update("", "");
-        jpaRepository.save(entity);
+        jpaRepository.deleteById(workspaceId);
     }
 }

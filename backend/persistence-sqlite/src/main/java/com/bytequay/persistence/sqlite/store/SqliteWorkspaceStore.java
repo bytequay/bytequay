@@ -118,13 +118,6 @@ public class SqliteWorkspaceStore
     }
 
     @Override
-    public long hostingGeneration(String workspaceId)
-    {
-        return repository.findById(checkText(workspaceId, "workspaceId")).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId))
-                .hostingGeneration();
-    }
-
-    @Override
     @Transactional
     public WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
     {

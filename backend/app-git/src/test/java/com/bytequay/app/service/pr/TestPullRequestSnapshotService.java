@@ -15,7 +15,6 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
-import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
@@ -29,7 +28,6 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
@@ -54,11 +52,8 @@ import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.Supplier;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -66,8 +61,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -84,9 +77,8 @@ class TestPullRequestSnapshotService
     private static final Instant UPDATED = Instant.parse("2026-09-20T00:00:00Z");
     private final GitHubPullRequestReadClient gitHub = mock(GitHubPullRequestReadClient.class);
     private final HostingPullRequestService requests = mock(HostingPullRequestService.class);
-    private final HostingReadSession.Guard guard = mock(HostingReadSession.Guard.class);
-    private final HostingReadSession session = new HostingReadSession(300, "desktop-scope", 1,
-            new HostingAccess(new HostingInstance(100, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl()), () -> "pat"), guard);
+    private final HostingReadSession session = new HostingReadSession(300, "desktop-scope",
+            new HostingAccess(new HostingInstance(100, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl()), "pat"));
     private final PullRequestRead route = new PullRequestRead(session,
             new HostingRepository(200, 100, "99", "owner/repo", URI.create("https://github.com/owner/repo"),
                     URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main")), 7, "alice");
@@ -98,7 +90,6 @@ class TestPullRequestSnapshotService
     @BeforeEach
     void setUp()
     {
-        when(guard.withCurrent(any())).thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(0).get());
         when(details.findCredentialScope(1L)).thenReturn(Optional.of(route.scope()));
     }
 
@@ -107,8 +98,8 @@ class TestPullRequestSnapshotService
     void nativeReadersRejectAnotherHostingServerBeforeReadingCredentials(String source)
     {
         HostingInstance instance = new HostingInstance(100, GITLAB, URI.create("https://code.example"), URI.create("https://code.example/api/v4"));
-        HostingReadSession selected = new HostingReadSession(300, "connected-account", 1,
-                new HostingAccess(instance, () -> { throw new AssertionError("Credentials must not reach the native reader"); }), guard);
+        HostingReadSession selected = new HostingReadSession(300, "connected-account",
+                new HostingAccess(instance, "gitlab-token"));
         PullRequestRead other = new PullRequestRead(selected,
                 new HostingRepository(200, 100, "99", "owner/repo", URI.create("https://code.example/owner/repo"),
                         URI.create("https://code.example/owner/repo.git"), Optional.empty(), Optional.of("main")), 7, "alice");
@@ -147,7 +138,7 @@ class TestPullRequestSnapshotService
         when(details.find(1L)).thenReturn(Optional.of(retained));
         Instant sourceAt = UPDATED.plusSeconds(10);
 
-        assertThat(snapshots.saveDiscussion(1L, fetched, sourceAt, route, snapshots.captureRead(REF))).isSameAs(retained);
+        assertThat(snapshots.saveDiscussion(1L, fetched, sourceAt, route)).isSameAs(retained);
 
         verify(details).saveDiscussion(1L, fetched, sourceAt);
         verify(details).setCredentialScope(1L, route.scope());
@@ -345,45 +336,6 @@ class TestPullRequestSnapshotService
         order.verify(diffs).save(eq(1L), eq(BASE), eq(HEAD), any());
     }
 
-    @Test
-    void anotherAccountSelectingTheSameProjectionRejectsTheInflightDiff()
-    {
-        HostingReadSession otherSession = new HostingReadSession(301, session.credentialScope(), session.generation(), session.access(), guard);
-        PullRequestRead other = new PullRequestRead(otherSession, route.repository(), route.number(), "bob");
-        when(details.find(1L)).thenReturn(Optional.of(stored()));
-        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(ignored -> {
-            snapshots.captureRead(other);
-            return diff().files();
-        });
-
-        assertThatThrownBy(() -> snapshots.refreshDiff(route, 1L, BASE, HEAD))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        verify(diffs, never()).save(anyLong(), any(), any(), any());
-    }
-
-    @Test
-    void credentialRotationDuringRangedDiffFetchRejectsTheOldBytes()
-    {
-        AtomicBoolean current = new AtomicBoolean(true);
-        doAnswer(invocation -> {
-            if (!current.get()) {
-                throw new HostingFailure(REVISION_CONFLICT, "Credential changed");
-            }
-            return invocation.<Supplier<?>>getArgument(0).get();
-        }).when(guard).withCurrent(any());
-        when(details.find(1L)).thenReturn(Optional.of(stored()));
-        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(invocation -> {
-            current.set(false);
-            return diff().files();
-        });
-
-        assertThatThrownBy(() -> snapshots.refreshDiff(route, 1L, BASE, HEAD))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        verify(diffs, never()).save(anyLong(), any(), any(), any());
-    }
-
     @ParameterizedTest
     @CsvSource({"checks,401", "checks,403", "checks,404", "files,401", "files,403", "files,404", "commits,401", "commits,403", "commits,404",
             "range,401", "range,403", "range,404", "content,401", "content,403", "content,404"})
@@ -441,82 +393,6 @@ class TestPullRequestSnapshotService
         verify(diffs, never()).deleteByPrIds(any());
     }
 
-    @Test
-    void oldNativeRejectionCannotClearReplacementProjection()
-    {
-        AtomicBoolean current = new AtomicBoolean(true);
-        doAnswer(invocation -> {
-            if (!current.get()) {
-                throw new HostingFailure(REVISION_CONFLICT, "Credential changed");
-            }
-            return invocation.<Supplier<?>>getArgument(0).get();
-        }).when(guard).withCurrent(any());
-        when(details.find(1L)).thenReturn(Optional.of(stored()));
-        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(invocation -> {
-            current.set(false);
-            throw new ResponseStatusException(HttpStatusCode.valueOf(403), "Access rejected");
-        });
-
-        assertThatThrownBy(() -> snapshots.refreshDiff(route, 1L, BASE, HEAD))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-
-        verify(details, never()).clearRemote(anyLong());
-        verify(diffs, never()).deleteByPrIds(any());
-    }
-
-    @Test
-    void writeDuringCheckFetchCannotRestoreOldChecks()
-    {
-        when(details.find(1L)).thenReturn(Optional.of(stored()));
-        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq(HEAD), any(), any(), any())).thenAnswer(ignored -> {
-            snapshots.write(REF, () -> {});
-            return new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty());
-        });
-
-        assertThatThrownBy(() -> snapshots.refreshChecks(route, 1L))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(details, never()).saveStatus(anyLong(), any());
-    }
-
-    @Test
-    void writeDuringDiffFetchCannotRestoreOldBytes()
-    {
-        when(details.find(1L)).thenReturn(Optional.of(stored()));
-        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(ignored -> {
-            snapshots.write(REF, () -> {});
-            return diff().files();
-        });
-
-        assertThatThrownBy(() -> snapshots.refreshDiff(route, 1L, BASE, HEAD))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(diffs, never()).save(anyLong(), any(), any(), any());
-    }
-
-    @Test
-    void writeDuringFileFetchCannotRestoreOldContent()
-    {
-        when(diffs.find(1L, null, null)).thenReturn(Optional.of(diff()));
-        when(gitHub.fetchPrDiffFileContent("pat", REF, "new.txt", BASE, HEAD)).thenAnswer(ignored -> {
-            snapshots.write(REF, () -> {});
-            return new DiffFileContent("old", "old");
-        });
-
-        assertThatThrownBy(() -> snapshots.refreshFileContent(route, 1L, "new.txt", null, null))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(diffs, never()).saveDefaultFileContent(anyLong(), any(), any(), any(), any());
-    }
-
-    @Test
-    void evictionFailureCannotMaskWriteResultOrKeepReadsCurrent()
-    {
-        PullRequestReadGuard.Read old = snapshots.captureRead(REF);
-        doThrow(new IllegalStateException("database busy")).when(requests).invalidate(GITHUB_SERVER, "owner/repo", 7);
-
-        assertThat(snapshots.write(REF, () -> "accepted")).isEqualTo("accepted");
-        assertThatThrownBy(() -> old.accept(() -> "stale")).isInstanceOf(HostingFailure.class);
-        assertThat(snapshots.captureRead(REF).accept(() -> "current")).isEqualTo("current");
-    }
-
     private static HostingPullRequestSnapshot coordinates(String head)
     {
         return coordinates(BASE, head);
@@ -527,7 +403,7 @@ class TestPullRequestSnapshotService
         PrRawDetail detail = raw(base, head);
         FetchedPullRequest summary = new FetchedPullRequest(77L, REF.repoFullName(), REF.number(), detail.title(), detail.author(), detail.htmlUrl(), UPDATED, UPDATED,
                 PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", "feature");
-        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number(), "77"), 300, "desktop-scope", 1, summary, detail, Optional.empty(), UPDATED);
+        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number(), "77"), 300, "desktop-scope", summary, detail, Optional.empty(), UPDATED);
     }
 
     private static StoredPrDetail stored()

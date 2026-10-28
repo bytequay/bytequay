@@ -48,14 +48,7 @@ public class SqliteHostingCredentialStore
         checkArgument(accountId > 0, "accountId must be positive");
         return jpaRepository.findById(accountId)
                 .filter(entity -> entity.getCiphertext() != null)
-                .map(entity -> new HostingCredential(accountId, entity.getGeneration(), cipher.decrypt(entity.getCiphertext())));
-    }
-
-    @Override
-    public long generation(long accountId)
-    {
-        checkArgument(accountId > 0, "accountId must be positive");
-        return jpaRepository.findById(accountId).map(HostingCredentialEntity::getGeneration).orElse(0L);
+                .map(entity -> new HostingCredential(accountId, cipher.decrypt(entity.getCiphertext())));
     }
 
     @Override
@@ -64,8 +57,11 @@ public class SqliteHostingCredentialStore
     {
         checkArgument(accountId > 0, "accountId must be positive");
         String secret = checkText(requireNonNull(token, "token is null").trim(), "token");
-        HostingCredentialEntity entity = change(accountId, cipher.encrypt(secret));
-        return new HostingCredential(accountId, entity.getGeneration(), secret);
+        HostingAccountEntity account = accounts.findById(accountId).orElseThrow(() -> new IllegalStateException("Hosting account does not exist"));
+        HostingCredentialEntity entity = jpaRepository.findById(accountId).orElseGet(() -> new HostingCredentialEntity(account));
+        entity.update(cipher.encrypt(secret));
+        jpaRepository.save(entity);
+        return new HostingCredential(accountId, secret);
     }
 
     @Override
@@ -73,14 +69,6 @@ public class SqliteHostingCredentialStore
     public void delete(long accountId)
     {
         checkArgument(accountId > 0, "accountId must be positive");
-        change(accountId, null);
-    }
-
-    private HostingCredentialEntity change(long accountId, String ciphertext)
-    {
-        HostingAccountEntity account = accounts.findById(accountId).orElseThrow(() -> new IllegalStateException("Hosting account does not exist"));
-        HostingCredentialEntity entity = jpaRepository.findById(accountId).orElseGet(() -> new HostingCredentialEntity(account));
-        entity.update(ciphertext);
-        return jpaRepository.save(entity);
+        jpaRepository.deleteById(accountId);
     }
 }

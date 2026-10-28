@@ -63,7 +63,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.function.Supplier;
 import java.util.stream.StreamSupport;
 
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
@@ -372,14 +371,7 @@ class TestAgentTaskHttpApi
     {
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        HostingReadSession session = new HostingReadSession(1, "test-workspace:" + workspaceId, 1, new HostingAccess(instance, () -> "pat"), new HostingReadSession.Guard()
-        {
-            @Override
-            public <T> T withCurrent(Supplier<T> action)
-            {
-                return action.get();
-            }
-        });
+        HostingReadSession session = new HostingReadSession(1, "test-workspace:" + workspaceId, new HostingAccess(instance, "pat"));
         String path = workspace.monitoredRepository().fullName();
         HostingRepository repository = new HostingRepository(workspace.monitoredRepositoryId(), instance.id(), Long.toString(workspace.monitoredRepositoryId()), path,
                 URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(),

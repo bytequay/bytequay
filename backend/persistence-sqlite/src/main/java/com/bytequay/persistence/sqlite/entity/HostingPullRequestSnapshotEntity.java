@@ -15,7 +15,6 @@ package com.bytequay.persistence.sqlite.entity;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -33,7 +32,6 @@ import org.hibernate.type.SqlTypes;
 import java.time.Instant;
 import java.util.Optional;
 
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static java.util.Objects.requireNonNull;
 
@@ -54,9 +52,6 @@ public class HostingPullRequestSnapshotEntity
     private HostingAccountEntity account;
 
     private String credentialScope;
-
-    @Column(nullable = false)
-    private long credentialGeneration;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(nullable = false, columnDefinition = "TEXT")
@@ -81,11 +76,7 @@ public class HostingPullRequestSnapshotEntity
 
     public void update(HostingPullRequestSnapshot snapshot)
     {
-        if (snapshot.credentialScope().equals(credentialScope()) && snapshot.credentialGeneration() < credentialGeneration) {
-            throw new HostingFailure(REVISION_CONFLICT, "A newer credential has already refreshed this request");
-        }
         credentialScope = snapshot.credentialScope();
-        credentialGeneration = snapshot.credentialGeneration();
         pullRequest = snapshot.pullRequest();
         detail = snapshot.detail();
         etag = snapshot.etag().orElse(null);
@@ -94,7 +85,7 @@ public class HostingPullRequestSnapshotEntity
 
     public HostingPullRequestSnapshot toDomain()
     {
-        return new HostingPullRequestSnapshot(request.hostingIdentity(), account.getId(), credentialScope(), credentialGeneration,
+        return new HostingPullRequestSnapshot(request.hostingIdentity(), account.getId(), credentialScope(),
                 pullRequest, detail, Optional.ofNullable(etag), validatedAt);
     }
 

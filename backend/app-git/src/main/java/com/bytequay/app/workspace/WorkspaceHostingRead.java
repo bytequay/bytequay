@@ -19,14 +19,13 @@ import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 
 import java.net.URI;
-import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** One captured workspace route; its session guards both credentials and workspace rebinding. */
+/** The selected hosting account and repository for a workspace read. */
 public record WorkspaceHostingRead(HostingReadSession session, HostingRepository repository, String login)
 {
     public WorkspaceHostingRead
@@ -37,17 +36,12 @@ public record WorkspaceHostingRead(HostingReadSession session, HostingRepository
         checkArgument(repository.instanceId() == session.access().instanceId().orElseThrow(), "Repository belongs to another hosting instance");
     }
 
-    public <T> T withCurrent(Supplier<T> action)
-    {
-        return session.withCurrent(action);
-    }
-
     public RepoRef githubRepository()
     {
         requireGitHub();
         String[] coordinates = repository.fullPath().split("/", -1);
         checkArgument(coordinates.length == 2, "GitHub repository must have owner/repository coordinates");
-        return withCurrent(() -> RepoRef.of(coordinates[0], coordinates[1]));
+        return RepoRef.of(coordinates[0], coordinates[1]);
     }
 
     public String githubToken()

@@ -61,7 +61,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import static com.bytequay.app.git.GitTestSupport.commitFile;
 import static com.bytequay.app.git.GitTestSupport.initRepository;
@@ -132,7 +131,7 @@ class TestBackportDrafts
         FetchedPullRequest sourceSummary = new FetchedPullRequest(4L, ROOT.repoFullName(), ROOT.number(), source.title(), "author", ROOT_URL,
                 Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "merged", Instant.EPOCH, Instant.EPOCH,
                 ImmutableList.of(), true, "clean", "feature");
-        HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(4, 4, 4, "4"), 1, "source", 1,
+        HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(4, 4, 4, "4"), 1, "source",
                 sourceSummary, source, Optional.empty(), Instant.EPOCH);
         when(hosting.readPullRequest(sourceRead, ROOT.number())).thenReturn(snapshot);
         FetchedPullRequest example = new FetchedPullRequest(123L, "test/p2", 123, EXAMPLE, "author", "https://github.com/test/p2/pull/123",
@@ -256,30 +255,6 @@ class TestBackportDrafts
     }
 
     @Test
-    void sourceAccessFailureCannotBecomeACommitOnlyDraft()
-    {
-        HostingFailure failure = new HostingFailure(HostingFailure.Kind.FORBIDDEN, "Source access was removed");
-        when(hosting.readPullRequest(sourceRead, ROOT.number())).thenThrow(failure);
-
-        assertThatThrownBy(() -> drafts.create(chain, 1, repository, preview)).isSameAs(failure);
-        verifyNoInteractions(helper, pullRequests);
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void rebindingCannotReturnAModelDraftOrFallback(boolean sourceChanged)
-    {
-        WorkspaceHostingRead changed = sourceChanged ? sourceRead : targetRead;
-        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Workspace account changed");
-        when(helper.answer(any(AgentLaneId.class), any(), any(), anyString(), anyString(), anyString())).thenAnswer(ignored -> {
-            doThrow(failure).when(changed.session().guard()).withCurrent(any());
-            return "invalid model response";
-        });
-
-        assertThatThrownBy(() -> drafts.create(chain, 1, repository, preview)).isSameAs(failure);
-    }
-
-    @Test
     void anotherRepositoryCannotUseTheCapturedWorkspaceToken()
     {
         when(hosting.captureRead("p2")).thenReturn(sourceRead);
@@ -305,10 +280,8 @@ class TestBackportDrafts
 
     private static WorkspaceHostingRead selected(int number, String token, String path)
     {
-        HostingReadSession.Guard guard = mock(HostingReadSession.Guard.class);
-        when(guard.withCurrent(any())).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        HostingReadSession session = new HostingReadSession(1, "source-" + number, 1, new HostingAccess(instance, () -> guard.withCurrent(() -> token)), guard);
+        HostingReadSession session = new HostingReadSession(1, "source-" + number, new HostingAccess(instance, token));
         HostingRepository repository = new HostingRepository(number, 1, Integer.toString(number), path, URI.create("https://github.com/" + path),
                 URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main"));
         return new WorkspaceHostingRead(session, repository, "test");

@@ -20,7 +20,6 @@ import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.persistence.sqlite.credential.SqliteHostingCredentialStore;
 import jakarta.persistence.EntityManager;
-import jakarta.persistence.OptimisticLockException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 
@@ -29,7 +28,6 @@ import java.net.URI;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestSqliteHostingCredentialStore
         extends AbstractTestTransactionalSqliteStore
@@ -53,7 +51,6 @@ class TestSqliteHostingCredentialStore
         entityManager.flush();
         entityManager.clear();
 
-        assertThat(firstCredential.generation()).isEqualTo(1);
         assertThat(firstCredential.accountId()).isEqualTo(first.id());
         assertThat(credentials.find(first.id()).orElseThrow().secret()).isEqualTo("alice-token");
         assertThat(credentials.find(second.id()).orElseThrow().secret()).isEqualTo("bob-token");
@@ -61,78 +58,32 @@ class TestSqliteHostingCredentialStore
     }
 
     @Test
-    void advancesDurableGenerationOnReplacementDeletionAndReconnect()
+    void replacesAndDeletesSecretsWithoutRemovingAccountIdentity()
     {
         HostingAccount account = account("1", "alice");
-        assertThat(credentials.generation(account.id())).isZero();
-        HostingCredential original = credentials.save(account.id(), "first-token");
-        HostingCredential replaced = credentials.save(account.id(), "second-token");
-        assertThat(replaced.generation()).isEqualTo(original.generation() + 1);
-        assertThat(credentials.generation(account.id())).isEqualTo(replaced.generation());
+        credentials.save(account.id(), "first-token");
+        credentials.save(account.id(), "second-token");
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(credentials.find(account.id()).orElseThrow().secret()).isEqualTo("second-token");
+
         credentials.delete(account.id());
         entityManager.flush();
         entityManager.clear();
-
         assertThat(credentials.find(account.id())).isEmpty();
-        assertThat(credentials.generation(account.id())).isEqualTo(3);
-        assertThat(ciphertext(account.id())).isNull();
         assertThat(identities.findAccount(account.id())).contains(account);
-        HostingCredential reconnected = credentials.save(account.id(), "third-token");
-        assertThat(reconnected.generation()).isEqualTo(4);
-        assertThat(credentials.generation(account.id())).isEqualTo(reconnected.generation());
-        assertThat(reconnected.secret()).isEqualTo("third-token");
-    }
-
-    @Test
-    void deletingBeforeFirstSaveStillCreatesADurableGenerationBoundary()
-    {
-        HostingAccount account = account("1", "alice");
-        credentials.delete(account.id());
-        credentials.delete(account.id());
-
-        assertThat(credentials.find(account.id())).isEmpty();
-        assertThat(credentials.generation(account.id())).isEqualTo(2);
-        assertThat(credentials.save(account.id(), "connected-token").generation()).isEqualTo(3);
-    }
-
-    @Test
-    void rejectsUnownedCredentialsAndGenerationOverflow()
-    {
-        assertThat(credentials.generation(999)).isZero();
-        assertThatIllegalArgumentException().isThrownBy(() -> credentials.generation(0));
-        assertThatIllegalArgumentException().isThrownBy(() -> credentials.generation(-1));
-        assertThatIllegalStateException().isThrownBy(() -> credentials.save(999, "unowned-token"));
-        assertThatIllegalStateException().isThrownBy(() -> credentials.delete(999));
         assertThat(entityManager.createQuery("SELECT COUNT(credential) FROM HostingCredentialEntity credential", Long.class).getSingleResult()).isZero();
-
-        HostingAccount account = account("1", "alice");
-        credentials.save(account.id(), "original-token");
-        entityManager.flush();
-        entityManager.createQuery("UPDATE HostingCredentialEntity SET generation = :generation WHERE accountId = :accountId")
-                .setParameter("generation", Long.MAX_VALUE)
-                .setParameter("accountId", account.id())
-                .executeUpdate();
-        entityManager.clear();
-        assertThatIllegalStateException().isThrownBy(() -> credentials.save(account.id(), "replacement-token"));
-        assertThat(credentials.find(account.id()).orElseThrow().generation()).isEqualTo(Long.MAX_VALUE);
-        assertThat(credentials.find(account.id()).orElseThrow().secret()).isEqualTo("original-token");
+        assertThat(credentials.save(account.id(), "third-token").secret()).isEqualTo("third-token");
     }
 
     @Test
-    void rejectsAStaleCredentialEntityAfterAnotherUpdate()
+    void rejectsUnownedAndInvalidCredentials()
     {
-        HostingAccount account = account("1", "alice");
-        credentials.save(account.id(), "original-token");
-        entityManager.flush();
-        Object stale = entityManager.createQuery("FROM HostingCredentialEntity WHERE accountId = :accountId", Object.class)
-                .setParameter("accountId", account.id())
-                .getSingleResult();
-        entityManager.detach(stale);
-
-        credentials.save(account.id(), "replacement-token");
-        entityManager.flush();
-
-        assertThatThrownBy(() -> entityManager.merge(stale)).isInstanceOf(OptimisticLockException.class);
+        assertThatIllegalArgumentException().isThrownBy(() -> credentials.find(0));
+        assertThatIllegalArgumentException().isThrownBy(() -> credentials.save(0, "token"));
+        assertThatIllegalArgumentException().isThrownBy(() -> credentials.delete(-1));
+        assertThatIllegalStateException().isThrownBy(() -> credentials.save(999, "unowned-token"));
+        assertThat(entityManager.createQuery("SELECT COUNT(credential) FROM HostingCredentialEntity credential", Long.class).getSingleResult()).isZero();
     }
 
     private String ciphertext(long accountId)

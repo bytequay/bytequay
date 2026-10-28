@@ -37,7 +37,6 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
-import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 class TestSqliteWorkspaceHostingBinding
         extends AbstractTestTransactionalSqliteStore
@@ -65,13 +64,12 @@ class TestSqliteWorkspaceHostingBinding
         HostingAccount account = account(instance, "1");
         HostingRepository selected = repository(instance, "100", "renamed/project");
         assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        assertThat(store.hostingGeneration(workspace.id())).isZero();
 
         WorkspaceHostingBinding binding = store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty());
         entities.flush();
         entities.clear();
 
-        assertThat(binding).isEqualTo(new WorkspaceHostingBinding(workspace.id(), account.id(), selected.id(), Optional.empty(), 1));
+        assertThat(binding).isEqualTo(new WorkspaceHostingBinding(workspace.id(), account.id(), selected.id(), Optional.empty()));
         assertThat(binding.monitoredRepositoryId()).isEqualTo(selected.id());
         assertThat(store.findHostingBinding(workspace.id())).contains(binding);
         assertThat(store.findById(workspace.id())).contains(workspace);
@@ -105,26 +103,7 @@ class TestSqliteWorkspaceHostingBinding
     }
 
     @Test
-    void advancesGenerationOnRepeatedBindingAndAccountAba()
-    {
-        Workspace workspace = store.createOrGet(workspace());
-        HostingInstance instance = identities.upsertInstance(GITHUB);
-        HostingAccount first = account(instance, "1");
-        HostingAccount second = account(instance, "2");
-        HostingRepository selected = repository(instance, "100", "owner/project");
-
-        assertThat(store.bindHosting(workspace.id(), first.id(), selected.id(), Optional.empty()).generation()).isEqualTo(1);
-        assertThat(store.bindHosting(workspace.id(), first.id(), selected.id(), Optional.empty()).generation()).isEqualTo(2);
-        assertThat(store.bindHosting(workspace.id(), second.id(), selected.id(), Optional.empty()).generation()).isEqualTo(3);
-        assertThat(store.bindHosting(workspace.id(), first.id(), selected.id(), Optional.empty()).generation()).isEqualTo(4);
-        entities.flush();
-        entities.clear();
-        assertThat(store.hostingGeneration(workspace.id())).isEqualTo(4);
-        assertThat(store.findHostingBinding(workspace.id()).orElseThrow().accountId()).isEqualTo(first.id());
-    }
-
-    @Test
-    void invalidatesBindingWhenUpstreamChangesAndKeepsGenerationTombstone()
+    void invalidatesBindingWhenUpstreamChanges()
     {
         Workspace workspace = store.createOrGet(workspace());
         HostingInstance instance = identities.upsertInstance(GITHUB);
@@ -137,28 +116,11 @@ class TestSqliteWorkspaceHostingBinding
         entities.flush();
         entities.clear();
         assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        assertThat(store.hostingGeneration(workspace.id())).isEqualTo(2);
         WorkspaceHostingBinding linked = store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.of(upstream.id()));
         assertThat(linked.monitoredRepositoryId()).isEqualTo(upstream.id());
-        assertThat(linked.generation()).isEqualTo(3);
 
         store.save(workspace);
         assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        assertThat(store.hostingGeneration(workspace.id())).isEqualTo(4);
-        assertThat(store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty()).generation()).isEqualTo(5);
-    }
-
-    @Test
-    void detectsRoutingAbaBeforeTheFirstBinding()
-    {
-        Workspace workspace = store.createOrGet(workspace());
-        assertThat(store.hostingGeneration(workspace.id())).isZero();
-        store.save(withUpstream(workspace));
-        store.save(workspace);
-        entities.flush();
-        entities.clear();
-        assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        assertThat(store.hostingGeneration(workspace.id())).isEqualTo(2);
     }
 
     @Test
@@ -178,7 +140,6 @@ class TestSqliteWorkspaceHostingBinding
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.of(wrong.id())));
         assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        assertThat(store.hostingGeneration(workspace.id())).isEqualTo(2);
     }
 
     @Test
@@ -192,7 +153,6 @@ class TestSqliteWorkspaceHostingBinding
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty()))
                 .withMessage("Hosting repository belongs to another instance");
         assertThat(store.findHostingBinding(workspace.id())).isEmpty();
-        assertThat(store.hostingGeneration(workspace.id())).isZero();
     }
 
     @ParameterizedTest
@@ -206,7 +166,6 @@ class TestSqliteWorkspaceHostingBinding
 
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty()))
                 .withMessage("Existing workspaces require GitHub.com identities");
-        assertThat(store.hostingGeneration(workspace.id())).isZero();
     }
 
     @Test
@@ -229,7 +188,6 @@ class TestSqliteWorkspaceHostingBinding
         assertThat(store.findHostingBinding(workspace.id())).isEmpty();
         assertThat(identities.findAccount(account.id())).contains(account);
         assertThat(identities.findRepository(selected.id())).contains(selected);
-        assertThat(credentials.generation(account.id())).isEqualTo(2);
     }
 
     @Test
@@ -241,30 +199,11 @@ class TestSqliteWorkspaceHostingBinding
         HostingRepository selected = repository(instance, "100", "owner/project");
 
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting("missing", account.id(), selected.id(), Optional.empty()));
-        assertThatIllegalArgumentException().isThrownBy(() -> store.hostingGeneration("missing"));
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), 999, selected.id(), Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), 999, Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), 0, selected.id(), Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), 0, Optional.empty()));
         assertThatIllegalArgumentException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.of(0L)));
-        assertThat(store.hostingGeneration(workspace.id())).isZero();
-    }
-
-    @Test
-    void refusesGenerationOverflowWithoutReplacingTheBinding()
-    {
-        Workspace workspace = store.createOrGet(workspace());
-        HostingInstance instance = identities.upsertInstance(GITHUB);
-        HostingAccount account = account(instance, "1");
-        HostingRepository selected = repository(instance, "100", "owner/project");
-        store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty());
-        entities.createQuery("UPDATE WorkspaceEntity SET hostingBindingGeneration = :generation WHERE id = :id")
-                .setParameter("generation", Long.MAX_VALUE).setParameter("id", workspace.id()).executeUpdate();
-        entities.clear();
-
-        assertThatIllegalStateException().isThrownBy(() -> store.bindHosting(workspace.id(), account.id(), selected.id(), Optional.empty()));
-        assertThat(store.findHostingBinding(workspace.id()).orElseThrow().accountId()).isEqualTo(account.id());
-        assertThat(store.hostingGeneration(workspace.id())).isEqualTo(Long.MAX_VALUE);
     }
 
     private static Stream<HostingServer> unsupportedServers()

@@ -23,7 +23,6 @@ import com.fasterxml.jackson.databind.cfg.CoercionAction;
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.type.LogicalType;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -33,9 +32,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeoutException;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.FORBIDDEN;
@@ -46,22 +42,13 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 final class GitLabHttpClient
 {
-    private static final int MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
-
     private final HttpClient http;
     private final ObjectReader reader;
-    private final Duration timeout;
 
     GitLabHttpClient(HttpClient http, ObjectMapper mapper)
-    {
-        this(http, mapper, Duration.ofSeconds(30));
-    }
-
-    GitLabHttpClient(HttpClient http, ObjectMapper mapper, Duration timeout)
     {
         this.http = requireNonNull(http, "http is null");
         ObjectMapper decoder = requireNonNull(mapper, "mapper is null").copy()
@@ -85,8 +72,6 @@ final class GitLabHttpClient
         decoder.coercionConfigFor(LogicalType.POJO).setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail);
         decoder.coercionConfigFor(LogicalType.Collection).setCoercion(CoercionInputShape.EmptyString, CoercionAction.Fail);
         this.reader = decoder.reader();
-        this.timeout = requireNonNull(timeout, "timeout is null");
-        checkArgument(timeout.toMillis() > 0, "timeout must be positive");
         checkArgument(http.followRedirects() == HttpClient.Redirect.NEVER, "hosting clients must not forward credentials through redirects");
     }
 
@@ -97,10 +82,10 @@ final class GitLabHttpClient
         requireNonNull(responseType, "responseType is null");
         checkArgument(access.server().provider() == HostingProvider.GITLAB, "wrong hosting provider");
         URI endpoint = URI.create(access.server().apiBaseUrl() + "/" + path);
-        String token = safeToken(access);
+        String token = access.token();
         try {
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint)
-                    .timeout(timeout)
+                    .timeout(Duration.ofSeconds(30))
                     .header("PRIVATE-TOKEN", token)
                     .header("Accept", "application/json");
             validator.ifPresent(value -> request.header("If-None-Match", value));
@@ -137,50 +122,16 @@ final class GitLabHttpClient
 
     private HttpResponse<byte[]> readResponse(HttpRequest request)
     {
-        CompletableFuture<HttpResponse<byte[]>> response = http.sendAsync(request, info -> boundedBody());
         try {
-            // The JDK request timeout can finish at headers; this deadline also bounds a stalled body.
-            return response.get(timeout.toMillis(), MILLISECONDS);
-        }
-        catch (TimeoutException e) {
-            response.cancel(true);
-            throw new HostingFailure(UNAVAILABLE, "GitLab request timed out");
+            return http.send(request, HttpResponse.BodyHandlers.ofByteArray());
         }
         catch (InterruptedException e) {
-            response.cancel(true);
             Thread.currentThread().interrupt();
             throw new HostingFailure(UNAVAILABLE, "GitLab request was interrupted");
         }
-        catch (ExecutionException e) {
-            // The HTTP client wraps a bounded-body rejection; retain its safe failure category.
-            for (Throwable cause = e; cause != null; cause = cause.getCause()) {
-                if (cause instanceof HostingFailure failure) {
-                    throw failure;
-                }
-            }
+        catch (IOException e) {
             throw new HostingFailure(UNAVAILABLE, "Could not read GitLab; check connectivity and certificate trust");
         }
-    }
-
-    private static String safeToken(HostingAccess access)
-    {
-        try {
-            return access.token();
-        }
-        catch (IllegalArgumentException | NullPointerException e) {
-            throw new HostingFailure(AUTHENTICATION_REQUIRED, "GitLab requires a valid access token");
-        }
-    }
-
-    private static HttpResponse.BodySubscriber<byte[]> boundedBody()
-    {
-        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
-        return HttpResponse.BodySubscribers.mapping(HttpResponse.BodySubscribers.ofByteArrayConsumer(chunk -> chunk.ifPresent(value -> {
-            if (value.length > MAX_RESPONSE_BYTES - bytes.size()) {
-                throw new HostingFailure(INVALID_RESPONSE, "GitLab response exceeded the permitted size");
-            }
-            bytes.writeBytes(value);
-        })), ignored -> bytes.toByteArray());
     }
 
     private static Optional<Duration> retryAfter(HttpResponse<?> response)

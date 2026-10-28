@@ -16,40 +16,18 @@ package com.bytequay.core.hosting;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
-/** Account-bound credential; the generation changes whenever authorization is replaced or removed. */
-public final class HostingCredential
+/** An account-bound hosting credential. */
+public record HostingCredential(long accountId, String secret)
 {
-    private final long accountId;
-    private final long generation;
-    private final String secret;
-
-    public HostingCredential(long accountId, long generation, String secret)
+    public HostingCredential
     {
         checkArgument(accountId > 0, "accountId must be positive");
-        checkArgument(generation > 0, "generation must be positive");
-        this.accountId = accountId;
-        this.generation = generation;
-        this.secret = checkText(secret, "secret");
-    }
-
-    public long accountId()
-    {
-        return accountId;
-    }
-
-    public long generation()
-    {
-        return generation;
-    }
-
-    public String secret()
-    {
-        return secret;
+        checkText(secret, "secret");
     }
 
     @Override
     public String toString()
     {
-        return "HostingCredential[accountId=" + accountId + ", generation=" + generation + ", secret=<redacted>]";
+        return "HostingCredential[accountId=" + accountId + ", secret=<redacted>]";
     }
 }

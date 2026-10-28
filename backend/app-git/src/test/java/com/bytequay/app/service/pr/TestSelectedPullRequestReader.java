@@ -20,7 +20,6 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.PrDetailStore;
@@ -41,14 +40,12 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -68,41 +65,23 @@ class TestSelectedPullRequestReader
     private static final String NEW_HEAD = "b".repeat(40);
 
     private final PullRequestRead route = PullRequestReadFixture.route(REPO, NUMBER);
-    private final PullRequestReadGuard versions = new PullRequestReadGuard();
-    private final PullRequestReadGuard.Read version = versions.capture(PullRequestRef.of("owner", "repo", NUMBER));
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final SelectedPullRequestReader reader = new SelectedPullRequestReader(pullRequests, details, refresh, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
-    void credentialScope()
+    void selectedRoute()
     {
-        lenient().when(pullRequests.captureRead(any(PullRequestRead.class))).thenReturn(version);
         lenient().when(pullRequests.prepareRead(any(), anyInt())).thenAnswer(call -> {
             String repository = call.getArgument(0);
             int number = call.getArgument(1);
             return REPO.equals(repository) && number == NUMBER ? route : PullRequestReadFixture.route(repository, number);
         });
-        lenient().when(pullRequests.withCurrentRead(eq(version), any(PullRequestRead.class), any())).thenAnswer(call -> version.accept(call.<Supplier<?>>getArgument(2)));
-    }
-
-    @Test
-    void writeDuringCachedReadCannotReturnTheOldSnapshot()
-    {
-        cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
-        when(pullRequests.findStored(REPO, NUMBER)).thenAnswer(ignored -> {
-            versions.write(PullRequestRef.of("owner", "repo", NUMBER), () -> true);
-            return Optional.of(row(UPDATED, "open", null));
-        });
-
-        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.REVISION_CONFLICT));
-        verifyNoInteractions(refresh);
     }
 
     @ParameterizedTest
-    @EnumSource(value = HostingFailure.Kind.class, names = {"AUTHENTICATION_REQUIRED", "FORBIDDEN", "MISSING_OR_INACCESSIBLE", "REVISION_CONFLICT"})
+    @EnumSource(value = HostingFailure.Kind.class, names = {"AUTHENTICATION_REQUIRED", "FORBIDDEN", "MISSING_OR_INACCESSIBLE"})
     void rejectedAccessCannotReturnCachedData(HostingFailure.Kind kind)
     {
         cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
@@ -111,17 +90,6 @@ class TestSelectedPullRequestReader
         when(refresh.refreshDetail(route)).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
-    }
-
-    @Test
-    void credentialChangeCannotReturnCachedData()
-    {
-        cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
-        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Credential changed");
-        when(pullRequests.withCurrentRead(eq(version), any(PullRequestRead.class), any())).thenThrow(failure);
-
-        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
-        verifyNoInteractions(refresh);
     }
 
     @ParameterizedTest
@@ -143,6 +111,7 @@ class TestSelectedPullRequestReader
         assertThat(read.stale()).isFalse();
         assertThat(read.incomplete()).isFalse();
         verifyNoInteractions(refresh);
+        verify(pullRequests).prepareRead(route);
         verify(pullRequests).findStored(REPO, NUMBER);
     }
 

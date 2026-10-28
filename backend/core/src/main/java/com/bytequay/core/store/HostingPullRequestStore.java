@@ -22,10 +22,10 @@ import java.util.Optional;
 
 public interface HostingPullRequestStore
 {
-    /** The caller must verify the credential scope and generation before reusing metadata or its validator. */
+    /** The caller must verify the credential scope before reusing metadata or its validator. */
     Optional<HostingPullRequestSnapshot> find(long accountId, long repositoryId, int number);
 
-    HostingPullRequestSnapshot save(long accountId, long repositoryId, String credentialScope, long credentialGeneration, FetchedPullRequest pullRequest, PrRawDetail detail,
+    HostingPullRequestSnapshot save(long accountId, long repositoryId, String credentialScope, FetchedPullRequest pullRequest, PrRawDetail detail,
             Optional<String> etag, Instant validatedAt);
 
     /** Removes only a matching account and credential scope's snapshot, retaining request identity and local work. */

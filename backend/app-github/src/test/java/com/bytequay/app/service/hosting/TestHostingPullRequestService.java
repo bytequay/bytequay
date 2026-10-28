@@ -37,26 +37,20 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
 import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -78,26 +72,25 @@ class TestHostingPullRequestService
     private final HostingCredentialStore credentials = mock(HostingCredentialStore.class);
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final PullRequestReader reader = mock(PullRequestReader.class);
-    private final Map<Long, Long> generations = new ConcurrentHashMap<>();
-    private final Map<Long, HostingPullRequestSnapshot> cache = new ConcurrentHashMap<>();
+    private final Map<Long, HostingCredential> tokens = new HashMap<>();
+    private final Map<Long, HostingPullRequestSnapshot> cache = new HashMap<>();
     private HostingPullRequestService service;
     private HostingConnectionService connections;
 
     @BeforeEach
     void setUp()
     {
-        generations.put(20L, 1L);
-        generations.put(21L, 1L);
-        when(credentials.find(anyLong())).thenAnswer(call -> Optional.ofNullable(generations.get(call.<Long>getArgument(0)))
-                .map(generation -> new HostingCredential(call.getArgument(0), generation, "secret")));
+        tokens.put(20L, new HostingCredential(20, "first"));
+        tokens.put(21L, new HostingCredential(21, "second"));
+        when(credentials.find(anyLong())).thenAnswer(call -> Optional.ofNullable(tokens.get(call.<Long>getArgument(0))));
         when(identities.findAccount(anyLong())).thenAnswer(call -> Optional.of(new HostingAccount(call.getArgument(0), 10, "42", "alice")));
         when(identities.findRepository(30)).thenReturn(Optional.of(new HostingRepository(30, 10, "100", "team/project", URI.create("https://hosting.test/team/project"),
                 URI.create("https://hosting.test/team/project.git"), Optional.empty(), Optional.of("main"))));
         when(snapshots.find(anyLong(), eq(30L), eq(7))).thenAnswer(call -> Optional.ofNullable(cache.get(call.<Long>getArgument(0))));
-        when(snapshots.save(anyLong(), eq(30L), anyString(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
-            FetchedPullRequest summary = call.getArgument(4);
+        when(snapshots.save(anyLong(), eq(30L), anyString(), any(), any(), any(), any())).thenAnswer(call -> {
+            FetchedPullRequest summary = call.getArgument(3);
             HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, summary.githubId().toString()),
-                    call.getArgument(0), call.getArgument(2), call.getArgument(3), summary, call.getArgument(5), call.getArgument(6), call.getArgument(7));
+                    call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
             cache.put(snapshot.accountId(), snapshot);
             return snapshot;
         });
@@ -152,32 +145,19 @@ class TestHostingPullRequestService
     }
 
     @Test
-    void credentialReplacementHidesOldSnapshotAndDropsItsValidator()
-    {
-        service.refresh(20, 30, 7);
-        generations.put(20L, 2L);
-        assertThat(service.cached(20, 30, 7)).isEmpty();
-        reset(reader);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Replacement", Optional.empty()));
-        assertThat(service.refresh(20, 30, 7).credentialGeneration()).isEqualTo(2);
-        assertThat(cache.get(20L).etag()).isEmpty();
-    }
-
-    @Test
     void scopesFromTheSameAccountNeverShareMetadataOrValidators()
     {
         service.refresh(20, 30, 7);
         HostingReadSession connected = connections.readSession(20);
-        HostingReadSession desktop = new HostingReadSession(20, "github-global:revision", 1, connected.access(), connected.guard());
+        HostingReadSession desktop = new HostingReadSession(20, "github-global", connected.access());
         assertThat(service.cached(desktop, 30, 7)).isEmpty();
         reset(reader);
         when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Desktop", Optional.of("desktop")));
 
         HostingPullRequestSnapshot result = service.refresh(desktop, 30, 7, false);
 
-        assertThat(result.credentialScope()).isEqualTo("github-global:revision");
+        assertThat(result.credentialScope()).isEqualTo("github-global");
         assertThat(service.cached(20, 30, 7)).isEmpty();
-        service.evict(connected, 30, 7);
         assertThat(service.cached(desktop, 30, 7)).contains(result);
     }
 
@@ -197,7 +177,7 @@ class TestHostingPullRequestService
     void disconnectPreventsCachedReadsWithoutRemoteIo()
     {
         service.refresh(20, 30, 7);
-        generations.remove(20L);
+        tokens.remove(20L);
         reset(reader);
         assertThatThrownBy(() -> service.cached(20, 30, 7))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
@@ -226,20 +206,6 @@ class TestHostingPullRequestService
     }
 
     @Test
-    void lateCredentialReplacementCannotOverwriteAcceptedSnapshot()
-    {
-        HostingPullRequestSnapshot previous = service.refresh(20, 30, 7);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(call -> {
-            generations.put(20L, 2L);
-            return fetched("Late", Optional.of("late"));
-        });
-        assertThatThrownBy(() -> service.refresh(20, 30, 7))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        assertThat(cache.get(20L)).isEqualTo(previous);
-        assertThat(service.cached(20, 30, 7)).isEmpty();
-    }
-
-    @Test
     void incompleteResponseCannotReplaceACompleteSnapshot()
     {
         HostingPullRequestSnapshot previous = service.refresh(20, 30, 7);
@@ -247,117 +213,6 @@ class TestHostingPullRequestService
         assertThatThrownBy(() -> service.refresh(20, 30, 7))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         assertThat(cache.get(20L)).isEqualTo(previous);
-    }
-
-    @Test
-    void evictionRetainsOtherAccountsAndAllowsAnUnconditionalRefresh()
-    {
-        service.refresh(20, 30, 7);
-        service.refresh(21, 30, 7);
-        service.evict(20, 30, 7);
-        assertThat(service.cached(20, 30, 7)).isEmpty();
-        assertThat(service.cached(21, 30, 7)).isPresent();
-        reset(reader);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Reloaded", Optional.empty()));
-        assertThat(service.refresh(20, 30, 7).request().id()).isEqualTo(40);
-    }
-
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void overlappingRefreshesDoNotWaitAndCannotOverwriteOrEvictNewerMetadata(boolean failFirst)
-            throws Exception
-    {
-        CountDownLatch firstStarted = new CountDownLatch(1);
-        CountDownLatch releaseFirst = new CountDownLatch(1);
-        AtomicInteger calls = new AtomicInteger();
-        when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(call -> {
-            int index = calls.incrementAndGet();
-            if (index == 1) {
-                firstStarted.countDown();
-                assertThat(releaseFirst.await(5, SECONDS)).isTrue();
-                if (failFirst) {
-                    throw new HostingFailure(AUTHENTICATION_REQUIRED, "Old request denied");
-                }
-            }
-            assertThat(call.<Optional<String>>getArgument(3)).isEmpty();
-            return fetched("Refresh " + index, Optional.of("v" + index));
-        });
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var first = executor.submit(() -> service.refresh(20, 30, 7));
-            try {
-                assertThat(firstStarted.await(5, SECONDS)).isTrue();
-                var second = executor.submit(() -> service.refresh(20, 30, 7));
-                assertThat(second.get(1, SECONDS).pullRequest().title()).isEqualTo("Refresh 2");
-                assertThat(first.isDone()).isFalse();
-                releaseFirst.countDown();
-                assertThatThrownBy(() -> first.get(5, SECONDS)).hasCauseInstanceOf(HostingFailure.class)
-                        .satisfies(failure -> assertThat(((HostingFailure) failure.getCause()).kind()).isEqualTo(failFirst ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
-                assertThat(service.cached(20, 30, 7).orElseThrow().etag()).contains("v2");
-            }
-            finally {
-                releaseFirst.countDown();
-            }
-        }
-    }
-
-    @Test
-    void accountsCanRefreshIndependently()
-            throws Exception
-    {
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        AtomicInteger calls = new AtomicInteger();
-        when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(ignored -> {
-            int index = calls.incrementAndGet();
-            if (index == 1) {
-                started.countDown();
-                assertThat(release.await(5, SECONDS)).isTrue();
-            }
-            return fetched("Account " + index, Optional.of("v" + index));
-        });
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var first = executor.submit(() -> service.refresh(20, 30, 7));
-            try {
-                assertThat(started.await(5, SECONDS)).isTrue();
-                var second = executor.submit(() -> service.refresh(21, 30, 7));
-                assertThat(second.get(1, SECONDS).pullRequest().title()).isEqualTo("Account 2");
-                release.countDown();
-                assertThat(first.get(5, SECONDS).pullRequest().title()).isEqualTo("Account 1");
-                assertThat(service.cached(20, 30, 7).orElseThrow().etag()).contains("v1");
-                assertThat(service.cached(21, 30, 7).orElseThrow().etag()).contains("v2");
-            }
-            finally {
-                release.countDown();
-            }
-        }
-    }
-
-    @Test
-    void writeInvalidationDoesNotWaitForHttpAndRejectsItsLateResult()
-            throws Exception
-    {
-        CountDownLatch started = new CountDownLatch(1);
-        CountDownLatch release = new CountDownLatch(1);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(ignored -> {
-            started.countDown();
-            assertThat(release.await(5, SECONDS)).isTrue();
-            return fetched("Before write", Optional.of("old"));
-        });
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var refresh = executor.submit(() -> service.refresh(20, 30, 7));
-            try {
-                assertThat(started.await(5, SECONDS)).isTrue();
-                executor.submit(() -> service.invalidateRepository(30, 7)).get(1, SECONDS);
-                assertThat(refresh.isDone()).isFalse();
-                release.countDown();
-                assertThatThrownBy(() -> refresh.get(5, SECONDS)).hasCauseInstanceOf(HostingFailure.class)
-                        .satisfies(failure -> assertThat(((HostingFailure) failure.getCause()).kind()).isEqualTo(REVISION_CONFLICT));
-                assertThat(cache).isEmpty();
-            }
-            finally {
-                release.countDown();
-            }
-        }
     }
 
     private HostingPullRequestService service(HostingProvider provider)

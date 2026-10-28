@@ -147,363 +147,76 @@ access still requires its existing consent. Lab's separately locked Python
 project remains under `scripts/review-calibration`; its database and task-file
 readers are verified with the matching application release.
 
-The hosting connection service selects the configured adapter through contracts
-in `core.hosting`. It verifies accounts before retaining server coordinates,
-keeps encrypted credentials separate from object identity, and rejects results
-whose credential generation changed during a read. Hosting adapters own HTTP
-transport and provider mapping; only `app` composes their concrete factories.
-Existing GitHub.com workspaces can explicitly bind to a connected hosting account.
-The binding retains local account and repository identities beside the existing
-workspace fields; remote numeric IDs are verified before binding, so repository
-renames preserve identity. Workspace metadata reads use this binding and reject
-results after credential, binding or repository-routing changes. Workspace reads
-capture that route once: an explicit hosting binding is authoritative; otherwise
-they use the workspace token override, then the global GitHub credential. Removing
-an override retains only a selection revision so switching away and back cannot
-revive an older read. Native GitHub operations reject other hosting servers before
-sending credentials. Repository discovery, publication follow-up reads and backport
-source/context reads carry the captured workspace selection through acceptance.
-Scheduled PR refresh visits each watched workspace separately, even when repository
-IDs match, and works without a global credential when its workspace account is set.
+## Git hosting boundary
 
-Hosting request reads for either provider retain identity in `pull_requests`,
-keyed by the local hosting repository and request number. Metadata snapshots and
-their validators are scoped to the observing account, credential source and generation
-in `pr_metadata_snapshots`. Conditional refresh returns complete normalized
-metadata; explicit cached reads report its validation time. Local acceptance is
-serialized per request, while remote refreshes run independently. A newer refresh
-for the same account supersedes an older one. Credential replacement or repository
-path changes prevent reuse of old validators. Access failures discard only the
-affected account's snapshot if that read is still current; eviction keeps request
-identity and local work.
+GitHub and GitLab share the contracts in `core.hosting`. The adapters in
+`plugins/github` and `plugins/gitlab` own HTTP requests, typed response records,
+provider-specific URLs and normalization. Application services select an adapter
+from the configured server; `app` composes the concrete implementations. The
+adapters depend on `core`, not application services or persistence.
 
-Desktop PR entry points capture a hosting read session and retained repository
-identity once, then pass that route through metadata, detail, diff, refresh and
-readback. The credential service adapts the existing global PAT or CLI selection
-into this shared session without replacing manually connected account tokens;
-provider selection and identity verification belong to the hosting connection
-service. There is no separate desktop metadata/cache adapter. Each explicit
-credential save or observed CLI rotation gets a durable revision. Legacy detail
-and diff projections are scoped to account, credential revision and retained
-repository identity. Selecting another scope invalidates reads still in flight,
-even when both account sessions remain valid. Cache-only entry points never
-verify an account remotely; they report missing data until a verified session and
-repository are available. Remote results are accepted only while their captured
-selection remains current. Shared invalidation after a write uses local retained
-identities and rejects responses still in flight; it never waits for remote I/O.
-Local read/write coordination rejects responses captured before an overlapping
-write, including ambiguous write failures, before they can replace detail, diff
-or discovery projections. Its revisions live in memory because no in-flight
-response survives a backend restart. Only local acceptance holds these locks;
-remote operations run outside them.
+The implemented contracts cover account verification, repository resolution and
+PR/MR metadata reads. GitLab.com and company GitLab servers use the same adapter
+with configured web/API base URLs, including path prefixes and ports. Credentials
+are encrypted separately from retained object identities. Redirects cannot
+forward tokens, and native GitHub operations reject other hosting servers before
+sending credentials.
 
-Legacy rows remain unbound because their repository paths alone cannot prove
-historical remote identity. The desktop projects shared metadata onto its existing
-PR IDs, preserving drafts and local events. These rows remain isolated from hosted
-rows in lookup, mutation and workspace purge. Lists, discussions, checks and diff
-bytes still use native GitHub readers, with detail/diff projections guarded by the
-desktop credential revision. Backport source metadata uses the shared reader and
-cache; its remaining native reads use the captured workspace account. PR detail
-endpoints without a workspace ID still use the explicit global desktop selection.
-Migrating these remaining provider operations, frontend workspace-scoped reads,
-local identity associations and GitLab desktop/workspace creation remains separate
-integration work.
+### Accounts, identity and storage
 
-## Git hosting boundary (target)
+A hosting instance is identified by provider and server coordinates. Accounts
+belong to an instance and retain the remote user ID. Repositories belong to an
+instance and retain the remote repository/project ID; namespace paths and URLs
+can change without creating a new identity. GitLab namespace paths may contain
+multiple groups.
 
-This section defines the target of the GitHub/GitLab refactoring. The module
-inventory above and existing feature descriptions describe the current GitHub
-implementation; this design does not imply GitLab support has shipped. GitLab.com
-and company-operated GitLab instances use the same adapter with different
-connections and supported capabilities.
+PRs and MRs use the existing `pull_requests` table, keyed by local hosting
+repository ID and request number, with the remote request ID retained separately.
+`pr_metadata_snapshots` stores normalized summary/detail data and ETags for each
+observing account. Credential source distinguishes connected-account, global and
+workspace credentials. Cache eviction keeps request identity and local work.
+Hibernate owns the schema; no migration framework or database reset is required.
 
-ByteQuay owns repository and change-request identity, normalized snapshots,
-local reviews, work items, task execution, authorization, and durable publication
-receipts. Hosting adapters own remote protocols and the interpretation of remote
-data. Application features consume ByteQuay contracts and do not choose behavior
-by inspecting native provider fields. The existing `PullRequest` domain name and
-`pull_requests` table can represent both GitHub PRs and GitLab MRs; their name
-does not establish a GitHub dependency.
+Legacy desktop rows remain separate because matching repository paths cannot
+establish historical remote identity. Shared metadata is projected onto existing
+desktop PR IDs so drafts, reviews and local timeline events keep their references.
+Legacy lookups and mutations exclude hosted rows. Account changes clear remote
+legacy detail/diff projections while retaining local timeline events.
 
-### Module ownership
+### Routing and refresh
 
-The target dependency direction is:
+Workspace reads use their explicit hosting binding when present, otherwise the
+workspace token override, then the global GitHub credential. A read session holds
+the selected account, credential source and access details. It is a passive value;
+it does not lock reads or reject results if selection changes during a request.
+Desktop entry points use the same session and shared metadata cache, without a
+separate desktop hosting adapter. Cached local reads do not require remote account
+verification.
 
-```text
-integration-github -> core
-integration-gitlab -> core
-app-base -> core, agent-core, agent-cli
-app-hosting -> app-base
-app-git -> app-hosting
-app-review -> app-git
-app-delivery -> app-git
-app-work -> app-review, app-delivery, integration-google, integration-jira
-app -> app-work, persistence-sqlite, integration-github, integration-gitlab
-```
+Metadata refresh reads the scoped cache, calls the selected adapter with its ETag,
+and saves the normalized response. An unchanged response updates validation time.
+Authentication and access failures discard the affected account's remote snapshot.
+There are no credential generations, refresh generations, or additional read/write
+coordination around this flow. Existing refresh coalescing and Git revision checks
+remain where they predate this integration.
 
-The existing core, agent, persistence, Google, and Jira dependency rules remain.
-The hosting adapters live in `backend/plugins/github` and
-`backend/plugins/gitlab`. Each builds against the framework-free public
-hosting contracts and identity values in `com.bytequay.core.hosting`, reusing the
-existing shared domain records after removing their GitHub assumptions. Native
-clients, DTOs, mapping, and protocol helpers stay in each adapter's `impl` package.
-`app` explicitly composes the adapters. Neither application features nor persistence
-gain a transitive dependency on an adapter. No runtime plugin loader, separate
-service, or provider-specific UI implementation is required.
+Scheduled refresh visits each watched workspace so explicit account bindings work
+without a global credential, including workspaces for the same repository using
+different accounts. Publication follow-up and backport reads use the selected
+workspace account. Remote writes still require direct user action.
 
-The neutral remainder of `app-github` becomes `app-hosting`. Model settings,
-Claude accounts, agent skills, and text helpers move to `app-base`; they do not
-belong to a Git hosting provider. Hosting setup and repository/account routing
-remain in `app-hosting`. Recent activity and its recorder stay in `app-hosting`,
-below their Git consumers, and accept ByteQuay-owned recent-item and viewer values.
-Conversion from Jira types moves to the Jira orchestration in `app-work`, removing
-the lower recorder's current Jira dependency. Mixed setup is split so model setup
-and app startup do not require a GitHub credential. Jira orchestration stays with
-its application consumers rather than becoming a dependency of a GitHub adapter.
+### Remaining integration
 
-Adapters may use their own HTTP libraries, REST/GraphQL mix, endpoint layout,
-pagination, rate-limit parsing, and response types. They cannot import application
-orchestration, JPA entities, controllers, agent execution, or frontend transport.
-Common code must not become a base adapter class that imposes one provider's
-protocol on the other. Share transport utilities only where their behavior is
-actually identical. The bundled modules ship with one ByteQuay version, while
-their implementations and fixtures can evolve separately behind the contract.
+Shared metadata storage and backend connection endpoints support both providers.
+The desktop still uses GitHub readers for lists, discussions, checks and diffs,
+and GitHub implementations for remote writes. GitLab workspace creation, desktop
+navigation/account selection, and these remaining provider contracts are not yet
+implemented. Extend contracts as those consumers are migrated; keep provider
+protocol details inside each adapter and reuse the shared UI and storage.
 
-### Public remote responsibilities
-
-Contracts are divided by their consumers, not by the providers' HTTP endpoint
-names. Each feature receives the narrow port it needs; a registry selects the
-adapter once from the configured hosting instance.
-
-| Proposed public port | Remote responsibility | Application responsibility |
-| --- | --- | --- |
-| `HostingAccounts` | Verify remote account and discover server capabilities. | Connection selection, credential ownership and setup state. |
-| `HostingRepositories` | Resolve recognized remote references; discover and inspect repositories, forks, branches, content, clone and checkout coordinates. | Trusted routing, workspace selection, Git execution, managed paths, worktree locks and retention. |
-| `PullRequestReader` | Return summaries, metadata, discussions, diffs, commit associations, and merge assessments. | Refresh scheduling, local queries, snapshot retention, task associations and attention policy. |
-| `PullRequestWriter` | Create, edit, close, and merge an explicitly identified request. | Accepted target, expected revision, authorization, receipts and reconciliation policy. |
-| `ReviewPublisher` | Prepare and execute the accepted comments, replies, resolutions, and review decision. | Local drafts, finding ownership, publication reservations and recovery. |
-| `HostingIssues` | Read and publish hosting issues through shared issue values. | Local work-item identity, planning, source links, publication receipts and deduplication. |
-| `HostingCi` | Read runs, jobs, annotations and bounded logs; request supported retries. | Agent access, repair policy, attempt budgets, revision checks and write receipts. |
-| `HostingActivity` | Supply supported profile, activity, notification and repository signals. | Home, Circles, agenda and recent-item presentation. |
-
-Optional features report their availability. GitHub-only features remain usable
-through supported operations without requiring a GitLab imitation. A provider
-change that fits an existing contract affects its adapter and fixtures. A new
-user-visible semantic needs an explicit shared-contract change and coverage for
-both providers; opaque extension fields are not a second business API.
-
-### Identity and storage
-
-ByteQuay gives each hosting instance, account, repository and request its own
-local identity. The hierarchy and uniqueness rules are:
-
-| Identity | Stable scope |
-| --- | --- |
-| Hosting instance | Provider plus configured canonical server base, including port and path prefix. Web, API and Git endpoints are explicit connection coordinates. |
-| Account | Hosting instance plus verified remote user ID. Credentials refer to this account and can be replaced without replacing remote objects. |
-| Repository | Hosting instance plus opaque remote repository/project ID. Full namespace path and browser/clone URLs are mutable attributes. |
-| Pull request or merge request | Local target-repository ID plus provider request number. Retain its remote object ID separately. |
-| Discussion, comment, check or other remote resource | Parent identity, resource kind and opaque remote ID. A thread is independent of its first comment. |
-
-Repository paths support nested groups and preserve provider-reported spelling.
-Adapters handle provider-specific comparison rules and endpoint encoding. A
-rename updates coordinates, not identity. A forked request retains distinct
-source and target repository identities and branches; a missing source branch
-does not erase the request. A different server with the same project path or
-remote numeric ID is a different repository. Never repoint an existing instance
-identity to an unrelated server.
-
-The existing request, detail, timeline, review, check, diff and local view-state
-tables remain one shared family. Persistence stores normalized domain values;
-there is no parallel set of GitLab PR tables or JPA inheritance hierarchy.
-Repository metadata and workspace associations also use local repository IDs
-instead of assuming remote numeric IDs are globally unique. The same identity
-must reach task records, agent bridges, pins, attention keys, draft keys, local
-locks, memory references, issue links and frontend caches.
-
-Retained identities outlive disposable remote snapshots. A cache refresh or
-eviction must not delete local drafts, findings, task relationships or publication
-receipts. Review drafts stay attached to their stable request even when no cached
-detail remains. Local work items keep their own identity when published remotely.
-No schema migration framework is introduced: Hibernate continues to own the
-schema under the current unreleased-data policy, and implementation must not
-silently reset the user's working database.
-
-Object identity is not account identity. Common repository/request facts may be
-shared, but permissions, viewer reactions, requested-review relationships,
-private/internal content and cache validation state are scoped to the account
-that observed them. Switching accounts cannot reuse another account's authority
-or expose its restricted snapshots through the new account's views. Each fetch
-captures a credential generation; replacement invalidates results still in flight.
-A token for a different verified remote user creates or selects that user's
-account instead of mutating the old account's identity. Removing a connection
-removes locally stored credentials and cancels its active access while preserving
-explicitly retained local work. Reconnect does not authorize pending writes or
-silently select a different account for them.
-
-The application owns encrypted credential storage and binds a narrowly scoped
-credential accessor when constructing adapter access for an account. Secret
-material stays out of normalized records, errors, checkpoints, receipts, logs,
-agent context and renderer IPC. Adapters cannot select another stored account
-when authentication fails.
-
-### Shared records and provider differences
-
-The common request record describes lifecycle, draft state, author, title,
-description, labels, assignees, reviewers, source/target repositories and branches,
-revision, timestamps and browser links. Missing values remain unknown rather
-than becoming fabricated zeroes, empty collections or successful states.
-
-Merge readiness is a provider assessment with readiness, reasons and observation
-revision. Available merge choices carry their actual meaning and permitted
-options. A GitHub merge method and a
-[GitLab project merge policy](https://docs.gitlab.com/user/project/merge_requests/methods/)
-are not treated as the same enum. An accepted merge can be queued or pending; only confirmed
-remote completion marks a request merged or completes its task.
-
-Review assignments, current approval decisions and historical review events are
-different facts. The adapter supplies their normalized meanings without inventing
-a GitHub review submission when GitLab supplies an approval snapshot. Timeline
-aggregation and native-event deduplication happen inside the adapter. Unknown
-events retain displayable text and links without driving approval or completion
-logic. Native resource references remain available for later replies and edits.
-
-Inline comments reference a retained diff revision, old/new paths and line ranges,
-and the relevant base, head and comparison-start commits. The adapter translates
-that anchor into its API format. Refreshes do not silently move a comment to the
-latest diff. Missing or truncated diff coverage blocks publication of affected
-anchors until they can be validated.
-
-CI exposes run, job and attempt identities, their tested revision, normalized
-status, and the provider's authoritative readiness assessment. A display name is
-not a job identity, and a larger remote ID does not establish cross-provider
-ordering. Allowed failures and manual jobs cannot be reduced to a universal
-"any failed job blocks merge" rule. An unsupported log or retry operation stays
-explicitly unavailable.
-
-Capabilities distinguish unsupported behavior, lack of permission, temporary
-unavailability, blocked state and unknown state. They are evaluated for the
-server, account, repository and request, not only the provider name. The UI uses
-them to explain available actions; the backend revalidates before every write.
-A capability snapshot is neither authorization nor a promise that a later write
-will succeed.
-
-### Refresh and failure ownership
-
-Remote reads return normalized data together with section coverage, the observed
-revision, freshness and any continuation or validation token. Complete, unchanged,
-partial, unavailable, unsupported and not-yet-fetched sections are distinguishable.
-An empty successful section is valid data. Pagination, time windows and diff
-limits define coverage explicitly; absence from a page does not prove deletion,
-closure or resolution.
-
-The application captures the account, resource and refresh generation, then asks
-the adapter for bounded sections. Remote calls happen outside database
-transactions. Before applying results, it checks the generation and revision,
-updates the covered snapshots transactionally, and emits the existing application
-events. A slower read cannot undo a newer refresh or confirmed write. Sections
-from different revisions are not presented as one coherent diff/review snapshot.
-Unavailable sections retain the last useful data with their stale/incomplete
-status. An unchanged response validates only the cached scope and revision to
-which its token belongs.
-
-Provider-specific cursors and HTTP validators may be retained as bounded opaque
-adapter state, scoped to account, resource, query and section. Only the adapter
-interprets them. Incompatible read checkpoints can be discarded and fetched again;
-write receipts cannot. Native HTTP errors become typed failures such as
-authentication required, forbidden, missing-or-inaccessible, rate limited,
-revision conflict and transient failure. A 404 is not automatically proof of
-deletion, and a permissions failure is not automatically an unsupported feature.
-
-ByteQuay owns refresh concurrency, cancellation, deadlines and retry budgets.
-Adapters report rate-limit scope and retry timing; bounded read retries do not
-create an independent scheduler. A failed company connection cannot stop other
-accounts refreshing. Credential replacement invalidates affected requests,
-permissions and validators without invalidating unrelated hosts.
-
-### Writes and recovery
-
-The existing review, work-item and delivery publication services retain ownership
-of their receipts. They bind accepted intent to the account, stable target,
-draft revision, exact content and expected Git revision before dispatch. Git
-pushes additionally retain their existing leases. A capability or content change
-cannot silently expand the accepted action.
-
-An operation requiring the current head to match must enforce that precondition
-on the server; a preflight read followed by a write has a concurrent-push race.
-Revision-bound comments target the accepted immutable diff instead of being
-retargeted to the latest head. If a provider cannot enforce an operation's
-required guarantee, that operation is unavailable rather than silently weakened.
-
-For a compound review, the adapter prepares a bounded sequential set of effects
-without writing remotely. Effects refer to the accepted local items and declared
-operations; they are not arbitrary executable commands. ByteQuay retains the
-accepted plan and reserves each effect durably before asking the adapter to
-execute it. The adapter returns its remote evidence, and ByteQuay saves the
-receipt before the next effect starts. A batched request is allowed only when it
-targets exactly the accepted items and can report their outcomes. This extends
-the existing publication reservations rather than introducing a general workflow
-engine.
-
-Each remote mutating dispatch must have its own reservation or belong to a
-server-atomic batch covered by one reservation. An adapter cannot hide several
-mutating HTTP requests behind one final result and lose the intervening evidence
-on a crash. Read-only preparation and verification calls do not need write receipts.
-
-Outcomes distinguish confirmed application, definite rejection without an effect,
-accepted-but-pending work, and uncertainty. Compound results retain each item's
-outcome, so posted comments are not lost when a later approval fails. A lost
-response, cancellation after dispatch, failure to save a receipt, or reservation
-left by a crashed process is uncertain. It must not trigger an automatic resend.
-A local operation ID does not provide remote idempotency by itself.
-
-Reconciliation is read-only and uses operation-specific evidence and stable remote
-references. Similar text, timestamps or absence from an incomplete page do not
-prove a result. If the adapter cannot establish the outcome, the existing manual
-confirmation path remains available. Pending asynchronous operations are polled;
-the original mutation is not repeated. Retained execution data identifies its
-adapter format version; an adapter upgrade cannot reinterpret an unresolved
-write and replan it into new effects.
-
-GitLab comments and [formal approval](https://docs.gitlab.com/api/merge_request_approvals/)
-are separate effects. Publication must not use the
-[publish-all-drafts operation](https://docs.gitlab.com/api/draft_notes/#publish-all-pending-draft-notes)
-that can include drafts created outside ByteQuay. Publish only accepted app-owned notes, or directly create the
-accepted discussions, and retain each result before approving the accepted head.
-The same accounting applies to creating requests, retrying CI, and merging;
-there is no rollback promise for already-visible remote writes.
-
-### Desktop, Git transport and private instances
-
-The existing shared UI, typed IPC and localhost API address local repository,
-request and thread identities. Display labels and links come from normalized
-records. Provider-specific URL parsing is confined to reference resolution for
-registered servers; GitHub issue/PR link conventions do not become universal
-navigation rules. Account changes invalidate only their own viewer state.
-
-Adapters supply validated clone URLs, repository identities, ref names and
-expected object IDs. ByteQuay executes Git and continues to own worktree isolation,
-process permissions and locks. No adapter returns shell commands or chooses local
-checkout paths. API and Git access use the same selected account policy, including
-explicit source/fork routing; there is no fallback to a different server's token.
-The checked-out commit must match the accepted revision before review or delivery.
-
-GitLab onboarding initially uses a configured server and personal access token.
-GitLab.com is a preset of that connection model. Web/API path prefixes, alternate
-ports, SSH mappings, VPN reachability, proxies and company certificate trust are
-connection concerns. Java HTTP, Git and Electron validate trust independently;
-one successful browser login does not establish the other two. Certificate
-validation remains enabled. Authenticated redirects and pagination stay within
-the configured routing policy and never forward a credential to an untrusted
-origin. An embedded web session is separate from API credentials.
-
-Server version discovery informs compatibility but does not replace capability
-checks: edition, project policy and account permissions also matter. Each release
-must declare its tested minimum/current self-managed versions and feature matrix
-before claiming support; an untested older server is not promised full parity.
-GitLab.com Free and disposable self-managed installations cover the baseline.
-Paid-only features require separate qualification. Unknown fields and events can
-be displayed conservatively; unknown safety-critical write semantics stay blocked.
+GitLab.com Free and a company-style self-managed test instance are the intended
+live test environments. Live testing and supported-version qualification remain
+outstanding; fixture tests do not establish full GitLab UI support.
 
 ## Data ownership
 

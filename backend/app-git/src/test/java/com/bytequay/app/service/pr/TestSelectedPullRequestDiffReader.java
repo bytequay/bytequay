@@ -17,7 +17,6 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.HostingFailure;
@@ -39,13 +38,11 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
@@ -65,8 +62,6 @@ class TestSelectedPullRequestDiffReader
     private static final DiffFile FILE = new DiffFile("a.txt", "modified", 1, 0, "+line");
 
     private final PullRequestRead route = PullRequestReadFixture.route(REPO, NUMBER);
-    private final PullRequestReadGuard versions = new PullRequestReadGuard();
-    private final PullRequestReadGuard.Read version = versions.capture(PullRequestRef.of("owner", "repo", NUMBER));
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PrDiffStore diffs = mock(PrDiffStore.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
@@ -75,35 +70,17 @@ class TestSelectedPullRequestDiffReader
     private final SelectedPullRequestDiffReader reader = new SelectedPullRequestDiffReader(pullRequests, diffs, details, selected, refresh, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
-    void credentialScope()
+    void selectedRoute()
     {
-        lenient().when(pullRequests.captureRead(any(PullRequestRead.class))).thenReturn(version);
-        lenient().when(pullRequests.cachedRead(REPO, NUMBER)).thenReturn(Optional.of(route));
         lenient().when(pullRequests.prepareRead(any(), anyInt())).thenAnswer(call -> {
             String repository = call.getArgument(0);
             int number = call.getArgument(1);
             return REPO.equals(repository) && number == NUMBER ? route : PullRequestReadFixture.route(repository, number);
         });
-        lenient().when(pullRequests.withCurrentRead(eq(version), any(PullRequestRead.class), any())).thenAnswer(call -> version.accept(call.<Supplier<?>>getArgument(2)));
-    }
-
-    @Test
-    void writeDuringCachedReadCannotReturnTheOldSnapshot()
-    {
-        cache(REPO, NUMBER, ImmutableList.of(FILE));
-        when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)));
-        when(pullRequests.findStored(REPO, NUMBER)).thenAnswer(ignored -> {
-            versions.write(PullRequestRef.of("owner", "repo", NUMBER), () -> true);
-            return Optional.of(row(REPO, NUMBER));
-        });
-
-        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), false))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.REVISION_CONFLICT));
-        verifyNoInteractions(refresh);
     }
 
     @ParameterizedTest
-    @EnumSource(value = HostingFailure.Kind.class, names = {"AUTHENTICATION_REQUIRED", "FORBIDDEN", "MISSING_OR_INACCESSIBLE", "REVISION_CONFLICT"})
+    @EnumSource(value = HostingFailure.Kind.class, names = {"AUTHENTICATION_REQUIRED", "FORBIDDEN", "MISSING_OR_INACCESSIBLE"})
     void rejectedAccessCannotReturnCachedData(HostingFailure.Kind kind)
     {
         cache(REPO, NUMBER, ImmutableList.of(FILE));
@@ -111,18 +88,6 @@ class TestSelectedPullRequestDiffReader
         when(refresh.refreshDiffFiles(route, null, null)).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), true)).isSameAs(failure);
-    }
-
-    @Test
-    void credentialChangeCannotReturnCachedData()
-    {
-        cache(REPO, NUMBER, ImmutableList.of(FILE));
-        when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)));
-        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Credential changed");
-        when(pullRequests.withCurrentRead(eq(version), any(PullRequestRead.class), any())).thenThrow(failure);
-
-        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), false)).isSameAs(failure);
-        verifyNoInteractions(refresh);
     }
 
     @ParameterizedTest
@@ -248,22 +213,9 @@ class TestSelectedPullRequestDiffReader
         assertThat(read.sourceUpdatedAt()).isEmpty();
         assertThat(read.reportedChangedFiles()).isEmpty();
         verifyNoInteractions(details, selected, refresh);
-        verify(pullRequests).cachedRead(REPO, NUMBER);
         verify(pullRequests, never()).prepareRead(any(), anyInt());
         verify(pullRequests).findStored(REPO, NUMBER);
         verify(diffs).find(ID, null, null);
-    }
-
-    @Test
-    void continuationWithoutCachedIdentityRequiresRestartWithoutResolvingTheProvider()
-    {
-        when(pullRequests.cachedRead(REPO, NUMBER)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.of("a".repeat(64)), false))
-                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
-
-        verify(pullRequests, never()).prepareRead(any(), anyInt());
-        verifyNoInteractions(diffs, details, selected, refresh);
     }
 
     @ParameterizedTest

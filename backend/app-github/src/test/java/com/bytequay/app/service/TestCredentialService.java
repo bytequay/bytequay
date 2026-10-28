@@ -16,12 +16,9 @@ package com.bytequay.app.service;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
-import com.bytequay.app.service.credentials.CredentialService.GitHubReadSelection;
-import com.bytequay.app.service.credentials.CredentialService.WorkspaceGitHubReadSelection;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.core.domain.UserProfile;
-import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.CredentialStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -31,22 +28,11 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
-import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.clearInvocations;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestCredentialService
@@ -61,9 +47,9 @@ class TestCredentialService
         when(store.source()).thenReturn(Optional.of(GH_CLI_SOURCE));
         when(ghCli.currentToken()).thenReturn(Optional.of("gho_rotated"));
 
-        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class), mock(HostingConnectionService.class))
-                .resolveGitHubToken()).isEqualTo("gho_rotated");
-        verify(store).save("gho_rotated", GH_CLI_SOURCE);
+        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class),
+                mock(HostingConnectionService.class)).resolveGitHubToken()).isEqualTo("gho_rotated");
+        verify(store, never()).getSecret();
     }
 
     @Test
@@ -74,8 +60,8 @@ class TestCredentialService
         when(store.source()).thenReturn(Optional.empty());
         when(store.getSecret()).thenReturn(Optional.of("ghp_pasted"));
 
-        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class), mock(HostingConnectionService.class))
-                .resolveGitHubToken()).isEqualTo("ghp_pasted");
+        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class),
+                mock(HostingConnectionService.class)).resolveGitHubToken()).isEqualTo("ghp_pasted");
         verify(ghCli, never()).currentToken();
     }
 
@@ -88,8 +74,8 @@ class TestCredentialService
         when(ghCli.currentToken()).thenReturn(Optional.empty());
         when(store.getSecret()).thenReturn(Optional.of("gho_imported"));
 
-        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class), mock(HostingConnectionService.class))
-                .resolveGitHubToken()).isEqualTo("gho_imported");
+        assertThat(new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, mock(GitHubAccountClient.class),
+                mock(HostingConnectionService.class)).resolveGitHubToken()).isEqualTo("gho_imported");
     }
 
     @Test
@@ -126,160 +112,6 @@ class TestCredentialService
     }
 
     @Test
-    void rawCliResolutionInvalidatesCapturedReadsAndUpdatesFallback()
-    {
-        CredentialStore store = stored("old-token", GH_CLI_SOURCE);
-        GhCliService ghCli = mock(GhCliService.class);
-        when(ghCli.currentToken()).thenReturn(Optional.of("old-token"));
-        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli,
-                mock(GitHubAccountClient.class), mock(HostingConnectionService.class));
-        GitHubReadSelection first = service.captureGitHubRead("old-token");
-        when(ghCli.currentToken()).thenReturn(Optional.of("new-token"));
-
-        assertThat(service.resolveGitHubToken()).isEqualTo("new-token");
-        assertThat(store.revision()).isNotEqualTo(first.revision());
-        assertThatThrownBy(() -> service.withCurrentGitHubRead(first, () -> "stale"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        when(ghCli.currentToken()).thenReturn(Optional.empty());
-        assertThat(service.resolveGitHubToken()).isEqualTo("new-token");
-    }
-
-    @Test
-    void localAcceptanceDoesNotReadTheCliOrRemoteProfile()
-    {
-        CredentialStore store = stored("token", GH_CLI_SOURCE);
-        GhCliService ghCli = mock(GhCliService.class);
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(ghCli.currentToken()).thenReturn(Optional.of("token"));
-        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), ghCli, accounts, mock(HostingConnectionService.class));
-        GitHubReadSelection selection = service.captureGitHubRead("token");
-        clearInvocations(ghCli, accounts);
-
-        assertThat(service.withCurrentGitHubRead(selection, () -> "accepted")).isEqualTo("accepted");
-        verifyNoInteractions(ghCli, accounts);
-        assertThat(selection.toString()).doesNotContain("token=token");
-        assertThat(new GitHubCredential("secret-value", profile("alice")).toString()).doesNotContain("secret-value");
-    }
-
-    @Test
-    void deletingAndReaddingTheSameTokenCannotReviveAnOldRead()
-    {
-        CredentialStore store = stored("token", null);
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(accounts.fetchUserProfile("token")).thenReturn(profile("alice"));
-        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class), accounts, mock(HostingConnectionService.class));
-        GitHubReadSelection first = service.captureGitHubRead("token");
-        service.deleteGitHubToken();
-        AtomicBoolean accepted = new AtomicBoolean();
-
-        assertThatThrownBy(() -> service.withCurrentGitHubRead(first, () -> accepted.getAndSet(true)))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
-        service.saveGitHubToken("token");
-        assertThatThrownBy(() -> service.withCurrentGitHubRead(first, () -> accepted.getAndSet(true)))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        assertThat(accepted).isFalse();
-    }
-
-    @Test
-    void captureRejectsATokenThatIsNoLongerSelected()
-    {
-        CredentialService service = new CredentialService(stored("current", null), new InMemoryWorkspaceCredentialStore(),
-                mock(GhCliService.class), mock(GitHubAccountClient.class), mock(HostingConnectionService.class));
-
-        assertThatThrownBy(() -> service.captureGitHubRead("previous"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-    }
-
-    @Test
-    void workspaceReadUsesOverrideWithoutGlobalAuthentication()
-    {
-        CredentialStore global = mock(CredentialStore.class);
-        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
-        overrides.save("workspace", "workspace-secret", "alice");
-        GhCliService cli = mock(GhCliService.class);
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        CredentialService service = new CredentialService(global, overrides, cli, accounts, mock(HostingConnectionService.class));
-
-        WorkspaceGitHubReadSelection selection = service.captureWorkspaceGitHubRead("workspace");
-
-        assertThat(selection.credential().token()).isEqualTo("workspace-secret");
-        assertThat(selection.overridden()).isTrue();
-        assertThat(selection.toString()).doesNotContain("workspace-secret");
-        assertThat(service.withCurrentWorkspaceGitHubRead(selection, () -> "accepted")).isEqualTo("accepted");
-        verifyNoInteractions(global, cli, accounts);
-    }
-
-    @Test
-    void workspaceOverrideReplacementAndRemovalRejectInflightReads()
-    {
-        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(accounts.fetchUserProfile("same-token")).thenReturn(profile("alice"));
-        CredentialService service = new CredentialService(stored("global-token", null), overrides, mock(GhCliService.class), accounts, mock(HostingConnectionService.class));
-        service.saveWorkspaceGitHubToken("workspace", "same-token");
-        WorkspaceGitHubReadSelection first = service.captureWorkspaceGitHubRead("workspace");
-        service.saveWorkspaceGitHubToken("workspace", "same-token");
-
-        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(first, () -> "stale"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        WorkspaceGitHubReadSelection replacement = service.captureWorkspaceGitHubRead("workspace");
-        service.deleteWorkspaceGitHubToken("workspace");
-        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(replacement, () -> "stale"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-    }
-
-    @Test
-    void installingAndRemovingOverrideCannotReviveCapturedGlobalFallback()
-    {
-        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(accounts.fetchUserProfile("override-token")).thenReturn(profile("alice"));
-        CredentialService service = new CredentialService(stored("global-token", null), overrides, mock(GhCliService.class), accounts, mock(HostingConnectionService.class));
-        WorkspaceGitHubReadSelection first = service.captureWorkspaceGitHubRead("workspace");
-        assertThat(first.overridden()).isFalse();
-        service.saveWorkspaceGitHubToken("workspace", "override-token");
-        service.deleteWorkspaceGitHubToken("workspace");
-
-        assertThat(service.captureWorkspaceGitHubRead("workspace").credential()).isEqualTo(first.credential());
-        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(first, () -> "stale"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-    }
-
-    @Test
-    void globalReplacementInvalidatesOnlyWorkspaceFallbackSelections()
-    {
-        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
-        overrides.save("overridden", "workspace-token", "alice");
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(accounts.fetchUserProfile("replacement")).thenReturn(profile("bob"));
-        CredentialService service = new CredentialService(stored("global-token", null), overrides, mock(GhCliService.class), accounts, mock(HostingConnectionService.class));
-        WorkspaceGitHubReadSelection fallback = service.captureWorkspaceGitHubRead("fallback");
-        WorkspaceGitHubReadSelection override = service.captureWorkspaceGitHubRead("overridden");
-        service.saveGitHubToken("replacement");
-
-        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(fallback, () -> "stale"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        assertThat(service.withCurrentWorkspaceGitHubRead(override, () -> "accepted")).isEqualTo("accepted");
-    }
-
-    @Test
-    void workspaceFallbackAcceptanceIsLocalAndIndependentOfOtherWorkspaces()
-    {
-        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
-        GhCliService cli = mock(GhCliService.class);
-        when(cli.currentToken()).thenReturn(Optional.of("global-token"));
-        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
-        when(accounts.fetchUserProfile("other-token")).thenReturn(profile("alice"));
-        CredentialService service = new CredentialService(stored("global-token", GH_CLI_SOURCE), overrides, cli, accounts, mock(HostingConnectionService.class));
-        WorkspaceGitHubReadSelection selection = service.captureWorkspaceGitHubRead("workspace");
-        service.saveWorkspaceGitHubToken("other-workspace", "other-token");
-        clearInvocations(cli, accounts);
-
-        assertThat(service.withCurrentWorkspaceGitHubRead(selection, () -> "accepted")).isEqualTo("accepted");
-        verifyNoInteractions(cli, accounts);
-    }
-
-    @Test
     void gitAuthenticationSendsTheWorkspaceTokenOnlyToGitHub()
     {
         CredentialStore store = mock(CredentialStore.class);
@@ -305,8 +137,8 @@ class TestCredentialService
     void nonGitHubRemotesNeedNoGitHubCredential()
     {
         CredentialStore store = mock(CredentialStore.class);
-        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class),
-                mock(GitHubAccountClient.class), mock(HostingConnectionService.class));
+        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class), mock(GitHubAccountClient.class),
+                mock(HostingConnectionService.class));
 
         assertThat(service.gitAuthenticationEnvironment("workspace-id", ImmutableList.of("https://git.example.com/repo.git")))
                 .containsExactlyInAnyOrderEntriesOf(ImmutableMap.of("GIT_CONFIG_COUNT", "0"));
@@ -316,28 +148,5 @@ class TestCredentialService
     private static UserProfile profile(String login)
     {
         return new UserProfile(login, login, "", "", 0, 0, 0, "", "", "", "");
-    }
-
-    private static CredentialStore stored(String token, String source)
-    {
-        CredentialStore store = mock(CredentialStore.class);
-        AtomicReference<String> secret = new AtomicReference<>(token);
-        AtomicReference<String> selectedSource = new AtomicReference<>(source);
-        AtomicReference<String> revision = new AtomicReference<>(UUID.randomUUID().toString());
-        when(store.getSecret()).thenAnswer(ignored -> Optional.ofNullable(secret.get()));
-        when(store.source()).thenAnswer(ignored -> Optional.ofNullable(selectedSource.get()));
-        when(store.revision()).thenAnswer(ignored -> revision.get());
-        doAnswer(call -> {
-            secret.set(call.getArgument(0));
-            selectedSource.set(call.getArgument(1));
-            revision.set(UUID.randomUUID().toString());
-            return null;
-        }).when(store).save(anyString(), any());
-        doAnswer(ignored -> {
-            secret.set(null);
-            revision.set(null);
-            return null;
-        }).when(store).delete();
-        return store;
     }
 }

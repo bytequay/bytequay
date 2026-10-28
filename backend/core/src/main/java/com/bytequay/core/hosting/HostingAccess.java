@@ -14,7 +14,6 @@
 package com.bytequay.core.hosting;
 
 import java.util.OptionalLong;
-import java.util.function.Supplier;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static java.util.Objects.requireNonNull;
@@ -24,19 +23,19 @@ public final class HostingAccess
 {
     private final HostingServer server;
     private final OptionalLong instanceId;
-    private final Supplier<String> token;
+    private final String token;
 
-    public HostingAccess(HostingInstance instance, Supplier<String> token)
+    public HostingAccess(HostingInstance instance, String token)
     {
         this(new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl()), OptionalLong.of(instance.id()), token);
     }
 
-    public HostingAccess(HostingServer server, Supplier<String> token)
+    public HostingAccess(HostingServer server, String token)
     {
         this(server, OptionalLong.empty(), token);
     }
 
-    private HostingAccess(HostingServer server, OptionalLong instanceId, Supplier<String> token)
+    private HostingAccess(HostingServer server, OptionalLong instanceId, String token)
     {
         this.server = requireNonNull(server, "server is null");
         this.instanceId = requireNonNull(instanceId, "instanceId is null");
@@ -55,12 +54,11 @@ public final class HostingAccess
 
     public String token()
     {
-        String value = token.get();
         // HttpRequest's own invalid-header exception includes the header value, so reject it before construction.
-        if (value == null || value.isEmpty() || value.chars().anyMatch(character -> character < 33 || character > 126)) {
+        if (token.isEmpty() || token.chars().anyMatch(character -> character < 33 || character > 126)) {
             throw new HostingFailure(AUTHENTICATION_REQUIRED, "The hosting credential is invalid");
         }
-        return value;
+        return token;
     }
 
     @Override

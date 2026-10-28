@@ -18,7 +18,6 @@ import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.UserProfile;
-import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -35,12 +34,9 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -57,7 +53,7 @@ public class CredentialService
     private final GitHubAccountClient gitHubAccount;
     private final HostingConnectionService hosting;
     private volatile GitHubCredential cachedGitHubCredential;
-    private Optional<HostingReadSession> cachedHostingRead = Optional.empty();
+    private volatile Optional<HostingReadSession> cachedHostingRead = Optional.empty();
 
     public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli,
             GitHubAccountClient gitHubAccount, HostingConnectionService hosting)
@@ -91,108 +87,28 @@ public class CredentialService
      * {@code gh} track its live token and fall back to the stored copy when
      * the CLI is unavailable; pasted PATs always use the stored value.
      */
-    public synchronized String resolveGitHubToken()
+    public String resolveGitHubToken()
     {
-        Optional<String> stored = storedGitHubToken();
-        Optional<String> live = liveGhCliToken();
-        String token = live.or(() -> stored)
+        return liveGhCliToken().or(this::storedGitHubToken)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT not configured. Add it in Settings → GitHub token."));
-        if (live.isPresent() && stored.filter(token::equals).isEmpty()) {
-            credentialStore.save(token, GITHUB_CLI_SOURCE);
-            cachedGitHubCredential = null;
-            cachedHostingRead = Optional.empty();
-        }
-        return token;
-    }
-
-    public synchronized GitHubReadSelection captureGitHubRead(String expectedToken)
-    {
-        if (!resolveGitHubToken().equals(requireNonNull(expectedToken, "expectedToken is null"))) {
-            throw new HostingFailure(REVISION_CONFLICT, "The GitHub credential changed; refresh to retry");
-        }
-        return new GitHubReadSelection(expectedToken, credentialStore.revision());
     }
 
     public HostingReadSession captureHostingRead()
     {
-        GitHubReadSelection selected;
-        synchronized (this) {
-            selected = new GitHubReadSelection(resolveGitHubToken(), credentialStore.revision());
-            Optional<HostingReadSession> current = cachedHostingRead.filter(session -> session.credentialScope().equals("github-global:" + selected.revision()));
-            if (current.isPresent()) {
-                return current.orElseThrow();
-            }
+        String token = resolveGitHubToken();
+        Optional<HostingReadSession> cached = cachedHostingRead.filter(session -> session.access().token().equals(token));
+        if (cached.isPresent()) {
+            return cached.orElseThrow();
         }
-        HostingReadSession.Guard guard = new HostingReadSession.Guard()
-        {
-            @Override
-            public <T> T withCurrent(Supplier<T> action)
-            {
-                return withCurrentGitHubRead(selected, action);
-            }
-        };
-        HostingReadSession session = hosting.verifySession(GITHUB_SERVER, "github-global:" + selected.revision(), 1, selected::token, guard);
-        return withCurrentGitHubRead(selected, () -> {
-            cachedHostingRead = Optional.of(session);
-            return session;
-        });
+        HostingReadSession session = hosting.verifySession(GITHUB_SERVER, "github-global", token);
+        cachedHostingRead = Optional.of(session);
+        return session;
     }
 
-    /** Local readers wait for an authenticated read to establish identity; they never start CLI or HTTP work. */
-    public synchronized Optional<HostingReadSession> cachedHostingRead()
-    {
-        return cachedHostingRead.map(session -> session.withCurrent(() -> session));
-    }
-
-    public HostingReadSession captureWorkspaceHostingRead(String workspaceId, HostingReadSession.Guard routingGuard)
-    {
-        requireNonNull(routingGuard, "routingGuard is null");
-        WorkspaceGitHubReadSelection selected = captureWorkspaceGitHubRead(workspaceId);
-        HostingReadSession.Guard guard = new HostingReadSession.Guard()
-        {
-            @Override
-            public <T> T withCurrent(Supplier<T> action)
-            {
-                return routingGuard.withCurrent(() -> withCurrentWorkspaceGitHubRead(selected, action));
-            }
-        };
-        String scope = "github-workspace:" + selected.workspaceId() + ":" + selected.workspaceRevision() + ":" + selected.credential().revision();
-        return hosting.verifySession(GITHUB_SERVER, scope, 1, selected.credential()::token, guard);
-    }
-
-    /** Only local validation and local acceptance run under this lock; the selection was captured before remote work. */
-    public synchronized <T> T withCurrentGitHubRead(GitHubReadSelection selection, Supplier<T> action)
-    {
-        requireNonNull(selection, "selection is null");
-        requireNonNull(action, "action is null");
-        String current = storedGitHubToken().orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "GitHub authentication is required"));
-        if (!current.equals(selection.token()) || !credentialStore.revision().equals(selection.revision())) {
-            throw new HostingFailure(REVISION_CONFLICT, "The GitHub credential changed; refresh to retry");
-        }
-        return action.get();
-    }
-
-    public synchronized WorkspaceGitHubReadSelection captureWorkspaceGitHubRead(String workspaceId)
+    public HostingReadSession captureWorkspaceHostingRead(String workspaceId)
     {
         checkText(workspaceId, "workspaceId");
-        String revision = workspaceCredentials.revision(workspaceId);
-        Optional<String> override = workspaceCredentials.getSecret(workspaceId);
-        GitHubReadSelection credential = override.map(token -> new GitHubReadSelection(token, revision))
-                .orElseGet(() -> captureGitHubRead(resolveGitHubToken()));
-        return new WorkspaceGitHubReadSelection(workspaceId, revision, credential, override.isPresent());
-    }
-
-    public synchronized <T> T withCurrentWorkspaceGitHubRead(WorkspaceGitHubReadSelection selection, Supplier<T> action)
-    {
-        requireNonNull(selection, "selection is null");
-        requireNonNull(action, "action is null");
-        Optional<String> override = workspaceCredentials.getSecret(selection.workspaceId());
-        if (!workspaceCredentials.revision(selection.workspaceId()).equals(selection.workspaceRevision())
-                || selection.overridden() != override.isPresent()
-                || override.filter(token -> !token.equals(selection.credential().token())).isPresent()) {
-            throw new HostingFailure(REVISION_CONFLICT, "The workspace GitHub credential changed; refresh to retry");
-        }
-        return selection.overridden() ? action.get() : withCurrentGitHubRead(selection.credential(), action);
+        return hosting.verifySession(GITHUB_SERVER, "github-workspace:" + workspaceId, resolveGitHubToken(workspaceId));
     }
 
     /**
@@ -226,7 +142,7 @@ public class CredentialService
      * Returns the token used for one workspace's Git and GitHub traffic: the
      * workspace override when one is stored, otherwise the global account token.
      */
-    public synchronized String resolveGitHubToken(String workspaceId)
+    public String resolveGitHubToken(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         return workspaceCredentials.getSecret(workspaceId)
@@ -291,7 +207,7 @@ public class CredentialService
      *
      * @return the login the token authenticates as
      */
-    public synchronized String saveWorkspaceGitHubToken(String workspaceId, String token)
+    public String saveWorkspaceGitHubToken(String workspaceId, String token)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         if ((token == null || token.isBlank())) {
@@ -313,7 +229,7 @@ public class CredentialService
         return workspaceCredentials.getSecret(workspaceId);
     }
 
-    public synchronized void deleteWorkspaceGitHubToken(String workspaceId)
+    public void deleteWorkspaceGitHubToken(String workspaceId)
     {
         workspaceCredentials.delete(workspaceId);
     }
@@ -361,31 +277,6 @@ public class CredentialService
         public String toString()
         {
             return "GitHubCredential[token=<redacted>, profile=" + profile + "]";
-        }
-    }
-
-    public record GitHubReadSelection(String token, String revision)
-    {
-        public GitHubReadSelection
-        {
-            checkText(token, "token");
-            checkText(revision, "revision");
-        }
-
-        @Override
-        public String toString()
-        {
-            return "GitHubReadSelection[token=<redacted>, revision=" + revision + "]";
-        }
-    }
-
-    public record WorkspaceGitHubReadSelection(String workspaceId, String workspaceRevision, GitHubReadSelection credential, boolean overridden)
-    {
-        public WorkspaceGitHubReadSelection
-        {
-            checkText(workspaceId, "workspaceId");
-            checkText(workspaceRevision, "workspaceRevision");
-            requireNonNull(credential, "credential is null");
         }
     }
 

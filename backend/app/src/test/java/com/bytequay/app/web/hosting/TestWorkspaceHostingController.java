@@ -19,7 +19,6 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
-import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -38,7 +37,6 @@ import java.time.Duration;
 import java.util.Optional;
 
 import static com.bytequay.app.web.agent.AgentController.SESSION_HEADER;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -54,7 +52,7 @@ class TestWorkspaceHostingController
 {
     private static final String SESSION = "desktop-session";
     private static final String BASE = "/api/workspaces/workspace/hosting";
-    private static final WorkspaceHostingBinding BINDING = new WorkspaceHostingBinding("workspace", 20, 30, Optional.of(31L), 2);
+    private static final WorkspaceHostingBinding BINDING = new WorkspaceHostingBinding("workspace", 20, 30, Optional.of(31L));
     private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
 
     @ParameterizedTest
@@ -80,8 +78,7 @@ class TestWorkspaceHostingController
                 .andExpect(jsonPath("$.workspaceId").value("workspace"))
                 .andExpect(jsonPath("$.accountId").value(20))
                 .andExpect(jsonPath("$.selectedRepositoryId").value(30))
-                .andExpect(jsonPath("$.upstreamRepositoryId").value(31))
-                .andExpect(jsonPath("$.generation").value(2));
+                .andExpect(jsonPath("$.upstreamRepositoryId").value(31));
         verify(hosting).bind("workspace", 20);
     }
 
@@ -90,16 +87,7 @@ class TestWorkspaceHostingController
             throws Exception
     {
         when(hosting.findBinding("workspace")).thenReturn(Optional.of(BINDING));
-        mvc().perform(get(BASE).header(SESSION_HEADER, SESSION)).andExpect(status().isOk()).andExpect(jsonPath("$.generation").value(2));
-    }
-
-    @Test
-    void mapsLateReadToConflictInsteadOfReturningStaleMetadata()
-            throws Exception
-    {
-        when(hosting.readPullRequest("workspace", 7)).thenThrow(new HostingFailure(REVISION_CONFLICT, "Workspace selection changed"));
-        mvc().perform(get(BASE + "/requests/7").header(SESSION_HEADER, SESSION))
-                .andExpect(status().isConflict()).andExpect(jsonPath("$.kind").value("REVISION_CONFLICT"));
+        mvc().perform(get(BASE).header(SESSION_HEADER, SESSION)).andExpect(status().isOk()).andExpect(jsonPath("$.accountId").value(20));
     }
 
     @Test

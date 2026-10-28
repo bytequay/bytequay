@@ -49,13 +49,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
-import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,10 +60,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -81,28 +75,26 @@ class TestWorkspaceHostingService
     private final HostingCredentialStore credentials = mock(HostingCredentialStore.class);
     private final HostingRepositories repositories = mock(HostingRepositories.class);
     private final PullRequestReader requests = mock(PullRequestReader.class);
-    private final AtomicLong credentialGeneration = new AtomicLong(1);
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
             ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests)));
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     private final CredentialService desktop = mock(CredentialService.class);
-    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections, cache, desktop);
+    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, connections, cache, desktop);
 
     @BeforeEach
     void setUp()
     {
         workspaces.createOrGet(workspace());
         when(snapshots.find(anyLong(), anyLong(), anyInt())).thenReturn(Optional.empty());
-        when(snapshots.save(anyLong(), anyLong(), any(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
-            FetchedPullRequest summary = call.getArgument(4);
+        when(snapshots.save(anyLong(), anyLong(), any(), any(), any(), any(), any())).thenAnswer(call -> {
+            FetchedPullRequest summary = call.getArgument(3);
             return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number(), summary.githubId().toString()),
-                    call.getArgument(0), call.getArgument(2), call.getArgument(3), summary, call.getArgument(5), call.getArgument(6), call.getArgument(7));
+                    call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
         });
         when(identities.findAccount(20)).thenReturn(Optional.of(new HostingAccount(20, 10, "42", "alice")));
         when(identities.findInstance(10)).thenReturn(Optional.of(INSTANCE));
-        when(credentials.generation(20)).thenAnswer(ignored -> credentialGeneration.get());
-        when(credentials.find(20)).thenAnswer(ignored -> Optional.of(new HostingCredential(20, credentialGeneration.get(), "secret")));
+        when(credentials.find(20)).thenAnswer(ignored -> Optional.of(new HostingCredential(20, "secret")));
         when(repositories.findById(any(), any())).thenAnswer(call -> remote(call.getArgument(1)));
         when(identities.upsertRepository(eq(10L), any())).thenAnswer(call -> retained(call.getArgument(1)));
         when(identities.findRepository(30)).thenReturn(Optional.of(retained(remote("100"))));
@@ -116,7 +108,7 @@ class TestWorkspaceHostingService
         Workspace before = workspaces.findById("workspace").orElseThrow();
         WorkspaceHostingBinding binding = service.bind("workspace", 20);
 
-        assertThat(binding).isEqualTo(new WorkspaceHostingBinding("workspace", 20, 30, Optional.of(31L), 1));
+        assertThat(binding).isEqualTo(new WorkspaceHostingBinding("workspace", 20, 30, Optional.of(31L)));
         assertThat(binding.monitoredRepositoryId()).isEqualTo(31);
         assertThat(workspaces.findById("workspace")).contains(before);
         assertThat(service.findBinding("workspace")).contains(binding);
@@ -156,10 +148,8 @@ class TestWorkspaceHostingService
     @Test
     void unboundWorkspaceUsesItsCapturedCredentialAndStableRepositoryId()
     {
-        when(desktop.captureWorkspaceHostingRead(eq("workspace"), any())).thenAnswer(call -> {
-            HostingReadSession.Guard guard = call.getArgument(1);
-            return new HostingReadSession(20, "workspace-override", 1, new HostingAccess(INSTANCE, () -> guard.withCurrent(() -> "workspace-token")), guard);
-        });
+        when(desktop.captureWorkspaceHostingRead("workspace"))
+                .thenReturn(new HostingReadSession(20, "workspace-override", new HostingAccess(INSTANCE, "workspace-token")));
 
         WorkspaceHostingRead route = service.captureRead("workspace");
         HostingPullRequestSnapshot snapshot = service.readPullRequest(route, 7);
@@ -173,59 +163,16 @@ class TestWorkspaceHostingService
     }
 
     @Test
-    void aBindingCreatedDuringLegacyIdentityResolutionRejectsTheRead()
-    {
-        when(desktop.captureWorkspaceHostingRead(eq("workspace"), any())).thenAnswer(call -> {
-            HostingReadSession.Guard guard = call.getArgument(1);
-            return new HostingReadSession(20, "workspace-global", 1, new HostingAccess(INSTANCE, () -> guard.withCurrent(() -> "global-token")), guard);
-        });
-        doAnswer(ignored -> {
-            workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
-            return remote("200");
-        }).when(repositories).findById(any(), eq("200"));
-
-        assertThatThrownBy(() -> service.captureRead("workspace"))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verify(identities, never()).upsertRepository(eq(10L), any());
-        verifyNoInteractions(requests);
-    }
-
-    @Test
-    void capturedTokenAndCachedReadsRejectRebindingBeforeNetworkWork()
-    {
-        service.bind("workspace", 20);
-        WorkspaceHostingRead route = service.captureRead("workspace");
-        workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
-
-        assertThatThrownBy(route::githubToken).isInstanceOf(HostingFailure.class);
-        assertThatThrownBy(() -> service.readPullRequest(route, 7)).isInstanceOf(HostingFailure.class);
-        assertThatThrownBy(() -> service.cachedPullRequest(route, 7)).isInstanceOf(HostingFailure.class);
-        verifyNoInteractions(requests, desktop);
-    }
-
-    @Test
-    void nativeConsumersRejectOtherServersBeforeReadingAToken()
+    void nativeConsumersRejectOtherServers()
     {
         HostingInstance other = new HostingInstance(90, GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"));
-        AtomicBoolean tokenRead = new AtomicBoolean();
-        HostingReadSession session = new HostingReadSession(20, "scope", 1, new HostingAccess(other, () -> {
-            tokenRead.set(true);
-            return "secret";
-        }), new HostingReadSession.Guard()
-        {
-            @Override
-            public <T> T withCurrent(Supplier<T> action)
-            {
-                return action.get();
-            }
-        });
+        HostingReadSession session = new HostingReadSession(20, "scope", new HostingAccess(other, "secret"));
         HostingRepository repository = new HostingRepository(30, 90, "42", "group/project", URI.create("https://gitlab.com/group/project"),
                 URI.create("https://gitlab.com/group/project.git"), Optional.empty(), Optional.of("main"));
         WorkspaceHostingRead route = new WorkspaceHostingRead(session, repository, "alice");
 
         assertThatThrownBy(route::githubToken).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(route::githubRepository).isInstanceOf(IllegalArgumentException.class);
-        assertThat(tokenRead).isFalse();
     }
 
     @Test
@@ -242,58 +189,6 @@ class TestWorkspaceHostingService
         when(identities.findInstance(10)).thenReturn(Optional.of(new HostingInstance(10, GITHUB, URI.create("https://company.test"), URI.create("https://company.test/api/v3"))));
         assertThatThrownBy(() -> service.bind("workspace", 20)).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(repositories);
-    }
-
-    @Test
-    void concurrentRebindingCannotBeOverwrittenByASlowerBind()
-    {
-        doAnswer(ignored -> {
-            workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
-            return remote("200");
-        }).when(repositories).findById(any(), eq("200"));
-        assertThatThrownBy(() -> service.bind("workspace", 20))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        assertThat(workspaces.hostingGeneration("workspace")).isEqualTo(1);
-    }
-
-    @Test
-    void routingRoundTripWhileUnboundInvalidatesAnEarlierBind()
-    {
-        doAnswer(ignored -> {
-            Workspace original = workspaces.findById("workspace").orElseThrow();
-            workspaces.save(original.withRepositoryRouting(original.selectedRepository(), Optional.empty(), Optional.empty(), original.selectedRepositoryId(),
-                    original.selectedRepository(), "main", original.originCloneUrl(), Optional.empty(), Optional.empty(), NOW));
-            workspaces.save(original);
-            return remote("100");
-        }).when(repositories).findById(any(), eq("100"));
-        assertThatThrownBy(() -> service.bind("workspace", 20))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        assertThat(service.findBinding("workspace")).isEmpty();
-        assertThat(workspaces.hostingGeneration("workspace")).isEqualTo(2);
-    }
-
-    @Test
-    void rejectsAReadAfterWorkspaceRebinding()
-    {
-        service.bind("workspace", 20);
-        when(requests.fetch(any(), any(), eq(7), any())).thenAnswer(ignored -> {
-            workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
-            return fetched();
-        });
-        assertThatThrownBy(() -> service.readPullRequest("workspace", 7))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-    }
-
-    @Test
-    void rejectsAReadAfterCredentialReplacement()
-    {
-        service.bind("workspace", 20);
-        when(requests.fetch(any(), any(), eq(7), any())).thenAnswer(ignored -> {
-            credentialGeneration.incrementAndGet();
-            return fetched();
-        });
-        assertThatThrownBy(() -> service.readPullRequest("workspace", 7))
-                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
     }
 
     @Test

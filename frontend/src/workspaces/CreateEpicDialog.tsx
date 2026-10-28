@@ -19,6 +19,7 @@ import { AgentSetupNotice, useAgentAvailability } from '../agents/availability';
 import type { EpicDraftDto, EpicDraftMessage, UnifiedWorkItem } from '../workitems/contracts';
 import { notifyJiraChanged } from '../jira/contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
+import { useHostingPresentation } from '../pulls/PullRequestWorkspace';
 import { useModalDialog } from '../useModalDialog';
 import { createLocalEpic, ticketEpicId } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
@@ -40,7 +41,7 @@ const errorText = (error: unknown) => error instanceof Error ? error.message : S
 
 /**
  * Creates an Epic from Home: talked through with the Development model, which asks until it can draft one and then asks to create it,
- * or made directly as Local work or from one of the workspace's GitHub issues or Jira tickets. Nothing here writes to GitHub or Jira.
+ * or made directly as Local work or from one of the workspace's issues or Jira tickets. Nothing here writes to the remote provider.
  */
 export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, onClose, onCreated }: {
   workspaceId: string;
@@ -50,6 +51,8 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
   onClose: () => void;
   onCreated: (created: CreatedEpic) => void;
 }) {
+  const { server } = useHostingPresentation();
+  const issueProvider = server?.provider === 'GITLAB' ? 'GitLab' : 'GitHub';
   const dialog = useModalDialog();
   // Opening a modal moves focus to the dialog itself, away from the field its first view focused while mounting.
   useEffect(() => { dialog.current?.querySelector<HTMLElement>('textarea, input')?.focus(); }, [dialog]);
@@ -104,7 +107,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
     }
   };
 
-  const sources: [Source, string][] = [['LOCAL', 'Local'], ['GITHUB', 'GitHub issue'], ...(jiraConnected ? [['JIRA', 'Jira ticket'] as [Source, string]] : [])];
+  const sources: [Source, string][] = [['LOCAL', 'Local'], ['GITHUB', `${issueProvider} issue`], ...(jiraConnected ? [['JIRA', 'Jira ticket'] as [Source, string]] : [])];
   return (
     <dialog ref={dialog} className="bq-confirm-dialog create-epic" aria-labelledby={titleId} aria-modal="true" aria-busy={creating}
       onCancel={(event) => {
@@ -135,7 +138,7 @@ export default function CreateEpicDialog({ workspaceId, marked, jiraConnected, o
           </div>
           {source === 'LOCAL'
             ? <LocalForm fields={fields} busy={creating} onChange={setFields} onSubmit={() => { void createLocal(fields); }} />
-            : <Picker workspaceId={workspaceId} source={source} marked={marked} busy={creating} onPick={(item) => { void markRemote(item); }} />}
+            : <Picker workspaceId={workspaceId} issueProvider={issueProvider} source={source} marked={marked} busy={creating} onPick={(item) => { void markRemote(item); }} />}
         </>}
       {error !== null && <div className="create-epic__error" role="alert">{error}</div>}
     </dialog>
@@ -273,8 +276,9 @@ function LocalForm({ fields, busy, onChange, onSubmit }: { fields: EpicDraftDto;
 }
 
 /** The workspace's open issues or tickets that can become an Epic: not one already, and not work in another Epic. */
-function Picker({ workspaceId, source, marked, busy, onPick }: {
+function Picker({ workspaceId, issueProvider, source, marked, busy, onPick }: {
   workspaceId: string;
+  issueProvider: string;
   source: 'GITHUB' | 'JIRA';
   marked: ReadonlySet<string>;
   busy: boolean;
@@ -292,15 +296,15 @@ function Picker({ workspaceId, source, marked, busy, onPick }: {
   const words = query.trim().toLowerCase();
   const found = (items ?? []).filter((item) => item.source === source && !item.closed && item.reference !== null && !marked.has(item.id)
     && item.work?.isEpic !== true && !item.work?.epicId && (words === '' || `${item.reference.label} ${item.title}`.toLowerCase().includes(words)));
-  const github = source === 'GITHUB';
+  const issue = source === 'GITHUB';
   return (
     <div className="create-epic__picker">
       <label className="create-epic__search">
         <Search size={14} aria-hidden="true" />
-        <input className="bq-input" autoFocus aria-label={github ? 'Find an open issue' : 'Find a Jira ticket'} placeholder={github ? 'Find an issue by number or title' : 'Find a ticket by key or title'}
+        <input className="bq-input" autoFocus aria-label={issue ? 'Find an open issue' : 'Find a Jira ticket'} placeholder={issue ? 'Find an issue by number or title' : 'Find a ticket by key or title'}
           value={query} onChange={(event) => setQuery(event.target.value)} />
       </label>
-      <div className="create-epic__results" role="list" aria-label={github ? 'Open issues' : 'Jira tickets'}>
+      <div className="create-epic__results" role="list" aria-label={issue ? 'Open issues' : 'Jira tickets'}>
         {items === null && failure === null && <p className="create-epic__hint">Loading…</p>}
         {failure !== null && <div className="create-epic__error" role="alert">{failure}</div>}
         {found.slice(0, MAX_LISTED).map((item) => (
@@ -311,11 +315,11 @@ function Picker({ workspaceId, source, marked, busy, onPick }: {
           </div>
         ))}
         {items !== null && found.length === 0 && (
-          <p className="create-epic__hint">{words !== '' ? 'Nothing matches.' : github ? 'No open issue in this workspace can become an Epic.'
+          <p className="create-epic__hint">{words !== '' ? 'Nothing matches.' : issue ? 'No open issue in this workspace can become an Epic.'
             : 'No Jira ticket in this workspace can become an Epic. Assign a ticket to this workspace in Jira first.'}</p>
         )}
       </div>
-      <p className="create-epic__note"><LockKeyhole size={13} aria-hidden="true" />The Epic is local to ByteQuay; the {github ? 'issue on GitHub' : 'ticket in Jira'} stays unchanged.</p>
+      <p className="create-epic__note"><LockKeyhole size={13} aria-hidden="true" />The Epic is local to ByteQuay; the {issue ? `issue on ${issueProvider}` : 'ticket in Jira'} stays unchanged.</p>
     </div>
   );
 }

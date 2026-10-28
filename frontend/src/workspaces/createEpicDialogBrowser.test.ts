@@ -15,7 +15,7 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, deadline } from '../fixtures/browserFixture';
 
-it('creates an Epic by talking it through, by hand, or from a GitHub issue or Jira ticket', async () => {
+it('creates an Epic by talking it through, by hand, or from a GitHub or GitLab issue or Jira ticket', async () => {
   expect(await runBrowserFixture<boolean>({
     prefix: 'bytequay-create-epic-', entry: 'src/workspaces/fixtures/createEpicDialogBrowser.tsx', global: 'CreateEpicDialogTests',
     styles: true, charset: true, width: 1180, height: 900,

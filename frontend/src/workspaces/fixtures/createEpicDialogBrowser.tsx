@@ -17,7 +17,8 @@ import { createFixtureRoot } from '../../fixtures/reactFixture';
 import CreateEpicDialog, { type CreatedEpic } from '../CreateEpicDialog';
 import type { EpicDraftDto, EpicDraftMessage, EpicDraftReply, UnifiedWorkItem } from '../../workitems/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
-import type { Bridge } from '../../types';
+import type { Bridge, HostingServerDto } from '../../types';
+import { PullRequestWorkspaceProvider } from '../../pulls/PullRequestWorkspace';
 import { assert, changeInput, settle, until, element } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/agents.css';
@@ -57,6 +58,7 @@ export async function run(): Promise<boolean> {
   const markedTickets: string[] = [];
   const created: CreatedEpic[] = [];
   let closes = 0;
+  let catalog = CATALOG;
   window.bridge = {
     draftEpic: async (_workspaceId: string, messages: EpicDraftMessage[]) => {
       asked.push(messages);
@@ -66,16 +68,24 @@ export async function run(): Promise<boolean> {
       return reply;
     },
     createLocalEpic: async (_workspaceId: string, request: { id: string; title: string; description: string; context: string }) => { createdLocal.push(request); },
-    listUnifiedWorkItems: async () => CATALOG,
-    setWorkspaceIssueEpic: async (_workspaceId: string, number: number) => { markedIssues.push(number); return {}; },
+    listUnifiedWorkItems: async (workspaceId: string) => {
+      assert(workspaceId === 'workspace', 'The catalog uses the current workspace');
+      return catalog;
+    },
+    setWorkspaceIssueEpic: async (workspaceId: string, number: number) => {
+      assert(workspaceId === 'workspace', 'The issue is marked in the current workspace');
+      markedIssues.push(number); return {};
+    },
     setJiraEpic: async (location: { connectionId: string; cloudId: string; issueId: string }) => {
       markedTickets.push(`${location.connectionId}|${location.cloudId}|${location.issueId}`);
       return { ...jiraDetail(), issue: { ...jiraIssue, isEpic: true } };
     },
   } as unknown as Bridge;
-  const render = (jiraConnected = false): void => flushSync(() => root.render(
-    <CreateEpicDialog workspaceId="workspace" marked={new Set(['ISSUE:github.com:502'])} jiraConnected={jiraConnected}
-      onClose={() => { closes++; }} onCreated={value => { created.push(value); }} />));
+  const render = (jiraConnected = false, server?: HostingServerDto): void => flushSync(() => root.render(
+    <PullRequestWorkspaceProvider workspaceId="workspace" server={server}>
+      <CreateEpicDialog workspaceId="workspace" marked={new Set(['ISSUE:github.com:502'])} jiraConnected={jiraConnected}
+        onClose={() => { closes++; }} onCreated={value => { created.push(value); }} />
+    </PullRequestWorkspaceProvider>));
   const close = (): void => flushSync(() => root.render(<></>));
   try {
     render(); await settle();
@@ -158,6 +168,23 @@ export async function run(): Promise<boolean> {
     await until(() => created.length === 4, 'Marking a ticket creates the Epic');
     assert(JSON.stringify(markedTickets) === JSON.stringify(['conn|cloud|77']) && JSON.stringify(created[3]) === JSON.stringify({ kind: 'remote', epicId: 'JIRA:5:cloud:77' }),
       `The ticket is marked by its location and opens by its Epic identity: ${JSON.stringify(markedTickets)}`);
+    // GitLab uses the shared issue catalog and marking endpoint, while Jira remains independently available.
+    catalog = [remote('ISSUE:https://gitlab.example.com:600', 'GITHUB', 'group/subgroup/repository#21', '#21', 'GitLab request'), CATALOG[3]];
+    const server: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' };
+    close(); render(true, server); await settle();
+    button('Create yourself').click(); await settle();
+    assert(!element('.create-epic__sources').textContent?.includes('GitHub'), 'A GitLab workspace does not offer GitHub issues');
+    button('GitLab issue').click();
+    await until(() => document.querySelector('.create-epic__result') !== null, 'GitLab issues load');
+    assert(element('.create-epic__ref').textContent === '#21', 'The GitLab issue is offered');
+    assert(element('.create-epic__note').textContent?.includes('issue on GitLab stays unchanged') === true, 'The note names GitLab');
+    button('Jira ticket').click(); await settle();
+    assert(element('.create-epic__ref').textContent === 'ENG-7', 'Jira tickets remain available in a GitLab workspace');
+    button('GitLab issue').click(); await settle();
+    button('Mark as Epic').click();
+    await until(() => created.length === 5, 'Marking a GitLab issue creates the Epic');
+    assert(markedIssues.at(-1) === 21 && JSON.stringify(created[4]) === JSON.stringify({ kind: 'remote', epicId: 'ISSUE:https://gitlab.example.com:600' }),
+      'The GitLab issue is marked by its number and opens by its server-scoped Epic identity');
     return true;
   }
   finally { disposeRoot(); }

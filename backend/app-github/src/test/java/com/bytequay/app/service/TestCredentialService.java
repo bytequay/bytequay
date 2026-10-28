@@ -17,6 +17,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.credentials.CredentialService.GitHubReadSelection;
+import com.bytequay.app.service.credentials.CredentialService.WorkspaceGitHubReadSelection;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingFailure;
@@ -182,6 +183,95 @@ class TestCredentialService
 
         assertThatThrownBy(() -> service.captureGitHubRead("previous"))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+    }
+
+    @Test
+    void workspaceReadUsesOverrideWithoutGlobalAuthentication()
+    {
+        CredentialStore global = mock(CredentialStore.class);
+        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
+        overrides.save("workspace", "workspace-secret", "alice");
+        GhCliService cli = mock(GhCliService.class);
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
+        CredentialService service = new CredentialService(global, overrides, cli, accounts);
+
+        WorkspaceGitHubReadSelection selection = service.captureWorkspaceGitHubRead("workspace");
+
+        assertThat(selection.credential().token()).isEqualTo("workspace-secret");
+        assertThat(selection.overridden()).isTrue();
+        assertThat(selection.toString()).doesNotContain("workspace-secret");
+        assertThat(service.withCurrentWorkspaceGitHubRead(selection, () -> "accepted")).isEqualTo("accepted");
+        verifyNoInteractions(global, cli, accounts);
+    }
+
+    @Test
+    void workspaceOverrideReplacementAndRemovalRejectInflightReads()
+    {
+        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
+        when(accounts.fetchUserProfile("same-token")).thenReturn(profile("alice"));
+        CredentialService service = new CredentialService(stored("global-token", null), overrides, mock(GhCliService.class), accounts);
+        service.saveWorkspaceGitHubToken("workspace", "same-token");
+        WorkspaceGitHubReadSelection first = service.captureWorkspaceGitHubRead("workspace");
+        service.saveWorkspaceGitHubToken("workspace", "same-token");
+
+        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(first, () -> "stale"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        WorkspaceGitHubReadSelection replacement = service.captureWorkspaceGitHubRead("workspace");
+        service.deleteWorkspaceGitHubToken("workspace");
+        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(replacement, () -> "stale"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+    }
+
+    @Test
+    void installingAndRemovingOverrideCannotReviveCapturedGlobalFallback()
+    {
+        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
+        when(accounts.fetchUserProfile("override-token")).thenReturn(profile("alice"));
+        CredentialService service = new CredentialService(stored("global-token", null), overrides, mock(GhCliService.class), accounts);
+        WorkspaceGitHubReadSelection first = service.captureWorkspaceGitHubRead("workspace");
+        assertThat(first.overridden()).isFalse();
+        service.saveWorkspaceGitHubToken("workspace", "override-token");
+        service.deleteWorkspaceGitHubToken("workspace");
+
+        assertThat(service.captureWorkspaceGitHubRead("workspace").credential()).isEqualTo(first.credential());
+        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(first, () -> "stale"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+    }
+
+    @Test
+    void globalReplacementInvalidatesOnlyWorkspaceFallbackSelections()
+    {
+        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
+        overrides.save("overridden", "workspace-token", "alice");
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
+        when(accounts.fetchUserProfile("replacement")).thenReturn(profile("bob"));
+        CredentialService service = new CredentialService(stored("global-token", null), overrides, mock(GhCliService.class), accounts);
+        WorkspaceGitHubReadSelection fallback = service.captureWorkspaceGitHubRead("fallback");
+        WorkspaceGitHubReadSelection override = service.captureWorkspaceGitHubRead("overridden");
+        service.saveGitHubToken("replacement");
+
+        assertThatThrownBy(() -> service.withCurrentWorkspaceGitHubRead(fallback, () -> "stale"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        assertThat(service.withCurrentWorkspaceGitHubRead(override, () -> "accepted")).isEqualTo("accepted");
+    }
+
+    @Test
+    void workspaceFallbackAcceptanceIsLocalAndIndependentOfOtherWorkspaces()
+    {
+        InMemoryWorkspaceCredentialStore overrides = new InMemoryWorkspaceCredentialStore();
+        GhCliService cli = mock(GhCliService.class);
+        when(cli.currentToken()).thenReturn(Optional.of("global-token"));
+        GitHubAccountClient accounts = mock(GitHubAccountClient.class);
+        when(accounts.fetchUserProfile("other-token")).thenReturn(profile("alice"));
+        CredentialService service = new CredentialService(stored("global-token", GH_CLI_SOURCE), overrides, cli, accounts);
+        WorkspaceGitHubReadSelection selection = service.captureWorkspaceGitHubRead("workspace");
+        service.saveWorkspaceGitHubToken("other-workspace", "other-token");
+        clearInvocations(cli, accounts);
+
+        assertThat(service.withCurrentWorkspaceGitHubRead(selection, () -> "accepted")).isEqualTo("accepted");
+        verifyNoInteractions(cli, accounts);
     }
 
     @Test

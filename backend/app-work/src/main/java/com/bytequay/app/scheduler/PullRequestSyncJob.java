@@ -17,7 +17,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -28,7 +27,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.refreshQuietly;
@@ -49,6 +47,7 @@ public class PullRequestSyncJob
     private final AppSettingsService appSettings;
     private final Clock clock;
     private volatile Instant lastRefreshedAt = Instant.EPOCH;
+    private volatile Instant lastWorkspaceRefreshedAt = Instant.EPOCH;
     private volatile Instant lastWarmedAt = Instant.EPOCH;
 
     public PullRequestSyncJob(
@@ -70,30 +69,26 @@ public class PullRequestSyncJob
     @Scheduled(fixedDelay = TICK_MILLIS, scheduler = "repositorySyncScheduler")
     public void tick()
     {
-        if (!credentials.isGitHubAccountConfigured()) {
-            log.debug("Sync skipped: no GitHub account configured");
-            return;
-        }
         if (appSettings.inQuietHours()) {
             log.debug("Sync skipped: GitHub quiet hours");
             return;
         }
         Instant now = Instant.now(clock);
-        if (!now.isBefore(lastRefreshedAt.plus(Duration.ofMinutes(30)))) {
+        boolean globalConfigured = credentials.isGitHubAccountConfigured();
+        if (globalConfigured && !now.isBefore(lastRefreshedAt.plus(Duration.ofMinutes(30)))) {
             lastRefreshedAt = now;
             refreshQuietly(log, "Pull request refresh for global dashboard", refreshService::refreshScheduledDashboard);
-            List<Workspace> configuredWorkspaces = workspaces.findAll();
             Set<Long> metadataRepositories = new HashSet<>();
-            configuredWorkspaces.stream()
+            workspaces.findAll().stream()
                     .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
                     .forEach(workspace -> metadata.synchronize(workspace.id()));
-            Set<Long> pullRequestRepositories = new HashSet<>();
-            configuredWorkspaces.stream()
-                    .filter(workspace -> pullRequestRepositories.add(workspace.monitoredRepositoryId()))
-                    .forEach(workspace -> refreshQuietly(log, "Pull request refresh for " + workspace.monitoredRepository().fullName(),
-                            () -> refreshService.refreshWorkspace(workspace.id())));
         }
-        if (!now.isBefore(lastWarmedAt.plus(Duration.ofMinutes(10)))) {
+        if (!now.isBefore(lastWorkspaceRefreshedAt.plus(Duration.ofMinutes(30)))) {
+            lastWorkspaceRefreshedAt = now;
+            workspaces.findAll().forEach(workspace -> refreshQuietly(log, "Pull request refresh for " + workspace.monitoredRepository().fullName(),
+                    () -> refreshService.refreshWorkspace(workspace.id())));
+        }
+        if (globalConfigured && !now.isBefore(lastWarmedAt.plus(Duration.ofMinutes(10)))) {
             lastWarmedAt = now;
             refreshQuietly(log, "Pull request refresh for warm PR details", () -> refreshService.warmRecentDetails(appSettings.preferences().prWarmCount()));
         }

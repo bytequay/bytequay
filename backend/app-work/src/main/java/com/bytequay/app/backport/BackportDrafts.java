@@ -19,21 +19,28 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.ai.TextOnlyHelper;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.backport.BackportChain;
 import com.bytequay.core.cherrypick.CherryPickExecution.PullRequestDraft;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.hosting.HostingFailure;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.cfg.CoercionAction;
+import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
+import com.fasterxml.jackson.databind.json.JsonMapper;
+import com.google.common.base.Throwables;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -54,7 +61,15 @@ import static java.util.Objects.requireNonNull;
 public class BackportDrafts
 {
     private static final Logger log = LoggerFactory.getLogger(BackportDrafts.class);
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = JsonMapper.builder().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES).build();
+
+    static {
+        MAPPER.coercionConfigFor(String.class)
+                .setCoercion(CoercionInputShape.Integer, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Float, CoercionAction.Fail)
+                .setCoercion(CoercionInputShape.Boolean, CoercionAction.Fail);
+    }
+
     private static final List<String> TEMPLATES = ImmutableList.of(
             ".github/pull_request_template.md", ".github/PULL_REQUEST_TEMPLATE.md", "pull_request_template.md", "PULL_REQUEST_TEMPLATE.md",
             "docs/pull_request_template.md", "docs/PULL_REQUEST_TEMPLATE.md");
@@ -80,18 +95,18 @@ public class BackportDrafts
             """;
 
     private final GitHubPullRequestReadClient pullRequests;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
     private final GitCommandRunner git;
     private final ModelSettingsService models;
     private final TextOnlyHelper helper;
     private final AgentSkillService skills;
     private final Clock clock;
 
-    public BackportDrafts(GitHubPullRequestReadClient pullRequests, CredentialService credentials, GitCommandRunner git,
+    public BackportDrafts(GitHubPullRequestReadClient pullRequests, WorkspaceHostingService hosting, GitCommandRunner git,
             ModelSettingsService models, TextOnlyHelper helper, AgentSkillService skills, Clock clock)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.git = requireNonNull(git, "git is null");
         this.models = requireNonNull(models, "models is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -103,7 +118,9 @@ public class BackportDrafts
     {
         var hop = chain.hops().get(index);
         models.validateWorkspaceAccess(hop.laneId(), Optional.of(hop.route().workspaceId()));
-        Optional<PrRawDetail> root = source(chain);
+        WorkspaceHostingRead target = capture(hop.route());
+        Optional<WorkspaceHostingRead> source = chain.sourcePullRequest().map(ignored -> capture(chain.source()));
+        Optional<PrRawDetail> root = source(chain, source);
         String sourceTitle = root.map(PrRawDetail::title).filter(value -> !value.isBlank())
                 .orElseGet(() -> preview.commits().isEmpty() ? "Selected changes" : preview.commits().getLast().title());
         String fallbackTitle = clip("Backport: " + sourceTitle.replaceAll("[\\r\\n]+", " ").strip(), 240);
@@ -116,7 +133,8 @@ public class BackportDrafts
                 + "\n\nLanded source: `" + hop.sourceTipSha() + "`.";
         String summary = "Backports the source change: " + clip(sourceTitle.replaceAll("[\\r\\n]+", " ").strip(), 1024) + ".";
         PullRequestDraft fallback = new PullRequestDraft(fallbackTitle, summary + "\n\n" + (template.isBlank() ? "" : template.strip() + "\n\n") + provenance);
-        List<String> titles = recentTitles(hop.route());
+        List<String> titles = recentTitles(hop.route(), target);
+        PullRequestDraft result;
         try {
             String context = MAPPER.writeValueAsString(ImmutableMap.<String, Object>builder()
                     .put("rootSourceTitle", clip(sourceTitle, 1024))
@@ -137,47 +155,84 @@ public class BackportDrafts
             String answer = helper.answer(new AgentLaneId(hop.laneId()), hop.model(), hop.effort(), INSTRUCTIONS + context,
                     skills.instructions(), "The selected model could not draft the backport pull request");
             checkArgument(answer.length() <= 65000, "Backport draft is too long");
-            JsonNode draft = MAPPER.readTree(unfence(answer));
-            checkArgument(draft != null && draft.isObject() && draft.path("title").isTextual() && draft.path("body").isTextual(), "Invalid backport draft");
-            String title = titles.isEmpty() ? fallbackTitle : draft.path("title").textValue().strip();
-            String body = draft.path("body").textValue().strip();
+            Draft draft = MAPPER.readValue(unfence(answer), Draft.class);
+            checkArgument(draft != null && draft.title() != null && draft.body() != null, "Invalid backport draft");
+            String title = titles.isEmpty() ? fallbackTitle : draft.title().strip();
+            String body = draft.body().strip();
             checkArgument(!title.isBlank() && title.length() <= 240 && !title.contains("\n") && !title.contains("\r"), "Invalid backport title");
             checkArgument(!body.isBlank() && body.length() <= 60000 && preservesHeadings(template, body), "Invalid backport body");
             if (!body.contains(sourceReference) || !body.contains(rootReference) || !body.contains(hop.sourceTipSha())) {
                 body += "\n\n" + provenance;
             }
-            return new PullRequestDraft(title, body);
+            result = new PullRequestDraft(title, body);
         }
         catch (JsonProcessingException | RuntimeException failure) {
             log.debug("Using the source title and destination template for backport {} hop {}", chain.id(), index, failure);
-            return fallback;
+            result = fallback;
         }
+        PullRequestDraft accepted = result;
+        source.ifPresent(value -> value.withCurrent(() -> null));
+        return target.withCurrent(() -> accepted);
     }
 
-    private Optional<PrRawDetail> source(BackportChain chain)
+    private WorkspaceHostingRead capture(BackportChain.Route route)
+    {
+        WorkspaceHostingRead selected = hosting.captureRead(route.workspaceId());
+        if (!selected.repository().remoteId().equals(Long.toString(route.repositoryId()))) {
+            throw new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Backport workspace repository changed; refresh the accepted route");
+        }
+        selected.githubRepository(); // Backport publication and provenance still require GitHub.com.
+        return selected;
+    }
+
+    private Optional<PrRawDetail> source(BackportChain chain, Optional<WorkspaceHostingRead> selected)
     {
         try {
-            return chain.sourcePullRequest().map(pr -> pullRequests.fetchPrDetail(credentials.resolveGitHubToken(chain.source().workspaceId()), pr));
+            return selected.map(route -> hosting.readPullRequest(route, chain.sourcePullRequest().orElseThrow().number()).detail());
         }
         catch (RuntimeException failure) {
+            requireOptionalFailure(failure);
             log.debug("Backport source description is unavailable for {}", chain.id(), failure);
             return Optional.empty();
         }
     }
 
-    private List<String> recentTitles(BackportChain.Route route)
+    private List<String> recentTitles(BackportChain.Route route, WorkspaceHostingRead selected)
     {
         try {
-            String query = "repo:" + route.repository().fullName() + " is:pr is:merged merged:>=" + LocalDate.now(clock.withZone(ZoneOffset.UTC)).minusDays(90)
+            String query = "repo:" + selected.githubRepository().fullName() + " is:pr is:merged merged:>=" + LocalDate.now(clock.withZone(ZoneOffset.UTC)).minusDays(90)
                     + " base:\"" + route.branch().replace("\\", "\\\\").replace("\"", "\\\"") + "\"";
-            return pullRequests.searchPullRequestsPaged(credentials.resolveGitHubToken(route.workspaceId()), query, 1, 20).items().stream()
+            List<String> titles = pullRequests.searchPullRequestsPaged(selected.githubToken(), query, 1, 20).items().stream()
                     .map(pr -> clip(pr.title(), 1024)).filter(title -> !title.isBlank()).collect(toImmutableList());
+            return selected.withCurrent(() -> titles);
         }
         catch (RuntimeException failure) {
+            requireOptionalFailure(failure);
             log.debug("Backport title examples are unavailable for {}", route.repository().fullName(), failure);
             return ImmutableList.of();
         }
     }
+
+    private static void requireOptionalFailure(RuntimeException failure)
+    {
+        boolean rejected = Throwables.getCausalChain(failure).stream().anyMatch(cause -> {
+            if (cause instanceof HostingFailure hosting) {
+                return switch (hosting.kind()) {
+                    case AUTHENTICATION_REQUIRED, FORBIDDEN, MISSING_OR_INACCESSIBLE, REVISION_CONFLICT -> true;
+                    default -> false;
+                };
+            }
+            return cause instanceof ResponseStatusException response && switch (response.getStatusCode().value()) {
+                case 401, 403, 404, 409 -> true;
+                default -> false;
+            };
+        });
+        if (rejected) {
+            throw failure;
+        }
+    }
+
+    private record Draft(String title, String body) {}
 
     private Optional<String> template(Path repository, String targetSha)
     {

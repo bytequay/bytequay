@@ -15,6 +15,7 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.hosting.DesktopHostingService;
 import com.bytequay.core.domain.DiffFile;
@@ -59,6 +60,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -111,7 +113,7 @@ class TestPullRequestSnapshotService
         when(details.find(1L)).thenReturn(Optional.of(retained));
         Instant sourceAt = UPDATED.plusSeconds(10);
 
-        assertThat(snapshots.saveDiscussion(1L, fetched, sourceAt, SCOPE)).isSameAs(retained);
+        assertThat(snapshots.saveDiscussion(1L, fetched, sourceAt, SCOPE, snapshots.captureRead(REF))).isSameAs(retained);
 
         verify(details).saveDiscussion(1L, fetched, sourceAt);
         verify(details).setCredentialScope(1L, SCOPE);
@@ -409,6 +411,59 @@ class TestPullRequestSnapshotService
 
         verify(details, never()).clearRemote(anyLong());
         verify(diffs, never()).deleteByPrIds(any());
+    }
+
+    @Test
+    void writeDuringCheckFetchCannotRestoreOldChecks()
+    {
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq(HEAD), any(), any(), any())).thenAnswer(ignored -> {
+            snapshots.write(REF, () -> {});
+            return new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty());
+        });
+
+        assertThatThrownBy(() -> snapshots.refreshChecks("pat", REF, 1L))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        verify(details, never()).saveStatus(anyLong(), any());
+    }
+
+    @Test
+    void writeDuringDiffFetchCannotRestoreOldBytes()
+    {
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
+        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(ignored -> {
+            snapshots.write(REF, () -> {});
+            return diff().files();
+        });
+
+        assertThatThrownBy(() -> snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        verify(diffs, never()).save(anyLong(), any(), any(), any());
+    }
+
+    @Test
+    void writeDuringFileFetchCannotRestoreOldContent()
+    {
+        when(diffs.find(1L, null, null)).thenReturn(Optional.of(diff()));
+        when(gitHub.fetchPrDiffFileContent("pat", REF, "new.txt", BASE, HEAD)).thenAnswer(ignored -> {
+            snapshots.write(REF, () -> {});
+            return new DiffFileContent("old", "old");
+        });
+
+        assertThatThrownBy(() -> snapshots.refreshFileContent("pat", REF, 1L, "new.txt", null, null))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        verify(diffs, never()).saveDefaultFileContent(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void evictionFailureCannotMaskWriteResultOrKeepReadsCurrent()
+    {
+        PullRequestReadGuard.Read old = snapshots.captureRead(REF);
+        doThrow(new IllegalStateException("database busy")).when(desktop).evict("owner/repo", 7);
+
+        assertThat(snapshots.write(REF, () -> "accepted")).isEqualTo("accepted");
+        assertThatThrownBy(() -> old.accept(() -> "stale")).isInstanceOf(HostingFailure.class);
+        assertThat(snapshots.captureRead(REF).accept(() -> "current")).isEqualTo("current");
     }
 
     private static HostingPullRequestSnapshot coordinates(String head)

@@ -185,7 +185,7 @@ public class PullRequestCiBridgeResolverImpl
             else {
                 // A cached match cannot rule out another matching PR created since the panel refreshed.
                 for (String branch : scope.branches()) {
-                    pullRequestCatalog.syncRepositoryBranch(scope.repository(), scope.worktree().physicalRepository().owner(), branch);
+                    pullRequestCatalog.syncRepositoryBranch(scope.worktree().workspaceId(), scope.worktree().physicalRepository().owner(), branch);
                 }
                 candidates = candidates(scope);
             }

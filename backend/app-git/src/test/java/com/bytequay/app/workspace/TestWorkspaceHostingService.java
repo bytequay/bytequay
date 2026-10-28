@@ -13,12 +13,15 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.DesktopHostingService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingCredential;
@@ -46,7 +49,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -60,7 +65,9 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -79,7 +86,8 @@ class TestWorkspaceHostingService
             ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests)));
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
-    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections, cache);
+    private final DesktopHostingService desktop = mock(DesktopHostingService.class);
+    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections, cache, desktop);
 
     @BeforeEach
     void setUp()
@@ -125,14 +133,99 @@ class TestWorkspaceHostingService
         assertThat(snapshot.request().repositoryId()).isEqualTo(31);
         assertThat(snapshot.pullRequest()).isEqualTo(fetched().pullRequest().orElseThrow());
         verify(requests).fetch(any(), eq(retained(remote("200"))), eq(7), eq(Optional.empty()));
+        verifyNoInteractions(desktop);
     }
 
     @Test
-    void requiresExplicitBindingAndDoesNotGuessCredentials()
+    void boundWorkspaceRefreshesRepositoryCoordinatesAfterARename()
     {
-        assertThatThrownBy(() -> service.readPullRequest("workspace", 7))
+        service.bind("workspace", 20);
+        String renamed = "moved/project";
+        doReturn(new RemoteHostingRepository("200", renamed,
+                URI.create("https://github.com/" + renamed), URI.create("https://github.com/" + renamed + ".git"), Optional.empty(), Optional.of("main")))
+                .when(repositories).findById(any(), eq("200"));
+
+        WorkspaceHostingRead route = service.captureRead("workspace");
+
+        assertThat(route.repository().id()).isEqualTo(31);
+        assertThat(route.githubRepository()).isEqualTo(RepoRef.of("moved", "project"));
+        assertThat(route.githubToken()).isEqualTo("secret");
+        verifyNoInteractions(desktop);
+    }
+
+    @Test
+    void unboundWorkspaceUsesItsCapturedCredentialAndStableRepositoryId()
+    {
+        when(desktop.workspaceSession(eq("workspace"), any())).thenAnswer(call -> {
+            HostingReadSession.Guard guard = call.getArgument(1);
+            return new HostingReadSession(20, "workspace-override", 1, new HostingAccess(INSTANCE, () -> guard.withCurrent(() -> "workspace-token")), guard);
+        });
+
+        WorkspaceHostingRead route = service.captureRead("workspace");
+        HostingPullRequestSnapshot snapshot = service.readPullRequest(route, 7);
+
+        assertThat(route.githubToken()).isEqualTo("workspace-token");
+        assertThat(route.githubRepository()).isEqualTo(RepoRef.of("renamed", "project"));
+        assertThat(route.login()).isEqualTo("alice");
+        assertThat(snapshot.credentialScope()).isEqualTo("workspace-override");
+        verify(repositories).findById(any(), eq("200"));
+        verifyNoInteractions(credentials);
+    }
+
+    @Test
+    void aBindingCreatedDuringLegacyIdentityResolutionRejectsTheRead()
+    {
+        when(desktop.workspaceSession(eq("workspace"), any())).thenAnswer(call -> {
+            HostingReadSession.Guard guard = call.getArgument(1);
+            return new HostingReadSession(20, "workspace-global", 1, new HostingAccess(INSTANCE, () -> guard.withCurrent(() -> "global-token")), guard);
+        });
+        doAnswer(ignored -> {
+            workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
+            return remote("200");
+        }).when(repositories).findById(any(), eq("200"));
+
+        assertThatThrownBy(() -> service.captureRead("workspace"))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
-        verifyNoInteractions(requests, repositories);
+        verify(identities, never()).upsertRepository(eq(10L), any());
+        verifyNoInteractions(requests);
+    }
+
+    @Test
+    void capturedTokenAndCachedReadsRejectRebindingBeforeNetworkWork()
+    {
+        service.bind("workspace", 20);
+        WorkspaceHostingRead route = service.captureRead("workspace");
+        workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
+
+        assertThatThrownBy(route::githubToken).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> service.readPullRequest(route, 7)).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> service.cachedPullRequest(route, 7)).isInstanceOf(HostingFailure.class);
+        verifyNoInteractions(requests, desktop);
+    }
+
+    @Test
+    void nativeConsumersRejectOtherServersBeforeReadingAToken()
+    {
+        HostingInstance other = new HostingInstance(90, GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"));
+        AtomicBoolean tokenRead = new AtomicBoolean();
+        HostingReadSession session = new HostingReadSession(20, "scope", 1, new HostingAccess(other, () -> {
+            tokenRead.set(true);
+            return "secret";
+        }), new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return action.get();
+            }
+        });
+        HostingRepository repository = new HostingRepository(30, 90, "42", "group/project", URI.create("https://gitlab.com/group/project"),
+                URI.create("https://gitlab.com/group/project.git"), Optional.empty(), Optional.of("main"));
+        WorkspaceHostingRead route = new WorkspaceHostingRead(session, repository, "alice");
+
+        assertThatThrownBy(route::githubToken).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(route::githubRepository).isInstanceOf(IllegalArgumentException.class);
+        assertThat(tokenRead).isFalse();
     }
 
     @Test
@@ -211,7 +304,7 @@ class TestWorkspaceHostingService
         assertThat(service.findBinding("workspace")).contains(binding);
         assertThatThrownBy(() -> service.readPullRequest("workspace", 7))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
-        verifyNoInteractions(requests);
+        verifyNoInteractions(requests, desktop);
     }
 
     private static Workspace workspace()

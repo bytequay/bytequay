@@ -21,7 +21,6 @@ import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
@@ -30,10 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.List;
-import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -159,10 +155,7 @@ public class PullRequestRefreshService
         finally {
             refreshLock.unlock();
         }
-        Set<RepoRef> repositories = new HashSet<>();
-        workspaces.findAll().stream()
-                .filter(workspace -> repositories.add(workspace.monitoredRepository()))
-                .forEach(workspace -> refreshWorkspace(workspace.id()));
+        workspaces.findAll().forEach(workspace -> refreshWorkspace(workspace.id()));
         events.publishEvent(new PullRequestsRefreshed());
     }
 
@@ -189,9 +182,10 @@ public class PullRequestRefreshService
     /** Captures current routing locally; repository-scoped cache refreshes do not own workspace files or lifecycle. */
     public void refreshWorkspace(String workspaceId)
     {
-        Optional<RepoRef> repository = WorkspaceOperationLocks.withLock(workspaceId, () -> workspaces.isWatched(workspaceId)
-                ? workspaces.findById(workspaceId).map(Workspace::monitoredRepository) : Optional.empty());
-        repository.ifPresent(this::refreshRepository);
+        boolean watched = WorkspaceOperationLocks.withLock(workspaceId, () -> workspaces.isWatched(workspaceId) && workspaces.findById(workspaceId).isPresent());
+        if (watched) {
+            refresh(() -> pullRequests.syncWorkspace(workspaceId));
+        }
     }
 
     private void refresh(Runnable action)

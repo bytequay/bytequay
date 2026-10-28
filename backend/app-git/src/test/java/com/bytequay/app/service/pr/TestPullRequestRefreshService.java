@@ -127,7 +127,7 @@ class TestPullRequestRefreshService
     }
 
     @Test
-    void toolbarRefreshesDashboardAndDistinctWorkspaceRows()
+    void toolbarRefreshesEachWorkspaceEvenWhenRepositoriesMatch()
     {
         RepoRef firstRepository = RepoRef.of("owner", "first");
         RepoRef secondRepository = RepoRef.of("owner", "second");
@@ -137,6 +137,8 @@ class TestPullRequestRefreshService
         when(workspaces.findAll()).thenReturn(ImmutableList.of(first, duplicate, second));
         when(workspaces.isWatched(first.id())).thenReturn(true);
         when(workspaces.isWatched(second.id())).thenReturn(true);
+        when(workspaces.isWatched(duplicate.id())).thenReturn(true);
+        when(workspaces.findById(duplicate.id())).thenReturn(Optional.of(duplicate));
         when(workspaces.findById(first.id())).thenReturn(Optional.of(first));
         when(workspaces.findById(second.id())).thenReturn(Optional.of(second));
         PullRequestRefreshService service = service(pullRequests, workspaces);
@@ -145,8 +147,9 @@ class TestPullRequestRefreshService
 
         InOrder order = inOrder(pullRequests);
         order.verify(pullRequests).syncFromGitHub();
-        order.verify(pullRequests).syncRepository(firstRepository);
-        order.verify(pullRequests).syncRepository(secondRepository);
+        order.verify(pullRequests).syncWorkspace(first.id());
+        order.verify(pullRequests).syncWorkspace(duplicate.id());
+        order.verify(pullRequests).syncWorkspace(second.id());
     }
 
     @Test
@@ -175,7 +178,7 @@ class TestPullRequestRefreshService
             entered.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
-        }).when(pullRequests).syncRepository(workspace.monitoredRepository());
+        }).when(pullRequests).syncWorkspace(workspace.id());
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var refresh = executor.submit(() -> service(pullRequests, workspaces).refreshWorkspace(workspace.id()));
@@ -204,8 +207,9 @@ class TestPullRequestRefreshService
 
         service(pullRequests, workspaces).refreshDashboardRows();
 
-        verify(pullRequests).syncRepository(currentRepository);
+        verify(pullRequests).syncWorkspace("workspace");
         verify(pullRequests, never()).syncRepository(previousRepository);
+        verify(pullRequests, never()).syncRepository(currentRepository);
     }
 
     @Test

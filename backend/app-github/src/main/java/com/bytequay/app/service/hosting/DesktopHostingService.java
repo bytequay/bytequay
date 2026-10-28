@@ -15,6 +15,7 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubReadSelection;
+import com.bytequay.app.service.credentials.CredentialService.WorkspaceGitHubReadSelection;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
@@ -92,6 +93,31 @@ public class DesktopHostingService
                 .flatMap(repository -> requests.cached(selection.session(), repository.id(), ref.number()));
     }
 
+    public HostingReadSession workspaceSession(String workspaceId, HostingReadSession.Guard routingGuard)
+    {
+        WorkspaceGitHubReadSelection selected = credentials.captureWorkspaceGitHubRead(workspaceId);
+        HostingReadSession.Guard guard = new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return routingGuard.withCurrent(() -> credentials.withCurrentWorkspaceGitHubRead(selected, action));
+            }
+        };
+        String scope = "github-workspace:" + selected.workspaceId() + ":" + selected.workspaceRevision() + ":" + selected.credential().revision();
+        return verifiedSession(scope, () -> guard.withCurrent(selected.credential()::token), guard);
+    }
+
+    private HostingReadSession verifiedSession(String scope, Supplier<String> token, HostingReadSession.Guard guard)
+    {
+        RemoteHostingAccount remote = accounts.verify(new HostingAccess(GITHUB_SERVER, token));
+        return guard.withCurrent(() -> {
+            HostingInstance instance = identities.upsertInstance(GITHUB_SERVER);
+            HostingAccount account = identities.upsertAccount(instance.id(), remote);
+            return new HostingReadSession(account.id(), scope, 1, new HostingAccess(instance, token), guard);
+        });
+    }
+
     public void evict(String repo, int number)
     {
         identities.findRepositories(GITHUB_SERVER, repo).forEach(repository -> requests.invalidateRepository(repository.id(), number));
@@ -130,18 +156,13 @@ public class DesktopHostingService
         {
             if (session == null) {
                 Supplier<String> token = () -> credentials.withCurrentGitHubRead(credential, credential::token);
-                RemoteHostingAccount remote = accounts.verify(new HostingAccess(GITHUB_SERVER, token));
-                session = credentials.withCurrentGitHubRead(credential, () -> {
-                    HostingInstance instance = identities.upsertInstance(GITHUB_SERVER);
-                    HostingAccount account = identities.upsertAccount(instance.id(), remote);
-                    return new HostingReadSession(account.id(), scope(), 1, new HostingAccess(instance, token), new HostingReadSession.Guard()
+                session = verifiedSession(scope(), token, new HostingReadSession.Guard()
+                {
+                    @Override
+                    public <T> T withCurrent(Supplier<T> action)
                     {
-                        @Override
-                        public <T> T withCurrent(Supplier<T> action)
-                        {
-                            return credentials.withCurrentGitHubRead(credential, action);
-                        }
-                    });
+                        return credentials.withCurrentGitHubRead(credential, action);
+                    }
                 });
             }
             return session;

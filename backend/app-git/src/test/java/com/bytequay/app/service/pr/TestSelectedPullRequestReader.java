@@ -20,6 +20,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
+import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.PrDetailStore;
@@ -66,6 +67,8 @@ class TestSelectedPullRequestReader
     private static final String HEAD = "a".repeat(40);
     private static final String NEW_HEAD = "b".repeat(40);
 
+    private final PullRequestReadGuard versions = new PullRequestReadGuard();
+    private final PullRequestReadGuard.Read version = versions.capture(PullRequestRef.of("owner", "repo", NUMBER));
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
@@ -74,8 +77,23 @@ class TestSelectedPullRequestReader
     @BeforeEach
     void credentialScope()
     {
+        lenient().when(pullRequests.captureRead(any(), anyInt())).thenReturn(version);
         lenient().when(pullRequests.prepareRead(any(), anyInt())).thenReturn("scope");
-        lenient().when(pullRequests.withCurrentScope(eq("scope"), any())).thenAnswer(call -> call.<Supplier<?>>getArgument(1).get());
+        lenient().when(pullRequests.withCurrentRead(eq(version), eq("scope"), any())).thenAnswer(call -> version.accept(call.<Supplier<?>>getArgument(2)));
+    }
+
+    @Test
+    void writeDuringCachedReadCannotReturnTheOldSnapshot()
+    {
+        cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
+        when(pullRequests.findStored(REPO, NUMBER)).thenAnswer(ignored -> {
+            versions.write(PullRequestRef.of("owner", "repo", NUMBER), () -> true);
+            return Optional.of(row(UPDATED, "open", null));
+        });
+
+        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.REVISION_CONFLICT));
+        verifyNoInteractions(refresh);
     }
 
     @ParameterizedTest
@@ -95,7 +113,7 @@ class TestSelectedPullRequestReader
     {
         cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
         HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Credential changed");
-        when(pullRequests.withCurrentScope(eq("scope"), any())).thenThrow(failure);
+        when(pullRequests.withCurrentRead(eq(version), eq("scope"), any())).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
         verifyNoInteractions(refresh);

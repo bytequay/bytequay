@@ -399,13 +399,13 @@ public class AgentController
             var assignment = pullRequestTasks.findByTaskId(taskId);
             if (assignment.isPresent()) {
                 var pr = assignment.orElseThrow();
-                pullRequestCatalog.observeWorkspacePullRequest(ownership.repository(workspaceId), pr.number());
+                pullRequestCatalog.observeWorkspacePullRequest(workspaceId, pr.number());
                 return ownership.assignedPullRequests(task).orElseThrow();
             }
             return task.taskWorktree().map(worktree -> {
                 List<String> branches = ownership.branches(worktree);
                 RepoRef repository = ownership.repository(workspaceId);
-                branches.forEach(branch -> pullRequestCatalog.syncRepositoryBranch(repository, worktree.physicalRepository().owner(), branch));
+                branches.forEach(branch -> pullRequestCatalog.syncRepositoryBranch(workspaceId, worktree.physicalRepository().owner(), branch));
                 return ownership.branchPullRequests(repository, worktree, branches);
             }).orElse(ImmutableList.of());
         });

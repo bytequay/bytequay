@@ -31,6 +31,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.core.domain.RepoRef;
@@ -200,6 +201,9 @@ abstract class AbstractTestAgentHttpApi
 
     @MockitoBean
     protected CredentialService credentials;
+
+    @MockitoBean
+    protected WorkspaceHostingService workspaceHosting;
 
     @MockitoSpyBean
     private DevelopmentGitInspector developmentGit;

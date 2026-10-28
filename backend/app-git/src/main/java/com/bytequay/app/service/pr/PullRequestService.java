@@ -25,7 +25,11 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.hosting.DesktopHostingService;
+import com.bytequay.app.service.hosting.HostingReadSession.Guard;
+import com.bytequay.app.service.pr.PullRequestReadGuard.Read;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
@@ -153,6 +157,7 @@ public class PullRequestService
     private final WorkspaceStore workspaces;
     private final CredentialService credentialService;
     private final DesktopHostingService desktop;
+    private final WorkspaceHostingService workspaceHosting;
     private final WorkspaceMetadataService metadata;
     private final ApplicationContext applicationContext;
     private final GitHubNotificationClient notifications;
@@ -174,6 +179,7 @@ public class PullRequestService
             RecentTouchRecorder recent,
             CredentialService credentialService,
             DesktopHostingService desktop,
+            WorkspaceHostingService workspaceHosting,
             WorkspaceMetadataService metadata,
             GitHubPullRequestSummaryClient summaries,
             WorkspaceStore workspaces,
@@ -194,6 +200,7 @@ public class PullRequestService
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.desktop = requireNonNull(desktop, "desktop is null");
+        this.workspaceHosting = requireNonNull(workspaceHosting, "workspaceHosting is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.summaries = requireNonNull(summaries, "summaries is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -203,7 +210,7 @@ public class PullRequestService
         this.issues = requireNonNull(issues, "issues is null");
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
-        this.actions = new PullRequestActions(gitHub, pullRequestWrites, store, snapshots, details, viewStateStore, recent, credentialService, desktop, this::getPullRequestDetail);
+        this.actions = new PullRequestActions(gitHub, pullRequestWrites, store, snapshots, details, viewStateStore, recent, credentialService, this::getPullRequestDetail);
     }
 
     public PullRequestPage listPullRequests(int page, int pageSize)
@@ -287,17 +294,20 @@ public class PullRequestService
     public PullRequest lookupPullRequest(String repo, int number)
     {
         PullRequestRef ref = parseRef(repo, number);
+        Read version = snapshots.captureRead(ref);
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String scope = desktop.scope(credential.token());
-        HostingPullRequestSnapshot metadata = desktop.cached(credential.token(), ref).orElseGet(() -> refreshMetadata(credential.token(), ref, scope, false));
-        return withCurrentScope(scope, () -> store.saveObserved(metadata.pullRequest().withViewerOrigin(credential.profile().login())));
+        HostingPullRequestSnapshot metadata = desktop.cached(credential.token(), ref).orElseGet(() -> refreshMetadata(credential.token(), ref, scope, false, version));
+        return withCurrentRead(version, scope, () -> store.saveObserved(metadata.pullRequest().withViewerOrigin(credential.profile().login())));
     }
 
     /** Reads the cached description the same way, so it is empty until a detail read has stored the pull request once. */
     public Optional<String> findStoredDescription(String repo, int number)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> store.findIdByRepoAndNumber(repo, number).flatMap(details::find).map(detail -> Optional.ofNullable(detail.raw().body()).orElse("")));
+        return withCurrentRead(version, scope, () -> store.findIdByRepoAndNumber(repo, number).flatMap(details::find)
+                .map(detail -> Optional.ofNullable(detail.raw().body()).orElse("")));
     }
 
     /** Reads cached avatar URLs without loading full details or contacting GitHub. */
@@ -413,12 +423,15 @@ public class PullRequestService
         }
         if (monitored && row.monitoredAt() == null) {
             GitHubCredential credential = credentialService.resolveGitHubCredential();
+            Read version = captureRead(row.repo(), row.number());
+            Guard guard = desktopGuard(desktop.scope(credential.token()));
             GitHubPullRequestSummary summary = summaries.fetchSummaries(
-                            credential.token(), ImmutableList.of(parseRef(row.repo(), row.number())), credential.profile().login()).stream()
+                            guard.withCurrent(credential::token), ImmutableList.of(parseRef(row.repo(), row.number())), credential.profile().login()).stream()
                     .findFirst()
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not load pull request activity. Retry monitoring shortly."));
             // Establish the same lightweight baseline used by polling before enabling notifications.
-            storeCardSummary(credential.token(), store.saveObserved(summary.pullRequest()), summary, credential.profile().login());
+            PullRequest observed = guard.withCurrent(() -> version.accept(() -> store.saveObserved(summary.pullRequest())));
+            storeCardSummary(credential.token(), observed, summary, credential.profile().login(), guard, version);
             if ("merged".equalsIgnoreCase(summary.pullRequest().state()) || summary.pullRequest().mergedAt() != null) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Merged pull requests cannot be monitored");
             }
@@ -441,15 +454,17 @@ public class PullRequestService
     }
 
     /** Exact-fetches a newly created pull request so its workspace projection does not wait for GitHub search. */
-    public void observeWorkspacePullRequest(RepoRef repository, int number)
+    public void observeWorkspacePullRequest(String workspaceId, int number)
     {
-        requireNonNull(repository, "repository is null");
-        GitHubCredential credential = credentialService.resolveGitHubCredential();
+        WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
+        RepoRef repository = route.githubRepository();
         PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), number);
-        String scope = desktop.scope(credential.token());
-        FetchedPullRequest pullRequest = refreshMetadata(credential.token(), ref, scope, false).pullRequest()
-                .withViewerOrigin(credential.profile().login());
-        withCurrentScope(scope, () -> store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest)));
+        Read read = snapshots.captureRead(ref);
+        FetchedPullRequest pullRequest = workspaceHosting.readPullRequest(route, number).pullRequest().withViewerOrigin(route.login());
+        route.withCurrent(() -> read.accept(() -> {
+            store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest));
+            return null;
+        }));
     }
 
     /**
@@ -461,48 +476,88 @@ public class PullRequestService
     {
         requireNonNull(repository, "repository is null");
         GitHubCredential credential = credentialService.resolveGitHubCredential();
-        baselineSummaries(credential.token());
+        String scope = desktop.scope(credential.token());
+        syncRepository(repository, credential.token(), credential.profile().login(), scope, desktopGuard(scope));
+    }
+
+    public void syncWorkspace(String workspaceId)
+    {
+        WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
+        String scope = "workspace." + route.session().accountId() + "." + route.session().credentialScope() + "." + route.session().generation();
+        syncRepository(route.githubRepository(), route.githubToken(), route.login(), scope, route.session().guard());
+    }
+
+    private void syncRepository(RepoRef repository, String pat, String login, String scope, Guard guard)
+    {
+        Read version = snapshots.captureRepositoryRead(repository);
+        baselineSummaries(pat);
+        Supplier<String> token = () -> guard.withCurrent(() -> pat);
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         Consumer<List<FetchedPullRequest>> save = page -> {
-            List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(credential.profile().login())).collect(toImmutableList());
-            store.saveRepositorySyncPage(repository.fullName(), rows);
+            List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList());
+            guard.withCurrent(() -> version.accept(() -> {
+                store.saveRepositorySyncPage(repository.fullName(), rows);
+                return null;
+            }));
             rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
         };
         String query = "is:pr repo:" + repository.fullName();
-        String key = "github.repository-sync." + credential.profile().login().toLowerCase(Locale.ROOT) + "." + repository.fullName().toLowerCase(Locale.ROOT);
+        String key = "github.repository-sync." + scope + "." + repository.fullName().toLowerCase(Locale.ROOT);
         Instant started = clock.instant();
         // Deleting the last workspace of a repository hides its rows, so watching it again needs the full pass.
         Optional<Instant> synced = syncSettings.get(key).map(Instant::parse)
                 .filter(at -> at.isAfter(started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS))) && !at.isAfter(started))
                 .filter(ignored -> store.findRepositoryPage(repository.fullName(), 0, 1).totalPullRequests() > 0);
         if (synced.isPresent()) {
-            discoverQuery(credential.token(), query + " updated:>=" + synced.orElseThrow().minusSeconds(300).truncatedTo(ChronoUnit.SECONDS), save);
+            discoverQuery(token, query + " updated:>=" + synced.orElseThrow().minusSeconds(300).truncatedTo(ChronoUnit.SECONDS), save);
         }
         else {
             // A full pass that fails part way must not leave an older checkpoint behind its partly saved rows.
-            syncSettings.delete(key);
+            guard.withCurrent(() -> version.accept(() -> {
+                syncSettings.delete(key);
+                return null;
+            }));
             String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
-            discoverQuery(credential.token(), query + " updated:>=" + sinceDate, save);
-            discoverQuery(credential.token(), query + " is:open", save);
+            discoverQuery(token, query + " updated:>=" + sinceDate, save);
+            discoverQuery(token, query + " is:open", save);
         }
-        syncSettings.put(key, started.toString());
-        enrichCards(credential, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
+        guard.withCurrent(() -> version.accept(() -> {
+            syncSettings.put(key, started.toString());
+            return null;
+        }));
+        enrichCards(pat, login, guard, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
         // Search can omit cached rows; discovery never deletes their data or local marks.
     }
 
-    /** Discovers one task branch without a repository-wide search or detail refresh. */
-    public void syncRepositoryBranch(RepoRef repository, String headOwner, String branch)
+    private Guard desktopGuard(String scope)
     {
-        requireNonNull(repository, "repository is null");
+        return new Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return desktop.withCurrent(scope, action);
+            }
+        };
+    }
+
+    /** Discovers one task branch without a repository-wide search or detail refresh. */
+    public void syncRepositoryBranch(String workspaceId, String headOwner, String branch)
+    {
         checkText(headOwner, "headOwner");
         checkText(branch, "branch");
-        GitHubCredential credential = credentialService.resolveGitHubCredential();
-        List<FetchedPullRequest> fresh = gitHub.fetchPullRequestsByHead(credential.token(), repository, headOwner + ":" + branch).stream()
-                .map(pullRequest -> pullRequest.withViewerOrigin(credential.profile().login()))
+        WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
+        RepoRef repository = route.githubRepository();
+        Read version = snapshots.captureRepositoryRead(repository);
+        List<FetchedPullRequest> fresh = gitHub.fetchPullRequestsByHead(route.githubToken(), repository, headOwner + ":" + branch).stream()
+                .map(pullRequest -> pullRequest.withViewerOrigin(route.login()))
                 .collect(toImmutableList());
-        if (!fresh.isEmpty()) {
-            store.saveRepositorySyncPage(repository.fullName(), fresh);
-        }
+        route.withCurrent(() -> version.accept(() -> {
+            if (!fresh.isEmpty()) {
+                store.saveRepositorySyncPage(repository.fullName(), fresh);
+            }
+            return null;
+        }));
     }
 
     public List<RepoUser> listRepositoryUsers(String repo, String workspaceId)
@@ -552,7 +607,8 @@ public class PullRequestService
 
     public void rerunFailedChecks(String repo, int number)
     {
-        snapshots.rerunFailedChecks(parseRef(repo, number));
+        PullRequestRef ref = parseRef(repo, number);
+        snapshots.write(ref, () -> snapshots.rerunFailedChecks(ref));
     }
 
     /** Notification ingestion and incremental discovery never wait for full detail warming. */
@@ -621,6 +677,8 @@ public class PullRequestService
     /** Returns whether the query was due; one that completed within two minutes is skipped. */
     private boolean discoverRecent(GitHubCredential credential, String query, PullRequest.Origin origin, Map<String, FetchedPullRequest> seen)
     {
+        Read version = snapshots.captureDiscovery();
+        String scope = desktop.scope(credential.token());
         String key = "github.discovery." + credential.profile().login().toLowerCase(Locale.ROOT) + "." + Hashing.sha256().hashString(query, StandardCharsets.UTF_8);
         Instant started = clock.instant();
         Optional<Instant> completed = syncSettings.get(key).map(Instant::parse).filter(at -> !at.isAfter(started));
@@ -645,7 +703,10 @@ public class PullRequestService
             }
         });
         // A failed page leaves this query's checkpoint unchanged; already saved pages replay safely.
-        syncSettings.put(key, started.toString());
+        withCurrentRead(version, scope, () -> {
+            syncSettings.put(key, started.toString());
+            return null;
+        });
         return true;
     }
 
@@ -660,13 +721,14 @@ public class PullRequestService
             // Watching someone's repository on GitHub does not make its pull requests the viewer's work.
             return;
         }
+        Read version = snapshots.captureRead(ref);
         String scope = desktop.scope(credential.token());
-        FetchedPullRequest fetched = refreshMetadata(credential.token(), ref, scope, false).pullRequest().withViewerOrigin(credential.profile().login());
+        FetchedPullRequest fetched = refreshMetadata(credential.token(), ref, scope, false, version).pullRequest().withViewerOrigin(credential.profile().login());
         FetchedPullRequest observed = notification.reviewRequested() && fetched.origin() != AUTHORED ? fetched.withOrigin(REVIEW_REQUESTED) : fetched;
-        PullRequest row = withCurrentScope(scope, () -> store.saveObserved(observed));
+        PullRequest row = withCurrentRead(version, scope, () -> store.saveObserved(observed));
         // Save the dirty marker before enrichment: a comment request failure cannot hide the notification.
         if (!"ci_activity".equals(notification.reason())) {
-            withCurrentScope(scope, () -> {
+            withCurrentRead(version, scope, () -> {
                 store.observeActivity(row.id(), Optional.empty(), notification.updatedAt());
                 return null;
             });
@@ -678,7 +740,7 @@ public class PullRequestService
         changed.add(ref);
         try {
             notifications.activity(credential.token(), notification)
-                    .ifPresent(activity -> withCurrentScope(scope, () -> {
+                    .ifPresent(activity -> withCurrentRead(version, scope, () -> {
                         store.observeActivity(row.id(), Optional.of(activity), notification.updatedAt());
                         return null;
                     }));
@@ -705,8 +767,18 @@ public class PullRequestService
 
     private void discoverQuery(String pat, String query, Consumer<List<FetchedPullRequest>> save)
     {
+        Read version = snapshots.captureDiscovery();
+        String scope = desktop.scope(pat);
+        discoverQuery(() -> withCurrentScope(scope, () -> pat), query, rows -> withCurrentRead(version, scope, () -> {
+            save.accept(rows);
+            return null;
+        }));
+    }
+
+    private void discoverQuery(Supplier<String> token, String query, Consumer<List<FetchedPullRequest>> save)
+    {
         for (int page = 1; page <= 10; page++) {
-            PullRequestHistoryPage result = gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
+            PullRequestHistoryPage result = gitHub.searchPullRequestsPaged(token.get(), query, page, SEARCH_PAGE_SIZE);
             save.accept(result.items());
             if (!result.hasMore()) {
                 return;
@@ -718,8 +790,10 @@ public class PullRequestService
     /** Discovers all personal rows, then warms only the newest full snapshots per repository. */
     public void syncFromGitHub()
     {
+        Read version = snapshots.captureDiscovery();
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
+        String scope = desktop.scope(pat);
         baselineSummaries(pat);
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         syncAttentionQuery(pat, seen, "is:pr is:open author:@me", AUTHORED);
@@ -729,7 +803,10 @@ public class PullRequestService
         syncAttentionQuery(pat, seen, "is:pr is:open reviewed-by:@me", OTHER);
         syncAttentionQuery(pat, seen, "is:pr involves:@me updated:>=" + sinceDate, OTHER);
         List<FetchedPullRequest> fresh = ImmutableList.copyOf(seen.values());
-        store.saveDashboardSyncPage(fresh);
+        withCurrentRead(version, scope, () -> {
+            store.saveDashboardSyncPage(fresh);
+            return null;
+        });
         enrichCards(credential, fresh.stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
     }
 
@@ -776,12 +853,17 @@ public class PullRequestService
 
     private void enrichCards(GitHubCredential credential, List<PullRequestRef> candidates)
     {
-        List<PullRequestRef> refs = dueSummaries(credential, candidates);
+        enrichCards(credential.token(), credential.profile().login(), desktopGuard(desktop.scope(credential.token())), candidates);
+    }
+
+    private void enrichCards(String pat, String login, Guard guard, List<PullRequestRef> candidates)
+    {
+        List<PullRequestRef> refs = dueSummaries(pat, candidates);
         for (int offset = 0; offset < refs.size(); offset += GitHubPullRequestSummaryClient.BATCH_SIZE) {
             summaryLock.lock();
             try {
-                List<PullRequestRef> batch = dueSummaries(credential, refs.subList(offset, Math.min(offset + GitHubPullRequestSummaryClient.BATCH_SIZE, refs.size())));
-                enrichCardBatch(credential, batch);
+                List<PullRequestRef> batch = dueSummaries(pat, refs.subList(offset, Math.min(offset + GitHubPullRequestSummaryClient.BATCH_SIZE, refs.size())));
+                enrichCardBatch(pat, login, guard, batch);
             }
             finally {
                 summaryLock.unlock();
@@ -799,7 +881,7 @@ public class PullRequestService
             return;
         }
         try {
-            List<PullRequestRef> refs = dueSummaries(credential, candidates);
+            List<PullRequestRef> refs = dueSummaries(credential.token(), candidates);
             if (refs.isEmpty()) {
                 return;
             }
@@ -817,13 +899,13 @@ public class PullRequestService
         }
     }
 
-    private List<PullRequestRef> dueSummaries(GitHubCredential credential, List<PullRequestRef> candidates)
+    private List<PullRequestRef> dueSummaries(String pat, List<PullRequestRef> candidates)
     {
         Instant now = clock.instant();
         return candidates.stream().distinct().filter(ref -> {
             Optional<PullRequest> row = store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).flatMap(store::findById);
             SummaryStamp stamp = summaryStamps.get(ref);
-            if (stamp == null || !stamp.credential().equals(credential.token()) || row.isEmpty()) {
+            if (stamp == null || !stamp.credential().equals(pat) || row.isEmpty()) {
                 return true;
             }
             PullRequest cached = row.orElseThrow();
@@ -839,6 +921,11 @@ public class PullRequestService
     /** One batch owns GraphQL and its pacing delay, but never the inbox monitor. */
     private void enrichCardBatch(GitHubCredential credential, List<PullRequestRef> batch)
     {
+        enrichCardBatch(credential.token(), credential.profile().login(), desktopGuard(desktop.scope(credential.token())), batch);
+    }
+
+    private void enrichCardBatch(String pat, String login, Guard guard, List<PullRequestRef> batch)
+    {
         if (batch.isEmpty()) {
             return;
         }
@@ -847,11 +934,14 @@ public class PullRequestService
         synchronized (summaryStamps) {
             generation = summaryGeneration;
         }
-        Set<PullRequestRef> reviewRequests = notifications.reviewRequests(credential.profile().login());
+        Set<PullRequestRef> reviewRequests = notifications.reviewRequests(login);
+        Map<String, Read> versions = batch.stream()
+                .collect(toImmutableMap(ref -> ref.fullName().toLowerCase(Locale.ROOT), snapshots::captureRead, (first, ignored) -> first));
         long started = System.nanoTime();
         try {
             // Persist each completed batch before asking for the next one.
-            for (GitHubPullRequestSummary summary : summaries.fetchSummaries(credential.token(), batch, credential.profile().login())) {
+            String token = guard.withCurrent(() -> pat);
+            for (GitHubPullRequestSummary summary : summaries.fetchSummaries(token, batch, login)) {
                 synchronized (summaryStamps) {
                     if (generation != summaryGeneration) {
                         break;
@@ -862,18 +952,26 @@ public class PullRequestService
                 if (fetched.origin() != AUTHORED && reviewRequests.contains(ref)) {
                     fetched = fetched.withOrigin(REVIEW_REQUESTED);
                 }
-                PullRequest row = store.saveObserved(fetched);
-                storeCardSummary(credential.token(), row, summary, credential.profile().login());
+                Read version = versions.get(ref.fullName().toLowerCase(Locale.ROOT));
+                if (version == null) {
+                    continue;
+                }
+                FetchedPullRequest accepted = fetched;
+                PullRequest row = guard.withCurrent(() -> version.accept(() -> store.saveObserved(accepted)));
+                storeCardSummary(pat, row, summary, login, guard, version);
                 if (row.updatedAt().isAfter(summary.pullRequest().updatedAt())) {
                     continue;
                 }
                 Instant source = summary.discussionUpdatedAt().isAfter(summary.pullRequest().updatedAt()) ? summary.discussionUpdatedAt() : summary.pullRequest().updatedAt();
-                synchronized (summaryStamps) {
-                    // An inbox update or credential switch during this request must remain eligible for a newer read.
-                    if (generation == summaryGeneration) {
-                        summaryStamps.put(ref, new SummaryStamp(credential.token(), source, now));
+                guard.withCurrent(() -> version.accept(() -> {
+                    synchronized (summaryStamps) {
+                        // An inbox update or credential switch during this request must remain eligible for a newer read.
+                        if (generation == summaryGeneration) {
+                            summaryStamps.put(ref, new SummaryStamp(pat, source, now));
+                        }
                     }
-                }
+                    return null;
+                }));
             }
         }
         catch (RuntimeException failure) {
@@ -922,38 +1020,49 @@ public class PullRequestService
         }
     }
 
-    private void storeCardSummary(String pat, PullRequest row, GitHubPullRequestSummary summary, String login)
+    private void storeCardSummary(
+            String pat, PullRequest row, GitHubPullRequestSummary summary, String login, Guard guard, Read version)
     {
         if (row.updatedAt().isAfter(summary.pullRequest().updatedAt())) {
             return;
         }
-        store.observeActivity(row.id(), summary.latestActivity(), summary.discussionUpdatedAt());
-        PrViewState state = viewStateStore.findByPrIds(ImmutableSet.of(row.id())).get(row.id());
-        List<PrReviewState> reviews = summary.viewerReview().map(ImmutableList::of).orElse(ImmutableList.of());
-        reconcileHandledActionFromReviews(row.id(), reviews, login, state);
-        state = viewStateStore.findByPrIds(ImmutableSet.of(row.id())).get(row.id());
+        PrViewState state = guard.withCurrent(() -> version.accept(() -> {
+            store.observeActivity(row.id(), summary.latestActivity(), summary.discussionUpdatedAt());
+            PrViewState existing = viewStateStore.findByPrIds(ImmutableSet.of(row.id())).get(row.id());
+            List<PrReviewState> reviews = summary.viewerReview().map(ImmutableList::of).orElse(ImmutableList.of());
+            reconcileHandledActionFromReviews(row.id(), reviews, login, existing);
+            return viewStateStore.findByPrIds(ImmutableSet.of(row.id())).get(row.id());
+        }));
         Instant pushedAt = summary.headCommittedAt().orElse(row.headPushedAt());
         if (row.headPushedAt() != null && (pushedAt == null || row.headPushedAt().isAfter(pushedAt))) {
             pushedAt = row.headPushedAt();
         }
+        boolean needsReview = false;
         if (state != null && state.handledAction() != null && state.reviewedAt() != null) {
             boolean newHead = state.reviewedHeadSha() == null ? pushedAt != null && pushedAt.isAfter(state.reviewedAt()) : !state.reviewedHeadSha().equals(summary.headSha());
             boolean requestedAgain = summary.reviewRequestedAt().isPresent() && summary.reviewRequestedAt().orElseThrow().isAfter(state.reviewedAt());
             boolean dismissed = summary.viewerReview().filter(review -> "DISMISSED".equals(review.state())).isPresent();
-            if (requestedAgain || dismissed || state.handledAction() != HandledAction.APPROVED
-                    && (newHead || hasUnseenAuthorReply(pat, row, summary, login, state.reviewedAt()))) {
-                viewStateStore.markNeedsReview(row.id());
-            }
+            // Reply probes are remote work: keep them conditional and outside every local acceptance guard.
+            needsReview = requestedAgain || dismissed || state.handledAction() != HandledAction.APPROVED
+                    && (newHead || hasUnseenAuthorReply(guard.withCurrent(() -> pat), row, summary, login, state.reviewedAt()));
             if (newHead && (pushedAt == null || !pushedAt.isAfter(state.reviewedAt()))) {
                 // A force-push can introduce a commit older than the review; use when the changed head was observed.
                 pushedAt = row.headPushedAt() != null && row.headPushedAt().isAfter(state.reviewedAt()) ? row.headPushedAt() : Instant.now();
             }
         }
-        store.updateEnrichment(
-                row.id(), summary.pullRequest().updatedAt(), summary.ciStatus(), summary.additions(), summary.deletions(), summary.commentCount(),
-                summary.pullRequest().mergeable(), summary.pullRequest().mergeableState(), pushedAt, summary.pullRequest().headRef(),
-                summary.pullRequest().requestedReviewers(), row.origin(), summary.reviewRequestedAt(), summary.reviewDecision(),
-                ImmutableMap.of("summary", summary.activityVersion()));
+        Instant observedPush = pushedAt;
+        boolean clearHandled = needsReview;
+        guard.withCurrent(() -> version.accept(() -> {
+            if (clearHandled) {
+                viewStateStore.markNeedsReview(row.id());
+            }
+            store.updateEnrichment(
+                    row.id(), summary.pullRequest().updatedAt(), summary.ciStatus(), summary.additions(), summary.deletions(), summary.commentCount(),
+                    summary.pullRequest().mergeable(), summary.pullRequest().mergeableState(), observedPush, summary.pullRequest().headRef(),
+                    summary.pullRequest().requestedReviewers(), row.origin(), summary.reviewRequestedAt(), summary.reviewDecision(),
+                    ImmutableMap.of("summary", summary.activityVersion()));
+            return null;
+        }));
     }
 
     private boolean hasUnseenAuthorReply(String pat, PullRequest row, GitHubPullRequestSummary summary, String login, Instant reviewedAt)
@@ -968,12 +1077,13 @@ public class PullRequestService
     /** Returns detail for a pull request the user opened. Background readers use {@link #getPullRequestDetail} instead. */
     public PullRequestDetail openPullRequestDetail(String repo, int number)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
         PullRequestDetail detail = getPullRequestDetail(repo, number);
         // Opening the pull request dates the "since you last looked"
         // comparison. It is deliberately unconditional and separate from the
         // Recent stream, which needs a stronger signal than a triage click.
-        return withCurrentScope(scope, () -> {
+        return withCurrentRead(version, scope, () -> {
             markViewed(detail.id());
             return detail;
         });
@@ -982,23 +1092,25 @@ public class PullRequestService
     /** Returns persisted detail, fetching and caching it on a local miss. */
     public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
         PullRequestDetail detail = findPullRequestDetail(repo, number)
                 .orElseGet(() -> refreshPullRequestDetailFromGitHub(repo, number).detail());
-        return withCurrentScope(scope, () -> detail);
+        return withCurrentRead(version, scope, () -> detail);
     }
 
     /** Prepares remote projections for the currently selected desktop credential without changing local request identity. */
     public String prepareRead(String repo, int number)
     {
         String scope = desktop.scope(credentialService.resolveGitHubToken());
-        prepareRead(parseRef(repo, number), scope);
+        PullRequestRef ref = parseRef(repo, number);
+        prepareRead(ref, scope, snapshots.captureRead(ref));
         return scope;
     }
 
-    private void prepareRead(PullRequestRef ref, String scope)
+    private void prepareRead(PullRequestRef ref, String scope, Read version)
     {
-        withCurrentScope(scope, () -> {
+        withCurrentRead(version, scope, () -> {
             store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).ifPresent(id -> snapshots.prepareScope(id, scope));
             return null;
         });
@@ -1009,14 +1121,24 @@ public class PullRequestService
         return desktop.withCurrent(scope, action);
     }
 
-    private HostingPullRequestSnapshot refreshMetadata(String pat, PullRequestRef ref, String scope, boolean force)
+    Read captureRead(String repo, int number)
+    {
+        return snapshots.captureRead(parseRef(repo, number));
+    }
+
+    <T> T withCurrentRead(Read version, String scope, Supplier<T> action)
+    {
+        return withCurrentScope(scope, () -> version.accept(action));
+    }
+
+    private HostingPullRequestSnapshot refreshMetadata(String pat, PullRequestRef ref, String scope, boolean force, Read version)
     {
         try {
             return desktop.refresh(pat, ref, force);
         }
         catch (HostingFailure failure) {
             if (PullRequestSnapshotService.inaccessible(failure)) {
-                withCurrentScope(scope, () -> {
+                withCurrentRead(version, scope, () -> {
                     store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).ifPresent(snapshots::clearRemote);
                     return null;
                 });
@@ -1063,9 +1185,10 @@ public class PullRequestService
 
     private DetailRefresh refreshDetailOnce(PullRequestRef ref, RefreshPolicy policy)
     {
+        Read version = snapshots.captureRead(ref);
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String scope = desktop.scope(credential.token());
-        DetailKey key = new DetailKey(parseRef(ref.repoFullName().toLowerCase(Locale.ROOT), ref.number()), scope);
+        DetailKey key = new DetailKey(parseRef(ref.repoFullName().toLowerCase(Locale.ROOT), ref.number()), scope, version.revision());
         DetailWork work = new DetailWork(policy, new CompletableFuture<>());
         DetailWork running = detailRefreshes.putIfAbsent(key, work);
         if (running != null) {
@@ -1083,11 +1206,11 @@ public class PullRequestService
                 detailRefreshes.remove(key, running);
                 return refreshDetailOnce(ref, policy);
             }
-            return withCurrentScope(scope, () -> result);
+            return withCurrentRead(version, scope, () -> result);
         }
         try {
-            DetailRefresh result = refreshDetailGroups(ref, policy, credential, scope);
-            return withCurrentScope(scope, () -> {
+            DetailRefresh result = refreshDetailGroups(ref, policy, credential, scope, version);
+            return withCurrentRead(version, scope, () -> {
                 work.result().complete(result);
                 return result;
             });
@@ -1101,9 +1224,9 @@ public class PullRequestService
         }
     }
 
-    private DetailRefresh refreshDetailGroups(PullRequestRef ref, RefreshPolicy policy, GitHubCredential credential, String scope)
+    private DetailRefresh refreshDetailGroups(PullRequestRef ref, RefreshPolicy policy, GitHubCredential credential, String scope, Read version)
     {
-        prepareRead(ref, scope);
+        prepareRead(ref, scope, version);
         String pat = credential.token();
         String login = credential.profile().login();
         Optional<PullRequest> previousRow = store.findIdByRepoAndNumber(ref.repoFullName(), ref.number()).flatMap(store::findById);
@@ -1126,17 +1249,17 @@ public class PullRequestService
         StoredPrDetail detail = previous.orElse(null);
         boolean full = missing;
         if (metadataDue) {
-            HostingPullRequestSnapshot fetched = refreshMetadata(pat, ref, scope, policy.force() || missingCoordinates || missingHead);
+            HostingPullRequestSnapshot fetched = refreshMetadata(pat, ref, scope, policy.force() || missingCoordinates || missingHead, version);
             FetchedPullRequest observed = fetched.pullRequest().withViewerOrigin(login);
             if (observed.origin() != AUTHORED && notifications.reviewRequests(login).contains(ref)) {
                 observed = observed.withOrigin(REVIEW_REQUESTED);
             }
             FetchedPullRequest accepted = observed;
-            row = withCurrentScope(scope, () -> store.saveObserved(accepted));
+            row = withCurrentRead(version, scope, () -> store.saveObserved(accepted));
             PrRawDetail raw = fetched.detail();
             full |= previous.filter(value -> !value.raw().equals(raw)).isPresent();
             boolean viewerCanWrite = accounts.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
-            detail = snapshots.saveMetadata(row.id(), raw, viewerCanWrite, scope);
+            detail = snapshots.saveMetadata(row.id(), raw, viewerCanWrite, scope, version);
         }
         PullRequest current = requireNonNull(row, "pull request is missing");
         Instant sourceAt = discussionSourceUpdatedAt(current);
@@ -1150,14 +1273,14 @@ public class PullRequestService
             // Refreshes someone waits for, opening included, still read everything: thread resolutions change no REST response.
             Optional<DiscussionProbe> probe = policy.warm() && quiet ? Optional.of(gitHub.probeDiscussion(pat, ref, details.findDiscussionEtags(current.id()))) : Optional.empty();
             if (probe.filter(DiscussionProbe::unchanged).isPresent()) {
-                detail = snapshots.saveDiscussion(current.id(), detail, sourceAt, scope);
+                detail = snapshots.saveDiscussion(current.id(), detail, sourceAt, scope, version);
             }
             else {
                 StoredPrDetail fetched = PullRequestDetailFetcher.await(detailFetcher.fetchDiscussion(pat, ref, detail));
-                detail = snapshots.saveDiscussion(current.id(), fetched, sourceAt, scope);
+                detail = snapshots.saveDiscussion(current.id(), fetched, sourceAt, scope, version);
                 // Taken before the refetch, these ETags can only be older than what was saved; a partial save keeps none.
                 boolean complete = fetched.reviewsComplete() && fetched.timelineComplete();
-                probe.ifPresent(asked -> withCurrentScope(scope, () -> {
+                probe.ifPresent(asked -> withCurrentRead(version, scope, () -> {
                     details.updateDiscussionEtags(current.id(), complete ? asked.etags() : ImmutableMap.of());
                     return null;
                 }));
@@ -1169,7 +1292,7 @@ public class PullRequestService
         if (missing || policy.force() || headChanged || checkChanged || !detail.checkRunsComplete()
                 || ((timed || current.ciStatus() == PullRequestDetail.CiStatus.PENDING) && expired(times.checksAt(), policy.freshness(), now))) {
             try {
-                detail = snapshots.refreshChecks(pat, ref, current.id());
+                detail = snapshots.refreshChecks(pat, ref, current.id(), version);
             }
             catch (RuntimeException failure) {
                 if (isRateLimit(failure) || failure instanceof HostingFailure || PullRequestSnapshotService.inaccessible(failure)) {
@@ -1179,7 +1302,7 @@ public class PullRequestService
             }
         }
         StoredPrDetail stored = detail;
-        withCurrentScope(scope, () -> {
+        withCurrentRead(version, scope, () -> {
             storeDetail(current, stored, login);
             return null;
         });
@@ -1187,15 +1310,15 @@ public class PullRequestService
         Optional<Instant> describedAt = previous.filter(old -> !Objects.equals(old.raw().body(), stored.raw().body())).map(ignored -> stored.raw().updatedAt());
         Stream.of(stored.timelineComplete() ? attentionActivityAt(stored.timeline(), login) : Optional.<Instant>empty(), describedAt)
                 .flatMap(Optional::stream).filter(Objects::nonNull).max(Comparator.naturalOrder())
-                .ifPresent(at -> withCurrentScope(scope, () -> {
+                .ifPresent(at -> withCurrentRead(version, scope, () -> {
                     store.observeAttentionActivity(current.id(), at);
                     return null;
                 }));
         if ((!policy.checksOnly() || missing) && (policy.force() || !snapshots.defaultDiffMatches(current.id(), detail.raw()))) {
-            syncDiffQuietly(pat, current);
+            syncDiffQuietly(pat, current, version);
         }
         boolean complete = full;
-        return withCurrentScope(scope, () -> new DetailRefresh(complete,
+        return withCurrentRead(version, scope, () -> new DetailRefresh(complete,
                 PullRequestDetailMapper.toPullRequestDetail(current.id(), ref.repoFullName(), ref.number(), stored, stored.viewerCanWrite())));
     }
 
@@ -1220,35 +1343,39 @@ public class PullRequestService
         return sourceAt != null && validatedSource.filter(at -> !at.isBefore(sourceAt)).isEmpty();
     }
 
-    private record DetailKey(PullRequestRef ref, String scope) {}
+    private record DetailKey(PullRequestRef ref, String scope, long revision) {}
 
     private record DetailWork(RefreshPolicy policy, CompletableFuture<DetailRefresh> result) {}
 
     /** Returns locally persisted diff files without contacting GitHub. */
     public List<DiffFile> getPullRequestDiffFiles(String repo, int number, String baseSha, String headSha)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> snapshots.getDiffFiles(storedPullRequestId(repo, number), baseSha, headSha));
+        return withCurrentRead(version, scope, () -> snapshots.getDiffFiles(storedPullRequestId(repo, number), baseSha, headSha));
     }
 
     /** Rejects a cached diff from another head before a review freezes it as evidence. */
     public List<DiffFile> getValidatedPullRequestDiffFiles(String repo, int number, String headSha)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> snapshots.getValidatedDiffFiles(storedPullRequestId(repo, number), headSha));
+        return withCurrentRead(version, scope, () -> snapshots.getValidatedDiffFiles(storedPullRequestId(repo, number), headSha));
     }
 
     public List<DiffCommit> getPullRequestDiffCommits(String repo, int number)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> snapshots.getDiffCommits(storedPullRequestId(repo, number)));
+        return withCurrentRead(version, scope, () -> snapshots.getDiffCommits(storedPullRequestId(repo, number)));
     }
 
     /** Returns locally persisted file content without contacting GitHub. */
     public DiffFileContent getPullRequestDiffFileContent(String repo, int number, String path, String baseSha, String headSha)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> snapshots.getFileContent(storedPullRequestId(repo, number), path, baseSha, headSha));
+        return withCurrentRead(version, scope, () -> snapshots.getFileContent(storedPullRequestId(repo, number), path, baseSha, headSha));
     }
 
     void refreshPullRequestDiffFromGitHub(String repo, int number, String baseSha, String headSha)
@@ -1267,58 +1394,58 @@ public class PullRequestService
 
     public Posted createReviewComment(String repo, int number, InlineReviewComment comment)
     {
-        return actions.createReviewComment(repo, number, comment);
+        return snapshots.write(parseRef(repo, number), () -> actions.createReviewComment(repo, number, comment));
     }
 
     public PullRequestDetail commentOnPullRequest(String repo, int number, String body)
     {
-        return actions.commentOnPullRequest(repo, number, body);
+        return snapshots.write(parseRef(repo, number), () -> actions.commentOnPullRequest(repo, number, body));
     }
 
     public boolean toggleReaction(String repo, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
     {
-        return actions.toggleReaction(repo, number, target, commentId, content, viewerHasReacted);
+        return snapshots.write(parseRef(repo, number), () -> actions.toggleReaction(repo, number, target, commentId, content, viewerHasReacted));
     }
 
     public void updateTitle(String repo, int number, String title)
     {
-        actions.updateTitle(repo, number, title);
+        snapshots.write(parseRef(repo, number), () -> actions.updateTitle(repo, number, title));
     }
 
     public void updateDescription(String repo, int number, String description)
     {
-        actions.updateDescription(repo, number, description);
+        snapshots.write(parseRef(repo, number), () -> actions.updateDescription(repo, number, description));
     }
 
     public void closePullRequest(String repo, int number)
     {
-        actions.closePullRequest(repo, number);
+        snapshots.write(parseRef(repo, number), () -> actions.closePullRequest(repo, number));
     }
 
     public void markReadyForReview(String repo, int number)
     {
-        actions.markReadyForReview(repo, number);
+        snapshots.write(parseRef(repo, number), () -> actions.markReadyForReview(repo, number));
     }
 
     public void updateMetadata(String repo, int number, List<String> assignees, List<String> labels)
     {
-        actions.updateMetadata(repo, number, assignees, labels);
+        snapshots.write(parseRef(repo, number), () -> actions.updateMetadata(repo, number, assignees, labels));
     }
 
     public void updateReviewerRequest(String repo, int number, String login, boolean requested)
     {
-        actions.updateReviewerRequest(repo, number, login, requested);
+        snapshots.write(parseRef(repo, number), () -> actions.updateReviewerRequest(repo, number, login, requested));
     }
 
     public void replyToReviewComment(String repo, int number, long commentId, String body)
     {
-        actions.replyToReviewComment(repo, number, commentId, body);
+        snapshots.write(parseRef(repo, number), () -> actions.replyToReviewComment(repo, number, commentId, body));
     }
 
     /** Edits a posted comment or review body on GitHub, then patches the cached copies of that body. */
     public PullRequestDetail editComment(String repo, int number, String target, long commentId, String body)
     {
-        return actions.editComment(repo, number, target, commentId, body);
+        return snapshots.write(parseRef(repo, number), () -> actions.editComment(repo, number, target, commentId, body));
     }
 
     /** The latest comment of each review thread whose author can push to the repository, read from GitHub now. */
@@ -1329,7 +1456,7 @@ public class PullRequestService
 
     public void setReviewThreadResolved(String repo, int number, long rootCommentId, boolean resolved)
     {
-        actions.setReviewThreadResolved(repo, number, rootCommentId, resolved);
+        snapshots.write(parseRef(repo, number), () -> actions.setReviewThreadResolved(repo, number, rootCommentId, resolved));
     }
 
     /**
@@ -1338,7 +1465,7 @@ public class PullRequestService
      */
     public Posted submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments, String commitId)
     {
-        return actions.submitReview(repo, number, prId, event, body, comments, commitId);
+        return snapshots.write(parseRef(repo, number), () -> actions.submitReview(repo, number, prId, event, body, comments, commitId));
     }
 
     /**
@@ -1358,19 +1485,20 @@ public class PullRequestService
     /** The head SHA locally recorded for a pull request, without contacting GitHub. */
     public Optional<String> findHeadSha(String repo, int number)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> store.findIdByRepoAndNumber(parseRef(repo, number).repoFullName(), number).flatMap(snapshots::findHeadSha));
+        return withCurrentRead(version, scope, () -> store.findIdByRepoAndNumber(parseRef(repo, number).repoFullName(), number).flatMap(snapshots::findHeadSha));
     }
 
     /** Merges directly, falling back to GitHub's merge queue when required. */
     public MergeResult mergePullRequest(String repo, int number, long prId, String strategy, String headSha)
     {
-        return actions.mergePullRequest(repo, number, prId, strategy, headSha);
+        return snapshots.write(parseRef(repo, number), () -> actions.mergePullRequest(repo, number, prId, strategy, headSha));
     }
 
     public void removeFromMergeQueue(String repo, int number, boolean autoMerge)
     {
-        actions.removeFromMergeQueue(repo, number, autoMerge);
+        snapshots.write(parseRef(repo, number), () -> actions.removeFromMergeQueue(repo, number, autoMerge));
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -1483,8 +1611,13 @@ public class PullRequestService
 
     private boolean syncDiffQuietly(String pat, PullRequest pullRequest)
     {
+        return syncDiffQuietly(pat, pullRequest, snapshots.captureRead(parseRef(pullRequest.repo(), pullRequest.number())));
+    }
+
+    private boolean syncDiffQuietly(String pat, PullRequest pullRequest, Read version)
+    {
         try {
-            snapshots.refreshDefaultDiff(pat, parseRef(pullRequest.repo(), pullRequest.number()), pullRequest.id());
+            snapshots.refreshDefaultDiff(pat, parseRef(pullRequest.repo(), pullRequest.number()), pullRequest.id(), version);
             return true;
         }
         catch (RuntimeException failure) {
@@ -1505,8 +1638,9 @@ public class PullRequestService
     /** Returns persisted detail without contacting GitHub or dating the viewer's last look. */
     public Optional<PullRequestDetail> findPullRequestDetail(String repo, int number)
     {
+        Read version = captureRead(repo, number);
         String scope = prepareRead(repo, number);
-        return withCurrentScope(scope, () -> store.findIdByRepoAndNumber(repo, number).flatMap(prId -> snapshots.findDetail(repo, number, prId)));
+        return withCurrentRead(version, scope, () -> store.findIdByRepoAndNumber(repo, number).flatMap(prId -> snapshots.findDetail(repo, number, prId)));
     }
 
     private void updateListState(long prId, StoredPrDetail detail)

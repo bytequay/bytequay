@@ -17,36 +17,43 @@ import com.bytequay.core.store.WorkspaceCredentialStore;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class InMemoryWorkspaceCredentialStore
         implements WorkspaceCredentialStore
 {
-    private record Row(String secret, String login) {}
+    private record Row(String secret, String login, String revision) {}
 
     private final Map<String, Row> rows = new ConcurrentHashMap<>();
 
     @Override
     public Optional<String> getSecret(String workspaceId)
     {
-        return Optional.ofNullable(rows.get(workspaceId)).map(Row::secret);
+        return Optional.ofNullable(rows.get(workspaceId)).map(Row::secret).filter(secret -> !secret.isEmpty());
     }
 
     @Override
     public Optional<String> getLogin(String workspaceId)
     {
-        return Optional.ofNullable(rows.get(workspaceId)).map(Row::login);
+        return Optional.ofNullable(rows.get(workspaceId)).map(Row::login).filter(login -> !login.isEmpty());
+    }
+
+    @Override
+    public String revision(String workspaceId)
+    {
+        return rows.computeIfAbsent(workspaceId, ignored -> new Row("", "", UUID.randomUUID().toString())).revision();
     }
 
     @Override
     public void save(String workspaceId, String token, String login)
     {
-        rows.put(workspaceId, new Row(token, login));
+        rows.put(workspaceId, new Row(token, login, UUID.randomUUID().toString()));
     }
 
     @Override
     public void delete(String workspaceId)
     {
-        rows.remove(workspaceId);
+        rows.put(workspaceId, new Row("", "", UUID.randomUUID().toString()));
     }
 }

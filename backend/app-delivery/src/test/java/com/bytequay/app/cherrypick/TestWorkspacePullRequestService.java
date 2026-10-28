@@ -17,11 +17,14 @@ import com.bytequay.app.cherrypick.WorkspacePullRequestService.PullRequestResult
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.repository.github.CreatedPullRequest;
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.DesktopHostingService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.PullRequestSnapshotService;
 import com.bytequay.app.workspace.ManagedWorkspaceGit;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceException;
@@ -45,6 +48,8 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.PrDetailStore;
+import com.bytequay.core.store.PrDiffStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -68,6 +73,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -110,7 +116,7 @@ class TestWorkspacePullRequestService
         verify(fixture.pullRequests(), times(1)).createPullRequest(
                 "token", RepoRef.of("owner", "project"), WORK_BRANCH, "main", "PR title", "PR body", false);
         verify(fixture.pullRequestCatalog(), times(2))
-                .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
+                .observeWorkspacePullRequest("workspace", 12);
         verify(fixture.ciAutofix(), times(2)).start(argThat(command ->
                 command.workspaceId().equals("workspace")
                         && command.pullRequestNumber() == 12
@@ -139,7 +145,7 @@ class TestWorkspacePullRequestService
                 "PR body",
                 false);
         verify(fixture.pullRequestCatalog())
-                .observeWorkspacePullRequest(RepoRef.of("upstream", "project"), 12);
+                .observeWorkspacePullRequest("workspace", 12);
         verify(fixture.ciAutofix()).start(any(), any());
         assertThat(result.baseRepository()).isEqualTo(RepoRef.of("upstream", "project"));
         assertThat(result.head()).isEqualTo("contributor:" + WORK_BRANCH);
@@ -169,7 +175,7 @@ class TestWorkspacePullRequestService
         doThrow(new RuntimeException("projection failed"))
                 .doNothing()
                 .when(fixture.pullRequestCatalog())
-                .observeWorkspacePullRequest(RepoRef.of("owner", "project"), 12);
+                .observeWorkspacePullRequest("workspace", 12);
 
         assertThatThrownBy(() -> fixture.service().deliverChain(chain.id(), 0, false))
                 .hasMessageContaining("projection failed");
@@ -380,6 +386,55 @@ class TestWorkspacePullRequestService
     }
 
     @Test
+    void markingReadyInvalidatesSharedMetadataAfterObservingTheWrite()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = published(fixture);
+        when(fixture.pullRequests().pullRequestNodeId("token", PullRequestRef.of("owner", "project", 12))).thenReturn(Optional.of("pr-node"));
+
+        fixture.service().markReady(execution);
+
+        var order = inOrder(fixture.pullRequests(), fixture.pullRequestCatalog(), fixture.desktop());
+        order.verify(fixture.pullRequests()).markReadyForReview("token", "pr-node");
+        order.verify(fixture.pullRequestCatalog()).observeWorkspacePullRequest("workspace", 12);
+        order.verify(fixture.desktop()).evict("owner/project", 12);
+    }
+
+    @Test
+    void failedReadyWriteStillInvalidatesSharedMetadata()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = published(fixture);
+        when(fixture.pullRequests().pullRequestNodeId("token", PullRequestRef.of("owner", "project", 12))).thenReturn(Optional.of("pr-node"));
+        doThrow(new IllegalStateException("Response lost")).when(fixture.pullRequests()).markReadyForReview("token", "pr-node");
+
+        assertThatThrownBy(() -> fixture.service().markReady(execution)).hasMessage("Response lost");
+
+        verify(fixture.desktop()).evict("owner/project", 12);
+        verifyNoInteractions(fixture.pullRequestCatalog());
+    }
+
+    @Test
+    void withdrawingInvalidatesSharedMetadataAfterObservingTheClosedPullRequest()
+    {
+        Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
+        CherryPickExecution execution = published(fixture);
+
+        assertThat(fixture.service().withdraw(execution, true)).isEmpty();
+
+        var order = inOrder(fixture.pullRequests(), fixture.pullRequestCatalog(), fixture.desktop());
+        order.verify(fixture.pullRequests()).closePullRequest("token", PullRequestRef.of("owner", "project", 12));
+        order.verify(fixture.pullRequestCatalog()).observeWorkspacePullRequest("workspace", 12);
+        order.verify(fixture.desktop()).evict("owner/project", 12);
+    }
+
+    private CherryPickExecution published(Fixture fixture)
+    {
+        return fixture.executions().save(publishing(fixture)
+                .recordPush("origin", WORK_BRANCH, PARENT_SHA, NOW).recordPullRequest(900, 12, "https://github.com/owner/project/pull/12", NOW));
+    }
+
+    @Test
     void retryingCiStartKeepsItsAcceptedHeadAfterCiAlreadyPushed()
     {
         Fixture fixture = fixture(directWorkspace(), directRepository(true), "release");
@@ -489,6 +544,9 @@ class TestWorkspacePullRequestService
                 workspace.selectedRepository(), WORK_BRANCH, PARENT_SHA, workspace.monitoredRepository(), targetBranch, SHA,
                 GitHubPullRequestIdentity.State.OPEN, false, workspace.selectedRepository().owner()));
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
+        DesktopHostingService desktop = mock(DesktopHostingService.class);
+        PullRequestSnapshotService snapshots = new PullRequestSnapshotService(
+                reads, mock(GitHubActionsClient.class), desktop, mock(PrDetailStore.class), mock(PrDiffStore.class));
         WorkspacePullRequestService service = new WorkspacePullRequestService(
                 workspaceStore,
                 executionStore,
@@ -498,6 +556,7 @@ class TestWorkspacePullRequestService
                 credentials,
                 git,
                 pullRequestCatalog,
+                snapshots,
                 ciAutofix,
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 relationships, chains, reads);
@@ -509,7 +568,7 @@ class TestWorkspacePullRequestService
                 git,
                 pullRequests,
                 pullRequestCatalog,
-                ciAutofix, relationships, chains, reads, workspaceStore, executionStore);
+                ciAutofix, relationships, chains, reads, workspaceStore, executionStore, desktop);
     }
 
     private CherryPickExecution completedExecution(Workspace workspace, String targetBranch)
@@ -664,7 +723,8 @@ class TestWorkspacePullRequestService
             GitHubPullRequestWriteClient pullRequests,
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
-            WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads, WorkspaceStore workspaceStore, CherryPickExecutionStore executions)
+            WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads, WorkspaceStore workspaceStore, CherryPickExecutionStore executions,
+            DesktopHostingService desktop)
     {
         private Fixture
         {

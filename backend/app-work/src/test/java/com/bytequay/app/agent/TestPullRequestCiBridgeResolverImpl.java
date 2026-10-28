@@ -218,7 +218,7 @@ class TestPullRequestCiBridgeResolverImpl
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of());
         PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
         assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("no_pull_request");
-        verify(catalog).syncRepositoryBranch(UPSTREAM, FORK.owner(), BRANCH);
+        verify(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
         verifyNoInteractions(actions);
 
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
@@ -233,13 +233,13 @@ class TestPullRequestCiBridgeResolverImpl
         doAnswer(ignored -> {
             when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
             return null;
-        }).when(catalog).syncRepositoryBranch(UPSTREAM, FORK.owner(), BRANCH);
+        }).when(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
         assertThat(result.path("status").asText()).isEqualTo("available");
         assertThat(result.at("/pullRequest/number").asInt()).isEqualTo(PR.number());
-        verify(catalog).syncRepositoryBranch(UPSTREAM, FORK.owner(), BRANCH);
+        verify(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
         verify(actions).inspect(PR);
     }
 
@@ -265,7 +265,7 @@ class TestPullRequestCiBridgeResolverImpl
         doAnswer(ignored -> {
             when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR), row(other)));
             return null;
-        }).when(catalog).syncRepositoryBranch(UPSTREAM, FORK.owner(), BRANCH);
+        }).when(catalog).syncRepositoryBranch("workspace", FORK.owner(), BRANCH);
         when(actions.inspect(other)).thenReturn(snapshot(other, HEAD, 1, "checks", "failure"));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));

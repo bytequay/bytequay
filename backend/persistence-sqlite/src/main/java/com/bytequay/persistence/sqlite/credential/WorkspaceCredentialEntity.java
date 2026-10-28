@@ -19,6 +19,9 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import lombok.AccessLevel;
 import lombok.Getter;
+import lombok.Setter;
+
+import java.util.UUID;
 
 @Entity
 @Table(name = "workspace_credentials")
@@ -36,6 +39,11 @@ class WorkspaceCredentialEntity
     @Getter(AccessLevel.PACKAGE)
     private String login;
 
+    @Column(name = "read_revision")
+    @Getter(AccessLevel.PACKAGE)
+    @Setter(AccessLevel.PACKAGE)
+    private String readRevision;
+
     protected WorkspaceCredentialEntity() {}
 
     WorkspaceCredentialEntity(String workspaceId, String ciphertext, String login)
@@ -48,5 +56,6 @@ class WorkspaceCredentialEntity
     {
         this.ciphertext = ciphertext;
         this.login = login;
+        this.readRevision = UUID.randomUUID().toString();
     }
 }

@@ -16,7 +16,6 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
@@ -124,37 +123,6 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void mapsTheSelfContainedOverviewHeader()
-    {
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andRespond(withSuccess("""
-                        {
-                          "title":"Improve overview","html_url":"https://github.com/owner/repo/pull/42",
-                          "state":"closed","merged_at":"2026-08-20T10:00:00Z","draft":false,
-                          "created_at":"2026-08-19T10:00:00Z","updated_at":"2026-08-20T10:00:00Z",
-                          "user":{"login":"alice","avatar_url":"https://avatars/alice"},
-                          "body":"Description","labels":[{"name":"docs","color":"d4c5f9"}],
-                          "assignees":[{"login":"bob"}],"milestone":{"title":"v1"},
-                          "requested_reviewers":[{"login":"carol"}],"requested_teams":[{"slug":"core"}],
-                          "head":{"sha":"abc","ref":"feature"},"base":{"ref":"main"},
-                          "mergeable":true,"mergeable_state":"clean","additions":10,"deletions":2,
-                          "changed_files":3
-                        }
-                        """, MediaType.APPLICATION_JSON));
-
-        PrRawDetail detail = client.fetchPrDetail("pat", PULL_REQUEST);
-
-        assertThat(detail.title()).isEqualTo("Improve overview");
-        assertThat(detail.state()).isEqualTo("merged");
-        assertThat(detail.baseRef()).isEqualTo("main");
-        assertThat(detail.headRef()).isEqualTo("feature");
-        assertThat(detail.labelColors()).containsEntry("docs", "d4c5f9");
-        assertThat(detail.assignees()).containsExactly("bob");
-        assertThat(detail.milestone()).isEqualTo("v1");
-        assertThat(detail.requestedReviewers()).containsExactly("carol", "owner/core");
-    }
-
-    @Test
     void readsDiffContentsAtTheSpecifiedBaseAndHead()
     {
         server.expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=base-sha"))
@@ -204,14 +172,8 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void preservesDescriptionMarkdownAndFetchesDescriptionReactions()
+    void fetchesDescriptionReactions()
     {
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andRespond(withSuccess("""
-                        {"title":"Overview","state":"open","body":"Includes\\n\\n- https://github.com/owner/repo/issues/7\\n- #8\\n- Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)\\n- `#8 https://github.com/owner/repo/issues/7`",
-                         "labels":[],"assignees":[],"requested_reviewers":[],"head":{},"base":{},
-                         "draft":false,"additions":0,"deletions":0,"changed_files":0}
-                        """, MediaType.APPLICATION_JSON));
         server.expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
                 .andRespond(withSuccess("""
                         {"node_id":"PR_42","reactions":{"+1":2,"eyes":1}}
@@ -224,15 +186,6 @@ class TestGitHubPullRequestOverviewClient
                         ]}]}}
                         """, MediaType.APPLICATION_JSON));
 
-        PrRawDetail detail = client.fetchPrDetail("pat", PULL_REQUEST);
-
-        assertThat(detail.body()).isEqualTo("""
-                Includes
-
-                - https://github.com/owner/repo/issues/7
-                - #8
-                - Upstream PR: [trinodb/trino#31610](https://github.com/trinodb/trino/pull/31610)
-                - `#8 https://github.com/owner/repo/issues/7`""");
         assertThat(client.fetchPrDescriptionReactions("pat", PULL_REQUEST))
                 .extracting(reaction -> reaction.content() + ":" + reaction.count() + ":" + reaction.viewerHasReacted())
                 .containsExactly("+1:2:true", "eyes:1:false");

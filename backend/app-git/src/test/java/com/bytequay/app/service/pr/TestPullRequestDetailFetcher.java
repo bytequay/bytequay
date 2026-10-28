@@ -127,7 +127,6 @@ class TestPullRequestDetailFetcher
 
         assertThat(stored.checkRuns()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly(StoredPrDetail.CHECKS);
-        verify(gitHub, never()).fetchPrDetail("pat", REF);
     }
 
     @Test
@@ -243,7 +242,6 @@ class TestPullRequestDetailFetcher
         assertThat(refreshed.raw()).isSameAs(raw);
         verify(gitHub).fetchPrIssueComments("pat", REF);
         verify(gitHub).fetchPrReviews("pat", REF);
-        verify(gitHub, never()).fetchPrDetail("pat", REF);
         verify(gitHub, never()).fetchPrCommits("pat", REF);
     }
 

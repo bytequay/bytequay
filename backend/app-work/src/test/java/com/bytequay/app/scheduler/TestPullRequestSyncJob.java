@@ -34,12 +34,13 @@ import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestPullRequestSyncJob
 {
     @Test
-    void refreshesDashboardAndDistinctWorkspaceRepositoriesOnSchedule()
+    void refreshesEveryWorkspaceWhileDeduplicatingRepositoryMetadata()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
@@ -58,8 +59,8 @@ class TestPullRequestSyncJob
         var order = inOrder(refreshService);
         order.verify(refreshService).refreshScheduledDashboard();
         order.verify(refreshService).refreshWorkspace(first.id());
+        order.verify(refreshService).refreshWorkspace(second.id());
         order.verify(refreshService).refreshWorkspace(third.id());
-        verify(refreshService, never()).refreshWorkspace(second.id());
         verify(metadata).synchronize(first.id());
         verify(metadata, never()).synchronize(second.id());
         verify(metadata).synchronize(third.id());
@@ -78,7 +79,7 @@ class TestPullRequestSyncJob
 
         job.tick();
 
-        verify(refreshService, never()).refreshScheduledDashboard();
+        verifyNoInteractions(refreshService);
     }
 
     @Test
@@ -105,20 +106,30 @@ class TestPullRequestSyncJob
     }
 
     @Test
-    void skipsRefreshWithoutGitHubCredentials()
+    void refreshesBoundWorkspacesWithoutGlobalGitHubCredentials()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
-        PullRequestSyncJob job = new PullRequestSyncJob(
-                refreshService,
-                mock(WorkspaceMetadataService.class),
-                mock(WorkspaceStore.class),
-                mock(CredentialService.class),
-                idleSettings(),
-                Clock.systemUTC());
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("bound", 1, RepoRef.of("owner", "repo"))));
+        CredentialService credentials = mock(CredentialService.class);
+        MutableClock clock = new MutableClock(Instant.parse("2026-09-10T08:00:00Z"));
+        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, metadata, workspaces, credentials, idleSettings(), clock);
 
         job.tick();
 
+        verify(refreshService).refreshWorkspace("bound");
         verify(refreshService, never()).refreshScheduledDashboard();
+        verify(refreshService, never()).warmRecentDetails(30);
+        verifyNoInteractions(metadata);
+
+        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        clock.advance(Duration.ofMinutes(1));
+        job.tick();
+
+        verify(refreshService).refreshScheduledDashboard();
+        verify(refreshService).warmRecentDetails(30);
+        verify(refreshService).refreshWorkspace("bound");
     }
 
     /** Settings whose refresh interval has already elapsed, so the tick under test is the one being asserted. */

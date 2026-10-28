@@ -101,6 +101,64 @@ class TestSqliteWorkspaceCredentialStores
     }
 
     @Test
+    void absentWorkspaceCredentialHasADurableSelectionRevision()
+    {
+        String revision = workspaceCredentials.revision("absent");
+        workspaceCredentialRows.flush();
+        entityManager.clear();
+
+        assertThat(workspaceCredentials.revision("absent")).isEqualTo(revision);
+        assertThat(workspaceCredentials.getSecret("absent")).isEmpty();
+        assertThat(workspaceCredentials.getLogin("absent")).isEmpty();
+        WorkspaceCredentialEntity tombstone = workspaceCredentialRows.findById("absent").orElseThrow();
+        assertThat(tombstone.getCiphertext()).isEmpty();
+        assertThat(tombstone.getLogin()).isEmpty();
+    }
+
+    @Test
+    void workspaceSelectionRevisionChangesOnReplacementAndSurvivesRemoval()
+    {
+        String absent = workspaceCredentials.revision("ws");
+        workspaceCredentials.save("ws", "secret", "alice");
+        String first = workspaceCredentials.revision("ws");
+        workspaceCredentials.save("ws", "secret", "alice");
+        String replacement = workspaceCredentials.revision("ws");
+        workspaceCredentials.delete("ws");
+        workspaceCredentialRows.flush();
+        entityManager.clear();
+        String removed = workspaceCredentials.revision("ws");
+        workspaceCredentials.save("ws", "secret", "alice");
+
+        assertThat(first).isNotEqualTo(absent);
+        assertThat(replacement).isNotEqualTo(first);
+        assertThat(removed).isNotEqualTo(absent).isNotEqualTo(replacement);
+        assertThat(workspaceCredentials.revision("ws")).isNotEqualTo(first).isNotEqualTo(removed);
+        workspaceCredentials.delete("ws");
+        assertThat(workspaceCredentials.getSecret("ws")).isEmpty();
+        assertThat(workspaceCredentials.getLogin("ws")).isEmpty();
+        assertThat(workspaceCredentialRows.findById("ws").orElseThrow().getCiphertext()).isEmpty();
+    }
+
+    @Test
+    void existingWorkspaceTokenReceivesRevisionWithoutChangingItsSecret()
+    {
+        workspaceCredentials.save("existing", "retained-secret", "alice");
+        WorkspaceCredentialEntity row = workspaceCredentialRows.findById("existing").orElseThrow();
+        String ciphertext = row.getCiphertext();
+        row.setReadRevision(null);
+        workspaceCredentialRows.flush();
+        entityManager.clear();
+
+        String revision = workspaceCredentials.revision("existing");
+        workspaceCredentialRows.flush();
+        entityManager.clear();
+
+        assertThat(workspaceCredentials.revision("existing")).isEqualTo(revision);
+        assertThat(workspaceCredentials.getSecret("existing")).contains("retained-secret");
+        assertThat(workspaceCredentialRows.findById("existing").orElseThrow().getCiphertext()).isEqualTo(ciphertext);
+    }
+
+    @Test
     void personalJiraTokenUsesEncryptedStorageWithoutChangingExistingColumns()
     {
         JiraConnectionStore.Connection connection = new JiraConnectionStore.Connection("personal-jira", "https://example.atlassian.net", "jira-personal-secret", "{}");

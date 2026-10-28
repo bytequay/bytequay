@@ -17,7 +17,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
-import com.bytequay.app.service.hosting.DesktopHostingService;
 import com.bytequay.app.service.pr.PullRequestService.Posted;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.HandledAction;
@@ -77,7 +76,6 @@ final class PullRequestActions
     private final PrViewStateStore viewStateStore;
     private final RecentTouchRecorder recent;
     private final CredentialService credentialService;
-    private final DesktopHostingService desktop;
     private final BiFunction<String, Integer, PullRequestDetail> readDetail;
 
     PullRequestActions(
@@ -89,7 +87,6 @@ final class PullRequestActions
             PrViewStateStore viewStateStore,
             RecentTouchRecorder recent,
             CredentialService credentialService,
-            DesktopHostingService desktop,
             BiFunction<String, Integer, PullRequestDetail> readDetail)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -100,7 +97,6 @@ final class PullRequestActions
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.recent = requireNonNull(recent, "recent is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
-        this.desktop = requireNonNull(desktop, "desktop is null");
         this.readDetail = requireNonNull(readDetail, "readDetail is null");
     }
 
@@ -652,17 +648,15 @@ final class PullRequestActions
 
     private void invalidatePullRequestDetail(String repo, int number)
     {
-        desktop.evict(repo, number);
-        // Keep the snapshot readable by a conditional refresh already in flight.
+        // Keep locally patched data readable while requiring the next refresh to revalidate it.
         store.findIdByRepoAndNumber(repo, number)
                 .ifPresent(prId -> details.updateEtag(prId, Optional.empty()));
     }
 
     private void invalidatePullRequestCaches(String repo, int number)
     {
-        desktop.evict(repo, number);
         store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(snapshots::delete);
+                .ifPresent(snapshots::clearRemote);
     }
 
     private PullRequestDetail patchCachedTimeline(String repo, int number, Optional<Long> prId, PrTimelineEvent created)

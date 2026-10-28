@@ -156,16 +156,26 @@ Existing GitHub.com workspaces can explicitly bind to a connected hosting accoun
 The binding retains local account and repository identities beside the existing
 workspace fields; remote numeric IDs are verified before binding, so repository
 renames preserve identity. Workspace metadata reads use this binding and reject
-results after credential, binding or repository-routing changes.
+results after credential, binding or repository-routing changes. Workspace reads
+capture that route once: an explicit hosting binding is authoritative; otherwise
+they use the workspace token override, then the global GitHub credential. Removing
+an override retains only a selection revision so switching away and back cannot
+revive an older read. Native GitHub operations reject other hosting servers before
+sending credentials. Repository discovery, publication follow-up reads and backport
+source/context reads carry the captured workspace selection through acceptance.
+Scheduled PR refresh visits each watched workspace separately, even when repository
+IDs match, and works without a global credential when its workspace account is set.
 
 Hosting request reads for either provider retain identity in `pull_requests`,
 keyed by the local hosting repository and request number. Metadata snapshots and
 their validators are scoped to the observing account, credential source and generation
 in `pr_metadata_snapshots`. Conditional refresh returns complete normalized
-metadata; explicit cached reads report its validation time. Refreshes for one
-request are serialized, and credential replacement or repository path changes
-prevent reuse of old validators. Access failures discard only the affected
-account's snapshot; eviction keeps request identity and local work.
+metadata; explicit cached reads report its validation time. Local acceptance is
+serialized per request, while remote refreshes run independently. A newer refresh
+for the same account supersedes an older one. Credential replacement or repository
+path changes prevent reuse of old validators. Access failures discard only the
+affected account's snapshot if that read is still current; eviction keeps request
+identity and local work.
 
 Desktop PR metadata and diff revision checks use these shared contracts and
 snapshots. The desktop's existing global PAT or CLI selection stays separate from
@@ -173,16 +183,24 @@ manually connected account tokens. Each explicit credential save or observed CLI
 rotation gets a durable revision; cached metadata, detail and diff projections
 cannot cross that revision. Remote results are accepted only while their captured
 selection remains current. Shared invalidation after a write uses local retained
-identities and waits for in-flight metadata refreshes; it performs no remote I/O.
+identities and rejects responses still in flight; it never waits for remote I/O.
+Local read/write coordination rejects responses captured before an overlapping
+write, including ambiguous write failures, before they can replace detail, diff
+or discovery projections. Its revisions live in memory because no in-flight
+response survives a backend restart. Only local acceptance holds these locks;
+remote operations run outside them.
 
 Legacy rows remain unbound because their repository paths alone cannot prove
 historical remote identity. The desktop projects shared metadata onto its existing
 PR IDs, preserving drafts and local events. These rows remain isolated from hosted
 rows in lookup, mutation and workspace purge. Lists, discussions, checks and diff
 bytes still use native GitHub readers, with detail/diff projections guarded by the
-desktop credential revision. Backport source metadata retains its workspace-token
-path. Migrating these remaining provider operations, local identity associations,
-and GitLab desktop/workspace creation remains separate integration work.
+desktop credential revision. Backport source metadata uses the shared reader and
+cache; its remaining native reads use the captured workspace account. PR detail
+endpoints without a workspace ID still use the explicit global desktop selection.
+Migrating these remaining provider operations, frontend workspace-scoped reads,
+local identity associations and GitLab desktop/workspace creation remains separate
+integration work.
 
 ## Git hosting boundary (target)
 

@@ -57,6 +57,7 @@ import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestSnapshotService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -136,6 +137,7 @@ public class CiAutofixService
     private final GitHubActionsClient gitHub;
     private final GitHubPullRequestWriteClient writes;
     private final GitHubPullRequestReadClient pullRequestReads;
+    private final PullRequestSnapshotService snapshots;
     private final AgentTaskService taskService;
     private final AgentTurnService turnService;
     private final AgentCompletionService completionService;
@@ -160,6 +162,7 @@ public class CiAutofixService
             GitHubActionsClient gitHub,
             GitHubPullRequestWriteClient writes,
             GitHubPullRequestReadClient pullRequestReads,
+            PullRequestSnapshotService snapshots,
             AgentTaskService taskService,
             AgentTurnService turnService,
             AgentCompletionService completionService,
@@ -180,6 +183,7 @@ public class CiAutofixService
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.writes = requireNonNull(writes, "writes is null");
         this.pullRequestReads = requireNonNull(pullRequestReads, "pullRequestReads is null");
+        this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
@@ -986,9 +990,11 @@ public class CiAutofixService
             return pause(run, PauseReason.ERROR, "PR description changed while validating the repair; no edit was applied", now);
         }
         repairToken(run);
-        CiAutofixRun journaled = store.update(run.updateAttempt(attempt.withDescriptionChange(change.startingWrite(now), now), now));
-        writes.updatePullRequestDescription(repairToken(journaled), run.scope().pullRequest(), change.body());
-        return journaled;
+        return snapshots.write(run.scope().pullRequest(), () -> {
+            CiAutofixRun journaled = store.update(run.updateAttempt(attempt.withDescriptionChange(change.startingWrite(now), now), now));
+            writes.updatePullRequestDescription(repairToken(journaled), run.scope().pullRequest(), change.body());
+            return journaled;
+        });
     }
 
     private String repairToken(CiAutofixRun run)
@@ -1185,7 +1191,7 @@ public class CiAutofixService
         }
         if (checks.pullRequest().draft()) {
             ownership.require(run);
-            writes.markReadyForReview(token, checks.nodeId());
+            snapshots.write(run.scope().pullRequest(), () -> writes.markReadyForReview(token, checks.nodeId()));
         }
         return Optional.empty();
     }

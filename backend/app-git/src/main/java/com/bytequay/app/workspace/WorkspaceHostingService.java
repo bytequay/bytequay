@@ -13,9 +13,12 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.service.hosting.DesktopHostingService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
@@ -29,6 +32,7 @@ import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
@@ -46,15 +50,17 @@ public class WorkspaceHostingService
     private final HostingCredentialStore credentials;
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
+    private final DesktopHostingService desktop;
 
     public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities, HostingCredentialStore credentials,
-            HostingConnectionService connections, HostingPullRequestService requests)
+            HostingConnectionService connections, HostingPullRequestService requests, DesktopHostingService desktop)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.identities = requireNonNull(identities, "identities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
+        this.desktop = requireNonNull(desktop, "desktop is null");
     }
 
     public Optional<WorkspaceHostingBinding> findBinding(String workspaceId)
@@ -87,17 +93,60 @@ public class WorkspaceHostingService
         }));
     }
 
+    public WorkspaceHostingRead captureRead(String workspaceId)
+    {
+        ReadSnapshot snapshot = WorkspaceOperationLocks.withLock(workspaceId, () -> new ReadSnapshot(
+                requireWorkspace(workspaces, workspaceId), workspaces.hostingGeneration(workspaceId), workspaces.findHostingBinding(workspaceId)));
+        HostingReadSession.Guard routing = new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+                    requireGeneration(workspaceId, snapshot.generation());
+                    return action.get();
+                });
+            }
+        };
+        HostingReadSession selected = snapshot.binding()
+                .map(binding -> routing.withCurrent(() -> connections.readSession(binding.accountId())))
+                .orElseGet(() -> desktop.workspaceSession(workspaceId, routing));
+        HostingReadSession.Guard guard = new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return routing.withCurrent(() -> selected.withCurrent(action));
+            }
+        };
+        var server = selected.access().server();
+        HostingInstance instance = new HostingInstance(selected.access().instanceId().orElseThrow(), server.provider(), server.webBaseUrl(), server.apiBaseUrl());
+        HostingReadSession session = new HostingReadSession(selected.accountId(), selected.credentialScope(), selected.generation(),
+                new HostingAccess(instance, () -> guard.withCurrent(selected.access()::token)), guard);
+        HostingRepository repository = connections.resolveRepositoryById(session, Long.toString(snapshot.workspace().monitoredRepositoryId()));
+        return session.withCurrent(() -> {
+            HostingAccount account = identities.findAccount(session.accountId())
+                    .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));
+            checkArgument(account.instanceId() == instance.id(), "Hosting account belongs to another instance");
+            checkArgument(repository.remoteId().equals(Long.toString(snapshot.workspace().monitoredRepositoryId())), "Workspace repository identity changed");
+            snapshot.binding().ifPresent(binding -> checkArgument(repository.id() == binding.monitoredRepositoryId(), "Workspace repository identity changed"));
+            return new WorkspaceHostingRead(session, repository, account.login());
+        });
+    }
+
     public HostingPullRequestSnapshot readPullRequest(String workspaceId, int number)
     {
-        checkArgument(number > 0, "request number must be positive");
-        WorkspaceHostingBinding binding = findBinding(workspaceId)
-                .orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "Select a hosting account for this workspace before reading requests"));
-        long generation = credentials.generation(binding.accountId());
-        HostingPullRequestSnapshot result = requests.refresh(binding.accountId(), binding.monitoredRepositoryId(), number);
-        return WorkspaceOperationLocks.withLock(workspaceId, () -> connections.withCurrentCredential(binding.accountId(), generation, () -> {
-            requireGeneration(workspaceId, binding.generation());
-            return result;
-        }));
+        return readPullRequest(captureRead(workspaceId), number);
+    }
+
+    public HostingPullRequestSnapshot readPullRequest(WorkspaceHostingRead route, int number)
+    {
+        return requests.refresh(route.session(), route.repository().id(), number, false);
+    }
+
+    public Optional<HostingPullRequestSnapshot> cachedPullRequest(WorkspaceHostingRead route, int number)
+    {
+        return requests.cached(route.session(), route.repository().id(), number);
     }
 
     private void requireGeneration(String workspaceId, long expected)
@@ -109,4 +158,6 @@ public class WorkspaceHostingService
     }
 
     private record BindingSnapshot(Workspace workspace, long generation) {}
+
+    private record ReadSnapshot(Workspace workspace, long generation, Optional<WorkspaceHostingBinding> binding) {}
 }

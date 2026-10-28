@@ -24,20 +24,23 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workitem.GoalReferenceReader;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -52,6 +55,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
@@ -59,8 +63,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.StreamSupport;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
@@ -299,7 +305,7 @@ class TestAgentTaskHttpApi
         pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)));
         String path = "/agent/tasks/" + taskId + "/pull-requests";
         assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).isEmpty();
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("alice", "Alice", "", "", 0, 0, 0, "", "", "", "")));
+        useWorkspaceHosting("alice");
         when(gitHub.fetchPullRequestsByHead("pat", RepoRef.of("bytequay", "agent-e2e"), "bytequay:" + branch))
                 .thenReturn(ImmutableList.of(fetchedPullRequest(488, branch)));
 
@@ -347,7 +353,7 @@ class TestAgentTaskHttpApi
         assertThat(cached).hasSize(1);
         assertThat(cached.get(0).get("repo").asText()).isEqualTo("owner/repository");
         assertThat(cached.get(0).get("number").asInt()).isEqualTo(41);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("contributor", "Sam", "", "", 0, 0, 0, "", "", "", "")));
+        useWorkspaceHosting("contributor");
         // The user's own fork branch: its pull request is theirs, which a renamed-branch match requires.
         when(gitHub.fetchPullRequestsByHead("pat", upstream, "contributor:" + branch))
                 .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 42, branch, "contributor")));
@@ -360,6 +366,25 @@ class TestAgentTaskHttpApi
         verify(gitHub).fetchPullRequestsByHead("pat", upstream, "contributor:" + branch);
         verify(gitHub).fetchPullRequestsByHead("pat", upstream, "contributor:" + worktree.generatedBranch());
         verify(gitHub, never()).fetchPullRequestsByHead("pat", fork, "contributor:" + branch);
+    }
+
+    private void useWorkspaceHosting(String login)
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        HostingReadSession session = new HostingReadSession(1, "test-workspace:" + workspaceId, 1, new HostingAccess(instance, () -> "pat"), new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return action.get();
+            }
+        });
+        String path = workspace.monitoredRepository().fullName();
+        HostingRepository repository = new HostingRepository(workspace.monitoredRepositoryId(), instance.id(), Long.toString(workspace.monitoredRepositoryId()), path,
+                URI.create("https://github.com/" + path), URI.create("https://github.com/" + path + ".git"), Optional.empty(),
+                Optional.of(workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch())));
+        when(workspaceHosting.captureRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, repository, login));
     }
 
     private static FetchedPullRequest fetchedPullRequest(int number, String headRef)

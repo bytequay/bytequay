@@ -114,6 +114,29 @@ public class CredentialService
         return action.get();
     }
 
+    public synchronized WorkspaceGitHubReadSelection captureWorkspaceGitHubRead(String workspaceId)
+    {
+        checkText(workspaceId, "workspaceId");
+        String revision = workspaceCredentials.revision(workspaceId);
+        Optional<String> override = workspaceCredentials.getSecret(workspaceId);
+        GitHubReadSelection credential = override.map(token -> new GitHubReadSelection(token, revision))
+                .orElseGet(() -> captureGitHubRead(resolveGitHubToken()));
+        return new WorkspaceGitHubReadSelection(workspaceId, revision, credential, override.isPresent());
+    }
+
+    public synchronized <T> T withCurrentWorkspaceGitHubRead(WorkspaceGitHubReadSelection selection, Supplier<T> action)
+    {
+        requireNonNull(selection, "selection is null");
+        requireNonNull(action, "action is null");
+        Optional<String> override = workspaceCredentials.getSecret(selection.workspaceId());
+        if (!workspaceCredentials.revision(selection.workspaceId()).equals(selection.workspaceRevision())
+                || selection.overridden() != override.isPresent()
+                || override.filter(token -> !token.equals(selection.credential().token())).isPresent()) {
+            throw new HostingFailure(REVISION_CONFLICT, "The workspace GitHub credential changed; refresh to retry");
+        }
+        return selection.overridden() ? action.get() : withCurrentGitHubRead(selection.credential(), action);
+    }
+
     /**
      * The signed-in login when one is already cached, without contacting
      * GitHub. Read paths that must answer offline use this instead of
@@ -145,10 +168,7 @@ public class CredentialService
      * Returns the token used for one workspace's Git and GitHub traffic: the
      * workspace override when one is stored, otherwise the global account token.
      */
-    // ponytail: the override authenticates git transport (clone/fetch/push);
-    // GitHub API clients still resolve the global token until they carry a
-    // workspace scope.
-    public String resolveGitHubToken(String workspaceId)
+    public synchronized String resolveGitHubToken(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         return workspaceCredentials.getSecret(workspaceId)
@@ -212,7 +232,7 @@ public class CredentialService
      *
      * @return the login the token authenticates as
      */
-    public String saveWorkspaceGitHubToken(String workspaceId, String token)
+    public synchronized String saveWorkspaceGitHubToken(String workspaceId, String token)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         if ((token == null || token.isBlank())) {
@@ -234,7 +254,7 @@ public class CredentialService
         return workspaceCredentials.getSecret(workspaceId);
     }
 
-    public void deleteWorkspaceGitHubToken(String workspaceId)
+    public synchronized void deleteWorkspaceGitHubToken(String workspaceId)
     {
         workspaceCredentials.delete(workspaceId);
     }
@@ -296,6 +316,16 @@ public class CredentialService
         public String toString()
         {
             return "GitHubReadSelection[token=<redacted>, revision=" + revision + "]";
+        }
+    }
+
+    public record WorkspaceGitHubReadSelection(String workspaceId, String workspaceRevision, GitHubReadSelection credential, boolean overridden)
+    {
+        public WorkspaceGitHubReadSelection
+        {
+            checkText(workspaceId, "workspaceId");
+            checkText(workspaceRevision, "workspaceRevision");
+            requireNonNull(credential, "credential is null");
         }
     }
 

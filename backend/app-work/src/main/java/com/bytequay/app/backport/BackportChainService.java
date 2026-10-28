@@ -31,9 +31,10 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -49,6 +50,7 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
@@ -62,6 +64,7 @@ import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Function;
 import java.util.stream.IntStream;
 
 import static com.bytequay.app.utils.Locks.withLock;
@@ -85,7 +88,7 @@ public class BackportChainService
     private final WorkspaceRemoteSourceService remotes;
     private final ModelSettingsService models;
     private final GitHubPullRequestReadClient pullRequests;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
     private final MergedPullRequestResolver landed;
     private final CherryPickPreviewService previews;
     private final CherryPickExecutionService executions;
@@ -102,7 +105,7 @@ public class BackportChainService
     public BackportChainService(BackportChainStore chains, WorkspaceStore workspaces, AgentTaskStore tasks, AgentTurnStore turns,
             RelatedWorkspaceWork related, WorkspaceRelationships relationships, WorkspaceRepositoryService repositories,
             WorkspaceRemoteSourceService remotes, ModelSettingsService models, GitHubPullRequestReadClient pullRequests,
-            CredentialService credentials, MergedPullRequestResolver landed, CherryPickPreviewService previews,
+            WorkspaceHostingService hosting, MergedPullRequestResolver landed, CherryPickPreviewService previews,
             CherryPickExecutionService executions, CherryPickExecutionStore executionStore, WorkspacePullRequestService delivery,
             CiAutofixStore ciStore, CiAutofixService ci, Clock clock, GitCommandRunner git, BackportDrafts drafts)
     {
@@ -116,7 +119,7 @@ public class BackportChainService
         this.remotes = remotes;
         this.models = models;
         this.pullRequests = pullRequests;
-        this.credentials = credentials;
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.landed = landed;
         this.previews = previews;
         this.executions = executions;
@@ -247,7 +250,7 @@ public class BackportChainService
                     .orElseGet(() -> resolveDestination(request.sourcePullRequest().orElseThrow().workspaceId())));
             Optional<PullRequestRef> sourcePr = request.sourcePullRequest().map(value -> PullRequestRef.of(
                     sourceRoute.repository().owner(), sourceRoute.repository().repo(), value.number()));
-            Optional<GitHubPullRequestIdentity> identity = sourcePr.map(pr -> pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(sourceRoute.workspaceId()), pr));
+            Optional<GitHubPullRequestIdentity> identity = sourcePr.map(pr -> identity(sourceRoute, pr));
             identity.ifPresent(pr -> {
                 checkArgument(pr.pullRequest().equals(sourcePr.orElseThrow()) && pr.baseRepository().equals(sourceRoute.repository())
                         && pr.baseBranch().equals(sourceRoute.branch()), "Source PR does not match the selected workspace and branch");
@@ -282,7 +285,7 @@ public class BackportChainService
             }
             Route sourceRoute = route(request.sourceWorkspaceId());
             PullRequestRef sourcePr = PullRequestRef.of(sourceRoute.repository().owner(), sourceRoute.repository().repo(), request.number());
-            GitHubPullRequestIdentity pr = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(sourceRoute.workspaceId()), sourcePr);
+            GitHubPullRequestIdentity pr = identity(sourceRoute, sourcePr);
             checkArgument(pr.pullRequest().equals(sourcePr) && pr.baseRepository().equals(sourceRoute.repository()) && pr.baseBranch().equals(sourceRoute.branch()),
                     "Backports start from a pull request into %s %s", sourceRoute.repository().fullName(), sourceRoute.branch());
             checkArgument(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
@@ -377,7 +380,7 @@ public class BackportChainService
             Route source = chain.sourceRoute(index);
             var sourcePr = chain.sourcePr(index);
             if (sourcePr.isPresent()) {
-                var fresh = pullRequests.fetchMergedPullRequest(credentials.resolveGitHubToken(source.workspaceId()), sourcePr.orElseThrow());
+                var fresh = read(source, selected -> pullRequests.fetchMergedPullRequest(selected.githubToken(), canonical(selected, sourcePr.orElseThrow())));
                 checkState(fresh.identity().baseRepository().equals(source.repository()) && fresh.identity().baseBranch().equals(source.branch()), "Source PR routing changed");
             }
             else {
@@ -475,8 +478,10 @@ public class BackportChainService
     private void advance(BackportChain chain)
     {
         if (chain.sourcePullRequest().isEmpty()) {
-            var matches = pullRequests.fetchPullRequestIdentities(credentials.resolveGitHubToken(chain.source().workspaceId()),
-                    chain.source().repository(), chain.source().pushRepository(), chain.sourceBranch());
+            Route sourceRoute = chain.source();
+            String sourceBranch = chain.sourceBranch();
+            var matches = read(sourceRoute, selected -> pullRequests.fetchPullRequestIdentities(selected.githubToken(),
+                    selected.githubRepository(), sourceRoute.pushRepository(), sourceBranch));
             checkState(matches.size() <= 1, "Several PRs match the source conversation; choose its intended published PR first");
             if (matches.isEmpty()) {
                 checkState(tasks.find(TaskId.valueOf(chain.sourceTaskId().orElseThrow())).isPresent(), "Source conversation is unavailable");
@@ -504,7 +509,7 @@ public class BackportChainService
             Optional<PullRequestRef> sourcePr = chain.sourcePr(index);
             if (hop.landedSource().isEmpty() && hop.selection().isEmpty()) {
                 checkState(sourcePr.isPresent(), "Select landed commits in the previous destination to continue after its no-op.");
-                var pr = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(source.workspaceId()), sourcePr.orElseThrow());
+                var pr = identity(source, sourcePr.orElseThrow());
                 String branch = hop.sourceHop() < 0 ? chain.sourceBranch() : executionStore.findByIdempotencyKey(chain.executionKey(hop.sourceHop()))
                         .orElseThrow(() -> new IllegalStateException("Previous execution is unavailable")).workspace().workBranch();
                 if (hop.sourceHop() < 0 && chain.sourceTaskId().isEmpty()) {
@@ -579,7 +584,7 @@ public class BackportChainService
                         PullRequestRef.of(hop.route().repository().owner(), hop.route().repository().repo(), published.number())), clock.instant()));
                 return;
             }
-            var pr = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(hop.route().workspaceId()), hop.pullRequest().orElseThrow());
+            var pr = identity(hop.route(), hop.pullRequest().orElseThrow());
             verifyPr(hop.route(), execution.workspace().workBranch(), pr);
             checkState(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Backport PR was closed without merging");
             if (pr.state() == GitHubPullRequestIdentity.State.MERGED) {
@@ -595,6 +600,27 @@ public class BackportChainService
         if (chain.hops().stream().allMatch(Hop::completed)) {
             chains.save(chain.withState(State.COMPLETED, Optional.empty(), clock.instant()));
         }
+    }
+
+    private GitHubPullRequestIdentity identity(Route route, PullRequestRef pullRequest)
+    {
+        return read(route, selected -> pullRequests.fetchPullRequestIdentity(selected.githubToken(), canonical(selected, pullRequest)));
+    }
+
+    private <T> T read(Route route, Function<WorkspaceHostingRead, T> remote)
+    {
+        WorkspaceHostingRead selected = hosting.captureRead(route.workspaceId());
+        if (!selected.repository().remoteId().equals(Long.toString(route.repositoryId()))) {
+            throw new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Backport workspace repository changed; refresh the accepted route");
+        }
+        T result = remote.apply(selected);
+        return selected.withCurrent(() -> result);
+    }
+
+    private static PullRequestRef canonical(WorkspaceHostingRead route, PullRequestRef pullRequest)
+    {
+        var repository = route.githubRepository();
+        return PullRequestRef.of(repository.owner(), repository.repo(), pullRequest.number());
     }
 
     private String sourceRemote(BackportChain chain, Route target, Route source)

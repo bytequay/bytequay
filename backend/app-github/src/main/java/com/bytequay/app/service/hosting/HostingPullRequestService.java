@@ -18,18 +18,19 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.store.HostingPullRequestStore;
-import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.locks.Lock;
+import java.util.concurrent.ConcurrentHashMap;
 
-import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.FORBIDDEN;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -40,7 +41,7 @@ public class HostingPullRequestService
     private final HostingConnectionService connections;
     private final HostingPullRequestStore snapshots;
     private final Clock clock;
-    private final Striped<Lock> refreshLocks = Striped.lock(64);
+    private final Map<Resource, State> states = new ConcurrentHashMap<>();
 
     public HostingPullRequestService(HostingConnectionService connections, HostingPullRequestStore snapshots, Clock clock)
     {
@@ -56,9 +57,13 @@ public class HostingPullRequestService
 
     public Optional<HostingPullRequestSnapshot> cached(HostingReadSession session, long repositoryId, int number)
     {
-        new Resource(repositoryId, number);
-        return session.withCurrent(() -> snapshots.find(session.accountId(), repositoryId, number)
-                .filter(snapshot -> snapshot.credentialScope().equals(session.credentialScope()) && snapshot.credentialGeneration() == session.generation()));
+        State state = state(repositoryId, number);
+        return session.withCurrent(() -> {
+            synchronized (state) {
+                return snapshots.find(session.accountId(), repositoryId, number)
+                        .filter(snapshot -> snapshot.credentialScope().equals(session.credentialScope()) && snapshot.credentialGeneration() == session.generation());
+            }
+        });
     }
 
     public HostingPullRequestSnapshot refresh(long accountId, long repositoryId, int number)
@@ -68,8 +73,15 @@ public class HostingPullRequestService
 
     public HostingPullRequestSnapshot refresh(HostingReadSession session, long repositoryId, int number, boolean force)
     {
-        // Serializing this resource also prevents two accounts from creating its retained identity twice.
-        return withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> refreshLocked(session, repositoryId, number, force));
+        State state = state(repositoryId, number);
+        long revision = session.withCurrent(() -> {
+            synchronized (state) {
+                long next = ++state.sequence;
+                state.refreshes.put(session.accountId(), next);
+                return next;
+            }
+        });
+        return refresh(session, repositoryId, number, force, state, revision);
     }
 
     public void evict(long accountId, long repositoryId, int number)
@@ -79,21 +91,26 @@ public class HostingPullRequestService
 
     public void evict(HostingReadSession session, long repositoryId, int number)
     {
-        withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> session.withCurrent(() -> {
-            snapshots.evict(session.accountId(), repositoryId, number, session.credentialScope());
-            return null;
-        }));
+        State state = state(repositoryId, number);
+        session.withCurrent(() -> {
+            synchronized (state) {
+                state.refreshes.remove(session.accountId());
+                snapshots.evict(session.accountId(), repositoryId, number, session.credentialScope());
+                return null;
+            }
+        });
     }
 
     public void invalidateRepository(long repositoryId, int number)
     {
-        withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> {
+        State state = state(repositoryId, number);
+        synchronized (state) {
+            state.refreshes.clear();
             snapshots.evictRepository(repositoryId, number);
-            return null;
-        });
+        }
     }
 
-    private HostingPullRequestSnapshot refreshLocked(HostingReadSession session, long repositoryId, int number, boolean force)
+    private HostingPullRequestSnapshot refresh(HostingReadSession session, long repositoryId, int number, boolean force, State state, long revision)
     {
         Optional<HostingPullRequestSnapshot> previous = cached(session, repositoryId, number);
         try {
@@ -112,15 +129,38 @@ public class HostingPullRequestService
                 throw new HostingFailure(INVALID_RESPONSE, "Hosting response identifies another request");
             }
             PullRequestFetch accepted = fetched;
-            return session.withCurrent(() -> snapshots.save(session.accountId(), repositoryId, session.credentialScope(), session.generation(),
-                    summary, accepted.detail().orElseThrow(), accepted.etag(), clock.instant()));
+            return session.withCurrent(() -> {
+                synchronized (state) {
+                    if (state.refreshes.getOrDefault(session.accountId(), 0L) != revision) {
+                        throw new HostingFailure(REVISION_CONFLICT, "The request changed during refresh; retry with current metadata");
+                    }
+                    return snapshots.save(session.accountId(), repositoryId, session.credentialScope(), session.generation(),
+                            summary, accepted.detail().orElseThrow(), accepted.etag(), clock.instant());
+                }
+            });
         }
         catch (HostingFailure failure) {
             if (failure.kind() == AUTHENTICATION_REQUIRED || failure.kind() == FORBIDDEN || failure.kind() == MISSING_OR_INACCESSIBLE) {
-                snapshots.evict(session.accountId(), repositoryId, number, session.credentialScope());
+                synchronized (state) {
+                    if (state.refreshes.getOrDefault(session.accountId(), 0L) == revision) {
+                        snapshots.evict(session.accountId(), repositoryId, number, session.credentialScope());
+                    }
+                }
             }
             throw failure;
         }
+    }
+
+    private State state(long repositoryId, int number)
+    {
+        return states.computeIfAbsent(new Resource(repositoryId, number), ignored -> new State());
+    }
+
+    // Only local acceptance is serialized: callers may own a workspace lock needed by another returning read.
+    private static final class State
+    {
+        private long sequence;
+        private final Map<Long, Long> refreshes = new HashMap<>();
     }
 
     private record Resource(long repositoryId, int number)

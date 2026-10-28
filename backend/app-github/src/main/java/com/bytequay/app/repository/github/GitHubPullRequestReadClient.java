@@ -19,7 +19,6 @@ import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrMergeQueueRemoval;
-import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReaction;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineComment;
@@ -62,7 +61,6 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
-import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.graphql;
@@ -582,87 +580,6 @@ public class GitHubPullRequestReadClient
     }
 
     // ── Pull request detail ───────────────────────────────────────────────────
-
-    public PrRawDetail fetchPrDetail(String pat, PullRequestRef pr) {
-        GitHubPullRequestDetailResponse r = fetchPullRequestDetailResponse(pat, pr);
-        return r == null ? null : toPrRawDetail(pr, r);
-    }
-
-    private PrRawDetail toPrRawDetail(PullRequestRef pr, GitHubPullRequestDetailResponse r)
-    {
-        requireNonNull(r, "response is null");
-        List<String> labels =
-                Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
-                        .map(GitHubPullRequestDetailResponse.Label::name)
-                        .collect(toImmutableList());
-        Map<String, String> labelColors = Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
-                .filter(label -> label.name() != null && label.color() != null)
-                .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left));
-        List<String> assignees = Optional.ofNullable(r.assignees()).orElse(ImmutableList.of()).stream()
-                .map(GitHubUser::login)
-                .filter(Objects::nonNull)
-                .collect(toImmutableList());
-        // A requested team is named owner/slug, as the timeline names it; removing it addresses team_reviewers.
-        List<String> reviewerLogins = Stream.concat(
-                        Optional.ofNullable(r.requestedReviewers()).orElse(ImmutableList.of()).stream().map(GitHubUser::login),
-                        Optional.ofNullable(r.requestedTeams()).orElse(ImmutableList.of()).stream().map(GitHubPullRequestDetailResponse.Team::slug)
-                                .filter(Objects::nonNull).map(slug -> pr.owner() + "/" + slug))
-                .filter(Objects::nonNull)
-                .collect(toImmutableList());
-        int reviewerCount = reviewerLogins.size();
-        String headSha =
-                Optional.ofNullable(r.head())
-                        .map(GitHubPullRequestDetailResponse.Head::sha)
-                        .orElse(null);
-        String headRef =
-                Optional.ofNullable(r.head())
-                        .map(GitHubPullRequestDetailResponse.Head::ref)
-                        .orElse(null);
-        String baseRef = Optional.ofNullable(r.base())
-                .map(GitHubPullRequestDetailResponse.Base::ref)
-                .orElse(null);
-        String author = Optional.ofNullable(r.user())
-                .map(GitHubUser::login)
-                .orElse(null);
-        String authorAvatarUrl = Optional.ofNullable(r.user())
-                .map(GitHubUser::avatarUrl)
-                .orElse(null);
-        return new PrRawDetail(
-                r.title(),
-                r.htmlUrl(),
-                r.mergedAt() == null ? r.state() : "merged",
-                author,
-                authorAvatarUrl,
-                r.createdAt(),
-                r.updatedAt(),
-                r.mergedAt(),
-                r.body(),
-                labels,
-                labelColors,
-                assignees,
-                Optional.ofNullable(r.milestone())
-                        .map(GitHubPullRequestDetailResponse.Milestone::title)
-                        .orElse(null),
-                r.draft(),
-                r.mergeable(),
-                r.mergeableState(),
-                r.additions(),
-                r.deletions(),
-                r.changedFiles(),
-                reviewerCount,
-                reviewerLogins,
-                headSha,
-                headRef,
-                baseRef,
-                Optional.ofNullable(r.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null));
-    }
-
-    private GitHubPullRequestDetailResponse fetchPullRequestDetailResponse(String pat, PullRequestRef pr)
-    {
-        return translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
-                .retrieve()
-                .body(GitHubPullRequestDetailResponse.class));
-    }
 
     /**
      * Sends each discussion source's stored ETag with one request for its first page, so an unchanged discussion costs

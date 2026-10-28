@@ -140,6 +140,14 @@ public class HostingConnectionService
         return session.withCurrent(() -> identities.upsertRepository(access.instanceId().orElseThrow(), remote));
     }
 
+    public HostingRepository resolveRepositoryById(HostingReadSession session, String remoteId)
+    {
+        HostingAccess access = session.access();
+        RemoteHostingRepository remote = integration(access.server().provider()).repositories().findById(access, remoteId);
+        checkArgument(remote.remoteId().equals(remoteId), "Hosting repository identity changed");
+        return session.withCurrent(() -> identities.upsertRepository(access.instanceId().orElseThrow(), remote));
+    }
+
     /** The action may accept or persist local results, but must not perform remote I/O while holding the credential lock. */
     public <T> T withCurrentCredential(long accountId, long generation, Supplier<T> action)
     {

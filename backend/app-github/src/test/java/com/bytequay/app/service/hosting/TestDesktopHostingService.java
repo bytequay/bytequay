@@ -50,7 +50,9 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
@@ -78,7 +80,8 @@ class TestDesktopHostingService
     private static final PullRequestRef REF = PullRequestRef.of("owner", "repo", 7);
     private final CredentialStore globalStore = mock(CredentialStore.class);
     private final GitHubAccountClient profiles = mock(GitHubAccountClient.class);
-    private final CredentialService credentials = new CredentialService(globalStore, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), profiles);
+    private final WorkspaceCredentialStore workspaceStore = mock(WorkspaceCredentialStore.class);
+    private final CredentialService credentials = new CredentialService(globalStore, workspaceStore, mock(GhCliService.class), profiles);
     private final HostingIdentityStore identities = mock(HostingIdentityStore.class);
     private final HostingCredentialStore manualCredentials = mock(HostingCredentialStore.class);
     private final HostingAccounts accounts = mock(HostingAccounts.class);
@@ -99,6 +102,7 @@ class TestDesktopHostingService
     {
         when(globalStore.getSecret()).thenAnswer(ignored -> Optional.ofNullable(token.get()));
         when(globalStore.revision()).thenAnswer(ignored -> revision.get());
+        when(workspaceStore.revision(anyString())).thenReturn("workspace-revision");
         doAnswer(call -> {
             token.set(call.getArgument(0));
             revision.set(UUID.randomUUID().toString());
@@ -235,6 +239,74 @@ class TestDesktopHostingService
         assertThat(cached).hasNullValue();
         verify(snapshots).evictRepository(30, 7);
         verifyNoInteractions(globalStore, accounts, repositories, reader, manualCredentials);
+    }
+
+    @Test
+    void workspaceOverrideUsesItsOwnVerifiedIdentityWithoutChangingTheGlobalSelection()
+    {
+        String globalScope = desktop.scope("desktop-token");
+        when(workspaceStore.getSecret("workspace")).thenReturn(Optional.of("workspace-token"));
+        when(accounts.verify(any())).thenAnswer(call -> {
+            assertThat(call.<HostingAccess>getArgument(0).token()).isEqualTo("workspace-token");
+            return new RemoteHostingAccount("123", "alice");
+        });
+
+        HostingReadSession session = desktop.workspaceSession("workspace", current());
+
+        assertThat(session.access().token()).isEqualTo("workspace-token");
+        assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace:workspace-revision:workspace-revision");
+        assertThat(desktop.withCurrent(globalScope, () -> "global selection retained")).isEqualTo("global selection retained");
+        verifyNoInteractions(manualCredentials);
+    }
+
+    @Test
+    void workspaceFallbackCannotSurviveAChangedOverride()
+    {
+        HostingReadSession session = desktop.workspaceSession("workspace", current());
+        assertThat(session.access().token()).isEqualTo("desktop-token");
+        assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace:workspace-revision:revision-1");
+        when(workspaceStore.getSecret("workspace")).thenReturn(Optional.of("override"));
+        when(workspaceStore.revision("workspace")).thenReturn("new-revision");
+
+        assertThatThrownBy(session.access()::token).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> session.withCurrent(() -> "late result")).isInstanceOf(HostingFailure.class);
+    }
+
+    @Test
+    void workspaceRebindingDuringVerificationCannotRetainTheOldAccount()
+    {
+        AtomicBoolean active = new AtomicBoolean(true);
+        HostingReadSession.Guard routing = new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                if (!active.get()) {
+                    throw new HostingFailure(REVISION_CONFLICT, "Workspace rebound");
+                }
+                return action.get();
+            }
+        };
+        when(accounts.verify(any())).thenAnswer(call -> {
+            assertThat(call.<HostingAccess>getArgument(0).token()).isEqualTo("desktop-token");
+            active.set(false);
+            return new RemoteHostingAccount("123", "alice");
+        });
+
+        assertThatThrownBy(() -> desktop.workspaceSession("workspace", routing)).isInstanceOf(HostingFailure.class);
+        verify(identities, never()).upsertAccount(anyLong(), any());
+    }
+
+    private static HostingReadSession.Guard current()
+    {
+        return new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return action.get();
+            }
+        };
     }
 
     private static PullRequestFetch fetched()

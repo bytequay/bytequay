@@ -39,10 +39,12 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -63,6 +65,10 @@ import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -70,6 +76,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -82,8 +89,10 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -116,7 +125,8 @@ class TestBackportChainService
     private final WorkspaceRemoteSourceService remotes = mock(WorkspaceRemoteSourceService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GitHubPullRequestReadClient prs = mock(GitHubPullRequestReadClient.class);
-    private final CredentialService credentials = mock(CredentialService.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final Map<String, WorkspaceHostingRead> hostingReads = new ConcurrentHashMap<>();
     private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final BackportDrafts drafts = mock(BackportDrafts.class);
     private final MergedPullRequestResolver landed = mock(MergedPullRequestResolver.class);
@@ -161,6 +171,9 @@ class TestBackportChainService
         for (int number = 2; number <= 4; number++) {
             var workspace = workspace(number);
             workspaceData.put(workspace.id(), workspace);
+            WorkspaceHostingRead read = selected(number, "fixture-token");
+            when(hosting.captureRead(workspace.id())).thenReturn(read);
+            hostingReads.put(workspace.id(), read);
             when(relationships.list(workspace.id())).thenReturn(ImmutableList.of(
                     new WorkspaceRelationships.Relationship("p" + (number + 1), WorkspaceRelationships.Kind.FORK, "Fork", false)));
             when(repositories.requireReadyRepository(workspace.id())).thenReturn(new WorkspaceRepositoryContext(workspace.id(), Path.of("/tmp", workspace.id()),
@@ -171,7 +184,6 @@ class TestBackportChainService
         when(workspaces.findAllRetained()).thenAnswer(_ -> ImmutableList.copyOf(workspaceData.values()));
         when(models.agentModel(eq(AgentModelType.DEVELOPMENT), any())).thenReturn(new AgentModelSetting(
                 AgentModelType.DEVELOPMENT, true, "codex", "Codex", "model", "Model", Optional.of("high")));
-        when(credentials.resolveGitHubToken(anyString())).thenReturn("fixture-token");
         remote.put(4, identity(4, GitHubPullRequestIdentity.State.OPEN, source.taskWorktree().orElseThrow().generatedBranch()));
         when(prs.fetchPullRequestIdentities(anyString(), any(), any(), anyString())).thenAnswer(_ -> ImmutableList.of(remote.get(4)));
         when(prs.fetchPullRequestIdentity(anyString(), any())).thenAnswer(call -> remote.get(((PullRequestRef) call.getArgument(1)).number()));
@@ -663,10 +675,59 @@ class TestBackportChainService
                 pr.baseRepository(), pr.baseBranch(), pr.baseSha(), GitHubPullRequestIdentity.State.MERGED, pr.draft(), pr.author()));
     }
 
+    @Test
+    void sourceIdentityUsesTheCapturedWorkspaceAccount()
+    {
+        WorkspaceHostingRead selected = selected(4, "workspace-account-token");
+        when(hosting.captureRead("p4")).thenReturn(selected);
+
+        service().start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1)));
+
+        verify(prs).fetchPullRequestIdentity("workspace-account-token", PullRequestRef.of("test", "p4", 4));
+    }
+
+    @Test
+    void capturedAccountRejectsAnIdentityThatFinishesAfterRebinding()
+    {
+        WorkspaceHostingRead read = hostingReads.get("p4");
+        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Account changed");
+        when(prs.fetchPullRequestIdentity("fixture-token", PullRequestRef.of("test", "p4", 4))).thenAnswer(call -> {
+            doThrow(failure).when(read.session().guard()).withCurrent(any());
+            return remote.get(4);
+        });
+
+        assertThatThrownBy(() -> service().start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
+                .isSameAs(failure);
+        assertThat(saved).isEmpty();
+    }
+
+    @Test
+    void anotherRepositoryBindingCannotReadTheSavedSource()
+    {
+        when(hosting.captureRead("p4")).thenReturn(hostingReads.get("p2"));
+
+        assertThatThrownBy(() -> service().start("p3", new BackportChainService.StartRequest("p4", 4, ImmutableList.of("p3"), ImmutableList.of(-1))))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.REVISION_CONFLICT));
+        verify(prs, never()).fetchPullRequestIdentity(anyString(), any());
+        assertThat(saved).isEmpty();
+    }
+
+    private static WorkspaceHostingRead selected(int number, String token)
+    {
+        HostingReadSession.Guard guard = mock(HostingReadSession.Guard.class);
+        when(guard.withCurrent(any())).thenAnswer(call -> call.<Supplier<?>>getArgument(0).get());
+        HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        HostingReadSession session = new HostingReadSession(1, "source-" + number, 1, new HostingAccess(instance, () -> guard.withCurrent(() -> token)), guard);
+        String path = "test/p" + number;
+        HostingRepository repository = new HostingRepository(number, 1, Integer.toString(number), path, URI.create("https://github.com/" + path),
+                URI.create("https://github.com/" + path + ".git"), Optional.empty(), Optional.of("main"));
+        return new WorkspaceHostingRead(session, repository, "test");
+    }
+
     private BackportChainService service()
     {
         return new BackportChainService(chains, workspaces, tasks, turns, related, relationships, repositories, remotes, models, prs,
-                credentials, landed, previews, executions, executionStore, delivery, ciStore, ci, Clock.fixed(NOW, ZoneOffset.UTC), git, drafts);
+                hosting, landed, previews, executions, executionStore, delivery, ciStore, ci, Clock.fixed(NOW, ZoneOffset.UTC), git, drafts);
     }
 
     private static Workspace workspace(int number)

@@ -37,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.time.Clock;
@@ -48,7 +49,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -59,7 +59,6 @@ import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACC
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -263,38 +262,36 @@ class TestHostingPullRequestService
         assertThat(service.refresh(20, 30, 7).request().id()).isEqualTo(40);
     }
 
-    @Test
-    void serializesRefreshesBeforeCapturingValidators()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void overlappingRefreshesDoNotWaitAndCannotOverwriteOrEvictNewerMetadata(boolean failFirst)
             throws Exception
     {
         CountDownLatch firstStarted = new CountDownLatch(1);
         CountDownLatch releaseFirst = new CountDownLatch(1);
         AtomicInteger calls = new AtomicInteger();
-        AtomicReference<Thread> secondThread = new AtomicReference<>();
         when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(call -> {
             int index = calls.incrementAndGet();
             if (index == 1) {
                 firstStarted.countDown();
                 assertThat(releaseFirst.await(5, SECONDS)).isTrue();
+                if (failFirst) {
+                    throw new HostingFailure(AUTHENTICATION_REQUIRED, "Old request denied");
+                }
             }
-            else {
-                assertThat(call.<Optional<String>>getArgument(3)).contains("v1");
-            }
+            assertThat(call.<Optional<String>>getArgument(3)).isEmpty();
             return fetched("Refresh " + index, Optional.of("v" + index));
         });
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(() -> service.refresh(20, 30, 7));
             try {
                 assertThat(firstStarted.await(5, SECONDS)).isTrue();
-                var second = executor.submit(() -> {
-                    secondThread.set(Thread.currentThread());
-                    return service.refresh(20, 30, 7);
-                });
-                await().atMost(5, SECONDS).until(() -> secondThread.get() != null && (second.isDone() || secondThread.get().getState() == Thread.State.WAITING));
-                assertThat(calls.get()).isEqualTo(1);
+                var second = executor.submit(() -> service.refresh(20, 30, 7));
+                assertThat(second.get(1, SECONDS).pullRequest().title()).isEqualTo("Refresh 2");
+                assertThat(first.isDone()).isFalse();
                 releaseFirst.countDown();
-                assertThat(first.get(5, SECONDS).pullRequest().title()).isEqualTo("Refresh 1");
-                assertThat(second.get(5, SECONDS).pullRequest().title()).isEqualTo("Refresh 2");
+                assertThatThrownBy(() -> first.get(5, SECONDS)).hasCauseInstanceOf(HostingFailure.class)
+                        .satisfies(failure -> assertThat(((HostingFailure) failure.getCause()).kind()).isEqualTo(failFirst ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
                 assertThat(service.cached(20, 30, 7).orElseThrow().etag()).contains("v2");
             }
             finally {
@@ -304,12 +301,43 @@ class TestHostingPullRequestService
     }
 
     @Test
-    void writeInvalidationWaitsForInflightRefreshAndRemovesItsResult()
+    void accountsCanRefreshIndependently()
             throws Exception
     {
         CountDownLatch started = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
-        AtomicReference<Thread> invalidating = new AtomicReference<>();
+        AtomicInteger calls = new AtomicInteger();
+        when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(ignored -> {
+            int index = calls.incrementAndGet();
+            if (index == 1) {
+                started.countDown();
+                assertThat(release.await(5, SECONDS)).isTrue();
+            }
+            return fetched("Account " + index, Optional.of("v" + index));
+        });
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var first = executor.submit(() -> service.refresh(20, 30, 7));
+            try {
+                assertThat(started.await(5, SECONDS)).isTrue();
+                var second = executor.submit(() -> service.refresh(21, 30, 7));
+                assertThat(second.get(1, SECONDS).pullRequest().title()).isEqualTo("Account 2");
+                release.countDown();
+                assertThat(first.get(5, SECONDS).pullRequest().title()).isEqualTo("Account 1");
+                assertThat(service.cached(20, 30, 7).orElseThrow().etag()).contains("v1");
+                assertThat(service.cached(21, 30, 7).orElseThrow().etag()).contains("v2");
+            }
+            finally {
+                release.countDown();
+            }
+        }
+    }
+
+    @Test
+    void writeInvalidationDoesNotWaitForHttpAndRejectsItsLateResult()
+            throws Exception
+    {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
         when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(ignored -> {
             started.countDown();
             assertThat(release.await(5, SECONDS)).isTrue();
@@ -319,15 +347,11 @@ class TestHostingPullRequestService
             var refresh = executor.submit(() -> service.refresh(20, 30, 7));
             try {
                 assertThat(started.await(5, SECONDS)).isTrue();
-                var invalidate = executor.submit(() -> {
-                    invalidating.set(Thread.currentThread());
-                    service.invalidateRepository(30, 7);
-                });
-                await().atMost(5, SECONDS).until(() -> invalidating.get() != null && (invalidate.isDone() || invalidating.get().getState() == Thread.State.WAITING));
-                assertThat(invalidate.isDone()).isFalse();
+                executor.submit(() -> service.invalidateRepository(30, 7)).get(1, SECONDS);
+                assertThat(refresh.isDone()).isFalse();
                 release.countDown();
-                refresh.get(5, SECONDS);
-                invalidate.get(5, SECONDS);
+                assertThatThrownBy(() -> refresh.get(5, SECONDS)).hasCauseInstanceOf(HostingFailure.class)
+                        .satisfies(failure -> assertThat(((HostingFailure) failure.getCause()).kind()).isEqualTo(REVISION_CONFLICT));
                 assertThat(cache).isEmpty();
             }
             finally {

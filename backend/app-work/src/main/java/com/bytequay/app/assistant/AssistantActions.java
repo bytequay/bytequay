@@ -661,7 +661,8 @@ class AssistantActions
         private Result startOnPullRequest(Request request)
         {
             AgendaRefs.Numbered pr = AgendaRefs.numbered(request.text("from")).orElseThrow(() -> new IllegalArgumentException("That pull request ref is not valid"));
-            Workspace workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo())).findFirst()
+            Workspace workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
+                    .filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo())).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("That pull request's repository is not watched"));
             boolean had = pullRequestTasks.find(workspace.id(), pr.repo(), pr.number()).filter(found -> found.state() != TaskState.COMPLETED).isPresent();
             AgentTask task = pullRequestTasks.assign(workspace.id(), pr.repo(), pr.number());

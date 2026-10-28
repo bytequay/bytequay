@@ -29,6 +29,12 @@ const taskAttention: TaskAttention = { items: [], tasks: [], readStartedAt: {}, 
 
 afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs(); });
 
+function workspaceView(props: Parameters<typeof WorkspaceShell>[0]) {
+  const shell = WorkspaceShell(props);
+  const surface = shell.type as (props: Parameters<typeof WorkspaceShell>[0]) => ReactElement;
+  return surface(shell.props);
+}
+
 /** Captures what a surface asks to zoom; the app itself listens for the same event. */
 function captureZoom() {
   const dispatchEvent = vi.fn();
@@ -288,7 +294,7 @@ describe('watched repository workspace UI', () => {
     const value = workspace('FORK');
     let jira: ReactElement<Parameters<typeof WorkItemsScreen>[0]> | undefined;
     function CaptureJira(): null {
-      jira = WorkspaceShell({
+      jira = workspaceView({
         taskAttention,
         workspace: value, tab: 'jira',
         onSelectTab: vi.fn(), onWorkspaceChanged: vi.fn(),
@@ -309,7 +315,7 @@ describe('watched repository workspace UI', () => {
     const onSelectTab = vi.fn();
     let home: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureHome() {
-      const view = WorkspaceShell({
+      const view = workspaceView({
         taskAttention,
         workspace: workspace('FORK'),
         tab: 'home',
@@ -342,7 +348,7 @@ describe('watched repository workspace UI', () => {
     return Children.toArray(props.children).map(child => find<T>(child, has)).find(found => found !== undefined);
   }
 
-  const tasksTab = (overrides: Partial<Parameters<typeof WorkspaceShell>[0]> = {}) => WorkspaceShell({
+  const tasksTab = (overrides: Partial<Parameters<typeof WorkspaceShell>[0]> = {}) => workspaceView({
     taskAttention,
     workspace: workspace('FORK'),
     tab: 'tasks',
@@ -362,7 +368,7 @@ describe('watched repository workspace UI', () => {
     const onSelectPullRequest = vi.fn();
     let task: ReactElement<{ onOpenPullRequest: (number: number) => void }> | undefined;
     function CaptureTask() {
-      const view = WorkspaceShell({
+      const view = workspaceView({
         taskAttention,
         workspace: workspace('FORK'),
         tab: 'tasks',

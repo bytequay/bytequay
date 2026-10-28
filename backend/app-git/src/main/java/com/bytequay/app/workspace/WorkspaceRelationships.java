@@ -34,6 +34,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -112,7 +113,7 @@ public class WorkspaceRelationships
 
     public List<BackportWorkspace> backportWorkspaces()
     {
-        return workspaces.findAllRetained().stream().filter(workspace -> workspaces.isWatched(workspace.id()))
+        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub).filter(workspace -> workspaces.isWatched(workspace.id()))
                 .map(workspace -> new BackportWorkspace(workspace.id(), workspace.name(), workspace.monitoredRepository().fullName(),
                         list(workspace.id()).stream().filter(link -> link.kind() == Kind.FORK).collect(toImmutableList())))
                 .collect(toImmutableList());
@@ -121,8 +122,8 @@ public class WorkspaceRelationships
     public List<Relationship> save(String workspaceId, Relationship relationship)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace source = requireWorkspace(workspaces, workspaceId);
-            Workspace destination = requireWorkspace(workspaces, relationship.workspaceId());
+            Workspace source = requireGitHubWorkspace(workspaces, workspaceId);
+            Workspace destination = requireGitHubWorkspace(workspaces, relationship.workspaceId());
             checkArgument(workspaces.isWatched(destination.id()), "Choose a watched workspace");
             requireDifferent(source, destination);
             List<Relationship> existing = list(workspaceId);
@@ -197,6 +198,9 @@ public class WorkspaceRelationships
     public Map<String, RemoteSource> lineRemotes(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        if (!workspace.isGitHub()) {
+            return ImmutableMap.of();
+        }
         Map<String, List<Relationship>> links = watchedLinks();
         Set<String> sources = new LinkedHashSet<>();
         for (LineNode node : line(workspaceId, links)) {
@@ -234,9 +238,9 @@ public class WorkspaceRelationships
     /** Agent conversations may read any other watched project; a link only adds guidance and the right to start work there. */
     public Workspace requireReadable(String workspaceId, String destinationId)
     {
-        Workspace destination = requireWorkspace(workspaces, destinationId);
+        Workspace destination = requireGitHubWorkspace(workspaces, destinationId);
         checkArgument(workspaces.isWatched(destinationId), "Related workspace is unavailable");
-        requireDifferent(requireWorkspace(workspaces, workspaceId), destination);
+        requireDifferent(requireGitHubWorkspace(workspaces, workspaceId), destination);
         return destination;
     }
 
@@ -245,7 +249,7 @@ public class WorkspaceRelationships
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Set<String> related = related(workspaceId).stream().map(Related::workspaceId).collect(toImmutableSet());
-        return workspaces.findAllRetained().stream()
+        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub)
                 .filter(other -> workspaces.isWatched(other.id()) && !related.contains(other.id()) && other.monitoredRepositoryId() != workspace.monitoredRepositoryId()
                         && !matches(other, workspace.monitoredRepository()))
                 .collect(toImmutableList());
@@ -261,7 +265,7 @@ public class WorkspaceRelationships
     public void requireTransferAllowed(Optional<RepoRef> source, RepoRef target)
     {
         // ponytail: scan local settings; index repository pairs if large workspace catalogs make admission slow.
-        for (Workspace workspace : workspaces.findAllRetained()) {
+        for (Workspace workspace : workspaces.findAllRetained().stream().filter(Workspace::isGitHub).collect(toImmutableList())) {
             if (source.isPresent() && !matches(workspace, source.orElseThrow()) && !matches(workspace, target)) {
                 continue;
             }
@@ -319,7 +323,7 @@ public class WorkspaceRelationships
     private Map<String, List<Relationship>> watchedLinks()
     {
         // ponytail: reads every watched workspace's links per call; cache them if workspace catalogs grow large.
-        return workspaces.findAllRetained().stream().filter(workspace -> workspaces.isWatched(workspace.id()))
+        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub).filter(workspace -> workspaces.isWatched(workspace.id()))
                 .collect(toImmutableMap(Workspace::id, workspace -> list(workspace.id())));
     }
 

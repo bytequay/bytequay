@@ -57,6 +57,7 @@ import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.DiscussionProbe;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
@@ -113,6 +114,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -487,19 +489,22 @@ public class PullRequestService
     public void syncWorkspace(String workspaceId)
     {
         WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
-        // Card enrichment and the desktop projection still require GitHub.
-        route.githubRepository();
         syncRepository(route.session(), route.repository(), route.login());
     }
 
     private void syncRepository(HostingReadSession session, HostingRepository repository, String login)
     {
         String pat = session.access().token();
-        baselineSummaries(pat);
+        boolean github = session.access().server().provider() == GITHUB;
+        if (github) {
+            baselineSummaries(pat);
+        }
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         Consumer<List<FetchedPullRequest>> save = page -> {
             List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList());
-            store.saveRepositorySyncPage(repository.fullPath(), rows);
+            if (github) {
+                store.saveRepositorySyncPage(repository.fullPath(), rows);
+            }
             rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
         };
         String key = "hosting.repository-sync." + session.cacheScope() + "." + repository.id();
@@ -507,7 +512,8 @@ public class PullRequestService
         // Deleting the last workspace of a repository hides its rows, so watching it again needs the full pass.
         Optional<Instant> synced = syncSettings.get(key).map(Instant::parse)
                 .filter(at -> at.isAfter(started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS))) && !at.isAfter(started))
-                .filter(ignored -> store.findRepositoryPage(repository.fullPath(), 0, 1).totalPullRequests() > 0);
+                .filter(ignored -> github ? store.findRepositoryPage(repository.fullPath(), 0, 1).totalPullRequests() > 0
+                        : !requests.cachedPage(session, repository.id(), 1, 1).items().isEmpty());
         if (synced.isPresent()) {
             discoverRepository(session, repository.id(), false, synced.orElseThrow().minusSeconds(300), save);
         }
@@ -518,7 +524,9 @@ public class PullRequestService
             discoverRepository(session, repository.id(), true, Instant.MIN, save);
         }
         syncSettings.put(key, started.toString());
-        enrichCards(pat, login, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
+        if (github) {
+            enrichCards(pat, login, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
+        }
         // Discovery never deletes cached rows or local marks.
     }
 
@@ -627,7 +635,7 @@ public class PullRequestService
         queries.put("is:pr user-review-requested:@me", REVIEW_REQUESTED);
         queries.put("is:pr reviewed-by:@me", OTHER);
         queries.put("is:pr involves:@me", OTHER);
-        workspaces.findAll().stream().map(workspace -> workspace.monitoredRepository().fullName()).distinct()
+        workspaces.findAll().stream().filter(Workspace::isGitHub).map(workspace -> workspace.monitoredRepository().fullName()).distinct()
                 .forEach(repo -> queries.put("is:pr repo:" + repo, OTHER));
         // One search per tick, in turn: back to back, a tick's searches land as one burst on GitHub's secondary limit.
         // Each query keeps its own checkpoint, so a query that waits for its turn still reads everything since its last run.

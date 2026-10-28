@@ -209,7 +209,7 @@ function HomePage({
 
   // Issue snapshots are local reads per watched repository; keyed on the id
   // list so the 1.5s workspace poll doesn't refire the fan-out.
-  const workspaceKey = workspaces.map(workspace => workspace.id).join(',');
+  const workspaceKey = workspaces.filter(workspace => workspace.hostingServer?.provider !== 'GITLAB').map(workspace => workspace.id).join(',');
   const login = profile?.login;
 
   // Home remounts on every tab switch, so share the activity feed cache until it
@@ -315,7 +315,7 @@ function HomePage({
     };
   }, [login]);
 
-  const taskWorkspaces = useMemo(() => workspaces.map(workspace => ({
+  const taskWorkspaces = useMemo(() => workspaces.filter(workspace => workspace.hostingServer?.provider !== 'GITLAB').map(workspace => ({
     id: workspace.id, name: workspace.name, repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}`,
   })), [workspaces]);
   const tasks = useTaskAttention(taskWorkspaces);

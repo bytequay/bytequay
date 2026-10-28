@@ -26,6 +26,7 @@ import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -381,7 +382,7 @@ public class TeamActivityService
     private List<String> repositories(List<TeamCircle> circles)
     {
         Set<String> watched = new LinkedHashSet<>();
-        workspaces.findAll().forEach(workspace -> watched.add(workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)));
+        workspaces.findAll().stream().filter(Workspace::isGitHub).forEach(workspace -> watched.add(workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)));
         return watched.stream().filter(repository -> circles.stream().anyMatch(circle -> circle.repositories().isEmpty()
                 || circle.repositories().stream().anyMatch(repository::equalsIgnoreCase))).collect(toImmutableList());
     }

@@ -15,6 +15,7 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 
 import java.time.Instant;
 
@@ -36,7 +37,8 @@ public record WorkspaceSummary(
         String localRepositoryPath,
         Instant lastCodeSyncAt,
         Instant lastMetadataSyncAt,
-        int displayOrder)
+        int displayOrder,
+        HostingServer hostingServer)
 {
     public static WorkspaceSummary of(Workspace workspace)
     {
@@ -58,6 +60,7 @@ public record WorkspaceSummary(
                 workspace.localRepositoryPath(),
                 workspace.lastCodeSyncAt().orElse(null),
                 workspace.lastMetadataSyncAt().orElse(null),
-                workspace.displayOrder());
+                workspace.displayOrder(),
+                workspace.hostingServer().orElse(null));
     }
 }

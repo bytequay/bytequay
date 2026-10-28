@@ -247,7 +247,7 @@ class TestCommitHistoryService
                 REPOSITORY.toString(),
                 Instant.parse("2026-08-22T00:00:00Z"),
                 Instant.parse("2026-08-22T00:00:00Z"),
-                0);
+                0, null);
     }
 
     private static Commit commit(String sha, Optional<Integer> pullRequestNumber)

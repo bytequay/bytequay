@@ -146,6 +146,6 @@ class TestCommitHistorySyncJob
                 "/managed/" + id,
                 codeAvailable ? NOW : null,
                 NOW,
-                0);
+                0, null);
     }
 }

@@ -32,7 +32,7 @@ import { pullRequestFromRoute, pullRequestRoute, zoomReference, ZOOM_REFERENCE, 
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
 import { navigationShortcutDirection, type NavigationMode } from './navigationHistory';
-import OnboardingScreen from './OnboardingScreen';
+import HostingOnboarding from './hosting/HostingOnboarding';
 import SetupFlow from './onboarding/SetupFlow';
 import { OPEN_SETUP, SETUP_CHANGED } from './onboarding/setup';
 import { AgentAvailabilityProvider, useAgentAvailability } from './agents/availability';
@@ -103,6 +103,7 @@ export default function App() {
 function AppContent() {
   const [status, setStatus] = useState<Status>('checking');
   const [setup, setSetup] = useState<SetupPreferencesDto | null>(null);
+  const [hostingConnected, setHostingConnected] = useState(false);
   const [githubConnected, setGithubConnected] = useState(false);
   const [revisitSetup, setRevisitSetup] = useState(false);
   const [startupError, setStartupError] = useState<string | null>(null);
@@ -196,13 +197,16 @@ function AppContent() {
   const initialize = useCallback(async () => {
     setStartupError(null);
     try {
-      const [hasPat, saved] = await Promise.all([
+      const [hasPat, saved, accounts] = await Promise.all([
         window.bridge.hasPat(),
         window.bridge.getSetupPreferences?.() ?? Promise.resolve({ step: 'COMPLETE' as const, assistantEnabled: true }),
+        window.bridge.listHostingAccounts(),
       ]);
+      const connected = hasPat || accounts.some(account => account.connected);
+      setHostingConnected(connected);
       setGithubConnected(hasPat);
       setSetup(saved);
-      setStatus(saved.step !== 'COMPLETE' ? 'needs-setup' : hasPat ? 'ready' : 'needs-pat');
+      setStatus(saved.step !== 'COMPLETE' ? 'needs-setup' : connected ? 'ready' : 'needs-pat');
     }
     catch (failure) { setStartupError(failure instanceof Error ? failure.message : 'Unable to load setup.'); }
   }, []);
@@ -538,6 +542,10 @@ function AppContent() {
     navigateTo(`#/${next}`, 'push');
   }, [navigateTo, page, updateWorkspace, workspace]);
 
+  useEffect(() => {
+    if (status === 'ready' && !githubConnected && (page === 'home' || page === 'work')) navigatePage('workspaces');
+  }, [githubConnected, navigatePage, page, status]);
+
   const openTaskComposer = useCallback((workspaceId: string | null) => {
     const activeTasks = [...document.querySelectorAll<HTMLButtonElement>('[data-task-list="active"]')]
       .find(button => button.checkVisibility() && !button.closest('[inert]:not(.app-surfaces)'));
@@ -635,22 +643,22 @@ function AppContent() {
   }), [backToApp, initialAgentTaskId, layers, navigatePage, navigateTo, openTaskComposer, status, taskSwitcher, workspace]);
 
   const inWorkspace = page === 'workspaces' && workspace !== null;
-  const taskAttention = useTaskAttention(status === 'ready' && inWorkspace
+  const taskAttention = useTaskAttention(status === 'ready' && inWorkspace && workspace.hostingServer?.provider !== 'GITLAB'
     ? [{ id: workspace.id, name: '', repository: `${workspace.monitoredOwner}/${workspace.monitoredRepo}` }] : []);
   const tasksWaiting = Object.values(taskAttention.activity).filter(activity => activity.pendingApproval != null).length;
 
   if (status !== 'ready') {
-    if (status === 'needs-setup' && setup !== null) return <SetupFlow initial={setup} connected={githubConnected} revisit={revisitSetup}
-      onSaved={setSetup} onConnected={() => setGithubConnected(true)} onFinish={() => {
+    if (status === 'needs-setup' && setup !== null) return <SetupFlow initial={setup} connected={hostingConnected} revisit={revisitSetup}
+      onSaved={setSetup} onConnected={() => setHostingConnected(true)} onFinish={() => {
         setRevisitSetup(false);
-        setStatus(githubConnected ? 'ready' : 'needs-pat');
+        void initialize();
         void availability.refresh();
       }} />;
     return (
       <div className="app-shell">
         <main className="app-content">
           {startupError !== null ? <div role="alert">{startupError}<button type="button" onClick={() => { void initialize(); }}>Try again</button></div>
-            : status === 'checking' ? <div className="app-startup"><LogoLoading /></div> : <OnboardingScreen onSaved={() => { setGithubConnected(true); setStatus('ready'); }} />}
+            : status === 'checking' ? <div className="app-startup"><LogoLoading /></div> : <HostingOnboarding onSaved={() => { void initialize(); }} />}
         </main>
       </div>
     );
@@ -737,7 +745,7 @@ function AppContent() {
             label: assistantEnabled ? 'Assistant' : 'Task notices', onToggle: () => setAssistantOpen(open => !open) } : undefined}
         />
         <main className="app-content">
-          {(page === 'home' || page === 'work') && (
+          {githubConnected && (page === 'home' || page === 'work') && (
             <HomePage
               allWork={page === 'work'}
               onSelectRepo={openPr}
@@ -758,6 +766,7 @@ function AppContent() {
           )}
           {page === 'workspaces' && workspace === null && (
             <WorkspacesPage
+              defaultProvider={githubConnected ? 'GITHUB' : 'GITLAB'}
               onOpen={openWorkspace}
             />
           )}

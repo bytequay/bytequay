@@ -105,6 +105,7 @@ import type {
   CommitHistorySourceDto,
   CreateAgentTaskRequest,
   GitHubCodeSnippetRequest,
+  HostingServerDto,
   IssueAttentionRead,
   QueueAgentInputRequest,
   PullRequestDto,
@@ -1819,6 +1820,18 @@ function registerIpc(): void {
     headSha: string,
   ) => backendJson(prUrl('/prs/merge', repo, number, { id: String(prId), strategy, headSha }), { method: 'POST' }));
 
+  ipcMain.handle('hosting:accounts', () => backendJson(`${backendBase()}/api/hosting/accounts`));
+  ipcMain.handle('hosting:connect', (_event, request: HostingServerDto & { token: string }) =>
+    backendJson(`${backendBase()}/api/hosting/accounts`, jsonInit('POST', request)));
+  ipcMain.handle('hosting:disconnect', (_event, accountId: number) =>
+    backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/credential`, { method: 'DELETE' }));
+  ipcMain.handle('hosting:repository', (_event, accountId: number, fullPath: string) =>
+    backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/repositories/resolve`, jsonInit('POST', { fullPath })));
+  ipcMain.handle('hosting:workspace', (_event, accountId: number, repositoryId: number) =>
+    backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/workspaces`, jsonInit('POST', { repositoryId })));
+  ipcMain.handle('workspaces:hosting', (_event, workspaceId: string) => backendJson(workspaceUrl(workspaceId, '/hosting')));
+  ipcMain.handle('workspaces:hosting:set', (_event, workspaceId: string, accountId: number) =>
+    backendJson(workspaceUrl(workspaceId, '/hosting'), jsonInit('POST', { accountId })));
   ipcMain.handle('workspaces:search', (_event, query: string, limit: number) =>
     backendJson(`${backendBase()}/api/repository-search?${new URLSearchParams({ q: query, limit: String(limit) })}`));
   ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number, topology?: WatchRepositoryTopology) =>

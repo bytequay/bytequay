@@ -66,6 +66,18 @@ class TestWorkItemCatalog
     }
 
     @Test
+    void gitLabCatalogKeepsLocalWorkAndJiraWithoutReadingGitHubIssues()
+    {
+        ContextFixture fixture = new ContextFixture();
+        when(fixture.workspace.isGitHub()).thenReturn(false);
+
+        assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id).containsExactlyInAnyOrder("owner", "target");
+        assertThat(fixture.catalog.list("workspace", false)).extracting(UnifiedWorkItem::id)
+                .containsExactlyInAnyOrder("owner", "target", WorkItemLink.jiraIdentity("cloud", "workspace"));
+        verifyNoInteractions(fixture.issues, fixture.markers);
+    }
+
+    @Test
     void localCatalogReadsOnlyTheReferencedParentEpic()
     {
         ContextFixture fixture = new ContextFixture();
@@ -142,6 +154,7 @@ class TestWorkItemCatalog
         Instant now = Instant.EPOCH;
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(workspace.monitoredRepositoryId()).thenReturn(1L);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
@@ -308,6 +321,7 @@ class TestWorkItemCatalog
 
     private static final class ContextFixture
     {
+        private final Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         private final WorkItemStore store = mock(WorkItemStore.class);
         private final WorkItemService work = mock(WorkItemService.class);
         private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
@@ -318,7 +332,7 @@ class TestWorkItemCatalog
         private ContextFixture()
         {
             WorkspaceStore workspaces = mock(WorkspaceStore.class);
-            Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+            when(workspace.isGitHub()).thenReturn(true);
             when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
             when(workspace.monitoredRepositoryId()).thenReturn(1L);
             when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));

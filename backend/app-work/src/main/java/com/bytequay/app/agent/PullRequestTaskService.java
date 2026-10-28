@@ -41,6 +41,7 @@ import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -173,7 +174,8 @@ public class PullRequestTaskService
     private void requireWorkspace(String workspaceId, String repo, int number)
     {
         checkArgument(repo.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+") && number > 0, "Invalid pull request");
-        checkArgument(workspaces.findById(workspaceId).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).isPresent(),
+        checkArgument(workspaces.findById(workspaceId).filter(Workspace::isGitHub)
+                        .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).isPresent(),
                 "Pull request does not belong to this workspace");
     }
 

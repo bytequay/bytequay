@@ -17,11 +17,21 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -30,15 +40,20 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Callable;
@@ -52,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.CONCURRENT)
@@ -340,6 +356,66 @@ class TestWorkspaceProvisioningService
         assertThat(git(directPath(workspace), "remote", "get-url", "origin")).isEqualTo(renamedUrl);
     }
 
+    @ParameterizedTest
+    @CsvSource({"GITHUB,https://github.com", "GITLAB,https://gitlab.com", "GITLAB,https://git.example.test:8443/gitlab"})
+    void selectedHostingAccountClonesFetchesAndFollowsRepositoryRenames(HostingProvider provider, String base)
+            throws IOException
+    {
+        Remote origin = remote("hosted-origin");
+        String originalPath = provider == HostingProvider.GITHUB ? "group/project" : "group/subgroup/project";
+        String renamedPath = provider == HostingProvider.GITHUB ? "renamed/project" : "renamed/" + originalPath;
+        String originalUrl = base + "/" + originalPath + ".git";
+        String renamedUrl = base + "/" + renamedPath + ".git";
+        GitCommandRunner routed = routedGit(ImmutableMap.of(originalUrl, origin.bare(), renamedUrl, origin.bare()), temporary.resolve("hosted-git.log"));
+        GitCommandRunner authenticated = new GitCommandRunner()
+        {
+            @Override
+            public Result run(Path repository, Duration timeout, Map<String, String> environment, List<String> arguments)
+            {
+                if (ImmutableList.of("clone", "fetch").contains(arguments.getFirst())) {
+                    assertThat(environment).containsEntry("GIT_CONFIG_KEY_0", "http." + base + "/.extraHeader");
+                    assertThat(environment.get("GIT_CONFIG_VALUE_0")).isNotBlank();
+                    assertThat(environment).containsEntry("GIT_CONFIG_KEY_1", "http.followRedirects").containsEntry("GIT_CONFIG_VALUE_1", "false");
+                }
+                return routed.run(repository, timeout, environment, arguments);
+            }
+        };
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        HostingInstance instance = new HostingInstance(1, provider, URI.create(base), URI.create(base + "/api"));
+        HostingServer server = new HostingServer(provider, instance.webBaseUrl(), instance.apiBaseUrl());
+        HostingReadSession session = new HostingReadSession(7, "hosting-account", new HostingAccess(instance, "selected-token"));
+        HostingRepository original = new HostingRepository(9, 1, "100", originalPath, URI.create(base + "/" + originalPath), URI.create(originalUrl),
+                Optional.empty(), Optional.of("main"));
+        HostingRepository renamed = new HostingRepository(9, 1, "100", renamedPath, URI.create(base + "/" + renamedPath), URI.create(renamedUrl),
+                Optional.empty(), Optional.of("main"));
+        RepoRef ref = WorkspaceHostingService.repositoryRef(original);
+        Workspace workspace = store.createOrGet(new Workspace("hosted", "Hosted", 100, ref, Optional.empty(), Optional.empty(), 100, ref, Topology.DIRECT,
+                "main", originalUrl, Optional.empty(), Optional.empty(), temporary.resolve("workspaces/hosted/repository").toString(),
+                Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.of(server)));
+        store.bindHosting(workspace.id(), 7, 9, Optional.empty());
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        when(hosting.readSession(7)).thenReturn(session);
+        when(hosting.resolveRepositoryById(session, "100")).thenReturn(original, renamed);
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        CredentialStore global = mock(CredentialStore.class);
+        CredentialService credentials = new CredentialService(global, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), gitHub, hosting, store);
+        WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
+        InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
+        WorkspaceProvisioningService service = new WorkspaceProvisioningService(store, new ManagedWorkspaceGit(paths, authenticated, credentials, remoteSources),
+                gitHub, credentials, new WorkspaceRelationships(store, new InMemoryAppSettingsStore(), new ObjectMapper()), remoteSources, hosting,
+                Clock.fixed(NOW, ZoneOffset.UTC));
+
+        assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
+        assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
+
+        Workspace current = store.findById(workspace.id()).orElseThrow();
+        assertThat(current.selectedRepository().fullName()).isEqualTo(renamedPath);
+        assertThat(current.hostingServer()).contains(server);
+        assertThat(git(directPath(current), "remote", "get-url", "origin")).isEqualTo(renamedUrl);
+        assertThat(git(directPath(current), "rev-parse", "origin/main")).isNotBlank();
+        verifyNoInteractions(gitHub, global);
+    }
+
     @Test
     void rejectsWorkspacePathsOutsideManagedRoot()
     {
@@ -374,7 +450,7 @@ class TestWorkspaceProvisioningService
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubToken(anyString())).thenReturn("token");
-        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenCallRealMethod();
+        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenReturn(ImmutableMap.of("GIT_CONFIG_COUNT", "0"));
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
         return new WorkspaceProvisioningService(
                 store,
@@ -383,6 +459,7 @@ class TestWorkspaceProvisioningService
                 credentials,
                 relationships,
                 remoteSources,
+                mock(HostingConnectionService.class),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

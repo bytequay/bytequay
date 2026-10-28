@@ -440,6 +440,9 @@ class AssistantRows
     /** The repository's open issues that match, the most recently updated first, and the issue the query numbers wherever it is. */
     private void issues(Workspace workspace, List<String> words, Optional<Integer> number, Map<String, Found> found)
     {
+        if (!workspace.isGitHub()) {
+            return;
+        }
         String repo = workspace.monitoredRepository().fullName();
         number.flatMap(value -> issues.find(workspace.monitoredRepositoryId(), value)).ifPresent(issue -> add(found, found(workspace, repo, issue, true)));
         for (int page = 0; page < ISSUE_PAGES; page++) {
@@ -508,7 +511,7 @@ class AssistantRows
 
     private static Optional<Workspace> workspace(List<Workspace> watched, String repo)
     {
-        return watched.stream().filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst();
+        return watched.stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst();
     }
 
     static Optional<TaskId> taskId(String id)

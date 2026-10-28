@@ -63,7 +63,7 @@ public class IssueSyncJob
         }
         Set<Long> synchronizedRepositories = new HashSet<>();
         for (Workspace workspace : workspaces.findAll()) {
-            if (!synchronizedRepositories.add(workspace.monitoredRepositoryId())) {
+            if (!workspace.isGitHub() || !synchronizedRepositories.add(workspace.monitoredRepositoryId())) {
                 continue;
             }
             refreshQuietly(log, "Issue sync for " + workspace.monitoredRepository(), () -> issues.refreshIssuesOlderThan(workspace.id(), FULL_SYNC_AGE));

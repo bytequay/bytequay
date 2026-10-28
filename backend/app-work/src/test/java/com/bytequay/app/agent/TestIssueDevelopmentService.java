@@ -95,6 +95,7 @@ class TestIssueDevelopmentService
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(REPO);
         when(workspace.monitoredRepositoryId()).thenReturn(2L);
         when(workspaces.findById(anyString())).thenReturn(Optional.of(workspace));
@@ -208,6 +209,7 @@ class TestIssueDevelopmentService
     void changedWorkspaceRepositoryRefusesPreparedTaskAndSourceWrite()
     {
         Workspace changed = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(changed.isGitHub()).thenReturn(true);
         when(changed.monitoredRepository()).thenReturn(RepoRef.of("different", "upstream"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(changed));
         assertThatThrownBy(() -> service.persistTask(task, SOURCE, "Implement"))

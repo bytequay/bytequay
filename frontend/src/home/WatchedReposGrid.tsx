@@ -55,7 +55,7 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
         <div className="home-repo-grid">
           {workspaces.map(workspace => {
             const fullName = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
-            const counts = repoCounts(prs, fullName);
+            const counts = repoCounts(workspace.hostingServer?.provider === 'GITLAB' ? [] : prs, fullName);
             const state = workspaceSyncState(workspace);
             return (
               <div
@@ -75,7 +75,7 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
                 }}
               >
                 <div className="home-repo-tile__head">
-                  <RepoAvatar
+                  <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'}
                     owner={workspace.monitoredOwner}
                     repo={workspace.monitoredRepo}
                     size={18}
@@ -87,10 +87,10 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
                     aria-hidden="true"
                   />
                 </div>
-                <div className="home-repo-tile__stats">
+                {workspace.hostingServer?.provider === 'GITLAB' ? <div className="home-repo-tile__stats">GitLab · code sync</div> : <div className="home-repo-tile__stats">
                   <span><b>{counts.open}</b> open</span>
                   <span><b>{counts.needsYou}</b> need you</span>
-                </div>
+                </div>}
               </div>
             );
           })}

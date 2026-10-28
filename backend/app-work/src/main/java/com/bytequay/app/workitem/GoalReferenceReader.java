@@ -96,10 +96,14 @@ public class GoalReferenceReader
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Resolver resolver = new Resolver(workspace);
         String term = query.trim().toLowerCase(Locale.ROOT);
-        Stream<GoalItemView> pulls = pullRequests.findRepositoryPage(workspace.monitoredRepository().fullName(), 0, CANDIDATES_PER_KIND, term)
-                .pullRequests().stream().map(resolver::pullRequestView);
-        Stream<GoalItemView> repositoryIssues = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, ISSUE_SCAN).issues().stream()
-                .filter(issue -> matches(term, "#" + issue.number(), issue.title())).limit(CANDIDATES_PER_KIND).map(resolver::issueView);
+        Stream<GoalItemView> pulls = workspace.isGitHub()
+                ? pullRequests.findRepositoryPage(workspace.monitoredRepository().fullName(), 0, CANDIDATES_PER_KIND, term)
+                        .pullRequests().stream().map(resolver::pullRequestView)
+                : Stream.empty();
+        Stream<GoalItemView> repositoryIssues = workspace.isGitHub()
+                ? issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, ISSUE_SCAN).issues().stream()
+                        .filter(issue -> matches(term, "#" + issue.number(), issue.title())).limit(CANDIDATES_PER_KIND).map(resolver::issueView)
+                : Stream.empty();
         Stream<GoalItemView> tickets = jira.getObject().cachedIssues().stream()
                 .filter(issue -> issue.workspace().filter(assigned -> assigned.id().equals(workspaceId)).isPresent())
                 .filter(issue -> matches(term, issue.key(), issue.title())).limit(CANDIDATES_PER_KIND).map(resolver::jiraView);
@@ -270,8 +274,8 @@ public class GoalReferenceReader
         Optional<GoalItemView> find(GoalItemKind kind, String key)
         {
             return switch (kind) {
-                case PULL_REQUEST -> pullRequest(key);
-                case ISSUE -> issue(key);
+                case PULL_REQUEST -> workspace.isGitHub() ? pullRequest(key) : Optional.empty();
+                case ISSUE -> workspace.isGitHub() ? issue(key) : Optional.empty();
                 case JIRA -> jiraTicket(key);
                 case TASK -> task(key);
             };

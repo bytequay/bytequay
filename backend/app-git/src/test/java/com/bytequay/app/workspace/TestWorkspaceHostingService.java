@@ -32,6 +32,7 @@ import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingRepository;
@@ -43,6 +44,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.time.Clock;
@@ -76,11 +79,13 @@ class TestWorkspaceHostingService
     private final HostingRepositories repositories = mock(HostingRepositories.class);
     private final PullRequestReader requests = mock(PullRequestReader.class);
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
-            ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests)));
+            ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests),
+                    new HostingIntegration(GITLAB, mock(HostingAccounts.class), repositories, requests)));
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     private final CredentialService desktop = mock(CredentialService.class);
-    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, connections, cache, desktop);
+    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, connections, cache, desktop,
+            new WorkspacePaths("/tmp/managed-workspaces"), Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -200,6 +205,82 @@ class TestWorkspaceHostingService
         assertThatThrownBy(() -> service.readPullRequest("workspace", 7))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
         verifyNoInteractions(requests, desktop);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"https://gitlab.com", "https://git.company.test:8443/gitlab"})
+    void createsNestedGitLabWorkspacesWithTheSelectedAccount(String base)
+    {
+        HostingInstance instance = gitLab(base);
+
+        Workspace workspace = service.watch(40, 60, Optional.of("Company project"));
+
+        assertThat(workspace.name()).isEqualTo("Company project");
+        assertThat(workspace.selectedRepositoryId()).isEqualTo(100);
+        assertThat(workspace.selectedRepository()).isEqualTo(RepoRef.of("group/subgroup", "project"));
+        assertThat(workspace.hostingServer()).contains(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()));
+        assertThat(workspace.originCloneUrl()).isEqualTo(base + "/group/subgroup/project.git");
+        assertThat(workspace.localRepositoryPath()).isEqualTo("/tmp/managed-workspaces/" + workspace.id() + "/repository");
+        assertThat(workspaces.findBySelectedRepositoryId(100)).contains(workspace());
+        assertThat(workspaces.findBySelectedHostingRepositoryId(60)).contains(workspace);
+        assertThat(workspaces.findHostingBinding(workspace.id())).contains(new WorkspaceHostingBinding(workspace.id(), 40, 60, Optional.empty()));
+        assertThat(service.captureRead(workspace.id()).session().access().token()).isEqualTo("gitlab-token");
+        verifyNoInteractions(desktop);
+    }
+
+    @Test
+    void watchingAgainRestoresTheSameWorkspaceAndSelectedAccount()
+    {
+        gitLab("https://gitlab.com");
+        Workspace first = service.watch(40, 60, Optional.empty());
+        workspaces.setWatched(first.id(), false);
+
+        Workspace second = service.watch(40, 60, Optional.of("Ignored replacement name"));
+
+        assertThat(second).isEqualTo(first);
+        assertThat(workspaces.isWatched(first.id())).isTrue();
+        assertThat(workspaces.findAllRetained()).hasSize(2);
+    }
+
+    @Test
+    void changesGitLabAccountOnlyWithinTheWorkspaceServer()
+    {
+        gitLab("https://gitlab.com");
+        Workspace workspace = service.watch(40, 60, Optional.empty());
+        when(identities.findAccount(41)).thenReturn(Optional.of(new HostingAccount(41, 90, "2", "bob")));
+        when(credentials.find(41)).thenReturn(Optional.of(new HostingCredential(41, "second-token")));
+
+        WorkspaceHostingBinding binding = service.bind(workspace.id(), 41);
+
+        assertThat(binding.accountId()).isEqualTo(41);
+        assertThat(service.captureRead(workspace.id()).session().access().token()).isEqualTo("second-token");
+        assertThatThrownBy(() -> service.bind(workspace.id(), 20)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(workspaces.findHostingBinding(workspace.id())).contains(binding);
+    }
+
+    @Test
+    void rejectsWatchingARepositoryFromAnotherHostingInstance()
+    {
+        gitLab("https://gitlab.com");
+
+        assertThatThrownBy(() -> service.watch(40, 30, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThat(workspaces.findAllRetained()).containsExactly(workspace());
+    }
+
+    private HostingInstance gitLab(String base)
+    {
+        HostingInstance instance = new HostingInstance(90, GITLAB, URI.create(base), URI.create(base + "/api/v4"));
+        RemoteHostingRepository remote = new RemoteHostingRepository("100", "group/subgroup/project", URI.create(base + "/group/subgroup/project"),
+                URI.create(base + "/group/subgroup/project.git"), Optional.empty(), Optional.of("main"));
+        HostingRepository repository = new HostingRepository(60, 90, remote.remoteId(), remote.fullPath(), remote.webUrl(), remote.httpCloneUrl(),
+                remote.sshCloneUrl(), remote.defaultBranch());
+        when(identities.findInstance(90)).thenReturn(Optional.of(instance));
+        when(identities.findAccount(40)).thenReturn(Optional.of(new HostingAccount(40, 90, "1", "alice")));
+        when(credentials.find(40)).thenReturn(Optional.of(new HostingCredential(40, "gitlab-token")));
+        when(identities.findRepository(60)).thenReturn(Optional.of(repository));
+        doReturn(remote).when(repositories).findById(any(), eq("100"));
+        when(identities.upsertRepository(eq(90L), any())).thenReturn(repository);
+        return instance;
     }
 
     private static Workspace workspace()

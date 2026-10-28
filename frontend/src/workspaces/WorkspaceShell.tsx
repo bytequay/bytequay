@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import GitLabWorkspace from '../hosting/GitLabWorkspace';
 import React, { Activity, useCallback, useEffect, useRef, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import type { TaskAttention } from '../agents/attention';
@@ -55,7 +56,7 @@ type TaskPage = { kind: 'cherry-pick' | 'review' | 'task'; id: string };
 // ponytail: the open task page and the two before it stay mounted; raise it if switching among more tasks matters more than their memory.
 const KEPT_TASK_PAGES = 3;
 
-export default function WorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
+type Props = {
   workspace: WorkspaceDto;
   taskAttention: TaskAttention;
   tab: WorkspaceTab;
@@ -73,7 +74,15 @@ export default function WorkspaceShell({ workspace, taskAttention, tab, relatedW
   onSelectAgentTask: (taskId: string | null, mode: NavigationMode) => void;
   onSelectPullRequest: (number: number, mode: NavigationMode) => void;
   onSelectIssue: (number: number, mode: NavigationMode) => void;
-}) {
+};
+
+export default function WorkspaceShell(props: Props) {
+  return props.workspace.hostingServer?.provider === 'GITLAB'
+    ? <GitLabWorkspace workspace={props.workspace} onWorkspaceChanged={props.onWorkspaceChanged} />
+    : <GitHubWorkspaceShell {...props} />;
+}
+
+function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: Props) {
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
   // The Epic whose view is open over Home, by the identity its work names it with.
   const [openEpic, setOpenEpic] = useState<string | null>(null);

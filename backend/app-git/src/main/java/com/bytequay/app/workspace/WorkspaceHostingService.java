@@ -17,23 +17,28 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
+import java.time.Clock;
+import java.time.Instant;
 import java.util.Optional;
+import java.util.UUID;
 
+import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -46,15 +51,19 @@ public class WorkspaceHostingService
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
     private final CredentialService desktopCredentials;
+    private final WorkspacePaths paths;
+    private final Clock clock;
 
     public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities,
-            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials)
+            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials, WorkspacePaths paths, Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.identities = requireNonNull(identities, "identities is null");
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
         this.desktopCredentials = requireNonNull(desktopCredentials, "desktopCredentials is null");
+        this.paths = requireNonNull(paths, "paths is null");
+        this.clock = requireNonNull(clock, "clock is null");
     }
 
     public Optional<WorkspaceHostingBinding> findBinding(String workspaceId)
@@ -66,18 +75,50 @@ public class WorkspaceHostingService
     public WorkspaceHostingBinding bind(String workspaceId, long accountId)
     {
         checkArgument(accountId > 0, "accountId must be positive");
-        HostingAccount account = identities.findAccount(accountId)
-                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));
-        HostingInstance instance = identities.findInstance(account.instanceId())
-                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting instance is unavailable"));
-        // Existing workspace IDs belong to GitHub.com; another server's identical number is not the same repository.
-        checkArgument(instance.provider() == GITHUB && instance.webBaseUrl().equals(URI.create("https://github.com"))
-                && instance.apiBaseUrl().equals(URI.create("https://api.github.com")), "Existing workspaces require a GitHub.com account");
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        HostingRepository selected = connections.resolveRepositoryById(accountId, Long.toString(workspace.selectedRepositoryId()));
+        HostingReadSession session = connections.readSession(accountId);
+        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        HostingRepository selected = connections.resolveRepositoryById(session, Long.toString(workspace.selectedRepositoryId()));
         Optional<Long> upstream = workspace.upstreamRepositoryId()
-                .map(id -> connections.resolveRepositoryById(accountId, id.toString()).id());
+                .map(id -> connections.resolveRepositoryById(session, id.toString()).id());
         return workspaces.bindHosting(workspaceId, accountId, selected.id(), upstream);
+    }
+
+    public Workspace watch(long accountId, long repositoryId, Optional<String> name)
+    {
+        requireNonNull(name, "name is null");
+        name.ifPresent(value -> checkArgument(!value.isBlank() && value.length() <= 200, "Workspace name must be 1 to 200 characters"));
+        HostingReadSession session = connections.readSession(accountId);
+        HostingServer server = session.access().server();
+        checkArgument(server.provider() == GITLAB, "Use the GitHub watch flow for GitHub repositories");
+        HostingRepository retained = identities.findRepository(repositoryId)
+                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting repository is unavailable"));
+        checkArgument(retained.instanceId() == session.access().instanceId().orElseThrow(), "Repository belongs to another hosting instance");
+        HostingRepository selected = connections.resolveRepositoryById(session, retained.remoteId());
+        checkArgument(selected.id() == retained.id(), "Hosting repository identity changed");
+        checkArgument(isPlainHttps(selected.httpCloneUrl()), "Workspace clone URL must use HTTPS");
+        Optional<Workspace> existing = workspaces.findBySelectedHostingRepositoryId(selected.id());
+        if (existing.isPresent()) {
+            return workspaces.createHosted(existing.orElseThrow(), accountId, selected.id());
+        }
+        String branch = selected.defaultBranch().orElseThrow(() -> WorkspaceException.invalidRepository("The repository has no default branch to clone."));
+        String id = UUID.randomUUID().toString();
+        Instant now = clock.instant();
+        int order = workspaces.findAllRetained().stream().mapToInt(Workspace::displayOrder).max().orElse(-1) + 1;
+        RepoRef coordinates = repositoryRef(selected);
+        long remoteId = Long.parseLong(selected.remoteId());
+        Workspace workspace = new Workspace(id, name.map(String::trim).orElse(selected.fullPath()), remoteId, coordinates, Optional.empty(), Optional.empty(),
+                remoteId, coordinates, Workspace.Topology.DIRECT, branch, selected.httpCloneUrl().toString(), Optional.empty(), Optional.empty(), paths.repository(id).toString(),
+                Optional.empty(), Optional.empty(), order, now, now, Optional.of(server));
+        return workspaces.createHosted(workspace, accountId, selected.id());
+    }
+
+    static RepoRef repositoryRef(HostingRepository repository)
+    {
+        String path = repository.fullPath();
+        int slash = path.lastIndexOf('/');
+        checkArgument(slash > 0, "Repository path has no namespace");
+        return RepoRef.of(path.substring(0, slash), path.substring(slash + 1));
     }
 
     public WorkspaceHostingRead captureRead(String workspaceId)
@@ -86,6 +127,7 @@ public class WorkspaceHostingService
         Optional<WorkspaceHostingBinding> binding = workspaces.findHostingBinding(workspaceId);
         HostingReadSession session = binding.map(value -> connections.readSession(value.accountId()))
                 .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspaceId));
+        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
         HostingRepository repository = connections.resolveRepositoryById(session, Long.toString(workspace.monitoredRepositoryId()));
         HostingAccount account = identities.findAccount(session.accountId())
                 .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));

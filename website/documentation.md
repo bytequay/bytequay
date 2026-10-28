@@ -31,15 +31,17 @@ release notes.
 1. Download ByteQuay from
    [GitHub Releases](https://github.com/bytequay/bytequay/releases) and drag it
    to Applications. It needs macOS 14+ and includes Java.
-2. Follow the setup guide to connect GitHub and, if you like, an agent.
-3. Choose **Home → Repos you watch → + Watch** and pick a repository.
-4. Open **Pull requests**, select a PR, and inspect **WorkBench → Changes**.
+2. Follow the setup guide to connect GitHub or GitLab and, if you like, an agent.
+3. For GitHub, choose **Home → Repos you watch → + Watch** and pick a repository.
+   For GitLab, follow [Set up a GitLab workspace](#set-up-a-gitlab-workspace).
+4. In a GitHub workspace, open **Pull requests**, select a PR, and inspect **WorkBench → Changes**.
 
 ### Choose your setup
 
-1. **GitHub:** choose **Use my GitHub CLI login** after `gh auth login`, or
-   **Connect with token →** with a classic token that has `repo` and
-   `read:user`.
+1. **Code hosting:** for GitHub, choose **Use my GitHub CLI login** after
+   `gh auth login`, or **Connect with token →** with a classic token that has
+   `repo` and `read:user`. For GitLab, select **GitLab** and connect the account
+   on GitLab.com or your company server.
 2. **Agent:** sign in to Codex or Claude Code, or add a DeepSeek API key, then
    pick the Development model. Review follows it unless you change it.
 3. **Automation:** choose how far new tasks go, from a local commit to a merged
@@ -102,6 +104,24 @@ memory.
   request brings one back for review.
 - Add a workspace as a **Direct clone** or **Personal fork**. **Unwatch** keeps
   local history; **Delete local data** removes it.
+
+### Set up a GitLab workspace
+
+In **Workspaces → Watch repository**, choose **GitLab**. Select a saved account,
+or connect one with a personal access token that has `read_api` and
+`read_repository`. The server defaults to `https://gitlab.com`; enter your
+company GitLab URL when needed, including its port or path prefix.
+
+Enter the full **Project path**, such as `group/subgroup/project`, and choose
+**Find project**. Check the account, server and project, then choose **Create
+workspace**. ByteQuay creates a direct HTTPS clone using that account. **Sync
+workspace** fetches updates; **Choose GitLab account** switches accounts on the
+same server. Accounts can also be connected or disconnected in **Settings →
+Integrations → GitLab**.
+
+GitLab setup and code sync are available. Merge-request review, issues, agent
+tasks and delivery inside ByteQuay are not available yet; use **Open project in
+GitLab** for those remote features.
 
 ### Plan the day with Today
 

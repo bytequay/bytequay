@@ -56,6 +56,7 @@ import java.util.stream.Stream;
 
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.utils.Locks.withLock;
+import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.Checks.normalizeNames;
@@ -116,7 +117,7 @@ public class WorkspaceIssueService
      */
     public RepositoryIssuePage list(String workspaceId, int page, int pageSize)
     {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
         checkArgument(page >= 0, "page is negative");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
         return issues.findPage(
@@ -129,7 +130,7 @@ public class WorkspaceIssueService
     /** Returns one issue from the local projection without contacting GitHub. */
     public Optional<RepositoryIssue> find(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return issues.find(workspace.monitoredRepositoryId(), issueNumber);
     }
@@ -137,7 +138,7 @@ public class WorkspaceIssueService
     /** Returns locally persisted activity and type data without contacting GitHub. */
     public RepositoryIssueDetail detail(String workspaceId, int issueNumber)
     {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return cachedDetail(workspace, issueNumber);
     }
@@ -154,7 +155,7 @@ public class WorkspaceIssueService
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             checkText(body, "comment body");
-            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
             Optional<RepositoryIssue> previous = issues.find(workspace.monitoredRepositoryId(), issueNumber);
             PrTimelineEvent created = issueWrites.createIssueComment(
                     credentials.resolveGitHubToken(), issueRef(workspace, issueNumber), body.trim());
@@ -178,7 +179,7 @@ public class WorkspaceIssueService
     public void close(String workspaceId, int issueNumber)
     {
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
             issueWrites.closeIssue(credentials.resolveGitHubToken(), issueRef(workspace, issueNumber));
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             issues.delete(workspace.monitoredRepositoryId(), issueNumber);
@@ -188,7 +189,7 @@ public class WorkspaceIssueService
     public IssueTypeOptions updateIssueType(String workspaceId, int issueNumber, String type)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
             String normalized = type;
             if (normalized != null) {
                 checkText(normalized, "issue type");
@@ -212,7 +213,7 @@ public class WorkspaceIssueService
             List<String> labels)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
             List<String> normalizedAssignees = normalizeNames(assignees, "assignees");
             List<String> normalizedLabels = normalizeNames(labels, "labels");
             GitHubPullRequestWriteClient.IssueMetadata updated = issueWrites.updateIssueMetadata(
@@ -237,7 +238,7 @@ public class WorkspaceIssueService
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         Set<Long> refreshed = new HashSet<>();
         for (Workspace candidate : workspaces.findAll()) {
-            if (!candidate.monitoredRepository().fullName().equalsIgnoreCase(repository.fullName())
+            if (!candidate.isGitHub() || !candidate.monitoredRepository().fullName().equalsIgnoreCase(repository.fullName())
                     || !refreshed.add(candidate.monitoredRepositoryId())) {
                 continue;
             }
@@ -265,7 +266,7 @@ public class WorkspaceIssueService
     {
         Set<Long> refreshed = new HashSet<>();
         for (Workspace workspace : workspaces.findAll()) {
-            if (!refreshed.add(workspace.monitoredRepositoryId())) {
+            if (!workspace.isGitHub() || !refreshed.add(workspace.monitoredRepositoryId())) {
                 continue;
             }
             try {
@@ -332,7 +333,7 @@ public class WorkspaceIssueService
      */
     public void refreshIssuesOlderThan(String workspaceId, Duration age)
     {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
         Optional<Instant> synced = issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 1).syncedAt();
         if (synced.filter(at -> at.plus(age).isAfter(clock.instant())).isEmpty()) {
             refreshIssues(workspaceId);
@@ -342,7 +343,7 @@ public class WorkspaceIssueService
     public RepositoryIssuePage refreshIssues(String workspaceId)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
             return refreshLocked(workspaceId, workspace.monitoredRepositoryId(), () -> {
                 refreshIssueRows(workspace);
                 return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 50);
@@ -353,7 +354,7 @@ public class WorkspaceIssueService
     public RepositoryIssueDetail refreshDetail(String workspaceId, int issueNumber)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace workspace = requireWorkspace(workspaces, workspaceId);
+            Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
             checkArgument(issueNumber > 0, "issueNumber must be positive");
             return refreshLocked(workspaceId, workspace.monitoredRepositoryId() + ":" + issueNumber, () -> {
                 String token = credentials.resolveGitHubToken();

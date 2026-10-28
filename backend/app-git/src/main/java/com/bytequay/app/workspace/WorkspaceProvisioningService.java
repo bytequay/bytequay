@@ -15,10 +15,14 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableSet;
@@ -44,17 +48,19 @@ public class WorkspaceProvisioningService
     private final ManagedWorkspaceGit managedGit;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
+    private final HostingConnectionService hosting;
     private final WorkspaceRelationships relationships;
     private final RemoteSourceStore remoteSources;
     private final Clock clock;
 
     public WorkspaceProvisioningService(WorkspaceStore store, ManagedWorkspaceGit managedGit, GitHubAccountClient gitHub, CredentialService credentials,
-            WorkspaceRelationships relationships, RemoteSourceStore remoteSources, Clock clock)
+            WorkspaceRelationships relationships, RemoteSourceStore remoteSources, HostingConnectionService hosting, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.managedGit = requireNonNull(managedGit, "managedGit is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.relationships = requireNonNull(relationships, "relationships is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -121,6 +127,11 @@ public class WorkspaceProvisioningService
 
     private Workspace refreshRouting(Workspace workspace)
     {
+        Optional<WorkspaceHostingBinding> binding = store.findHostingBinding(workspace.id());
+        if (binding.isPresent()) {
+            return refreshHostedRouting(workspace, binding.orElseThrow());
+        }
+        WorkspaceException.requireGitHub(workspace);
         String token = credentials.resolveGitHubToken();
         UserRepo selected = gitHub.fetchRepository(token, workspace.selectedRepositoryId())
                 .orElseThrow(() -> new ManagedWorkspaceGit.Failure(
@@ -150,6 +161,31 @@ public class WorkspaceProvisioningService
                 selected.cloneUrl(),
                 upstream.map(UserRepo::defaultBranch),
                 upstream.map(UserRepo::cloneUrl),
+                clock.instant());
+    }
+
+    private Workspace refreshHostedRouting(Workspace workspace, WorkspaceHostingBinding binding)
+    {
+        HostingReadSession session = hosting.readSession(binding.accountId());
+        HostingRepository selected = hosting.resolveRepositoryById(session, Long.toString(workspace.selectedRepositoryId()));
+        if (selected.id() != binding.selectedRepositoryId()) {
+            throw routingChanged("Selected repository identity changed");
+        }
+        Optional<HostingRepository> upstream = workspace.upstreamRepositoryId().map(id -> hosting.resolveRepositoryById(session, id.toString()));
+        if (!upstream.map(HostingRepository::id).equals(binding.upstreamRepositoryId())) {
+            throw routingChanged("Upstream repository identity changed");
+        }
+        RepoRef selectedRef = WorkspaceHostingService.repositoryRef(selected);
+        return workspace.withRepositoryRouting(
+                selectedRef,
+                workspace.upstreamRepositoryId(),
+                upstream.map(WorkspaceHostingService::repositoryRef),
+                workspace.monitoredRepositoryId(),
+                upstream.map(WorkspaceHostingService::repositoryRef).orElse(selectedRef),
+                selected.defaultBranch().orElseThrow(() -> routingChanged("Selected repository has no default branch")),
+                selected.httpCloneUrl().toASCIIString(),
+                upstream.map(value -> value.defaultBranch().orElseThrow(() -> routingChanged("Upstream repository has no default branch"))),
+                upstream.map(value -> value.httpCloneUrl().toASCIIString()),
                 clock.instant());
     }
 

@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import GitLabWorkspaceSetup from './hosting/GitLabWorkspaceSetup';
 import { LoaderCircle } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import RepoAvatar from './RepoAvatar';
@@ -26,7 +27,9 @@ import type {
 import { useModalDialog } from './useModalDialog';
 
 type Props = {
+  defaultProvider?: 'GITHUB' | 'GITLAB';
   initialRepositoryId?: number;
+  initialWorkspace?: WorkspaceDto;
   onAdded: (workspace: WorkspaceDto) => void;
   onOpenWorkspace: (workspaceId: string) => void;
   onClose: () => void;
@@ -165,7 +168,8 @@ export function WatchRepositoryConfirmation({ preview, topology, ready, adding, 
   );
 }
 
-export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorkspace, onClose }: Props) {
+export default function AddRepoModal({ defaultProvider = 'GITHUB', initialRepositoryId, initialWorkspace, onAdded, onOpenWorkspace, onClose }: Props) {
+  const [provider, setProvider] = useState<'GITHUB' | 'GITLAB'>(initialWorkspace?.hostingServer?.provider ?? defaultProvider);
   const [repos, setRepos] = useState<RepositorySearchResultDto[]>([]);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
@@ -202,7 +206,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
   }, []);
 
   useEffect(() => {
-    if (selectedRepositoryId !== null) return;
+    if (provider !== 'GITHUB' || selectedRepositoryId !== null) return;
     const trimmed = query.trim();
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -217,7 +221,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [query, selectedRepositoryId]);
+  }, [provider, query, selectedRepositoryId]);
 
   useEffect(() => {
     if (selectedRepositoryId === null) return;
@@ -272,7 +276,14 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
 
   return (
     <dialog ref={dialog} className="modal" onCancel={event => { event.preventDefault(); if (!adding) { if (selectedRepositoryId !== null) back(); else onClose(); } }} role="dialog" aria-modal="true" aria-label="Watch a repository">
-        {selectedRepositoryId === null && (
+        {selectedRepositoryId === null && <div className="hosting-tabs" aria-label="Repository provider">
+          <button type="button" aria-pressed={provider === 'GITHUB'} onClick={() => setProvider('GITHUB')}>GitHub</button>
+          <button type="button" aria-pressed={provider === 'GITLAB'} onClick={() => setProvider('GITLAB')}>GitLab</button>
+        </div>}
+        {provider === 'GITLAB' && <><div className="modal__header"><h2 className="modal__title">Create GitLab workspace</h2>
+          <button className="modal__close" aria-label="Close" onClick={onClose} type="button">✕</button></div>
+          <GitLabWorkspaceSetup initialWorkspace={initialWorkspace} onAdded={workspace => { onAdded(workspace); onClose(); }} /></>}
+        {provider === 'GITHUB' && selectedRepositoryId === null && (
           <>
             <div className="modal__header">
               <h2 className="modal__title">Watch a repository</h2>

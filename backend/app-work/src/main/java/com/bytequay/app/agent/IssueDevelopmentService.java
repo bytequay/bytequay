@@ -103,7 +103,7 @@ public class IssueDevelopmentService
 
     public Metadata setEpic(String workspaceId, int number, boolean epic)
     {
-        Workspace workspace = workspace(workspaceId);
+        Workspace workspace = WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId);
         RepositoryIssue issue = issue(workspace, number);
         Lock lock = sourceLocks.get(issue.id());
         return withLock(lock, () -> {
@@ -119,7 +119,7 @@ public class IssueDevelopmentService
 
     public RepositoryIssuePage attention(String workspaceId)
     {
-        Workspace workspace = workspace(workspaceId);
+        Workspace workspace = WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId);
         return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, Integer.MAX_VALUE);
     }
 
@@ -152,7 +152,7 @@ public class IssueDevelopmentService
     /** Holds the same canonical issue lock as Epic changes through task creation and initial-turn admission. */
     public AgentTask start(String workspaceId, TaskId taskId, IssueSourceInput input, String instructions, Function<GitHubIssueSource, AgentTask> create)
     {
-        Workspace workspace = workspace(workspaceId);
+        Workspace workspace = WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId);
         Lock lock = sourceLocks.get(input.issueId());
         return withLock(lock, () -> {
             Optional<IssueTask> linked = sources.findTask(HOST, input.issueId());

@@ -127,7 +127,8 @@ public class ItemTaskStarter
             }
             case "issue" -> {
                 AgendaRefs.Numbered numbered = AgendaRefs.numbered(ref).orElseThrow(() -> new IllegalArgumentException("That issue ref is not valid"));
-                Workspace workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(numbered.repo())).findFirst()
+                Workspace workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
+                        .filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(numbered.repo())).findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("That issue's repository is not watched"));
                 RepositoryIssue issue = issues.find(workspace.monitoredRepositoryId(), numbered.number())
                         .orElseThrow(() -> new IllegalArgumentException("That issue is not loaded; refresh its repository's issues"));

@@ -16,8 +16,8 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingInstance;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.entity.HostingAccountEntity;
@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -107,8 +108,14 @@ public class SqliteWorkspaceStore
     @Override
     public Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
     {
-        return repository.findBySelectedRepositoryId(selectedRepositoryId)
+        return repository.findBySelectedRepositoryIdAndHostingServerIsNull(selectedRepositoryId)
                 .map(WorkspaceEntity::toDomain);
+    }
+
+    @Override
+    public Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId)
+    {
+        return repository.findBySelectedHostingRepositoryId(repositoryId).map(WorkspaceEntity::toDomain);
     }
 
     @Override
@@ -127,17 +134,22 @@ public class SqliteWorkspaceStore
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
         upstreamRepositoryId.ifPresent(id -> checkArgument(id > 0, "upstreamRepositoryId must be positive"));
         WorkspaceEntity entity = repository.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId));
+        bind(entity, accountId, selectedRepositoryId, upstreamRepositoryId);
+        return repository.saveAndFlush(entity).hostingBinding().orElseThrow();
+    }
+
+    private void bind(WorkspaceEntity entity, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId)
+    {
         Workspace workspace = entity.toDomain();
         checkArgument(upstreamRepositoryId.isPresent() == workspace.upstreamRepositoryId().isPresent(), "Hosting upstream differs from workspace routing");
         HostingAccountEntity accountEntity = hostingAccounts.findById(accountId).orElseThrow(() -> new IllegalArgumentException("Hosting account not found"));
         HostingAccount account = accountEntity.toDomain();
         HostingInstance instance = hostingInstances.findById(account.instanceId()).orElseThrow().toDomain();
-        checkArgument(instance.provider() == HostingProvider.GITHUB && instance.webBaseUrl().equals(URI.create("https://github.com"))
-                && instance.apiBaseUrl().equals(URI.create("https://api.github.com")), "Existing workspaces require GitHub.com identities");
+        HostingServer server = workspace.hostingServer().orElseGet(() -> new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        checkArgument(new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl()).equals(server), "Hosting account belongs to another workspace server");
         HostingRepositoryEntity selected = bindingRepository(selectedRepositoryId, account.instanceId(), workspace.selectedRepositoryId());
         Optional<HostingRepositoryEntity> upstream = upstreamRepositoryId.map(id -> bindingRepository(id, account.instanceId(), workspace.upstreamRepositoryId().orElseThrow()));
         entity.bindHosting(accountEntity, selected, upstream);
-        return repository.saveAndFlush(entity).hostingBinding().orElseThrow();
     }
 
     private HostingRepositoryEntity bindingRepository(long repositoryId, long instanceId, long remoteId)
@@ -154,12 +166,24 @@ public class SqliteWorkspaceStore
     public Workspace createOrGet(Workspace workspace)
     {
         requireNonNull(workspace, "workspace is null");
-        Optional<Workspace> existing = findBySelectedRepositoryId(workspace.selectedRepositoryId());
+        Optional<Workspace> existing = workspace.hostingServer().isEmpty() ? findBySelectedRepositoryId(workspace.selectedRepositoryId())
+                : repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).map(WorkspaceEntity::toDomain);
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
         checkArgument(!repository.existsById(workspace.id()), "Workspace already exists: %s", workspace.id());
         return repository.saveAndFlush(WorkspaceEntity.fromDomain(workspace)).toDomain();
+    }
+
+    @Override
+    @Transactional
+    public Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId)
+    {
+        checkArgument(workspace.hostingServer().isPresent(), "Hosted workspace has no server");
+        WorkspaceEntity entity = repository.findByRepositoryKey(WorkspaceEntity.repositoryKey(workspace)).orElseGet(() -> WorkspaceEntity.fromDomain(workspace));
+        bind(entity, accountId, selectedRepositoryId, Optional.empty());
+        entity.setWatched(true);
+        return repository.saveAndFlush(entity).toDomain();
     }
 
     @Override

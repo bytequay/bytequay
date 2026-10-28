@@ -949,9 +949,10 @@ class TestCiAutofixEndToEnd
                 WorkspaceCredentialStore workspaceCredentials,
                 GhCliService ghCli,
                 GitHubAccountClient gitHubAccount,
-                HostingConnectionService hosting)
+                HostingConnectionService hosting,
+                WorkspaceStore workspaces)
         {
-            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount, hosting)
+            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount, hosting, workspaces)
             {
                 @Override
                 public String resolveGitHubToken()

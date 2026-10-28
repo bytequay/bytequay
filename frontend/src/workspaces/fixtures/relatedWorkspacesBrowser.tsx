@@ -127,6 +127,7 @@ async function navigationScenario() {
   let links: WorkspaceRelationshipDto[] = [{ workspaceId: iceberg.id, kind: 'FORK', guidance: '', backportByDefault: false }];
   const bridge = {
     ...createPreviewBridge(repository.id),
+    listHostingAccounts: async () => [],
     hasPat: async () => true,
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
     onInAppBrowserState: () => () => {},

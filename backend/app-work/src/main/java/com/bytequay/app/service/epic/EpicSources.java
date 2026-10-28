@@ -15,6 +15,7 @@ package com.bytequay.app.service.epic;
 
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.core.domain.IssueEpic;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -73,7 +74,8 @@ public class EpicSources
         }
         Optional<Ticket> ticket = ticket(epicId);
         if (ticket.isEmpty()) {
-            String repository = workspaces.findById(workspaceId).map(workspace -> workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)).orElse("");
+            String repository = workspaces.findById(workspaceId).filter(Workspace::isGitHub)
+                    .map(workspace -> workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)).orElse("");
             return markers.findEpic(HOST, issueId(epicId)).filter(IssueEpic::isEpic).filter(epic -> epic.repo().equals(repository)).isPresent();
         }
         JiraService tickets = jira.getObject();

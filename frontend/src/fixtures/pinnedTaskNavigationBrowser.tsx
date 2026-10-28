@@ -35,6 +35,7 @@ export async function run(): Promise<{ name: string }[]> {
   const workspaceReads: string[] = [];
   const bridge = {
     ...preview,
+    listHostingAccounts: async () => [],
     hasPat: async () => true,
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
     onInAppBrowserState: () => () => {},

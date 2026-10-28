@@ -19,10 +19,13 @@ import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -42,11 +45,14 @@ class TestIssueSyncJob
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("first", 1), workspace("second", 1), workspace("third", 2)));
+        Workspace gitlab = workspace("gitlab", 1, Optional.of(new HostingServer(HostingProvider.GITLAB,
+                URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, workspace("first", 1), workspace("second", 1), workspace("third", 2)));
 
         new IssueSyncJob(issues, workspaces, credentials, mock(AppSettingsService.class)).tick();
 
         // A full sync is due only after a few hours; the recent refresh keeps the stored issues current in between.
+        verify(issues, never()).refreshIssuesOlderThan("gitlab", Duration.ofHours(4));
         verify(issues).refreshIssuesOlderThan("first", Duration.ofHours(4));
         verify(issues, never()).refreshIssuesOlderThan("second", Duration.ofHours(4));
         verify(issues).refreshIssuesOlderThan("third", Duration.ofHours(4));
@@ -55,6 +61,11 @@ class TestIssueSyncJob
     }
 
     private static Workspace workspace(String id, long repositoryId)
+    {
+        return workspace(id, repositoryId, Optional.empty());
+    }
+
+    private static Workspace workspace(String id, long repositoryId, Optional<HostingServer> server)
     {
         RepoRef repository = RepoRef.of("owner", "repo-" + repositoryId);
         Instant now = Instant.parse("2026-08-22T00:00:00Z");
@@ -77,6 +88,7 @@ class TestIssueSyncJob
                 Optional.of(now),
                 0,
                 now,
-                now);
+                now,
+                server);
     }
 }

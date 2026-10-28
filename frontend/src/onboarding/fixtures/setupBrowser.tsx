@@ -19,7 +19,7 @@ import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { LOCAL_COMMITS_ONLY } from '../../agents/developmentAutomation';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { assert, changeInput, settle, until, button as findButton } from '../../fixtures/harness';
-import type { AgendaScheduleDto, AppPreferencesDto, Bridge, ModelSettingsDto, SetupPreferencesDto, SetupStep } from '../../types';
+import type { AgendaScheduleDto, AppPreferencesDto, Bridge, HostingConnectionDto, ModelSettingsDto, SetupPreferencesDto, SetupStep } from '../../types';
 import SetupFlow from '../SetupFlow';
 import { OPEN_SETUP } from '../setup';
 import '../../index.css';
@@ -65,6 +65,7 @@ function harness(step: SetupStep = 'APPEARANCE', available = true, connected = f
     saveAssistantPermissions: async value => { permissions = value; return value; },
     getGitHubCliAvailable: async () => ({ available: true }),
     importGitHubCliToken: async () => { connected = true; return { login: 'example' }; },
+    listHostingAccounts: async () => [],
     hasPat: async () => connected,
     controlWindow: async () => {},
     getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
@@ -110,7 +111,7 @@ export async function run() {
     try {
       view.render(); await title(view.host, 'Make yourself at home'); await until(() => !button(view.host, 'Continue').disabled, 'Preferences did not load');
       await click(view.host, 'Dark'); assert(view.state().preferences.theme === 'DARK', 'Theme is applied immediately');
-      await click(view.host, 'Continue'); await title(view.host, 'Bring your GitHub work together');
+      await click(view.host, 'Continue'); await title(view.host, 'Connect your code hosting');
       assert(button(view.host, 'Continue').disabled, 'GitHub is required before proceeding');
       await click(view.host, 'Use my GitHub CLI login'); await click(view.host, 'Continue'); await title(view.host, 'Choose who you work with');
       await until(() => !button(view.host, 'Check agents again').disabled, 'Probe did not finish');
@@ -203,6 +204,35 @@ export async function run() {
       assert(view.host.querySelector('[role="alert"]')?.textContent?.includes('Unable to save setup') === true, 'Saving errors are visible');
       assert(view.host.querySelector('h1')?.textContent === 'How should your agent work?', 'Failed persistence cannot advance');
       view.setFailure(false); await click(view.host, 'Continue'); await title(view.host, 'A little help with your day');
+    } finally { view.dispose(); }
+  });
+  await scenario('A GitLab account opens Workspaces without a GitHub PAT and survives reopening', async () => {
+    const view = harness('COMPLETE', false);
+    let account: HostingConnectionDto | null = null;
+    let githubReads = 0;
+    window.bridge.listHostingAccounts = async () => account === null ? [] : [account];
+    window.bridge.connectHostingAccount = async server => {
+      account = { account: { id: 1, instanceId: 1, remoteId: '42', login: 'developer' }, instance: { id: 1, ...server }, connected: true };
+      return account;
+    };
+    window.bridge.listRetiredWorkspaces = async () => [];
+    window.bridge.listCherryPickExecutions = async () => [];
+    window.bridge.getUserProfile = async () => { githubReads++; throw new Error('GitHub must not load'); };
+    try {
+      window.location.hash = '#/home'; view.render(true);
+      await until(() => view.host.querySelector('.hosting-onboarding') !== null, 'Code hosting connection did not appear');
+      await click(view.host, 'GitLab');
+      await until(() => view.host.querySelector('[aria-label="GitLab personal access token"]') !== null, 'GitLab form did not load');
+      const token = view.host.querySelector<HTMLInputElement>('[aria-label="GitLab personal access token"]');
+      assert(token !== null, 'Missing GitLab token'); changeInput(token, 'test-token'); await settle();
+      await click(view.host, 'Connect GitLab');
+      await until(() => view.host.querySelector('.ws-head h1')?.textContent === 'Workspaces', `Workspaces did not appear: ${view.host.textContent}`);
+      assert(window.location.hash === '#/workspaces' && githubReads === 0, 'GitLab-only setup must open Workspaces without fetching GitHub profile');
+      view.reloadApp(); await until(() => view.host.querySelector('.ws-head h1')?.textContent === 'Workspaces', 'Workspaces did not reopen');
+      assert(view.host.querySelector('.hosting-onboarding') === null && githubReads === 0, 'Stored GitLab account must satisfy startup readiness');
+      const create = view.host.querySelector<HTMLButtonElement>('.ws-new');
+      assert(create !== null, 'Missing New workspace'); create.click(); await settle();
+      assert(view.host.textContent?.includes('Create GitLab workspace'), 'GitLab-only users must start workspace creation on GitLab');
     } finally { view.dispose(); }
   });
   return results;

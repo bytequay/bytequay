@@ -33,6 +33,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -50,6 +51,7 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -719,6 +721,7 @@ public class BackportChainService
             return selector;
         }
         var matches = workspaces.findAllRetained().stream()
+                .filter(Workspace::isGitHub)
                 .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(selector) && workspaces.isWatched(workspace.id()))
                 .collect(toImmutableList());
         checkArgument(matches.size() == 1, "Choose an available destination workspace ID or an unambiguous owner/repository: %s", selector);
@@ -728,7 +731,7 @@ public class BackportChainService
     private Route route(String workspaceId)
     {
         checkState(workspaces.isWatched(workspaceId), "A route workspace is unavailable");
-        return Route.of(workspaces.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace is unavailable")));
+        return Route.of(WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId));
     }
 
     private BackportChain owned(String workspaceId, String id)

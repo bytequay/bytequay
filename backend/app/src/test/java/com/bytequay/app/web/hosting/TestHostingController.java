@@ -21,9 +21,13 @@ import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
+import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
@@ -31,6 +35,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -90,6 +95,8 @@ class TestHostingController
 
     private final HostingConnectionService connections = mock(HostingConnectionService.class);
     private final HostingPullRequestService requests = mock(HostingPullRequestService.class);
+    private final WorkspaceHostingService workspaces = mock(WorkspaceHostingService.class);
+    private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
 
     @ParameterizedTest
     @CsvSource({
@@ -97,6 +104,7 @@ class TestHostingController
             "POST,/api/hosting/accounts",
             "DELETE,/api/hosting/accounts/7/credential",
             "POST,/api/hosting/accounts/7/repositories/resolve",
+            "POST,/api/hosting/accounts/7/workspaces",
             "GET,/api/hosting/accounts/7/repositories/11/requests",
             "GET,/api/hosting/accounts/7/repositories/11/requests/cached",
             "GET,/api/hosting/accounts/7/repositories/11/requests/17",
@@ -354,6 +362,31 @@ class TestHostingController
         verifyNoMoreInteractions(identities, credentials);
     }
 
+    @Test
+    void createsTheWorkspaceWithItsSelectedHostingAccountAndSchedulesClone()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-08-01T00:00:00Z");
+        RepoRef project = RepoRef.of("group/subgroup", "project");
+        HostingServer server = new HostingServer(GITLAB, WEB, API);
+        Workspace workspace = new Workspace("workspace", "Project", 42, project, Optional.empty(), Optional.empty(), 42, project,
+                Workspace.Topology.DIRECT, "main", WEB + "/group/subgroup/project.git", Optional.empty(), Optional.empty(), "/tmp/managed/repository",
+                Optional.empty(), Optional.empty(), 0, now, now, Optional.of(server));
+        when(workspaces.watch(7, 11, Optional.of("Project"))).thenReturn(workspace);
+
+        mvc(connections).perform(post("/api/hosting/accounts/7/workspaces").header(SESSION_HEADER, SESSION).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"repositoryId\":11,\"name\":\"Project\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value("workspace"))
+                .andExpect(jsonPath("$.selectedOwner").value("group/subgroup"))
+                .andExpect(jsonPath("$.hostingServer.provider").value("GITLAB"))
+                .andExpect(jsonPath("$.hostingServer.webBaseUrl").value(WEB.toString()));
+
+        verify(workspaces).watch(7, 11, Optional.of("Project"));
+        verify(repositories).requestSync("workspace");
+        verifyNoInteractions(connections, requests);
+    }
+
     private static Stream<String> malformedConnections()
     {
         return Stream.of("{", "{}", "null", CONNECT_BODY.replace("GITLAB", "OTHER"), CONNECT_BODY.replace(TOKEN, ""),
@@ -367,7 +400,7 @@ class TestHostingController
                 Path.of("/tmp/agent-claude-home"));
         ObjectMapper mapper = Jackson2ObjectMapperBuilder.json().modules(new Jdk8Module(), new JavaTimeModule())
                 .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build();
-        return standaloneSetup(new HostingController(service, requests))
+        return standaloneSetup(new HostingController(service, requests, workspaces, repositories))
                 .setControllerAdvice(new GlobalExceptionHandler(), new HostingExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                 .addFilters(new AgentRequestFilter(properties, mapper, new AgentServingGate()))

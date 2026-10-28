@@ -23,6 +23,7 @@ export type SettingsSection =
   | 'workflow'
   | 'features'
   | 'github'
+  | 'gitlab'
   | 'jira'
   | 'google'
   | 'lab'
@@ -81,6 +82,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     slug: 'github',
     rows: ['Account', 'PR details kept ready', 'Notification summaries'],
   },
+  { section: 'gitlab', group: 'Integrations', label: 'GitLab', slug: 'gitlab', rows: ['Accounts', 'GitLab server', 'Personal access token'] },
   { section: 'google', group: 'Integrations', label: 'Google Apps', slug: 'google', rows: ['Gmail', 'Calendar', 'Gemini', 'API key', 'Conversation', 'Accounts', 'Add account', 'Sign in', 'Connector', 'Agent access'] },
   { section: 'jira', group: 'Integrations', label: 'Jira', slug: 'jira', rows: ['Accounts', 'Add account', 'Reconnect', 'Sites'] },
   { section: 'lab', group: 'Integrations', label: 'Lab', slug: 'lab', rows: ['Show the Lab', 'Open Lab'] },
@@ -98,7 +100,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     slug: 'agents',
     rows: ['Development', 'Review', 'Providers'],
   },
-  { section: 'ws-token', group: 'Workspace', label: 'Token', slug: 'token', rows: ['GitHub token'] },
+  { section: 'ws-token', group: 'Workspace', label: 'Token', slug: 'token', rows: ['GitHub token', 'GitLab account'] },
   {
     section: 'ws-advanced',
     group: 'Workspace',

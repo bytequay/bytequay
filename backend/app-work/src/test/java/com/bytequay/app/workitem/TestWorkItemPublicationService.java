@@ -16,6 +16,7 @@ package com.bytequay.app.workitem;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.WorkItem;
@@ -64,11 +65,22 @@ class TestWorkItemPublicationService
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(repo);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
         when(work.requireItem("workspace", "local")).thenReturn(item());
         when(work.beginPublication(eq("workspace"), eq("local"), eq(0L), anyString(), eq("GITHUB org/repo"))).thenReturn(item());
+    }
+
+    @Test
+    void gitLabWorkspaceCannotPublishOrReconcileAGitHubIssue()
+    {
+        when(workspaces.findById("workspace").orElseThrow().isGitHub()).thenReturn(false);
+
+        assertThatThrownBy(() -> service.publish("workspace", "local", request)).isInstanceOf(WorkspaceException.class);
+        assertThatThrownBy(() -> service.reconcile("workspace", "local", request, "1")).isInstanceOf(WorkspaceException.class);
+        verifyNoInteractions(work, credentials, github, jira);
     }
 
     @Test

@@ -16,6 +16,9 @@ package com.bytequay.app.web.hosting;
 import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
@@ -43,11 +46,15 @@ public class HostingController
 {
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
+    private final WorkspaceHostingService workspaces;
+    private final WorkspaceRepositoryService repositories;
 
-    public HostingController(HostingConnectionService connections, HostingPullRequestService requests)
+    public HostingController(HostingConnectionService connections, HostingPullRequestService requests, WorkspaceHostingService workspaces, WorkspaceRepositoryService repositories)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.repositories = requireNonNull(repositories, "repositories is null");
     }
 
     @GetMapping("/accounts")
@@ -72,6 +79,14 @@ public class HostingController
     public HostingRepository repository(@PathVariable long accountId, @RequestBody RepositoryRequest request)
     {
         return connections.resolveRepository(accountId, request.fullPath());
+    }
+
+    @PostMapping("/accounts/{accountId}/workspaces")
+    public WorkspaceSummary watch(@PathVariable long accountId, @RequestBody WatchRequest request)
+    {
+        var workspace = workspaces.watch(accountId, request.repositoryId(), Optional.ofNullable(request.name()));
+        repositories.requestSync(workspace.id());
+        return WorkspaceSummary.of(workspace);
     }
 
     @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests")
@@ -116,4 +131,6 @@ public class HostingController
     }
 
     public record RepositoryRequest(String fullPath) {}
+
+    public record WatchRequest(long repositoryId, String name) {}
 }

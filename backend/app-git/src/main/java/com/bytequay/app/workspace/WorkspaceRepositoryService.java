@@ -51,6 +51,8 @@ import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
+import static com.bytequay.app.workspace.WorkspaceException.requireGitHub;
+import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -284,6 +286,7 @@ public class WorkspaceRepositoryService
 
     private WorkspaceRepositoryContext repositoryContext(Workspace workspace)
     {
+        requireGitHub(workspace);
         var repository = paths.repository(workspace);
         return new WorkspaceRepositoryContext(
                 workspace.id(),
@@ -338,7 +341,7 @@ public class WorkspaceRepositoryService
     public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
     {
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
-        Workspace workspace = requireWorkspace(store, workspaceId);
+        Workspace workspace = requireGitHubWorkspace(store, workspaceId);
         if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
             return workspace;
         }
@@ -667,7 +670,9 @@ public class WorkspaceRepositoryService
         }
         // The metadata service owns each projection's TTL. Always schedule its cheap local
         // freshness check so newly added projections are populated after an app upgrade.
-        submitUnique(metadataRefreshes, workspace.id(), () -> metadata.synchronize(workspace.id()));
+        if (workspace.isGitHub()) {
+            submitUnique(metadataRefreshes, workspace.id(), () -> metadata.synchronize(workspace.id()));
+        }
     }
 
     private static boolean stale(Optional<Instant> syncedAt, Instant now, Duration freshness)

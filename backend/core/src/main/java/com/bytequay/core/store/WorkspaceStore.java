@@ -43,9 +43,11 @@ public interface WorkspaceStore
     /** Finds a workspace by the selected repository's stable GitHub identifier. */
     Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId);
 
+    Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId);
+
     Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId);
 
-    /** Attaches retained GitHub.com identities without changing the workspace's existing repository IDs or local data. */
+    /** Selects an account and retained repository identities on the workspace's hosting server. */
     WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);
 
     /**
@@ -53,6 +55,9 @@ public interface WorkspaceStore
      * The database unique constraint is the final concurrency guard.
      */
     Workspace createOrGet(Workspace workspace);
+
+    /** Creates a hosted workspace and its account binding together. */
+    Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId);
 
     /** Saves an existing workspace without changing its watch-list membership. */
     Workspace save(Workspace workspace);

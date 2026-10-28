@@ -28,5 +28,9 @@ public interface WorkspaceJpaRepository
 
     boolean existsByIdAndWatchedTrue(String workspaceId);
 
-    Optional<WorkspaceEntity> findBySelectedRepositoryId(long selectedRepositoryId);
+    Optional<WorkspaceEntity> findBySelectedRepositoryIdAndHostingServerIsNull(long selectedRepositoryId);
+
+    Optional<WorkspaceEntity> findBySelectedHostingRepositoryId(long repositoryId);
+
+    Optional<WorkspaceEntity> findByRepositoryKey(String repositoryKey);
 }

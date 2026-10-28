@@ -32,6 +32,8 @@ import SkillsPage from './SkillsPage';
 import ShortcutsPage from './ShortcutsPage';
 import WorkflowPage from './WorkflowPage';
 import FeaturesPage from './FeaturesPage';
+import GitLabSettings from '../hosting/GitLabSettings';
+import { WorkspaceHostingAccount } from '../hosting/GitLabWorkspace';
 import GitHubPage from './GitHubPage';
 import JiraPage from './JiraPage';
 import { GooglePage } from '../integrations/google';
@@ -151,9 +153,9 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   }, [report]);
 
   useEffect(() => {
-    if (section !== 'github' && section !== 'ws-token') return;
+    if (section !== 'github' && (section !== 'ws-token' || workspace?.hostingServer?.provider === 'GITLAB')) return;
     loadAccount();
-  }, [section, loadAccount]);
+  }, [section, loadAccount, workspace?.hostingServer?.provider]);
 
   useEffect(() => {
     if (section !== 'general' && section !== 'features' || quietHoursSaving.current) return;
@@ -185,20 +187,20 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   useEffect(() => { workspaceRef.current = workspaceId_; }, [workspaceId_]);
 
   useEffect(() => {
-    if (section !== 'models' && section !== 'ws-agents' && section !== 'workflow') return;
+    if (section !== 'models' && section !== 'ws-agents' && section !== 'workflow' || section === 'ws-agents' && workspace?.hostingServer?.provider === 'GITLAB') return;
     let active = true;
     void loadModels().then(() => { if (active && section === 'ws-agents') refreshWorkspaceSettings(); });
     return () => { active = false; modelRequest.current += 1; };
-  }, [section, loadModels, refreshWorkspaceSettings]);
+  }, [section, loadModels, refreshWorkspaceSettings, workspace?.hostingServer?.provider]);
 
   // Clearing and loading live in one effect keyed on the workspace: separating them is how
   // re-picking the workspace already open blanked the page with nothing left to refill it.
   useEffect(() => {
-    if (!isWorkspaceSection(section) || workspaceId_ === null) return;
+    if (!isWorkspaceSection(section) || workspaceId_ === null || workspace?.hostingServer?.provider === 'GITLAB') return;
     setWsSettings(null);
     refreshWorkspaceSettings();
     return () => { workspaceRequest.current += 1; };
-  }, [section, refreshWorkspaceSettings, workspaceId_]);
+  }, [section, refreshWorkspaceSettings, workspaceId_, workspace?.hostingServer?.provider]);
 
   const saveModels = (save: () => Promise<ModelSettingsDto>) => {
     const request = ++modelRequest.current;
@@ -416,6 +418,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
+          {section === 'gitlab' && <GitLabSettings />}
           {section === 'jira' && <JiraPage />}
           {section === 'google' && <GooglePage />}
           {section === 'lab' && <LabPage onOpen={openLab} />}
@@ -439,7 +442,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               <div className="setw-row-empty">Watch a repository to get workspace settings.</div>
             </div>
           )}
-          {section === 'ws-repository' && workspace !== null && (
+          {isWorkspaceSection(section) && section !== 'ws-advanced' && workspace?.hostingServer?.provider === 'GITLAB' && <WorkspaceHostingAccount key={workspace.id} workspace={workspace} />}
+          {section === 'ws-repository' && workspace !== null && workspace.hostingServer?.provider !== 'GITLAB' && (
             <WorkspaceRepositoryPage
               key={workspace.id}
               workspace={workspace}
@@ -459,7 +463,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
-          {section === 'ws-agents' && workspace !== null && (
+          {section === 'ws-agents' && workspace !== null && workspace.hostingServer?.provider !== 'GITLAB' && (
             <WorkspaceAgentsPage
               key={workspace.id}
               workspace={workspace}
@@ -484,7 +488,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               onRestrictClaudeAccount={restrictClaudeAccount}
             />
           )}
-          {section === 'ws-token' && workspace !== null && (
+          {section === 'ws-token' && workspace !== null && workspace.hostingServer?.provider !== 'GITLAB' && (
             <WorkspaceTokenPage
               key={workspace.id}
               workspace={workspace}

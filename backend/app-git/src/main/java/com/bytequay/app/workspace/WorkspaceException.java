@@ -40,6 +40,20 @@ public final class WorkspaceException
         return workspaces.findById(workspaceId).orElseThrow(() -> notFound(workspaceId));
     }
 
+    public static Workspace requireGitHubWorkspace(WorkspaceStore workspaces, String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        requireGitHub(workspace);
+        return workspace;
+    }
+
+    public static void requireGitHub(Workspace workspace)
+    {
+        if (!workspace.isGitHub()) {
+            throw new WorkspaceException("WORKSPACE_FEATURE_UNAVAILABLE", HttpStatus.NOT_IMPLEMENTED, "This feature is not available for GitLab workspaces yet.", false);
+        }
+    }
+
     public static WorkspaceException notFound(String workspaceId)
     {
         return new WorkspaceException("WORKSPACE_NOT_FOUND", HttpStatus.NOT_FOUND, "Workspace not found: " + workspaceId, false);

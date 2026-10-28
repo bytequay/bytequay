@@ -157,6 +157,7 @@ class TestEpicService
     void proposingReadsTheEpicsIssueAndAnAcceptedProposalBecomesItsWorkOnce()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepositoryId()).thenReturn(5L);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(issues.find(5, 7)).thenReturn(Optional.of(new RepositoryIssue(1, 7, "Iceberg REST catalog", "Cache table metadata", "author", "",

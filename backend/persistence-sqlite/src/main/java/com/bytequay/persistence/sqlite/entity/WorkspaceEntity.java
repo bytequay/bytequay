@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -30,6 +31,8 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.DynamicUpdate;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.time.Instant;
 import java.util.Objects;
@@ -52,8 +55,15 @@ public class WorkspaceEntity
     @Setter
     private boolean watched = true;
 
-    @Column(name = "selected_repository_id", nullable = false, unique = true)
+    @Column(name = "selected_repository_id", nullable = false)
     private long selectedRepositoryId;
+
+    @Column(unique = true)
+    private String repositoryKey;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "TEXT")
+    private HostingServer hostingServer;
 
     @Column(nullable = false)
     private String selectedOwner;
@@ -135,7 +145,7 @@ public class WorkspaceEntity
 
     public void updateFrom(Workspace workspace)
     {
-        if (selectedRepositoryId > 0 && (selectedRepositoryId != workspace.selectedRepositoryId()
+        if (selectedRepositoryId > 0 && (!Objects.equals(hostingServer, workspace.hostingServer().orElse(null)) || selectedRepositoryId != workspace.selectedRepositoryId()
                 || !Objects.equals(upstreamRepositoryId, workspace.upstreamRepositoryId().orElse(null))
                 || monitoredRepositoryId != workspace.monitoredRepositoryId() || topology != workspace.topology())) {
             hostingAccount = null;
@@ -144,6 +154,8 @@ public class WorkspaceEntity
         }
         name = workspace.name();
         selectedRepositoryId = workspace.selectedRepositoryId();
+        hostingServer = workspace.hostingServer().orElse(null);
+        repositoryKey = repositoryKey(workspace);
         selectedOwner = workspace.selectedRepository().owner();
         selectedRepo = workspace.selectedRepository().repo();
         upstreamRepositoryId = workspace.upstreamRepositoryId().orElse(null);
@@ -178,6 +190,13 @@ public class WorkspaceEntity
         upstreamHostingRepository = upstream.orElse(null);
     }
 
+    public static String repositoryKey(Workspace workspace)
+    {
+        String server = workspace.hostingServer().map(value -> value.provider() + "\n" + value.webBaseUrl() + "\n" + value.apiBaseUrl())
+                .orElse("GITHUB\nhttps://github.com\nhttps://api.github.com");
+        return server + "\n" + workspace.selectedRepositoryId();
+    }
+
     public Workspace toDomain()
     {
         RepoRef selected = RepoRef.of(selectedOwner, selectedRepo);
@@ -191,6 +210,6 @@ public class WorkspaceEntity
                 upstreamId.isPresent() ? RepoRef.of(monitoredOwner, monitoredRepo) : selected, topology, defaultBranch, originCloneUrl,
                 upstreamId.isPresent() ? Optional.ofNullable(upstreamDefaultBranch) : Optional.empty(),
                 upstreamId.isPresent() ? Optional.ofNullable(upstreamCloneUrl) : Optional.empty(), localRepositoryPath, Optional.ofNullable(lastCodeSyncAt),
-                Optional.ofNullable(lastMetadataSyncAt), displayOrder, createdAt, updatedAt);
+                Optional.ofNullable(lastMetadataSyncAt), displayOrder, createdAt, updatedAt, Optional.ofNullable(hostingServer));
     }
 }

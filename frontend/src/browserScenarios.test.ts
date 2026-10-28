@@ -79,7 +79,7 @@ testBrowserScenarios([
   },
   {
     name: 'completes and resumes setup without showing it again after completion',
-    expected: 5, timeout: 60_000,
+    expected: 6, timeout: 60_000,
     fixture: {
       prefix: 'bytequay-setup-', entry: 'src/onboarding/fixtures/setupBrowser.tsx', global: 'SetupTests', styles: true, width: 1180, height: 860,
     },

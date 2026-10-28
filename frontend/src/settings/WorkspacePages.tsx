@@ -31,7 +31,7 @@ import { Badge, SettingsCard, SettingsRow } from './primitives';
 function Eyebrow({ workspace }: { workspace: WorkspaceDto }) {
   return (
     <div className="setw-eyebrow">
-      <RepoAvatar owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
+      <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'} owner={workspace.selectedOwner} repo={workspace.selectedRepo} size={17} radius={4} />
       <span>{workspace.selectedOwner}/{workspace.selectedRepo}</span>
     </div>
   );

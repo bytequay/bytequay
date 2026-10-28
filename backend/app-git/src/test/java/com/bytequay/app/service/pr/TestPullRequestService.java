@@ -1782,6 +1782,27 @@ class TestPullRequestService
     }
 
     @Test
+    void gitLabWorkspaceRefreshUsesSharedPagesWithoutGitHubProjectionOrEnrichment()
+    {
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
+        HostingInstance instance = new HostingInstance(1, GITLAB,
+                URI.create("https://gitlab.example.test/code"), URI.create("https://gitlab.example.test/code/api/v4"));
+        HostingReadSession selected = new HostingReadSession(1, "hosting-account", new HostingAccess(instance, "gitlab-token"));
+        URI url = URI.create("https://gitlab.example.test/code/group/subgroup/project");
+        HostingRepository repository = new HostingRepository(1, 1, "123", "group/subgroup/project", url, URI.create(url + ".git"), Optional.empty(), Optional.of("main"));
+        when(workspaceHosting.captureRead("workspace")).thenReturn(new WorkspaceHostingRead(selected, repository, "alice"));
+        FetchedPullRequest item = new FetchedPullRequest(42L, repository.fullPath(), 7, "Change", "alice", url + "/-/merge_requests/7", REVIEWED_AT, REVIEWED_AT,
+                PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
+        when(requests.refreshPage(eq(selected), eq(1L), anyBoolean(), eq(1), eq(100))).thenReturn(new PullRequestListPage(ImmutableList.of(item), false));
+
+        service.syncWorkspace("workspace");
+
+        verify(requests).refreshPage(selected, 1, false, 1, 100);
+        verify(requests).refreshPage(selected, 1, true, 1, 100);
+        verifyNoInteractions(gitHub, store, summaries, credentialService, connections);
+    }
+
+    @Test
     void workspaceSyncUsesTheSelectedAccountInsteadOfTheGlobalCredential()
     {
         service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));

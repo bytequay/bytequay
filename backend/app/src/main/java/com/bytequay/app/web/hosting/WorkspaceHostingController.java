@@ -14,6 +14,7 @@
 package com.bytequay.app.web.hosting;
 
 import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,10 +33,12 @@ import static java.util.Objects.requireNonNull;
 public class WorkspaceHostingController
 {
     private final WorkspaceHostingService hosting;
+    private final WorkspaceRepositoryService repositories;
 
-    public WorkspaceHostingController(WorkspaceHostingService hosting)
+    public WorkspaceHostingController(WorkspaceHostingService hosting, WorkspaceRepositoryService repositories)
     {
         this.hosting = requireNonNull(hosting, "hosting is null");
+        this.repositories = requireNonNull(repositories, "repositories is null");
     }
 
     @GetMapping
@@ -47,7 +50,9 @@ public class WorkspaceHostingController
     @PostMapping
     public WorkspaceHostingBinding bind(@PathVariable String workspaceId, @RequestBody BindRequest request)
     {
-        return hosting.bind(workspaceId, request.accountId());
+        WorkspaceHostingBinding binding = hosting.bind(workspaceId, request.accountId());
+        repositories.requestSyncAfterConfigurationChange(workspaceId);
+        return binding;
     }
 
     @GetMapping("/requests/{number}")

@@ -26,6 +26,7 @@ import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
@@ -34,6 +35,7 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.ZoneOffset;
 import java.util.HashMap;
@@ -44,7 +46,9 @@ import static com.bytequay.app.workspace.WorkspaceIssueTestData.NOW;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.event;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.issue;
 import static com.bytequay.app.workspace.WorkspaceIssueTestData.workspace;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -84,6 +88,23 @@ class TestWorkspaceIssueService
                 Clock.fixed(NOW, ZoneOffset.UTC),
                 timelineReads,
                 mock(AppSettingsStore.class));
+    }
+
+    @Test
+    void excludesGitLabFromGitHubIssueReadsWritesAndBackgroundRefresh()
+    {
+        Workspace gitlab = new Workspace("gitlab", "GitLab project", 100, DIRECT, Optional.empty(), Optional.empty(), 100, DIRECT,
+                Topology.DIRECT, "main", "https://gitlab.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/gitlab-project",
+                Optional.empty(), Optional.empty(), 0, NOW, NOW,
+                Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+        workspaces.put("gitlab", gitlab);
+        when(workspaceStore.findAll()).thenReturn(ImmutableList.of(gitlab));
+
+        assertThatThrownBy(() -> service.list("gitlab", 0, 50)).isInstanceOf(WorkspaceException.class);
+        assertThatThrownBy(() -> service.comment("gitlab", 7, "Comment")).isInstanceOf(WorkspaceException.class);
+        service.refreshRecentIssues();
+
+        verifyNoInteractions(issueStore, detailStore, credentials, issueReads, issueWrites, timelineReads);
     }
 
     @Test

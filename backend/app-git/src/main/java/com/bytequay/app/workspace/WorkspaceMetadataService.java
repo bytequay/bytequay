@@ -42,6 +42,7 @@ import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 
 import static com.bytequay.app.utils.Locks.withLock;
+import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static java.util.Objects.requireNonNull;
 
@@ -96,7 +97,7 @@ public class WorkspaceMetadataService
 
     private void synchronizeLocked(String workspaceId)
     {
-        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Workspace workspace = requireGitHubWorkspace(workspaces, workspaceId);
         Lock lock = locks.get(workspace.monitoredRepositoryId());
         withLock(lock, () -> {
             try {
@@ -130,7 +131,7 @@ public class WorkspaceMetadataService
      */
     public RepositoryMetadataSnapshot getSnapshot(String workspaceId)
     {
-        return snapshot(requireWorkspace(workspaces, workspaceId));
+        return snapshot(requireGitHubWorkspace(workspaces, workspaceId));
     }
 
     /**
@@ -236,7 +237,7 @@ public class WorkspaceMetadataService
     private Optional<Workspace> findWorkspace(RepoRef repository)
     {
         requireNonNull(repository, "repository is null");
-        return workspaces.findAllRetained().stream()
+        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub)
                 .filter(workspace -> workspace.monitoredRepository().owner().equalsIgnoreCase(repository.owner())
                         && workspace.monitoredRepository().repo().equalsIgnoreCase(repository.repo()))
                 .findFirst();

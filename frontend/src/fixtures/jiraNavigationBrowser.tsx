@@ -49,6 +49,7 @@ export async function run(): Promise<{ name: string }[]> {
   const startup = new Promise<boolean>(resolve => { finishStartup = resolve; });
   const bridge = {
     ...createPreviewBridge('workspace'),
+    listHostingAccounts: async () => [],
     hasPat: () => startup,
     onAppNavigation: callback => { navigate = callback; return () => { navigate = () => {}; }; },
     onAssistantNavigate: callback => { assistantOpens = callback; return () => { assistantOpens = () => {}; }; },

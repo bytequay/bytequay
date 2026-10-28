@@ -21,6 +21,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.springframework.http.HttpStatus;
@@ -57,7 +58,7 @@ public class PullRequestConflictService
     {
         var pullRequest = parseRef(repo, number);
         RepoRef requested = RepoRef.of(pullRequest.owner(), pullRequest.repo());
-        var workspace = workspaces.findAll().stream()
+        var workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
                 .filter(value -> value.monitoredRepository().fullName().equalsIgnoreCase(requested.fullName())
                         || value.selectedRepository().fullName().equalsIgnoreCase(requested.fullName()))
                 .findFirst()

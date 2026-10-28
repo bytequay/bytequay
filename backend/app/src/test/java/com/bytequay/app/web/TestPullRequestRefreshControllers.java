@@ -575,7 +575,7 @@ class TestPullRequestRefreshControllers
     {
         return new WorkspaceSummary(id, "owner/repo", repositoryId, "owner", "repo", null, null, null,
                 repositoryId, "owner", "repo", Topology.DIRECT, "main", null,
-                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0);
+                "/tmp/bytequay-workspaces/" + id + "/repository", NOW, NOW, 0, null);
     }
 
     private static PullRequestDetail detail()

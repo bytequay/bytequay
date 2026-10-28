@@ -81,6 +81,7 @@ class TestGoalReferenceReader
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.id()).thenReturn(WORKSPACE);
         when(workspace.monitoredRepository()).thenReturn(REPO);
         when(workspace.monitoredRepositoryId()).thenReturn(7L);

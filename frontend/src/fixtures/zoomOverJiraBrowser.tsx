@@ -64,6 +64,7 @@ function installBridge() {
   };
   const bridge = {
     ...createPreviewBridge('workspace'),
+    listHostingAccounts: async () => [],
     hasPat: async () => true,
     getInAppBrowserState: async () => browser,
     onInAppBrowserState: (listener: (state: InAppBrowserState) => void) => { showBrowser = listener; return () => {}; },

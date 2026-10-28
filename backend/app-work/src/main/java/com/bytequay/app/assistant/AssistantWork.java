@@ -190,7 +190,7 @@ class AssistantWork
 
     private Workspace watched(String repo)
     {
-        return workspaces.findAll().stream().filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst()
+        return workspaces.findAll().stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("That repository is not watched"));
     }
 

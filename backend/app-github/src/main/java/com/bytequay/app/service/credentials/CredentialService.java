@@ -19,8 +19,10 @@ import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -30,10 +32,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collection;
-import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -52,17 +52,19 @@ public class CredentialService
     private final GhCliService ghCli;
     private final GitHubAccountClient gitHubAccount;
     private final HostingConnectionService hosting;
+    private final WorkspaceStore workspaces;
     private volatile GitHubCredential cachedGitHubCredential;
     private volatile Optional<HostingReadSession> cachedHostingRead = Optional.empty();
 
     public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli,
-            GitHubAccountClient gitHubAccount, HostingConnectionService hosting)
+            GitHubAccountClient gitHubAccount, HostingConnectionService hosting, WorkspaceStore workspaces)
     {
         this.credentialStore = requireNonNull(credentialStore, "credentialStore is null");
         this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
         this.gitHubAccount = requireNonNull(gitHubAccount, "gitHubAccount is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
     }
 
     public synchronized void saveGitHubToken(String token)
@@ -150,25 +152,31 @@ public class CredentialService
                 .orElseGet(this::resolveGitHubToken);
     }
 
-    /** GitHub credentials must never be sent to a user-supplied remote on another origin. */
+    /** Git credentials stay within the selected account's server and configured path. */
     public Map<String, String> gitAuthenticationEnvironment(String workspaceId, Collection<String> remoteUrls)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(remoteUrls, "remoteUrls is null");
-        Set<String> bases = new LinkedHashSet<>();
         checkArgument(!remoteUrls.isEmpty(), "remoteUrls is empty");
-        remoteUrls.forEach(url -> authenticationBase(url).ifPresent(bases::add));
-        if (bases.isEmpty()) {
+        Optional<HostingReadSession> selected = workspaces.findHostingBinding(workspaceId).map(binding -> hosting.readSession(binding.accountId()));
+        String base = selected.map(session -> session.access().server().webBaseUrl()).orElse(GITHUB_SERVER.webBaseUrl()).toASCIIString() + "/";
+        boolean matches = false;
+        for (String remoteUrl : remoteUrls) {
+            URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
+            checkArgument(isPlainHttps(uri), "unsafe remote URL");
+            matches |= HostingUrls.canonicalHttpUrl(uri).toASCIIString().startsWith(base);
+        }
+        if (!matches) {
             return ImmutableMap.of("GIT_CONFIG_COUNT", "0");
         }
-        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(("x-access-token:" + resolveGitHubToken(workspaceId)).getBytes(StandardCharsets.UTF_8));
-        ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
-        environment.put("GIT_CONFIG_COUNT", Integer.toString(bases.size()));
-        int index = 0;
-        for (String base : bases) {
-            environment.put("GIT_CONFIG_KEY_" + index, "http." + base + ".extraHeader");
-            environment.put("GIT_CONFIG_VALUE_" + index, header);
-            index++;
+        String token = selected.map(session -> session.access().token()).orElseGet(() -> resolveGitHubToken(workspaceId));
+        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(("x-access-token:" + token).getBytes(StandardCharsets.UTF_8));
+        ImmutableMap.Builder<String, String> environment = ImmutableMap.<String, String>builder()
+                .put("GIT_CONFIG_COUNT", selected.isPresent() ? "2" : "1")
+                .put("GIT_CONFIG_KEY_0", "http." + base + ".extraHeader")
+                .put("GIT_CONFIG_VALUE_0", header);
+        if (selected.isPresent()) {
+            environment.put("GIT_CONFIG_KEY_1", "http.followRedirects").put("GIT_CONFIG_VALUE_1", "false");
         }
         return environment.buildOrThrow();
     }
@@ -278,13 +286,5 @@ public class CredentialService
         {
             return "GitHubCredential[token=<redacted>, profile=" + profile + "]";
         }
-    }
-
-    private static Optional<String> authenticationBase(String remoteUrl)
-    {
-        URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
-        checkArgument(isPlainHttps(uri), "unsafe remote URL");
-        return "github.com".equalsIgnoreCase(uri.getHost()) && (uri.getPort() == -1 || uri.getPort() == 443)
-                ? Optional.of("https://github.com/") : Optional.empty();
     }
 }

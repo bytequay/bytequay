@@ -324,7 +324,8 @@ class AssistantReader
     {
         return AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById).map(pr -> {
             String canonical = AgendaRefs.pull(pr.repo(), pr.number());
-            Optional<String> workspace = workspaces.findAll().stream().filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo()))
+            Optional<String> workspace = workspaces.findAll().stream().filter(Workspace::isGitHub)
+                    .filter(watched -> watched.monitoredRepository().fullName().equalsIgnoreCase(pr.repo()))
                     .map(Workspace::id).findFirst();
             PullRequestFacts facts = new PullRequestFacts(canonical, AgendaReader.clip(pr.title(), TITLE), pr.author(), pr.mine(credentials.cachedLogin()),
                     AssistantRows.state(pr), Optional.ofNullable(pr.ciStatus()).map(AssistantReader::lower),

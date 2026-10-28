@@ -324,7 +324,8 @@ class TestCiAutofixRestartEndToEnd
                             context.getBean(WorkspaceCredentialStore.class),
                             context.getBean(GhCliService.class),
                             context.getBean(GitHubAccountClient.class),
-                            context.getBean(HostingConnectionService.class))
+                            context.getBean(HostingConnectionService.class),
+                            context.getBean(WorkspaceStore.class))
                     {
                         @Override
                         public String resolveGitHubToken()

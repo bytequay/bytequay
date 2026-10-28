@@ -13,15 +13,18 @@
  */
 package com.bytequay.core.domain;
 
+import com.bytequay.core.hosting.HostingServer;
+
 import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Durable identity and routing for one watched GitHub repository.
+ * Durable identity and routing for one watched repository. Remote IDs are scoped by the hosting server.
  *
  * <p>A workspace clones its push repository as {@code origin}. Direct mode monitors that repository itself.
  * Personal-fork mode clones the user's fork and monitors the canonical repository through the read-only {@code upstream}
@@ -46,10 +49,12 @@ public record Workspace(
         Optional<Instant> lastMetadataSyncAt,
         int displayOrder,
         Instant createdAt,
-        Instant updatedAt)
+        Instant updatedAt,
+        Optional<HostingServer> hostingServer)
 {
     public Workspace
     {
+        requireNonNull(hostingServer, "hostingServer is null");
         checkText(id, "id");
         checkText(name, "name");
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
@@ -91,13 +96,28 @@ public record Workspace(
         }
     }
 
+    public Workspace(String id, String name, long selectedRepositoryId, RepoRef selectedRepository, Optional<Long> upstreamRepositoryId,
+            Optional<RepoRef> upstreamRepository, long monitoredRepositoryId, RepoRef monitoredRepository, Topology topology, String defaultBranch,
+            String originCloneUrl, Optional<String> upstreamDefaultBranch, Optional<String> upstreamCloneUrl, String localRepositoryPath,
+            Optional<Instant> lastCodeSyncAt, Optional<Instant> lastMetadataSyncAt, int displayOrder, Instant createdAt, Instant updatedAt)
+    {
+        this(id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId, upstreamRepository, monitoredRepositoryId, monitoredRepository,
+                topology, defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath, lastCodeSyncAt, lastMetadataSyncAt,
+                displayOrder, createdAt, updatedAt, Optional.empty());
+    }
+
+    public boolean isGitHub()
+    {
+        return hostingServer.map(server -> server.provider() == GITHUB).orElse(true);
+    }
+
     public Workspace withName(String nextName, Instant now)
     {
         return new Workspace(
                 id, nextName, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
+                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
     }
 
     public Workspace withCodeSyncAt(Optional<Instant> nextLastCodeSyncAt, Instant now)
@@ -106,7 +126,7 @@ public record Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                nextLastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
+                nextLastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
     }
 
     public Workspace withMetadataSyncAt(Optional<Instant> nextLastMetadataSyncAt, Instant now)
@@ -115,7 +135,7 @@ public record Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
                 upstreamRepository, monitoredRepositoryId, monitoredRepository, topology,
                 defaultBranch, originCloneUrl, upstreamDefaultBranch, upstreamCloneUrl, localRepositoryPath,
-                lastCodeSyncAt, nextLastMetadataSyncAt, displayOrder, createdAt, now);
+                lastCodeSyncAt, nextLastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
     }
 
     public Workspace withRepositoryRouting(
@@ -135,7 +155,7 @@ public record Workspace(
                 nextUpstreamRepository, nextMonitoredRepositoryId,
                 nextMonitoredRepository, nextUpstreamRepositoryId.isPresent() ? Topology.FORK : Topology.DIRECT, nextDefaultBranch, nextOriginCloneUrl,
                 nextUpstreamDefaultBranch, nextUpstreamCloneUrl, localRepositoryPath,
-                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
+                lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
     }
 
     public enum Topology

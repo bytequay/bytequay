@@ -21,10 +21,13 @@ import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -51,16 +54,20 @@ class TestPullRequestSyncJob
         Workspace first = workspace("first", 1, shared);
         Workspace second = workspace("second", 1, shared);
         Workspace third = workspace("third", 3, other);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(first, second, third));
+        Workspace gitlab = workspace("gitlab", 1, shared, Optional.of(new HostingServer(HostingProvider.GITLAB,
+                URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, first, second, third));
         PullRequestSyncJob job = new PullRequestSyncJob(refreshService, metadata, workspaces, credentials, idleSettings(), Clock.systemUTC());
 
         job.tick();
 
         var order = inOrder(refreshService);
         order.verify(refreshService).refreshScheduledDashboard();
+        order.verify(refreshService).refreshWorkspace(gitlab.id());
         order.verify(refreshService).refreshWorkspace(first.id());
         order.verify(refreshService).refreshWorkspace(second.id());
         order.verify(refreshService).refreshWorkspace(third.id());
+        verify(metadata, never()).synchronize(gitlab.id());
         verify(metadata).synchronize(first.id());
         verify(metadata, never()).synchronize(second.id());
         verify(metadata).synchronize(third.id());
@@ -183,6 +190,11 @@ class TestPullRequestSyncJob
 
     private static Workspace workspace(String id, long repositoryId, RepoRef repository)
     {
+        return workspace(id, repositoryId, repository, Optional.empty());
+    }
+
+    private static Workspace workspace(String id, long repositoryId, RepoRef repository, Optional<HostingServer> server)
+    {
         Instant now = Instant.parse("2026-08-22T00:00:00Z");
         return new Workspace(
                 id,
@@ -203,6 +215,7 @@ class TestPullRequestSyncJob
                 Optional.of(now),
                 0,
                 now,
-                now);
+                now,
+                server);
     }
 }

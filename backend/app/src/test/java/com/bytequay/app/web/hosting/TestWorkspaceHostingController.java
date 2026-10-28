@@ -19,6 +19,7 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -54,6 +55,7 @@ class TestWorkspaceHostingController
     private static final String BASE = "/api/workspaces/workspace/hosting";
     private static final WorkspaceHostingBinding BINDING = new WorkspaceHostingBinding("workspace", 20, 30, Optional.of(31L));
     private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
 
     @ParameterizedTest
     @CsvSource({"GET,/api/workspaces/workspace/hosting", "POST,/api/workspaces/workspace/hosting", "GET,/api/workspaces/workspace/hosting/requests/7"})
@@ -80,6 +82,7 @@ class TestWorkspaceHostingController
                 .andExpect(jsonPath("$.selectedRepositoryId").value(30))
                 .andExpect(jsonPath("$.upstreamRepositoryId").value(31));
         verify(hosting).bind("workspace", 20);
+        verify(repositories).requestSyncAfterConfigurationChange("workspace");
     }
 
     @Test
@@ -112,7 +115,7 @@ class TestWorkspaceHostingController
         AgentProperties properties = new AgentProperties(Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), SESSION, "codex", "0.153.4",
                 Path.of("/tmp/agent-codex-home"), "claude", Path.of("/tmp/agent-claude-home"));
         ObjectMapper mapper = Jackson2ObjectMapperBuilder.json().modules(new Jdk8Module(), new JavaTimeModule()).build();
-        return standaloneSetup(new WorkspaceHostingController(hosting))
+        return standaloneSetup(new WorkspaceHostingController(hosting, repositories))
                 .setControllerAdvice(new GlobalExceptionHandler(), new HostingExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                 .addFilters(new AgentRequestFilter(properties, mapper, new AgentServingGate()))

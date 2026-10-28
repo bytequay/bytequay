@@ -15,10 +15,16 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.core.ci.CiAutofixAttempt.GitResult;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun.PushJournal;
+import com.bytequay.core.store.CredentialStore;
+import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -36,6 +42,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static com.bytequay.app.ci.CiGitInspection.Outcome.INVALID;
 import static com.bytequay.app.ci.CiGitInspection.Outcome.NO_CHANGE;
@@ -75,9 +82,10 @@ class TestCiGitService
     {
         Repository fixture = repository("authenticated-transport");
         String nextBase = advanceRemoteBase(fixture);
-        CredentialService credentials = mock(CredentialService.class);
-        when(credentials.resolveGitHubToken(WORKSPACE_ID)).thenReturn("workspace-token");
-        when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenCallRealMethod();
+        WorkspaceCredentialStore overrides = mock(WorkspaceCredentialStore.class);
+        when(overrides.getSecret(WORKSPACE_ID)).thenReturn(Optional.of("workspace-token"));
+        CredentialService credentials = new CredentialService(mock(CredentialStore.class), overrides, mock(GhCliService.class),
+                mock(GitHubAccountClient.class), mock(HostingConnectionService.class), mock(WorkspaceStore.class));
         String authorization = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         List<String> transports = new ArrayList<>();
         GitCommandRunner routed = new RoutedGitCommandRunner();

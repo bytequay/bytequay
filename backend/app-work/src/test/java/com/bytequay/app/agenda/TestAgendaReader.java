@@ -190,6 +190,7 @@ class TestAgendaReader
     void localEpicsOpenTheirWorkItemAndDoNotHideRemoteEpics()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.id()).thenReturn("workspace");
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("org", "repo"));
         when(workspace.createdAt()).thenReturn(SINCE);

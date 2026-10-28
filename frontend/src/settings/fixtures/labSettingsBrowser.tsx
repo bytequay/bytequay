@@ -31,6 +31,7 @@ export function start(route: string, opened: string[] = [], openLab: () => Promi
   desktop: Desktop = { workspaces: [], preview: createPreviewBridge('workspace') }): () => void {
   const bridge = {
     ...desktop.preview,
+    listHostingAccounts: async () => [],
     hasPat: async () => true,
     openLab,
     onLabTask: (callback: (task: LabTask) => void) => {

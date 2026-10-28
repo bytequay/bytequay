@@ -177,13 +177,20 @@ observing account. Credential source distinguishes connected-account, global and
 workspace credentials. List refresh stores summaries without loading full detail
 or advancing its validation time; cached lists are paged within that account,
 repository and credential source. Cache eviction keeps request identity and local work.
-Hibernate owns the schema; no migration framework or database reset is required.
+Hibernate owns the current schema; no migration framework is maintained.
 
 Legacy desktop rows remain separate because matching repository paths cannot
 establish historical remote identity. Shared metadata is projected onto existing
 desktop PR IDs so drafts, reviews and local timeline events keep their references.
 Legacy lookups and mutations exclude hosted rows. Account changes clear remote
 legacy detail/diff projections while retaining local timeline events.
+
+Workspace repository numbers are scoped by the configured server. A GitLab
+workspace retains that server and its selected hosting account/repository binding;
+GitHub workspaces keep their existing routing. Setup resolves the chosen project
+through its account before saving a direct-clone workspace. Selecting another
+account re-verifies the same project on the same server. GitLab-only sign-in can
+reach workspace setup without a GitHub credential.
 
 ### Routing and refresh
 
@@ -205,20 +212,25 @@ remain where they predate this integration.
 Scheduled refresh visits each watched workspace so explicit account bindings work
 without a global credential, including workspaces for the same repository using
 different accounts. Publication follow-up and backport reads use the selected
-workspace account. Repository discovery uses the shared paginated reader, ordered
+workspace account. Bound workspaces resolve repository changes and authenticate
+Git clone/fetch through that account. Git credentials are passed through the
+existing per-command environment, scoped to the selected server and path prefix,
+with redirects disabled for bound accounts. Repository discovery uses the shared paginated reader, ordered
 by update time. The first pass reads recent changes and all open requests; later
 passes stop at the last successful refresh cutoff. Each page is saved as it arrives,
 and the checkpoint advances only after discovery completes. Existing GitHub
-workspaces retain their desktop projection and GitHub card enrichment.
+workspaces retain their desktop projection and GitHub card enrichment; GitLab
+refresh writes only the shared cache.
 Remote writes still require direct user action.
 
 ### Remaining integration
 
 Shared metadata storage and backend connection endpoints support both providers.
 The desktop still uses GitHub readers for personal discovery, discussions, checks and diffs,
-and GitHub implementations for remote writes. GitLab workspace creation, desktop
-navigation/account selection, and these remaining provider contracts are not yet
-implemented. Extend contracts as those consumers are migrated; keep provider
+and GitHub implementations for remote writes. GitLab review navigation and these remaining provider contracts are not yet
+implemented. GitLab workspace setup exposes account selection, direct cloning and
+code synchronization; the UI keeps unported features unavailable, and native
+GitHub consumers exclude GitLab workspaces before reading path- or ID-based data. Extend contracts as those consumers are migrated; keep provider
 protocol details inside each adapter and reuse the shared UI and storage.
 
 GitLab.com Free and a company-style self-managed test instance are the intended

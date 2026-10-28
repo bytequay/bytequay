@@ -193,7 +193,7 @@ public class AgendaReader
         Optional<String> viewer = credentials.cachedLogin();
         List<Workspace> watched = workspaces.findAll();
         Map<String, String> workspaceByRepo = new HashMap<>();
-        watched.forEach(workspace -> workspaceByRepo.putIfAbsent(lower(workspace.monitoredRepository().fullName()), workspace.id()));
+        watched.stream().filter(Workspace::isGitHub).forEach(workspace -> workspaceByRepo.putIfAbsent(lower(workspace.monitoredRepository().fullName()), workspace.id()));
         List<TeamCircle> circles = read("circles", teams::cachedCircles, ImmutableList.of());
 
         // A snoozed item stays out of the agenda and the assistant's answers until its snooze ends, as it stays out of Needs attention.
@@ -491,7 +491,7 @@ public class AgendaReader
 
     private List<Ask> issueAsks(Workspace workspace, Optional<String> viewer, List<TeamCircle> circles, Map<String, RefInfo> refs, Set<String> snoozed)
     {
-        if (viewer.isEmpty()) {
+        if (viewer.isEmpty() || !workspace.isGitHub()) {
             return ImmutableList.of();
         }
         String repo = workspace.monitoredRepository().fullName();
@@ -585,6 +585,9 @@ public class AgendaReader
             return jira.getObject().cachedIssue(ticket.orElseThrow().cloudId(), ticket.orElseThrow().issueId())
                     .map(issue -> new EpicSource(issue.key() + " " + issue.title(), AgendaTarget.jira(issue.connectionId(), issue.cloudId(), issue.id(),
                             Optional.of(workspace.id()))));
+        }
+        if (!workspace.isGitHub()) {
+            return Optional.empty();
         }
         Optional<IssueEpic> marker = markers.findEpic(GITHUB, EpicSources.issueId(epicId));
         return marker.map(found -> new EpicSource(issues.find(workspace.monitoredRepositoryId(), found.number()).map(RepositoryIssue::title).orElse("#" + found.number()),

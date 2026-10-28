@@ -31,6 +31,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
+import static com.bytequay.app.workspace.WorkspaceException.requireGitHub;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -59,6 +60,9 @@ public class WorkItemPublicationService
     public WorkItemView publish(String workspaceId, String id, Publication request)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        if (request.source() == UnifiedWorkItem.Source.GITHUB) {
+            requireGitHub(workspace);
+        }
         WorkItem item = work.requireItem(workspaceId, id);
         checkArgument(request.source() == UnifiedWorkItem.Source.GITHUB || request.source() == UnifiedWorkItem.Source.JIRA, "Choose GitHub or Jira");
         checkArgument(item.links().stream().noneMatch(link -> request.source() == UnifiedWorkItem.Source.GITHUB ? link.issueSource().isPresent()
@@ -94,6 +98,9 @@ public class WorkItemPublicationService
     public WorkItemView reconcile(String workspaceId, String id, Publication request, String key)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        if (request.source() == UnifiedWorkItem.Source.GITHUB) {
+            requireGitHub(workspace);
+        }
         WorkItem item = work.requireItem(workspaceId, id);
         checkArgument(item.revision() == request.expectedRevision(), "Work changed; refresh before linking");
         Optional<WorkItemEvent> pending = item.history().stream().filter(event -> event.action().equals("PUBLISH_STARTED")

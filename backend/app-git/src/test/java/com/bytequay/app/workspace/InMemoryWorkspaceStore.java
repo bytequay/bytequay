@@ -81,14 +81,21 @@ final class InMemoryWorkspaceStore
     public synchronized Optional<Workspace> findBySelectedRepositoryId(long selectedRepositoryId)
     {
         return byId.values().stream()
-                .filter(workspace -> workspace.selectedRepositoryId() == selectedRepositoryId)
+                .filter(workspace -> workspace.hostingServer().isEmpty() && workspace.selectedRepositoryId() == selectedRepositoryId)
                 .findFirst();
+    }
+
+    @Override
+    public synchronized Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId)
+    {
+        return bindings.values().stream().filter(binding -> binding.selectedRepositoryId() == repositoryId).findFirst().flatMap(binding -> findById(binding.workspaceId()));
     }
 
     @Override
     public synchronized Workspace createOrGet(Workspace workspace)
     {
-        Optional<Workspace> existing = findBySelectedRepositoryId(workspace.selectedRepositoryId());
+        Optional<Workspace> existing = byId.values().stream().filter(value -> value.selectedRepositoryId() == workspace.selectedRepositoryId()
+                && value.hostingServer().equals(workspace.hostingServer())).findFirst();
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
@@ -97,10 +104,19 @@ final class InMemoryWorkspaceStore
     }
 
     @Override
+    public synchronized Workspace createHosted(Workspace workspace, long accountId, long selectedRepositoryId)
+    {
+        Workspace saved = createOrGet(workspace);
+        bindHosting(saved.id(), accountId, selectedRepositoryId, Optional.empty());
+        setWatched(saved.id(), true);
+        return saved;
+    }
+
+    @Override
     public synchronized Workspace save(Workspace workspace)
     {
         Workspace previous = byId.put(workspace.id(), workspace);
-        if (previous != null && (previous.selectedRepositoryId() != workspace.selectedRepositoryId()
+        if (previous != null && (!previous.hostingServer().equals(workspace.hostingServer()) || previous.selectedRepositoryId() != workspace.selectedRepositoryId()
                 || !previous.upstreamRepositoryId().equals(workspace.upstreamRepositoryId())
                 || previous.monitoredRepositoryId() != workspace.monitoredRepositoryId() || previous.topology() != workspace.topology())) {
             bindings.remove(workspace.id());

@@ -359,7 +359,22 @@ export type WatchRepositoryCommand = {
   name?: string;
 };
 
+export type HostingServerDto = { provider: 'GITHUB' | 'GITLAB'; webBaseUrl: string; apiBaseUrl: string };
+export type HostingConnectionDto = {
+  account: { id: number; instanceId: number; remoteId: string; login: string };
+  instance: HostingServerDto & { id: number };
+  connected: boolean;
+};
+export type HostingRepositoryDto = {
+  id: number; instanceId: number; remoteId: string; fullPath: string; webUrl: string;
+  httpCloneUrl: string; sshCloneUrl: string | null; defaultBranch: string | null;
+};
+export type WorkspaceHostingBindingDto = {
+  workspaceId: string; accountId: number; selectedRepositoryId: number; upstreamRepositoryId: number | null;
+};
+
 export type WorkspaceDto = {
+  hostingServer?: HostingServerDto | null;
   id: string;
   name: string;
   selectedRepositoryId: number;
@@ -1715,6 +1730,13 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   mergePr: (prId: number, repo: string, number: number, strategy: string, headSha: string) => Promise<void>;
   removePrFromMergeQueue: (repo: string, number: number, autoMerge: boolean) => Promise<void>;
 
+  listHostingAccounts: () => Promise<HostingConnectionDto[]>;
+  connectHostingAccount: (request: HostingServerDto & { token: string }) => Promise<HostingConnectionDto>;
+  disconnectHostingAccount: (accountId: number) => Promise<void>;
+  resolveHostingRepository: (accountId: number, fullPath: string) => Promise<HostingRepositoryDto>;
+  createHostingWorkspace: (accountId: number, repositoryId: number) => Promise<WorkspaceDto>;
+  getWorkspaceHosting: (workspaceId: string) => Promise<WorkspaceHostingBindingDto | null>;
+  setWorkspaceHosting: (workspaceId: string, accountId: number) => Promise<WorkspaceHostingBindingDto>;
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
   previewWatch: (selectedRepositoryId: number, topology?: WatchRepositoryTopology) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;

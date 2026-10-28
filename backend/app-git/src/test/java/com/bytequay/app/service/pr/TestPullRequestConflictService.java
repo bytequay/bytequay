@@ -81,6 +81,7 @@ class TestPullRequestConflictService
         command("init", "--quiet", "-b", "main");
         configureUser(repository, "ByteQuay Test", "test@example.com");
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.isGitHub()).thenReturn(true);
         when(workspace.id()).thenReturn("workspace");
         when(workspace.monitoredRepository()).thenReturn(REPO);
         when(workspace.selectedRepository()).thenReturn(RepoRef.of("viewer", "fork"));

@@ -18,6 +18,7 @@ type Props = {
   repo: string;
   size: number;
   radius?: number;
+  github?: boolean;
 };
 
 /** Background/foreground pairs for the initial tile, picked by owner name. */
@@ -43,15 +44,15 @@ function ownerTile(owner: string): [string, string] {
  * shows while the image loads and stays if it never arrives, so the row never
  * reflows and an unreachable avatar still reads as that repository.
  */
-export default function RepoAvatar({ owner, repo, size, radius = 5 }: Props) {
+export default function RepoAvatar({ owner, repo, size, radius = 5, github = true }: Props) {
   const [loadedSource, setLoadedSource] = useState<string | null>(null);
   const [failedSource, setFailedSource] = useState<string | null>(null);
   const login = owner.trim().toLowerCase();
   const [image, setImage] = useState<{ owner: string; source: string } | null>(null);
-  const source = image?.owner === login ? image.source : null;
+  const source = github && image?.owner === login ? image.source : null;
 
   useEffect(() => {
-    if (!login || !window.bridge?.getRepositoryAvatar) return;
+    if (!github || !login || !window.bridge?.getRepositoryAvatar) return;
     let active = true;
     const show = (value: string | null) => {
       if (active && value !== null) setImage({ owner: login, source: value });
@@ -60,7 +61,7 @@ export default function RepoAvatar({ owner, repo, size, radius = 5 }: Props) {
     void window.bridge.getRepositoryAvatar(login).then(show).catch(() => {}).then(() => { if (active) refresh(); });
     window.addEventListener('online', refresh);
     return () => { active = false; window.removeEventListener('online', refresh); };
-  }, [login]);
+  }, [github, login]);
   const loaded = source !== null && loadedSource === source && failedSource !== source;
   const name = `${owner}/${repo}`;
   const [background, color] = ownerTile(owner);

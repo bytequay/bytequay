@@ -38,6 +38,7 @@ import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.HostingPullRequestStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -122,7 +123,7 @@ class TestCredentialHostingRead
         when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(fetched());
         HostingConnectionService connections = new HostingConnectionService(identities, manualCredentials,
                 ImmutableList.of(new HostingIntegration(GITHUB, accounts, repositories, reader)));
-        credentials = new CredentialService(globalStore, workspaceStore, ghCli, profiles, connections);
+        credentials = new CredentialService(globalStore, workspaceStore, ghCli, profiles, connections, mock(WorkspaceStore.class));
         requests = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

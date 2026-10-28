@@ -19,6 +19,7 @@ import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
+import com.bytequay.core.store.WorkspaceStore;
 import org.junit.jupiter.api.Test;
 
 import java.util.Optional;
@@ -48,7 +49,8 @@ class TestCredentialServiceCachedLogin
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return profile("hubot");
         });
-        CredentialService service = new CredentialService(store, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), accounts, mock(HostingConnectionService.class));
+        CredentialService service = new CredentialService(store, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), accounts,
+                mock(HostingConnectionService.class), mock(WorkspaceStore.class));
         assertThat(service.cachedLogin()).isEmpty();
         assertThat(service.cachedCredential()).isEmpty();
         service.resolveGitHubCredential();

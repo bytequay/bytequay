@@ -17,6 +17,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -80,6 +81,7 @@ public class PullRequestSyncJob
             refreshQuietly(log, "Pull request refresh for global dashboard", refreshService::refreshScheduledDashboard);
             Set<Long> metadataRepositories = new HashSet<>();
             workspaces.findAll().stream()
+                    .filter(Workspace::isGitHub)
                     .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
                     .forEach(workspace -> metadata.synchronize(workspace.id()));
         }

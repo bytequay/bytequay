@@ -132,6 +132,13 @@ const bridge: Bridge = {
   mergePr: invoke('prs:merge'),
   removePrFromMergeQueue: invoke('prs:merge-queue:remove'),
 
+  listHostingAccounts: invoke('hosting:accounts'),
+  connectHostingAccount: invoke('hosting:connect'),
+  disconnectHostingAccount: invoke('hosting:disconnect'),
+  resolveHostingRepository: invoke('hosting:repository'),
+  createHostingWorkspace: invoke('hosting:workspace'),
+  getWorkspaceHosting: invoke('workspaces:hosting'),
+  setWorkspaceHosting: invoke('workspaces:hosting:set'),
   searchRepositories: invoke('workspaces:search'),
   previewWatch: invoke('workspaces:preview'),
   watchRepository: invoke('workspaces:watch'),

@@ -63,6 +63,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -150,6 +151,7 @@ public class WorkspaceController
     public PullRequestPage pullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
+        checkArgument(workspace.hostingServer() == null, "Use the hosting request list for GitLab workspaces");
         return pullRequests.listPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), page, size, "");
     }
 
@@ -157,6 +159,7 @@ public class WorkspaceController
     public List<PullRequest> mergedPullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String search, @RequestParam(defaultValue = "50") int limit)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
+        checkArgument(workspace.hostingServer() == null, "Use the hosting request list for GitLab workspaces");
         return pullRequests.listMergedPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), search, limit);
     }
 

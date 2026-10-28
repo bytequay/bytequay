@@ -22,6 +22,7 @@ import type { AppPreferencesDto, Bridge, HostingConnectionDto, HostingRepository
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
 import { GitLabConnectionForm } from '../GitLabAccounts';
+import GitLabSettings from '../GitLabSettings';
 import '../../index.css';
 
 const readyCli = async () => ({ ready: true, homebrewAvailable: true });
@@ -41,6 +42,12 @@ const preferences: AppPreferencesDto = { theme: 'SYSTEM', taskRetentionDays: 7, 
 function select(host: HTMLElement, id: number) {
   const field = element<HTMLSelectElement>('[aria-label="GitLab account"]', host);
   field.value = String(id); field.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function accountCard(host: HTMLElement, login: string): HTMLElement {
+  const card = [...host.querySelectorAll<HTMLElement>('.setw-card')].find(value => value.textContent?.includes(login));
+  assert(card !== undefined, `Missing account card for ${login}`);
+  return card;
 }
 
 export async function run() {
@@ -281,6 +288,106 @@ export async function run() {
         await until(() => view.host.querySelector('.modal-repo-row') !== null, 'Search did not recover');
         assert(view.host.querySelector('[role="alert"]') === null && searches.at(-1)?.accountId === 2, 'Recovery lost the selected account');
       } finally { view.dispose(); }
+    }],
+    ['Show all GitLab account cards immediately without selecting or changing an account', async () => {
+      const view = createFixtureRoot();
+      const publicServer: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' };
+      let writes = 0;
+      window.bridge = {
+        listHostingAccounts: async () => [account(1, publicServer), { ...account(2), connected: false }],
+        disconnectHostingAccount: async () => { writes++; },
+        connectHostingAccount: async request => { writes++; return account(1, request); },
+        connectHostingCliAccount: async request => { writes++; return account(1, request); },
+      } as Partial<Bridge> as Bridge;
+      try {
+        flushSync(() => view.root.render(<GitLabSettings />));
+        await until(() => view.host.textContent?.includes('developer-2') === true, 'Saved accounts did not appear');
+        const connected = accountCard(view.host, 'developer-1');
+        const disconnected = accountCard(view.host, 'developer-2');
+        assert(connected.textContent?.includes('https://gitlab.com') && connected.textContent.includes('Connected'), 'Connected account must show its server and status');
+        assert(disconnected.textContent?.includes(SERVER.webBaseUrl) && disconnected.textContent.includes('Disconnected'), 'Disconnected account must remain visible with its server');
+        button('Update…', connected); button('Disconnect', connected); button('Reconnect', disconnected);
+        assert(view.host.querySelector('select') === null && writes === 0, 'Opening settings must not select or change an account');
+      } finally { view.dispose(); }
+    }],
+    ['Disconnect only the chosen GitLab account and retain it after a failure', async () => {
+      const view = createFixtureRoot();
+      const disconnected: number[] = [];
+      let rows = [account(1), account(2)];
+      window.bridge = {
+        listHostingAccounts: async () => rows,
+        disconnectHostingAccount: async id => {
+          disconnected.push(id);
+          if (disconnected.length === 1) throw new Error('Disconnect failed');
+          rows = rows.map(value => value.account.id === id ? { ...value, connected: false } : value);
+        },
+      } as Partial<Bridge> as Bridge;
+      try {
+        flushSync(() => view.root.render(<GitLabSettings />));
+        await until(() => view.host.textContent?.includes('developer-2') === true, 'Accounts did not load');
+        button('Disconnect', accountCard(view.host, 'developer-2')).click();
+        await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Disconnect failed', 'Disconnect failure was not shown');
+        assert(accountCard(view.host, 'developer-2').textContent?.includes('Connected'), 'Failed disconnect removed the account');
+        button('Disconnect', accountCard(view.host, 'developer-2')).click();
+        await until(() => accountCard(view.host, 'developer-2').textContent?.includes('Disconnected') === true, 'Successful disconnect did not update the card');
+        assert(disconnected.join(',') === '2,2' && accountCard(view.host, 'developer-1').textContent?.includes('Connected'), 'Disconnect changed the wrong account');
+        assert(view.host.querySelector('[role="alert"]') === null, 'Successful retry retained the error');
+      } finally { view.dispose(); }
+    }],
+    ['Update and reconnect GitLab accounts on their saved servers', async () => {
+      const view = createFixtureRoot();
+      const publicServer: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' };
+      const requests: HostingServerDto[] = [];
+      window.bridge = {
+        getGitLabCliStatus: readyCli,
+        listHostingAccounts: async () => [account(1, publicServer), { ...account(2), connected: false }],
+        connectHostingAccount: async request => { requests.push(request); return { ...account(1, request), account: { ...account(1, request).account, login: 'updated-developer' } }; },
+        connectHostingCliAccount: async request => { requests.push(request); return account(2, request); },
+      } as Partial<Bridge> as Bridge;
+      try {
+        flushSync(() => view.root.render(<GitLabSettings />));
+        await until(() => view.host.textContent?.includes('developer-2') === true, 'Accounts did not load');
+        button('Update…', accountCard(view.host, 'developer-1')).click(); await settle();
+        const publicField = element<HTMLInputElement>('[aria-label="GitLab server"]', view.host);
+        assert(publicField.disabled && publicField.value === publicServer.webBaseUrl, 'Update lost its saved public server');
+        changeInput(element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host), 'updated-token');
+        await settle(); button('Connect GitLab', view.host).click();
+        await until(() => view.host.textContent?.includes('updated-developer') === true, 'Updated account was not shown');
+        assert(!view.host.textContent?.includes('developer-1'), 'Updating duplicated the previous identity');
+        button('Reconnect', accountCard(view.host, 'developer-2')).click();
+        await until(() => view.host.textContent?.includes('Sign in with GitLab') === true, 'Reconnect did not open sign-in');
+        const privateField = element<HTMLInputElement>('[aria-label="GitLab server"]', view.host);
+        assert(privateField.disabled && privateField.value === SERVER.webBaseUrl, 'Reconnect lost its saved private server');
+        button('Sign in with GitLab', view.host).click();
+        await until(() => accountCard(view.host, 'developer-2').textContent?.includes('Connected') === true, 'Reconnected account did not update');
+        assert(requests.length === 2 && requests[0].apiBaseUrl === publicServer.apiBaseUrl && requests[1].apiBaseUrl === SERVER.apiBaseUrl, 'Sign-in used the wrong API server');
+      } finally { view.dispose(); }
+    }],
+    ['Add a GitLab account from empty settings and retain existing accounts when adding another', async () => {
+      for (const rows of [[], [account(1)]]) {
+        const view = createFixtureRoot();
+        let connections = 0;
+        window.bridge = {
+          getGitLabCliStatus: readyCli,
+          listHostingAccounts: async () => rows,
+          connectHostingCliAccount: async request => { connections++; return account(2, request); },
+        } as Partial<Bridge> as Bridge;
+        try {
+          flushSync(() => view.root.render(<GitLabSettings />));
+          if (rows.length > 0) {
+            await until(() => view.host.textContent?.includes('Add GitLab account') === true, 'Add account action did not appear');
+            button('Add GitLab account', view.host).click();
+          }
+          await until(() => view.host.textContent?.includes('Sign in with GitLab') === true, 'New account sign-in did not appear');
+          assert(connections === 0, 'Opening settings must not sign in');
+          const server = element<HTMLInputElement>('[aria-label="GitLab server"]', view.host);
+          assert(!server.disabled && server.value === 'https://gitlab.com', 'New account must allow choosing a server');
+          button('Sign in with GitLab', view.host).click();
+          await until(() => view.host.textContent?.includes('developer-2') === true, 'Added account did not appear');
+          assert(Number(connections) === 1 && accountCard(view.host, 'developer-2').textContent?.includes('Connected'), 'Added account did not become connected');
+          if (rows.length > 0) accountCard(view.host, 'developer-1');
+        } finally { view.dispose(); }
+      }
     }],
     ['Workspace settings switch only between accounts on the same GitLab server', async () => {
       const view = createFixtureRoot();

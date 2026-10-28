@@ -108,10 +108,9 @@ memory.
 ### Set up a GitLab workspace
 
 In **Workspaces → Watch repository**, choose **GitLab**. Select a saved account,
-or follow the GitLab setup guide. It checks for GitLab CLI 1.125 or newer.
-Choose **Install and sign in** to run `brew install glab`, verify the installation,
-then open browser login. When the CLI is already ready, choose **Sign in with
-GitLab** directly. Use your normal email or SSO login in the browser.
+or use **Browser sign-in**. ByteQuay automatically detects an existing GitLab CLI
+installation. Choose **Sign in with GitLab** when it is ready, or **Install and
+sign in** to set it up first. Use your normal email or SSO login in the browser.
 
 If Homebrew is missing, choose **Open Homebrew setup**, install it, then choose
 **Check again**. The same guide appears in **Settings → Integrations → GitLab**.

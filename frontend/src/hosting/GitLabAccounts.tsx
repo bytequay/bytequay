@@ -69,18 +69,13 @@ export function GitLabConnectionForm({ server, onConnected }: {
     <label>GitLab server<input aria-label="GitLab server" type="url" required value={url} disabled={busy !== null || server !== undefined}
       onChange={event => setUrl(event.target.value)} placeholder="https://gitlab.example.com" /></label>
     <section className="hosting-cli-setup" aria-label="GitLab sign-in setup">
-      <h2>Connect with GitLab CLI</h2>
-      <ol>
-        <li><strong>Install GitLab CLI</strong>
-          <p role="status">{checking ? 'Checking GitLab CLI…' : cliStatus?.ready ? 'GitLab CLI is ready.' : 'GitLab CLI 1.125 or newer is required.'}</p></li>
-        <li><strong>Sign in in your browser</strong><p>Use your normal email or SSO login. GitLab CLI requests its standard API and repository permissions.</p></li>
-      </ol>
-      {cliStatus !== null && (cliStatus.ready || cliStatus.homebrewAvailable) && <>
-        {!cliStatus.ready && <p>Runs <code>brew install glab</code>, then opens GitLab in your browser.</p>}
+      <h2>Browser sign-in</h2>
+      {checking && <p role="status">Checking…</p>}
+      {cliStatus !== null && (cliStatus.ready || cliStatus.homebrewAvailable) &&
         <button type="button" className="setw-btn-primary" disabled={busy !== null || checking} onClick={() => { void connect(true); }}>
           {busy === 'install' ? 'Installing GitLab CLI…' : busy === 'cli' ? 'Waiting for GitLab…' : cliStatus.ready ? 'Sign in with GitLab' : 'Install and sign in'}
         </button>
-      </>}
+      }
       {cliStatus !== null && !cliStatus.ready && !cliStatus.homebrewAvailable && <>
         <p>Install Homebrew first, then check again. You can also connect with a personal access token below.</p>
         <button type="button" className="setw-btn" disabled={busy !== null || checking} onClick={() => {

@@ -55,7 +55,7 @@ export async function run() {
       try {
         flushSync(() => view.root.render(<GitLabConnectionForm server={SERVER} onConnected={() => { connected = true; }} />));
         await until(() => view.host.textContent?.includes('Install and sign in') === true, 'Missing install guidance');
-        assert(installs === 0 && logins === 0 && view.host.textContent?.includes('brew install glab'), 'Opening setup must not install or authenticate');
+        assert(installs === 0 && logins === 0, 'Opening setup must not install or authenticate');
         button('Install and sign in', view.host).click();
         await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Installation failed', 'Install failure was not shown');
         assert(logins === 0 && !connected, 'Failed installation must not start sign-in');
@@ -88,7 +88,7 @@ export async function run() {
         button('Open Homebrew setup', view.host).click(); await settle();
         assert(opened[0] === 'https://brew.sh' && !element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host).disabled, 'Homebrew guidance must retain token fallback');
         button('Check again', view.host).click();
-        await until(() => view.host.textContent?.includes('GitLab CLI is ready.') === true, 'Recheck did not find installed CLI');
+        await until(() => view.host.textContent?.includes('Sign in with GitLab') === true, 'Recheck did not find installed CLI');
         assert(checks === 3 && installs === 0 && logins === 0, 'Status checks must not install or sign in');
         button('Sign in with GitLab', view.host).click(); await until(() => logins === 1, 'Ready CLI did not start sign-in');
         assert(installs === 0, 'Ready CLI must skip installation');
@@ -113,7 +113,7 @@ export async function run() {
       window.bridge = bridge as Bridge;
       try {
         flushSync(() => view.root.render(<GitLabConnectionForm onConnected={value => { connected = value; }} />));
-        await until(() => view.host.textContent?.includes('GitLab CLI is ready.') === true, 'GitLab CLI check did not finish');
+        await until(() => view.host.textContent?.includes('Sign in with GitLab') === true, 'GitLab CLI check did not finish');
         button('Sign in with GitLab', view.host).click();
         await until(() => view.host.querySelector('[role="alert"]')?.textContent?.includes('Install or update') === true, 'CLI login error was not shown');
         assert(requests[0].webBaseUrl === 'https://gitlab.com' && connected === undefined, 'Failed GitLab.com login connected an account');

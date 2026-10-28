@@ -131,7 +131,20 @@ public class GitBrowseService
     {
         checkArgument(!base.isBlank(), "base is blank");
         checkArgument(!head.isBlank(), "head is blank");
-        return readDiff(repository, base, head);
+        return readDiff(repository, diffBase(repository, base), head);
+    }
+
+    private String diffBase(Path repository, String base)
+    {
+        if (!base.endsWith("^") || git.run(repository, "rev-parse", "--verify", "--quiet", base).successful()) {
+            return base;
+        }
+        // Read the actual parents: a shallow boundary is not an initial commit.
+        String commit = require(repository, "cat-file", "commit", base.substring(0, base.length() - 1));
+        if (commit.lines().takeWhile(line -> !line.isEmpty()).anyMatch(line -> line.startsWith("parent "))) {
+            return base;
+        }
+        return require(repository, "hash-object", "-t", "tree", "/dev/null").strip();
     }
 
     private List<DiffFile> readDiff(Path repository, String... revisions)
@@ -148,7 +161,7 @@ public class GitBrowseService
         checkArgument(!head.isBlank(), "head is blank");
         checkArgument(!path.isBlank(), "path is blank");
         checkArgument(!path.startsWith("/"), "path is absolute");
-        return new FileContent(fileAtRevision(repository, base, path), fileAtRevision(repository, head, path));
+        return new FileContent(fileAtRevision(repository, diffBase(repository, base), path), fileAtRevision(repository, head, path));
     }
 
     private Optional<String> fileAtRevision(Path repository, String revision, String path)

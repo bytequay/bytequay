@@ -105,6 +105,72 @@ class TestGitBrowseService
     }
 
     @Test
+    void diffShowsInitialCommitAsAddedFiles()
+    {
+        String root = commitFile(repository, "first.txt", "one\ntwo\n", "Initial commit");
+        commitFile(repository, "later.txt", "later\n", "Later commit");
+        write(repository, "first.txt", "uncommitted\n");
+
+        assertThat(service.diff(repository, root + "^", root)).singleElement().satisfies(file -> {
+            assertThat(file.path()).isEqualTo("first.txt");
+            assertThat(file.status()).isEqualTo("A");
+            assertThat(file.additions()).isEqualTo(2);
+            assertThat(file.deletions()).isZero();
+            assertThat(file.patch()).hasValueSatisfying(patch -> assertThat(patch).contains("+one\n+two\n"));
+        });
+        FileContent content = service.diffFileContent(repository, root + "^", root, "first.txt");
+        assertThat(content.oldContent()).isEmpty();
+        assertThat(content.newContent()).contains("one\ntwo\n");
+    }
+
+    @Test
+    void diffShowsRangeStartingAtInitialCommit()
+    {
+        String root = commitFile(repository, "first.txt", "before\n", "Initial commit");
+        write(repository, "first.txt", "after\n");
+        String tip = commitFile(repository, "second.txt", "second\n", "Later commit");
+
+        List<DiffFile> files = service.diff(repository, root + "^", tip);
+
+        assertThat(files).extracting(DiffFile::path).containsExactly("first.txt", "second.txt");
+        assertThat(files).allSatisfy(file -> {
+            assertThat(file.status()).isEqualTo("A");
+            assertThat(file.additions()).isEqualTo(1);
+            assertThat(file.deletions()).isZero();
+        });
+        assertThat(files.getFirst().patch()).hasValueSatisfying(patch -> assertThat(patch).contains("\n+after").doesNotContain("before"));
+        FileContent content = service.diffFileContent(repository, root + "^", tip, "first.txt");
+        assertThat(content.oldContent()).isEmpty();
+        assertThat(content.newContent()).contains("after\n");
+    }
+
+    @Test
+    void diffPreservesParentComparisonForLaterCommits()
+    {
+        commitFile(repository, "file.txt", "before\n", "Initial commit");
+        String tip = commitFile(repository, "file.txt", "after\n", "Later commit");
+
+        assertThat(service.diff(repository, tip + "^", tip)).singleElement().satisfies(file -> {
+            assertThat(file.status()).isEqualTo("M");
+            assertThat(file.additions()).isEqualTo(1);
+            assertThat(file.deletions()).isEqualTo(1);
+            assertThat(file.patch()).hasValueSatisfying(patch -> assertThat(patch).contains("-before\n+after\n"));
+        });
+        assertThat(service.diffFileContent(repository, tip + "^", tip, "file.txt").oldContent()).contains("before\n");
+    }
+
+    @Test
+    void diffRejectsMissingRevisionsAndShallowParents()
+    {
+        commitFile(repository, "file.txt", "before\n", "Initial commit");
+        String tip = commitFile(repository, "file.txt", "after\n", "Later commit");
+        write(repository, ".git/shallow", tip + "\n");
+
+        assertThatThrownBy(() -> service.diff(repository, "missing^", tip)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.diff(repository, tip + "^", tip)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void diffHandlesPathsWithSpaces()
     {
         String base = commitFile(repository, "seed.txt", "seed\n", "Base");

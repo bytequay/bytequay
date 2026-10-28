@@ -19,6 +19,15 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestAgentPermissionScope
 {
+    @Test
+    void protectedDevelopmentCannotUseDirectRemoteCommands()
+    {
+        var scope = new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false, true);
+        assertThat(scope.githubCommands()).isFalse();
+        assertThat(scope.remoteReads()).isFalse();
+        assertThat(scope.buildNetwork()).isTrue();
+    }
+
     private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
 
     @Test

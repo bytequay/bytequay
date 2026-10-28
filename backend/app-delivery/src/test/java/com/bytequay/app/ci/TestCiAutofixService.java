@@ -78,6 +78,7 @@ import com.bytequay.app.repository.github.actions.CiStep;
 import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -139,6 +140,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
@@ -150,6 +152,7 @@ import static org.mockito.Mockito.when;
 
 class TestCiAutofixService
 {
+    private final PublicationPrivacy privacy = mock(PublicationPrivacy.class);
     private static final Instant NOW = Instant.parse("2026-08-18T00:00:00Z");
     private static final PullRequestRef PULL_REQUEST = PullRequestRef.of("bytequay", "sample", 2234);
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("bytequay", "sample");
@@ -1019,6 +1022,80 @@ class TestCiAutofixService
                 assertThat(attempt.failures()).extracting(FailureEvidence::summary)
                         .anyMatch(summary -> summary.contains("Compile")));
         verify(turnService).start(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void privacyHoldCanResumeWithNewlyInspectedSanitizedCommit(boolean development)
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = development
+                ? service.startDevelopment(startCommand("privacy-before-journal"), openParent(parent), publishedPr(), NOW)
+                : service.start(startCommand("privacy-before-journal"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint-1",
+                ImmutableList.of("src/Main.java"), ImmutableList.of("Fix example")));
+        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkGit(any(), any(), anyString(), anyString(), any(), any(), anyString(), anyString());
+        run = service.advance(run.id());
+        assertThat(run.status()).isEqualTo(Status.PAUSED);
+        assertThat(run.pauseReason()).contains(PauseReason.INVALID_GIT_RESULT);
+        assertThat(run.pushJournal()).isEmpty();
+        assertThat(service.canMessage(run)).isTrue();
+        verify(gitService, never()).push(any());
+
+        TurnId recoveryId = TurnId.random();
+        AgentTurn recovery = runningTurn(recoveryId, "privacy-retry", "privacy-retry");
+        when(turnService.start(any())).thenReturn(recovery);
+        when(turnService.get(recoveryId)).thenReturn(recovery);
+        run = service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Sanitize the unpublished commit", "privacy-retry", Optional.empty()));
+        assertThat(run.currentTurnId()).contains(recoveryId.toString());
+        when(turnService.get(recoveryId)).thenReturn(terminalTurn(recoveryId, TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+
+        String sanitized = "d".repeat(40);
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(sanitized, "sanitized-fingerprint",
+                ImmutableList.of("src/Main.java"), ImmutableList.of("Fix example")));
+        // The old commit remains blocked; only the newly inspected commit may pass.
+        doNothing().when(privacy).checkGit(any(), any(), anyString(), eq(sanitized), any(), any(), anyString(), anyString());
+        run = service.advance(run.id());
+        assertThat(run.pushJournal()).hasValueSatisfying(journal -> {
+            assertThat(journal.localHeadSha()).isEqualTo(sanitized);
+            assertThat(journal.localFingerprint()).isEqualTo("sanitized-fingerprint");
+        });
+        verify(gitService, times(2)).inspectAgentResult(any());
+
+        when(gitService.push(any())).thenReturn(CiPushResult.pushed(sanitized));
+        run = service.advance(run.id());
+        assertThat(run.expectedRemoteHead()).isEqualTo(sanitized);
+        assertThat(run.attempts().getLast().pushedSha()).contains(sanitized);
+        ArgumentCaptor<PushCiHeadCommand> push = ArgumentCaptor.forClass(PushCiHeadCommand.class);
+        verify(gitService).push(push.capture());
+        assertThat(push.getValue().journal().localHeadSha()).isEqualTo(sanitized);
+        verify(privacy, times(2)).checkGit(eq(development ? parent.id() : taskId), any(), anyString(), eq(sanitized), any(), any(), anyString(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void privacyRefusalBlocksJournaledCiPush(boolean development)
+    {
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = development
+                ? service.startDevelopment(startCommand("privacy-blocked"), openParent(parent), publishedPr(), NOW)
+                : service.start(startCommand("privacy-blocked"));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        run = service.advance(run.id());
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint-1",
+                ImmutableList.of("src/Main.java"), ImmutableList.of("Fix example")));
+        run = service.advance(run.id());
+        assertThat(run.pushJournal()).isPresent();
+        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkGit(any(), any(), anyString(), anyString(), any(), any(), anyString(), anyString());
+        clearInvocations(privacy);
+        service = service(store);
+        service.advance(run.id());
+        service.advance(run.id());
+        verify(privacy).checkGit(eq(development ? parent.id() : taskId), any(), anyString(), eq(FIXED_HEAD), any(), any(), anyString(), anyString());
+        verify(gitService, never()).push(any());
     }
 
     @Test
@@ -2414,7 +2491,7 @@ class TestCiAutofixService
                 credentials,
                 requestedClock,
                 requestedOwnership,
-                recovery);
+                recovery, privacy);
     }
 
     private AtomicReference<BranchRebase> deferRebases(boolean completeAfterFirst)

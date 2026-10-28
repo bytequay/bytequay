@@ -562,6 +562,17 @@ that authority. An Assistant action counts as the user's direct action only with
 the bounds above: the user's own words, in the message that asked for it. Preview and execution must remain bound to the accepted target;
 uncertain remote outcomes are reconciled instead of blindly repeated.
 
+Task publication checks private source context before writing Git objects or public
+text. The work layer supplies retained issue/Jira context and a tool-free review
+using the task's selected model; a shared port below review and delivery makes
+normal publication, CI pushes, description repairs and recovered review replies
+use the same check. Each call reads exact immutable outgoing objects, including
+intermediate commits, rather than trusting a previous verdict. Missing coverage
+or destination visibility holds the write. Private-source identifiers and review
+input remain local application data or model context, never remote receipts.
+Source-backed provider sessions withhold direct GitHub commands; ByteQuay's own
+publication action retains destination, revision, lease and authorization checks.
+
 A development task's automation level is that scope for its delivery, accepted
 when the task starts and fixed afterwards; each level includes the ones before
 it. Review fix posts the task agent's replies to reviewers only once the fix

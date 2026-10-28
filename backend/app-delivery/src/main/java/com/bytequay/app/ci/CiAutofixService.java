@@ -56,6 +56,7 @@ import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -149,6 +150,7 @@ public class CiAutofixService
     private final PullRequestTimelineService timelineService;
     private final CredentialService credentials;
     private final Clock clock;
+    private final PublicationPrivacy privacy;
     private final DevelopmentCiOwnership ownership;
     private final ObjectProvider<AgentStartupRecovery> recovery;
     private final CiAutofixPromptBuilder promptBuilder = new CiAutofixPromptBuilder();
@@ -174,7 +176,7 @@ public class CiAutofixService
             CredentialService credentials,
             Clock clock,
             DevelopmentCiOwnership ownership,
-            ObjectProvider<AgentStartupRecovery> recovery)
+            ObjectProvider<AgentStartupRecovery> recovery, PublicationPrivacy privacy)
     {
         this.store = requireNonNull(store, "store is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -192,6 +194,7 @@ public class CiAutofixService
         this.rebaseService = requireNonNull(rebaseService, "rebaseService is null");
         this.timelineService = requireNonNull(timelineService, "timelineService is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
+        this.privacy = requireNonNull(privacy, "privacy is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.recovery = requireNonNull(recovery, "recovery is null");
@@ -823,9 +826,7 @@ public class CiAutofixService
             return startAttemptTurn(run, requireOpenTask(run), snapshot);
         }
         if (attempt.pushedSha().isEmpty()) {
-            if (attempt.gitResult().isPresent()) {
-                return recordPushJournal(run, attempt, now);
-            }
+            // A resumed repair may have rewritten a previously inspected, unpublished commit.
             return inspectCompletedAttempt(run, attempt, snapshot, now);
         }
 
@@ -937,6 +938,14 @@ public class CiAutofixService
     private CiAutofixRun recordPushJournal(CiAutofixRun run, CiAutofixAttempt attempt, Instant now)
     {
         GitResult result = attempt.gitResult().orElseThrow();
+        WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
+        try {
+            checkPrivacy(run, worktree, run.latestObservedBaseSha(), result.localHead());
+        }
+        catch (RuntimeException blocked) {
+            return pause(run, PauseReason.INVALID_GIT_RESULT,
+                    "Privacy check held the CI repair. Sanitize the local commits and retry; no push was started.", now);
+        }
         return store.update(run.recordPushJournal(new PushJournal(attempt.id(), run.expectedRemoteHead(), result.localHead(), result.fingerprint(), now, 0), now));
     }
 
@@ -946,7 +955,7 @@ public class CiAutofixService
         CiDescriptionChange change = attempt.descriptionChange().orElseThrow();
         if (change.appliedAt().isPresent()) {
             if (attempt.gitResult().isPresent() && attempt.pushedSha().isEmpty()) {
-                return recordPushJournal(run, attempt, now);
+                return inspectCompletedAttempt(run, attempt, snapshot, now);
             }
             boolean oldEventPresent = snapshot.workflowRuns().stream().anyMatch(workflow -> workflow.id() == change.previousRunId());
             Optional<CiWorkflowRun> replacement = snapshot.workflowRuns().stream()
@@ -985,6 +994,8 @@ public class CiAutofixService
         if (!gitHub.readDescription(run.scope().pullRequest()).equals(change.expectedBody())) {
             return pause(run, PauseReason.ERROR, "PR description changed while validating the repair; no edit was applied", now);
         }
+        privacy.checkText(TaskId.valueOf(run.scope().parentTaskId().orElseGet(() -> run.agentTaskId().orElseThrow())),
+                RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), change.body());
         repairToken(run);
         CiAutofixRun journaled = store.update(run.updateAttempt(attempt.withDescriptionChange(change.startingWrite(now), now), now));
         writes.updatePullRequestDescription(repairToken(journaled), run.scope().pullRequest(), change.body());
@@ -1067,6 +1078,16 @@ public class CiAutofixService
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         WorkspaceRepositoryContext workspace = requireWorkspace(run);
         ownership.require(run);
+        try {
+            checkPrivacy(run, worktree, snapshot.baseSha(), run.pushJournal().orElseThrow().localHeadSha());
+        }
+        catch (RuntimeException blocked) {
+            return pause(run, PauseReason.ERROR, "Privacy check held a pending CI push. Reconcile or cancel its pending publication before continuing.", now);
+        }
+        ownership.require(run);
+        if (get(run.id()).version() != run.version() || get(run.id()).status() != Status.ACTIVE) {
+            return get(run.id());
+        }
         CiPushResult result = gitService.push(new PushCiHeadCommand(
                 workspace.workspaceId(),
                 worktree.worktree().canonicalWorktree(),
@@ -1083,6 +1104,14 @@ public class CiAutofixService
             case UNCERTAIN -> run;
             case REJECTED -> store.update(run.clearPushJournal(now).pause(PauseReason.ERROR, summary("CI push was rejected", result.reason()), now));
         };
+    }
+
+    private void checkPrivacy(CiAutofixRun run, WorktreeSnapshot worktree, String base, String head)
+    {
+        privacy.checkGit(TaskId.valueOf(run.scope().parentTaskId().orElseGet(() -> run.agentTaskId().orElseThrow())),
+                worktree.worktree().canonicalWorktree(), base, head,
+                RepoRef.of(run.scope().headRepository().owner(), run.scope().headRepository().repo()),
+                RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), run.scope().headRef(), "");
     }
 
     private CiAutofixRun retryPush(CiAutofixRun run, Instant now)

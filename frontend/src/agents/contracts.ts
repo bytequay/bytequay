@@ -450,7 +450,7 @@ export function parseAgentTurn(value: unknown, path = 'turn'): AgentTurnDto {
     id: text(source.id, `${path}.id`),
     taskId: text(source.taskId, `${path}.taskId`),
     developmentOrigin: origin === null ? null : {
-      kind: enumText(origin.kind, ['AUTO_COMMIT', 'CREATE_DRAFT_PR', 'REFINE_SUMMARY'] as const, `${path}.developmentOrigin.kind`),
+      kind: enumText(origin.kind, ['AUTO_COMMIT', 'PRIVACY_REPAIR', 'CREATE_DRAFT_PR', 'REFINE_SUMMARY'] as const, `${path}.developmentOrigin.kind`),
       parentUserTurnId: text(origin.parentUserTurnId, `${path}.developmentOrigin.parentUserTurnId`),
     },
     ...(source.developmentResult === undefined ? {} : { developmentResult: source.developmentResult === null ? null : parseDevelopmentResult(source.developmentResult, `${path}.developmentResult`) }),

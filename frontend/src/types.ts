@@ -824,7 +824,7 @@ export type AgentTurnDto = {
   /** Latest root plan, independent of the loaded transcript; an empty list explicitly clears it. */
   plan?: Extract<AgentEventEnvelope, { type: 'plan_updated' }>['payload']['items'] | null;
   developmentResult?: DevelopmentResultDto | null;
-  developmentOrigin?: { kind: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR' | 'REFINE_SUMMARY'; parentUserTurnId: string } | null;
+  developmentOrigin?: { kind: 'AUTO_COMMIT' | 'PRIVACY_REPAIR' | 'CREATE_DRAFT_PR' | 'REFINE_SUMMARY'; parentUserTurnId: string } | null;
   id: string;
   taskId: string;
   state: string;

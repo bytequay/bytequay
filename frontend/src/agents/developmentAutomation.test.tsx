@@ -49,6 +49,8 @@ it('marks each step done, running, waiting or needing you from what the task rep
   const states = (input: Parameters<typeof automationSteps>[0]) => Object.fromEntries(Object.entries(automationSteps(input)).map(([step, status]) => [step, status.state]));
   expect(states(base)).toEqual({ COMMIT: 'pending', DRAFT_PR: 'pending', CI_FIX: 'pending', REVIEW_FIX: 'pending', MERGE: 'pending' });
   expect(states({ ...base, generated: 'AUTO_COMMIT' })).toMatchObject({ COMMIT: 'running', DRAFT_PR: 'pending' });
+  expect(states({ ...base, generated: 'PRIVACY_REPAIR' })).toMatchObject({ COMMIT: 'done', DRAFT_PR: 'running' });
+  expect(automationSteps({ ...base, generated: 'PRIVACY_REPAIR' }).DRAFT_PR?.note).toBe('checking for private information');
   expect(states({ ...base, generated: 'CREATE_DRAFT_PR' })).toMatchObject({ COMMIT: 'done', DRAFT_PR: 'running' });
   const fixing = { ...CI_PROJECTION, status: 'ACTIVE' as const, activity: 'FIXING', attemptsUsed: 2 };
   expect(states({ ...base, pullRequest: { draft: true }, ci: fixing })).toMatchObject({ COMMIT: 'done', DRAFT_PR: 'done', CI_FIX: 'running', REVIEW_FIX: 'pending' });
@@ -60,6 +62,7 @@ it('marks each step done, running, waiting or needing you from what the task rep
   const stopped = automationSteps({ ...base, level: 'CI_FIX', failure: 'Automation stopped. Create draft PR: refused' });
   expect(stopped.DRAFT_PR).toEqual({ state: 'attention', note: 'Automation stopped. Create draft PR: refused' });
   expect(stopped.COMMIT?.state).toBe('done');
+  expect(automationSteps({ ...base, failure: 'Automation stopped. Check for private information: held' }).DRAFT_PR?.state).toBe('attention');
   expect(automationSteps({ ...base, level: 'CI_FIX', failure: 'Automation stopped. Send another message to continue.' }).COMMIT?.state).toBe('attention');
   const review = { waiting: 0, fixed: 0, declined: 0, needsYou: 0 };
   expect(automationSteps({ ...base, reviewFix: { ...review, waiting: 2 } }).REVIEW_FIX).toEqual({ state: 'running', note: 'fixing 2 comments' });

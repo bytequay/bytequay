@@ -422,7 +422,7 @@ public final class DefaultAgentTurnService
             DevelopmentAutomation automation = settings.developmentAutomation().orElse(DevelopmentAutomation.LOCAL_ONLY);
             boolean enabled = switch (origin.kind()) {
                 case AUTO_COMMIT -> automation.autoCommit();
-                case CREATE_DRAFT_PR -> automation.autoDraftPr();
+                case CREATE_DRAFT_PR, PRIVACY_REPAIR -> automation.autoDraftPr();
                 case REFINE_SUMMARY -> true;
             };
             checkArgument(enabled, "The accepted automation settings do not allow this follow-up");

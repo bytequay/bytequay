@@ -27,6 +27,7 @@ public record DevelopmentTurnOrigin(Kind kind, TurnId parentUserTurnId)
     public enum Kind
     {
         AUTO_COMMIT,
+        PRIVACY_REPAIR,
         CREATE_DRAFT_PR,
         REFINE_SUMMARY
     }

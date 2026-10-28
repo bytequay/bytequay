@@ -323,6 +323,7 @@ describe('generated development request presentation', () => {
   it('attributes generated requests using trusted durable origins and names live activity', () => {
     for (const [kind, shown, activity] of [
       ['AUTO_COMMIT', 'ByteQuay · Auto commit', 'Committing'],
+      ['PRIVACY_REPAIR', 'ByteQuay · Check for private information', 'Checking for private information'],
       ['CREATE_DRAFT_PR', 'Open draft pull request', 'Creating draft PR'],
       ['REFINE_SUMMARY', 'Refresh the change intention', 'Refining summary'],
     ] as const) {

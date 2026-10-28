@@ -14,7 +14,7 @@
 import { ciActivity } from './ciAutofix';
 import { AUTOMATION_LEVELS } from './contracts';
 import type { AgentTaskState } from './model';
-import type { AgentDevelopmentCiDto, AutoMergeSummaryDto, AutomationLevel, DevelopmentAutomationDto, ReviewFixSummaryDto } from '../types';
+import type { AgentDevelopmentCiDto, AgentTurnDto, AutoMergeSummaryDto, AutomationLevel, DevelopmentAutomationDto, ReviewFixSummaryDto } from '../types';
 
 /** Keep development commits while leaving publication and follow-up off. */
 export const LOCAL_COMMITS_ONLY: DevelopmentAutomationDto = { level: 'COMMIT', ciLaneId: null };
@@ -52,7 +52,7 @@ export type StepStatus = { state: StepState; note: string };
 export function automationSteps({ level, generated, delivered, failure, pullRequest, ci, reviewFix, autoMerge, now }: {
   level: AutomationLevel;
   /** The generated delivery turn running now, if any. */
-  generated: 'AUTO_COMMIT' | 'CREATE_DRAFT_PR' | 'REFINE_SUMMARY' | null;
+  generated: NonNullable<AgentTurnDto['developmentOrigin']>['kind'] | null;
   /** The latest development report was ready and its automation settled without stopping. */
   delivered: boolean;
   failure: string | null;
@@ -67,11 +67,12 @@ export function automationSteps({ level, generated, delivered, failure, pullRequ
     if (includesLevel(level, step)) steps[step] = { state, note };
   };
   const published = pullRequest !== null || ci !== null;
-  const committed = published || delivered || generated === 'CREATE_DRAFT_PR' || generated === 'REFINE_SUMMARY';
+  const privacyRepair = generated === 'PRIVACY_REPAIR';
+  const committed = published || delivered || privacyRepair || generated === 'CREATE_DRAFT_PR' || generated === 'REFINE_SUMMARY';
   set('COMMIT', generated === 'AUTO_COMMIT' ? 'running' : committed ? 'done' : 'pending',
     generated === 'AUTO_COMMIT' ? 'committing' : committed ? 'committed' : 'waiting for finished work');
-  set('DRAFT_PR', generated === 'CREATE_DRAFT_PR' ? 'running' : published ? 'done' : 'pending',
-    generated === 'CREATE_DRAFT_PR' ? 'creating the draft PR' : published ? 'PR opened' : 'not started');
+  set('DRAFT_PR', privacyRepair || generated === 'CREATE_DRAFT_PR' ? 'running' : published ? 'done' : 'pending',
+    privacyRepair ? 'checking for private information' : generated === 'CREATE_DRAFT_PR' ? 'creating the draft PR' : published ? 'PR opened' : 'not started');
   if (ci === null) set('CI_FIX', 'pending', 'not started');
   else if (ci.status === 'ACTIVE') set('CI_FIX', 'running', ciActivity(ci));
   else if (ci.status === 'PAUSED') set('CI_FIX', 'attention', ciActivity(ci));
@@ -111,7 +112,7 @@ export function mergeLabel(autoMerge: AutoMergeSummaryDto, now: number): string 
 
 const STOPPED_AT: readonly [string, AutomationLevel][] = [
   ['Check development result', 'COMMIT'], ['Auto commit', 'COMMIT'],
-  ['Check publication', 'DRAFT_PR'], ['Create draft PR', 'DRAFT_PR'], ['CI Autofix', 'CI_FIX'],
+  ['Check publication', 'DRAFT_PR'], ['Check for private information', 'DRAFT_PR'], ['Create draft PR', 'DRAFT_PR'], ['CI Autofix', 'CI_FIX'],
 ];
 
 export function developmentQuestion(state: AgentTaskState): string | null {

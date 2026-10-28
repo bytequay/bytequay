@@ -41,6 +41,8 @@ import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.hosting.HostingPullRequestWrites;
+import com.bytequay.app.workspace.PublicationPrivacy;
+import com.bytequay.app.workspace.PublicationPrivacyException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -87,6 +89,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -98,6 +101,7 @@ import static org.mockito.Mockito.when;
 
 class TestDevelopmentFollowupCoordinator
 {
+    private final PublicationPrivacy privacy = mock(PublicationPrivacy.class);
     private static final Instant NOW = Instant.EPOCH;
     private static final DevelopmentAutomation FULL = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
     private static final DevelopmentAutomation DRAFT_ONLY = new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty());
@@ -120,7 +124,7 @@ class TestDevelopmentFollowupCoordinator
     private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
     private List<ReviewThreadReply> reviewReplies = ImmutableList.of();
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, pending::add, ci, hosting, dispatch, clock, branches, reviewFixes);
+            turns, turnStore, git, pending::add, ci, hosting, dispatch, clock, branches, reviewFixes, privacy);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -1030,7 +1034,7 @@ class TestDevelopmentFollowupCoordinator
         var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> {
             throw new RejectedExecutionException("stopped");
         },
-                ci, hosting, dispatch, clock, branches, reviewFixes);
+                ci, hosting, dispatch, clock, branches, reviewFixes, privacy);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }
@@ -1098,6 +1102,66 @@ class TestDevelopmentFollowupCoordinator
     {
         assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body"))
                 .hasMessageContaining("not requesting a draft pull request");
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void aHeadChangedDuringPrivacyReviewCannotBePushed()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        doAnswer(call -> {
+            when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false));
+            return null;
+        }).when(privacy).checkGit(eq(taskId), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
+        generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
+                coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("checked revision changed"));
+        advance();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void cancellationDuringPrivacyReviewCannotPublish()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        doAnswer(call -> {
+            history.set(history.size() - 1, history.getLast().requestCancellation(NOW));
+            return null;
+        }).when(privacy).checkGit(eq(taskId), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
+        generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
+                coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("stopped during privacy review"));
+        advance();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void repairsPrivateUnpublishedContentThenChecksTheNewRevision()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        doThrow(new PublicationPrivacyException("Privacy check blocked"))
+                .when(privacy).checkGit(eq(taskId), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
+        generated(DevelopmentTurnOrigin.Kind.PRIVACY_REPAIR, true, () -> when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false)));
+        generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Generic change", "Generic explanation"));
+        advance();
+        verify(privacy).checkGit(eq(taskId), any(), eq(BASE), eq(NEXT), any(), any(), anyString(), eq("Generic change\nGeneric explanation"));
+        verify(git).pushDevelopmentHead(worktree, route, NEXT, Optional.empty());
+    }
+
+    @Test
+    void privacyRefusalPreventsPushAndDraftCreation()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        doThrow(new IllegalStateException("Privacy check blocked"))
+                .when(privacy).checkGit(eq(taskId), any(), anyString(), anyString(), any(), any(), anyString(), eq("Add a thing\nPrivate body"));
+        generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
+                coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Private body")).hasMessageContaining("Privacy check blocked"));
+        advance();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verifyNoInteractions(writes);
     }
 

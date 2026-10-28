@@ -19,6 +19,8 @@ public interface HostingRepositories
 {
     List<RemoteHostingRepository> search(HostingAccess access, String query, int limit);
 
+    RepositoryVisibility visibility(HostingAccess access, String fullPath);
+
     RemoteHostingRepository findByPath(HostingAccess access, String fullPath);
 
     RemoteHostingRepository findById(HostingAccess access, String remoteId);

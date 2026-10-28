@@ -51,6 +51,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
@@ -177,6 +178,9 @@ class TestCiAutofixEndToEnd
 
     @MockitoBean
     private GhCliService gh;
+
+    @MockitoBean
+    private PublicationPrivacy privacy;
 
     @MockitoSpyBean
     private WorkspaceHostingService hosting;

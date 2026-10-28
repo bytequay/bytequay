@@ -187,7 +187,7 @@ public class CiGitService
             validateRemote(worktree, command.remote(), command.remoteRepository());
             boolean descendant = isAncestor(worktree, journal.expectedRemoteSha(), head);
             Result push = runner.run(worktree, TRANSPORT_TIMEOUT, environment,
-                    pushArguments(command.remote(), command.remoteHeadRef(), journal.expectedRemoteSha(), descendant));
+                    pushArguments(command.remote(), command.remoteHeadRef(), journal.expectedRemoteSha(), journal.localHeadSha(), descendant));
             return reconcilePush(worktree, command.remote(), command.remoteHeadRef(), journal, push, environment);
         }
         catch (GitProblem problem) {
@@ -433,15 +433,15 @@ public class CiGitService
         return runner.run(worktree, arguments).requireOutput(CiGitService::problem);
     }
 
-    static List<String> pushArguments(String remote, String headRef, String expectedRemoteSha, boolean descendant)
+    static List<String> pushArguments(String remote, String headRef, String expectedRemoteSha, String localHeadSha, boolean descendant)
     {
         ImmutableList.Builder<String> arguments = ImmutableList.builder();
-        arguments.add("push", "--porcelain");
+        arguments.add("push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no");
         if (!descendant) {
             arguments.add("--force-with-lease=refs/heads/" + headRef + ":" + expectedRemoteSha);
         }
         return arguments
-                .add(remote, "HEAD:refs/heads/" + headRef)
+                .add(remote, localHeadSha + ":refs/heads/" + headRef)
                 .build();
     }
 

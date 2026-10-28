@@ -21,6 +21,7 @@ import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.integration.gitlab.GitLabIntegration;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -530,6 +531,15 @@ class TestGitLabPullRequestReader
                     assertThat(failure.getSuppressed()).isEmpty();
                 });
         assertThat(requestedPath.get()).isNull();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"public,PUBLIC", "private,PRIVATE", "internal,INTERNAL", "other,UNKNOWN"})
+    void readsVisibilityOfNestedProjects(String visibility, RepositoryVisibility expected)
+    {
+        reply.set(new Reply(200, "{\"visibility\":\"" + visibility + "\"}", Optional.empty()));
+        assertThat(new GitLabConnectionClient(http, MAPPER).visibility(access, "group/subgroup/repo")).isEqualTo(expected);
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/group%2Fsubgroup%2Frepo");
     }
 
     @Test

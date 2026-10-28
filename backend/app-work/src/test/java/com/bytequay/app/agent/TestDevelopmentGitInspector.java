@@ -656,6 +656,8 @@ class TestDevelopmentGitInspector
         run(worktree.canonicalWorktree(), "push", "--", bareRemote.toString(), original + ":" + ref);
         run(worktree.canonicalWorktree(), "commit", "--amend", "-m", "Rewrite commit message");
         String rewritten = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
+        run(worktree.canonicalWorktree(), "config", "push.followTags", "true");
+        run(worktree.canonicalWorktree(), "tag", "-a", "private-example", "-m", "Private example tag message");
 
         assertThat(run(worktree.canonicalWorktree(), "rev-parse", rewritten + "^{tree}"))
                 .isEqualTo(run(worktree.canonicalWorktree(), "rev-parse", original + "^{tree}"));
@@ -663,6 +665,7 @@ class TestDevelopmentGitInspector
 
         inspector.pushDevelopmentHead(worktree, route, rewritten, Optional.of(original));
 
+        assertThat(run(bareRemote, "tag", "--list")).isEmpty();
         assertThat(inspector.inspectPublication(worktree, route).remoteHeadSha()).contains(rewritten);
         run(worktree.canonicalWorktree(), "commit", "--amend", "-m", "Revise commit message again");
         String nextRewrite = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");

@@ -42,6 +42,7 @@ import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -640,7 +641,8 @@ public final class CodexCliDriver
             codeQueries.ifPresent(McpRegistration::close);
             throw new AgentUnavailableException("This Codex version cannot resume the guarded review tools");
         }
-        AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review);
+        AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review,
+                codeQueries.map(registration -> registration.toolNames().contains(IssueContextBridge.TOOL_NAME)).orElse(false));
         boolean allowGitHubCommands = scope.githubCommands();
         // CI runs the single-agent profile verified by the native sandbox probe.
         CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
@@ -1291,7 +1293,7 @@ public final class CodexCliDriver
             }
             return Stream.concat(
                     Stream.concat(Stream.of(worktree.toString()), gitRoots.stream()),
-                    permissionScope.remoteReads() ? BuildCacheRoots.buildCaches(permissionScope, environment).stream().map(Path::toString) : Stream.empty())
+                    permissionScope.buildNetwork() ? BuildCacheRoots.buildCaches(permissionScope, environment).stream().map(Path::toString) : Stream.empty())
                     .collect(toImmutableList());
         }
 

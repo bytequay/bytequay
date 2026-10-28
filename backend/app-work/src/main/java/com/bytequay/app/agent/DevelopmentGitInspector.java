@@ -297,7 +297,8 @@ public class DevelopmentGitInspector
         String ref = "refs/heads/" + route.headBranch();
         Result result = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(120),
                 credentials.gitAuthenticationEnvironment(worktree.workspaceId(), ImmutableList.of(route.pushUrl())),
-                ImmutableList.of("push", "--porcelain", "--force-with-lease=" + ref + ":" + expectedRemoteSha.orElse(""), "--", route.pushUrl(), localHead + ":" + ref));
+                ImmutableList.of("push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no",
+                        "--force-with-lease=" + ref + ":" + expectedRemoteSha.orElse(""), "--", route.pushUrl(), localHead + ":" + ref));
         checkState(!result.truncated(), "Remote push response was truncated");
         checkState(result.successful(), "Could not push the development branch: %s", result.output().strip());
         verify(worktree, route);

@@ -16,8 +16,13 @@ package com.bytequay.agent.spi;
 import static java.util.Objects.requireNonNull;
 
 /** Provider-independent permissions selected for one task session. */
-public record AgentPermissionScope(AgentPermissionPolicy policy, SessionAccess access, boolean review)
+public record AgentPermissionScope(AgentPermissionPolicy policy, SessionAccess access, boolean review, boolean publicationProtected)
 {
+    public AgentPermissionScope(AgentPermissionPolicy policy, SessionAccess access, boolean review)
+    {
+        this(policy, access, review, false);
+    }
+
     public AgentPermissionScope
     {
         requireNonNull(policy, "policy is null");
@@ -33,7 +38,7 @@ public record AgentPermissionScope(AgentPermissionPolicy policy, SessionAccess a
     /** Attended sessions that own a worktree may read remotes. */
     public boolean remoteReads()
     {
-        return policy == AgentPermissionPolicy.AUTO && !access.restricted();
+        return policy == AgentPermissionPolicy.AUTO && !access.restricted() && !publicationProtected;
     }
 
     /** Full development and CI repair turns can fetch dependencies while building and testing. */

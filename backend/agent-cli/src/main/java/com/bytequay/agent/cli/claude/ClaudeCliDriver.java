@@ -43,6 +43,7 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
@@ -745,7 +746,8 @@ public final class ClaudeCliDriver
                     context.codeQueries(),
                     environment,
                     context.discussionContext(), context.sessionTools());
-            this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
+            this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent(),
+                    registration.toolNames().contains(IssueContextBridge.TOOL_NAME));
             // ByteQuay's own part of the instructions every turn's launch arguments carry; see argv.
             this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, Optional.of(registration.toolsDigest()),
                     registration.instruction().orElse(""), PermissionBroker.sandboxInstruction(permissionScope));

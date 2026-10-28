@@ -428,10 +428,10 @@ public final class PermissionBroker
         // Only the read-only and tools-only axes withhold review: a text-only caller invents its own task id, and
         // changing what it resolves is not this axis's business.
         Optional<ReviewBridge> review = access == SessionAccess.READ_ONLY || access == SessionAccess.TOOLS_ONLY ? Optional.empty() : reviews.resolve(taskId);
-        AgentPermissionScope scope = new AgentPermissionScope(permissionPolicy, access, review.isPresent());
+        AgentPermissionScope scope = new AgentPermissionScope(permissionPolicy, access, review.isPresent(), !restricted && issueContexts.resolve(taskId).isPresent());
         Optional<DevelopmentResultBridge> development = restricted || review.isPresent() ? Optional.empty() : developments.resolve(taskId);
         Optional<LocalReviewBridge> localReview = restricted ? Optional.empty() : localReviews.resolve(taskId);
-        Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX || scope.githubCommands())
+        Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX || scope.githubCommands() || scope.publicationProtected())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<PullRequestContextBridge> pullRequestContext = restricted ? Optional.empty() : pullRequestContexts.resolve(taskId);
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
@@ -1530,7 +1530,11 @@ public final class PermissionBroker
                 filesystem,
                 network);
         Optional<AutoMode> autoMode = Optional.empty();
-        if (gitHubCommands) {
+        if (scope.publicationProtected()) {
+            autoMode = Optional.of(new AutoMode(true, Optional.empty(),
+                    ImmutableList.of("$defaults", AgentCommandPolicy.instructions(scope))));
+        }
+        else if (gitHubCommands) {
             // Native allow rules must not skip review, and native exceptions must not waive ByteQuay's authorization scope.
             autoMode = Optional.of(new AutoMode(true, Optional.empty(), ImmutableList.<String>builder()
                     .add("$defaults").addAll(AgentCommandPolicy.restrictions()).build()));

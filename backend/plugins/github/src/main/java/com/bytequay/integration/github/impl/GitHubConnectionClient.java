@@ -20,6 +20,7 @@ import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -88,6 +89,12 @@ public final class GitHubConnectionClient
             }
         }
         return Arrays.stream(repositories).limit(limit).map(repository -> repository(access, repository, Optional.empty())).collect(toImmutableList());
+    }
+
+    @Override
+    public RepositoryVisibility visibility(HostingAccess access, String fullPath)
+    {
+        return RepositoryVisibility.fromRemote(http.get(access, GitHubHttpClient.repositoryPath(fullPath), GitHubRepositoryResponse.class).visibility());
     }
 
     @Override

@@ -38,6 +38,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.web.agent.AgentRequestFilter;
+import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -306,6 +307,7 @@ class TestCiAutofixRestartEndToEnd
         @Override
         public void initialize(GenericApplicationContext context)
         {
+            context.registerBean("restartPublicationPrivacy", PublicationPrivacy.class, () -> mock(PublicationPrivacy.class), bean -> bean.setPrimary(true));
             context.registerBean("restartGitCommandRunner", GitCommandRunner.class, RoutedGitCommandRunner::new, bean -> bean.setPrimary(true));
             context.registerBean(
                     ScriptedGitHubActionsClient.class,

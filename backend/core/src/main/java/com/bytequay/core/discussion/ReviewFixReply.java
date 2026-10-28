@@ -77,7 +77,7 @@ public record ReviewFixReply(
     public ReviewFixReply answered(String body, boolean fixed)
     {
         return new ReviewFixReply(taskId, repo, number, rootCommentId, commentId, requestKey, requestedAt, Optional.of(body), fixed,
-                postStartedAt, postedAt, resolvedAt, failure);
+                postStartedAt, postedAt, resolvedAt, Optional.empty());
     }
 
     public ReviewFixReply postStarted(Instant now)

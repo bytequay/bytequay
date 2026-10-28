@@ -421,6 +421,25 @@ Open **Work items**. **Local** items stay on your Mac; **GitHub issues** and
 
 **Link work item** in a Local item’s **Context** references other work.
 
+Before a task pushes changes or opens a PR on GitHub.com, ByteQuay checks outgoing files,
+intermediate commits, messages, branch names and public text for private source
+information. Jira and local context stay private; repository visibility is checked
+through the selected account. Internal references are allowed in the workspace’s
+own verified private repository, but credentials are never allowed.
+
+Development publication allows one local privacy repair attempt, followed by another check.
+Quoted private traces use `***`; executable examples use synthetic data. CI repair
+pushes, PR-description repairs and automatic review replies are checked too.
+Blocked CI repairs and replies wait for a sanitized retry. A CI retry inspects the
+updated commits again. Replies recovered after a restart wait for the next authorized
+delivery; stopping a task during its privacy check prevents publication.
+Unknown visibility, unavailable review, oversized changes, unreadable binary or
+LFS objects, and new or changed submodules hold publication. Unchanged submodules
+do not block an otherwise inspectable change. Fix the reported problem and retry;
+source-backed agents cannot bypass the check with a direct push. The check uses
+the task’s selected model and retained source context; it reduces disclosure risk
+but cannot guarantee detection of every sensitive detail.
+
 <a id="epics"></a>
 
 ## Organize an Epic

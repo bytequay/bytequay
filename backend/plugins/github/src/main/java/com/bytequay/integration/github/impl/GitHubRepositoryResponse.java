@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubRepositoryResponse(
         Long id,
+        String visibility,
         @JsonProperty("full_name") String fullName,
         @JsonProperty("html_url") String htmlUrl,
         @JsonProperty("clone_url") String cloneUrl,

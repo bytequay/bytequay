@@ -311,6 +311,8 @@ class TestCiGitService
         Repository fixture = repository("normal-push");
         write(fixture.worktree().resolve("source.txt"), "base\ntarget\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
+        git(fixture.worktree(), "config", "push.followTags", "true");
+        git(fixture.worktree(), "tag", "-a", "private-example", "-m", "Private example tag message");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
         PushJournal journal = new PushJournal(CiAutofixAttemptId.random(), fixture.inputSha(), inspection.result().orElseThrow().localHead(),
                 inspection.result().orElseThrow().fingerprint(), NOW.minus(Duration.ofDays(1)), 0);
@@ -324,6 +326,7 @@ class TestCiGitService
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(reconciled.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.result().orElseThrow().localHead());
+        assertThat(git(fixture.remote(), "tag", "--list")).isEmpty();
     }
 
     @Test
@@ -336,17 +339,22 @@ class TestCiGitService
         commit(fixture.worktree(), "Target change");
         write(fixture.worktree().resolve("source.txt"), "base\nrewritten target\nfix\n");
         commit(fixture.worktree(), "fixup! Target change");
+        git(fixture.worktree(), "config", "push.followTags", "true");
+        git(fixture.worktree(), "tag", "-a", "private-example", "-m", "Private example tag message");
         CiGitInspection inspection = service().inspectAgentResult(inspect(fixture));
 
         CiPushResult pushed = service().push(push(fixture, inspection, 0));
 
         assertThat(pushed.outcome()).isEqualTo(PUSHED);
         assertThat(remoteHead(fixture)).isEqualTo(inspection.result().orElseThrow().localHead());
-        assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), false))
-                .containsExactly("push", "--porcelain", "--force-with-lease=refs/heads/feature:" + fixture.inputSha(), "origin", "HEAD:refs/heads/feature")
+        assertThat(git(fixture.remote(), "tag", "--list")).isEmpty();
+        String checkedHead = inspection.result().orElseThrow().localHead();
+        assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), checkedHead, false))
+                .containsExactly("push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no",
+                        "--force-with-lease=refs/heads/feature:" + fixture.inputSha(), "origin", checkedHead + ":refs/heads/feature")
                 .doesNotContain("--force");
-        assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), true))
-                .containsExactly("push", "--porcelain", "origin", "HEAD:refs/heads/feature");
+        assertThat(CiGitService.pushArguments("origin", HEAD_REF, fixture.inputSha(), checkedHead, true))
+                .containsExactly("push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no", "origin", checkedHead + ":refs/heads/feature");
     }
 
     @Test

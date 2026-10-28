@@ -195,6 +195,7 @@ class TestPermissionBroker
             assertThat(codex.instruction()).hasValueSatisfying(value -> assertThat(value).contains(IssueContextBridge.INSTRUCTION));
             assertThat(claude.instruction()).hasValueSatisfying(value -> assertThat(value).contains(IssueContextBridge.INSTRUCTION));
             assertThat(claude.toolNames()).containsExactly(IssueContextBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
+            assertThat(Files.readString(claude.settingsFile().orElseThrow())).contains("Bash(git push:*)", "Bash(gh:*)");
             assertThat(reads).hasValue(0);
             for (String token : ImmutableList.of(codexToken, claudeToken)) {
                 JsonNode listed = listTools(broker, token);

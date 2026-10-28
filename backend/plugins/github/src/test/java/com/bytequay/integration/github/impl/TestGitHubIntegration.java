@@ -23,6 +23,7 @@ import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableMap;
@@ -105,6 +106,21 @@ class TestGitHubIntegration
     {
         server.stop(0);
         http.close();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"public,PUBLIC", "private,PRIVATE", "internal,INTERNAL", "other,UNKNOWN"})
+    void readsVisibilityWithoutInferringItFromAuthenticatedAccess(String value, RepositoryVisibility expected)
+    {
+        serve("/api/v3/repos/owner/repo", 200, "{\"visibility\":\"" + value + "\"}", ImmutableMap.of());
+        assertThat(integration.repositories().visibility(access, "owner/repo")).isEqualTo(expected);
+    }
+
+    @Test
+    void missingVisibilityStaysUnknown()
+    {
+        serve("/api/v3/repos/owner/repo", 200, "{}", ImmutableMap.of());
+        assertThat(integration.repositories().visibility(access, "owner/repo")).isEqualTo(RepositoryVisibility.UNKNOWN);
     }
 
     @Test

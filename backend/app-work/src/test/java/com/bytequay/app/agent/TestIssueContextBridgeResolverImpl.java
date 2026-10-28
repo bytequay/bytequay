@@ -303,7 +303,7 @@ class TestIssueContextBridgeResolverImpl
                 WorkItem.Priority.NORMAL, ImmutableList.of(), Optional.empty(), 0, ImmutableList.of());
         when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
         IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
-        assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.WORK_INSTRUCTION);
+        assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.WORK_INSTRUCTION + "\n" + IssueContextBridge.PRIVACY_INSTRUCTION);
         JsonNode result = mapper.readTree(bridge.read().get());
         assertThat(result.at("/workItem/id").asText()).isEqualTo("local");
         assertThat(result.at("/workItem/acceptanceCriteria").asText()).isEqualTo(item.acceptanceCriteria());

@@ -19,6 +19,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitLabRepositoryResponse(
         Long id,
+        String visibility,
         @JsonProperty("path_with_namespace") String pathWithNamespace,
         @JsonProperty("web_url") String webUrl,
         @JsonProperty("http_url_to_repo") String httpUrlToRepo,

@@ -131,6 +131,13 @@ public final class AgentCommandPolicy
     /** Selects the same command rules for every provider from the session's permission scope. */
     public static String instructions(AgentPermissionScope scope)
     {
+        if (scope.publicationProtected()) {
+            return """
+                    Publication privacy is enforced by ByteQuay. Build and test locally, but never push, create or edit PRs,
+                    or post comments through shell, scripts, HTTP or other remote tools, even when the user asks to publish.
+                    Route publication through ByteQuay's checked publication action. Do not request credentials or bypass this gate.
+                    """ + VERIFICATION_SCOPE;
+        }
         if (scope.reviewReads()) {
             return REVIEW_INSTRUCTIONS;
         }

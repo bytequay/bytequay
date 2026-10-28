@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.discussion;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -38,6 +39,7 @@ import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.ReviewFixReply;
 import com.bytequay.core.discussion.ReviewFixStore;
@@ -54,6 +56,8 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockMakers;
 
@@ -66,16 +70,20 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -86,6 +94,7 @@ import static org.mockito.Mockito.withSettings;
 
 class TestReviewFixService
 {
+    private final PublicationPrivacy privacy = mock(PublicationPrivacy.class);
     private static final Instant CREATED = Instant.parse("2026-10-01T00:00:00Z");
     private static final Instant NOW = CREATED.plus(Duration.ofDays(1));
     private static final String REPO = "owner/repo";
@@ -99,12 +108,16 @@ class TestReviewFixService
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final Map<String, ReviewFixReply> rows = new LinkedHashMap<>();
     private final ReviewFixService service = new ReviewFixService(mock(AgentTaskStore.class), mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE)),
-            turns, turnStore, ownership, new ReviewCommentReader(pullRequestStore, details), new MemoryStore(), pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
+            turns, turnStore, ownership, new ReviewCommentReader(pullRequestStore, details), new MemoryStore(), pullRequests, Clock.fixed(NOW, ZoneOffset.UTC), privacy);
     private final AgentTask task = task(AutomationLevel.REVIEW_FIX);
 
     @BeforeEach
     void setUp()
     {
+        doAnswer(call -> {
+            call.<Runnable>getArgument(2).run();
+            return null;
+        }).when(turns).executeDevelopmentAction(any(), any(), any());
         when(ownership.linkedPullRequest(any())).thenReturn(Optional.of(pullRequest()));
         // Everyone these tests name can push, except mallory.
         when(pullRequests.reviewCommentsByPushers(REPO, 12)).thenReturn(ImmutableSet.of(11L, 21L, 31L, 32L, 41L, 51L, 61L));
@@ -183,17 +196,69 @@ class TestReviewFixService
 
         service.request(task);
 
-        verify(pullRequests).replyToReviewComment(REPO, 12, 20, "A list keeps the order the API promises.");
-        verify(pullRequests, never()).replyToReviewComment(REPO, 12, 10, "Renamed it.");
-        assertThat(service.summary(task.id().toString())).contains(new ReviewFixService.ReviewFixSummary(1, 0, 1, 0));
+        verify(pullRequests, never()).replyToReviewComment(anyString(), anyInt(), anyLong(), anyString());
+        verify(turns, never()).executeDevelopmentAction(any(), any(), any());
+        assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.postStartedAt()).isEmpty());
+        assertThat(service.summary(task.id().toString())).contains(new ReviewFixService.ReviewFixSummary(2, 0, 0, 0));
         assertThat(service.awaitingPost(task.id())).isTrue();
 
-        // The next delivery that pushes posts the fix's reply, though its own turn answered nothing.
+        // A new authorized delivery publishes the recovered answers, though its own turn answered nothing.
         service.publish(task.id(), answered(), true);
 
+        verify(pullRequests).replyToReviewComment(REPO, 12, 20, "A list keeps the order the API promises.");
         verify(pullRequests).replyToReviewComment(REPO, 12, 10, "Renamed it.");
         verify(pullRequests).setReviewThreadResolved(REPO, 12, 10, true);
         assertThat(service.awaitingPost(task.id())).isFalse();
+    }
+
+    @Test
+    void privacyBlocksFixedAndDeclinedRepliesIncludingRetry()
+    {
+        cache(thread(10, comment(11L, "bob", false, "Rename it.")));
+        service.request(task);
+        TurnId turnId = answered(new ReviewThreadReply(11, "Private reply", false));
+        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkText(any(), any(), anyString());
+        service.publish(task.id(), turnId, false);
+        service.publish(task.id(), turnId, true);
+        assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.failure()).hasValueSatisfying(value -> assertThat(value).contains("Privacy")));
+        verify(pullRequests, never()).replyToReviewComment(anyString(), anyInt(), anyLong(), anyString());
+        assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.postStartedAt()).isEmpty());
+        doNothing().when(privacy).checkText(any(), any(), anyString());
+        service.publish(task.id(), answered(new ReviewThreadReply(11, "Generic reply", false)), false);
+        verify(pullRequests).replyToReviewComment(REPO, 12, 10, "Generic reply");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void stopDuringPrivacyCheckPreventsReplyAndReceipt(boolean fixed)
+    {
+        cache(thread(10, comment(11L, "bob", false, "Rename it.")));
+        service.request(task);
+        TurnId turnId = answered(new ReviewThreadReply(11, "Generic answer", fixed));
+        AtomicBoolean authorized = new AtomicBoolean(true);
+        doAnswer(call -> {
+            authorized.set(false);
+            return null;
+        }).when(privacy).checkText(any(), any(), anyString());
+        doAnswer(call -> {
+            if (!authorized.get()) {
+                throw new AgentConflictException("Development automation stopped");
+            }
+            call.<Runnable>getArgument(2).run();
+            return null;
+        }).when(turns).executeDevelopmentAction(eq(task.id()), eq(turnId), any());
+
+        assertThatThrownBy(() -> service.publish(task.id(), turnId, true))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("stopped");
+
+        verify(turns).executeDevelopmentAction(eq(task.id()), eq(turnId), any());
+        verify(pullRequests, never()).replyToReviewComment(anyString(), anyInt(), anyLong(), anyString());
+        verify(pullRequests, never()).setReviewThreadResolved(anyString(), anyInt(), anyLong(), eq(true));
+        assertThat(rows.values()).singleElement().satisfies(reply -> {
+            assertThat(reply.reply()).contains("Generic answer");
+            assertThat(reply.postStartedAt()).isEmpty();
+            assertThat(reply.failure()).isEmpty();
+        });
     }
 
     @Test

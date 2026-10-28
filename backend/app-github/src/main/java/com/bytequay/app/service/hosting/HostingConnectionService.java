@@ -27,6 +27,7 @@ import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import org.springframework.stereotype.Service;
@@ -99,6 +100,11 @@ public class HostingConnectionService
     public void disconnect(long accountId)
     {
         credentials.delete(accountId);
+    }
+
+    public RepositoryVisibility visibility(HostingReadSession session, String fullPath)
+    {
+        return integration(session.access().server().provider()).repositories().visibility(session.access(), fullPath);
     }
 
     public HostingRepository resolveRepository(long accountId, String fullPath)

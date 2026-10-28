@@ -20,6 +20,7 @@ import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -78,6 +79,14 @@ public final class GitLabConnectionClient
         GitLabRepositoryResponse[] repositories = http.get(access, "projects?" + filter + "&per_page=" + limit, Optional.empty(), GitLabRepositoryResponse[].class)
                 .body().orElseThrow();
         return Arrays.stream(repositories).limit(limit).map(repository -> repository(access, repository, Optional.empty())).collect(toImmutableList());
+    }
+
+    @Override
+    public RepositoryVisibility visibility(HostingAccess access, String fullPath)
+    {
+        HostingUrls.checkRepositoryPath(fullPath);
+        var response = http.get(access, "projects/" + encode(fullPath), Optional.empty(), GitLabRepositoryResponse.class).body().orElseThrow();
+        return RepositoryVisibility.fromRemote(response.visibility());
     }
 
     @Override

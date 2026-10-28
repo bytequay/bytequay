@@ -325,6 +325,22 @@ class TestDevelopmentGitInspector
     }
 
     @Test
+    void assignedMergedPullRequestIsReadableAfterItsBranchIsDeleted()
+    {
+        GitHubPullRequestIdentity assigned = assignPullRequest(false);
+        DevelopmentPublicationRoute route = inspector.capture(task).route();
+        GitHubPullRequestIdentity merged = new GitHubPullRequestIdentity(
+                assigned.pullRequest(), assigned.url(), assigned.headRepository(), assigned.headBranch(), assigned.headSha(),
+                assigned.baseRepository(), assigned.baseBranch(), assigned.baseSha(), GitHubPullRequestIdentity.State.MERGED, false, assigned.author());
+        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(merged);
+
+        DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, route);
+
+        assertThat(facts.matchingPullRequests()).containsExactly(merged);
+        assertThat(facts.remoteHeadSha()).isEmpty();
+    }
+
+    @Test
     void assignedPullRequestCannotBeReplacedWithGeneratedBranchPublication()
     {
         assignPullRequest(false);

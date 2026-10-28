@@ -54,7 +54,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
-import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
@@ -739,18 +738,75 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("remote branch changed"));
     }
 
-    @ParameterizedTest
-    @EnumSource(value = GitHubPullRequestIdentity.State.class, names = {"CLOSED", "MERGED"})
-    void closedOrMergedPrCannotBeReplaced(GitHubPullRequestIdentity.State state)
+    @Test
+    void closedPrCannotBeReplaced()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
         GitHubPullRequestIdentity open = pr(HEAD, true);
         GitHubPullRequestIdentity closed = new GitHubPullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
-                open.baseRepository(), open.baseBranch(), open.baseSha(), state, open.draft(), open.author());
+                open.baseRepository(), open.baseBranch(), open.baseSha(), GitHubPullRequestIdentity.State.CLOSED, open.draft(), open.author());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(closed)));
         advance();
         noFollowup();
-        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("closed or merged"));
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("closed"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"true, true", "true, false", "false, true", "false, false"})
+    void mergedPrCompletesWithoutPublicationOrCi(boolean existingPr, boolean deletedBranch)
+    {
+        if (existingPr) {
+            when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, false))));
+        }
+        prepare(local(existingPr ? HEAD : BASE, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(deletedBranch ? Optional.empty() : Optional.of(HEAD), Optional.of(mergedPr())));
+
+        advance();
+
+        noFollowup();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verify(ci, never()).startDevelopment(any(), any(), any(), any());
+        verifyNoInteractions(writes);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @Test
+    void queuedTurnRecognizesAMergeWithADeletedBranch()
+    {
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.of(HEAD), Optional.of(pr(HEAD, false))));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.of(mergedPr())));
+        prepare(local(HEAD, false), local(HEAD, false), FULL, true);
+
+        advance();
+
+        noFollowup();
+        verify(ci, never()).startDevelopment(any(), any(), any(), any());
+        verifyNoInteractions(writes);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void mergeDuringPublicationCompletesWithoutRecreatingTheBranch(boolean callPublicationTool)
+    {
+        prepare(local(BASE, false), local(HEAD, false), FULL, true);
+        generated(CREATE_DRAFT_PR, true, () -> {
+            when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.of(mergedPr())));
+            if (callPublicationTool) {
+                assertThat(coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).contains("already merged");
+            }
+        });
+
+        advance();
+
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verify(ci, never()).startDevelopment(any(), any(), any(), any());
+        verifyNoInteractions(writes);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
     @Test
@@ -1498,6 +1554,13 @@ class TestDevelopmentFollowupCoordinator
                 route.baseRepository().repo(),
                 7), "https://github.com/" + route.baseRepository().fullName() + "/pull/7", route.headRepository(), route.headBranch(), head,
                 route.baseRepository(), route.baseBranch(), BASE, GitHubPullRequestIdentity.State.OPEN, draft, "owner");
+    }
+
+    private GitHubPullRequestIdentity mergedPr()
+    {
+        GitHubPullRequestIdentity open = pr(HEAD, false);
+        return new GitHubPullRequestIdentity(open.pullRequest(), open.url(), open.headRepository(), open.headBranch(), open.headSha(),
+                open.baseRepository(), open.baseBranch(), open.baseSha(), GitHubPullRequestIdentity.State.MERGED, false, open.author());
     }
 
     private static DevelopmentPublicationFacts publication(Optional<String> head, Optional<GitHubPullRequestIdentity> pr)

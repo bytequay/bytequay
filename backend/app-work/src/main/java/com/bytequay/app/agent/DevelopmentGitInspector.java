@@ -247,7 +247,7 @@ public class DevelopmentGitInspector
         var reader = pullRequests.reader(selected.session());
         Optional<GitHubPullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
             GitHubPullRequestIdentity current = reader.identity(selected.session().access(), selected.repository(), pr.number());
-            checkState(current.pullRequest().equals(pr) && current.state() == GitHubPullRequestIdentity.State.OPEN
+            checkState(current.pullRequest().equals(pr) && current.state() != GitHubPullRequestIdentity.State.CLOSED
                             && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
                             && current.baseRepository().equals(route.baseRepository()) && current.baseBranch().equals(route.baseBranch()),
                     "Assigned pull request destination changed or is unavailable; reload the PR before continuing");

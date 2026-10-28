@@ -177,11 +177,18 @@ path changes prevent reuse of old validators. Access failures discard only the
 affected account's snapshot if that read is still current; eviction keeps request
 identity and local work.
 
-Desktop PR metadata and diff revision checks use these shared contracts and
-snapshots. The desktop's existing global PAT or CLI selection stays separate from
-manually connected account tokens. Each explicit credential save or observed CLI
-rotation gets a durable revision; cached metadata, detail and diff projections
-cannot cross that revision. Remote results are accepted only while their captured
+Desktop PR entry points capture a hosting read session and retained repository
+identity once, then pass that route through metadata, detail, diff, refresh and
+readback. The credential service adapts the existing global PAT or CLI selection
+into this shared session without replacing manually connected account tokens;
+provider selection and identity verification belong to the hosting connection
+service. There is no separate desktop metadata/cache adapter. Each explicit
+credential save or observed CLI rotation gets a durable revision. Legacy detail
+and diff projections are scoped to account, credential revision and retained
+repository identity. Selecting another scope invalidates reads still in flight,
+even when both account sessions remain valid. Cache-only entry points never
+verify an account remotely; they report missing data until a verified session and
+repository are available. Remote results are accepted only while their captured
 selection remains current. Shared invalidation after a write uses local retained
 identities and rejects responses still in flight; it never waits for remote I/O.
 Local read/write coordination rejects responses captured before an overlapping

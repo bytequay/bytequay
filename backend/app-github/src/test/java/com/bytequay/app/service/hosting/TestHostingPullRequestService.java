@@ -365,7 +365,7 @@ class TestHostingPullRequestService
         when(identities.findInstance(10)).thenReturn(Optional.of(new HostingInstance(10, provider, URI.create("https://hosting.test"), URI.create("https://hosting.test/api"))));
         connections = new HostingConnectionService(identities, credentials,
                 ImmutableList.of(new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)));
-        return new HostingPullRequestService(connections, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static PullRequestFetch fetched(String title, Optional<String> etag)

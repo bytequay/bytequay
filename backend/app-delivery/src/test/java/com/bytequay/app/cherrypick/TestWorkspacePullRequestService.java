@@ -22,7 +22,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.hosting.DesktopHostingService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.PullRequestSnapshotService;
 import com.bytequay.app.workspace.ManagedWorkspaceGit;
@@ -66,6 +66,7 @@ import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -394,10 +395,10 @@ class TestWorkspacePullRequestService
 
         fixture.service().markReady(execution);
 
-        var order = inOrder(fixture.pullRequests(), fixture.pullRequestCatalog(), fixture.desktop());
+        var order = inOrder(fixture.pullRequests(), fixture.pullRequestCatalog(), fixture.hostingRequests());
         order.verify(fixture.pullRequests()).markReadyForReview("token", "pr-node");
         order.verify(fixture.pullRequestCatalog()).observeWorkspacePullRequest("workspace", 12);
-        order.verify(fixture.desktop()).evict("owner/project", 12);
+        order.verify(fixture.hostingRequests()).invalidate(GITHUB_SERVER, "owner/project", 12);
     }
 
     @Test
@@ -410,7 +411,7 @@ class TestWorkspacePullRequestService
 
         assertThatThrownBy(() -> fixture.service().markReady(execution)).hasMessage("Response lost");
 
-        verify(fixture.desktop()).evict("owner/project", 12);
+        verify(fixture.hostingRequests()).invalidate(GITHUB_SERVER, "owner/project", 12);
         verifyNoInteractions(fixture.pullRequestCatalog());
     }
 
@@ -422,10 +423,10 @@ class TestWorkspacePullRequestService
 
         assertThat(fixture.service().withdraw(execution, true)).isEmpty();
 
-        var order = inOrder(fixture.pullRequests(), fixture.pullRequestCatalog(), fixture.desktop());
+        var order = inOrder(fixture.pullRequests(), fixture.pullRequestCatalog(), fixture.hostingRequests());
         order.verify(fixture.pullRequests()).closePullRequest("token", PullRequestRef.of("owner", "project", 12));
         order.verify(fixture.pullRequestCatalog()).observeWorkspacePullRequest("workspace", 12);
-        order.verify(fixture.desktop()).evict("owner/project", 12);
+        order.verify(fixture.hostingRequests()).invalidate(GITHUB_SERVER, "owner/project", 12);
     }
 
     private CherryPickExecution published(Fixture fixture)
@@ -544,9 +545,9 @@ class TestWorkspacePullRequestService
                 workspace.selectedRepository(), WORK_BRANCH, PARENT_SHA, workspace.monitoredRepository(), targetBranch, SHA,
                 GitHubPullRequestIdentity.State.OPEN, false, workspace.selectedRepository().owner()));
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
-        DesktopHostingService desktop = mock(DesktopHostingService.class);
+        HostingPullRequestService hostingRequests = mock(HostingPullRequestService.class);
         PullRequestSnapshotService snapshots = new PullRequestSnapshotService(
-                reads, mock(GitHubActionsClient.class), desktop, mock(PrDetailStore.class), mock(PrDiffStore.class));
+                reads, mock(GitHubActionsClient.class), hostingRequests, mock(PrDetailStore.class), mock(PrDiffStore.class));
         WorkspacePullRequestService service = new WorkspacePullRequestService(
                 workspaceStore,
                 executionStore,
@@ -568,7 +569,7 @@ class TestWorkspacePullRequestService
                 git,
                 pullRequests,
                 pullRequestCatalog,
-                ciAutofix, relationships, chains, reads, workspaceStore, executionStore, desktop);
+                ciAutofix, relationships, chains, reads, workspaceStore, executionStore, hostingRequests);
     }
 
     private CherryPickExecution completedExecution(Workspace workspace, String targetBranch)
@@ -724,7 +725,7 @@ class TestWorkspacePullRequestService
             PullRequestService pullRequestCatalog,
             CiAutofixService ciAutofix,
             WorkspaceRelationships relationships, BackportChainStore chains, GitHubPullRequestReadClient reads, WorkspaceStore workspaceStore, CherryPickExecutionStore executions,
-            DesktopHostingService desktop)
+            HostingPullRequestService hostingRequests)
     {
         private Fixture
         {

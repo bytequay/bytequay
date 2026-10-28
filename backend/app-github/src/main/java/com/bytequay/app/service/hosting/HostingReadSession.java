@@ -38,6 +38,11 @@ public record HostingReadSession(long accountId, String credentialScope, long ge
         return guard.withCurrent(requireNonNull(action, "action is null"));
     }
 
+    public String cacheScope()
+    {
+        return accountId + ":" + credentialScope + ":" + generation;
+    }
+
     public interface Guard
     {
         <T> T withCurrent(Supplier<T> action);

@@ -133,6 +133,47 @@ public class HostingConnectionService
         }
     }
 
+    /** Verifies an externally owned credential without replacing a separately connected account's token. */
+    public HostingReadSession verifySession(HostingServer server, String scope, long generation, Supplier<String> token, HostingReadSession.Guard guard)
+    {
+        requireNonNull(server, "server is null");
+        checkText(scope, "scope");
+        checkArgument(generation > 0, "generation must be positive");
+        requireNonNull(token, "token is null");
+        requireNonNull(guard, "guard is null");
+        Supplier<String> currentToken = () -> guard.withCurrent(token);
+        RemoteHostingAccount remote = integration(server.provider()).accounts().verify(new HostingAccess(server, currentToken));
+        return guard.withCurrent(() -> {
+            synchronized (lock(server)) {
+                HostingInstance instance = identities.upsertInstance(server);
+                HostingAccount account = identities.upsertAccount(instance.id(), remote);
+                return new HostingReadSession(account.id(), scope, generation, new HostingAccess(instance, currentToken), guard);
+            }
+        });
+    }
+
+    public HostingAccount account(HostingReadSession session)
+    {
+        return session.withCurrent(() -> {
+            HostingAccount account = account(session.accountId());
+            checkArgument(account.instanceId() == session.access().instanceId().orElseThrow(), "Hosting account belongs to another instance");
+            return account;
+        });
+    }
+
+    public Optional<HostingRepository> findRepository(HostingReadSession session, String fullPath)
+    {
+        return session.withCurrent(() -> {
+            List<HostingRepository> matches = identities.findRepositories(session.access().server(), fullPath);
+            if (matches.size() != 1) {
+                return Optional.empty();
+            }
+            HostingRepository repository = matches.getFirst();
+            checkArgument(repository.instanceId() == session.access().instanceId().orElseThrow(), "Repository belongs to another hosting instance");
+            return Optional.of(repository);
+        });
+    }
+
     public HostingRepository resolveRepository(HostingReadSession session, String fullPath)
     {
         HostingAccess access = session.access();

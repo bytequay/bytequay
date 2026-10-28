@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.service.hosting.DesktopHostingService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
@@ -50,17 +50,17 @@ public class WorkspaceHostingService
     private final HostingCredentialStore credentials;
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
-    private final DesktopHostingService desktop;
+    private final CredentialService desktopCredentials;
 
     public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities, HostingCredentialStore credentials,
-            HostingConnectionService connections, HostingPullRequestService requests, DesktopHostingService desktop)
+            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.identities = requireNonNull(identities, "identities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
-        this.desktop = requireNonNull(desktop, "desktop is null");
+        this.desktopCredentials = requireNonNull(desktopCredentials, "desktopCredentials is null");
     }
 
     public Optional<WorkspaceHostingBinding> findBinding(String workspaceId)
@@ -110,7 +110,7 @@ public class WorkspaceHostingService
         };
         HostingReadSession selected = snapshot.binding()
                 .map(binding -> routing.withCurrent(() -> connections.readSession(binding.accountId())))
-                .orElseGet(() -> desktop.workspaceSession(workspaceId, routing));
+                .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspaceId, routing));
         HostingReadSession.Guard guard = new HostingReadSession.Guard()
         {
             @Override

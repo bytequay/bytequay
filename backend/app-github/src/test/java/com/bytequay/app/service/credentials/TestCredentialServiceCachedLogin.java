@@ -15,6 +15,7 @@ package com.bytequay.app.service.credentials;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -47,7 +48,7 @@ class TestCredentialServiceCachedLogin
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return profile("hubot");
         });
-        CredentialService service = new CredentialService(store, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), accounts);
+        CredentialService service = new CredentialService(store, mock(WorkspaceCredentialStore.class), mock(GhCliService.class), accounts, mock(HostingConnectionService.class));
         assertThat(service.cachedLogin()).isEmpty();
         assertThat(service.cachedCredential()).isEmpty();
         service.resolveGitHubCredential();

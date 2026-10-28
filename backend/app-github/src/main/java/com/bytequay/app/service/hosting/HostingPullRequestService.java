@@ -16,7 +16,9 @@ package com.bytequay.app.service.hosting;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.HostingPullRequestStore;
 import org.springframework.stereotype.Service;
 
@@ -40,13 +42,15 @@ public class HostingPullRequestService
 {
     private final HostingConnectionService connections;
     private final HostingPullRequestStore snapshots;
+    private final HostingIdentityStore identities;
     private final Clock clock;
     private final Map<Resource, State> states = new ConcurrentHashMap<>();
 
-    public HostingPullRequestService(HostingConnectionService connections, HostingPullRequestStore snapshots, Clock clock)
+    public HostingPullRequestService(HostingConnectionService connections, HostingPullRequestStore snapshots, HostingIdentityStore identities, Clock clock)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
+        this.identities = requireNonNull(identities, "identities is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -108,6 +112,11 @@ public class HostingPullRequestService
             state.refreshes.clear();
             snapshots.evictRepository(repositoryId, number);
         }
+    }
+
+    public void invalidate(HostingServer server, String fullPath, int number)
+    {
+        identities.findRepositories(server, fullPath).forEach(repository -> invalidateRepository(repository.id(), number));
     }
 
     private HostingPullRequestSnapshot refresh(HostingReadSession session, long repositoryId, int number, boolean force, State state, long revision)

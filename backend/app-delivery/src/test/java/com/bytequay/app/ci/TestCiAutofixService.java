@@ -79,7 +79,7 @@ import com.bytequay.app.repository.github.actions.CiStep;
 import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.GitHubActionsClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.hosting.DesktopHostingService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.pr.PullRequestSnapshotService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -135,6 +135,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -170,9 +171,9 @@ class TestCiAutofixService
     private GitHubActionsClient gitHub;
     private final GitHubPullRequestWriteClient writes = mock(GitHubPullRequestWriteClient.class);
     private final GitHubPullRequestReadClient pullRequestReads = mock(GitHubPullRequestReadClient.class);
-    private final DesktopHostingService desktop = mock(DesktopHostingService.class);
+    private final HostingPullRequestService hostingRequests = mock(HostingPullRequestService.class);
     private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(
-            pullRequestReads, mock(com.bytequay.app.repository.github.GitHubActionsClient.class), desktop, mock(PrDetailStore.class), mock(PrDiffStore.class));
+            pullRequestReads, mock(com.bytequay.app.repository.github.GitHubActionsClient.class), hostingRequests, mock(PrDetailStore.class), mock(PrDiffStore.class));
     private AgentTaskService taskService;
     private AgentTurnService turnService;
     private AgentCompletionService completionService;
@@ -1082,9 +1083,9 @@ class TestCiAutofixService
         run = service.advance(run.id());
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().writeStartedAt()).isPresent();
-        var order = inOrder(writes, desktop);
+        var order = inOrder(writes, hostingRequests);
         order.verify(writes).updatePullRequestDescription("token", PULL_REQUEST, "- Fixes #31178.");
-        order.verify(desktop).evict(PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
+        order.verify(hostingRequests).invalidate(GITHUB_SERVER, PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
         when(gitHub.readDescription(PULL_REQUEST)).thenReturn("- Fixes #31178.");
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().appliedAt()).isPresent();
@@ -1141,7 +1142,7 @@ class TestCiAutofixService
         }).when(writes).updatePullRequestDescription(any(), any(), any());
         CiAutofixRun current = run;
         assertThatThrownBy(() -> service.advance(current.id())).hasMessageContaining("response lost");
-        verify(desktop).evict(PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
+        verify(hostingRequests).invalidate(GITHUB_SERVER, PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
         CiAutofixService restarted = service(store);
         run = restarted.advance(run.id());
         assertThat(run.attempts().getFirst().descriptionChange().orElseThrow().appliedAt()).isPresent();
@@ -2113,9 +2114,9 @@ class TestCiAutofixService
         run = service.advance(service.advance(run.id()).id());
 
         assertThat(run.finishReason()).contains(FinishReason.GREEN);
-        var order = inOrder(writes, desktop);
+        var order = inOrder(writes, hostingRequests);
         order.verify(writes).markReadyForReview("token", "pr-node");
-        order.verify(desktop).evict(PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
+        order.verify(hostingRequests).invalidate(GITHUB_SERVER, PULL_REQUEST.repoFullName(), PULL_REQUEST.number());
         verify(turnService, never()).start(any());
     }
 

@@ -15,8 +15,11 @@ package com.bytequay.app.service.credentials;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.google.common.collect.ImmutableMap;
@@ -38,26 +41,32 @@ import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Service
 public class CredentialService
 {
+    public static final HostingServer GITHUB_SERVER = new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
     static final String GITHUB_CLI_SOURCE = "{\"source\":\"gh-cli\"}";
 
     private final CredentialStore credentialStore;
     private final WorkspaceCredentialStore workspaceCredentials;
     private final GhCliService ghCli;
     private final GitHubAccountClient gitHubAccount;
+    private final HostingConnectionService hosting;
     private volatile GitHubCredential cachedGitHubCredential;
+    private Optional<HostingReadSession> cachedHostingRead = Optional.empty();
 
-    public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli, GitHubAccountClient gitHubAccount)
+    public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli,
+            GitHubAccountClient gitHubAccount, HostingConnectionService hosting)
     {
         this.credentialStore = requireNonNull(credentialStore, "credentialStore is null");
         this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
         this.ghCli = requireNonNull(ghCli, "ghCli is null");
         this.gitHubAccount = requireNonNull(gitHubAccount, "gitHubAccount is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
     }
 
     public synchronized void saveGitHubToken(String token)
@@ -69,6 +78,7 @@ public class CredentialService
         UserProfile profile = gitHubAccount.fetchUserProfile(trimmed);
         credentialStore.save(trimmed, null);
         cachedGitHubCredential = new GitHubCredential(trimmed, profile);
+        cachedHostingRead = Optional.empty();
     }
 
     public boolean isGitHubAccountConfigured()
@@ -90,6 +100,7 @@ public class CredentialService
         if (live.isPresent() && stored.filter(token::equals).isEmpty()) {
             credentialStore.save(token, GITHUB_CLI_SOURCE);
             cachedGitHubCredential = null;
+            cachedHostingRead = Optional.empty();
         }
         return token;
     }
@@ -100,6 +111,53 @@ public class CredentialService
             throw new HostingFailure(REVISION_CONFLICT, "The GitHub credential changed; refresh to retry");
         }
         return new GitHubReadSelection(expectedToken, credentialStore.revision());
+    }
+
+    public HostingReadSession captureHostingRead()
+    {
+        GitHubReadSelection selected;
+        synchronized (this) {
+            selected = new GitHubReadSelection(resolveGitHubToken(), credentialStore.revision());
+            Optional<HostingReadSession> current = cachedHostingRead.filter(session -> session.credentialScope().equals("github-global:" + selected.revision()));
+            if (current.isPresent()) {
+                return current.orElseThrow();
+            }
+        }
+        HostingReadSession.Guard guard = new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return withCurrentGitHubRead(selected, action);
+            }
+        };
+        HostingReadSession session = hosting.verifySession(GITHUB_SERVER, "github-global:" + selected.revision(), 1, selected::token, guard);
+        return withCurrentGitHubRead(selected, () -> {
+            cachedHostingRead = Optional.of(session);
+            return session;
+        });
+    }
+
+    /** Local readers wait for an authenticated read to establish identity; they never start CLI or HTTP work. */
+    public synchronized Optional<HostingReadSession> cachedHostingRead()
+    {
+        return cachedHostingRead.map(session -> session.withCurrent(() -> session));
+    }
+
+    public HostingReadSession captureWorkspaceHostingRead(String workspaceId, HostingReadSession.Guard routingGuard)
+    {
+        requireNonNull(routingGuard, "routingGuard is null");
+        WorkspaceGitHubReadSelection selected = captureWorkspaceGitHubRead(workspaceId);
+        HostingReadSession.Guard guard = new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                return routingGuard.withCurrent(() -> withCurrentWorkspaceGitHubRead(selected, action));
+            }
+        };
+        String scope = "github-workspace:" + selected.workspaceId() + ":" + selected.workspaceRevision() + ":" + selected.credential().revision();
+        return hosting.verifySession(GITHUB_SERVER, scope, 1, selected.credential()::token, guard);
     }
 
     /** Only local validation and local acceptance run under this lock; the selection was captured before remote work. */
@@ -224,6 +282,7 @@ public class CredentialService
     {
         credentialStore.delete();
         cachedGitHubCredential = null;
+        cachedHostingRead = Optional.empty();
     }
 
     /**
@@ -267,6 +326,7 @@ public class CredentialService
         UserProfile profile = gitHubAccount.fetchUserProfile(token);
         credentialStore.save(token, GITHUB_CLI_SOURCE);
         cachedGitHubCredential = new GitHubCredential(token, profile);
+        cachedHostingRead = Optional.empty();
         return profile.login();
     }
 

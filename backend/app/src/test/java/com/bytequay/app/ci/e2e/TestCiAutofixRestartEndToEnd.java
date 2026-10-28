@@ -36,6 +36,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -322,7 +323,8 @@ class TestCiAutofixRestartEndToEnd
                             context.getBean(CredentialStore.class),
                             context.getBean(WorkspaceCredentialStore.class),
                             context.getBean(GhCliService.class),
-                            context.getBean(GitHubAccountClient.class))
+                            context.getBean(GitHubAccountClient.class),
+                            context.getBean(HostingConnectionService.class))
                     {
                         @Override
                         public String resolveGitHubToken()

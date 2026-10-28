@@ -24,6 +24,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
 import org.springframework.web.server.ResponseStatusException;
@@ -54,14 +55,21 @@ import static org.mockito.Mockito.when;
 
 class TestPullRequestRefreshService
 {
+    private final PullRequestRead route = PullRequestReadFixture.route("owner/repo", 7);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+
+    @BeforeEach
+    void setUp()
+    {
+        when(pullRequests.prepareRead("owner/repo", 7)).thenReturn(route);
+    }
 
     @Test
     void directDetailRefreshReturnsTheRefreshedResultWithoutRereading()
     {
         PullRequestRefreshService service = service(pullRequests);
-        when(pullRequests.refreshPullRequestDetailFromGitHub("owner/repo", 7))
+        when(pullRequests.refreshPullRequestDetailFromGitHub(route))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service.refreshDetail("owner/repo", 7);
@@ -69,42 +77,44 @@ class TestPullRequestRefreshService
         assertThat(result.full()).isFalse();
         assertThat(result.status().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
 
-        verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(pullRequests).prepareRead("owner/repo", 7);
+        verify(pullRequests).refreshPullRequestDetailFromGitHub(route);
+        verify(pullRequests).findHeadSha(route);
     }
 
     @Test
     void warmingOneDetailUsesTheWarmFreshnessAndPublishesTheStoredHead()
     {
-        when(pullRequests.findHeadSha("owner/repo", 7)).thenReturn(Optional.of("head"));
+        when(pullRequests.findHeadSha(route)).thenReturn(Optional.of("head"));
         List<Object> published = new ArrayList<>();
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), noWorkspaces(), published::add);
 
         service.warmDetail("owner/repo", 7);
 
-        verify(pullRequests).refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofMinutes(10));
-        verify(pullRequests, never()).refreshPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(pullRequests).refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
+        verify(pullRequests, never()).refreshPullRequestDetailFromGitHub(route);
         assertThat(published).containsExactly(new PullRequestDetailRefreshed("owner/repo", 7, Optional.of("head")));
     }
 
     @Test
     void openingReturnsFullDiscussionEvenWhenAnotherViewAlreadyRefreshedTheCache()
     {
-        when(pullRequests.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7))
+        when(pullRequests.refreshOpenedPullRequestDetailFromGitHub(route))
                 .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
 
         PullRequestDetailRefresh result = service(pullRequests).refreshOpenedDetail("owner/repo", 7);
 
         assertThat(result.full()).isTrue();
         assertThat(result.detail()).isEqualTo(detail());
-        verify(pullRequests).refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7);
-        verify(pullRequests, never()).refreshAllPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(pullRequests).refreshOpenedPullRequestDetailFromGitHub(route);
+        verify(pullRequests, never()).refreshAllPullRequestDetailFromGitHub(route);
     }
 
     @Test
     void directDiffRefreshPersistsBeforeReading()
     {
         DiffFile file = new DiffFile("src/App.java", "modified", 1, 1, "patch");
-        when(pullRequests.getPullRequestDiffFiles("owner/repo", 7, "base", "head"))
+        when(pullRequests.getPullRequestDiffFiles(route, "base", "head"))
                 .thenReturn(ImmutableList.of(file));
         PullRequestRefreshService service = service(pullRequests);
 
@@ -112,8 +122,9 @@ class TestPullRequestRefreshService
                 .containsExactly(file);
 
         InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).refreshPullRequestDiffFromGitHub("owner/repo", 7, "base", "head");
-        order.verify(pullRequests).getPullRequestDiffFiles("owner/repo", 7, "base", "head");
+        order.verify(pullRequests).prepareRead("owner/repo", 7);
+        order.verify(pullRequests).refreshPullRequestDiffFromGitHub(route, "base", "head");
+        order.verify(pullRequests).getPullRequestDiffFiles(route, "base", "head");
     }
 
     @Test

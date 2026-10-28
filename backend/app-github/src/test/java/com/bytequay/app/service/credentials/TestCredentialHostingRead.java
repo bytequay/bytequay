@@ -11,14 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.service.hosting;
+package com.bytequay.app.service.credentials;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
@@ -33,7 +34,6 @@ import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingAccount;
-import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -66,6 +66,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -74,14 +75,13 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestDesktopHostingService
+class TestCredentialHostingRead
 {
     private static final Instant NOW = Instant.parse("2026-10-01T00:00:00Z");
-    private static final PullRequestRef REF = PullRequestRef.of("owner", "repo", 7);
     private final CredentialStore globalStore = mock(CredentialStore.class);
     private final GitHubAccountClient profiles = mock(GitHubAccountClient.class);
     private final WorkspaceCredentialStore workspaceStore = mock(WorkspaceCredentialStore.class);
-    private final CredentialService credentials = new CredentialService(globalStore, workspaceStore, mock(GhCliService.class), profiles);
+    private final GhCliService ghCli = mock(GhCliService.class);
     private final HostingIdentityStore identities = mock(HostingIdentityStore.class);
     private final HostingCredentialStore manualCredentials = mock(HostingCredentialStore.class);
     private final HostingAccounts accounts = mock(HostingAccounts.class);
@@ -95,7 +95,8 @@ class TestDesktopHostingService
     private final HostingAccount account = new HostingAccount(20, 10, "123", "alice");
     private final HostingRepository repository = new HostingRepository(30, 10, "42", "owner/repo", URI.create("https://github.com/owner/repo"),
             URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main"));
-    private DesktopHostingService desktop;
+    private CredentialService credentials;
+    private HostingPullRequestService requests;
 
     @BeforeEach
     void setUp()
@@ -114,10 +115,6 @@ class TestDesktopHostingService
         when(identities.upsertAccount(eq(10L), any())).thenReturn(account);
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         when(identities.findRepositories(any(), eq("owner/repo"))).thenReturn(ImmutableList.of(repository));
-        RemoteHostingRepository remote = new RemoteHostingRepository(repository.remoteId(), repository.fullPath(), repository.webUrl(), repository.httpCloneUrl(),
-                repository.sshCloneUrl(), repository.defaultBranch());
-        when(repositories.findByPath(any(), eq("owner/repo"))).thenReturn(remote);
-        when(identities.upsertRepository(10, remote)).thenReturn(repository);
         when(snapshots.find(20, 30, 7)).thenAnswer(ignored -> Optional.ofNullable(cached.get()));
         when(snapshots.save(eq(20L), eq(30L), anyString(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
             FetchedPullRequest summary = call.getArgument(4);
@@ -137,34 +134,57 @@ class TestDesktopHostingService
         when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(fetched());
         HostingConnectionService connections = new HostingConnectionService(identities, manualCredentials,
                 ImmutableList.of(new HostingIntegration(GITHUB, accounts, repositories, reader)));
-        desktop = new DesktopHostingService(credentials, identities, connections,
-                new HostingPullRequestService(connections, snapshots, Clock.fixed(NOW, ZoneOffset.UTC)),
-                ImmutableList.of(new HostingIntegration(GITHUB, accounts, repositories, reader)));
+        credentials = new CredentialService(globalStore, workspaceStore, ghCli, profiles, connections);
+        requests = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
-    void scopeAndColdCacheDoNotResolveRemoteIdentity()
+    void cachedSessionNeverStartsIdentityVerificationOrCliWork()
     {
-        assertThat(desktop.scope("desktop-token")).isEqualTo("github-global:revision-1");
-        assertThat(desktop.cached("desktop-token", REF)).isEmpty();
-        verifyNoInteractions(accounts, repositories, reader, manualCredentials);
+        assertThat(credentials.cachedHostingRead()).isEmpty();
+        verifyNoInteractions(globalStore, accounts, ghCli);
+        when(globalStore.source()).thenReturn(Optional.of(CredentialService.GITHUB_CLI_SOURCE));
+        when(ghCli.currentToken()).thenReturn(Optional.of("desktop-token"));
+        HostingReadSession selected = credentials.captureHostingRead();
+        clearInvocations(ghCli);
+
+        assertThat(credentials.cachedHostingRead()).containsSame(selected);
+        verify(accounts).verify(any());
+        verifyNoInteractions(ghCli);
+    }
+
+    @Test
+    void cachedSessionRejectsAnExternallyChangedCredential()
+    {
+        credentials.captureHostingRead();
+        revision.set("replacement-revision");
+
+        assertThatThrownBy(credentials::cachedHostingRead)
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
     }
 
     @Test
     void reusesVerifiedIdentityAndRoutesTheSelectedTokenThroughSharedCache()
     {
-        HostingPullRequestSnapshot first = desktop.refresh("desktop-token", REF, false);
+        when(accounts.verify(any())).thenAnswer(call -> {
+            assertThat(Thread.holdsLock(credentials)).isFalse();
+            assertThat(call.<HostingAccess>getArgument(0).token()).isEqualTo("desktop-token");
+            return new RemoteHostingAccount("123", "alice");
+        });
+        HostingReadSession session = credentials.captureHostingRead();
+        HostingPullRequestSnapshot first = requests.refresh(session, 30, 7, false);
         when(reader.fetch(any(), any(), eq(7), eq(Optional.of("v1")))).thenAnswer(call -> {
             HostingAccess access = call.getArgument(0);
             assertThat(access.token()).isEqualTo("desktop-token");
             return new PullRequestFetch(Optional.empty(), Optional.of("v1"));
         });
 
-        assertThat(desktop.refresh("desktop-token", REF, false)).isEqualTo(first);
-        assertThat(desktop.cached("desktop-token", REF)).contains(first);
+        assertThat(credentials.captureHostingRead()).isSameAs(session);
+        assertThat(requests.refresh(session, 30, 7, false)).isEqualTo(first);
+        assertThat(requests.cached(session, 30, 7)).contains(first);
         assertThat(first.credentialScope()).isEqualTo("github-global:revision-1");
         verify(accounts).verify(any());
-        verify(repositories).findByPath(any(), eq("owner/repo"));
+        verifyNoInteractions(repositories);
         verifyNoInteractions(manualCredentials);
     }
 
@@ -175,7 +195,7 @@ class TestDesktopHostingService
         cached.set(new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, "99"), 20, CONNECTED_ACCOUNT, 9,
                 fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), Optional.of("manual-validator"), NOW));
 
-        HostingPullRequestSnapshot result = desktop.refresh("desktop-token", REF, false);
+        HostingPullRequestSnapshot result = requests.refresh(credentials.captureHostingRead(), 30, 7, false);
 
         assertThat(result.credentialScope()).isEqualTo("github-global:revision-1");
         verify(reader).fetch(any(), any(), eq(7), eq(Optional.empty()));
@@ -190,7 +210,7 @@ class TestDesktopHostingService
             return fetched();
         });
 
-        assertThatThrownBy(() -> desktop.refresh("desktop-token", REF, false))
+        assertThatThrownBy(() -> requests.refresh(credentials.captureHostingRead(), 30, 7, false))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
         assertThat(cached).hasNullValue();
         verify(snapshots, never()).save(anyLong(), anyLong(), anyString(), anyLong(), any(), any(), any(), any());
@@ -204,7 +224,7 @@ class TestDesktopHostingService
             return new RemoteHostingAccount("123", "alice");
         });
 
-        assertThatThrownBy(() -> desktop.refresh("desktop-token", REF, false))
+        assertThatThrownBy(() -> requests.refresh(credentials.captureHostingRead(), 30, 7, false))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
         verify(identities, never()).upsertAccount(anyLong(), any());
         verifyNoInteractions(reader);
@@ -213,15 +233,17 @@ class TestDesktopHostingService
     @Test
     void replacingTheSameTokenChangesScopeAndReverifiesIdentity()
     {
-        String previous = desktop.scope("desktop-token");
-        desktop.refresh("desktop-token", REF, false);
+        HostingReadSession previous = credentials.captureHostingRead();
+        requests.refresh(credentials.captureHostingRead(), 30, 7, false);
         credentials.saveGitHubToken("desktop-token");
-        assertThatThrownBy(() -> desktop.withCurrent(previous, () -> "stale"))
+        assertThat(credentials.cachedHostingRead()).isEmpty();
+        assertThatThrownBy(() -> previous.withCurrent(() -> "stale"))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
 
-        assertThat(desktop.scope("desktop-token")).isNotEqualTo(previous);
-        assertThat(desktop.cached("desktop-token", REF)).isEmpty();
-        desktop.refresh("desktop-token", REF, false);
+        HostingReadSession current = credentials.captureHostingRead();
+        assertThat(current.cacheScope()).isNotEqualTo(previous.cacheScope());
+        assertThat(requests.cached(current, 30, 7)).isEmpty();
+        requests.refresh(credentials.captureHostingRead(), 30, 7, false);
         verify(accounts, times(2)).verify(any());
         verify(reader, times(2)).fetch(any(), any(), eq(7), eq(Optional.empty()));
     }
@@ -234,7 +256,7 @@ class TestDesktopHostingService
                 fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), Optional.of("manual-validator"), NOW));
         token.set(null);
 
-        desktop.evict("owner/repo", 7);
+        requests.invalidate(CredentialService.GITHUB_SERVER, "owner/repo", 7);
 
         assertThat(cached).hasNullValue();
         verify(snapshots).evictRepository(30, 7);
@@ -244,25 +266,25 @@ class TestDesktopHostingService
     @Test
     void workspaceOverrideUsesItsOwnVerifiedIdentityWithoutChangingTheGlobalSelection()
     {
-        String globalScope = desktop.scope("desktop-token");
+        HostingReadSession global = credentials.captureHostingRead();
         when(workspaceStore.getSecret("workspace")).thenReturn(Optional.of("workspace-token"));
         when(accounts.verify(any())).thenAnswer(call -> {
             assertThat(call.<HostingAccess>getArgument(0).token()).isEqualTo("workspace-token");
             return new RemoteHostingAccount("123", "alice");
         });
 
-        HostingReadSession session = desktop.workspaceSession("workspace", current());
+        HostingReadSession session = credentials.captureWorkspaceHostingRead("workspace", current());
 
         assertThat(session.access().token()).isEqualTo("workspace-token");
         assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace:workspace-revision:workspace-revision");
-        assertThat(desktop.withCurrent(globalScope, () -> "global selection retained")).isEqualTo("global selection retained");
+        assertThat(global.withCurrent(() -> "global selection retained")).isEqualTo("global selection retained");
         verifyNoInteractions(manualCredentials);
     }
 
     @Test
     void workspaceFallbackCannotSurviveAChangedOverride()
     {
-        HostingReadSession session = desktop.workspaceSession("workspace", current());
+        HostingReadSession session = credentials.captureWorkspaceHostingRead("workspace", current());
         assertThat(session.access().token()).isEqualTo("desktop-token");
         assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace:workspace-revision:revision-1");
         when(workspaceStore.getSecret("workspace")).thenReturn(Optional.of("override"));
@@ -293,7 +315,7 @@ class TestDesktopHostingService
             return new RemoteHostingAccount("123", "alice");
         });
 
-        assertThatThrownBy(() -> desktop.workspaceSession("workspace", routing)).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> credentials.captureWorkspaceHostingRead("workspace", routing)).isInstanceOf(HostingFailure.class);
         verify(identities, never()).upsertAccount(anyLong(), any());
     }
 

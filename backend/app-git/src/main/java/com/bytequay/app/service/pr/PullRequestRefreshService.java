@@ -58,30 +58,45 @@ public class PullRequestRefreshService
     }
 
     /** Tells an open review what the refresh established, so it can follow a moved head. */
-    private void published(String repo, int number)
+    private void published(PullRequestRead route)
     {
-        events.publishEvent(new PullRequestDetailRefreshed(repo, number, pullRequests.findHeadSha(repo, number)));
+        events.publishEvent(new PullRequestDetailRefreshed(route.repository().fullPath(), route.number(), pullRequests.findHeadSha(route)));
     }
 
     /** Conditionally refreshes one pull request and returns only the data changed by that refresh. */
     public PullRequestDetailRefresh refreshDetail(String repo, int number)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(repo, number);
-        published(repo, number);
+        return refreshDetail(pullRequests.prepareRead(repo, number));
+    }
+
+    public PullRequestDetailRefresh refreshDetail(PullRequestRead route)
+    {
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route);
+        published(route);
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
     public PullRequestDetailRefresh refreshChecks(String repo, int number)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromGitHub(repo, number);
-        published(repo, number);
+        return refreshChecks(pullRequests.prepareRead(repo, number));
+    }
+
+    public PullRequestDetailRefresh refreshChecks(PullRequestRead route)
+    {
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromGitHub(route);
+        published(route);
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
     public PullRequestDetailRefresh refreshOpenedDetail(String repo, int number)
     {
-        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromGitHub(repo, number);
-        published(repo, number);
+        return refreshOpenedDetail(pullRequests.prepareRead(repo, number));
+    }
+
+    public PullRequestDetailRefresh refreshOpenedDetail(PullRequestRead route)
+    {
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromGitHub(route);
+        published(route);
         // Another view may have refreshed the cache while this view was hidden.
         return PullRequestDetailRefresh.full(refresh.detail());
     }
@@ -94,30 +109,46 @@ public class PullRequestRefreshService
     /** Refreshes one pull request as the background warm pass does, then publishes what is stored, a head the pass moved included. */
     public void warmDetail(String repo, int number)
     {
-        pullRequests.refreshPullRequestDetailFromGitHub(repo, number, Duration.ofMinutes(10));
-        published(repo, number);
+        PullRequestRead route = pullRequests.prepareRead(repo, number);
+        pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
+        published(route);
     }
 
     /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
     public PullRequestDetail refreshAllDetail(String repo, int number)
     {
-        PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromGitHub(repo, number);
-        published(repo, number);
+        return refreshAllDetail(pullRequests.prepareRead(repo, number));
+    }
+
+    public PullRequestDetail refreshAllDetail(PullRequestRead route)
+    {
+        PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromGitHub(route);
+        published(route);
         return detail;
     }
 
     /** Refreshes one diff snapshot and returns the newly persisted files. */
     public List<DiffFile> refreshDiffFiles(String repo, int number, String baseSha, String headSha)
     {
-        pullRequests.refreshPullRequestDiffFromGitHub(repo, number, baseSha, headSha);
-        return pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
+        return refreshDiffFiles(pullRequests.prepareRead(repo, number), baseSha, headSha);
+    }
+
+    public List<DiffFile> refreshDiffFiles(PullRequestRead route, String baseSha, String headSha)
+    {
+        pullRequests.refreshPullRequestDiffFromGitHub(route, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFiles(route, baseSha, headSha);
     }
 
     /** Refreshes one file body and returns the newly persisted content. */
     public DiffFileContent refreshDiffFileContent(String repo, int number, String path, String baseSha, String headSha)
     {
-        pullRequests.refreshPullRequestDiffFileContentFromGitHub(repo, number, path, baseSha, headSha);
-        return pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
+        return refreshDiffFileContent(pullRequests.prepareRead(repo, number), path, baseSha, headSha);
+    }
+
+    public DiffFileContent refreshDiffFileContent(PullRequestRead route, String path, String baseSha, String headSha)
+    {
+        pullRequests.refreshPullRequestDiffFileContentFromGitHub(route, path, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFileContent(route, path, baseSha, headSha);
     }
 
     /** Reuses a recent or in-flight dashboard refresh instead of queuing the same GitHub scan again. */

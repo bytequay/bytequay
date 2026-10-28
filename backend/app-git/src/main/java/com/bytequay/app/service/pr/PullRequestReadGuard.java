@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.function.Supplier;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static java.util.Objects.requireNonNull;
 
@@ -36,6 +37,18 @@ final class PullRequestReadGuard
     synchronized Read capture(PullRequestRef ref)
     {
         return capture(state(ref));
+    }
+
+    synchronized Read capture(PullRequestRef ref, String scope)
+    {
+        checkText(scope, "scope");
+        State state = state(ref);
+        state.requireReadable();
+        if (!scope.equals(state.scope)) {
+            state.scope = scope;
+            state.revision++;
+        }
+        return capture(state);
     }
 
     synchronized Read captureRepository(RepoRef repository)
@@ -118,6 +131,7 @@ final class PullRequestReadGuard
     {
         private final boolean ownerReads;
         private long revision;
+        private String scope;
         private Thread writer;
         private int depth;
 

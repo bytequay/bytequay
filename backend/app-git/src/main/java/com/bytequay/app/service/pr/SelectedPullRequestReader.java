@@ -72,31 +72,37 @@ public class SelectedPullRequestReader
     public Read read(String repo, int number, Section section)
     {
         String repository = parseRef(repo, number).repoFullName().toLowerCase(Locale.ROOT);
+        return read(pullRequests.prepareRead(repository, number), section);
+    }
+
+    public Read read(PullRequestRead route, Section section)
+    {
         requireNonNull(section, "section is null");
-        PullRequestReadGuard.Read version = pullRequests.captureRead(repository, number);
-        String scope = pullRequests.prepareRead(repository, number);
+        String repository = route.githubRef().repoFullName().toLowerCase(Locale.ROOT);
+        int number = route.number();
+        PullRequestReadGuard.Read version = pullRequests.captureRead(route);
         Optional<Cached> cached = cached(repository, number);
         if (cached.isPresent() && fresh(cached.orElseThrow(), section) && !incomplete(cached.orElseThrow().stored(), section)) {
-            return pullRequests.withCurrentRead(version, scope, () -> result(cached.orElseThrow(), section, false, false));
+            return pullRequests.withCurrentRead(version, route, () -> result(cached.orElseThrow(), section, false, false));
         }
         try {
             if (section == Section.CHECKS) {
-                refresh.refreshChecks(repository, number);
+                refresh.refreshChecks(route);
             }
             else {
-                refresh.refreshDetail(repository, number);
+                refresh.refreshDetail(route);
             }
             Optional<Cached> updated = cached(repository, number);
             Cached available = updated.or(() -> cached)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request detail has not been refreshed"));
-            return pullRequests.withCurrentRead(version, scope, () -> result(available, section, true, updated.isEmpty()));
+            return pullRequests.withCurrentRead(version, route, () -> result(available, section, true, updated.isEmpty()));
         }
         catch (RuntimeException failure) {
             log.info("Selected PR {}#{} {} refresh failed; cached fallback={}: {}", repository, number, section, cached.isPresent(), failure.getClass().getSimpleName());
             if (cached.isEmpty() || !allowsCachedFallback(failure)) {
                 throw failure;
             }
-            return pullRequests.withCurrentRead(version, scope, () -> result(cached.orElseThrow(), section, true, true));
+            return pullRequests.withCurrentRead(version, route, () -> result(cached.orElseThrow(), section, true, true));
         }
     }
 

@@ -50,6 +50,7 @@ import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
@@ -947,9 +948,10 @@ class TestCiAutofixEndToEnd
                 CredentialStore store,
                 WorkspaceCredentialStore workspaceCredentials,
                 GhCliService ghCli,
-                GitHubAccountClient gitHubAccount)
+                GitHubAccountClient gitHubAccount,
+                HostingConnectionService hosting)
         {
-            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount)
+            return new CredentialService(store, workspaceCredentials, ghCli, gitHubAccount, hosting)
             {
                 @Override
                 public String resolveGitHubToken()

@@ -21,7 +21,7 @@ import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.app.repository.github.actions.CiRerunResult;
 import com.bytequay.app.repository.github.actions.CiWorkflowRun;
 import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
-import com.bytequay.app.service.hosting.DesktopHostingService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.pr.PullRequestReadGuard.Read;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -56,6 +56,7 @@ import java.util.Optional;
 import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -70,16 +71,16 @@ public class PullRequestSnapshotService
 
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubActionsClient actions;
-    private final DesktopHostingService desktop;
+    private final HostingPullRequestService requests;
     private final PrDetailStore details;
     private final PrDiffStore diffs;
     private final PullRequestReadGuard readGuard = new PullRequestReadGuard();
 
-    public PullRequestSnapshotService(GitHubPullRequestReadClient gitHub, GitHubActionsClient actions, DesktopHostingService desktop, PrDetailStore details, PrDiffStore diffs)
+    public PullRequestSnapshotService(GitHubPullRequestReadClient gitHub, GitHubActionsClient actions, HostingPullRequestService requests, PrDetailStore details, PrDiffStore diffs)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
-        this.desktop = requireNonNull(desktop, "desktop is null");
+        this.requests = requireNonNull(requests, "requests is null");
         this.details = requireNonNull(details, "details is null");
         this.diffs = requireNonNull(diffs, "diffs is null");
     }
@@ -87,6 +88,11 @@ public class PullRequestSnapshotService
     Read captureRead(PullRequestRef ref)
     {
         return readGuard.capture(ref);
+    }
+
+    Read captureRead(PullRequestRead route)
+    {
+        return route.withCurrent(() -> readGuard.capture(route.githubRef(), route.scope()));
     }
 
     Read captureRepositoryRead(RepoRef repository)
@@ -107,7 +113,7 @@ public class PullRequestSnapshotService
             }
             finally {
                 try {
-                    desktop.evict(ref.repoFullName(), ref.number());
+                    requests.invalidate(GITHUB_SERVER, ref.repoFullName(), ref.number());
                 }
                 catch (RuntimeException failure) {
                     // Local invalidation cannot turn an accepted write into a retryable publication failure.
@@ -245,14 +251,14 @@ public class PullRequestSnapshotService
         });
     }
 
-    private <T> T readRemote(long prId, String scope, Read version, Supplier<T> read)
+    private <T> T readRemote(long prId, PullRequestRead route, Read version, Supplier<T> read)
     {
         try {
             return read.get();
         }
         catch (RuntimeException failure) {
             if (inaccessible(failure)) {
-                desktop.withCurrent(scope, () -> version.accept(() -> {
+                route.withCurrent(() -> version.accept(() -> {
                     clearRemote(prId);
                     return null;
                 }));
@@ -261,9 +267,9 @@ public class PullRequestSnapshotService
         }
     }
 
-    StoredPrDetail saveMetadata(long prId, PrRawDetail raw, boolean viewerCanWrite, String scope, Read version)
+    StoredPrDetail saveMetadata(long prId, PrRawDetail raw, boolean viewerCanWrite, PullRequestRead route, Read version)
     {
-        return desktop.withCurrent(scope, () -> version.accept(() -> {
+        return route.withCurrent(() -> version.accept(() -> {
             Optional<StoredPrDetail> previous = details.find(prId);
             StoredPrDetail existing = previous.orElseGet(() -> new StoredPrDetail(raw, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                     ImmutableList.of(StoredPrDetail.REVIEWS, StoredPrDetail.TIMELINE, StoredPrDetail.COMMENTS, StoredPrDetail.COMMITS,
@@ -280,46 +286,48 @@ public class PullRequestSnapshotService
             StoredPrDetail stored = new StoredPrDetail(raw, existing.reviews(), existing.timeline(), headChanged ? ImmutableList.of() : existing.checkRuns(),
                     unavailable, viewerCanWrite);
             details.saveMetadata(prId, stored);
-            details.setCredentialScope(prId, scope);
+            details.setCredentialScope(prId, route.scope());
             return stored;
         }));
     }
 
-    StoredPrDetail saveDiscussion(long prId, StoredPrDetail fetched, Instant sourceUpdatedAt, String scope, Read version)
+    StoredPrDetail saveDiscussion(long prId, StoredPrDetail fetched, Instant sourceUpdatedAt, PullRequestRead route, Read version)
     {
-        return desktop.withCurrent(scope, () -> version.accept(() -> {
+        return route.withCurrent(() -> version.accept(() -> {
             details.saveDiscussion(prId, fetched, sourceUpdatedAt);
-            details.setCredentialScope(prId, scope);
+            details.setCredentialScope(prId, route.scope());
             // Partial sources are merged by the store; use the retained successful data too.
             return fetched.reviewsComplete() && fetched.timelineComplete() ? fetched : details.find(prId).orElse(fetched);
         }));
     }
 
-    StoredPrDetail refreshChecks(String pat, PullRequestRef pullRequest, long prId)
+    StoredPrDetail refreshChecks(PullRequestRead route, long prId)
     {
-        return refreshChecks(pat, pullRequest, prId, captureRead(pullRequest));
+        return refreshChecks(route, prId, captureRead(route));
     }
 
-    StoredPrDetail refreshChecks(String pat, PullRequestRef pullRequest, long prId, Read version)
+    StoredPrDetail refreshChecks(PullRequestRead route, long prId, Read version)
     {
-        String scope = desktop.scope(pat);
-        desktop.withCurrent(scope, () -> version.accept(() -> {
-            prepareScope(prId, scope);
+        PullRequestRef pullRequest = route.githubRef();
+        route.withCurrent(() -> version.accept(() -> {
+            prepareScope(prId, route.scope());
             return null;
         }));
-        StoredPrDetail existing = details.find(prId).orElseThrow(() -> missing("Pull request detail"));
+        StoredPrDetail existing = route.withCurrent(() -> version.accept(() -> details.find(prId).orElseThrow(() -> missing("Pull request detail"))));
         PrRawDetail raw = existing.raw();
         if (raw.headSha() == null || raw.headSha().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no head commit for checks");
         }
-        PrCheckRunsFetch checks = readRemote(prId, scope, version, () -> actions.refreshPrCheckRuns(
-                        pat,
+        Optional<String> checksEtag = route.withCurrent(() -> version.accept(() -> details.findCheckRunsEtag(prId)));
+        Optional<String> statusesEtag = route.withCurrent(() -> version.accept(() -> details.findCommitStatusesEtag(prId)));
+        PrCheckRunsFetch checks = readRemote(prId, route, version, () -> actions.refreshPrCheckRuns(
+                        route.githubToken(),
                         pullRequest.owner(),
                         pullRequest.repo(),
                         raw.headSha(),
                         existing.checkRuns(),
-                        details.findCheckRunsEtag(prId),
-                        details.findCommitStatusesEtag(prId)));
+                        checksEtag,
+                        statusesEtag));
         StoredPrDetail stored = new StoredPrDetail(
                 raw,
                 existing.reviews(),
@@ -329,9 +337,9 @@ public class PullRequestSnapshotService
                         .filter(section -> !"checks".equals(section))
                         .collect(ImmutableList.toImmutableList()),
                 existing.viewerCanWrite());
-        return desktop.withCurrent(scope, () -> version.accept(() -> {
+        return route.withCurrent(() -> version.accept(() -> {
             details.saveStatus(prId, stored);
-            details.setCredentialScope(prId, scope);
+            details.setCredentialScope(prId, route.scope());
             // Only a full refresh validates the timeline; a status response must not undo a write's invalidation.
             details.updateStatusEtags(prId, checks.checkRunsEtag(), checks.commitStatusesEtag());
             return stored;
@@ -343,42 +351,44 @@ public class PullRequestSnapshotService
         return raw.baseSha() != null && raw.headSha() != null && diffs.defaultDiffValidated(prId, raw.baseSha(), raw.headSha());
     }
 
-    void refreshDefaultDiff(String pat, PullRequestRef pullRequest, long prId)
+    void refreshDefaultDiff(PullRequestRead route, long prId)
     {
-        refreshDefaultDiff(pat, pullRequest, prId, captureRead(pullRequest));
+        refreshDefaultDiff(route, prId, captureRead(route));
     }
 
-    void refreshDefaultDiff(String pat, PullRequestRef pullRequest, long prId, Read version)
+    void refreshDefaultDiff(PullRequestRead route, long prId, Read version)
     {
-        String scope = desktop.scope(pat);
-        desktop.withCurrent(scope, () -> version.accept(() -> {
-            prepareScope(prId, scope);
+        PullRequestRef pullRequest = route.githubRef();
+        route.withCurrent(() -> version.accept(() -> {
+            prepareScope(prId, route.scope());
             return null;
         }));
-        StoredPrDiff stored = diffs.find(prId, null, null).orElse(EMPTY_DIFF);
-        Optional<PrRawDetail> raw = details.find(prId).map(StoredPrDetail::raw);
+        StoredPrDiff stored = route.withCurrent(() -> version.accept(() -> diffs.find(prId, null, null).orElse(EMPTY_DIFF)));
+        Optional<StoredPrDetail> detail = route.withCurrent(() -> version.accept(() -> details.find(prId)));
+        Optional<PrRawDetail> raw = detail.map(StoredPrDetail::raw);
         if (raw.filter(value -> value.baseSha() != null && value.headSha() != null).isEmpty()) {
-            PrRawDetail fetched = readRemote(prId, scope, version, () -> desktop.refresh(pat, pullRequest, true)).detail();
+            PrRawDetail fetched = readRemote(prId, route, version, () -> requests.refresh(route.session(), route.repository().id(), route.number(), true)).detail();
             if (fetched.baseSha() == null || fetched.headSha() == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no diff commit coordinates");
             }
-            raw = Optional.of(saveMetadata(prId, fetched, details.find(prId).map(StoredPrDetail::viewerCanWrite).orElse(false), scope, version).raw());
+            raw = Optional.of(saveMetadata(prId, fetched, detail.map(StoredPrDetail::viewerCanWrite).orElse(false), route, version).raw());
         }
         Optional<String> baseSha = raw.map(PrRawDetail::baseSha);
         Optional<String> headSha = raw.map(PrRawDetail::headSha);
         boolean sameCoordinates = baseSha.isPresent() && headSha.isPresent() && stored.baseSha().equals(baseSha) && stored.headSha().equals(headSha);
-        PrDiffEtags etags = sameCoordinates ? diffs.findDefaultEtags(prId) : PrDiffEtags.none();
-        ConditionalList<DiffFile> files = readRemote(prId, scope, version, () -> gitHub.fetchPrDiffFiles(pat, pullRequest, stored.files(), etags.files()));
-        ConditionalList<DiffCommit> commits = readRemote(prId, scope, version, () -> gitHub.fetchPrDiffCommits(pat, pullRequest, stored.commits(), etags.commits()));
+        PrDiffEtags etags = sameCoordinates ? route.withCurrent(() -> version.accept(() -> diffs.findDefaultEtags(prId))) : PrDiffEtags.none();
+        ConditionalList<DiffFile> files = readRemote(prId, route, version, () -> gitHub.fetchPrDiffFiles(route.githubToken(), pullRequest, stored.files(), etags.files()));
+        ConditionalList<DiffCommit> commits = readRemote(prId, route, version,
+                () -> gitHub.fetchPrDiffCommits(route.githubToken(), pullRequest, stored.commits(), etags.commits()));
         if (baseSha.isPresent() && headSha.isPresent()) {
             // The default endpoints follow a moving PR. Do not label their bytes with coordinates that moved during retrieval.
-            PrRawDetail verified = readRemote(prId, scope, version, () -> desktop.refresh(pat, pullRequest, true)).detail();
+            PrRawDetail verified = readRemote(prId, route, version, () -> requests.refresh(route.session(), route.repository().id(), route.number(), true)).detail();
             boolean unchanged = baseSha.orElseThrow().equals(verified.baseSha()) && headSha.orElseThrow().equals(verified.headSha());
             if (!unchanged) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request changed while fetching its diff; refresh again");
             }
         }
-        desktop.withCurrent(scope, () -> version.accept(() -> {
+        route.withCurrent(() -> version.accept(() -> {
             diffs.saveDefault(prId, new StoredPrDiff(files.orElse(stored.files()), commits.orElse(stored.commits()),
                             sameCoordinates ? stored.fileContents() : ImmutableMap.of(), baseSha, headSha, Optional.of(Instant.now())),
                     new PrDiffEtags(files.etag(), commits.etag()));
@@ -386,46 +396,47 @@ public class PullRequestSnapshotService
         }));
     }
 
-    void refreshDiff(String pat, PullRequestRef pullRequest, long prId, String baseSha, String headSha)
+    void refreshDiff(PullRequestRead route, long prId, String baseSha, String headSha)
     {
-        Read version = captureRead(pullRequest);
-        String scope = desktop.scope(pat);
-        desktop.withCurrent(scope, () -> version.accept(() -> {
-            prepareScope(prId, scope);
+        PullRequestRef pullRequest = route.githubRef();
+        Read version = captureRead(route);
+        route.withCurrent(() -> version.accept(() -> {
+            prepareScope(prId, route.scope());
             return null;
         }));
         validateRange(baseSha, headSha);
         if (baseSha == null) {
-            refreshDefaultDiff(pat, pullRequest, prId, version);
+            refreshDefaultDiff(route, prId, version);
             return;
         }
-        if (details.find(prId).isEmpty()) {
-            saveMetadata(prId, readRemote(prId, scope, version, () -> desktop.refresh(pat, pullRequest, false)).detail(), false, scope, version);
+        if (route.withCurrent(() -> version.accept(() -> details.find(prId))).isEmpty()) {
+            PrRawDetail fetched = readRemote(prId, route, version, () -> requests.refresh(route.session(), route.repository().id(), route.number(), false)).detail();
+            saveMetadata(prId, fetched, false, route, version);
         }
-        Map<String, DiffFileContent> contents = diffs.find(prId, baseSha, headSha)
+        Map<String, DiffFileContent> contents = route.withCurrent(() -> version.accept(() -> diffs.find(prId, baseSha, headSha)
                 .filter(stored -> stored.baseSha().equals(Optional.of(baseSha)) && stored.headSha().equals(Optional.of(headSha)))
                 .map(StoredPrDiff::fileContents)
-                .orElseGet(ImmutableMap::of);
-        List<DiffFile> files = readRemote(prId, scope, version, () -> gitHub.fetchPrDiffFiles(pat, pullRequest, baseSha, headSha));
+                .orElseGet(ImmutableMap::of)));
+        List<DiffFile> files = readRemote(prId, route, version, () -> gitHub.fetchPrDiffFiles(route.githubToken(), pullRequest, baseSha, headSha));
         StoredPrDiff fetched = new StoredPrDiff(files, ImmutableList.of(), contents,
                 Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now()));
-        desktop.withCurrent(scope, () -> version.accept(() -> {
+        route.withCurrent(() -> version.accept(() -> {
             diffs.save(prId, baseSha, headSha, fetched);
             return null;
         }));
     }
 
-    void refreshFileContent(String pat, PullRequestRef pullRequest, long prId, String path, String baseSha, String headSha)
+    void refreshFileContent(PullRequestRead route, long prId, String path, String baseSha, String headSha)
     {
-        Read version = captureRead(pullRequest);
-        String scope = desktop.scope(pat);
-        desktop.withCurrent(scope, () -> version.accept(() -> {
-            prepareScope(prId, scope);
+        PullRequestRef pullRequest = route.githubRef();
+        Read version = captureRead(route);
+        route.withCurrent(() -> version.accept(() -> {
+            prepareScope(prId, route.scope());
             return null;
         }));
         checkText(path, "path");
         validateRange(baseSha, headSha);
-        StoredPrDiff stored = storedDiff(prId, baseSha, headSha);
+        StoredPrDiff stored = route.withCurrent(() -> version.accept(() -> storedDiff(prId, baseSha, headSha)));
         String contentBase = baseSha == null ? stored.baseSha().orElse(null) : baseSha;
         String contentHead = headSha == null ? stored.headSha().orElse(null) : headSha;
         if (contentBase == null || contentHead == null) {
@@ -434,8 +445,8 @@ public class PullRequestSnapshotService
         if (stored.baseSha().equals(Optional.of(contentBase)) && stored.headSha().equals(Optional.of(contentHead)) && stored.fileContents().containsKey(path)) {
             return;
         }
-        DiffFileContent content = readRemote(prId, scope, version, () -> gitHub.fetchPrDiffFileContent(pat, pullRequest, path, contentBase, contentHead));
-        desktop.withCurrent(scope, () -> version.accept(() -> {
+        DiffFileContent content = readRemote(prId, route, version, () -> gitHub.fetchPrDiffFileContent(route.githubToken(), pullRequest, path, contentBase, contentHead));
+        route.withCurrent(() -> version.accept(() -> {
             if (baseSha == null) {
                 if (!diffs.saveDefaultFileContent(prId, contentBase, contentHead, path, content)) {
                     throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request diff changed while fetching file content; refresh again");

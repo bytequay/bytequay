@@ -49,6 +49,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -63,6 +64,7 @@ class TestSelectedPullRequestDiffReader
     private static final String HEAD = "a".repeat(40);
     private static final DiffFile FILE = new DiffFile("a.txt", "modified", 1, 0, "+line");
 
+    private final PullRequestRead route = PullRequestReadFixture.route(REPO, NUMBER);
     private final PullRequestReadGuard versions = new PullRequestReadGuard();
     private final PullRequestReadGuard.Read version = versions.capture(PullRequestRef.of("owner", "repo", NUMBER));
     private final PullRequestService pullRequests = mock(PullRequestService.class);
@@ -75,9 +77,14 @@ class TestSelectedPullRequestDiffReader
     @BeforeEach
     void credentialScope()
     {
-        lenient().when(pullRequests.captureRead(any(), anyInt())).thenReturn(version);
-        lenient().when(pullRequests.prepareRead(any(), anyInt())).thenReturn("scope");
-        lenient().when(pullRequests.withCurrentRead(eq(version), eq("scope"), any())).thenAnswer(call -> version.accept(call.<Supplier<?>>getArgument(2)));
+        lenient().when(pullRequests.captureRead(any(PullRequestRead.class))).thenReturn(version);
+        lenient().when(pullRequests.cachedRead(REPO, NUMBER)).thenReturn(Optional.of(route));
+        lenient().when(pullRequests.prepareRead(any(), anyInt())).thenAnswer(call -> {
+            String repository = call.getArgument(0);
+            int number = call.getArgument(1);
+            return REPO.equals(repository) && number == NUMBER ? route : PullRequestReadFixture.route(repository, number);
+        });
+        lenient().when(pullRequests.withCurrentRead(eq(version), any(PullRequestRead.class), any())).thenAnswer(call -> version.accept(call.<Supplier<?>>getArgument(2)));
     }
 
     @Test
@@ -101,7 +108,7 @@ class TestSelectedPullRequestDiffReader
     {
         cache(REPO, NUMBER, ImmutableList.of(FILE));
         HostingFailure failure = new HostingFailure(kind, "Access changed");
-        when(refresh.refreshDiffFiles(REPO, NUMBER, null, null)).thenThrow(failure);
+        when(refresh.refreshDiffFiles(route, null, null)).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), true)).isSameAs(failure);
     }
@@ -112,7 +119,7 @@ class TestSelectedPullRequestDiffReader
         cache(REPO, NUMBER, ImmutableList.of(FILE));
         when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)));
         HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Credential changed");
-        when(pullRequests.withCurrentRead(eq(version), eq("scope"), any())).thenThrow(failure);
+        when(pullRequests.withCurrentRead(eq(version), any(PullRequestRead.class), any())).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), false)).isSameAs(failure);
         verifyNoInteractions(refresh);
@@ -144,7 +151,7 @@ class TestSelectedPullRequestDiffReader
     void coldSelectedHydrationReusesDiffPopulatedByThatRefresh()
     {
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.empty(), Optional.of(row(REPO, NUMBER)));
-        when(selected.read(REPO, NUMBER, SelectedPullRequestReader.Section.PR)).thenReturn(hydrated());
+        when(selected.read(route, SelectedPullRequestReader.Section.PR)).thenReturn(hydrated());
         when(diffs.find(ID, null, null)).thenReturn(Optional.of(diff(ImmutableList.of(FILE))));
         when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)));
 
@@ -152,7 +159,7 @@ class TestSelectedPullRequestDiffReader
 
         assertThat(read.files()).containsExactly(FILE);
         assertThat(read.refreshAttempted()).isTrue();
-        verify(selected).read(REPO, NUMBER, SelectedPullRequestReader.Section.PR);
+        verify(selected).read(route, SelectedPullRequestReader.Section.PR);
         verifyNoInteractions(refresh);
     }
 
@@ -161,14 +168,14 @@ class TestSelectedPullRequestDiffReader
     {
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row(REPO, NUMBER)));
         when(diffs.find(ID, null, null)).thenReturn(Optional.empty(), Optional.of(diff(ImmutableList.of(FILE))));
-        when(refresh.refreshDiffFiles(REPO, NUMBER, null, null)).thenReturn(ImmutableList.of());
+        when(refresh.refreshDiffFiles(route, null, null)).thenReturn(ImmutableList.of());
 
         SelectedPullRequestDiffReader.Read read = reader.read(REPO, NUMBER, Optional.empty(), false);
 
         assertThat(read.files()).containsExactly(FILE);
         assertThat(read.refreshAttempted()).isTrue();
         assertThat(read.refreshFailed()).isFalse();
-        verify(refresh).refreshDiffFiles(REPO, NUMBER, null, null);
+        verify(refresh).refreshDiffFiles(route, null, null);
         verifyNoInteractions(selected);
     }
 
@@ -184,7 +191,7 @@ class TestSelectedPullRequestDiffReader
         assertThat(read.files()).containsExactly(changed);
         assertThat(read.refreshAttempted()).isTrue();
         assertThat(read.refreshFailed()).isFalse();
-        verify(refresh).refreshDiffFiles(REPO, NUMBER, null, null);
+        verify(refresh).refreshDiffFiles(route, null, null);
     }
 
     @ParameterizedTest
@@ -194,7 +201,7 @@ class TestSelectedPullRequestDiffReader
         cache(REPO, NUMBER, ImmutableList.of(FILE));
         when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)), Optional.of(detail("b".repeat(40), 2)));
         switch (failure) {
-            case "refresh" -> when(refresh.refreshDiffFiles(REPO, NUMBER, null, null))
+            case "refresh" -> when(refresh.refreshDiffFiles(route, null, null))
                     .thenThrow(new IllegalStateException("Partial write then failed"));
             case "missing" -> when(diffs.find(ID, null, null)).thenReturn(Optional.of(diff(ImmutableList.of(FILE))), Optional.empty());
             case "reread" -> when(diffs.find(ID, null, null)).thenReturn(Optional.of(diff(ImmutableList.of(FILE))))
@@ -221,7 +228,7 @@ class TestSelectedPullRequestDiffReader
     {
         when(pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(row(REPO, NUMBER)));
         ResponseStatusException failure = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Unavailable");
-        when(refresh.refreshDiffFiles(REPO, NUMBER, null, null)).thenThrow(failure);
+        when(refresh.refreshDiffFiles(route, null, null)).thenThrow(failure);
 
         assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), false)).isSameAs(failure);
     }
@@ -241,8 +248,22 @@ class TestSelectedPullRequestDiffReader
         assertThat(read.sourceUpdatedAt()).isEmpty();
         assertThat(read.reportedChangedFiles()).isEmpty();
         verifyNoInteractions(details, selected, refresh);
+        verify(pullRequests).cachedRead(REPO, NUMBER);
+        verify(pullRequests, never()).prepareRead(any(), anyInt());
         verify(pullRequests).findStored(REPO, NUMBER);
         verify(diffs).find(ID, null, null);
+    }
+
+    @Test
+    void continuationWithoutCachedIdentityRequiresRestartWithoutResolvingTheProvider()
+    {
+        when(pullRequests.cachedRead(REPO, NUMBER)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.of("a".repeat(64)), false))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(pullRequests, never()).prepareRead(any(), anyInt());
+        verifyNoInteractions(diffs, details, selected, refresh);
     }
 
     @ParameterizedTest

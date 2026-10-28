@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.service.hosting.DesktopHostingService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
@@ -85,8 +85,8 @@ class TestWorkspaceHostingService
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
             ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests)));
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
-    private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
-    private final DesktopHostingService desktop = mock(DesktopHostingService.class);
+    private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final CredentialService desktop = mock(CredentialService.class);
     private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections, cache, desktop);
 
     @BeforeEach
@@ -156,7 +156,7 @@ class TestWorkspaceHostingService
     @Test
     void unboundWorkspaceUsesItsCapturedCredentialAndStableRepositoryId()
     {
-        when(desktop.workspaceSession(eq("workspace"), any())).thenAnswer(call -> {
+        when(desktop.captureWorkspaceHostingRead(eq("workspace"), any())).thenAnswer(call -> {
             HostingReadSession.Guard guard = call.getArgument(1);
             return new HostingReadSession(20, "workspace-override", 1, new HostingAccess(INSTANCE, () -> guard.withCurrent(() -> "workspace-token")), guard);
         });
@@ -175,7 +175,7 @@ class TestWorkspaceHostingService
     @Test
     void aBindingCreatedDuringLegacyIdentityResolutionRejectsTheRead()
     {
-        when(desktop.workspaceSession(eq("workspace"), any())).thenAnswer(call -> {
+        when(desktop.captureWorkspaceHostingRead(eq("workspace"), any())).thenAnswer(call -> {
             HostingReadSession.Guard guard = call.getArgument(1);
             return new HostingReadSession(20, "workspace-global", 1, new HostingAccess(INSTANCE, () -> guard.withCurrent(() -> "global-token")), guard);
         });

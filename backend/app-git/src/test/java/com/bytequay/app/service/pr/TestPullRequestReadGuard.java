@@ -31,6 +31,24 @@ class TestPullRequestReadGuard
     private final PullRequestReadGuard guard = new PullRequestReadGuard();
 
     @Test
+    void changingAccountsRejectsThePreviousProjectionEvenWhenBothCredentialsRemainValid()
+    {
+        PullRequestReadGuard.Read first = guard.capture(REF, "account-a");
+        PullRequestReadGuard.Read same = guard.capture(REF, "account-a");
+        PullRequestReadGuard.Read unrelated = guard.capture(PullRequestRef.of("owner", "repo", 8), "account-a");
+        assertThat(first.accept(() -> "same account")).isEqualTo("same account");
+
+        PullRequestReadGuard.Read second = guard.capture(REF, "account-b");
+        assertThatThrownBy(() -> first.accept(() -> "old account")).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> same.accept(() -> "old account")).isInstanceOf(HostingFailure.class);
+        PullRequestReadGuard.Read returned = guard.capture(REF, "account-a");
+        assertThatThrownBy(() -> first.accept(() -> "revived account")).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> second.accept(() -> "replaced account")).isInstanceOf(HostingFailure.class);
+        assertThat(returned.accept(() -> "current account")).isEqualTo("current account");
+        assertThat(unrelated.accept(() -> "other request")).isEqualTo("other request");
+    }
+
+    @Test
     void successfulAndFailedWritesInvalidateOnlyTheirRequest()
     {
         PullRequestReadGuard.Read before = guard.capture(REF);

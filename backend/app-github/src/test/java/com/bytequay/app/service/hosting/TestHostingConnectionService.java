@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
@@ -124,6 +125,77 @@ class TestHostingConnectionService
         verify(credentials, never()).save(anyLong(), anyString());
         verify(identities, never()).upsertInstance(any());
         verify(identities, never()).upsertAccount(anyLong(), any());
+    }
+
+    @Test
+    void verifiesAnExternalSessionWithItsConfiguredServerWithoutReplacingTheConnectedToken()
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        when(accounts.verify(any())).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.server()).isEqualTo(server);
+            assertThat(access.token()).isEqualTo("external-token");
+            return new RemoteHostingAccount("42", "alice");
+        });
+        when(identities.upsertInstance(server)).thenReturn(instance);
+        when(identities.upsertAccount(10, new RemoteHostingAccount("42", "alice"))).thenReturn(account);
+        AtomicBoolean active = new AtomicBoolean(true);
+
+        HostingReadSession session = service.verifySession(server, "external-revision", 1, () -> "external-token", guard(active));
+
+        assertThat(service.account(session)).isEqualTo(account);
+        assertThat(session.access().server()).isEqualTo(server);
+        assertThat(session.access().token()).isEqualTo("external-token");
+        assertThat(service.readSession(20).access().token()).isEqualTo("first-secret");
+        verify(credentials, never()).save(anyLong(), anyString());
+
+        active.set(false);
+        assertThatThrownBy(session.access()::token).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> service.account(session)).isInstanceOf(HostingFailure.class);
+    }
+
+    @Test
+    void externalSessionChangeDuringVerificationCannotRetainIdentity()
+    {
+        AtomicBoolean active = new AtomicBoolean(true);
+        when(accounts.verify(any())).thenAnswer(ignored -> {
+            active.set(false);
+            return new RemoteHostingAccount("42", "alice");
+        });
+
+        assertThatThrownBy(() -> service.verifySession(new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl()),
+                "external-revision", 1, () -> "external-token", guard(active))).isInstanceOf(HostingFailure.class);
+        verify(identities, never()).upsertInstance(any());
+        verify(identities, never()).upsertAccount(anyLong(), any());
+        verifyNoInteractions(credentials);
+    }
+
+    @Test
+    void retainedRepositoryLookupIsLocalAndRejectsAmbiguousPaths()
+    {
+        HostingReadSession session = service.readSession(20);
+        HostingRepository repository = storedRepository();
+        HostingRepository previous = new HostingRepository(31, repository.instanceId(), "old-id", repository.fullPath(), repository.webUrl(),
+                repository.httpCloneUrl(), repository.sshCloneUrl(), repository.defaultBranch());
+        when(identities.findRepositories(session.access().server(), repository.fullPath()))
+                .thenReturn(ImmutableList.of(repository), ImmutableList.of(repository, previous), ImmutableList.of());
+
+        assertThat(service.findRepository(session, repository.fullPath())).contains(repository);
+        assertThat(service.findRepository(session, repository.fullPath())).isEmpty();
+        assertThat(service.findRepository(session, repository.fullPath())).isEmpty();
+        verifyNoInteractions(accounts, repositories, requests);
+    }
+
+    @Test
+    void retainedRepositoryLookupRejectsAnotherInstance()
+    {
+        HostingReadSession session = service.readSession(20);
+        HostingRepository other = new HostingRepository(31, 11, "99", "team/project", URI.create("https://another.test/team/project"),
+                URI.create("https://another.test/team/project.git"), Optional.empty(), Optional.empty());
+        when(identities.findRepositories(session.access().server(), other.fullPath())).thenReturn(ImmutableList.of(other));
+
+        assertThatThrownBy(() -> service.findRepository(session, other.fullPath())).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(accounts, repositories, requests);
     }
 
     @Test
@@ -381,6 +453,21 @@ class TestHostingConnectionService
     {
         return new RemoteHostingRepository("99", "team/subgroup/project", URI.create("https://git.company.test/code/team/subgroup/project"),
                 URI.create("https://git.company.test/code/team/subgroup/project.git"), Optional.empty(), Optional.empty());
+    }
+
+    private static HostingReadSession.Guard guard(AtomicBoolean active)
+    {
+        return new HostingReadSession.Guard()
+        {
+            @Override
+            public <T> T withCurrent(Supplier<T> action)
+            {
+                if (!active.get()) {
+                    throw new HostingFailure(REVISION_CONFLICT, "The credential changed");
+                }
+                return action.get();
+            }
+        };
     }
 
     private static HostingRepository storedRepository()

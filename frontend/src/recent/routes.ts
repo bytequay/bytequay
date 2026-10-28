@@ -22,7 +22,7 @@ import { splitRepo } from './model';
  * issue zooms over the page, so reading it never loses your place in Recent; a task or commit is a
  * route to its page.
  */
-export function recentItemTarget(item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId'>, connections: JiraConnection[] = []): ZoomedReference | string | null {
+export function recentItemTarget(item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId' | 'repo' | 'number'>, connections: JiraConnection[] = []): ZoomedReference | string | null {
   if (item.type === 'JIRA') {
     const reference = /^jira:([^:]+):([0-9]+)$/.exec(item.itemKey);
     if (!reference) return null;
@@ -35,15 +35,12 @@ export function recentItemTarget(item: Pick<RecentRowDto, 'type' | 'itemKey' | '
   }
   if (item.type === 'COMMIT') return item.workspaceId ? workspaceRoute(item.workspaceId, 'commits') : null;
 
-  const reference = /^(pr|issue):(.+)#(\d+)$/.exec(item.itemKey);
-  if (!reference) return null;
-  const repo = reference[2];
-  const number = Number(reference[3]);
-  if (!splitRepo(repo) || number < 1) return null;
-  if (item.type === 'PULL_REQUEST' && reference[1] === 'pr') {
+  const { repo, number } = item;
+  if (!repo || !splitRepo(repo) || number === null || number < 1) return null;
+  if (item.type === 'PULL_REQUEST') {
     return { kind: 'pull', repo, number, workspaceId: item.workspaceId ?? undefined };
   }
-  return item.type === 'ISSUE' && reference[1] === 'issue' && item.workspaceId
+  return item.type === 'ISSUE' && item.workspaceId
     ? { kind: 'issue', repo, number, workspaceId: item.workspaceId }
     : null;
 }

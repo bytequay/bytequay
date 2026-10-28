@@ -27,6 +27,7 @@ import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrStateSummary;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrViewState;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RecentItemType;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentText;
@@ -34,6 +35,9 @@ import com.bytequay.core.domain.RecentTextKind;
 import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -45,7 +49,10 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -62,6 +69,7 @@ import java.util.Optional;
 import java.util.Set;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -415,6 +423,44 @@ class TestRecentService
     void ignoresADwellShorterThanTheThreshold()
     {
         assertThat(RecentService.DWELL_THRESHOLD).isEqualTo(Duration.ofSeconds(20));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"DWELL,20", "DIFF_OPENED,0"})
+    void recordsGitLabViewerTouchesWithTheirWorkspaceAndRetainedIdentity(ViewerTouch.Signal signal, int seconds)
+    {
+        RepoRef repository = RepoRef.of("group/subgroup", "repo");
+        String base = "https://gitlab.example.com/gitlab";
+        String url = base + "/" + repository.fullName() + "/-/merge_requests/7";
+        Workspace workspace = new Workspace("gitlab", "Repo", 42, repository, Optional.empty(), Optional.empty(), 42, repository,
+                Workspace.Topology.DIRECT, "main", base + "/" + repository.fullName() + ".git", Optional.empty(), Optional.empty(), "/tmp/repo",
+                Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.of(new HostingServer(GITLAB, URI.create(base), URI.create(base + "/api/v4"))));
+        PullRequest request = new PullRequest(701, repository.fullName(), 7, "Fix selection", "alice", url, NOW, NOW, PullRequest.Origin.OTHER,
+                ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 0, 0, 0, "open", null, null,
+                null, null, null, "feature", null, null, null, null);
+        PullRequestStore pullRequests = mock(PullRequestStore.class);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
+        when(workspaces.findHostingRepositoryId(workspace.id())).thenReturn(Optional.of(99L));
+        when(pullRequests.findByHostingRepository(99, 7)).thenReturn(Optional.of(request));
+        when(pullRequests.findById(701)).thenReturn(Optional.of(request));
+        when(pullRequests.findHostingIdentity(701)).thenReturn(Optional.of(new HostingPullRequest(701, 99, 7, "9001")));
+        RecentTouchRecorder writer = new RecentTouchRecorder(store, pullRequests, details, mock(RepositoryIssueStore.class), workspaces,
+                mock(HostingIdentityStore.class), credentials, CLOCK);
+
+        writer.viewerTouch(new ViewerTouch(RecentItemType.PULL_REQUEST, repository.fullName(), 7, workspace.id(), ViewerTouch.Signal.DWELL, 19));
+        assertThat(service.stream(everything(), null).rows()).isEmpty();
+        writer.viewerTouch(new ViewerTouch(RecentItemType.PULL_REQUEST, repository.fullName(), 7, workspace.id(), signal, seconds));
+
+        assertThat(service.stream(everything(), null).rows()).singleElement().satisfies(row -> {
+            assertThat(row.itemKey()).isEqualTo("pr:701");
+            assertThat(row.workspaceId()).isEqualTo(workspace.id());
+            assertThat(row.repo()).isEqualTo(repository.fullName());
+            assertThat(row.number()).isEqualTo(7);
+            assertThat(row.title()).isEqualTo(request.title());
+            assertThat(row.htmlUrl()).isEqualTo(url);
+            assertThat(row.reason()).isEqualTo(RecentReason.READ);
+        });
+        verify(pullRequests, never()).findIdByRepoAndNumber(repository.fullName(), 7);
     }
 
     @Test

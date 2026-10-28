@@ -487,7 +487,7 @@ function AppContent() {
     if (current) navigateTo(workspaceIssueRoute(current.id, number), mode);
   }, [navigateTo]);
 
-  const openRecentItem = async (item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId' | 'htmlUrl'>, textId: string | null) => {
+  const openRecentItem = async (item: Pick<RecentRowDto, 'type' | 'itemKey' | 'workspaceId' | 'htmlUrl' | 'repo' | 'number'>, textId: string | null) => {
     setPaletteOpen(false);
     const connections = item.type === 'JIRA' ? await window.bridge.listJiraConnections().catch((): JiraConnection[] => []) : [];
     const target = recentItemTarget(item, connections);

@@ -114,6 +114,21 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await view.click('Tickets');
     assert(!view.requests[2].query.types?.length, 'Toggling Tickets off must request every type');
   });
+  await check('displays and reopens a GitLab merge request with its workspace identity', async view => {
+    const page = dayPage(today, 1);
+    page.rows[0] = {
+      ...page.rows[0], itemKey: 'pr:42', number: 7, repo: 'group/subgroup/project', workspaceId: 'gitlab-workspace',
+      title: 'Fix project search', htmlUrl: 'https://gitlab.example.com/group/subgroup/project/-/merge_requests/7',
+    };
+    await view.resolve(0, page);
+    const row = element<HTMLElement>('.rc-row', view.host);
+    assert(row.textContent?.includes('Fix project search') && row.textContent.includes('#7'), 'The shared stream must display the GitLab MR');
+    row.click();
+    await settle();
+    assert(JSON.stringify(view.openedTargets) === JSON.stringify([{
+      kind: 'pull', repo: 'group/subgroup/project', number: 7, workspaceId: 'gitlab-workspace',
+    }]), 'Opening the MR must retain its repository and workspace instead of parsing the local cache key');
+  });
   await check('records the ticket being left and stops dwell while covered', async () => {
     const reports: Array<{ id: string; seconds: number }> = [];
     Object.defineProperty(window, 'bridge', { configurable: true, value: {

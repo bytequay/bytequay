@@ -10,3 +10,5 @@
 .hosting-form button { justify-self: start; }
 .hosting-cli-setup { display: grid; gap: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
 .hosting-cli-setup h2 { margin: 0; font-size: 15px; }
+
+.hosting-watch-accounts { padding: 0 20px 16px; }

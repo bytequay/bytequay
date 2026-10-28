@@ -1765,6 +1765,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   installGitLabCli: () => Promise<GitLabCliStatusDto>;
   disconnectHostingAccount: (accountId: number) => Promise<void>;
   resolveHostingRepository: (accountId: number, fullPath: string) => Promise<HostingRepositoryDto>;
+  searchHostingRepositories: (accountId: number, query: string, limit: number) => Promise<HostingRepositoryDto[]>;
   createHostingWorkspace: (accountId: number, repositoryId: number) => Promise<WorkspaceDto>;
   getWorkspaceHosting: (workspaceId: string) => Promise<WorkspaceHostingBindingDto | null>;
   setWorkspaceHosting: (workspaceId: string, accountId: number) => Promise<WorkspaceHostingBindingDto>;

@@ -11,37 +11,71 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import RepoAvatar from '../RepoAvatar';
+import { Clickable } from '../cards/Card';
 import type { HostingConnectionDto, HostingRepositoryDto, WorkspaceDto } from '../types';
 import GitLabAccounts from './GitLabAccounts';
 
 export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { initialWorkspace?: WorkspaceDto; onAdded: (workspace: WorkspaceDto) => void }) {
   const [account, setAccount] = useState<HostingConnectionDto | null>(null);
-  const [path, setPath] = useState(initialWorkspace ? `${initialWorkspace.selectedOwner}/${initialWorkspace.selectedRepo}` : '');
-  const [repository, setRepository] = useState<HostingRepositoryDto | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [query, setQuery] = useState(initialWorkspace ? `${initialWorkspace.selectedOwner}/${initialWorkspace.selectedRepo}` : '');
+  const [repositories, setRepositories] = useState<HostingRepositoryDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  return <div className="hosting-panel">
-    <GitLabAccounts selected={account?.account.id} server={initialWorkspace?.hostingServer ?? undefined} onSelect={value => { setAccount(value); setRepository(null); setError(null); }} />
-    {account !== null && <form className="hosting-form" onSubmit={event => {
-      event.preventDefault(); if (busy) return;
-      setBusy(true); setError(null);
-      void window.bridge.resolveHostingRepository(account.account.id, path.trim()).then(setRepository)
-        .catch(failure => setError(failure instanceof Error ? failure.message : String(failure))).finally(() => setBusy(false));
-    }}>
-      <label>Project path<input aria-label="GitLab project path" required placeholder="group/subgroup/project" value={path} disabled={busy}
-        onChange={event => { setPath(event.target.value); setRepository(null); }} /></label>
-      <button className="setw-btn" type="submit" disabled={busy || path.trim() === ''}>{busy ? 'Checking…' : 'Find project'}</button>
-    </form>}
-    {repository !== null && account !== null && <div className="hosting-form">
-      <strong>{repository.fullPath}</strong><p>{account.instance.webBaseUrl} · {repository.defaultBranch ?? 'No default branch'}</p>
-      <p>ByteQuay will clone this project directly using {account.account.login}. Merge-request review and delivery are not available yet.</p>
-      <button type="button" className="setw-btn-primary" disabled={busy || repository.defaultBranch === null} onClick={() => {
-        setBusy(true); setError(null);
-        void window.bridge.createHostingWorkspace(account.account.id, repository.id).then(onAdded)
-          .catch(failure => setError(failure instanceof Error ? failure.message : String(failure))).finally(() => setBusy(false));
-      }}>{busy ? 'Creating workspace…' : 'Create workspace'}</button>
-    </div>}
-    {error !== null && <p role="alert" className="setw-error">{error}</p>}
-  </div>;
+  const selectAccount = useCallback((value: HostingConnectionDto) => {
+    setAccount(value); setRepositories([]); setLoading(true); setError(null);
+  }, []);
+
+  useEffect(() => {
+    if (account === null) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setLoading(true); setError(null);
+      void window.bridge.searchHostingRepositories(account.account.id, query.trim(), 30)
+        .then(rows => { if (!cancelled) setRepositories(rows); })
+        .catch(failure => { if (!cancelled) { setRepositories([]); setError(failure instanceof Error ? failure.message : String(failure)); } })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 250);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [account, query]);
+
+  const watch = async (repository: HostingRepositoryDto) => {
+    if (account === null || adding !== null) return;
+    if (repository.defaultBranch === null) { setError('This project has no default branch yet.'); return; }
+    setAdding(repository.id); setError(null);
+    try { onAdded(await window.bridge.createHostingWorkspace(account.account.id, repository.id)); }
+    catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    finally { setAdding(null); }
+  };
+
+  return <>
+    <div className="hosting-watch-accounts">
+      <GitLabAccounts selected={account?.account.id} server={initialWorkspace?.hostingServer ?? undefined} onSelect={selectAccount} autoSelectFirst disabled={adding !== null} />
+    </div>
+    {account !== null && <>
+      <div className="modal__search-row">
+        <input className="modal__search" aria-label="Search GitLab projects" placeholder="Search GitLab projects…" autoFocus
+          value={query} disabled={adding !== null} onChange={event => setQuery(event.target.value)} />
+      </div>
+      {error !== null && <div role="alert" className="modal__empty">{error}</div>}
+      <div className="modal__list">
+        {loading ? <div className="modal__loading" role="status">Searching…</div> : repositories.map(repository => {
+          const slash = repository.fullPath.lastIndexOf('/');
+          return <Clickable className="modal-repo-row" key={repository.id} label={`Watch ${repository.fullPath}`} onOpen={() => { void watch(repository); }}>
+            <RepoAvatar owner={repository.fullPath.slice(0, slash)} repo={repository.fullPath.slice(slash + 1)} size={28} radius={7} github={false} />
+            <div className="modal-repo-row__text">
+              <div className="modal-repo-row__head"><span className="modal-repo-row__name">{repository.fullPath}</span></div>
+              <div className="modal-repo-row__meta">{repository.defaultBranch === null ? 'No default branch' : `branch ${repository.defaultBranch}`}</div>
+            </div>
+            <span className="modal-repo-row__pill">{adding === repository.id ? 'Watching…' : 'Watch'}</span>
+          </Clickable>;
+        })}
+        {!loading && repositories.length === 0 && error === null && <div className="modal__empty">
+          {query.trim() === '' ? 'No matching repositories.' : `No repository matches “${query.trim()}”.`}
+        </div>}
+      </div>
+    </>}
+  </>;
 }

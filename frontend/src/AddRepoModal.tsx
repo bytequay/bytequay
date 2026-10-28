@@ -280,15 +280,13 @@ export default function AddRepoModal({ defaultProvider = 'GITHUB', initialReposi
           <button type="button" aria-pressed={provider === 'GITHUB'} onClick={() => setProvider('GITHUB')}>GitHub</button>
           <button type="button" aria-pressed={provider === 'GITLAB'} onClick={() => setProvider('GITLAB')}>GitLab</button>
         </div>}
-        {provider === 'GITLAB' && <><div className="modal__header"><h2 className="modal__title">Create GitLab workspace</h2>
-          <button className="modal__close" aria-label="Close" onClick={onClose} type="button">✕</button></div>
-          <GitLabWorkspaceSetup initialWorkspace={initialWorkspace} onAdded={workspace => { onAdded(workspace); onClose(); }} /></>}
+        {selectedRepositoryId === null && <div className="modal__header">
+          <h2 className="modal__title">Watch a repository</h2>
+          <button className="modal__close" aria-label="Close" onClick={onClose} type="button">✕</button>
+        </div>}
+        {provider === 'GITLAB' && <GitLabWorkspaceSetup initialWorkspace={initialWorkspace} onAdded={workspace => { onAdded(workspace); onClose(); }} />}
         {provider === 'GITHUB' && selectedRepositoryId === null && (
           <>
-            <div className="modal__header">
-              <h2 className="modal__title">Watch a repository</h2>
-              <button className="modal__close" aria-label="Close" onClick={onClose} type="button">✕</button>
-            </div>
             <div className="modal__search-row">
               <input
                 ref={inputRef}

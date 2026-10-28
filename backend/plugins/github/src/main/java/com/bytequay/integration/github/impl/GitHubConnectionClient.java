@@ -20,15 +20,23 @@ import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 public final class GitHubConnectionClient
         implements HostingAccounts, HostingRepositories
@@ -54,6 +62,35 @@ public final class GitHubConnectionClient
     }
 
     @Override
+    public List<RemoteHostingRepository> search(HostingAccess access, String query, int limit)
+    {
+        checkArgument(limit > 0 && limit <= 30, "limit must be between 1 and 30");
+        if (query.matches("[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")) {
+            try {
+                return ImmutableList.of(findByPath(access, query));
+            }
+            catch (HostingFailure failure) {
+                if (failure.kind() != MISSING_OR_INACCESSIBLE) {
+                    throw failure;
+                }
+                return ImmutableList.of();
+            }
+        }
+        GitHubRepositoryResponse[] repositories;
+        if (query.isEmpty()) {
+            repositories = http.get(access, "user/repos?sort=updated&per_page=" + limit, GitHubRepositoryResponse[].class);
+        }
+        else {
+            String path = "search/repositories?q=" + URLEncoder.encode(query + " in:name", StandardCharsets.UTF_8) + "&per_page=" + limit;
+            repositories = http.get(access, path, SearchResponse.class).items();
+            if (repositories == null) {
+                throw new HostingFailure(INVALID_RESPONSE, "GitHub returned no repository search results");
+            }
+        }
+        return Arrays.stream(repositories).limit(limit).map(repository -> repository(access, repository, Optional.empty())).collect(toImmutableList());
+    }
+
+    @Override
     public RemoteHostingRepository findByPath(HostingAccess access, String fullPath)
     {
         return repository(access, GitHubHttpClient.repositoryPath(fullPath), Optional.empty());
@@ -69,6 +106,11 @@ public final class GitHubConnectionClient
     private RemoteHostingRepository repository(HostingAccess access, String path, Optional<String> expectedId)
     {
         GitHubRepositoryResponse repository = http.get(access, path, GitHubRepositoryResponse.class);
+        return repository(access, repository, expectedId);
+    }
+
+    private static RemoteHostingRepository repository(HostingAccess access, GitHubRepositoryResponse repository, Optional<String> expectedId)
+    {
         try {
             checkArgument(repository.id() != null && repository.id() > 0, "repository id must be positive");
             String remoteId = Long.toString(repository.id());
@@ -82,8 +124,11 @@ public final class GitHubConnectionClient
             return new RemoteHostingRepository(remoteId, fullPath, webUrl, cloneUrl,
                     Optional.ofNullable(repository.sshUrl()).filter(value -> !value.isBlank()), Optional.ofNullable(repository.defaultBranch()).filter(value -> !value.isBlank()));
         }
-        catch (IllegalArgumentException e) {
+        catch (IllegalArgumentException | NullPointerException e) {
             throw new HostingFailure(INVALID_RESPONSE, "GitHub returned invalid repository coordinates");
         }
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record SearchResponse(GitHubRepositoryResponse[] items) {}
 }

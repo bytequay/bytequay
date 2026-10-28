@@ -106,6 +106,15 @@ public class HostingConnectionService
         return resolveRepository(readSession(accountId), fullPath);
     }
 
+    public List<HostingRepository> searchRepositories(long accountId, String query, int limit)
+    {
+        checkArgument(limit > 0 && limit <= 30, "limit must be between 1 and 30");
+        HostingAccess access = readSession(accountId).access();
+        return integration(access.server().provider()).repositories().search(access, query.strip(), limit).stream()
+                .map(repository -> identities.upsertRepository(access.instanceId().orElseThrow(), repository))
+                .collect(toImmutableList());
+    }
+
     public HostingRepository resolveRepositoryById(long accountId, String remoteId)
     {
         return resolveRepositoryById(readSession(accountId), remoteId);

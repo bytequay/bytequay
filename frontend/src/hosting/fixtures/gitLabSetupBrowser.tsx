@@ -18,7 +18,7 @@ import AddRepoModal from '../../AddRepoModal';
 import { assert, button, changeInput, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import SettingsWindow from '../../settings/SettingsWindow';
-import type { AppPreferencesDto, Bridge, HostingConnectionDto, HostingServerDto, WorkspaceDto } from '../../types';
+import type { AppPreferencesDto, Bridge, HostingConnectionDto, HostingRepositoryDto, HostingServerDto, WorkspaceDto } from '../../types';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
 import { GitLabConnectionForm } from '../GitLabAccounts';
@@ -32,6 +32,10 @@ const account = (id: number, server = SERVER): HostingConnectionDto => ({
 });
 const WORKSPACE = workspaceFixture({ hostingServer: SERVER, name: 'group/subgroup/project', selectedOwner: 'group/subgroup',
   monitoredOwner: 'group/subgroup', lastCodeSyncAt: '2026-10-01T00:00:00Z' });
+const repository = (id = 8, server = SERVER, fullPath = 'group/subgroup/project'): HostingRepositoryDto => ({
+  id, instanceId: 1, remoteId: '42', fullPath, webUrl: `${server.webBaseUrl}/${fullPath}`,
+  httpCloneUrl: `${server.webBaseUrl}/${fullPath}.git`, sshCloneUrl: null, defaultBranch: 'main',
+});
 const preferences: AppPreferencesDto = { theme: 'SYSTEM', taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30, autoMergeDelayMinutes: 60 };
 
 function select(host: HTMLElement, id: number) {
@@ -175,10 +179,10 @@ export async function run() {
         assert(token.value === '', 'Submitted token remains visible');
       } finally { view.dispose(); }
     }],
-    ['Connect a private GitLab server, resolve a nested project, and open its workspace without GitHub calls', async () => {
+    ['Connect a private GitLab server, search a nested project, and watch it without GitHub calls', async () => {
       const view = createFixtureRoot();
       const requests: (HostingServerDto & { token: string })[] = [];
-      const resolved: { accountId: number; path: string }[] = [];
+      const searches: { accountId: number; query: string }[] = [];
       const created: { accountId: number; repositoryId: number }[] = [];
       const bridge: Partial<Bridge> = {
         ...createPreviewBridge(WORKSPACE.id),
@@ -189,11 +193,7 @@ export async function run() {
         getGitLabCliStatus: readyCli,
         listHostingAccounts: async () => [],
         connectHostingAccount: async request => { requests.push(request); return account(1, request); },
-        resolveHostingRepository: async (accountId, path) => {
-          resolved.push({ accountId, path });
-          return { id: 8, instanceId: 1, remoteId: '42', fullPath: path, webUrl: `${SERVER.webBaseUrl}/${path}`,
-            httpCloneUrl: `${SERVER.webBaseUrl}/${path}.git`, sshCloneUrl: null, defaultBranch: 'main' };
-        },
+        searchHostingRepositories: async (accountId, query) => { searches.push({ accountId, query }); return query === '' ? [] : [repository()]; },
         createHostingWorkspace: async (accountId, repositoryId) => { created.push({ accountId, repositoryId }); return WORKSPACE; },
       };
       window.bridge = bridge as Bridge;
@@ -211,16 +211,75 @@ export async function run() {
         changeInput(element<HTMLInputElement>('[aria-label="GitLab server"]', view.host), `${SERVER.webBaseUrl}/`);
         changeInput(element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host), 'private-token');
         await settle(); button('Connect GitLab', view.host).click();
-        await until(() => view.host.querySelector('[aria-label="GitLab project path"]') !== null, 'Connected account was not selected');
+        await until(() => view.host.querySelector('[aria-label="Search GitLab projects"]') !== null, 'Connected account was not selected');
         assert(requests[0].webBaseUrl === SERVER.webBaseUrl && requests[0].apiBaseUrl === SERVER.apiBaseUrl, 'Private port or prefix was lost');
-        changeInput(element<HTMLInputElement>('[aria-label="GitLab project path"]', view.host), 'group/subgroup/project');
-        await settle(); button('Find project', view.host).click();
-        await until(() => view.host.textContent?.includes('clone this project directly') === true, 'Project preview did not load');
-        button('Create workspace', view.host).click();
+        changeInput(element<HTMLInputElement>('[aria-label="Search GitLab projects"]', view.host), 'group/subgroup/project');
+        await until(() => view.host.querySelector('.modal-repo-row') !== null, 'Project search did not return a row');
+        element<HTMLElement>('.modal-repo-row', view.host).click();
         await until(() => view.host.querySelector('.agt-home') !== null, 'Created workspace did not open');
-        assert(resolved[0].accountId === 1 && resolved[0].path === 'group/subgroup/project', 'Resolve did not use selected account and full project path');
+        assert(searches.some(value => value.accountId === 1 && value.query === 'group/subgroup/project'), 'Search lost the selected account or full project path');
         assert(created[0].accountId === 1 && created[0].repositoryId === 8, 'Create did not use the resolved project');
         assert(view.host.textContent?.includes('Needs attention') === true && view.host.textContent?.includes('Open tasks') === true, 'GitLab must render the existing Home');
+      } finally { view.dispose(); }
+    }],
+    ['Select the first connected account automatically and watch a project by name', async () => {
+      for (const count of [1, 2]) {
+        const view = createFixtureRoot();
+        const searches: { accountId: number; query: string }[] = [];
+        const created: number[] = [];
+        const publicServer: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' };
+        const rows = [account(1, publicServer), ...(count === 2 ? [account(2)] : [])];
+        window.bridge = {
+          listHostingAccounts: async () => [{ ...account(9), connected: false }, ...rows],
+          searchHostingRepositories: async (accountId, query, limit) => {
+            assert(limit === 30, 'Search limit differs from GitHub'); searches.push({ accountId, query });
+            return query === '' ? [] : [repository(8, publicServer)];
+          },
+          createHostingWorkspace: async (accountId, repositoryId) => { created.push(accountId, repositoryId); return WORKSPACE; },
+        } as Partial<Bridge> as Bridge;
+        let added = false;
+        try {
+          flushSync(() => view.root.render(<AddRepoModal defaultProvider="GITLAB" onAdded={() => { added = true; }} onClose={() => {}} onOpenWorkspace={() => {}} />));
+          await until(() => searches.length === 1, 'First connected account was not selected');
+          assert(element<HTMLSelectElement>('[aria-label="GitLab account"]', view.host).value === '1', 'Selected account was not filled in');
+          assert(searches[0].accountId === 1 && searches[0].query === '', 'Opening search must list the selected account projects');
+          assert(view.host.querySelector('h2')?.textContent === 'Watch a repository', 'Watch header should match GitHub');
+          assert(!view.host.textContent?.includes('Create GitLab workspace') && !view.host.textContent?.includes('Find project'), 'Extra creation step is still present');
+          changeInput(element<HTMLInputElement>('[aria-label="Search GitLab projects"]', view.host), 'project');
+          await until(() => view.host.querySelector('.modal-repo-row') !== null, 'Typing a project name did not search');
+          assert(searches.length === 2 && searches[1].query === 'project' && created.length === 0, 'Typing must search without creating a workspace');
+          element<HTMLElement>('.modal-repo-row', view.host).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+          await until(() => added, 'Watching a result did not create the workspace');
+          assert(created.join(',') === '1,8', 'Watching lost its account or repository identity');
+        } finally { view.dispose(); }
+      }
+    }],
+    ['Switch accounts for project search and recover from empty results or errors', async () => {
+      const view = createFixtureRoot();
+      const searches: { accountId: number; query: string }[] = [];
+      window.bridge = {
+        listHostingAccounts: async () => [account(1), account(2)],
+        searchHostingRepositories: async (accountId, query) => {
+          searches.push({ accountId, query });
+          if (query === 'failure') throw new Error('Project search failed');
+          return query === 'project' ? [repository()] : [];
+        },
+      } as Partial<Bridge> as Bridge;
+      try {
+        flushSync(() => view.root.render(<AddRepoModal initialWorkspace={WORKSPACE} onAdded={() => {}} onClose={() => {}} onOpenWorkspace={() => {}} />));
+        await until(() => searches.length === 1, 'Default account did not load');
+        assert(searches[0].query === 'group/subgroup/project', 'Watching an existing workspace lost its nested project path');
+        select(view.host, 2);
+        await until(() => searches.length === 2, 'Changing the account did not refresh projects');
+        assert(searches[1].accountId === 2, 'Search reused the first account');
+        const field = element<HTMLInputElement>('[aria-label="Search GitLab projects"]', view.host);
+        changeInput(field, 'missing');
+        await until(() => view.host.textContent?.includes('No repository matches “missing”.') === true, 'Empty search was not shown');
+        changeInput(field, 'failure');
+        await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Project search failed', 'Search failure was not shown');
+        changeInput(field, 'project');
+        await until(() => view.host.querySelector('.modal-repo-row') !== null, 'Search did not recover');
+        assert(view.host.querySelector('[role="alert"]') === null && searches.at(-1)?.accountId === 2, 'Recovery lost the selected account');
       } finally { view.dispose(); }
     }],
     ['Workspace settings switch only between accounts on the same GitLab server', async () => {

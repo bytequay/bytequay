@@ -132,10 +132,10 @@ GitLab normally, create the token, then paste it into ByteQuay and choose
 **Connect GitLab**. If your server does not preselect the permissions, select
 `api` yourself before generating the token.
 
-Enter the full **Project path**, such as `group/subgroup/project`, and choose
-**Find project**. Check the account, server and project, then choose **Create
-workspace**. ByteQuay creates a direct HTTPS clone using that account. **Sync
-workspace** fetches updates; **Choose GitLab account** switches accounts on the
+The first connected GitLab account is selected automatically. Type a project
+name or full path, such as `group/subgroup/project`, to search, then choose
+**Watch** on the project. ByteQuay creates a direct HTTPS clone using that account.
+**Sync workspace** fetches updates; **Choose GitLab account** switches accounts on the
 same server. Accounts can also be connected or disconnected in **Settings →
 Integrations → GitLab**.
 

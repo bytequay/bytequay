@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import type { GitLabCliStatusDto, HostingConnectionDto, HostingServerDto } from '../types';
+import '../css/settings-window.css';
 import './hosting.css';
 
 export function GitLabConnectionForm({ server, onConnected }: {
@@ -94,9 +95,11 @@ export function GitLabConnectionForm({ server, onConnected }: {
   </form>;
 }
 
-export default function GitLabAccounts({ selected, server, onSelect }: {
+export default function GitLabAccounts({ selected, server, onSelect, autoSelectFirst = false, disabled = false }: {
   selected?: number;
   server?: HostingServerDto;
+  autoSelectFirst?: boolean;
+  disabled?: boolean;
   onSelect: (account: HostingConnectionDto) => void | Promise<void>;
 }) {
   const [accounts, setAccounts] = useState<HostingConnectionDto[]>([]);
@@ -111,6 +114,12 @@ export default function GitLabAccounts({ selected, server, onSelect }: {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
+  useEffect(() => {
+    if (!autoSelectFirst || selected !== undefined) return;
+    const first = accounts.find(account => account.connected && account.instance.provider === 'GITLAB' && (server === undefined
+      || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
+    if (first) void Promise.resolve(onSelect(first)).catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+  }, [accounts, autoSelectFirst, selected, server, onSelect]);
   const choices = accounts.filter(account => account.instance.provider === 'GITLAB' && (server === undefined
     || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
   const choose = async (account: HostingConnectionDto) => {
@@ -121,7 +130,7 @@ export default function GitLabAccounts({ selected, server, onSelect }: {
   };
   return <div className="hosting-accounts">
     {loading ? <p role="status">Loading GitLab accounts…</p> : <>
-      {choices.length > 0 && <label>GitLab account<select aria-label="GitLab account" value={selected ?? ''} disabled={busy}
+      {choices.length > 0 && <label>GitLab account<select aria-label="GitLab account" value={selected ?? ''} disabled={busy || disabled}
         onChange={event => { const account = choices.find(row => row.account.id === Number(event.target.value)); if (account) void choose(account); }}>
         <option value="" disabled>Choose an account</option>
         {choices.map(account => <option key={account.account.id} value={account.account.id} disabled={!account.connected}>
@@ -130,7 +139,7 @@ export default function GitLabAccounts({ selected, server, onSelect }: {
       </select></label>}
       {(adding || choices.length === 0) ? <GitLabConnectionForm server={server} onConnected={account => {
         setAccounts(rows => [...rows.filter(row => row.account.id !== account.account.id), account]); setAdding(false); void choose(account);
-      }} /> : <button type="button" className="setw-link" onClick={() => setAdding(true)}>Add or reconnect a GitLab account</button>}
+      }} /> : <button type="button" className="setw-link" disabled={disabled} onClick={() => setAdding(true)}>Add or reconnect a GitLab account</button>}
     </>}
     {error !== null && <p className="setw-error" role="alert">{error}</p>}
   </div>;

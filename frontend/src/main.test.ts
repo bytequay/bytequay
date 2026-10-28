@@ -303,6 +303,17 @@ it.each(['pat:save', 'pat:delete', 'github:cli-import'])('invalidates every wind
   desktop.accountNotifications.forEach(send => expect(send).not.toHaveBeenCalled());
 });
 
+it('searches hosting projects with the selected account and encoded query', async () => {
+  await startMain();
+  const fetch = vi.fn(async (_url: string | URL) => new Response('[]', { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+
+  await expect(desktop.handlers.get('hosting:repositories:search')?.({}, 7, 'group/project & tools', 30)).resolves.toEqual([]);
+
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(String(fetch.mock.calls[0][0])).toBe('http://127.0.0.1:9527/api/hosting/accounts/7/repositories?query=group%2Fproject+%26+tools&limit=30');
+});
+
 it('reads activity titles through the local stored-PR endpoint without an import IPC', async () => {
   await startMain();
   const fetch = vi.fn(async (_url: string | URL) => new Response('null', { headers: { 'Content-Type': 'application/json' } }));

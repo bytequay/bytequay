@@ -403,6 +403,36 @@ class TestHostingController
     }
 
     @Test
+    void searchesProjectsForTheSelectedAccount()
+            throws Exception
+    {
+        HostingRepository repository = new HostingRepository(11, 3, "42", "group/subgroup/project", URI.create(WEB + "/group/subgroup/project"),
+                URI.create(WEB + "/group/subgroup/project.git"), Optional.empty(), Optional.of("main"));
+        when(connections.searchRepositories(7, "project & tools", 10)).thenReturn(ImmutableList.of(repository));
+
+        mvc(connections).perform(get("/api/hosting/accounts/7/repositories").header(SESSION_HEADER, SESSION)
+                        .param("query", "project & tools").param("limit", "10"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(11))
+                .andExpect(jsonPath("$[0].fullPath").value("group/subgroup/project"))
+                .andExpect(jsonPath("$[0].webUrl").value(WEB + "/group/subgroup/project"));
+
+        verify(connections).searchRepositories(7, "project & tools", 10);
+    }
+
+    @Test
+    void listsProjectsWithDefaultSearchParameters()
+            throws Exception
+    {
+        when(connections.searchRepositories(7, "", 30)).thenReturn(ImmutableList.of());
+
+        mvc(connections).perform(get("/api/hosting/accounts/7/repositories").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk()).andExpect(jsonPath("$").isEmpty());
+
+        verify(connections).searchRepositories(7, "", 30);
+    }
+
+    @Test
     void disconnectsOnlyTheSelectedCredentialAndRetainsItsIdentity()
             throws Exception
     {

@@ -124,6 +124,33 @@ class TestGitHubIntegration
     }
 
     @Test
+    void searchesRepositoryNamesAndListsAccountRepositories()
+    {
+        serve("/api/v3/search/repositories", 200, "{\"items\":[" + REPOSITORY_RESPONSE + "]}", ImmutableMap.of());
+        serve("/api/v3/user/repos", 200, "[" + REPOSITORY_RESPONSE + "]", ImmutableMap.of());
+
+        assertThat(integration.repositories().search(access, "project & tools", 10)).singleElement()
+                .satisfies(found -> assertThat(found.remoteId()).isEqualTo("42"));
+        assertThat(request.get().query()).contains("q=project+%26+tools+in%3Aname&per_page=10");
+        assertThat(request.get().authorization()).isEqualTo("Bearer private-token");
+
+        assertThat(integration.repositories().search(access, "", 10)).hasSize(1);
+        assertThat(request.get().path()).isEqualTo("/api/v3/user/repos");
+        assertThat(request.get().query()).contains("sort=updated&per_page=10");
+    }
+
+    @Test
+    void searchResolvesQualifiedPathsAndReturnsNoMatchForMissingRepositories()
+    {
+        serve("/api/v3/repos/bytequay/bytequay", 200, REPOSITORY_RESPONSE, ImmutableMap.of());
+        serve("/api/v3/repos/owner/missing", 404, "{}", ImmutableMap.of());
+
+        assertThat(integration.repositories().search(access, "bytequay/bytequay", 30)).hasSize(1);
+        assertThat(request.get().path()).isEqualTo("/api/v3/repos/bytequay/bytequay");
+        assertThat(integration.repositories().search(access, "owner/missing", 30)).isEmpty();
+    }
+
+    @Test
     void resolvesARenamedRepositoryByIdUnderTheConfiguredApiPrefix()
     {
         serve("/api/v3/repositories/42", 200, REPOSITORY_RESPONSE.replace("bytequay/bytequay", "new-owner/new-name"), ImmutableMap.of());

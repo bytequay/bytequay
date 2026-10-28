@@ -1844,6 +1844,8 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/credential`, { method: 'DELETE' }));
   ipcMain.handle('hosting:repository', (_event, accountId: number, fullPath: string) =>
     backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/repositories/resolve`, jsonInit('POST', { fullPath })));
+  ipcMain.handle('hosting:repositories:search', (_event, accountId: number, query: string, limit: number) =>
+    backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/repositories?${new URLSearchParams({ query, limit: String(limit) })}`));
   ipcMain.handle('hosting:workspace', (_event, accountId: number, repositoryId: number) =>
     backendJson(`${backendBase()}/api/hosting/accounts/${accountId}/workspaces`, jsonInit('POST', { repositoryId })));
   ipcMain.handle('workspaces:hosting', (_event, workspaceId: string) => backendJson(workspaceUrl(workspaceId, '/hosting')));

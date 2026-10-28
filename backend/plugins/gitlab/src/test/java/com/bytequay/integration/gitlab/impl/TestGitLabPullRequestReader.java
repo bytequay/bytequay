@@ -544,6 +544,66 @@ class TestGitLabPullRequestReader
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/group%2Fsubgroup%2Frepo");
     }
 
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "''|membership=true&order_by=last_activity_at&sort=desc",
+            "project & tools|search=project%20%26%20tools&order_by=name&sort=asc"})
+    void searchesProjectsByNameThroughTheSelectedServer(String query, String filter)
+    {
+        reply.set(new Reply(200, """
+                [{"id":42,"path_with_namespace":"group/subgroup/repo","web_url":"%s/group/subgroup/repo",
+                  "http_url_to_repo":"%s/group/subgroup/repo.git","default_branch":"main"}]
+                """.formatted(base, base), Optional.empty()));
+
+        assertThat(new GitLabConnectionClient(http, MAPPER).search(access, query, 10)).singleElement().satisfies(found -> {
+            assertThat(found.remoteId()).isEqualTo("42");
+            assertThat(found.fullPath()).isEqualTo("group/subgroup/repo");
+            assertThat(found.webUrl()).isEqualTo(repository.webUrl());
+        });
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects?" + filter + "&per_page=10");
+        assertThat(requestToken.get()).isEqualTo("Bearer secret-token");
+    }
+
+    @Test
+    void searchResolvesAnExactNestedProjectPath()
+    {
+        reply.set(new Reply(200, """
+                {"id":42,"path_with_namespace":"group/subgroup/repo","web_url":"%s/group/subgroup/repo",
+                 "http_url_to_repo":"%s/group/subgroup/repo.git","default_branch":"main"}
+                """.formatted(base, base), Optional.empty()));
+
+        assertThat(new GitLabConnectionClient(http, MAPPER).search(access, "group/subgroup/repo", 30)).singleElement()
+                .satisfies(found -> assertThat(found.fullPath()).isEqualTo("group/subgroup/repo"));
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/group%2Fsubgroup%2Frepo");
+    }
+
+    @Test
+    void returnsNoMatchForAnIncompleteProjectPath()
+    {
+        reply.set(new Reply(404, "{}", Optional.empty()));
+
+        assertThat(new GitLabConnectionClient(http, MAPPER).search(access, "group/subgroup/re", 30)).isEmpty();
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/group%2Fsubgroup%2Fre");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"project", "group/subgroup/project"})
+    void searchPreservesAccountFailures(String query)
+    {
+        reply.set(new Reply(403, "{}", Optional.empty()));
+
+        assertThatThrownBy(() -> new GitLabConnectionClient(http, MAPPER).search(access, query, 30))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.FORBIDDEN));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 31})
+    void validatesProjectSearchLimitBeforeSendingCredentials(int limit)
+    {
+        assertThatThrownBy(() -> new GitLabConnectionClient(http, MAPPER).search(access, "project", limit)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(requestedPath.get()).isNull();
+    }
+
     @Test
     void resolvesARenamedProjectByIdUnderTheConfiguredPrefix()
     {

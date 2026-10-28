@@ -219,6 +219,7 @@ export async function run() {
       return account;
     };
     window.bridge.listRetiredWorkspaces = async () => [];
+    window.bridge.searchHostingRepositories = async () => [];
     window.bridge.listCherryPickExecutions = async () => [];
     window.bridge.getUserProfile = async () => { githubReads++; throw new Error('GitHub must not load'); };
     try {
@@ -235,7 +236,7 @@ export async function run() {
       assert(view.host.querySelector('.hosting-onboarding') === null && githubReads === 0, 'Stored GitLab account must satisfy startup readiness');
       const create = view.host.querySelector<HTMLButtonElement>('.ws-new');
       assert(create !== null, 'Missing New workspace'); create.click(); await settle();
-      assert(view.host.textContent?.includes('Create GitLab workspace'), 'GitLab-only users must start workspace creation on GitLab');
+      assert(view.host.querySelector('[aria-label="Search GitLab projects"]') !== null, 'GitLab-only users must start repository search on GitLab');
     } finally { view.dispose(); }
   });
   return results;

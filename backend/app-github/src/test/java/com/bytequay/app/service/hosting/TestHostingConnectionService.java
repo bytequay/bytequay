@@ -243,6 +243,33 @@ class TestHostingConnectionService
     }
 
     @Test
+    void searchesWithTheSelectedAccountAndRetainsServerScopedIdentities()
+    {
+        HostingRepository retained = storedRepository();
+        RemoteHostingRepository remote = new RemoteHostingRepository(retained.remoteId(), retained.fullPath(), retained.webUrl(), retained.httpCloneUrl(),
+                retained.sshCloneUrl(), retained.defaultBranch());
+        when(repositories.search(any(), eq("project"), eq(10))).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.instanceId()).hasValue(10);
+            assertThat(access.server().apiBaseUrl()).isEqualTo(instance.apiBaseUrl());
+            assertThat(access.token()).isEqualTo("first-secret");
+            return ImmutableList.of(remote);
+        });
+        when(identities.upsertRepository(10, remote)).thenReturn(retained);
+
+        assertThat(service.searchRepositories(20, " project ", 10)).containsExactly(retained);
+        verify(identities).upsertRepository(10, remote);
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {0, 31})
+    void rejectsInvalidSearchLimitsBeforeReadingCredentials(int limit)
+    {
+        assertThatThrownBy(() -> service.searchRepositories(20, "project", limit)).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(credentials, repositories);
+    }
+
+    @Test
     void doesNotRouteAcrossHostingInstances()
     {
         HostingRepository other = new HostingRepository(31, 11, "99", "owner/repo", URI.create("https://github.com/owner/repo"),

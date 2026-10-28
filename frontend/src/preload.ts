@@ -139,6 +139,7 @@ const bridge: Bridge = {
   installGitLabCli: invoke('hosting:gitlab-cli-install'),
   disconnectHostingAccount: invoke('hosting:disconnect'),
   resolveHostingRepository: invoke('hosting:repository'),
+  searchHostingRepositories: invoke('hosting:repositories:search'),
   createHostingWorkspace: invoke('hosting:workspace'),
   getWorkspaceHosting: invoke('workspaces:hosting'),
   setWorkspaceHosting: invoke('workspaces:hosting:set'),

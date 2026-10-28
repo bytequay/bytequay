@@ -21,15 +21,20 @@ import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 public final class GitLabConnectionClient
         implements HostingAccounts, HostingRepositories
@@ -55,6 +60,27 @@ public final class GitLabConnectionClient
     }
 
     @Override
+    public List<RemoteHostingRepository> search(HostingAccess access, String query, int limit)
+    {
+        checkArgument(limit > 0 && limit <= 30, "limit must be between 1 and 30");
+        if (query.matches("[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+")) {
+            try {
+                return ImmutableList.of(findByPath(access, query));
+            }
+            catch (HostingFailure failure) {
+                if (failure.kind() != MISSING_OR_INACCESSIBLE) {
+                    throw failure;
+                }
+                return ImmutableList.of();
+            }
+        }
+        String filter = query.isEmpty() ? "membership=true&order_by=last_activity_at&sort=desc" : "search=" + encode(query) + "&order_by=name&sort=asc";
+        GitLabRepositoryResponse[] repositories = http.get(access, "projects?" + filter + "&per_page=" + limit, Optional.empty(), GitLabRepositoryResponse[].class)
+                .body().orElseThrow();
+        return Arrays.stream(repositories).limit(limit).map(repository -> repository(access, repository, Optional.empty())).collect(toImmutableList());
+    }
+
+    @Override
     public RemoteHostingRepository findByPath(HostingAccess access, String fullPath)
     {
         HostingUrls.checkRepositoryPath(fullPath);
@@ -72,6 +98,11 @@ public final class GitLabConnectionClient
     private RemoteHostingRepository repository(HostingAccess access, String path, Optional<String> expectedId)
     {
         GitLabRepositoryResponse repository = http.get(access, path, Optional.empty(), GitLabRepositoryResponse.class).body().orElseThrow();
+        return repository(access, repository, expectedId);
+    }
+
+    private static RemoteHostingRepository repository(HostingAccess access, GitLabRepositoryResponse repository, Optional<String> expectedId)
+    {
         try {
             checkArgument(repository.id() != null && repository.id() > 0, "repository id must be positive");
             String remoteId = repository.id().toString();

@@ -88,6 +88,13 @@ public class HostingController
         return connections.resolveRepository(accountId, request.fullPath());
     }
 
+    @GetMapping("/accounts/{accountId}/repositories")
+    public List<HostingRepository> searchRepositories(@PathVariable long accountId,
+            @RequestParam(defaultValue = "") String query, @RequestParam(defaultValue = "30") int limit)
+    {
+        return connections.searchRepositories(accountId, query, limit);
+    }
+
     @PostMapping("/accounts/{accountId}/workspaces")
     public WorkspaceSummary watch(@PathVariable long accountId, @RequestBody WatchRequest request)
     {

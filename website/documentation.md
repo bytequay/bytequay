@@ -112,6 +112,11 @@ or connect one with a personal access token that has `read_api` and
 `read_repository`. The server defaults to `https://gitlab.com`; enter your
 company GitLab URL when needed, including its port or path prefix.
 
+Choose **Create access token** to open that server's token settings in your
+browser with the ByteQuay name and required permissions prefilled. Sign in to
+GitLab normally, create the token, then paste it into ByteQuay and choose
+**Connect GitLab**.
+
 Enter the full **Project path**, such as `group/subgroup/project`, and choose
 **Find project**. Check the account, server and project, then choose **Create
 workspace**. ByteQuay creates a direct HTTPS clone using that account. **Sync

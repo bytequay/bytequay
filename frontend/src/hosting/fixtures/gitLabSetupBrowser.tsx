@@ -39,6 +39,37 @@ function select(host: HTMLElement, id: number) {
 
 export async function run() {
   return runScenarios([
+    ['Open token creation for the selected GitLab server without connecting', async () => {
+      const view = createFixtureRoot();
+      const opened: string[] = [];
+      let connections = 0;
+      let openingFails = false;
+      const bridge: Partial<Bridge> = {
+        openExternal: async url => { if (openingFails) throw new Error('Browser could not open'); opened.push(url); },
+        connectHostingAccount: async request => { connections++; return account(1, request); },
+      };
+      window.bridge = bridge as Bridge;
+      try {
+        flushSync(() => view.root.render(<GitLabConnectionForm onConnected={() => {}} />));
+        const server = element<HTMLInputElement>('[aria-label="GitLab server"]', view.host);
+        const token = element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host);
+        for (const webBaseUrl of ['https://gitlab.com', `${SERVER.webBaseUrl}/`]) {
+          changeInput(server, webBaseUrl); await settle(); button('Create access token', view.host).click(); await settle();
+          const target = new URL(opened.at(-1) ?? '');
+          assert(`${target.origin}${target.pathname}` === `${webBaseUrl.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`, 'Token page lost the selected server');
+          assert(target.searchParams.get('name') === 'ByteQuay' && target.searchParams.get('scopes') === 'read_api,read_repository', 'Token name or scopes differ');
+        }
+        assert(opened.length === 2 && connections === 0 && token.value === '', 'Token shortcut must work without a token or a connection');
+        for (const invalid of ['', 'not a URL', 'ftp://gitlab.example.com', 'https://user:password@gitlab.example.com', 'https://gitlab.example.com?query=yes', 'https://gitlab.example.com#fragment']) {
+          changeInput(server, invalid); await settle(); button('Create access token', view.host).click(); await settle();
+          assert(opened.length === 2 && view.host.querySelector('[role="alert"]')?.textContent, `Invalid server must show an error without opening: ${invalid}`);
+        }
+        openingFails = true;
+        changeInput(server, 'https://gitlab.com'); await settle(); button('Create access token', view.host).click();
+        await until(() => view.host.querySelector('[role="alert"]')?.textContent?.includes('Browser could not open') === true, 'Browser failure was not shown');
+        assert(connections === 0, 'Token shortcut must not submit the connection form');
+      } finally { view.dispose(); }
+    }],
     ['Connect GitLab.com with its API URL and clear the token', async () => {
       const view = createFixtureRoot();
       const requests: (HostingServerDto & { token: string })[] = [];

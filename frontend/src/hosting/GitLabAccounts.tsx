@@ -23,6 +23,18 @@ export function GitLabConnectionForm({ server, onConnected }: {
   const [token, setToken] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const openTokenPage = async () => {
+    setError(null);
+    try {
+      const target = new URL(url.trim());
+      if (!['https:', 'http:'].includes(target.protocol) || target.username || target.password || target.search || target.hash) {
+        throw new Error('Enter a GitLab HTTP or HTTPS server URL without credentials, query parameters, or a fragment.');
+      }
+      target.pathname = `${target.pathname.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`;
+      target.search = new URLSearchParams({ name: 'ByteQuay', scopes: 'read_api,read_repository' }).toString();
+      await window.bridge.openExternal(target.href);
+    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+  };
   return <form className="hosting-form" onSubmit={event => {
     event.preventDefault();
     if (busy) return;
@@ -37,6 +49,7 @@ export function GitLabConnectionForm({ server, onConnected }: {
       onChange={event => setUrl(event.target.value)} placeholder="https://gitlab.example.com" /></label>
     <label>Personal access token<input aria-label="GitLab personal access token" type="password" required value={token} disabled={busy}
       autoComplete="off" spellCheck={false} onChange={event => setToken(event.target.value)} /></label>
+    <button type="button" className="setw-link" disabled={busy} onClick={() => { void openTokenPage(); }}>Create access token</button>
     <p>Use a token with <code>read_api</code> and <code>read_repository</code> access to connect and clone your projects. The token is stored encrypted on this Mac.</p>
     {error !== null && <p role="alert" className="setw-error">{error}</p>}
     <button type="submit" className="setw-btn-primary" disabled={busy || token.trim() === ''}>{busy ? 'Connecting…' : 'Connect GitLab'}</button>

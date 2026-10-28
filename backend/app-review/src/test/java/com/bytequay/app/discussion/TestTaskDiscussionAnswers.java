@@ -52,6 +52,7 @@ import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.ai.BetterWordsService;
 import com.bytequay.app.service.ai.BetterWordsService.ReplyVoice;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.DiscussionAnchor;
 import com.bytequay.core.discussion.DiscussionMessage;
@@ -64,6 +65,7 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -76,6 +78,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.MockMakers;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -118,6 +121,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 /**
  * The answer path, driven by a scripted provider: what each question sends, what a lost session
@@ -148,6 +152,7 @@ class TestTaskDiscussionAnswers
     private final ScriptedDriver driver = new ScriptedDriver();
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final TaskPullRequestOwnership ownership = mock(TaskPullRequestOwnership.class);
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final BetterWordsService writer = mock(BetterWordsService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private boolean hold;
@@ -358,6 +363,7 @@ class TestTaskDiscussionAnswers
                 .contains("read_discussion_context", DiscussionPrompt.SUMMARY_REQUEST).doesNotContain("I renamed nothing yet.", "Please rename this flag."));
         assertThat(savedContext("history")).contains("I renamed nothing yet.");
         assertThat(savedContext("source")).contains("\"ref\":\"c1\"", "Please rename this flag.");
+        verify(pullRequests).findWorkspaceStored("w1", REPO, 12);
 
         // Asking again with no text returns the same thread unchanged.
         assertThat(service.askComment(askComment(KEY, "")).messages()).hasSize(2);
@@ -582,6 +588,7 @@ class TestTaskDiscussionAnswers
                 .doesNotContain("request you reviewed"));
         assertThat(driver.lastContext.access()).isEqualTo(SessionAccess.READ_ONLY);
         verify(tasks, never()).getInteractive(any(), eq(REVIEW_TASK));
+        verify(pullRequests).findWorkspaceStored("w1", REPO, 12);
     }
 
     @Test
@@ -827,12 +834,13 @@ class TestTaskDiscussionAnswers
                 .limit(call.getArgument(2, Integer.class))
                 .collect(toImmutableList()));
         when(ownership.owns(any(), eq(REPO), eq(12), eq(false))).thenReturn(true);
-        PullRequestStore pullRequests = mock(PullRequestStore.class);
-        when(pullRequests.findIdByRepoAndNumber(REPO, 12)).thenReturn(Optional.of(12L));
+        PullRequest pullRequest = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(pullRequest.id()).thenReturn(12L);
+        when(pullRequests.findWorkspaceStored("w1", REPO, 12)).thenReturn(Optional.of(pullRequest));
         PrDetailStore details = mock(PrDetailStore.class);
         when(details.find(12L)).thenReturn(Optional.of(detail()));
-        return new TaskDiscussionService(store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), ownership,
-                new ReviewCommentReader(pullRequests, details), writer, reviews, executor);
+        return new TaskDiscussionService(store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), ownership, pullRequests,
+                new ReviewCommentReader(mock(PullRequestStore.class), details), writer, reviews, executor);
     }
 
     private void hostReview(AgentReview review)

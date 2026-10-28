@@ -38,7 +38,6 @@ import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
-import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
@@ -97,7 +96,6 @@ public class ReviewCodeService
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
     private final PullRequestTaskStore assignments;
-    private final PullRequestStore pullRequestRows;
     private final WorktreeDiffReader localDiff;
     private final PullRequestService pullRequests;
     private final AgentProperties agentProperties;
@@ -113,7 +111,6 @@ public class ReviewCodeService
             AgentTaskService tasks,
             AgentTurnService turns,
             PullRequestTaskStore assignments,
-            PullRequestStore pullRequestRows,
             WorktreeDiffReader localDiff,
             PullRequestService pullRequests,
             AgentProperties agentProperties,
@@ -128,7 +125,6 @@ public class ReviewCodeService
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
-        this.pullRequestRows = requireNonNull(pullRequestRows, "pullRequestRows is null");
         this.localDiff = requireNonNull(localDiff, "localDiff is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.agentProperties = requireNonNull(agentProperties, "agentProperties is null");
@@ -647,7 +643,7 @@ public class ReviewCodeService
     {
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
         String baseRef = review.number().stream().boxed().findFirst()
-                .flatMap(number -> pullRequests.findPullRequestDetail(review.repo(), number))
+                .flatMap(number -> pullRequests.findWorkspacePullRequestDetail(review.workspaceId(), review.repo(), number))
                 .flatMap(detail -> Optional.ofNullable(detail.baseRef())).or(() -> run.map(ReviewRun::baseRef))
                 .orElseThrow(() -> new ReviewConflictException("The pull request base branch is unavailable; refresh the pull request"));
         String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
@@ -706,10 +702,10 @@ public class ReviewCodeService
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(task.workspaceId().orElseThrow());
         Optional<PullRequestTask> assigned = assignments.findByTaskId(task.id().toString());
         String branch = localDiff.require(checkout, "rev-parse", "--abbrev-ref", "HEAD").strip();
-        Optional<String> baseRef = assigned.flatMap(pr -> pullRequests.findPullRequestDetail(pr.repo(), pr.number()))
-                .or(() -> pullRequestRows.findByHeadRef(workspace.monitoredRepository().fullName(), branch).stream()
+        Optional<String> baseRef = assigned.flatMap(pr -> pullRequests.findWorkspacePullRequestDetail(workspace.workspaceId(), pr.repo(), pr.number()))
+                .or(() -> pullRequests.findWorkspacePullRequestsByHeadRef(workspace.workspaceId(), branch).stream()
                         .filter(pr -> pr.origin() == PullRequest.Origin.AUTHORED || branch.equals(task.taskWorktree().orElseThrow().generatedBranch()))
-                        .findFirst().flatMap(pr -> pullRequests.findPullRequestDetail(pr.repo(), pr.number())))
+                        .findFirst().flatMap(pr -> pullRequests.findWorkspacePullRequestDetail(workspace.workspaceId(), pr.repo(), pr.number())))
                 .flatMap(detail -> Optional.ofNullable(detail.baseRef()));
         if (baseRef.isPresent()) {
             String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();

@@ -29,6 +29,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.service.ai.BetterWordsService;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.DiscussionAnchor;
 import com.bytequay.core.discussion.DiscussionMessage;
@@ -71,7 +72,7 @@ class TestTaskDiscussionService
     private final TaskLogStore logStore = mock(TaskLogStore.class);
 
     private final TaskDiscussionService service = new TaskDiscussionService(
-            store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), mock(TaskPullRequestOwnership.class),
+            store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), mock(TaskPullRequestOwnership.class), mock(PullRequestService.class),
             new ReviewCommentReader(mock(PullRequestStore.class), mock(PrDetailStore.class)), mock(BetterWordsService.class), mock(AgentReviewStore.class));
 
     @Test

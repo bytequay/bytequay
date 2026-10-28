@@ -52,6 +52,7 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.review.AgentReviewProjection.WorktreeSyncView;
 import com.bytequay.app.review.ReviewSnapshots.Snapshot;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -159,6 +160,7 @@ public class AgentReviewService
     private final ReviewExperiments experiments;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService refresh;
+    private final CredentialService credentials;
     private final WorkspaceHostingService hosting;
     private final ReviewTaskObserver observer;
     private final ReviewSweep sweeps;
@@ -217,6 +219,7 @@ public class AgentReviewService
         this.experiments = requireNonNull(experiments, "experiments is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
         this.observer = requireNonNull(observer, "observer is null");
         this.sweeps = requireNonNull(sweeps, "sweeps is null");
@@ -473,8 +476,9 @@ public class AgentReviewService
         else {
             number = review.number();
             pullRequestId = review.pullRequestId();
-            refresh.refreshAllDetail(review.repo(), number.orElseThrow());
-            head = pullRequests.findHeadSha(review.repo(), number.orElseThrow())
+            PullRequestRead route = pullRequests.prepareRead(review.workspaceId(), review.repo(), number.orElseThrow());
+            refresh.refreshAllDetail(route);
+            head = pullRequests.findHeadSha(route)
                     .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown after refresh"));
         }
         return withLock(locks.lock(reviewId), () -> {
@@ -505,7 +509,7 @@ public class AgentReviewService
             snapshot = localSnapshot(source, workspace, number);
         }
         else {
-            refresh.refreshAllDetail(review.repo(), number.orElseThrow());
+            refresh.refreshAllDetail(pullRequests.prepareRead(review.workspaceId(), review.repo(), number.orElseThrow()));
             snapshot = snapshots.pullRequest(workspace, review.repo(), number.orElseThrow());
         }
         OptionalInt refreshedNumber = number;
@@ -553,14 +557,13 @@ public class AgentReviewService
     }
 
     /**
-     * Ends the open reviews of a pull request that GitHub reports merged or closed, as End does, and says why on the task.
+     * Ends the open reviews of a pull request that its host reports merged or closed, as End does, and says why on the task.
      * A review that cannot end yet, with a turn running or edits saved in its working copy, stays open and is tried again
      * after a later refresh. Returns whether the pull request has ended.
      */
-    public boolean endIfPullRequestEnded(String repo, int number)
+    public boolean endIfPullRequestEnded(long pullRequestId)
     {
-        String repository = normalize(repo);
-        Optional<String> ended = pullRequests.findStored(repository, number)
+        Optional<String> ended = pullRequestStore.findById(pullRequestId)
                 .map(pullRequest -> pullRequest.state().toLowerCase(Locale.ROOT))
                 .filter(ENDED_PULL_REQUEST_STATES::contains);
         if (ended.isEmpty()) {
@@ -568,10 +571,10 @@ public class AgentReviewService
         }
         store.listOpenReviews().stream()
                 .filter(review -> review.sourceTaskId().isEmpty())
-                .filter(review -> review.repo().equals(repository) && review.number().stream().anyMatch(value -> value == number))
+                .filter(review -> review.pullRequestId().equals(OptionalLong.of(pullRequestId)))
                 .forEach(review -> {
                     try {
-                        end(review.id(), "Agent review ended: the pull request was " + ended.orElseThrow() + " on GitHub");
+                        end(review.id(), "Agent review ended: the pull request was " + ended.orElseThrow());
                     }
                     catch (ReviewConflictException busy) {
                         log.info("Review {} stays open although its pull request was {}: {}", review.id(), ended.orElseThrow(), busy.getMessage());
@@ -980,12 +983,11 @@ public class AgentReviewService
     }
 
     /** Records a newer remote head for every open review without moving its checkout or starting a run. */
-    public void observeHead(String repo, int number, String headSha)
+    public void observeHead(long pullRequestId, String headSha)
     {
-        String repository = normalize(repo);
         store.listOpenReviews().stream()
                 .filter(review -> review.sourceTaskId().isEmpty())
-                .filter(review -> review.repo().equals(repository) && review.number().stream().anyMatch(value -> value == number))
+                .filter(review -> review.pullRequestId().equals(OptionalLong.of(pullRequestId)))
                 .forEach(review -> {
                     if (!review.observedHeadSha().equals(Optional.of(headSha))) {
                         withLock(locks.lock(review.id()), () -> {
@@ -1023,7 +1025,7 @@ public class AgentReviewService
             }
             WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
             if (!fetchReviewHead(review, workspace).equals(target)) {
-                refresh.refreshAllDetail(review.repo(), review.number().orElseThrow());
+                refresh.refreshAllDetail(pullRequests.prepareRead(review.workspaceId(), review.repo(), review.number().orElseThrow()));
                 return;
             }
             withLock(locks.lock(reviewId), () -> {
@@ -1061,11 +1063,13 @@ public class AgentReviewService
     {
         String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
         String headRef = "refs/bytequay/review/" + review.number().orElseThrow();
+        PullRequestRead route = pullRequests.prepareRead(review.workspaceId(), review.repo(), review.number().orElseThrow());
         ImmutableList.Builder<String> fetch = ImmutableList.<String>builder()
-                .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote, "+refs/pull/" + review.number().orElseThrow() + "/head:" + headRef);
-        pullRequests.findPullRequestDetail(review.repo(), review.number().orElseThrow()).map(PullRequestDetail::baseRef)
+                .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote, "+" + pullRequests.requestHeadRef(route) + ":" + headRef);
+        pullRequests.findPullRequestDetail(route).map(PullRequestDetail::baseRef)
                 .ifPresent(base -> fetch.add("+refs/heads/" + base + ":refs/remotes/" + remote + "/" + base));
-        GitCommandRunner.Result fetched = git.run(workspace.repository(), fetch.build());
+        GitCommandRunner.Result fetched = git.run(workspace.repository(), Duration.ofMinutes(2),
+                credentials.gitAuthenticationEnvironment(workspace.workspaceId(), ImmutableList.of(route.repository().httpCloneUrl().toString())), fetch.build());
         checkState(fetched.successful() && !fetched.truncated(), "Cannot fetch the latest PR commit: %s", fetched.output().strip());
         String head = snapshots.resolve(workspace.repository(), headRef);
         checkState(head.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "Cannot identify the latest PR commit");

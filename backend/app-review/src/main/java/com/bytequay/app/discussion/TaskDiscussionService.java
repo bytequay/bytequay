@@ -34,6 +34,7 @@ import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.ai.BetterWordsService;
 import com.bytequay.app.service.ai.BetterWordsService.ReplyVoice;
+import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.DiscussionAnchor;
 import com.bytequay.core.discussion.DiscussionMessage;
@@ -116,6 +117,7 @@ public class TaskDiscussionService
     private final TaskLogStore logStore;
     private final Clock clock;
     private final TaskPullRequestOwnership ownership;
+    private final PullRequestService pullRequests;
     private final ReviewCommentReader comments;
     private final BetterWordsService writer;
     private final AgentReviewStore reviews;
@@ -134,11 +136,12 @@ public class TaskDiscussionService
             TaskLogStore logStore,
             Clock clock,
             TaskPullRequestOwnership ownership,
+            PullRequestService pullRequests,
             ReviewCommentReader comments,
             BetterWordsService writer,
             AgentReviewStore reviews)
     {
-        this(store, tasks, resources, drivers, logStore, clock, ownership, comments, writer, reviews, Executors.newVirtualThreadPerTaskExecutor());
+        this(store, tasks, resources, drivers, logStore, clock, ownership, pullRequests, comments, writer, reviews, Executors.newVirtualThreadPerTaskExecutor());
     }
 
     /** Lets a test run the answer on the calling thread rather than waiting on a virtual one. */
@@ -150,6 +153,7 @@ public class TaskDiscussionService
             TaskLogStore logStore,
             Clock clock,
             TaskPullRequestOwnership ownership,
+            PullRequestService pullRequests,
             ReviewCommentReader comments,
             BetterWordsService writer,
             AgentReviewStore reviews,
@@ -163,6 +167,7 @@ public class TaskDiscussionService
         this.logStore = requireNonNull(logStore, "logStore is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.comments = requireNonNull(comments, "comments is null");
         this.writer = requireNonNull(writer, "writer is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
@@ -293,7 +298,7 @@ public class TaskDiscussionService
     {
         requireNonNull(command, "command is null");
         AgentTask task = askableTask(command.workspaceId(), command.taskId());
-        // A private thread writes nothing to GitHub, so a merged or closed pull request still takes questions.
+        // A private thread writes nothing remotely, so a merged or closed pull request still takes questions.
         if (!ownership.owns(task, command.repo(), command.number(), false)) {
             throw new AgentConflictException("This pull request is not this task's");
         }
@@ -322,7 +327,8 @@ public class TaskDiscussionService
                 thread = existing.orElseThrow();
             }
             else {
-                ReviewCommentAnchor comment = comments.find(command.repo(), command.number(), command.key())
+                ReviewCommentAnchor comment = pullRequests.findWorkspaceStored(command.workspaceId(), command.repo(), command.number())
+                        .flatMap(pullRequest -> comments.find(pullRequest.id(), command.repo(), command.number(), command.key()))
                         .orElseThrow(() -> new IllegalArgumentException("That comment is not in this pull request"));
                 requireCommentThreadRoom(store.listByTask(task.id().toString()));
                 history = Optional.of(premise.get());
@@ -384,7 +390,7 @@ public class TaskDiscussionService
         AskDiscussionCommand command = new AskDiscussionCommand(review.workspaceId(), review.taskId(), discussionId, question);
         AgentTask task = askableReviewDiscussionTask(review);
         TaskDiscussion discussion = discussion(task, discussionId);
-        checkArgument(discussion.comment().isEmpty(), "Use the comment action to ask about a GitHub comment");
+        checkArgument(discussion.comment().isEmpty(), "Use the comment action to ask about a pull request comment");
         return ask(task, command);
     }
 

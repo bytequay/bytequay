@@ -78,10 +78,10 @@ class TestGoalDeliveries
     void aMergeIsRecordedOnceOnTheEpicWorkItDelivers()
     {
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(EPIC, WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED))));
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31261, Optional.empty()));
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed(1L, "owner/repository", 31261, Optional.empty()));
         verify(work, never()).receipt(anyString(), anyString(), anyString(), anyString());
 
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31260, Optional.empty()));
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed(1L, "owner/repository", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "merged:owner/repository#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
         verify(next).merged(any(WorkItemView.class), eq("#31260"));
         verify(work).deliver("workspace", "work-1");
@@ -105,7 +105,7 @@ class TestGoalDeliveries
                 review(3, "bob", "CHANGES_REQUESTED", 30, "Add a test for deletion vectors"), review(4, "carol", "COMMENTED", 10, "Nice")));
         when(details.find(7L)).thenReturn(Optional.of(detail));
 
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31260, Optional.empty()));
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed(1L, "owner/repository", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "opened:owner/repository#31260", "Pull request #31260 opened: Key actions by path and deletion vector");
         verify(work).receipt("workspace", "work-1", "changes:3", "@bob requested changes on #31260: Add a test for deletion vectors");
         verify(work, never()).receipt(anyString(), anyString(), eq("changes:1"), anyString());
@@ -133,7 +133,7 @@ class TestGoalDeliveries
         when(detail.checkRuns()).thenReturn(ImmutableList.of(check("build", "FAILURE"), check("lint", "SUCCESS"), check("e2e", "CANCELLED"), check("build", "failure")));
         when(details.find(7L)).thenReturn(Optional.of(detail));
 
-        deliveries.detailRefreshed(new PullRequestDetailRefreshed("owner/repository", 31260, Optional.empty()));
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed(1L, "owner/repository", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "checks:owner/repository#31260@abc123", "Checks failed on #31260: build");
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
     }

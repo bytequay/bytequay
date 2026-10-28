@@ -93,9 +93,9 @@ class TestReviewTaskObserver
         ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, mock(ObjectProvider.class), refreshes, mock(ObjectProvider.class));
         try {
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
-            verify(refresh, timeout(1000)).warmDetail("acme/widgets", 1);
+            verify(refresh, timeout(1000)).warmDetail("workspace-1", "acme/widgets", 1);
             // A skipped review is never queued, so this cannot race.
-            verify(refresh, never()).warmDetail("acme/widgets", 2);
+            verify(refresh, never()).warmDetail("workspace-1", "acme/widgets", 2);
             verify(refresh, never()).refreshDetail(anyString(), anyInt());
         }
         finally {
@@ -123,21 +123,60 @@ class TestReviewTaskObserver
             released.await();
             finished.countDown();
             return null;
-        }).when(refresh).warmDetail("acme/widgets", 1);
+        }).when(refresh).warmDetail("workspace-1", "acme/widgets", 1);
         ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, services, refreshes, mock(ObjectProvider.class));
         try {
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
             assertThat(started.await(1, SECONDS)).isTrue();
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
-            observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 1, Optional.of("head")));
+            observer.onDetailRefreshed(new PullRequestDetailRefreshed(101, "acme/widgets", 1, Optional.of("head")));
             released.countDown();
             // The head notification follows every queued warm pass, so its completion proves the refresh queue was drained.
-            verify(service, timeout(1000)).observeHead("acme/widgets", 1, "head");
-            verify(refresh, times(2)).warmDetail("acme/widgets", 1);
+            verify(service, timeout(1000)).observeHead(101, "head");
+            verify(refresh, times(2)).warmDetail("workspace-1", "acme/widgets", 1);
 
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
-            verify(refresh, timeout(1000).times(3)).warmDetail("acme/widgets", 1);
+            verify(refresh, timeout(1000).times(3)).warmDetail("workspace-1", "acme/widgets", 1);
+        }
+        finally {
+            released.countDown();
+            finished.await(1, SECONDS);
+            observer.close();
+        }
+    }
+
+    @Test
+    void matchingPullRequestNamesInDifferentWorkspacesAreRefreshedSeparately()
+            throws InterruptedException
+    {
+        AgentReviewStore store = mock(AgentReviewStore.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        ObjectProvider<PullRequestRefreshService> refreshes = mock(ObjectProvider.class);
+        when(refreshes.getObject()).thenReturn(refresh);
+        when(store.listOpenReviews()).thenReturn(ImmutableList.of(review("blocker", 99, Optional.empty())));
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        CountDownLatch finished = new CountDownLatch(1);
+        doAnswer(invocation -> {
+            started.countDown();
+            released.await();
+            finished.countDown();
+            return null;
+        }).when(refresh).warmDetail("workspace-1", "acme/widgets", 99);
+        ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, mock(ObjectProvider.class), refreshes, mock(ObjectProvider.class));
+        try {
+            observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
+            assertThat(started.await(1, SECONDS)).isTrue();
+            when(store.listOpenReviews()).thenReturn(ImmutableList.of(
+                    pullRequestReview("first", "public-workspace", "acme/widgets", 1, TaskId.random().toString(), Instant.EPOCH),
+                    pullRequestReview("second", "private-workspace", "acme/widgets", 1, TaskId.random().toString(), Instant.EPOCH)));
+
+            observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
+            released.countDown();
+
+            verify(refresh, timeout(1000)).warmDetail("public-workspace", "acme/widgets", 1);
+            verify(refresh, timeout(1000)).warmDetail("private-workspace", "acme/widgets", 1);
         }
         finally {
             released.countDown();
@@ -168,15 +207,15 @@ class TestReviewTaskObserver
             finished.countDown();
             return null;
         };
-        doAnswer(waitForRelease).when(refresh).warmDetail("acme/widgets", 1);
-        doAnswer(waitForRelease).when(service).observeHead("acme/widgets", 1, "head");
+        doAnswer(waitForRelease).when(refresh).warmDetail("workspace-1", "acme/widgets", 1);
+        doAnswer(waitForRelease).when(service).observeHead(101, "head");
         ReviewTaskObserver observer = new ReviewTaskObserver(mock(AgentEventService.class), store, services, refreshes, mock(ObjectProvider.class));
         try {
             if (listRefresh) {
                 observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
             }
             else {
-                observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 1, Optional.of("head")));
+                observer.onDetailRefreshed(new PullRequestDetailRefreshed(101, "acme/widgets", 1, Optional.of("head")));
             }
             assertThat(started.await(1, SECONDS)).isTrue();
 
@@ -212,7 +251,7 @@ class TestReviewTaskObserver
         AgentReviewService service = mock(AgentReviewService.class);
         ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
         when(services.getObject()).thenReturn(service);
-        when(service.endIfPullRequestEnded("acme/widgets", 1)).thenReturn(true);
+        when(service.endIfPullRequestEnded(101)).thenReturn(true);
         LocalRunService localRuns = mock(LocalRunService.class);
         ObjectProvider<LocalRunService> runServices = mock(ObjectProvider.class);
         when(runServices.getObject()).thenReturn(localRuns);
@@ -232,21 +271,21 @@ class TestReviewTaskObserver
         doAnswer(invocation -> {
             refreshed.countDown();
             return null;
-        }).when(refresh).warmDetail("acme/widgets", 1);
+        }).when(refresh).warmDetail("workspace-1", "acme/widgets", 1);
         ReviewTaskObserver observer = new ReviewTaskObserver(events, store, services, refreshes, runServices);
         try {
             observer.watch(review);
             assertThat(recording.await(1, SECONDS)).isTrue();
-            observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 1, Optional.of("head")));
+            observer.onDetailRefreshed(new PullRequestDetailRefreshed(101, "acme/widgets", 1, Optional.of("head")));
             observer.onPullRequestsRefreshed(new PullRequestsRefreshed());
             // The refresh executor has run work submitted after the closure notification, but closure still waits for the command record.
             assertThat(refreshed.await(1, SECONDS)).isTrue();
-            verify(service, never()).endIfPullRequestEnded("acme/widgets", 1);
+            verify(service, never()).endIfPullRequestEnded(101);
 
             released.countDown();
 
-            verify(service, timeout(1000)).endIfPullRequestEnded("acme/widgets", 1);
-            verify(service, never()).observeHead(eq("acme/widgets"), eq(1), any());
+            verify(service, timeout(1000)).endIfPullRequestEnded(101);
+            verify(service, never()).observeHead(eq(101L), any());
         }
         finally {
             released.countDown();
@@ -256,12 +295,12 @@ class TestReviewTaskObserver
     }
 
     @Test
-    void aRefreshedPullRequestThatEndedEndsItsReviewsInsteadOfFollowingItsHead()
+    void refreshedPullRequestsWithMatchingNamesUseTheirOwnIdentities()
     {
         AgentReviewService service = mock(AgentReviewService.class);
         ObjectProvider<AgentReviewService> services = mock(ObjectProvider.class);
         when(services.getObject()).thenReturn(service);
-        when(service.endIfPullRequestEnded("acme/widgets", 1)).thenReturn(true);
+        when(service.endIfPullRequestEnded(101)).thenReturn(true);
         ReviewTaskObserver observer = new ReviewTaskObserver(
                 mock(AgentEventService.class),
                 mock(AgentReviewStore.class),
@@ -269,12 +308,12 @@ class TestReviewTaskObserver
                 mock(ObjectProvider.class),
                 mock(ObjectProvider.class));
         try {
-            observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 1, Optional.of("ended-head")));
-            observer.onDetailRefreshed(new PullRequestDetailRefreshed("acme/widgets", 2, Optional.of("open-head")));
+            observer.onDetailRefreshed(new PullRequestDetailRefreshed(101, "acme/widgets", 1, Optional.of("ended-head")));
+            observer.onDetailRefreshed(new PullRequestDetailRefreshed(202, "acme/widgets", 1, Optional.of("open-head")));
             // One refresh is handled at a time, so once the open one follows its head the ended one is done.
-            verify(service, timeout(1000)).observeHead("acme/widgets", 2, "open-head");
-            verify(service).endIfPullRequestEnded("acme/widgets", 1);
-            verify(service, never()).observeHead(eq("acme/widgets"), eq(1), any());
+            verify(service, timeout(1000)).observeHead(202, "open-head");
+            verify(service).endIfPullRequestEnded(101);
+            verify(service, never()).observeHead(eq(101L), any());
         }
         finally {
             observer.close();

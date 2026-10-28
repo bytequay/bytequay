@@ -244,7 +244,7 @@ public class ReviewSweep
     private Optional<PullRequestDetail> detail(AgentReview review)
     {
         try {
-            return Optional.of(pullRequests.getPullRequestDetail(review.repo(), review.number().orElseThrow()));
+            return Optional.of(pullRequests.getPullRequestDetail(pullRequests.prepareRead(review.workspaceId(), review.repo(), review.number().orElseThrow())));
         }
         catch (RuntimeException failure) {
             log.warn("The second reader of review {} reads without the pull request description: {}", review.id(), failure.toString());

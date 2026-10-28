@@ -58,9 +58,9 @@ public class PullRequestRefreshService
     }
 
     /** Tells an open review what the refresh established, so it can follow a moved head. */
-    private void published(PullRequestRead route)
+    private void published(PullRequestRead route, long pullRequestId)
     {
-        events.publishEvent(new PullRequestDetailRefreshed(route.repository().fullPath(), route.number(), pullRequests.findHeadSha(route)));
+        events.publishEvent(new PullRequestDetailRefreshed(pullRequestId, route.repository().fullPath(), route.number(), pullRequests.findHeadSha(route)));
     }
 
     /** Conditionally refreshes one pull request and returns only the data changed by that refresh. */
@@ -72,7 +72,7 @@ public class PullRequestRefreshService
     public PullRequestDetailRefresh refreshDetail(PullRequestRead route)
     {
         PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route);
-        published(route);
+        published(route, refresh.detail().id());
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
@@ -84,7 +84,7 @@ public class PullRequestRefreshService
     public PullRequestDetailRefresh refreshChecks(PullRequestRead route)
     {
         PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestChecksFromGitHub(route);
-        published(route);
+        published(route, refresh.detail().id());
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
@@ -96,7 +96,7 @@ public class PullRequestRefreshService
     public PullRequestDetailRefresh refreshOpenedDetail(PullRequestRead route)
     {
         PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromGitHub(route);
-        published(route);
+        published(route, refresh.detail().id());
         // Another view may have refreshed the cache while this view was hidden.
         return PullRequestDetailRefresh.full(refresh.detail());
     }
@@ -107,11 +107,11 @@ public class PullRequestRefreshService
     }
 
     /** Refreshes one pull request as the background warm pass does, then publishes what is stored, a head the pass moved included. */
-    public void warmDetail(String repo, int number)
+    public void warmDetail(String workspaceId, String repo, int number)
     {
-        PullRequestRead route = pullRequests.prepareRead(repo, number);
-        pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
-        published(route);
+        PullRequestRead route = pullRequests.prepareRead(workspaceId, repo, number);
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
+        published(route, refresh.detail().id());
     }
 
     /** Bypasses conditional requests and rebuilds the complete local pull-request snapshot. */
@@ -123,7 +123,7 @@ public class PullRequestRefreshService
     public PullRequestDetail refreshAllDetail(PullRequestRead route)
     {
         PullRequestDetail detail = pullRequests.refreshAllPullRequestDetailFromGitHub(route);
-        published(route);
+        published(route, detail.id());
         return detail;
     }
 

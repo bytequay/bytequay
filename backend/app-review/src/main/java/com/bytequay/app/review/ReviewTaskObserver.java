@@ -48,7 +48,7 @@ import static java.util.Objects.requireNonNull;
  * review service to reconcile; the service reads the durable turn and claim facts, so a duplicate
  * or early event is harmless. Startup restores every open review's subscription, and pull-request
  * refreshes record newer heads and catch up idle clean working copies without starting another review,
- * or end the review once GitHub reports its pull request merged or closed.
+ * or end the review once its hosting service reports its pull request merged or closed.
  */
 @Component
 public class ReviewTaskObserver
@@ -77,7 +77,7 @@ public class ReviewTaskObserver
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final ObjectProvider<LocalRunService> localRuns;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-reconcile-", 0).factory());
-    // Keep background GitHub refreshes and head-follow work off the ordered task-event queue.
+    // Keep background remote refreshes and head-follow work off the ordered task-event queue.
     private final ExecutorService refreshExecutor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-refresh-", 0).factory());
     private final Set<String> pendingRefreshes = ConcurrentHashMap.newKeySet();
 
@@ -104,7 +104,7 @@ public class ReviewTaskObserver
         }
     }
 
-    /** A pull request merged or closed on GitHub ends its open reviews; one still open may have a newer head to follow. */
+    /** A merged or closed pull request ends its open reviews; one still open may have a newer head to follow. */
     @EventListener
     public void onDetailRefreshed(PullRequestDetailRefreshed event)
     {
@@ -112,8 +112,8 @@ public class ReviewTaskObserver
         executor.execute(() -> {
             try {
                 AgentReviewService service = reviews.getObject();
-                if (!service.endIfPullRequestEnded(event.repo(), event.number())) {
-                    event.headSha().ifPresent(head -> refreshExecutor.execute(() -> followHead(event.repo(), event.number(), head)));
+                if (!service.endIfPullRequestEnded(event.pullRequestId())) {
+                    event.headSha().ifPresent(head -> refreshExecutor.execute(() -> followHead(event.pullRequestId(), head)));
                 }
             }
             catch (RuntimeException failure) {
@@ -122,20 +122,20 @@ public class ReviewTaskObserver
         });
     }
 
-    private void followHead(String repo, int number, String head)
+    private void followHead(long pullRequestId, String head)
     {
         try {
-            reviews.getObject().observeHead(repo, number, head);
+            reviews.getObject().observeHead(pullRequestId, head);
         }
         catch (RuntimeException failure) {
-            log.warn("Cannot follow {}#{} after its refresh: {}", repo, number, failure.toString());
+            log.warn("Cannot follow pull request {} after its refresh: {}", pullRequestId, failure.toString());
         }
     }
 
     /**
      * A list refresh says nothing about heads, so each open review asks for a warm refresh of its pull request. Discovery
      * stores a push or a merge as a newer update time, which the warm refresh fetches; otherwise only the warm pass's own
-     * timers apply, so a quiet merged pull request costs no GitHub request.
+     * timers apply, so a quiet merged pull request costs no remote request.
      */
     @EventListener
     public void onPullRequestsRefreshed(PullRequestsRefreshed event)
@@ -144,7 +144,7 @@ public class ReviewTaskObserver
             if (review.sourceTaskId().isPresent() || review.number().isEmpty()) {
                 continue;
             }
-            String key = review.repo() + "#" + review.number().getAsInt();
+            String key = review.workspaceId() + ":" + review.repo() + "#" + review.number().getAsInt();
             if (!pendingRefreshes.add(key)) {
                 continue;
             }
@@ -152,7 +152,7 @@ public class ReviewTaskObserver
                 // A new list update during this read still needs one subsequent pass against its newer cache facts.
                 pendingRefreshes.remove(key);
                 try {
-                    refresh.getObject().warmDetail(review.repo(), review.number().getAsInt());
+                    refresh.getObject().warmDetail(review.workspaceId(), review.repo(), review.number().getAsInt());
                 }
                 catch (RuntimeException failure) {
                     log.debug("Review {} could not refresh its pull request: {}", review.id(), failure.toString());

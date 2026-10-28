@@ -298,7 +298,7 @@ class TestAgentReviewService
         assertThat(fixture.service.task(result.review().id()).worktree()).isEqualTo(source.worktree());
         verify(fixture.turns).start(argThat(command -> command.taskId().equals(TASK_ID) && command.message().contains("includes uncommitted and new files")));
         verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
-        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.refresh, never()).refreshAllDetail(any(PullRequestRead.class));
         verify(fixture.turns, atLeastOnce()).synchronizeWorktree(eq(source.id()), anyLong(), any());
     }
 
@@ -350,7 +350,7 @@ class TestAgentReviewService
         localSource(fixture, source, HEAD);
         when(fixture.assignments.findByTaskId(source.id().toString()))
                 .thenReturn(Optional.of(new PullRequestTask(source.id().toString(), WORKSPACE, REPO, NUMBER, "Initial PR context")));
-        when(fixture.pullRequests.findPullRequestDetail(REPO, NUMBER)).thenReturn(Optional.of(detail()));
+        when(fixture.pullRequests.findWorkspacePullRequestDetail(WORKSPACE, REPO, NUMBER)).thenReturn(Optional.of(detail()));
         when(fixture.browse.require(source.worktree(), "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(BASE_SHA);
 
         AgentReviewProjection result = fixture.service.startForTask(WORKSPACE, source.id().toString());
@@ -359,7 +359,7 @@ class TestAgentReviewService
         assertThat(result.runs().getFirst().baseRef()).isEqualTo("main");
         assertThat(result.runs().getFirst().baseSha()).isEqualTo(BASE_SHA);
         assertThat(result.runs().getFirst().commits()).hasSize(1);
-        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.refresh, never()).refreshAllDetail(any(PullRequestRead.class));
         verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
     }
 
@@ -384,7 +384,7 @@ class TestAgentReviewService
         assertThat(updated.runs().getLast().headSha()).isEqualTo(NEW_HEAD);
         verify(fixture.tasks).createShared(any(CreateAgentTaskCommand.class), eq(source.id()));
         verify(fixture.git, never()).run(source.worktree(), fastForward(NEW_HEAD));
-        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.refresh, never()).refreshAllDetail(any(PullRequestRead.class));
         verify(fixture.turns, atLeastOnce()).synchronizeWorktree(eq(source.id()), anyLong(), any());
     }
 
@@ -508,7 +508,7 @@ class TestAgentReviewService
         AgentReviewProjection original = fixture.service.startForTask(WORKSPACE, source.id().toString());
         when(fixture.assignments.findByTaskId(source.id().toString()))
                 .thenReturn(Optional.of(new PullRequestTask(source.id().toString(), WORKSPACE, REPO, NUMBER, "Initial PR context")));
-        when(fixture.pullRequests.findPullRequestDetail(REPO, NUMBER)).thenReturn(Optional.of(detail()));
+        when(fixture.pullRequests.findWorkspacePullRequestDetail(WORKSPACE, REPO, NUMBER)).thenReturn(Optional.of(detail()));
         when(fixture.browse.require(source.worktree(), "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(BASE_SHA);
 
         AgentReviewProjection updated = fixture.service.update(original.review().id());
@@ -518,7 +518,7 @@ class TestAgentReviewService
         assertThat(updated.review().sourceTaskId()).contains(source.id().toString());
         assertThat(updated.review().taskId()).isEqualTo(original.review().taskId());
         verify(fixture.tasks).createShared(any(CreateAgentTaskCommand.class), eq(source.id()));
-        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.refresh, never()).refreshAllDetail(any(PullRequestRead.class));
     }
 
     private static AgentTask developmentSource()
@@ -725,7 +725,7 @@ class TestAgentReviewService
                 new DiffCommit(HEAD, MERGE_BASE, "Fix the parser", "Alice", NOW)), false));
         when(fixture.browse.diff(REPOSITORY, MERGE_BASE, Optional.of(HEAD))).thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(
                 new DiffFile("src/App.java", "modified", 1, 0, "@@ -1 +1,2 @@")), false));
-        when(fixture.pullRequests.findPullRequestDetail(REPO, NUMBER)).thenReturn(Optional.of(detail()));
+        when(fixture.pullRequests.findWorkspacePullRequestDetail(WORKSPACE, REPO, NUMBER)).thenReturn(Optional.of(detail()));
         AgentReview.Replay replay = new AgentReview.Replay("replay-1", NUMBER, true, NOW);
 
         AgentReviewProjection started = fixture.service.startReplay(WORKSPACE, new AgentReviewService.ReplayStart(replay, HEAD, "main", MERGE_BASE));
@@ -1468,9 +1468,11 @@ class TestAgentReviewService
         assertThat(fixture.store.findRun(second.id()).orElseThrow().summary()).isEmpty();
     }
 
-    @Test
-    void explicitExplanationRefreshUsesTheNewHeadWithoutReviewingItsFindings()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void explicitExplanationRefreshUsesTheNewHeadWithoutReviewingItsFindings(boolean gitLab)
     {
+        Fixture fixture = new Fixture(gitLab);
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun initial = fixture.store.listRuns(reviewId).getLast();
         completeCleanReview(fixture, beginValidation(fixture, initial));
@@ -1482,6 +1484,8 @@ class TestAgentReviewService
 
         AgentReviewProjection refreshed = fixture.service.refreshExplanation(reviewId, original.id(), original.summary().orElseThrow().revision());
 
+        verify(fixture.refresh).refreshAllDetail(fixture.route);
+        verify(fixture.pullRequests, never()).prepareRead(anyString(), anyInt());
         ReviewRun explaining = refreshed.runs().getLast();
         assertThat(explaining.explanationOnly()).isTrue();
         assertThat(explaining.headSha()).isEqualTo(NEW_HEAD);
@@ -1579,7 +1583,7 @@ class TestAgentReviewService
         assertThatThrownBy(() -> fixture.service.refreshExplanation(reviewId, initial.id(), 1))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("queued");
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
-        verify(fixture.refresh, never()).refreshAllDetail(REPO, NUMBER);
+        verify(fixture.refresh, never()).refreshAllDetail(fixture.route);
     }
 
     @Test
@@ -1673,7 +1677,7 @@ class TestAgentReviewService
         assertThat(explaining.commits()).extracting(ReviewCommit::sha).containsExactly(NEW_HEAD);
         assertThat(result.review().latestCompletedRunId()).contains(initial.id());
         assertThat(result.findings()).isEmpty();
-        verify(fixture.refresh, never()).refreshAllDetail(anyString(), anyInt());
+        verify(fixture.refresh, never()).refreshAllDetail(any(PullRequestRead.class));
         verify(fixture.turns, atLeastOnce()).synchronizeWorktree(eq(source.id()), anyLong(), any());
     }
 
@@ -2317,7 +2321,6 @@ class TestAgentReviewService
         fixture.service.reconcile(reviewId);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(baseline.id());
 
-        when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(NEW_HEAD));
         when(fixture.pullRequests.findHeadSha(fixture.route)).thenReturn(Optional.of(NEW_HEAD));
         when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(NEW_HEAD));
         when(fixture.git.run(REPOSITORY, "merge-base", NEW_HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));
@@ -2528,7 +2531,7 @@ class TestAgentReviewService
         verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
 
         pushHead(fixture, NEW_HEAD);
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
         when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
         fixture.service.reconcile(reviewId);
         fixture.service.reconcile(reviewId);
@@ -2670,7 +2673,7 @@ class TestAgentReviewService
     void projectionCarriesTheStoredPullRequest()
     {
         PullRequest stored = new PullRequest(
-                1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
+                12L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
                 0, 0, 0, "merged", null, null, null, null, null, null, null, null, null, null);
         when(fixture.pullRequests.findWorkspaceStored(WORKSPACE, REPO, NUMBER)).thenReturn(Optional.of(stored));
@@ -2786,7 +2789,7 @@ class TestAgentReviewService
         assertThatThrownBy(() -> fixture.service.resume(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
         assertThatThrownBy(() -> fixture.service.end(reviewId)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
 
-        verify(fixture.refresh, never()).refreshAllDetail(REPO, NUMBER);
+        verify(fixture.refresh, never()).refreshAllDetail(fixture.route);
         verify(fixture.observer, never()).unwatch(reviewId);
         verify(fixture.completions, never()).complete(any());
         assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
@@ -2871,18 +2874,18 @@ class TestAgentReviewService
     }
 
     @Test
-    void aPullRequestMergedOrClosedOnGitHubEndsItsOpenReviewAndSaysWhy()
+    void aPullRequestMergedOrClosedEndsItsOpenReviewAndSaysWhy()
     {
         for (String state : ImmutableList.of("merged", "CLOSED")) {
             Fixture fixture = new Fixture();
             String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-            when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest(state)));
+            when(fixture.pullRequestStore.findById(12L)).thenReturn(Optional.of(storedPullRequest(state)));
 
-            assertThat(fixture.service.endIfPullRequestEnded("Owner/Repo", NUMBER)).isTrue();
+            assertThat(fixture.service.endIfPullRequestEnded(12L)).isTrue();
 
             assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
             verify(fixture.completions).complete(new CompleteAgentTaskCommand(TASK_ID,
-                    Optional.of("Agent review ended: the pull request was " + state.toLowerCase(Locale.ROOT) + " on GitHub")));
+                    Optional.of("Agent review ended: the pull request was " + state.toLowerCase(Locale.ROOT))));
             verify(fixture.completions).cleanupWorktree(TASK_ID);
         }
     }
@@ -2892,12 +2895,12 @@ class TestAgentReviewService
     {
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
 
-        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isFalse();
-        when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest("open")));
-        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isFalse();
-        // Another pull request of the same repository that merged ends none of this one's reviews.
-        when(fixture.pullRequests.findStored(REPO, NUMBER + 1)).thenReturn(Optional.of(storedPullRequest("merged")));
-        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER + 1)).isTrue();
+        assertThat(fixture.service.endIfPullRequestEnded(12L)).isFalse();
+        when(fixture.pullRequestStore.findById(12L)).thenReturn(Optional.of(storedPullRequest("open")));
+        assertThat(fixture.service.endIfPullRequestEnded(12L)).isFalse();
+        // The same repository path and number on another host must not end this review.
+        when(fixture.pullRequestStore.findById(13L)).thenReturn(Optional.of(storedPullRequest("merged")));
+        assertThat(fixture.service.endIfPullRequestEnded(13L)).isTrue();
 
         assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
         verify(fixture.completions, never()).complete(any());
@@ -2907,15 +2910,15 @@ class TestAgentReviewService
     void aReviewWithSavedEditsStaysOpenUntilALaterRefreshFindsThemGone()
     {
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-        when(fixture.pullRequests.findStored(REPO, NUMBER)).thenReturn(Optional.of(storedPullRequest("merged")));
+        when(fixture.pullRequestStore.findById(12L)).thenReturn(Optional.of(storedPullRequest("merged")));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, true, false, true));
 
-        assertThat(fixture.service.endIfPullRequestEnded(REPO, NUMBER)).isTrue();  // and nothing is thrown at the refresh
+        assertThat(fixture.service.endIfPullRequestEnded(12L)).isTrue();  // and nothing is thrown at the refresh
         assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.OPEN);
         verify(fixture.completions, never()).complete(any());
 
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), HEAD, false, false, false));
-        fixture.service.endIfPullRequestEnded(REPO, NUMBER);
+        fixture.service.endIfPullRequestEnded(12L);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().state()).isEqualTo(AgentReview.State.CLOSED);
     }
 
@@ -2938,7 +2941,7 @@ class TestAgentReviewService
     private static PullRequest storedPullRequest(String state)
     {
         return new PullRequest(
-                1L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
+                12L, REPO, NUMBER, "Avoid duplicate field index lookup", "alice", "url", NOW, NOW, PullRequest.Origin.AUTHORED,
                 ImmutableList.of(), null, false, null, null, null, ImmutableList.of(), null,
                 0, 0, 0, state, null, null, null, null, null, null, null, null, null, null);
     }
@@ -2947,11 +2950,11 @@ class TestAgentReviewService
     void observeHeadRecordsTheNewerHeadOnlyOnTheMatchingReview()
     {
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
-        AgentReview other = fixture.store.insertReview(pullRequestReview("other-review", WORKSPACE, REPO, 9, TaskId.random().toString(), NOW)
-                .withObservedHead(HEAD, NOW).withWorktreeHead(HEAD, NOW));
+        AgentReview other = fixture.store.insertReview(pullRequestReview("other-review", "gitlab-workspace", REPO, NUMBER, TaskId.random().toString(), NOW)
+                .withPullRequest(NUMBER, OptionalLong.of(13L), NOW).withObservedHead(HEAD, NOW).withWorktreeHead(HEAD, NOW));
         when(fixture.turns.get(TURN_ONE)).thenReturn(AgentTurn.accepted(TURN_ONE, TASK_ID, "review-run", SETTINGS, NOW));
 
-        fixture.service.observeHead("Owner/Repo", NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(fixture.store.findReview(reviewId).orElseThrow().observedHeadSha()).contains(NEW_HEAD);
         assertThat(fixture.store.findReview(other.id()).orElseThrow().observedHeadSha()).contains(HEAD);
@@ -2972,7 +2975,7 @@ class TestAgentReviewService
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD))
                 .thenReturn(new GitCommandRunner.Result(rewritten ? 1 : 0, "", false));
 
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
         fixture.service.reconcile(reviewId);
 
         assertThat(checkout.head).isEqualTo(NEW_HEAD);
@@ -2989,18 +2992,19 @@ class TestAgentReviewService
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
     }
 
-    @Test
-    void repeatedCatchUpTracksItsOwnHeadAndExplicitUpdateReviewsTheCurrentRevision()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void repeatedCatchUpTracksItsOwnHeadAndExplicitUpdateReviewsTheCurrentRevision(boolean gitLab)
     {
-        Fixture fixture = rewrittenHistory();
+        Fixture fixture = rewrittenHistory(gitLab);
         AutoCheckout checkout = new AutoCheckout(fixture);
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
         ReviewRun assessed = fixture.store.listRuns(reviewId).getFirst();
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
         String thirdHead = "c3d4e5f6a70123456789abcdef0123456789abcd";
         pushHead(fixture, thirdHead);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", NEW_HEAD, thirdHead)).thenReturn(ok(""));
-        fixture.service.observeHead(REPO, NUMBER, thirdHead);
+        fixture.service.observeHead(12L, thirdHead);
 
         assertThat(checkout.head).isEqualTo(thirdHead);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().worktreeHeadSha()).contains(thirdHead);
@@ -3014,6 +3018,12 @@ class TestAgentReviewService
         assertThat(fixture.store.listRuns(reviewId).getFirst()).isEqualTo(assessed);
         assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(thirdHead);
         verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.refresh).refreshAllDetail(fixture.route);
+        verify(fixture.pullRequests, never()).prepareRead(anyString(), anyInt());
+        verify(fixture.credentials, atLeastOnce()).gitAuthenticationEnvironment(WORKSPACE, ImmutableList.of(fixture.route.repository().httpCloneUrl().toString()));
+        String headRef = (gitLab ? "refs/merge-requests/" : "refs/pull/") + NUMBER + "/head";
+        verify(fixture.git, atLeastOnce()).run(eq(REPOSITORY), eq(Duration.ofMinutes(2)), anyMap(), argThat(arguments ->
+                arguments.contains("+" + headRef + ":refs/bytequay/review/" + NUMBER)));
     }
 
     @ParameterizedTest
@@ -3031,7 +3041,7 @@ class TestAgentReviewService
             case "active-turn" -> when(fixture.turnStore.findActive(TASK_ID)).thenReturn(Optional.of(AgentTurn.accepted(TURN_ONE, TASK_ID, "ask", SETTINGS, NOW)));
             default -> throw new AssertionError(owner);
         }
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(checkout.head).isEqualTo(HEAD);
         assertThat(fixture.service.get(reviewId).worktreeSync().orElseThrow().state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.PENDING);
@@ -3065,7 +3075,7 @@ class TestAgentReviewService
             default -> throw new AssertionError(obstacle);
         }
         String previousHead = checkout.head;
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         AgentReviewProjection.WorktreeSyncView sync = fixture.service.get(reviewId).worktreeSync().orElseThrow();
         assertThat(sync.state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.BLOCKED);
@@ -3086,10 +3096,10 @@ class TestAgentReviewService
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
         String thirdHead = "c3d4e5f6a70123456789abcdef0123456789abcd";
         pushHead(fixture, thirdHead);
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(checkout.head).isEqualTo(HEAD);
-        verify(fixture.refresh).refreshAllDetail(REPO, NUMBER);
+        verify(fixture.refresh).refreshAllDetail(fixture.route);
         verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
     }
@@ -3112,7 +3122,7 @@ class TestAgentReviewService
             return null;
         }).when(fixture.turns).synchronizeWorktree(eq(TASK_ID), anyLong(), any());
 
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(checkout.head).isEqualTo(HEAD);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
@@ -3128,7 +3138,7 @@ class TestAgentReviewService
         AgentReview review = fixture.store.listOpenReviews().getFirst();
         fixture.store.updateReview(withSource(review, review.number(), review.pullRequestId(), Optional.of("development-task"), Optional.empty()));
 
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
         fixture.service.reconcile(review.id());
 
         assertThat(checkout.head).isEqualTo(HEAD);
@@ -3146,7 +3156,7 @@ class TestAgentReviewService
         checkout.head = NEW_HEAD;
         String reviewId = fixture.store.listOpenReviews().getFirst().id();
 
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(fixture.store.findReview(reviewId).orElseThrow().worktreeHeadSha()).contains(NEW_HEAD);
         verify(fixture.turns).synchronizeWorktree(eq(TASK_ID), anyLong(), any());
@@ -3164,7 +3174,7 @@ class TestAgentReviewService
         doReturn(new GitCommandRunner.Result(truncated ? 0 : 1, "Cannot overwrite ignored output", truncated))
                 .when(fixture.git).run(taskWorktree().canonicalWorktree(), fastForward(NEW_HEAD));
 
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(checkout.head).isEqualTo(HEAD);
         assertThat(fixture.service.get(reviewId).worktreeSync().orElseThrow().state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.UNAVAILABLE);
@@ -3225,7 +3235,7 @@ class TestAgentReviewService
         AutoCheckout checkout = new AutoCheckout(fixture);
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         pushHead(fixture, NEW_HEAD);
-        fixture.service.observeHead(REPO, NUMBER, NEW_HEAD);
+        fixture.service.observeHead(12L, NEW_HEAD);
 
         assertThat(checkout.head).isEqualTo(HEAD);
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getFirst());
@@ -3469,7 +3479,12 @@ class TestAgentReviewService
 
     private static Fixture rewrittenHistory()
     {
-        Fixture fixture = new Fixture();
+        return rewrittenHistory(false);
+    }
+
+    private static Fixture rewrittenHistory(boolean gitLab)
+    {
+        Fixture fixture = new Fixture(gitLab);
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
@@ -3493,7 +3508,6 @@ class TestAgentReviewService
     /** The hosting provider and the fetched pull request ref both report the given head. */
     private static void pushHead(Fixture fixture, String head)
     {
-        when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(head));
         when(fixture.pullRequests.findHeadSha(fixture.route)).thenReturn(Optional.of(head));
         when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(head));
         when(fixture.git.run(REPOSITORY, "merge-base", head, BASE_SHA)).thenReturn(ok(MERGE_BASE));
@@ -3774,10 +3788,7 @@ class TestAgentReviewService
         private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         private final CredentialService credentials = mock(CredentialService.class);
         private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
-        private final HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
-        private final HostingRepository repository = new HostingRepository(1, 1, "12", REPO, URI.create("https://github.com/owner/repo"),
-                URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main"));
-        private final PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "token", new HostingAccess(instance, "token")), repository, NUMBER, "octocat");
+        private final PullRequestRead route;
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
         private final ReviewSweep sweeps = mock(ReviewSweep.class);
         private final TaskDiscussionService discussions = mock(TaskDiscussionService.class);
@@ -3786,6 +3797,17 @@ class TestAgentReviewService
 
         private Fixture()
         {
+            this(false);
+        }
+
+        private Fixture(boolean gitLab)
+        {
+            String base = gitLab ? "https://gitlab.example.com/gitlab" : "https://github.com";
+            HostingInstance instance = new HostingInstance(1, gitLab ? GITLAB : GITHUB, URI.create(base),
+                    URI.create(gitLab ? base + "/api/v4" : "https://api.github.com"));
+            HostingRepository repository = new HostingRepository(1, 1, "12", REPO, URI.create(base + "/owner/repo"),
+                    URI.create(base + "/owner/repo.git"), Optional.empty(), Optional.of("main"));
+            route = new PullRequestRead(new HostingReadSession(1, "token", new HostingAccess(instance, "token")), repository, NUMBER, gitLab ? "gitlab-user" : "octocat");
             service = new AgentReviewService(
                     store,
                     drafts,
@@ -3844,9 +3866,9 @@ class TestAgentReviewService
             when(hosting.captureRead(WORKSPACE)).thenReturn(new WorkspaceHostingRead(route.session(), repository, route.login()));
             when(pullRequests.prepareRead(WORKSPACE, REPO, NUMBER)).thenReturn(route);
             when(pullRequests.getPullRequestDetail(route)).thenReturn(detail());
-            when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(HEAD));
             when(pullRequests.findHeadSha(route)).thenReturn(Optional.of(HEAD));
-            when(pullRequests.requestHeadRef(route)).thenReturn("refs/pull/" + NUMBER + "/head");
+            when(pullRequests.requestHeadRef(route)).thenReturn((gitLab ? "refs/merge-requests/" : "refs/pull/") + NUMBER + "/head");
+            when(pullRequests.findPullRequestDetail(route)).thenReturn(Optional.of(detail()));
             when(pullRequests.getValidatedPullRequestDiffFiles(eq(route), anyString()))
                     .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +1,3 @@\n context\n+added\n")));
             when(tasks.create(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());

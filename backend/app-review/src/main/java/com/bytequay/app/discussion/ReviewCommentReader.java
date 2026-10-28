@@ -43,7 +43,7 @@ import static java.util.Objects.requireNonNullElse;
 
 /**
  * Reads the comments a private thread can be about from a pull request's cached detail, and captures
- * each as the snapshot its thread keeps. It never calls GitHub, so a key can only name a comment
+ * each as the snapshot its thread keeps. It never calls the remote, so a key can only name a comment
  * already cached for that pull request.
  */
 @Component
@@ -67,12 +67,12 @@ public final class ReviewCommentReader
 
     /**
      * Every keyable comment in the cached detail, oldest first: reviewed events with a non-blank body,
-     * review-thread comments and issue comments, each with a GitHub id. A comment whose snapshot is over
+     * review-thread comments and issue comments, each with a remote id. A comment whose snapshot is over
      * its budget is left out. Empty when the pull request or its detail is not cached.
      */
     List<ReviewCommentItem> read(String repo, int number)
     {
-        return comments(repo, number).stream()
+        return comments(pullRequests.findIdByRepoAndNumber(repo, number)).stream()
                 .filter(comment -> comment.snapshot().length() <= MAX_SNAPSHOT_CHARACTERS)
                 .map(comment -> new ReviewCommentItem(new ReviewCommentAnchor(repo, number, comment.key(), comment.snapshot()),
                         comment.author(), comment.bot(), comment.createdAt()))
@@ -85,9 +85,9 @@ public final class ReviewCommentReader
      *
      * @throws IllegalArgumentException when its snapshot is over its budget
      */
-    Optional<ReviewCommentAnchor> find(String repo, int number, String key)
+    Optional<ReviewCommentAnchor> find(long pullRequestId, String repo, int number, String key)
     {
-        Optional<Comment> match = comments(repo, number).stream().filter(comment -> comment.key().equals(key)).findFirst();
+        Optional<Comment> match = comments(Optional.of(pullRequestId)).stream().filter(comment -> comment.key().equals(key)).findFirst();
         checkArgument(match.filter(comment -> comment.snapshot().length() > MAX_SNAPSHOT_CHARACTERS).isEmpty(), "This comment is too long to ask about");
         return match.map(comment -> new ReviewCommentAnchor(repo, number, key, comment.snapshot()));
     }
@@ -126,9 +126,9 @@ public final class ReviewCommentReader
         return threads.build();
     }
 
-    private List<Comment> comments(String repo, int number)
+    private List<Comment> comments(Optional<Long> pullRequestId)
     {
-        Optional<StoredPrDetail> detail = pullRequests.findIdByRepoAndNumber(repo, number).flatMap(details::find);
+        Optional<StoredPrDetail> detail = pullRequestId.flatMap(details::find);
         if (detail.isEmpty()) {
             return ImmutableList.of();
         }

@@ -46,6 +46,7 @@ import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
@@ -55,7 +56,6 @@ import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
-import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -90,7 +90,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
@@ -139,7 +141,6 @@ class TestReviewCodeService
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
-    private final PullRequestStore pullRequestRows = mock(PullRequestStore.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private AgentProperties agentProperties;
     private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
@@ -192,7 +193,7 @@ class TestReviewCodeService
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID, repository, 1, REPOSITORY, OptionalLong.empty(), REPOSITORY, "origin", "origin", "main", ImmutableList.of()));
         service = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, new ReviewExperiments(runner, worktrees), tasks, turns,
-                assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
+                assignments, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
         when(reviews.mutateWorkingCopy(eq(REVIEW_ID), any())).thenAnswer(invocation -> {
             Function<AgentTask, ?> mutation = invocation.getArgument(1);
             return mutation.apply(reviews.task(REVIEW_ID));
@@ -203,7 +204,7 @@ class TestReviewCodeService
         when(pullRequests.getPullRequestDiffFiles(REPOSITORY.fullName(), 7, null, null)).thenReturn(ImmutableList.of(
                 new DiffFile(MAIN_PATH, "modified", 1, 1, "@@ -1 +1 @@\n-old\n+production source"),
                 new DiffFile(ADDED_PATH, "added", 1, 0, "@@ -0,0 +1 @@\n+added test")));
-        when(pullRequests.findPullRequestDetail(REPOSITORY.fullName(), 7)).thenReturn(Optional.of(pullRequestDetail("main")));
+        when(pullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, REPOSITORY.fullName(), 7)).thenReturn(Optional.of(pullRequestDetail("main")));
         doAnswer(invocation -> {
             Consumer<AgentTask> action = invocation.getArgument(2);
             action.accept(tasks.get(taskId));
@@ -431,7 +432,7 @@ class TestReviewCodeService
         ReviewCodeService racing = new ReviewCodeService(store, reviews, worktrees, workspaces, runner,
                 new ReviewExperiments(
                         runner,
-                        worktrees), tasks, turns, assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
+                        worktrees), tasks, turns, assignments, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
 
         assertThatThrownBy(() -> racing.files(racing.reviewHost(REVIEW_ID))).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
         assertThatThrownBy(() -> racing.file(
@@ -906,10 +907,39 @@ class TestReviewCodeService
         assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 2, 1), new LineChange(LineChange.Kind.ADDED, 4, 1));
 
         // Without a fetched PR base, the visible baseline remains the task's starting commit.
-        when(pullRequests.findPullRequestDetail(REPOSITORY.fullName(), 7)).thenReturn(Optional.empty());
+        when(pullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, REPOSITORY.fullName(), 7)).thenReturn(Optional.empty());
         assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).isNotEmpty();
         assertThat(service.files(taskHost()).files()).anyMatch(CodeFileEntry::changedInPr);
         assertThat(service.file(taskHost(), MAIN_PATH).prPatch()).isPresent();
+    }
+
+    @Test
+    void aTaskFindsItsMergeRequestBaseInTheWorkspaceCache()
+    {
+        when(assignments.findByTaskId(worktree.taskId().toString())).thenReturn(Optional.empty());
+        PullRequest row = new PullRequest(12, REPOSITORY.fullName(), 7, "Update parser", "alice", "https://gitlab.example.com/owner/repo/-/merge_requests/7",
+                NOW, NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), PullRequestDetail.CiStatus.NONE,
+                1, 1, 0, "open", null, null, null, null, null, worktree.generatedBranch(), null, null, null, null);
+        when(pullRequests.findWorkspacePullRequestsByHeadRef(WORKSPACE_ID, worktree.generatedBranch())).thenReturn(ImmutableList.of(row));
+        when(pullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, REPOSITORY.fullName(), 7)).thenReturn(Optional.of(pullRequestDetail("release")));
+        write(checkout, MAIN_PATH, "release source\n");
+        git(checkout, "commit", "-am", "Release base");
+        String base = git(checkout, "rev-parse", "HEAD");
+        git(checkout, "update-ref", "refs/remotes/origin/release", base);
+        write(checkout, MAIN_PATH, "changed source\n");
+        git(checkout, "commit", "-am", "Task change");
+
+        Changes changes = service.changes(taskHost(), ChangeScope.ALL, Optional.empty(), Optional.empty(), Optional.empty());
+
+        assertThat(changes.baseSha()).isEqualTo(base);
+        assertThat(changes.baseLabel()).isEqualTo("release");
+        assertThat(changes.files()).extracting(DiffFile::filename).containsExactly(MAIN_PATH);
+        when(pullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, REPOSITORY.fullName(), 7)).thenReturn(Optional.empty());
+        Changes withoutDetail = service.changes(taskHost(), ChangeScope.ALL, Optional.empty(), Optional.empty(), Optional.empty());
+        assertThat(withoutDetail.baseSha()).isEqualTo(worktree.startCommit());
+        assertThat(withoutDetail.baseLabel()).isEqualTo("Task starting commit");
+        verify(pullRequests, never()).findPullRequestDetail(anyString(), anyInt());
+        verify(pullRequests, never()).prepareRead(anyString(), anyString(), anyInt());
     }
 
     @Test

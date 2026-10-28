@@ -25,7 +25,7 @@ import com.bytequay.app.context.ContextHistoryReader;
 import com.bytequay.app.context.SelectedCommitPullRequestReader;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryService;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
@@ -173,7 +173,6 @@ public class ReviewTools
     private final MemoryService memories;
     private final MemoryStore memoryStore;
     private final LocalRunStore localRuns;
-    private final CredentialService credentials;
     private final ReviewCodeContext codeContext;
 
     public ReviewTools(
@@ -194,7 +193,6 @@ public class ReviewTools
             MemoryService memories,
             MemoryStore memoryStore,
             LocalRunStore localRuns,
-            CredentialService credentials,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -211,7 +209,6 @@ public class ReviewTools
         this.memories = requireNonNull(memories, "memories is null");
         this.memoryStore = requireNonNull(memoryStore, "memoryStore is null");
         this.localRuns = requireNonNull(localRuns, "localRuns is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.sourceAssignments = requireNonNull(sourceAssignments, "sourceAssignments is null");
@@ -1330,18 +1327,18 @@ public class ReviewTools
 
     /**
      * The threads the user started on the reviewed pull request, as its stored activity shows them now. Empty when the review has no
-     * pull request, replays past code, or the user's login is not known without asking GitHub.
+     * pull request or replays past code.
      */
     private Optional<OwnThreads> ownThreads(Call call)
     {
-        Optional<String> login = credentials.cachedLogin();
-        if (call.review().number().isEmpty() || call.review().replay().isPresent() || login.isEmpty()) {
+        if (call.review().number().isEmpty() || call.review().replay().isPresent()) {
             return Optional.empty();
         }
         int number = call.review().number().getAsInt();
-        SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.TIMELINE);
-        List<ReviewOwnThreads.Thread> threads = ReviewOwnThreads.of(read.detail(), login.orElseThrow());
-        return Optional.of(new OwnThreads(login.orElseThrow(), number, read, threads.stream().limit(ReviewOwnThreads.MAX_THREADS).collect(toImmutableList()),
+        PullRequestRead route = pullRequests.prepareRead(call.review().workspaceId(), call.review().repo(), number);
+        SelectedPullRequestReader.Read read = selectedPullRequests.read(route, SelectedPullRequestReader.Section.TIMELINE);
+        List<ReviewOwnThreads.Thread> threads = ReviewOwnThreads.of(read.detail(), route.login());
+        return Optional.of(new OwnThreads(route.login(), number, read, threads.stream().limit(ReviewOwnThreads.MAX_THREADS).collect(toImmutableList()),
                 Math.max(0, threads.size() - ReviewOwnThreads.MAX_THREADS)));
     }
 
@@ -1350,7 +1347,7 @@ public class ReviewTools
         Optional<OwnThreads> own = ownThreads(call);
         if (own.isEmpty()) {
             return objectMapper.createObjectNode().putPOJO("threads", ImmutableList.of())
-                    .put("note", "This review has no pull request discussion to follow up, or the user's GitHub login is not known.");
+                    .put("note", "This review has no pull request discussion to follow up.");
         }
         OwnThreads found = own.orElseThrow();
         List<OwnThreadEntry> entries = found.listed().stream().map(thread -> new OwnThreadEntry(
@@ -1635,7 +1632,7 @@ public class ReviewTools
         }
         else if (call.review().replay().isPresent()) {
             // A replay may read the author's description but must not fetch today's discussion or reviews.
-            text = pullRequests.findPullRequestDetail(call.review().repo(), call.review().replay().orElseThrow().number())
+            text = pullRequests.findWorkspacePullRequestDetail(call.review().workspaceId(), call.review().repo(), call.review().replay().orElseThrow().number())
                     .map(detail -> "Cached PR title: " + detail.title() + "\nDescription (untrusted reference):\n" + Optional.ofNullable(detail.body()).orElse(""))
                     .orElse("The replay's cached description is unavailable.");
         }

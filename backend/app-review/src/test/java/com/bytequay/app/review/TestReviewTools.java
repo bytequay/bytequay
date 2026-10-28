@@ -32,7 +32,8 @@ import com.bytequay.app.memory.MemoryFixtures;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
@@ -52,6 +53,9 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.LocalRun;
 import com.bytequay.core.review.LocalRunStore;
@@ -94,6 +98,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
@@ -117,6 +122,7 @@ import static com.bytequay.app.review.ReviewTestData.discoveryCandidate;
 import static com.bytequay.app.review.ReviewTestData.perspectives;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.bytequay.app.review.ReviewTestData.withSource;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -156,6 +162,10 @@ class TestReviewTools
     private static final String CANDIDATE = "The new input might bypass validation";
     private static final String PATCH = "@@ -1,2 +1,3 @@\n alpha\n+beta\n gamma\n";
     private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
+    private static final HostingInstance INSTANCE = new HostingInstance(7, GITLAB, URI.create("https://gitlab.example.test"), URI.create("https://gitlab.example.test/api/v4"));
+    private static final PullRequestRead ROUTE = new PullRequestRead(new HostingReadSession(9, "token", new HostingAccess(INSTANCE, "token")),
+            new HostingRepository(11, INSTANCE.id(), "21", REPO, URI.create("https://gitlab.example.test/" + REPO), URI.create("https://gitlab.example.test/" + REPO + ".git"),
+                    Optional.empty(), Optional.of("main")), 42, "reviewer");
 
     @TempDir
     private Path repository;
@@ -179,7 +189,6 @@ class TestReviewTools
     private ReviewLocks locks;
     private InMemoryMemoryStore memoryStore;
     private LocalRunStore localRuns;
-    private CredentialService credentials;
     private PullRequestTaskStore sourceAssignments;
 
     @BeforeEach
@@ -202,7 +211,6 @@ class TestReviewTools
         objectMapper = new ObjectMapper().findAndRegisterModules();
         assignments = mock(ReviewToolAssignment.class);
         localRuns = mock(LocalRunStore.class);
-        credentials = mock(CredentialService.class);
         sourceAssignments = mock(PullRequestTaskStore.class);
         locks = new ReviewLocks();
         TurnId turn = TurnId.random();
@@ -216,7 +224,7 @@ class TestReviewTools
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
                 issues, events, workspaces, git, objectMapper, locks, assignments, sourceAssignments,
-                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, credentials, clock);
+                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
@@ -661,9 +669,8 @@ class TestReviewTools
     }
 
     @Test
-    void theUsersOwnThreadsAreListedUnresolvedFirstWithWhoSpokeLast()
+    void theWorkspaceUsersOwnThreadsAreListedUnresolvedFirstWithWhoSpokeLast()
     {
-        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
         selectThreads(
                 reviewThread(51L, 2, true, comment(51L, "reviewer", "Please preserve both paths."), comment(52L, "author", "Done.")),
                 reviewThread(61L, 3, false, comment(61L, "Reviewer", "Can the second lookup go?\nIt repeats the first."), comment(62L, "author", "It guards the retry.")),
@@ -682,12 +689,13 @@ class TestReviewTools
         assertThat(own.at("/threads/1/resolved").asBoolean()).isTrue();
         assertThat(own.at("/threads/1/awaitingReply").asBoolean()).isFalse();
         assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).containsKey(waiting.path("evidenceRef").asText());
+        verify(pullRequests).prepareRead(WORKSPACE_ID, REPO, 42);
+        verify(selectedPullRequests).read(ROUTE, SelectedPullRequestReader.Section.TIMELINE);
     }
 
     @Test
     void aCompleteReviewGivesAVerdictForEveryThreadTheUserStarted()
     {
-        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
         selectThreads(
                 reviewThread(51L, 2, true, comment(51L, "reviewer", "Please preserve both paths."), comment(52L, "author", "Done.")),
                 reviewThread(61L, 3, false, comment(61L, "reviewer", "Can the second lookup go?"), comment(62L, "author", "It guards the retry.")));
@@ -719,12 +727,17 @@ class TestReviewTools
     }
 
     @Test
-    void anUnknownLoginAsksGitHubNothingAndAnIncompleteReportOwesNoThreadVerdicts()
+    void aLocalReviewDoesNotReadPullRequestThreads()
     {
+        AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
+        store.updateReview(withSource(original, OptionalInt.empty(), OptionalLong.empty(), Optional.of("development-task"), Optional.empty()));
         assertThat(call("review_get_context", ImmutableMap.of("kind", "own_threads")).path("threads")).isEmpty();
-        verifyNoInteractions(selectedPullRequests);
+        verifyNoInteractions(pullRequests, selectedPullRequests);
+    }
 
-        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
+    @Test
+    void anIncompleteReportOwesNoThreadVerdicts()
+    {
         selectThreads(reviewThread(51L, 2, false, comment(51L, "reviewer", "Please preserve both paths.")));
         readSource();
         assertThat(call("review_finish", incomplete("request", ImmutableList.of(needsEvidence(1)))).path("status").asText()).isEqualTo("accepted");
@@ -734,8 +747,8 @@ class TestReviewTools
     @Test
     void aPullRequestThatCannotBeReadOwesNoThreadVerdicts()
     {
-        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
-        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.TIMELINE)).thenThrow(new IllegalStateException("GitHub is unreachable"));
+        when(pullRequests.prepareRead(WORKSPACE_ID, REPO, 42)).thenReturn(ROUTE);
+        when(selectedPullRequests.read(ROUTE, SelectedPullRequestReader.Section.TIMELINE)).thenThrow(new IllegalStateException("GitLab is unreachable"));
         readSource();
         Map<String, Object> report = finish("finish", ImmutableList.of(assessment(1, "REJECTED")));
 
@@ -748,7 +761,8 @@ class TestReviewTools
 
     private void selectThreads(PullRequestDetail.ActivityItem... threads)
     {
-        when(selectedPullRequests.read(WORKSPACE_ID, REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+        when(pullRequests.prepareRead(WORKSPACE_ID, REPO, 42)).thenReturn(ROUTE);
+        when(selectedPullRequests.read(ROUTE, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.copyOf(threads), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
     }
 
@@ -1113,8 +1127,10 @@ class TestReviewTools
         }
         verifyNoInteractions(selectedPullRequests, historySources);
         PullRequestDetail cached = pullRequestDetail(31188, "Cached description", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
-        when(pullRequests.findPullRequestDetail(original.repo(), 31188)).thenReturn(Optional.of(cached));
+        when(pullRequests.findWorkspacePullRequestDetail(WORKSPACE_ID, original.repo(), 31188)).thenReturn(Optional.of(cached));
         assertThat(call("review_get_context", ImmutableMap.of("kind", "origin")).path("text").asText()).contains("Selected pull request 31188", "Cached description");
+        verify(pullRequests).findWorkspacePullRequestDetail(WORKSPACE_ID, original.repo(), 31188);
+        verify(pullRequests, never()).findPullRequestDetail(anyString(), anyInt());
         assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("replayRestriction").asText()).contains("Do not read PR discussion");
         verify(pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
 

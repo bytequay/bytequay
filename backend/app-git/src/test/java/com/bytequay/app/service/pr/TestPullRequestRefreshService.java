@@ -63,6 +63,7 @@ class TestPullRequestRefreshService
     void setUp()
     {
         when(pullRequests.prepareRead("owner/repo", 7)).thenReturn(route);
+        when(pullRequests.prepareRead("workspace", "owner/repo", 7)).thenReturn(route);
     }
 
     @Test
@@ -89,11 +90,16 @@ class TestPullRequestRefreshService
         List<Object> published = new ArrayList<>();
         PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), noWorkspaces(), published::add);
 
-        service.warmDetail("owner/repo", 7);
+        when(pullRequests.refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10)))
+                .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
+
+        service.warmDetail("workspace", "owner/repo", 7);
+
+        verify(pullRequests).prepareRead("workspace", "owner/repo", 7);
 
         verify(pullRequests).refreshPullRequestDetailFromGitHub(route, Duration.ofMinutes(10));
         verify(pullRequests, never()).refreshPullRequestDetailFromGitHub(route);
-        assertThat(published).containsExactly(new PullRequestDetailRefreshed("owner/repo", 7, Optional.of("head")));
+        assertThat(published).containsExactly(new PullRequestDetailRefreshed(12L, "owner/repo", 7, Optional.of("head")));
     }
 
     @Test

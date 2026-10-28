@@ -37,6 +37,8 @@ import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestReviewCommentReader
@@ -72,8 +74,8 @@ class TestReviewCommentReader
                 {"kind":"review","author":"alice","state":"CHANGES_REQUESTED","commit":"sha-review","url":"%s#review-3","body":"Please split this."}""".formatted(URL)));
         assertThat(snapshot(items.get(2))).isEqualTo(JSON.readTree("""
                 {"kind":"issue_comment","author":"carol","url":"%s#issuecomment-30","body":"Could this land today?"}""".formatted(URL)));
-        assertThat(reader.find(REPO, 12, "review:3")).map(ReviewCommentAnchor::snapshot).contains(items.get(1).anchor().snapshot());
-        assertThat(reader.find(REPO, 12, "review:30")).isEmpty();
+        assertThat(reader.find(12, REPO, 12, "review:3")).map(ReviewCommentAnchor::snapshot).contains(items.get(1).anchor().snapshot());
+        assertThat(reader.find(12, REPO, 12, "review:30")).isEmpty();
     }
 
     @Test
@@ -84,7 +86,20 @@ class TestReviewCommentReader
         when(details.find(12L)).thenReturn(Optional.of(new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(reviewed(3L, "alice", NOW, "Please split this.")),
                 ImmutableList.of(), ImmutableList.of(StoredPrDetail.REVIEWS), false)));
 
-        assertThat(reader.find(REPO, 12, "review:3")).hasValueSatisfying(anchor -> assertThat(anchor.snapshot()).doesNotContain("commit"));
+        assertThat(reader.find(12, REPO, 12, "review:3")).hasValueSatisfying(anchor -> assertThat(anchor.snapshot()).doesNotContain("commit"));
+    }
+
+    @Test
+    void findsTheCommentByStoredIdentityWhenRepositoriesAndNumbersMatch()
+    {
+        cache(ImmutableList.of(), ImmutableList.of(issueComment(30L, "alice", NOW, "GitHub comment", URL + "#issuecomment-30")));
+        String gitlabUrl = "https://git.example/owner/repo/-/merge_requests/12#note_30";
+        when(details.find(34L)).thenReturn(Optional.of(new StoredPrDetail(raw(), ImmutableList.of(),
+                ImmutableList.of(issueComment(30L, "bob", NOW, "GitLab comment", gitlabUrl)), ImmutableList.of(), ImmutableList.of(), false)));
+
+        assertThat(reader.find(34, REPO, 12, "issue_comment:30")).hasValueSatisfying(anchor ->
+                assertThat(anchor.snapshot()).contains("GitLab comment", gitlabUrl).doesNotContain("GitHub comment"));
+        verify(pullRequests, never()).findIdByRepoAndNumber(REPO, 12);
     }
 
     @Test
@@ -145,7 +160,7 @@ class TestReviewCommentReader
                 comment(11L, "bob", NOW, escaped, null), comment(12L, "bob", NOW, escaped, null), comment(13L, "bob", NOW, escaped, null))));
 
         assertThat(reader.read(REPO, 12)).extracting(item -> item.anchor().key()).containsExactly("review_comment:10", "review_comment:11", "review_comment:12");
-        assertThatThrownBy(() -> reader.find(REPO, 12, "review_comment:13"))
+        assertThatThrownBy(() -> reader.find(12, REPO, 12, "review_comment:13"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("This comment is too long to ask about");
     }

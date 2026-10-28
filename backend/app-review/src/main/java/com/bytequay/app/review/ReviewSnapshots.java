@@ -169,7 +169,7 @@ final class ReviewSnapshots
         if (number.isEmpty()) {
             return Optional.empty();
         }
-        return Optional.of(pullRequests.findPullRequestDetail(workspace.monitoredRepository().fullName(), number.getAsInt())
+        return Optional.of(pullRequests.findWorkspacePullRequestDetail(workspace.workspaceId(), workspace.monitoredRepository().fullName(), number.getAsInt())
                 .orElseThrow(() -> new ReviewConflictException("Refresh the associated pull request before reviewing its local branch")));
     }
 

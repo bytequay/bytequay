@@ -17,8 +17,8 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** Published after one pull request's detail was refreshed from GitHub, naming the head it now records. */
-public record PullRequestDetailRefreshed(String repo, int number, Optional<String> headSha)
+/** Published after one pull request's detail was refreshed from its host, naming the head it now records. */
+public record PullRequestDetailRefreshed(long pullRequestId, String repo, int number, Optional<String> headSha)
 {
     public PullRequestDetailRefreshed
     {

@@ -1829,6 +1829,13 @@ public class PullRequestService
         return findWorkspaceStored(workspaceId, repo, number).flatMap(row -> snapshots.findDetail(repo, number, row.id()));
     }
 
+    public List<PullRequest> findWorkspacePullRequestsByHeadRef(String workspaceId, String headRef)
+    {
+        Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
+        return workspace.isGitHub() ? store.findByHeadRef(workspace.monitoredRepository().fullName(), headRef)
+                : workspaceHosting.cachedRepositoryId(workspaceId).map(id -> store.findByHostingHeadRef(id, headRef)).orElse(ImmutableList.of());
+    }
+
     public Optional<PullRequestDetail> findPullRequestDetail(PullRequestRead route)
     {
         prepareRead(route);

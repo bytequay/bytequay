@@ -25,9 +25,15 @@ import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewPerspectiveAssessment.Perspective;
@@ -35,8 +41,12 @@ import com.bytequay.core.review.ReviewRun;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,6 +62,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -61,6 +72,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestReviewSweep
@@ -78,6 +90,13 @@ class TestReviewSweep
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final MemoryDelivery memories = mock(MemoryDelivery.class);
     private final AtomicInteger settled = new AtomicInteger();
+    private final PullRequestRead route = route(GITHUB);
+
+    @BeforeEach
+    void setUp()
+    {
+        when(pullRequests.prepareRead("workspace", "owner/repo", 7)).thenReturn(route);
+    }
 
     private static String read(ReviewTool tool, String kind)
     {
@@ -103,7 +122,7 @@ class TestReviewSweep
                     ? new GitCommandRunner.Result(0, "\u001e" + HEAD + "\n\nsrc/test/java/TestLoader.java\n\u001e" + first + "\n\nsrc/main/java/Loader.java\n", false)
                     : new GitCommandRunner.Result(128, "fatal: path does not exist", false);
         });
-        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail("Add the loader", ""));
+        when(pullRequests.getPullRequestDetail(route)).thenReturn(detail("Add the loader", ""));
         List<String> prompts = new ArrayList<>();
         ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> {
             assertThat(prompt).contains("review_get_context").hasSizeLessThan(600);
@@ -116,9 +135,12 @@ class TestReviewSweep
         assertThat(prompts.getFirst()).contains("commit bbbbbbbbbbb adds TestLoader.java, the test of Loader.java, which commit ccccccccccc added");
     }
 
-    @Test
-    void readsOnceWithTheGatheredReferenceAndHandsItsLeadsOverOnce()
+    @ParameterizedTest
+    @EnumSource(HostingProvider.class)
+    void readsOnceWithTheGatheredReferenceAndHandsItsLeadsOverOnce(HostingProvider provider)
     {
+        PullRequestRead route = route(provider);
+        when(pullRequests.prepareRead("workspace", "owner/repo", 7)).thenReturn(route);
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {
             List<String> arguments = invocation.getArgument(3);
             if (arguments.getFirst().equals("log")) {
@@ -128,7 +150,7 @@ class TestReviewSweep
                     ? new GitCommandRunner.Result(0, "## Release notes\n( ) Not needed\n( ) Please propose a note\n", false)
                     : new GitCommandRunner.Result(128, "fatal: path does not exist", false);
         });
-        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail("Add the loader", "## Release notes\n( ) Not needed\n(x) Please propose a note\n"));
+        when(pullRequests.getPullRequestDetail(route)).thenReturn(detail("Add the loader", "## Release notes\n( ) Not needed\n(x) Please propose a note\n"));
         List<String> prompts = new ArrayList<>();
         ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> {
             assertThat(prompt).contains("review_get_context").hasSizeLessThan(600);
@@ -139,6 +161,8 @@ class TestReviewSweep
         sweep.start(review(Optional.empty()), run(), task(), settled::incrementAndGet);
 
         assertThat(settled).hasValue(1);
+        verify(pullRequests).prepareRead("workspace", "owner/repo", 7);
+        verify(pullRequests).getPullRequestDetail(route);
         assertThat(prompts).hasSize(1);
         assertThat(prompts.getFirst()).contains("Repository: owner/repo\nFrozen head: " + HEAD, "git diff " + BASE + " " + HEAD, "src/App.java",
                 "Add the loader\n\n## Release notes", "commit bbbbbbbbbbb \"Add the loader\": subject 14 characters, body 3 words",
@@ -162,7 +186,7 @@ class TestReviewSweep
 
         sweep.start(review(Optional.of(new AgentReview.Replay("replay", 7, false, NOW))), run(), task(), settled::incrementAndGet);
 
-        verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
+        verifyNoInteractions(pullRequests);
         assertThat(prompt.get()).contains("Repository: owner/repo\nFrozen head: " + HEAD).doesNotContain("## Description", "## Facts ByteQuay measured", "## Repository rules");
         assertThat(sweep.take("review", "run")).isEmpty();
     }
@@ -171,7 +195,7 @@ class TestReviewSweep
     void aFailedOrUnreadableReadSettlesWithoutLeads()
     {
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
-        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenThrow(new IllegalStateException("offline"));
+        when(pullRequests.getPullRequestDetail(route)).thenThrow(new IllegalStateException("offline"));
         ReviewSweep failing = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> {
             throw new IllegalStateException("The model did not answer in time");
         });
@@ -336,5 +360,14 @@ class TestReviewSweep
         return new PullRequestDetail(12L, "owner/repo", 7, title, "https://github.test/owner/repo/pull/7", "open", false, true, "clean", "alice", null, NOW, NOW, null,
                 "main", "feature", "head", body, ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(), 1, 0, 1, 0, PullRequestDetail.CiStatus.PASSING,
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
+    }
+
+    private static PullRequestRead route(HostingProvider provider)
+    {
+        URI server = URI.create(provider == GITHUB ? "https://github.com" : "https://gitlab.example.com/gitlab");
+        HostingInstance instance = new HostingInstance(1, provider, server, provider == GITHUB ? URI.create("https://api.github.com") : URI.create(server + "/api/v4"));
+        HostingRepository repository = new HostingRepository(2, 1, "123", "owner/repo", URI.create(server + "/owner/repo"),
+                URI.create(server + "/owner/repo.git"), Optional.empty(), Optional.of("main"));
+        return new PullRequestRead(new HostingReadSession(3, "token", new HostingAccess(instance, "token")), repository, 7, "alice");
     }
 }

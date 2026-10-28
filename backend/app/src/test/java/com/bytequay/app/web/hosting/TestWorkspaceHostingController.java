@@ -23,6 +23,9 @@ import com.bytequay.app.workspace.WorkspacePullRequestPage;
 import com.bytequay.app.workspace.WorkspacePullRequestRow;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -45,13 +48,16 @@ import java.util.Optional;
 
 import static com.bytequay.app.web.agent.AgentController.SESSION_HEADER;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -66,7 +72,7 @@ class TestWorkspaceHostingController
 
     @ParameterizedTest
     @CsvSource({"GET,/api/workspaces/workspace/hosting", "POST,/api/workspaces/workspace/hosting", "GET,/api/workspaces/workspace/hosting/requests/7",
-            "GET,/api/workspaces/workspace/hosting/requests"})
+            "GET,/api/workspaces/workspace/hosting/requests", "POST,/api/workspaces/workspace/hosting/requests/7/refresh"})
     void requiresLocalDesktopSession(String method, String path)
             throws Exception
     {
@@ -82,9 +88,7 @@ class TestWorkspaceHostingController
     void returnsTheSharedCachedPageWithoutRefreshing()
             throws Exception
     {
-        Instant now = Instant.parse("2026-08-01T00:00:00Z");
-        FetchedPullRequest summary = new FetchedPullRequest(99L, "group/project", 7, "Change", "alice", "https://gitlab.com/group/project/-/merge_requests/7",
-                now, now, OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
+        FetchedPullRequest summary = snapshot().pullRequest();
         when(hosting.cachedPullRequests("workspace", 2, 25))
                 .thenReturn(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, Optional.empty())), true));
 
@@ -92,6 +96,41 @@ class TestWorkspaceHostingController
                 .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].summary.title").value("Change"))
                 .andExpect(jsonPath("$.items[0].github").isEmpty()).andExpect(jsonPath("$.hasNext").value(true));
         verifyNoInteractions(repositories);
+    }
+
+    @Test
+    void readsCachedDetailsWithoutRefreshing()
+            throws Exception
+    {
+        when(hosting.cachedPullRequest("workspace", 7)).thenReturn(Optional.of(snapshot()));
+
+        mvc().perform(get(BASE + "/requests/7").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.accountId").value(20))
+                .andExpect(jsonPath("$.detail.body").value("Description")).andExpect(jsonPath("$.detail.headRef").value("topic"));
+        verify(hosting).cachedPullRequest("workspace", 7);
+        verifyNoMoreInteractions(hosting, repositories);
+    }
+
+    @Test
+    void returnsNullWhenDetailHasNotBeenCached()
+            throws Exception
+    {
+        mvc().perform(get(BASE + "/requests/7").header(SESSION_HEADER, SESSION)).andExpect(status().isOk()).andExpect(content().string("null"));
+        verify(hosting).cachedPullRequest("workspace", 7);
+        verifyNoMoreInteractions(hosting, repositories);
+    }
+
+    @Test
+    void refreshesOnlyTheWorkspaceRequestNamedByThePost()
+            throws Exception
+    {
+        when(hosting.readPullRequest("workspace", 7)).thenReturn(snapshot());
+
+        mvc().perform(post(BASE + "/requests/7/refresh").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.request.number").value(7))
+                .andExpect(jsonPath("$.detail.body").value("Description"));
+        verify(hosting).readPullRequest("workspace", 7);
+        verifyNoMoreInteractions(hosting, repositories);
     }
 
     @Test
@@ -132,6 +171,17 @@ class TestWorkspaceHostingController
     {
         when(hosting.findBinding("workspace")).thenThrow(WorkspaceException.notFound("workspace"));
         mvc().perform(get(BASE).header(SESSION_HEADER, SESSION)).andExpect(status().isNotFound());
+    }
+
+    private static HostingPullRequestSnapshot snapshot()
+    {
+        Instant now = Instant.parse("2026-08-01T00:00:00Z");
+        String url = "https://gitlab.com/group/project/-/merge_requests/7";
+        FetchedPullRequest summary = new FetchedPullRequest(99L, "group/project", 7, "Change", "alice", url,
+                now, now, OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
+        PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, now, now, null, "Description", ImmutableList.of(), ImmutableMap.of(),
+                ImmutableList.of(), null, false, null, null, -1, -1, -1, 0, ImmutableList.of(), "a".repeat(40), "topic", "main");
+        return new HostingPullRequestSnapshot(new HostingPullRequest(50, 30, 7, "99"), 20, CONNECTED_ACCOUNT, summary, detail, Optional.empty(), now);
     }
 
     private MockMvc mvc()

@@ -122,11 +122,14 @@ Integrations → GitLab**.
 Open **Merge requests** in the workspace to browse cached requests. **Sync merge requests**
 updates them using the selected account; **Load more** reads the next cached
 page. Search and state filters apply to loaded rows. Select a merge request to
-open it in GitLab. GitHub workspaces use the same cached list and keep their
-existing review and monitoring controls.
+read its description, status, branches, labels and assignees in
+ByteQuay. Saved details appear while the selected account checks for updates;
+you can refresh them again from the overview. GitHub workspaces use the same
+cached list and keep their existing review and monitoring controls.
 
-GitLab review, issues, agent tasks and delivery inside ByteQuay are not available
-yet; use GitLab for those remote features.
+GitLab diffs, discussions, checks, review actions, issues, agent tasks and delivery
+inside ByteQuay are not available yet. Use **Open in GitLab** for those features,
+uploaded attachments and GitLab-specific references in descriptions.
 
 ### Plan the day with Today
 

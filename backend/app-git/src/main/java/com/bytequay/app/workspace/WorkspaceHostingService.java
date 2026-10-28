@@ -154,10 +154,7 @@ public class WorkspaceHostingService
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        Optional<HostingCacheTarget> target = workspaces.findHostingBinding(workspaceId)
-                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT))
-                .or(() -> workspaces.findHostingCacheTarget(workspaceId));
-        PullRequestListPage found = target.map(value -> requests.cachedPage(value, page, pageSize))
+        PullRequestListPage found = cacheTarget(workspaceId).map(value -> requests.cachedPage(value, page, pageSize))
                 .orElseGet(() -> new PullRequestListPage(ImmutableList.of(), false));
         return new WorkspacePullRequestPage(found.items().stream().map(summary -> new WorkspacePullRequestRow(summary, workspace.isGitHub()
                 ? pullRequests.findIdByRepoAndNumber(summary.repo(), summary.number()).flatMap(pullRequests::findById) : Optional.empty()))
@@ -166,7 +163,15 @@ public class WorkspaceHostingService
 
     public HostingPullRequestSnapshot readPullRequest(String workspaceId, int number)
     {
+        checkArgument(number > 0, "number must be positive");
         return readPullRequest(captureRead(workspaceId), number);
+    }
+
+    public Optional<HostingPullRequestSnapshot> cachedPullRequest(String workspaceId, int number)
+    {
+        checkArgument(number > 0, "number must be positive");
+        requireWorkspace(workspaces, workspaceId);
+        return cacheTarget(workspaceId).flatMap(target -> requests.cached(target, number));
     }
 
     public HostingPullRequestSnapshot readPullRequest(WorkspaceHostingRead route, int number)
@@ -177,5 +182,12 @@ public class WorkspaceHostingService
     public Optional<HostingPullRequestSnapshot> cachedPullRequest(WorkspaceHostingRead route, int number)
     {
         return requests.cached(route.session(), route.repository().id(), number);
+    }
+
+    private Optional<HostingCacheTarget> cacheTarget(String workspaceId)
+    {
+        return workspaces.findHostingBinding(workspaceId)
+                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT))
+                .or(() -> workspaces.findHostingCacheTarget(workspaceId));
     }
 }

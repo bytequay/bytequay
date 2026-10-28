@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { assert, button, changeInput, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
-import type { Bridge, HostingPullRequestSummaryDto, WorkspaceHostingRequestDto } from '../../types';
+import type { Bridge, HostingPullRequestSnapshotDto, HostingPullRequestSummaryDto, WorkspaceHostingRequestDto } from '../../types';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import { workspacePullRequestRoute, workspaceRoute } from '../../workspaces/model';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
@@ -34,10 +34,10 @@ const row = (number: number, overrides: Partial<HostingPullRequestSummaryDto> = 
 
 export async function run() {
   return runScenarios([
-    ['GitLab lists cached pages, filters loaded requests, refreshes and opens its private URL without GitHub reads', async () => {
+    ['GitLab lists cached pages, filters loaded requests, refreshes and routes selections without GitHub reads', async () => {
       const view = createFixtureRoot();
       const reads: { id: string; page: number }[] = [];
-      const opened: string[] = [];
+      const selected: number[] = [];
       let syncs = 0;
       let failSync = false;
       let failMore = false;
@@ -52,14 +52,13 @@ export async function run() {
         },
         onPullRequestsSynced: callback => { synced = callback; return () => { synced = undefined; }; },
         syncPrs: async id => { assert(id === gitlab.id, 'Sync must keep workspace identity'); syncs++; if (failSync) throw new Error('Server offline'); title = 'Refreshed change'; },
-        openInAppBrowser: async url => { opened.push(url); },
       };
       window.bridge = bridge as Bridge;
       try {
         flushSync(() => view.root.render(<WorkspaceShell workspace={gitlab} tab="prs" onWorkspaceChanged={() => {}}
           taskAttention={{ items: [], tasks: [], readStartedAt: {}, activity: {}, refresh: () => {} }}
           initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={null} onSelectTab={() => {}}
-          onSelectAgentTask={() => {}} onSelectPullRequest={() => { throw new Error('GitLab must not use GitHub routes'); }} onSelectIssue={() => {}} />));
+          onSelectAgentTask={() => {}} onSelectPullRequest={number => { selected.push(number); }} onSelectIssue={() => {}} />));
         await until(() => view.host.textContent?.includes('Change 7') === true, 'GitLab cached page did not load');
         assert(reads.length === 1 && reads[0].id === gitlab.id && reads[0].page === 1 && syncs === 0, 'Opening the list must only read its first cached page');
         assert(view.host.textContent?.includes('No CI') === false && view.host.querySelector('img') === null, 'Summary rows must not invent CI or use GitHub avatars');
@@ -73,8 +72,8 @@ export async function run() {
         assert(view.host.textContent?.includes('Change 8') === true && view.host.textContent?.includes('Merged') === true, 'Closed filter must include merged requests');
         const search = element<HTMLInputElement>('[aria-label="Search loaded requests"]', view.host);
         changeInput(search, '!7'); await settle();
-        button('Change 7 !7', view.host).click(); await until(() => opened.length === 1, 'Merge request did not open');
-        assert(opened[0] === summary(7).htmlUrl, 'Private server port, prefix and nested namespace must be preserved');
+        button('Change 7 !7', view.host).click(); await until(() => selected.length === 1, 'Merge request was not selected');
+        assert(selected[0] === 7, 'Merge request selection must use the workspace route');
         button('Open', view.host).click(); await settle();
         failSync = true; button('Sync merge requests', view.host).click();
         await until(() => view.host.textContent?.includes('Server offline') === true, 'Refresh failure was not shown');
@@ -86,6 +85,83 @@ export async function run() {
         await until(() => view.host.textContent?.includes('Scheduled change') === true, 'Scheduled shared refresh did not reload the list');
         assert(view.host.textContent?.includes('Server offline') === false, 'Successful refresh must clear its error');
       } finally { view.dispose(); }
+    }],
+    ['GitLab overview keeps scoped cached detail, refresh errors, web links and deep-link navigation', async () => {
+      const view = createFixtureRoot();
+      const cached: HostingPullRequestSnapshotDto = { pullRequest: summary(7), validatedAt: '2026-01-02T00:00:00Z', detail: {
+        title: 'Saved overview', htmlUrl: summary(7).htmlUrl, state: 'open', author: 'alice', authorAvatarUrl: null,
+        createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-02T00:00:00Z', mergedAt: null,
+        body: '**Cached description** with @alice and #9. [Project issue](/tools/group/subgroup/project/-/issues/9).\n\n'
+          + '[External reference](https://github.com/example/project/pull/2)\n\n![Attachment](/uploads/hash/image.png)',
+        labels: ['bug'], labelColors: {}, assignees: ['alice'], milestone: 'Release', draft: false,
+        requestedReviewerCount: -1, requestedReviewers: [], headRef: 'fix', baseRef: 'main',
+      } };
+      const reads: number[] = [];
+      const refreshes: number[] = [];
+      const opened: string[] = [];
+      let rejectRefresh: ((error: Error) => void) | undefined;
+      const firstRefresh = new Promise<HostingPullRequestSnapshotDto>((_resolve, reject) => { rejectRefresh = reject; });
+      const bridge: Partial<Bridge> = {
+        fetchWorkspaceHostingRequests: async () => ({ items: [row(7)], hasNext: false }),
+        onPullRequestsSynced: () => () => {},
+        fetchWorkspaceHostingRequest: async (id, number) => { assert(id === gitlab.id, 'Cached detail lost the workspace'); reads.push(number); return number === 7 ? cached : null; },
+        refreshWorkspaceHostingRequest: async (id, number) => {
+          assert(id === gitlab.id, 'Refresh lost the workspace'); refreshes.push(number);
+          if (refreshes.length === 1) return firstRefresh;
+          if (number === 8) throw new Error('Account disconnected');
+          return { ...cached, detail: { ...cached.detail, title: 'Current overview', body: 'Updated description\n\n' + 'More detail about the proposed change.\n\n'.repeat(60) } };
+        },
+        openInAppBrowser: async url => { opened.push(url); },
+      };
+      window.bridge = bridge as Bridge;
+      const previousHash = window.location.hash;
+      window.location.hash = workspacePullRequestRoute(gitlab.id, 7);
+      function Screen() {
+        const [number, setNumber] = useState<number | null>(7);
+        useEffect(() => {
+          const changed = () => { const match = window.location.hash.match(/\/prs\/(\d+)$/); setNumber(match === null ? null : Number(match[1])); };
+          window.addEventListener('hashchange', changed); return () => window.removeEventListener('hashchange', changed);
+        }, []);
+        return <WorkspaceShell workspace={gitlab} tab="prs" onWorkspaceChanged={() => {}}
+          taskAttention={{ items: [], tasks: [], readStartedAt: {}, activity: {}, refresh: () => {} }}
+          initialPullRequestNumber={number} initialIssueNumber={null} initialAgentTaskId={null} onSelectTab={() => {}}
+          onSelectAgentTask={() => {}} onSelectPullRequest={next => { window.location.hash = workspacePullRequestRoute(gitlab.id, next); }} onSelectIssue={() => {}} />;
+      }
+      try {
+        flushSync(() => view.root.render(<Screen />));
+        await until(() => view.host.textContent?.includes('Cached description') === true && refreshes.length === 1, 'Saved details must appear while remote refresh is pending');
+        const detail = element<HTMLElement>('[role="dialog"]', view.host);
+        assert(reads.join(',') === '7' && refreshes.join(',') === '7', 'Deep link must read and refresh only its request');
+        assert(detail.textContent?.includes('fix → main') === true && detail.textContent?.includes('Unavailable') === true, 'Unknown pending reviewers must not become an empty review state');
+        assert(detail.querySelector('strong')?.textContent === 'Cached description', 'Description Markdown must render');
+        assert(detail.querySelector('.md-reference, .md-code-reference, img') === null, 'GitLab Markdown must not use GitHub previews or fetch upload paths');
+        assert(detail.textContent?.includes('/uploads/hash/image.png') === true, 'Unsupported attachments must remain readable');
+        element<HTMLAnchorElement>('a[href$="/issues/9"]', detail).click();
+        await until(() => opened.length === 1, 'Description link did not open');
+        assert(opened[0] === server.webBaseUrl + '/group/subgroup/project/-/issues/9', 'Server-path links must retain private-server coordinates');
+        element<HTMLAnchorElement>('a[href="https://github.com/example/project/pull/2"]', detail).click();
+        await until(() => opened.length === 2, 'Explicit cross-provider links should remain ordinary browser links');
+        button('Open in GitLab', detail).click(); await until(() => opened.length === 3, 'Provider request did not open');
+        assert(opened[2] === summary(7).htmlUrl && document.querySelector('dialog:modal') === null, 'The detail layer must allow the embedded browser to be shown');
+        rejectRefresh?.(new Error('Server offline'));
+        await until(() => detail.textContent?.includes('Server offline') === true, 'Refresh error was not shown');
+        assert(detail.textContent?.includes('Showing saved details.') === true && detail.textContent?.includes('Cached description') === true, 'Refresh failure must retain cached content');
+        button('Refresh', detail).click();
+        await until(() => detail.textContent?.includes('Updated description') === true, 'Refresh retry did not update metadata');
+        assert(detail.textContent?.includes('Server offline') === false, 'Successful refresh must clear old errors');
+        assert(getComputedStyle(detail).overflowY === 'auto' && detail.scrollHeight > detail.clientHeight, 'Long descriptions must remain scrollable');
+        detail.scrollTop = detail.scrollHeight;
+        assert(detail.scrollTop > 0, 'The overview must allow scrolling to its final content');
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+        await until(() => view.host.querySelector('[role="dialog"]') === null, 'Escape must close details');
+        assert(window.location.hash === workspaceRoute(gitlab.id, 'prs'), 'Closing must remove the selected request route');
+        window.location.hash = workspacePullRequestRoute(gitlab.id, 8);
+        await until(() => view.host.textContent?.includes('Account disconnected') === true, 'Uncached deep link failure must be visible');
+        const missing = element<HTMLElement>('[role="dialog"]', view.host);
+        assert(missing.textContent?.includes('Merge request !8') === true && !missing.textContent?.includes('Updated description'), 'Uncached requests must not show another request details');
+        button('Close merge request details', missing).click();
+        await until(() => view.host.querySelector('[role="dialog"]') === null, 'Close button must clear details');
+      } finally { view.dispose(); window.location.hash = previousHash; }
     }],
     ['GitHub retains rich rows, monitoring, reviewed order and routed details while listing the shared cache', async () => {
       const view = createFixtureRoot();

@@ -380,6 +380,15 @@ export type HostingPullRequestSummaryDto = {
 };
 export type WorkspaceHostingRequestDto = { summary: HostingPullRequestSummaryDto; github: PullRequestDto | null };
 export type WorkspaceHostingRequestsDto = { items: WorkspaceHostingRequestDto[]; hasNext: boolean };
+export type HostingPullRequestMetadataDto = {
+  title: string; htmlUrl: string; state: string; author: string; authorAvatarUrl: string | null;
+  createdAt: string; updatedAt: string; mergedAt: string | null; body: string | null;
+  labels: string[]; labelColors: Record<string, string>; assignees: string[]; milestone: string | null;
+  draft: boolean; requestedReviewerCount: number; requestedReviewers: string[]; headRef: string | null; baseRef: string | null;
+};
+export type HostingPullRequestSnapshotDto = {
+  pullRequest: HostingPullRequestSummaryDto; detail: HostingPullRequestMetadataDto; validatedAt: string;
+};
 
 export type WorkspaceDto = {
   hostingServer?: HostingServerDto | null;
@@ -1746,6 +1755,8 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   getWorkspaceHosting: (workspaceId: string) => Promise<WorkspaceHostingBindingDto | null>;
   setWorkspaceHosting: (workspaceId: string, accountId: number) => Promise<WorkspaceHostingBindingDto>;
   fetchWorkspaceHostingRequests: (workspaceId: string, page: number, pageSize: number) => Promise<WorkspaceHostingRequestsDto>;
+  fetchWorkspaceHostingRequest: (workspaceId: string, number: number) => Promise<HostingPullRequestSnapshotDto | null>;
+  refreshWorkspaceHostingRequest: (workspaceId: string, number: number) => Promise<HostingPullRequestSnapshotDto>;
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
   previewWatch: (selectedRepositoryId: number, topology?: WatchRepositoryTopology) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;

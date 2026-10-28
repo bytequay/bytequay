@@ -13,3 +13,14 @@
 .hosting-request-action { font-size: 12px; color: var(--fg-link); }
 .hosting-request-note { margin: 0; padding: 12px 16px; border-top: 1px solid var(--border); color: var(--text-3); font-size: 12px; }
 .hosting-load-more { display: block; margin: 12px auto; padding: 8px 16px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface-canvas); color: var(--text-1); }
+
+.zoom-card.zoom-card.hosting-request-detail { padding: 24px; overflow: auto; display: block; }
+.hosting-request-detail__header, .hosting-request-detail__actions { display: flex; align-items: center; gap: 8px; }
+.hosting-request-detail__header { justify-content: space-between; flex-wrap: wrap; color: var(--text-3); font-size: 13px; }
+.hosting-request-detail h2 { margin: 24px 0 8px; font-size: 22px; overflow-wrap: anywhere; }
+.hosting-request-detail__status, .hosting-request-detail__saved { color: var(--text-3); font-size: 13px; }
+.hosting-request-detail__metadata { display: grid; grid-template-columns: auto 1fr; gap: 8px 20px; margin: 24px 0; font-size: 13px; }
+.hosting-request-detail__metadata dt { color: var(--text-3); }
+.hosting-request-detail__metadata dd { margin: 0; overflow-wrap: anywhere; }
+.hosting-request-detail__description { border-top: 1px solid var(--border); padding-top: 20px; overflow-wrap: anywhere; }
+.hosting-request-detail .hosting-request-note { margin: 20px -24px -24px; }

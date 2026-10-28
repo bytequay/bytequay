@@ -20,6 +20,7 @@ import PullsScreen, { PullFilterTabs, RefreshIcon, shortcutTab, tabKeyTarget } f
 import { exactPullNumber, parsePullSearch, PULL_TABS, pullRequestMatchesSearch, rowsForPullSearch, rowsForTab, type PullRow, type PullTab } from '../pulls/model';
 import PullRowItem from '../pulls/PullRowItem';
 import type { HostingPullRequestSummaryDto, WorkspaceDto, WorkspaceHostingRequestDto } from '../types';
+import HostingRequestOverview from './HostingRequestOverview';
 import './hosting.css';
 
 const PAGE_SIZE = 50;
@@ -81,7 +82,7 @@ export default function HostingPullsScreen({ workspace, initialPullRequestNumber
   }, []);
   const selectTab = useCallback((next: PullTab) => { setTab(next); setSearch(''); }, []);
   useEffect(() => {
-    if (browserOpen || !gitlab && initialPullRequestNumber !== null) return;
+    if (browserOpen || initialPullRequestNumber !== null) return;
     const keyDown = (event: KeyboardEvent) => {
       if (isFindShortcut(event)) {
         event.preventDefault(); event.stopPropagation(); input.current?.select();
@@ -123,8 +124,7 @@ export default function HostingPullsScreen({ workspace, initialPullRequestNumber
     finally { setMonitoring(current => current.filter(value => value !== id)); }
   };
   const open = (summary: HostingPullRequestSummaryDto) => {
-    if (!gitlab) onSelectPullRequest(summary.number, 'push');
-    else void window.bridge.openInAppBrowser(summary.htmlUrl).catch(failure => setError(remoteErrorMessage(failure)));
+    onSelectPullRequest(summary.number, 'push');
   };
   const projected = items.flatMap(item => item.github === null ? [] : [{ ...item.github, ...item.summary }]);
   const byNumber = new Map(items.map(item => [item.summary.number, item]));
@@ -178,13 +178,14 @@ export default function HostingPullsScreen({ workspace, initialPullRequestNumber
             <span className="pull-row__meta">{item.summary.draft ? 'Draft' : item.summary.state === 'merged' ? 'Merged' : item.summary.state === 'closed' ? 'Closed' : 'Open'}
               {' · '}{item.summary.author}{' · '}{relativeTime(item.summary.updatedAt)}</span>
             {item.summary.labels.length > 0 && <span className="pull-row__labels">{item.summary.labels.map(label => <span key={label}>{label}</span>)}</span>}
-            <span className="hosting-request-action">{gitlab ? 'Open in GitLab' : 'Open pull request'}</span>
+            <span className="hosting-request-action">{gitlab ? 'Open merge request' : 'Open pull request'}</span>
           </button>)}
         {hasNext && <button type="button" className="hosting-load-more" disabled={loadingMore || syncing} onClick={() => { void more(); }}>
           {loadingMore ? 'Loading…' : 'Load more'}</button>}
       </div>
-      {gitlab && <p className="hosting-request-note">Open a merge request in GitLab to review or change it.</p>}
     </section>
+    {gitlab && initialPullRequestNumber !== null && <HostingRequestOverview key={initialPullRequestNumber} workspace={workspace} number={initialPullRequestNumber}
+      summary={byNumber.get(initialPullRequestNumber)?.summary} onClose={() => { onClosePullRequest(); void load(); }} />}
     {!gitlab && initialPullRequestNumber !== null && <PullsScreen key={initialPullRequestNumber} initialPr={{ repo: repository, number: initialPullRequestNumber }}
       repositoryScope={{ workspaceId: workspace.id, repository }} browserOpen={browserOpen} onClose={() => { onClosePullRequest(); void load(); }} />}
   </div>;

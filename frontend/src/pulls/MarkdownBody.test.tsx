@@ -670,3 +670,20 @@ describe('short issue references', () => {
     expect(html).toContain('>#5 notes</a>');
   });
 });
+
+
+describe('ordinary web links', () => {
+  it('uses the supplied URL resolver in nested Markdown without GitHub previews or unresolved images', () => {
+    const html = renderToStaticMarkup(<MarkdownBody repository="example/project"
+      resolveWebLink={href => href.startsWith('blocked:') ? null : new URL(href, 'https://gitlab.example.com:8443/tools/project/').href}
+      body={'> **[Relative](/tools/project/issues/7)**\n\n[External](https://github.com/example/project/pull/7)\n\n'
+        + 'https://github.com/example/project/blob/abc123/file.java#L1\n\n#7 and @alice\n\n![Upload](blocked:image)'} />);
+    expect(html).toContain('href="https://gitlab.example.com:8443/tools/project/issues/7"');
+    expect(html).toContain('href="https://github.com/example/project/pull/7"');
+    expect(html).toContain('Upload (blocked:image)');
+    expect(html).not.toContain('md-reference');
+    expect(html).not.toContain('md-code-reference');
+    expect(html).not.toContain('<img');
+    expect(html).not.toContain('https://github.com/example/project/issues/7');
+  });
+});

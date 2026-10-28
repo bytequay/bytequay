@@ -61,6 +61,11 @@ public class HostingPullRequestService
         return snapshots.find(session.accountId(), repositoryId, number).filter(snapshot -> snapshot.credentialScope().equals(session.credentialScope()));
     }
 
+    public Optional<HostingPullRequestSnapshot> cached(HostingCacheTarget target, int number)
+    {
+        return snapshots.find(target.accountId(), target.repositoryId(), number).filter(snapshot -> snapshot.credentialScope().equals(target.credentialScope()));
+    }
+
     public HostingPullRequestSnapshot refresh(long accountId, long repositoryId, int number)
     {
         return refresh(connections.readSession(accountId), repositoryId, number, false);

@@ -14,6 +14,6 @@
 import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
 testBrowserScenarios([{
-  name: 'lists shared GitHub and GitLab cache pages with scoped refresh and navigation', expected: 2, timeout: 60_000,
+  name: 'lists shared GitHub and GitLab cache pages with scoped refresh and navigation', expected: 3, timeout: 60_000,
   fixture: { prefix: 'bytequay-hosting-pulls-', entry: 'src/hosting/fixtures/hostingPullsBrowser.tsx', global: 'HostingPullsTests', styles: true },
 }]);

@@ -227,16 +227,18 @@ Workspace request lists read the shared cache without credentials or remote
 verification. Explicit bindings select their account directly; unbound GitHub
 workspaces retain the last verified cache target for local reads after restart.
 The list uses shared summaries for remote facts and attaches existing GitHub
-local projections for monitoring and enriched cards. GitHub rows retain their
-review surface; GitLab rows open their provider URL until review is implemented.
+local projections for monitoring and enriched cards. Workspace metadata reads
+use the same local cache target, with a separate refresh through the selected
+account. GitHub rows retain their review surface; GitLab rows show the normalized
+metadata in a read-only overview and open their provider URL for remote actions.
 
 ### Remaining integration
 
 Shared metadata storage and backend connection endpoints support both providers.
 The desktop still uses GitHub readers for personal discovery, discussions, checks and diffs,
-and GitHub implementations for remote writes. GitLab review details and these remaining provider contracts are not yet
+and GitHub implementations for remote writes. GitLab diffs, discussions, checks and review actions are not yet
 implemented. GitLab workspaces expose account selection, direct cloning,
-code synchronization and cached merge-request lists; the UI keeps unported features unavailable, and native
+code synchronization, cached merge-request lists and metadata overviews; the UI keeps unported features unavailable, and native
 GitHub consumers exclude GitLab workspaces before reading path- or ID-based data. Extend contracts as those consumers are migrated; keep provider
 protocol details inside each adapter and reuse the shared UI and storage.
 

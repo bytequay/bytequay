@@ -67,6 +67,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
@@ -224,11 +225,59 @@ class TestWorkspaceHostingService
     }
 
     @Test
+    void readsBoundDetailsLocallyAfterDisconnecting()
+    {
+        gitLab("https://git.company.test/gitlab");
+        Workspace workspace = service.watch(40, 60, Optional.empty());
+        workspaces.saveHostingCacheTarget(workspace.id(), new HostingCacheTarget(20, 31, "old-scope"));
+        when(credentials.find(40)).thenReturn(Optional.empty());
+        clearInvocations(identities, credentials, repositories, requests, desktop);
+        HostingPullRequestSnapshot snapshot = snapshot(40, 60, CONNECTED_ACCOUNT);
+        when(snapshots.find(40, 60, 7)).thenReturn(Optional.of(snapshot));
+
+        assertThat(service.cachedPullRequest(workspace.id(), 7)).contains(snapshot);
+        verify(snapshots).find(40, 60, 7);
+        verifyNoInteractions(identities, credentials, repositories, requests, desktop, legacy);
+    }
+
+    @Test
+    void readsOnlyTheUnboundWorkspacesRetainedCredentialScope()
+    {
+        workspaces.saveHostingCacheTarget("workspace", new HostingCacheTarget(20, 31, "workspace-override"));
+        when(snapshots.find(20, 31, 7)).thenReturn(Optional.of(snapshot(20, 31, CONNECTED_ACCOUNT)));
+        assertThat(service.cachedPullRequest("workspace", 7)).isEmpty();
+
+        HostingPullRequestSnapshot snapshot = snapshot(20, 31, "workspace-override");
+        when(snapshots.find(20, 31, 7)).thenReturn(Optional.of(snapshot));
+        assertThat(service.cachedPullRequest("workspace", 7)).contains(snapshot);
+        verifyNoInteractions(identities, credentials, repositories, requests, desktop, legacy);
+    }
+
+    @Test
+    void refreshesGitLabDetailsThroughTheSelectedAccount()
+    {
+        gitLab("https://gitlab.com");
+        Workspace workspace = service.watch(40, 60, Optional.empty());
+
+        HostingPullRequestSnapshot snapshot = service.readPullRequest(workspace.id(), 7);
+
+        assertThat(snapshot.accountId()).isEqualTo(40);
+        assertThat(snapshot.request().repositoryId()).isEqualTo(60);
+        HostingRepository repository = identities.findRepository(60).orElseThrow();
+        verify(requests).fetch(argThat(access -> access.instanceId().orElseThrow() == 90 && access.token().equals("gitlab-token")),
+                eq(repository), eq(7), eq(Optional.empty()));
+        verifyNoInteractions(desktop, legacy);
+    }
+
+    @Test
     void returnsEmptyBeforeTheFirstRefreshWithoutResolvingCredentials()
     {
         assertThat(service.cachedPullRequests("workspace", 1, 50)).isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(), false));
+        assertThat(service.cachedPullRequest("workspace", 7)).isEmpty();
         assertThatThrownBy(() -> service.cachedPullRequests("workspace", 0, 50)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.cachedPullRequests("workspace", 1, 101)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.cachedPullRequest("workspace", 0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.readPullRequest("workspace", 0)).isInstanceOf(IllegalArgumentException.class);
         verifyNoInteractions(identities, credentials, repositories, requests, snapshots, desktop, legacy);
     }
 
@@ -376,5 +425,12 @@ class TestWorkspaceHostingService
         PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, NOW, NOW, null, "Description", ImmutableList.of(), ImmutableMap.of(),
                 ImmutableList.of(), null, false, null, null, 0, 0, 0, 0, ImmutableList.of(), "a".repeat(40), "topic", "main", "b".repeat(40));
         return new PullRequestFetch(Optional.of(summary), Optional.of("etag"), Optional.of(detail));
+    }
+
+    private static HostingPullRequestSnapshot snapshot(long accountId, long repositoryId, String scope)
+    {
+        PullRequestFetch fetched = fetched();
+        return new HostingPullRequestSnapshot(new HostingPullRequest(50, repositoryId, 7, "99"), accountId, scope,
+                fetched.pullRequest().orElseThrow(), fetched.detail().orElseThrow(), fetched.etag(), NOW);
     }
 }

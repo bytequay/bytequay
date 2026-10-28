@@ -561,6 +561,12 @@ function linkDestination(value: string) {
   return value.startsWith('<') && value.endsWith('>') ? value.slice(1, -1) : value;
 }
 
+type WebLinkResolver = (href: string) => string | null;
+
+function openMarkdownLink(href: string, resolveWebLink?: WebLinkResolver) {
+  return resolveWebLink === undefined ? openWebLink(href) : window.bridge.openInAppBrowser(href);
+}
+
 const EMPTY_LINK_DEFINITIONS = new Map<string, string>();
 
 export function inline(
@@ -569,6 +575,7 @@ export function inline(
   definitions: ReadonlyMap<string, string> = EMPTY_LINK_DEFINITIONS,
   repository?: string,
   agent = false,
+  resolveWebLink?: WebLinkResolver,
 ): ReactNode[] {
   const parts: string[] = [];
   let cursor = 0;
@@ -583,21 +590,24 @@ export function inline(
     const html = part.match(/^<(strong|sub)>([^]*)<\/\1>$/);
     if (html) {
       const Tag = html[1] as 'strong' | 'sub';
-      return <Tag key={key}>{inline(html[2], `${key}-html`, definitions, repository, agent)}</Tag>;
+      return <Tag key={key}>{inline(html[2], `${key}-html`, definitions, repository, agent, resolveWebLink)}</Tag>;
     }
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\((<[^<>\r\n]+>|[^)]+)\)\]\((<[^<>\r\n]+>|[^)]+)\)$/);
-    if (linkedImage) return (
-      <a className="md-image-link" key={key} href={linkDestination(linkedImage[3])} onClick={event => {
-        event.preventDefault();
-        void openWebLink(linkDestination(linkedImage[3]));
-      }}>
-        <img src={linkDestination(linkedImage[2])} alt={linkedImage[1]} />
-      </a>
-    );
+    if (linkedImage) {
+      const href = resolveWebLink === undefined ? linkDestination(linkedImage[3]) : resolveWebLink(linkDestination(linkedImage[3]));
+      const src = resolveWebLink === undefined ? linkDestination(linkedImage[2]) : resolveWebLink(linkDestination(linkedImage[2]));
+      if (!href || !src) return <span key={key}>{linkedImage[1]} ({linkDestination(linkedImage[2])})</span>;
+      return <a className="md-image-link" key={key} href={href} onClick={event => {
+        event.preventDefault(); void openMarkdownLink(href, resolveWebLink);
+      }}><img src={src} alt={linkedImage[1]} /></a>;
+    }
     const image = part.match(/^!\[([^\]]*)\]\((<[^<>\r\n]+>|[^)]+)\)$/);
-    if (image) return <img className="md-image" key={key} src={linkDestination(image[2])} alt={image[1]} />;
-    if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository, agent)}</strong>;
-    if ((part.startsWith('_') && part.endsWith('_')) || (part.startsWith('*') && part.endsWith('*'))) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository, agent)}</em>;
+    if (image) {
+      const src = resolveWebLink === undefined ? linkDestination(image[2]) : resolveWebLink(linkDestination(image[2]));
+      return src ? <img className="md-image" key={key} src={src} alt={image[1]} /> : <span key={key}>{image[1]} ({linkDestination(image[2])})</span>;
+    }
+    if ((part.startsWith('**') && part.endsWith('**')) || (part.startsWith('__') && part.endsWith('__'))) return <strong key={key}>{inline(part.slice(2, -2), `${key}-strong`, definitions, repository, agent, resolveWebLink)}</strong>;
+    if ((part.startsWith('_') && part.endsWith('_')) || (part.startsWith('*') && part.endsWith('*'))) return <em key={key}>{inline(part.slice(1, -1), `${key}-em`, definitions, repository, agent, resolveWebLink)}</em>;
     const codeFence = part.match(/^`+/)?.[0];
     if (codeFence && part.endsWith(codeFence)) {
       const code = part.slice(codeFence.length, -codeFence.length).replaceAll('\n', ' ');
@@ -613,16 +623,17 @@ export function inline(
     if (linkText && linkHref) {
       const localFile = /^(?:file:\/\/|(?:\/(?!\/)|[a-z]:[\\/]).*:\d+(?::\d+)?(?:-\d+(?::\d+)?)?$)/i.test(linkHref);
       if (localFile || (agent && !/^https?:\/\//i.test(linkHref))) return <code key={key} title={linkHref}>{linkText}</code>;
-      const href = linkHref.startsWith('/') ? `https://github.com${linkHref}` : linkHref;
+      const href = resolveWebLink === undefined ? linkHref.startsWith('/') ? `https://github.com${linkHref}` : linkHref : resolveWebLink(linkHref);
+      if (!href) return <span key={key}>{linkText} ({linkHref})</span>;
       const reference = linkText.match(/^(.*) (#\d+)$/);
-      const githubReference = parseGitHubReference(href);
+      const githubReference = resolveWebLink === undefined ? parseGitHubReference(href) : null;
       const showTitle = /^https?:\/\//i.test(linkText) || (agent && /#\d+$/.test(linkText));
       const mention = linkText.startsWith('@') && /^https:\/\/[a-z0-9-]+\.atlassian\.net\/jira\/people\/[^/?#]+$/i.test(href);
       // The label is already inside a link, so its own #numbers stay text.
       const label = mention || (showTitle && !githubReference)
         ? linkText.replace(/\\([!-/:-@[-`{-~])/g, '$1')
         : /^https?:\/\//i.test(linkText) && githubReference ? <>{githubReference.owner}/{githubReference.repo} <small>#{githubReference.number}</small></>
-          : !agent && reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions, undefined, agent);
+          : !agent && reference ? <>{reference[1]} <small>{reference[2]}</small></> : inline(linkText, `${key}-link`, definitions, undefined, agent, resolveWebLink);
       if (githubReference) return (
         <ReferenceLink key={key} reference={githubReference} showTitle={showTitle}>{label}</ReferenceLink>
       );
@@ -630,7 +641,7 @@ export function inline(
       return (
         <a key={key} className={mention ? 'md-mention' : undefined} href={href} onClick={event => {
           event.preventDefault();
-          void openWebLink(href);
+          void openMarkdownLink(href, resolveWebLink);
         }}>
           {label}
         </a>
@@ -638,25 +649,24 @@ export function inline(
     }
     if (referenceLink) return (
       <Fragment key={key}>
-        [{inline(referenceLink[1], `${key}-reference-text`, definitions, repository, agent)}]
-        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions, repository, agent)}]</>}
+        [{inline(referenceLink[1], `${key}-reference-text`, definitions, repository, agent, resolveWebLink)}]
+        {referenceLink[2] !== undefined && <>[{inline(referenceLink[2], `${key}-reference-label`, definitions, repository, agent, resolveWebLink)}]</>}
       </Fragment>
     );
-    const bareReference = parseGitHubReference(part);
+    const bareReference = resolveWebLink === undefined ? parseGitHubReference(part) : null;
     if (bareReference) return (
       <ReferenceLink key={key} reference={bareReference} showTitle>
         {bareReference.owner}/{bareReference.repo} <small>#{bareReference.number}</small>
       </ReferenceLink>
     );
     if (agent && /^https?:\/\//i.test(part)) return <a key={key} href={part} target="_blank" rel="noreferrer">{part}</a>;
-    if (/^https?:\/\//i.test(part)) return (
-      <a key={key} href={part} onClick={event => {
-        event.preventDefault();
-        void openWebLink(part);
-      }}>
-        {part}
-      </a>
-    );
+    if (/^https?:\/\//i.test(part)) {
+      const href = resolveWebLink === undefined ? part : resolveWebLink(part);
+      if (!href) return <span key={key}>{part}</span>;
+      return <a key={key} href={href} onClick={event => {
+        event.preventDefault(); void openMarkdownLink(href, resolveWebLink);
+      }}>{part}</a>;
+    }
     if (part.startsWith('@')) return <span className="md-link" key={key}>{part}</span>;
     if (agent) return <Fragment key={key}>{linkIssueNumbers(part, repository)}</Fragment>;
     // Unlike Markdown files, GitHub descriptions and comments keep every source line break.
@@ -959,10 +969,12 @@ function SuggestedChange({ base, text }: { base: SuggestionBase; text: string })
   );
 }
 
-export default function MarkdownBody({ body, className = '', repository, suggestion, onTaskToggle, tasksDisabled = false }: {
+export default function MarkdownBody({ body, className = '', repository, resolveWebLink, suggestion, onTaskToggle, tasksDisabled = false }: {
   body: string;
   className?: string;
   repository?: string;
+  /** Uses plain web links instead of GitHub enrichment; unresolved destinations stay text. */
+  resolveWebLink?: WebLinkResolver;
   /** Renders ```suggestion blocks as a diff against these lines; without it they stay plain code. */
   suggestion?: SuggestionBase;
   onTaskToggle?: (taskIndex: number, checked: boolean) => void;
@@ -981,10 +993,10 @@ export default function MarkdownBody({ body, className = '', repository, suggest
   // Parsing and highlighting cost far more than the render, and a long thread re-renders on every keystroke and poll.
   const blocks = useMemo(() => {
     const document = extractHttpLinkDefinitions(fenceIndentedCode(body));
-    return <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={repository}
+    return <MarkdownBlocks markdown={htmlToMarkdown(document.body)} definitions={document.definitions} repository={resolveWebLink === undefined ? repository : undefined} resolveWebLink={resolveWebLink}
       suggestion={suggestionKey === undefined ? undefined : JSON.parse(suggestionKey) as SuggestionBase}
       tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />;
-  }, [body, repository, suggestionKey, tasksInteractive, tasksDisabled]);
+  }, [body, repository, resolveWebLink, suggestionKey, tasksInteractive, tasksDisabled]);
   return (
     <div className={`markdown-body ${className}`.trim()} onChange={toggleTask}>
       {blocks}
@@ -992,10 +1004,11 @@ export default function MarkdownBody({ body, className = '', repository, suggest
   );
 }
 
-function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksInteractive, tasksDisabled }: {
+function MarkdownBlocks({ markdown, definitions, repository, resolveWebLink, suggestion, tasksInteractive, tasksDisabled }: {
   markdown: string;
   definitions: ReadonlyMap<string, string>;
   repository?: string;
+  resolveWebLink?: WebLinkResolver;
   suggestion?: SuggestionBase;
   tasksInteractive: boolean;
   tasksDisabled: boolean;
@@ -1006,14 +1019,14 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
         const key = `${block.kind}-${index}`;
         if (block.kind === 'heading') {
           const Heading = `h${block.level}` as keyof React.JSX.IntrinsicElements;
-          return <Heading key={key}>{inline(block.text, key, definitions, repository)}</Heading>;
+          return <Heading key={key}>{inline(block.text, key, definitions, repository, false, resolveWebLink)}</Heading>;
         }
-        if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key, definitions, repository)}</p>;
+        if (block.kind === 'paragraph') return <p key={key}>{inline(block.text, key, definitions, repository, false, resolveWebLink)}</p>;
         if (block.kind === 'task') return (
           <p key={key}><label><input type="checkbox" checked={block.checked}
             disabled={!tasksInteractive || tasksDisabled} readOnly={!tasksInteractive}
             data-markdown-task={tasksInteractive ? '' : undefined}
-            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions, repository)}</label></p>
+            onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions, repository, false, resolveWebLink)}</label></p>
         );
         if (block.kind === 'code') {
           if (block.language.toLowerCase() === 'mermaid') return <MermaidDiagram source={block.text} key={key} />;
@@ -1034,16 +1047,16 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
           return (
             <aside className={`md-alert is-${label}`} key={key}>
               <strong><Icon size={16} aria-hidden="true" />{block.label[0]}{label.slice(1)}</strong>
-              <MarkdownBlocks markdown={fenceIndentedCode(block.text)} definitions={definitions} repository={repository}
+              <MarkdownBlocks markdown={fenceIndentedCode(block.text)} definitions={definitions} repository={repository} resolveWebLink={resolveWebLink}
                 tasksInteractive={false} tasksDisabled={tasksDisabled} />
             </aside>
           );
         }
         if (block.kind === 'details') return (
           <details className="md-details" key={key}>
-            <summary>{inline(block.summary, key, definitions, repository)}</summary>
+            <summary>{inline(block.summary, key, definitions, repository, false, resolveWebLink)}</summary>
             <div className="markdown-body">
-              <MarkdownBlocks markdown={block.text} definitions={definitions} repository={repository}
+              <MarkdownBlocks markdown={block.text} definitions={definitions} repository={repository} resolveWebLink={resolveWebLink}
                 suggestion={suggestion} tasksInteractive={tasksInteractive} tasksDisabled={tasksDisabled} />
             </div>
           </details>
@@ -1052,24 +1065,24 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
           <div className="md-table-scroll" key={key}>
             <table>
               <thead><tr>{block.headers.map((header, cellIndex) => (
-                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`, definitions, repository)}</th>
+                <th key={`${key}-header-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(header, `${key}-header-${cellIndex}`, definitions, repository, false, resolveWebLink)}</th>
               ))}</tr></thead>
               <tbody>{block.rows.map((row, rowIndex) => (
                 <tr key={`${key}-row-${rowIndex}`}>{row.map((cell, cellIndex) => (
-                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`, definitions, repository)}</td>
+                  <td key={`${key}-row-${rowIndex}-${cellIndex}`} style={{ textAlign: block.aligns[cellIndex] }}>{inline(cell, `${key}-row-${rowIndex}-${cellIndex}`, definitions, repository, false, resolveWebLink)}</td>
                 ))}</tr>
               ))}</tbody>
             </table>
           </div>
         );
         if (block.kind === 'quote') return (
-          <blockquote key={key}><MarkdownBlocks markdown={fenceIndentedCode(block.text)} definitions={definitions} repository={repository}
+          <blockquote key={key}><MarkdownBlocks markdown={fenceIndentedCode(block.text)} definitions={definitions} repository={repository} resolveWebLink={resolveWebLink}
             tasksInteractive={false} tasksDisabled={tasksDisabled} /></blockquote>
         );
         if (block.kind === 'rule') return <hr key={key} />;
         const List = block.ordered ? 'ol' : 'ul';
         return <List key={key} start={block.start}>{block.items.map((item, itemIndex) => (
-          <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`, definitions, repository)}</li>
+          <li key={`${key}-${itemIndex}`}>{inline(item, `${key}-${itemIndex}`, definitions, repository, false, resolveWebLink)}</li>
         ))}</List>;
       })}
     </>;

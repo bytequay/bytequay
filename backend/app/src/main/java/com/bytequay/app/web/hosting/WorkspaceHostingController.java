@@ -65,7 +65,13 @@ public class WorkspaceHostingController
     }
 
     @GetMapping("/requests/{number}")
-    public HostingPullRequestSnapshot request(@PathVariable String workspaceId, @PathVariable int number)
+    public Optional<HostingPullRequestSnapshot> request(@PathVariable String workspaceId, @PathVariable int number)
+    {
+        return hosting.cachedPullRequest(workspaceId, number);
+    }
+
+    @PostMapping("/requests/{number}/refresh")
+    public HostingPullRequestSnapshot refreshRequest(@PathVariable String workspaceId, @PathVariable int number)
     {
         return hosting.readPullRequest(workspaceId, number);
     }

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useRef, type ReactNode, type Ref, type TextareaHTMLAttributes } from 'react';
+import { useRef, useState, type ReactNode, type Ref, type TextareaHTMLAttributes } from 'react';
 import { X } from 'lucide-react';
 
 export type ComposerProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'children' | 'className' | 'onSubmit'> & {
@@ -35,24 +35,44 @@ export type ComposerProps = Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, 'c
 export default function Composer({
   className = '', inputRef, header, notice, children, trailingActions, busy = false,
   onSubmit, submitEnabled, showSubmit = true, submitLabel = 'Send message', submitTitle = submitLabel,
-  submitContent, submitShortcut = 'enter', onKeyDown, onCompositionStart, onCompositionEnd, rows = 1, ...input
+  submitContent, submitShortcut = 'enter', onKeyDown, onCompositionStart, onCompositionEnd, onChange, onScroll, rows = 1, ...input
 }: ComposerProps) {
   const composing = useRef(false);
+  const highlights = useRef<HTMLDivElement>(null);
+  const [draft, setDraft] = useState(input.defaultValue ?? '');
+  const text = String(input.value ?? draft);
+  const parts = text.split(/((?<![\p{L}\p{N}_@])@[\p{L}\p{N}_-]+)/gu);
   const submit = () => { if (submitEnabled) onSubmit(); };
   return <div className={`agt-compose ${className}`.trim()} aria-busy={busy}>
     <span className="agt-compose__streamer" aria-hidden="true" />
     {header}
-    <textarea {...input} ref={inputRef} className="agt-compose__input" rows={rows}
-      onCompositionStart={event => { composing.current = true; onCompositionStart?.(event); }}
-      onCompositionEnd={event => { composing.current = false; onCompositionEnd?.(event); }}
-      onKeyDown={event => {
-        if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
-        onKeyDown?.(event);
-        if (event.defaultPrevented || event.key !== 'Enter' || event.shiftKey
-          || (submitShortcut === 'mod-enter' && !event.metaKey && !event.ctrlKey)) return;
-        event.preventDefault();
-        submit();
-      }} />
+    <div className={`agt-compose__field${parts.length > 1 ? ' has-keywords' : ''}`}>
+      <div ref={highlights} className="agt-compose__highlights" aria-hidden="true" style={input.style}>
+        {parts.map((part, index) => index % 2 === 1 ? <span className="agt-compose__keyword" key={index}>{part}</span> : part)}{'\n'}
+      </div>
+      <textarea {...input} ref={inputRef} className="agt-compose__input" rows={rows}
+        onChange={event => {
+          if (input.value === undefined) setDraft(event.currentTarget.value);
+          onChange?.(event);
+        }}
+        onScroll={event => {
+          if (highlights.current) {
+            highlights.current.scrollTop = event.currentTarget.scrollTop;
+            highlights.current.scrollLeft = event.currentTarget.scrollLeft;
+          }
+          onScroll?.(event);
+        }}
+        onCompositionStart={event => { composing.current = true; onCompositionStart?.(event); }}
+        onCompositionEnd={event => { composing.current = false; onCompositionEnd?.(event); }}
+        onKeyDown={event => {
+          if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
+          onKeyDown?.(event);
+          if (event.defaultPrevented || event.key !== 'Enter' || event.shiftKey
+            || (submitShortcut === 'mod-enter' && !event.metaKey && !event.ctrlKey)) return;
+          event.preventDefault();
+          submit();
+        }} />
+    </div>
     {notice}
     {(children || showSubmit || trailingActions) && <div className="agt-compose__row">
       {children}

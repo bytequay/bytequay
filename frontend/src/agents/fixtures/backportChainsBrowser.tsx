@@ -208,6 +208,8 @@ export async function runComposer() {
       assert(input.getAttribute('aria-activedescendant') === option()?.id, 'Suggestion is associated with input');
       await key('Enter');
       assert(value() === '@backport ' && view.sends.length === 0, 'Enter completes without sending');
+      assert(view.host.querySelector('.agt-compose__keyword')?.textContent === '@backport' && view.host.querySelector('.agt-backport-hint') === null,
+        'Completed backport stays colored inline without the description row');
       assert(input.selectionStart === 10 && document.activeElement === input && option() === null, 'Selection keeps caret after command');
       await type('@'); await key('Tab');
       assert(value() === '@backport ' && view.sends.length === 0, 'Tab completes bare @ without sending');

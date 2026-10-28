@@ -14,7 +14,6 @@
 
 import { clock } from '@bytequay/ui/displayText';
 import type { JiraTaskSource } from '../jira/contracts';
-import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
 import { BookMarked,BookOpen,Check,ChevronsDownUp,CircleAlert,CircleCheck,CircleDashed,CircleEllipsis,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Hand,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
@@ -1436,7 +1435,6 @@ export function ConversationComposer({
               <strong>@ci</strong><span>CI Autofix</span>
             </button>
           </div>}
-          {ciMention && <BackportRequestHint text={value} />}
         </>}
         notice={ciMessageHint && <div className="agt-compose__hint" id={`${mentionId}-hint`} role="status">{ciMessageHint}</div>}
         aria-autocomplete={ciMention ? 'list' : undefined} aria-controls={activeMention !== null ? mentionId : undefined}

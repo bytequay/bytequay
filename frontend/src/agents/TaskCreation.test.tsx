@@ -76,10 +76,11 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     ? <AgentHomeView {...props} {...overrides} repository="bytequay/bytequay" onOpenReview={() => {}} onShowAll={() => {}} />
     : <AgentTaskList {...props} {...overrides} />);
 
-  it('identifies an explicit backport request without changing the message', () => {
+  it('colors backport inline without an extra description or changing the message', () => {
     const draft = '@backport oss/repo #1234 to internal';
     const markup = render({ draft });
-    expect(markup).toContain('class="agt-backport-hint"');
+    expect(markup).not.toContain('class="agt-backport-hint"');
+    expect(markup).toContain('<span class="agt-compose__keyword">@backport</span>');
     expect(markup).toContain(`>${draft}</textarea>`);
     expect(render({ draft: 'Explain the @backport feature' })).not.toContain('class="agt-backport-hint"');
   });

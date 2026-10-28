@@ -15,7 +15,10 @@ import { createRef, type ComponentProps } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from './reactFixture';
 import Composer from '../Composer';
-import { assert } from './harness';
+import { assert, changeInput, element } from './harness';
+import '../css/base.css';
+import '../css/assistant.css';
+import '../css/artifacts.css';
 
 export function run(): { name: string; error?: string }[] {
   const { host, root, dispose: disposeRoot } = createFixtureRoot();
@@ -70,6 +73,39 @@ export function run(): { name: string; error?: string }[] {
       button.click();
       input.dispatchEvent(new ClipboardEvent('paste', { bubbles: true }));
       assert(sent === 0 && pasted, 'Blocked sending does not consume paste or send a message');
+    });
+    test('Keywords stay colored through edits, wrapping and scrolling', () => {
+      let draft = '@backport, ask @ci and (@review-team)\nEmail user@example.com; bare @ stays plain.';
+      const input = mount({ value: draft, onChange: event => { draft = event.currentTarget.value; mount({ value: draft }); } });
+      const mirror = element<HTMLElement>('.agt-compose__highlights', host);
+      assert([...mirror.querySelectorAll('.agt-compose__keyword')].map(node => node.textContent).join() === '@backport,@ci,@review-team',
+        'Color keywords without coloring email addresses, punctuation or a bare @');
+      assert(mirror.getAttribute('aria-hidden') === 'true', 'Assistive technology reads only the editable draft');
+      for (const theme of ['light', 'dark']) {
+        host.style.colorScheme = theme;
+        const keyword = element<HTMLElement>('.agt-compose__keyword', mirror);
+        assert(getComputedStyle(keyword).color !== getComputedStyle(input).color, 'Keywords have a distinct color in both themes');
+      }
+      input.setSelectionRange(0, 9);
+      assert(input.value.slice(input.selectionStart, input.selectionEnd) === '@backport', 'Keywords remain selectable plain text');
+      flushSync(() => changeInput(input, 'Plain text'));
+      assert(!host.querySelector('.has-keywords') && input.value === draft && mirror.textContent === `${draft}\n`, 'Editing clears the highlight and keeps the actual draft');
+
+      const longDraft = Array.from({ length: 30 }, (_, index) => `${index} @backport ${'long-word-'.repeat(12)}`).join('\n') + '\n';
+      for (const surface of ['', 'assistant-float', 'artifacts-host']) {
+        host.className = surface;
+        for (const width of [280, 680]) {
+          host.style.width = `${width}px`;
+          mount({ value: longDraft, className: surface === '' ? 'is-new-task' : surface === 'artifacts-host' ? 'artifacts-compose' : '' });
+          assert(mirror.clientWidth === input.clientWidth && mirror.clientHeight === input.clientHeight,
+            `${surface || 'task'} at ${width}: highlight viewport ${mirror.clientWidth}×${mirror.clientHeight}, textarea ${input.clientWidth}×${input.clientHeight}`);
+          assert(mirror.scrollHeight === input.scrollHeight && input.scrollHeight > input.clientHeight,
+            `${surface || 'task'} at ${width}: wrapped highlight height ${mirror.scrollHeight}, textarea ${input.scrollHeight}`);
+          input.scrollTop = input.scrollHeight;
+          input.dispatchEvent(new Event('scroll'));
+          assert(mirror.scrollTop === input.scrollTop && input.scrollTop > 0, 'Highlights scroll with the editable text');
+        }
+      }
     });
     return results;
   } finally { disposeRoot(); }

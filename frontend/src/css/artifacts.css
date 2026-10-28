@@ -156,6 +156,7 @@
 
 .artifacts-compose.is-start { min-height: 72px; }
 
+.artifacts-compose .agt-compose__highlights,
 .artifacts-compose .agt-compose__input {
   min-width: 0;
   flex: 1;

@@ -13,7 +13,7 @@
  */
 
 import { AgentSetupNotice, useAgentAvailability } from './availability';
-import { BackportButton, BackportRequestHint } from './BackportRequestHint';
+import { BackportButton } from './BackportRequestHint';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -948,7 +948,6 @@ export function TaskComposer({
         header={<>
           <ComposerAttachments items={images.map(image => ({ ...image, preview: <ImageAttachment url={image.url} name={image.name} compact /> }))}
             disabled={busy} onRemove={onRemoveImage} />
-          <BackportRequestHint text={draft} />
           {question !== null && <div className="agt-backport-hint" role="status">
             <strong>Artifacts</strong> · Asks in a new Artifacts conversation, which reads this repository and cannot change it.
           </div>}

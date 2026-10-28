@@ -462,6 +462,15 @@
   to { offset-distance: 100%; }
 }
 
+.agt-compose__field {
+  position: relative;
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.agt-compose__highlights,
 .agt-compose__input {
   display: block;
   width: 100%;
@@ -474,10 +483,29 @@
   color: var(--text-1);
   padding: 12px 14px 4px;
   resize: none;
+  scrollbar-gutter: stable;
   /* Wrap onto new lines and grow with the draft, up to a cap that keeps the transcript visible. */
   field-sizing: content;
   max-height: 40vh;
 }
+
+/* Keep native editing and selection while the mirror colors individual keywords. */
+.agt-compose__highlights {
+  position: absolute;
+  inset: 0;
+  max-height: none;
+  overflow: hidden;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.agt-compose__field.has-keywords .agt-compose__highlights { visibility: visible; }
+.agt-compose__field.has-keywords .agt-compose__input { -webkit-text-fill-color: transparent; }
+.agt-compose__field.has-keywords .agt-compose__input::selection { -webkit-text-fill-color: var(--text-1); }
+.agt-compose__input { caret-color: var(--text-1); }
+.agt-compose__keyword { color: var(--fg-purple); }
 
 .agt-compose__input::placeholder { color: var(--text-4); }
 .agt-compose__input:focus-visible { outline: none; }
@@ -591,6 +619,7 @@
 
 .agt-compose.is-new-task .agt-picker:not(.agt-provider-picker) { margin-left: auto; }
 
+.agt-compose.is-new-task .agt-compose__highlights,
 .agt-compose.is-new-task .agt-compose__input {
   font-size: 13px;
   font-weight: 400;

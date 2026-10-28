@@ -78,6 +78,7 @@
   .assistant-float .agt-compose__streamer { animation: none; }
 }
 
+.assistant-float .agt-compose__highlights,
 .assistant-float .agt-compose__input {
   padding: 13px 16px 0;
   font-size: 15px;

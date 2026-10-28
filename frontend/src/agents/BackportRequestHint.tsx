@@ -35,8 +35,3 @@ export function BackportButton({ draft, onDraftChange, disabled }: {
     <GitBranch size={13} strokeWidth={1.9} aria-hidden="true" />Backport
   </button>;
 }
-
-export function BackportRequestHint({ text }: { text: string }) {
-  if (!/^\s*@backport(?:\s|$)/i.test(text)) return null;
-  return <div className="agt-backport-hint" role="status"><strong>Backport</strong> · Uses saved Fork routes; unclear sources or ordering will be clarified before starting.</div>;
-}

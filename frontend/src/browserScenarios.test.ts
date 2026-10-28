@@ -40,9 +40,9 @@ testBrowserScenarios([
   },
   {
     name: 'shares safe keyboard submission across message composers',
-    expected: 3, timeout: 120_000,
+    expected: 4, timeout: 120_000,
     fixture: {
-      prefix: 'bytequay-composer-', entry: 'src/fixtures/composerBrowser.tsx', global: 'ComposerTests', timeoutMs: 60_000,
+      prefix: 'bytequay-composer-', entry: 'src/fixtures/composerBrowser.tsx', global: 'ComposerTests', styles: true, timeoutMs: 60_000,
     },
   },
   {

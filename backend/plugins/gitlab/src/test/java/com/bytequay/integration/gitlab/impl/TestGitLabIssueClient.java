@@ -117,7 +117,7 @@ class TestGitLabIssueClient
 
         assertThat(source.host()).isEqualTo(base);
         assertThat(source.repo()).isEqualTo("group/subgroup/repo");
-        assertThat(source.url()).isEqualTo(base + "/group/subgroup/repo/-/issues/7");
+        assertThat(source.url()).isEqualTo(base + "/group/subgroup/repo/-/work_items/7");
         replies.put("GET /gitlab/api/v4/projects/42/issues/7", new Reply(200, issue("closed"), false));
         assertThat(client.find(access, repository, 7)).isEmpty();
         assertThatThrownBy(() -> client.source(access, repository, 7, true)).isInstanceOf(IllegalArgumentException.class);
@@ -130,7 +130,7 @@ class TestGitLabIssueClient
         var preview = client.preview(access, repository, 7);
         assertThat(preview.state()).isEqualTo("closed");
         assertThat(preview.pullRequest()).isFalse();
-        assertThat(preview.htmlUrl()).isEqualTo(base + "/group/subgroup/repo/-/issues/7");
+        assertThat(preview.htmlUrl()).isEqualTo(base + "/group/subgroup/repo/-/work_items/7");
         assertThat(preview.labels()).containsExactly("bug");
         assertThat(token.get()).isEqualTo("Bearer selected-token");
     }
@@ -190,7 +190,7 @@ class TestGitLabIssueClient
     {
         return """
                 {"id":70,"iid":7,"project_id":42,"state":"%s","title":"Fix selection","description":null,
-                 "web_url":"%s/group/subgroup/repo/-/issues/7","author":{"id":1,"username":"alice"},
+                 "web_url":"%s/group/subgroup/repo/-/work_items/7","author":{"id":1,"username":"alice"},
                  "labels":["bug"],"assignees":[{"id":2,"username":"bob"}],"user_notes_count":1,
                  "created_at":"2026-10-01T00:00:00Z","updated_at":"2026-10-01T00:00:00Z","issue_type":"issue"}
                 """.formatted(state, base);

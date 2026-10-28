@@ -70,12 +70,14 @@ class TestWorkItemCatalog
         ContextFixture fixture = new ContextFixture();
         when(fixture.workspace.isGitHub()).thenReturn(false);
         when(fixture.workspace.issueHost()).thenReturn("https://gitlab.example.com");
+        RepositoryIssue issue = new RepositoryIssue(10, 1, "Remote request", "Remote context", "alice", "", "https://gitlab.example.com/org/repo/-/work_items/1",
+                ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, Instant.EPOCH);
         when(fixture.issues.findPage(any(), any(), eq(0), eq(100)))
-                .thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"), ImmutableList.of(), 0, 100, 0, false, Optional.empty()));
+                .thenReturn(new RepositoryIssuePage(1, RepoRef.of("org", "repo"), ImmutableList.of(issue), 0, 100, 1, false, Optional.of(Instant.EPOCH)));
 
         assertThat(fixture.catalog.list("workspace", true)).extracting(UnifiedWorkItem::id).containsExactlyInAnyOrder("owner", "target");
         assertThat(fixture.catalog.list("workspace", false)).extracting(UnifiedWorkItem::id)
-                .containsExactlyInAnyOrder("owner", "target", WorkItemLink.jiraIdentity("cloud", "workspace"));
+                .containsExactlyInAnyOrder("owner", "target", WorkItemLink.issueIdentity("https://gitlab.example.com", 10), WorkItemLink.jiraIdentity("cloud", "workspace"));
         verify(fixture.issues).findPage(any(), any(), eq(0), eq(100));
     }
 

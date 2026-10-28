@@ -41,7 +41,8 @@ public record GitHubIssueSource(String host, long issueId, String repo, int numb
         URI base = canonicalBaseUrl(URI.create(host.contains("://") ? host : "https://" + host));
         String checked = requireWithinBase(URI.create(url), base).toASCIIString();
         String prefix = base + "/" + repo;
-        checkArgument(checked.equalsIgnoreCase(prefix + "/issues/" + number) || checked.equalsIgnoreCase(prefix + "/-/issues/" + number),
+        checkArgument(checked.equalsIgnoreCase(prefix + "/issues/" + number) || checked.equalsIgnoreCase(prefix + "/-/issues/" + number) ||
+                        checked.equalsIgnoreCase(prefix + "/-/work_items/" + number),
                 "issue URL does not match its identity");
         checkArgument(!title.isBlank(), "title must not be blank");
     }

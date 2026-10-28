@@ -110,7 +110,11 @@ public class CredentialService
     public HostingReadSession captureWorkspaceHostingRead(String workspaceId)
     {
         checkText(workspaceId, "workspaceId");
-        return hosting.verifySession(GITHUB_SERVER, "github-workspace:" + workspaceId, resolveGitHubToken(workspaceId));
+        // Inheriting the global credential must not invalidate the same PR's global detail and diff.
+        return workspaceCredentials.getSecret(workspaceId)
+                .filter(value -> !value.isBlank())
+                .map(token -> hosting.verifySession(GITHUB_SERVER, "github-workspace:" + workspaceId, token))
+                .orElseGet(this::captureHostingRead);
     }
 
     /**

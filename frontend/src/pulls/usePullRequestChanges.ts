@@ -65,6 +65,8 @@ export interface PullRequestChangesSource {
   selectCommit: (sha: string) => void;
   /** Re-reads the snapshot after the detail refresh has updated its stored diff. */
   refresh: () => void;
+  /** A completed detail refresh may have rebuilt a missing default diff without changing its revision. */
+  retryFailedRead: () => void;
 }
 
 /** Both PR surfaces own the same selection, snapshot reads, and GitHub comparisons. */
@@ -138,6 +140,10 @@ export function usePullRequestChanges(
     });
   }, [commits, scope]);
   const refresh = useCallback(() => setRefreshVersion(version => version + 1), []);
+  const retryFailedRead = useCallback(() => {
+    if (selected !== null) return;
+    setResult(current => current?.key === key && current.error !== null ? null : current);
+  }, [key, selected]);
   const selectCommit = useCallback((commitSha: string) => setSelection({ scope, commitSha }), [scope]);
   const current = result?.key === key ? result : null;
   return {
@@ -150,5 +156,6 @@ export function usePullRequestChanges(
     changeCommitRange,
     selectCommit,
     refresh,
+    retryFailedRead,
   };
 }

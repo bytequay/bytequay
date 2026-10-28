@@ -1981,7 +1981,11 @@ export default function AgentTaskScreen({
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.
   // Every panel tab keeps the shared PR toolbar's permissions and status current.
-  const detailSource = usePullRequestDetail(taskPr, { active: panelOpen });
+  const detailSource = usePullRequestDetail(taskPr, {
+    active: panelOpen,
+    onDetail: () => { pullRequestChanges.retryFailedRead(); },
+    onStatus: () => { pullRequestChanges.retryFailedRead(); },
+  });
   const diffRevision = pullRequestDiffRevision(detailSource.detail, taskPr?.headPushedAt);
   const pullRequestChanges = usePullRequestChanges(taskPr, {
     active: panelOpen && (panelTab === 'files' || panelTab === 'changes'),

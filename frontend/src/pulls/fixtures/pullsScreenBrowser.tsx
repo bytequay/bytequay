@@ -51,7 +51,7 @@ const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => {
   });
 };
 
-export async function runMainScreen(keepMounted = false, explore = false): Promise<string> {
+export async function runMainScreen(keepMounted = false, explore = false, missingDiff: 'full' | 'status' | null = null): Promise<string> {
   let detail: PullRequestDetailDto = prDetail({
     id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, draft: true,
     mergeable: null, mergeableState: null, author: 'alice', updatedAt: '2026-01-01T00:00:00Z',
@@ -63,6 +63,7 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
   const row = remotePullRequest(detail, 'bob');
   const comparisons: (string | undefined)[][] = [];
   let defaultReads = 0;
+  let diffAvailable = missingDiff === null;
   let poll: (() => void) | null = null;
   const originalTimeout = window.setTimeout;
   window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
@@ -85,9 +86,16 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
     listAgentReviews: async () => [],
     listLocalReviewComments: async () => [],
     fetchPullRequestDetailByRef: async () => detail,
-    refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    refreshPullRequestDetailByRef: async () => missingDiff === 'status'
+      ? { full: false as const, detail: null, status: { ciStatus: detail.ciStatus, mergeable: detail.mergeable, mergeableState: detail.mergeableState,
+        checkRuns: detail.checkRuns, unavailableSections: detail.unavailableSections, viewerCanWrite: detail.viewerCanWrite } }
+      : { full: true as const, detail, status: null },
     refreshAllPullRequestDetailByRef: async () => detail,
-    fetchPrDiffFiles: async () => { defaultReads++; return [file('all.txt')]; },
+    fetchPrDiffFiles: async () => {
+      defaultReads++;
+      if (!diffAvailable) throw new Error('Pull request diff has not been refreshed');
+      return [file('all.txt')];
+    },
     fetchPrDiffCommits: async () => commits,
     refreshPrDiffFiles: async (_repo, _number, base, head) => { comparisons.push([base, head]); return [file('selected.txt')]; },
     recordRecentTouch: async () => {},
@@ -115,6 +123,20 @@ export async function runMainScreen(keepMounted = false, explore = false): Promi
       && loadHandled()['pr:7'] === undefined,
     'A loaded PR must omit the visit label while its attention notification remains visible');
     button('WorkBench').click(); await settle();
+    if (missingDiff !== null) {
+      await until(() => host.textContent?.includes('Pull request diff has not been refreshed') === true, 'A missing snapshot must report the failed read');
+      assert(defaultReads === 1, 'A failed read must wait for refresh instead of retrying in a loop');
+      await tick();
+      await until(() => defaultReads === 2, 'A completed detail refresh must retry the failed read even when its revision is unchanged');
+      await settle();
+      assert(Number(defaultReads) === 2 && host.textContent?.includes('Pull request diff has not been refreshed') === true, 'An unavailable snapshot must retain its error until another refresh');
+      diffAvailable = true;
+      await tick();
+      await until(() => host.textContent?.includes('all.txt') === true && !host.textContent?.includes('Pull request diff has not been refreshed'), 'A rebuilt diff must replace the error without manual refresh');
+      await tick();
+      assert(Number(defaultReads) === 3, 'Successful snapshots must not reload on unchanged detail polls');
+      return 'Missing diffs recover after detail refresh without losing successful snapshots';
+    }
     if (explore) {
       assert(!button('Tears of time').disabled, 'Watched repositories must offer exploration before any task or review exists');
       button('Tears of time').click(); await settle();

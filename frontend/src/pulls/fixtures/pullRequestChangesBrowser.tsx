@@ -113,6 +113,9 @@ async function runHook(): Promise<string[]> {
     comparisons[5].reject(new Error('Comparison unavailable'));
     await settle();
     assert(current().files.length === 0 && current().error === 'Comparison unavailable' && !current().loading, 'A failed comparison must not show the complete diff under a selected commit');
+    flushSync(() => current().retryFailedRead());
+    await settle();
+    assert(comparisons.length === 6 && current().commitRange?.start === 0 && current().error === 'Comparison unavailable', 'Detail refresh must not retry or reset a selected comparison');
     click('Refresh');
     await settle();
     assert(current().commitRange === null && current().files[0]?.filename === 'new-head' && current().error === null, 'Refresh must clear the failed selection and reload cached changes');

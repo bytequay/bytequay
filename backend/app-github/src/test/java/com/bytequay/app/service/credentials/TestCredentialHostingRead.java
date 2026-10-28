@@ -43,6 +43,9 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
 import java.time.Clock;
@@ -184,6 +187,7 @@ class TestCredentialHostingRead
     void workspaceOverrideUsesItsOwnVerifiedIdentityWithoutChangingTheGlobalSelection()
     {
         HostingReadSession global = credentials.captureHostingRead();
+        requests.refresh(global, 30, 7, false);
         when(workspaceStore.getSecret("workspace")).thenReturn(Optional.of("workspace-token"));
         when(accounts.verify(any())).thenAnswer(call -> {
             assertThat(call.<HostingAccess>getArgument(0).token()).isEqualTo("workspace-token");
@@ -194,6 +198,7 @@ class TestCredentialHostingRead
 
         assertThat(session.access().token()).isEqualTo("workspace-token");
         assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace");
+        assertThat(requests.cached(session, 30, 7)).isEmpty();
         assertThat(credentials.captureHostingRead()).isSameAs(global);
         verifyNoInteractions(manualCredentials);
     }
@@ -209,12 +214,20 @@ class TestCredentialHostingRead
         verify(accounts, times(2)).verify(any());
     }
 
-    @Test
-    void workspaceWithoutAnOverrideUsesTheGlobalToken()
+    @ParameterizedTest
+    @NullAndEmptySource
+    @ValueSource(strings = " ")
+    void workspaceWithoutAnOverrideReusesTheGlobalSessionAndCache(String override)
     {
+        when(workspaceStore.getSecret("workspace")).thenReturn(Optional.ofNullable(override));
+        HostingReadSession global = credentials.captureHostingRead();
+        HostingPullRequestSnapshot snapshot = requests.refresh(global, 30, 7, false);
+
         HostingReadSession session = credentials.captureWorkspaceHostingRead("workspace");
-        assertThat(session.access().token()).isEqualTo("desktop-token");
-        assertThat(session.credentialScope()).isEqualTo("github-workspace:workspace");
+
+        assertThat(session).isSameAs(global);
+        assertThat(requests.cached(session, 30, 7)).contains(snapshot);
+        verify(accounts).verify(any());
         verifyNoInteractions(manualCredentials);
     }
 

@@ -791,12 +791,14 @@ function PullsContent({
   } = usePullRequestDetail(selectedPr, {
     active: paneOpen,
     onDetail: value => {
+      changes.retryFailedRead();
       detailState.current = value;
       setPrs(current => current.map(pr => pr.id === value.id
         ? reconcilePullRequestDetail(pr, value, viewerLoginRef.current)
         : pr));
     },
     onStatus: status => {
+      changes.retryFailedRead();
       if (detailState.current !== null) {
         detailState.current = mergePullRequestDetailStatus(detailState.current, status);
       }

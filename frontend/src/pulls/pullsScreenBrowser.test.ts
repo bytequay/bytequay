@@ -59,6 +59,13 @@ it('defaults linked reviews to PR and local reviews to Changes while keeping Sum
   expect(results).toHaveLength(3);
 }, deadline(30_000));
 
+it.each(['full', 'status'])('recovers a missing diff after a %s detail refresh with an unchanged revision', async kind => {
+  const result = await fixture.run<string>({
+    body: `const results = await window.webContents.executeJavaScript('PullScreenTests.runMainScreen(false, false, "${kind}")');`,
+  });
+  expect(result).toBe('Missing diffs recover after detail refresh without losing successful snapshots');
+}, deadline(30_000));
+
 it.each(['sync', 'attention'])('finishes initial PR loading when %s supersedes it and ignores stale workspace responses', async trigger => {
   const result = await fixture.run<string>({
     body: `const results = await window.webContents.executeJavaScript('PullScreenTests.runListLoadingRace("${trigger}")');`,

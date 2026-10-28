@@ -42,6 +42,11 @@ public class JiraCache
         settings.put("jira." + key, encode(value));
     }
 
+    public void delete(String key)
+    {
+        settings.delete("jira." + key);
+    }
+
     public String encode(Object value)
     {
         try {

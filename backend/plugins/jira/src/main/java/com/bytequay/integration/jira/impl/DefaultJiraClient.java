@@ -499,11 +499,21 @@ public class DefaultJiraClient
             connections.site(connectionId, cloudId);
             // Persist before sending: a timeout or process exit must never cause an automatic duplicate comment.
             cache.write(key, new CommentAttempt(body, false));
-            ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder().put("body", JiraMapping.document(body))
-                    .put("properties", ImmutableList.of(ImmutableMap.of("key", "bytequay.operation", "value", operationId)));
+            ImmutableMap.Builder<String, Object> request = ImmutableMap.<String, Object>builder().put("body", JiraMapping.document(body));
             // Jira's published schema has no reply field; its own replies carry the parentId it returns on reads.
             parentId.ifPresent(id -> request.put("parentId", id));
-            JsonNode created = write(connectionId, cloudId, issuePath(issueId) + "/comment", "POST", request.buildOrThrow());
+            JsonNode created;
+            try {
+                created = write(connectionId, cloudId, issuePath(issueId) + "/comment", "POST", request.buildOrThrow());
+            }
+            catch (ResponseStatusException failure) {
+                // Explicit rejections allow another Send; transport failures must retain duplicate protection.
+                switch (failure.getStatusCode().value()) {
+                    case 401, 403, 404, 409, 422, 429 -> cache.delete(key);
+                    default -> {}
+                }
+                throw failure;
+            }
             cache.write(key, new CommentAttempt(body, true));
             JiraDtos.Detail detail = afterWrite(connectionId, cloudId, issueId, RecentReason.COMMENTED);
             context.wroteOnJira(detail.issue(), created.path("id").asText(operationId), body);

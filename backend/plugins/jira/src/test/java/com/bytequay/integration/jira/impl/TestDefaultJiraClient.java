@@ -35,6 +35,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -102,6 +103,10 @@ class TestDefaultJiraClient
             saved.put(call.getArgument(0), call.getArgument(1));
             return null;
         }).when(settings).put(anyString(), anyString());
+        doAnswer(call -> {
+            saved.remove(call.<String>getArgument(0));
+            return null;
+        }).when(settings).delete(anyString());
         when(remote.site("connection", "cloud")).thenReturn(new JiraDtos.Site("cloud", "Example", "https://example.atlassian.net"));
         when(remote.get("connection")).thenReturn(new JiraDtos.Connection("connection", "connected", ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(new JiraDtos.Account("me", "Me", Optional.empty())), Optional.empty(), "api_token", Optional.of("me@example.com")));
@@ -390,6 +395,46 @@ class TestDefaultJiraClient
         jira.transition("connection", "cloud", "1001", UPDATED, "2", ImmutableMap.of("customfield_1", 3));
         verify(remote).request("connection", "cloud", "/rest/api/3/issue/1001/transitions", "POST",
                 Optional.of(ImmutableMap.of("transition", ImmutableMap.of("id", "2"), "fields", ImmutableMap.of("customfield_1", 3))));
+    }
+
+    @Test
+    void commentsSendOnlyTheDocumentAndCompletedSendsAreNotRepeated()
+            throws Exception
+    {
+        jira.refreshIssue("connection", "cloud", "1001");
+        when(remote.request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any()))
+                .thenReturn(json("{\"id\":\"9\"}"));
+        String body = "https://example.com/owner/repo/pull/123 got merged";
+
+        jira.comment("connection", "cloud", "1001", body, "operation-123456789", Optional.empty());
+        jira.comment("connection", "cloud", "1001", body, "operation-123456789", Optional.empty());
+
+        JsonNode expected = json("""
+                {"body":{"version":1,"type":"doc","content":[{"type":"paragraph","content":[
+                  {"type":"text","text":"https://example.com/owner/repo/pull/123 got merged"}]}]}}
+                """);
+        verify(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"),
+                argThat(request -> mapper.valueToTree(request.orElseThrow()).equals(expected)));
+        verify(context).wroteOnJira(any(), eq("9"), eq(body));
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HttpStatus.class, names = {"UNAUTHORIZED", "FORBIDDEN", "NOT_FOUND", "CONFLICT", "UNPROCESSABLE_ENTITY", "TOO_MANY_REQUESTS"})
+    void rejectedCommentsCanBeSentAgain(HttpStatus status)
+            throws Exception
+    {
+        jira.refreshIssue("connection", "cloud", "1001");
+        when(remote.request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any()))
+                .thenThrow(new ResponseStatusException(status, "Jira rejected the request"))
+                .thenReturn(json("{\"id\":\"9\"}"));
+
+        assertThatThrownBy(() -> jira.comment("connection", "cloud", "1001", "Please check", "operation-123456789", Optional.empty()))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Jira rejected the request");
+        verify(context, never()).wroteOnJira(any(), anyString(), anyString());
+        jira.comment("connection", "cloud", "1001", "Please check", "operation-123456789", Optional.empty());
+
+        verify(remote, times(2)).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"), any());
+        verify(context).wroteOnJira(any(), eq("9"), eq("Please check"));
     }
 
     @Test

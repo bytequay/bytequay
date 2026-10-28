@@ -60,6 +60,8 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.DiscussionProbe;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrViewStateStore;
@@ -479,45 +481,57 @@ public class PullRequestService
         requireNonNull(repository, "repository is null");
         HostingReadSession session = credentialService.captureHostingRead();
         String login = connections.account(session).login();
-        syncRepository(repository, session.access().token(), login, session.cacheScope());
+        syncRepository(session, connections.resolveRepository(session, repository.fullName()), login);
     }
 
     public void syncWorkspace(String workspaceId)
     {
         WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
-        String scope = "workspace." + route.session().cacheScope();
-        syncRepository(route.githubRepository(), route.githubToken(), route.login(), scope);
+        // Card enrichment and the desktop projection still require GitHub.
+        route.githubRepository();
+        syncRepository(route.session(), route.repository(), route.login());
     }
 
-    private void syncRepository(RepoRef repository, String pat, String login, String scope)
+    private void syncRepository(HostingReadSession session, HostingRepository repository, String login)
     {
+        String pat = session.access().token();
         baselineSummaries(pat);
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         Consumer<List<FetchedPullRequest>> save = page -> {
             List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList());
-            store.saveRepositorySyncPage(repository.fullName(), rows);
+            store.saveRepositorySyncPage(repository.fullPath(), rows);
             rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
         };
-        String query = "is:pr repo:" + repository.fullName();
-        String key = "github.repository-sync." + scope + "." + repository.fullName().toLowerCase(Locale.ROOT);
+        String key = "hosting.repository-sync." + session.cacheScope() + "." + repository.id();
         Instant started = clock.instant();
         // Deleting the last workspace of a repository hides its rows, so watching it again needs the full pass.
         Optional<Instant> synced = syncSettings.get(key).map(Instant::parse)
                 .filter(at -> at.isAfter(started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS))) && !at.isAfter(started))
-                .filter(ignored -> store.findRepositoryPage(repository.fullName(), 0, 1).totalPullRequests() > 0);
+                .filter(ignored -> store.findRepositoryPage(repository.fullPath(), 0, 1).totalPullRequests() > 0);
         if (synced.isPresent()) {
-            discoverQuery(pat, query + " updated:>=" + synced.orElseThrow().minusSeconds(300).truncatedTo(ChronoUnit.SECONDS), save);
+            discoverRepository(session, repository.id(), false, synced.orElseThrow().minusSeconds(300), save);
         }
         else {
             // A full pass that fails part way must not leave an older checkpoint behind its partly saved rows.
             syncSettings.delete(key);
-            String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
-            discoverQuery(pat, query + " updated:>=" + sinceDate, save);
-            discoverQuery(pat, query + " is:open", save);
+            discoverRepository(session, repository.id(), false, started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS)), save);
+            discoverRepository(session, repository.id(), true, Instant.MIN, save);
         }
         syncSettings.put(key, started.toString());
         enrichCards(pat, login, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
-        // Search can omit cached rows; discovery never deletes their data or local marks.
+        // Discovery never deletes cached rows or local marks.
+    }
+
+    private void discoverRepository(HostingReadSession session, long repositoryId, boolean openOnly, Instant since, Consumer<List<FetchedPullRequest>> save)
+    {
+        for (int page = 1; ; page++) {
+            PullRequestListPage result = requests.refreshPage(session, repositoryId, openOnly, page, SEARCH_PAGE_SIZE);
+            List<FetchedPullRequest> recent = result.items().stream().filter(row -> !row.updatedAt().isBefore(since)).collect(toImmutableList());
+            save.accept(recent);
+            if (!result.hasNext() || recent.size() < result.items().size()) {
+                return;
+            }
+        }
     }
 
     /** Discovers one task branch without a repository-wide search or detail refresh. */

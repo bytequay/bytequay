@@ -14,6 +14,8 @@
 package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.HostingPullRequestSnapshotEntity;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Slice;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
@@ -22,6 +24,8 @@ public interface HostingPullRequestSnapshotJpaRepository
         extends JpaRepository<HostingPullRequestSnapshotEntity, Long>
 {
     Optional<HostingPullRequestSnapshotEntity> findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(long accountId, long repositoryId, int number);
+
+    Slice<HostingPullRequestSnapshotEntity> findByAccountIdAndRequestHostingRepositoryIdAndCredentialScope(long accountId, long repositoryId, String scope, Pageable pageable);
 
     void deleteByRequestHostingRepositoryIdAndRequestNumber(long repositoryId, int number);
 }

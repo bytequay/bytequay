@@ -57,14 +57,15 @@ public class HostingPullRequestSnapshotEntity
     @Column(nullable = false, columnDefinition = "TEXT")
     private FetchedPullRequest pullRequest;
 
+    private Instant updatedAt;
+
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(nullable = false, columnDefinition = "TEXT")
-    private PrRawDetail detail;
+    @Column(columnDefinition = "TEXT")
+    private PrRawDetail metadata;
 
     private String etag;
 
-    @Column(nullable = false)
-    private Instant validatedAt;
+    private Instant metadataValidatedAt;
 
     protected HostingPullRequestSnapshotEntity() {}
 
@@ -76,17 +77,33 @@ public class HostingPullRequestSnapshotEntity
 
     public void update(HostingPullRequestSnapshot snapshot)
     {
-        credentialScope = snapshot.credentialScope();
-        pullRequest = snapshot.pullRequest();
-        detail = snapshot.detail();
+        updateSummary(snapshot.credentialScope(), snapshot.pullRequest());
+        metadata = snapshot.detail();
         etag = snapshot.etag().orElse(null);
-        validatedAt = snapshot.validatedAt();
+        metadataValidatedAt = snapshot.validatedAt();
     }
 
-    public HostingPullRequestSnapshot toDomain()
+    public void updateSummary(String scope, FetchedPullRequest summary)
     {
-        return new HostingPullRequestSnapshot(request.hostingIdentity(), account.getId(), credentialScope(),
-                pullRequest, detail, Optional.ofNullable(etag), validatedAt);
+        if (!scope.equals(credentialScope())) {
+            metadata = null;
+            etag = null;
+            metadataValidatedAt = null;
+        }
+        credentialScope = scope;
+        pullRequest = summary;
+        updatedAt = summary.updatedAt();
+    }
+
+    public FetchedPullRequest summary()
+    {
+        return pullRequest;
+    }
+
+    public Optional<HostingPullRequestSnapshot> toDomain()
+    {
+        return Optional.ofNullable(metadata).map(value -> new HostingPullRequestSnapshot(request.hostingIdentity(), account.getId(), credentialScope(),
+                pullRequest, value, Optional.ofNullable(etag), metadataValidatedAt));
     }
 
     public String credentialScope()

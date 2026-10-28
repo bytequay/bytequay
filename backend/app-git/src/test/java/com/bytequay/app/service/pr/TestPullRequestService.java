@@ -83,6 +83,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
@@ -113,6 +114,7 @@ import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -392,6 +394,7 @@ class TestPullRequestService
     @ValueSource(booleans = {true, false})
     void attentionStopsRecoveringApprovalAfterThisSessionReconcilesARequestOrDismissal(boolean dismissed)
     {
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
         PullRequest row = attentionPullRequest(12, REVIEWED_AT, null, null, null);
         PrReviewState approval = new PrReviewState(1L, "me", null, false, "APPROVED", REVIEWED_AT, null, null, "reviewed-head");
         cacheClearedApproval(row, ImmutableList.of(approval));
@@ -406,8 +409,8 @@ class TestPullRequestService
             return null;
         }).when(viewStateStore).markNeedsReview(12L);
         FetchedPullRequest fetched = pullRequestNumber(12);
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
+        when(requests.refreshPage(eq(session), eq(20L), anyBoolean(), eq(1), eq(100)))
+                .thenReturn(new PullRequestListPage(ImmutableList.of(fetched), false));
         when(store.saveObserved(any())).thenReturn(row);
         PrReviewState latest = dismissed ? new PrReviewState(1L, "me", null, false, "DISMISSED", REVIEWED_AT, null, null, "reviewed-head") : approval;
         when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me"))).thenReturn(ImmutableList.of(new GitHubPullRequestSummary(
@@ -794,6 +797,7 @@ class TestPullRequestService
     void notificationPollingDoesNotWaitForRepositorySummariesAndRetainsConcurrentInvalidation()
             throws Exception
     {
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         FetchedPullRequest fetched = pullRequest();
         PullRequest row = storedPullRequest();
@@ -807,8 +811,8 @@ class TestPullRequestService
         when(store.findById(row.id())).thenReturn(Optional.of(row));
         when(store.saveObserved(any())).thenReturn(row);
         when(requests.refresh(session, 20, ref.number(), false)).thenReturn(snapshot(fetched));
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(invocation ->
-                new PullRequestHistoryPage(invocation.<String>getArgument(1).startsWith("is:pr repo:") ? ImmutableList.of(fetched) : ImmutableList.of(), false));
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(requests.refreshPage(eq(session), eq(20L), anyBoolean(), eq(1), eq(100))).thenReturn(new PullRequestListPage(ImmutableList.of(fetched), false));
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenAnswer(invocation -> {
             summarizing.countDown();
             assertThat(releaseSummary.await(5, TimeUnit.SECONDS)).isTrue();
@@ -1616,13 +1620,13 @@ class TestPullRequestService
     @ValueSource(booleans = {true, false})
     void workspaceSyncPreservesNotificationReviewRequestsWithoutPruningRows(boolean notified)
     {
-        workspaceRoute();
-        service = spy(service);
+        WorkspaceHostingRead route = workspaceRoute();
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         FetchedPullRequest fetched = pullRequest().withViewerOrigin("me");
         GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1");
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenAnswer(invocation ->
-                new PullRequestHistoryPage(invocation.<String>getArgument(1).contains("updated:") ? ImmutableList.of(pullRequest()) : ImmutableList.of(), false));
+        when(requests.refreshPage(eq(route.session()), eq(1L), anyBoolean(), eq(1), eq(100))).thenAnswer(invocation ->
+                new PullRequestListPage(invocation.<Boolean>getArgument(2) ? ImmutableList.of() : ImmutableList.of(pullRequest()), false));
         when(notifications.reviewRequests("me")).thenReturn(notified ? ImmutableSet.of(ref) : ImmutableSet.of());
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
         when(store.saveRepositorySyncPage(eq("owner/repo"), anyList())).thenAnswer(invocation ->
@@ -1632,8 +1636,9 @@ class TestPullRequestService
 
         service.syncWorkspace("workspace");
 
-        verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100));
-        verifyNoMoreInteractions(gitHub);
+        verify(requests).refreshPage(route.session(), 1, false, 1, 100);
+        verify(requests).refreshPage(route.session(), 1, true, 1, 100);
+        verifyNoInteractions(gitHub);
         ArgumentCaptor<List<FetchedPullRequest>> saved = ArgumentCaptor.forClass(List.class);
         verify(store, times(2)).saveRepositorySyncPage(eq("owner/repo"), saved.capture());
         assertThat(saved.getAllValues().getFirst()).containsExactly(fetched);
@@ -1645,16 +1650,16 @@ class TestPullRequestService
     @Test
     void workspaceDiscoversAllRecentAndOpenPagesWithoutWarmingDetails()
     {
-        workspaceRoute();
-        service = spy(service);
-        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 120).mapToObj(TestPullRequestService::pullRequestNumber).toList();
-        FetchedPullRequest olderOpen = pullRequestNumber(121).withViewerOrigin("me");
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), anyInt(), eq(100))).thenAnswer(invocation -> {
-            if (invocation.<String>getArgument(1).endsWith("is:open")) {
-                return new PullRequestHistoryPage(ImmutableList.of(olderOpen), false);
+        WorkspaceHostingRead route = workspaceRoute();
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
+        List<FetchedPullRequest> rows = IntStream.rangeClosed(1, 120).mapToObj(number -> pullRequestNumber(121 - number)).collect(toImmutableList());
+        FetchedPullRequest olderOpen = pullRequestNumber(121, REVIEWED_AT.minus(Duration.ofDays(60))).withViewerOrigin("me");
+        when(requests.refreshPage(eq(route.session()), eq(1L), anyBoolean(), anyInt(), eq(100))).thenAnswer(invocation -> {
+            if (invocation.<Boolean>getArgument(2)) {
+                return new PullRequestListPage(ImmutableList.of(olderOpen), false);
             }
-            int page = invocation.getArgument(2);
-            return new PullRequestHistoryPage(page == 1 ? rows.subList(0, 100) : rows.subList(100, 120), page == 1);
+            int page = invocation.getArgument(3);
+            return new PullRequestListPage(page == 1 ? rows.subList(0, 100) : rows.subList(100, 120), page == 1);
         });
 
         service.syncWorkspace("workspace");
@@ -1673,13 +1678,13 @@ class TestPullRequestService
     @Test
     void workspaceRechecksOnlyTheViewersUnchangedCardsOnATimer()
     {
-        workspaceRoute();
+        WorkspaceHostingRead route = workspaceRoute();
         AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
         service = serviceAt(now);
         PullRequest mine = storedPullRequest(pullRequestNumber(7));
         PullRequest others = storedPullRequest(pullRequestNumber(8).withOrigin(PullRequest.Origin.OTHER));
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequestNumber(7), pullRequestNumber(8)), false));
+        when(requests.refreshPage(eq(route.session()), eq(1L), anyBoolean(), eq(1), eq(100)))
+                .thenReturn(new PullRequestListPage(ImmutableList.of(pullRequestNumber(8), pullRequestNumber(7)), false));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(7L));
         when(store.findIdByRepoAndNumber("owner/repo", 8)).thenReturn(Optional.of(8L));
         when(store.findById(7L)).thenReturn(Optional.of(mine));
@@ -1692,7 +1697,7 @@ class TestPullRequestService
         now.set(REVIEWED_AT.plus(Duration.ofMinutes(11)));
         service.syncWorkspace("workspace");
 
-        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7), PullRequestRef.of("owner", "repo", 8)), "me");
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 8), PullRequestRef.of("owner", "repo", 7)), "me");
         verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me");
         verifyNoMoreInteractions(summaries);
     }
@@ -1701,7 +1706,7 @@ class TestPullRequestService
     @ValueSource(booleans = {true, false})
     void workspaceSyncReadsOnlyChangesSinceItsLastCompletePass(boolean rowsVisible)
     {
-        workspaceRoute();
+        WorkspaceHostingRead route = workspaceRoute();
         AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
         service = serviceAt(now);
         Map<String, String> settings = new HashMap<>();
@@ -1717,35 +1722,81 @@ class TestPullRequestService
         // Deleting the repository's last workspace hides its rows.
         when(store.findRepositoryPage("owner/repo", 0, 1))
                 .thenReturn(new PullRequestPage(rowsVisible ? ImmutableList.of(storedPullRequest()) : ImmutableList.of(), 0, 1, rowsVisible ? 1 : 0, 0, false));
-        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(requests.refreshPage(eq(route.session()), eq(1L), anyBoolean(), eq(1), eq(100))).thenReturn(new PullRequestListPage(ImmutableList.of(), false));
 
         service.syncWorkspace("workspace");
         now.set(REVIEWED_AT.plus(Duration.ofMinutes(30)));
         service.syncWorkspace("workspace");
 
-        ArgumentCaptor<String> queries = ArgumentCaptor.forClass(String.class);
-        verify(gitHub, times(rowsVisible ? 3 : 4)).searchPullRequestsPaged(eq("pat"), queries.capture(), eq(1), eq(100));
-        List<String> fullPass = ImmutableList.of("is:pr repo:owner/repo updated:>=30 days ago", "is:pr repo:owner/repo is:open");
-        assertThat(queries.getAllValues().stream().map(query -> query.replaceFirst(">=\\d{4}-\\d{2}-\\d{2}$", ">=30 days ago")))
-                .containsExactlyElementsOf(ImmutableList.<String>builder().addAll(fullPass)
-                        .addAll(rowsVisible ? ImmutableList.of("is:pr repo:owner/repo updated:>=" + REVIEWED_AT.minusSeconds(300)) : fullPass)
-                        .build());
+        ArgumentCaptor<Boolean> openOnly = ArgumentCaptor.forClass(Boolean.class);
+        verify(requests, times(rowsVisible ? 3 : 4)).refreshPage(eq(route.session()), eq(1L), openOnly.capture(), eq(1), eq(100));
+        assertThat(openOnly.getAllValues()).containsExactlyElementsOf(rowsVisible ? ImmutableList.of(false, true, false) : ImmutableList.of(false, true, false, true));
+        assertThat(settings).containsEntry("hosting.repository-sync." + route.session().cacheScope() + ".1", now.get().toString());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void workspaceStopsPagingAfterTheUpdateCutoff(boolean incremental)
+    {
+        WorkspaceHostingRead route = workspaceRoute();
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
+        String key = "hosting.repository-sync." + route.session().cacheScope() + ".1";
+        Instant cutoff = incremental ? REVIEWED_AT.minusSeconds(300) : REVIEWED_AT.minus(Duration.ofDays(30));
+        if (incremental) {
+            when(syncSettings.get(key)).thenReturn(Optional.of(REVIEWED_AT.toString()));
+            when(store.findRepositoryPage("owner/repo", 0, 1)).thenReturn(new PullRequestPage(ImmutableList.of(storedPullRequest()), 0, 1, 1, 0, false));
+        }
+        else {
+            when(requests.refreshPage(route.session(), 1, true, 1, 100)).thenReturn(new PullRequestListPage(ImmutableList.of(), false));
+        }
+        FetchedPullRequest boundary = pullRequestNumber(7, cutoff);
+        FetchedPullRequest older = pullRequestNumber(8, cutoff.minusSeconds(1));
+        when(requests.refreshPage(route.session(), 1, false, 1, 100)).thenReturn(new PullRequestListPage(ImmutableList.of(boundary, older), true));
+
+        service.syncWorkspace("workspace");
+
+        verify(requests, never()).refreshPage(route.session(), 1, false, 2, 100);
+        verify(store).saveRepositorySyncPage("owner/repo", ImmutableList.of(boundary.withViewerOrigin("me")));
+        verify(syncSettings).put(key, REVIEWED_AT.toString());
+    }
+
+    @Test
+    void workspaceKeepsSavedPagesWithoutAdvancingTheCheckpointWhenALaterPageFails()
+    {
+        WorkspaceHostingRead route = workspaceRoute();
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
+        String key = "hosting.repository-sync." + route.session().cacheScope() + ".1";
+        when(syncSettings.get(key)).thenReturn(Optional.of(REVIEWED_AT.minusSeconds(60).toString()));
+        when(store.findRepositoryPage("owner/repo", 0, 1)).thenReturn(new PullRequestPage(ImmutableList.of(storedPullRequest()), 0, 1, 1, 0, false));
+        FetchedPullRequest fetched = pullRequestNumber(7);
+        when(requests.refreshPage(route.session(), 1, false, 1, 100)).thenReturn(new PullRequestListPage(ImmutableList.of(fetched), true));
+        HostingFailure failure = new HostingFailure(HostingFailure.Kind.UNAVAILABLE, "Temporarily unavailable");
+        when(requests.refreshPage(route.session(), 1, false, 2, 100)).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.syncWorkspace("workspace")).isSameAs(failure);
+
+        verify(store).saveRepositorySyncPage("owner/repo", ImmutableList.of(fetched.withViewerOrigin("me")));
+        verify(syncSettings, never()).put(eq(key), anyString());
+        verify(syncSettings, never()).delete(key);
+        verifyNoInteractions(summaries);
     }
 
     @Test
     void workspaceSyncUsesTheSelectedAccountInsteadOfTheGlobalCredential()
     {
+        service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
         WorkspaceHostingRead route = workspaceRoute("selected-account", "workspace-pat", "alice");
         when(workspaceHosting.captureRead("workspace")).thenReturn(route);
-        when(gitHub.searchPullRequestsPaged(eq("workspace-pat"), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), false));
+        when(requests.refreshPage(eq(route.session()), eq(1L), anyBoolean(), eq(1), eq(100)))
+                .thenReturn(new PullRequestListPage(ImmutableList.of(pullRequest()), false));
 
         service.syncWorkspace("workspace");
 
-        verify(gitHub, times(2)).searchPullRequestsPaged(eq("workspace-pat"), anyString(), eq(1), eq(100));
+        verify(requests).refreshPage(route.session(), 1, false, 1, 100);
+        verify(requests).refreshPage(route.session(), 1, true, 1, 100);
         verify(store, times(2)).saveRepositorySyncPage("owner/repo", ImmutableList.of(pullRequest().withViewerOrigin("alice")));
         verify(summaries).fetchSummaries("workspace-pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "alice");
-        verifyNoInteractions(credentialService, connections, requests);
+        verifyNoInteractions(credentialService, connections, gitHub);
     }
 
     @Test
@@ -1763,8 +1814,8 @@ class TestPullRequestService
             return null;
         }).when(syncSettings).put(anyString(), anyString());
         when(store.findRepositoryPage("owner/repo", 0, 1)).thenReturn(new PullRequestPage(ImmutableList.of(storedPullRequest()), 0, 1, 1, 0, false));
-        when(gitHub.searchPullRequestsPaged(anyString(), anyString(), eq(1), eq(100)))
-                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(requests.refreshPage(any(), eq(1L), anyBoolean(), eq(1), eq(100)))
+                .thenReturn(new PullRequestListPage(ImmutableList.of(), false));
 
         service.syncWorkspace("workspace");
         now.set(REVIEWED_AT.plusSeconds(60));
@@ -1772,9 +1823,10 @@ class TestPullRequestService
         now.set(REVIEWED_AT.plusSeconds(120));
         service.syncWorkspace("workspace");
 
-        verify(gitHub, times(3)).searchPullRequestsPaged(eq("pat-one"), anyString(), eq(1), eq(100));
-        verify(gitHub).searchPullRequestsPaged("pat-one", "is:pr repo:owner/repo updated:>=" + REVIEWED_AT.minusSeconds(300), 1, 100);
-        verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat-two"), anyString(), eq(1), eq(100));
+        verify(requests, times(2)).refreshPage(first.session(), 1, false, 1, 100);
+        verify(requests).refreshPage(first.session(), 1, true, 1, 100);
+        verify(requests).refreshPage(second.session(), 1, false, 1, 100);
+        verify(requests).refreshPage(second.session(), 1, true, 1, 100);
         assertThat(settings.keySet()).hasSize(2).anySatisfy(key -> assertThat(key).contains("scope-one"))
                 .anySatisfy(key -> assertThat(key).contains("scope-two"));
     }
@@ -3470,9 +3522,14 @@ class TestPullRequestService
 
     private static FetchedPullRequest pullRequestNumber(int number)
     {
+        return pullRequestNumber(number, REVIEWED_AT.plusSeconds(number));
+    }
+
+    private static FetchedPullRequest pullRequestNumber(int number, Instant updatedAt)
+    {
         FetchedPullRequest original = pullRequest();
         return new FetchedPullRequest((long) number, original.repo(), number, original.title(), original.author(), original.htmlUrl(), original.createdAt(),
-                REVIEWED_AT.plusSeconds(number), original.origin(), original.labels(), original.labelColors(), original.draft(), original.state(),
+                updatedAt, original.origin(), original.labels(), original.labelColors(), original.draft(), original.state(),
                 original.closedAt(), original.mergedAt(), original.requestedReviewers(), original.mergeable(), original.mergeableState(), original.headRef());
     }
 

@@ -100,6 +100,7 @@ class TestCredentialHostingRead
         when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("123", "alice"));
         when(identities.upsertInstance(any())).thenReturn(instance);
         when(identities.upsertAccount(eq(10L), any())).thenReturn(account);
+        when(identities.findAccount(20)).thenReturn(Optional.of(account));
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         when(identities.findRepositories(any(), eq("owner/repo"))).thenReturn(ImmutableList.of(repository));
         when(snapshots.find(20, 30, 7)).thenAnswer(ignored -> Optional.ofNullable(cached.get()));

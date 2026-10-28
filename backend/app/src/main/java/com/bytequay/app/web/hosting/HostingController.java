@@ -19,12 +19,14 @@ import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestListPage;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
@@ -70,6 +72,20 @@ public class HostingController
     public HostingRepository repository(@PathVariable long accountId, @RequestBody RepositoryRequest request)
     {
         return connections.resolveRepository(accountId, request.fullPath());
+    }
+
+    @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests")
+    public PullRequestListPage pullRequests(@PathVariable long accountId, @PathVariable long repositoryId,
+            @RequestParam(defaultValue = "false") boolean openOnly, @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "100") int pageSize)
+    {
+        return requests.refreshPage(connections.readSession(accountId), repositoryId, openOnly, page, pageSize);
+    }
+
+    @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests/cached")
+    public PullRequestListPage cachedPullRequests(@PathVariable long accountId, @PathVariable long repositoryId,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "100") int pageSize)
+    {
+        return requests.cachedPage(connections.readSession(accountId), repositoryId, page, pageSize);
     }
 
     @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests/{number}")

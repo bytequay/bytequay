@@ -123,7 +123,7 @@ class TestWorkspaceHostingService
         HostingPullRequestSnapshot snapshot = service.readPullRequest("workspace", 7);
         assertThat(snapshot.accountId()).isEqualTo(20);
         assertThat(snapshot.request().repositoryId()).isEqualTo(31);
-        assertThat(snapshot.pullRequest()).isEqualTo(fetched().pullRequest().orElseThrow());
+        assertThat(snapshot.pullRequest()).isEqualTo(fetched().pullRequest().orElseThrow().withViewerOrigin("alice"));
         verify(requests).fetch(any(), eq(retained(remote("200"))), eq(7), eq(Optional.empty()));
         verifyNoInteractions(desktop);
     }

@@ -23,6 +23,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.store.HostingCredentialStore;
@@ -152,6 +153,14 @@ public class HostingConnectionService
         requireNonNull(etag, "etag is null");
         HostingRepository repository = repository(session.access(), repositoryId);
         return readPullRequest(session, repository, number, repositoryPath.filter(repository.fullPath()::equals).isPresent() ? etag : Optional.empty());
+    }
+
+    public PullRequestListPage listPullRequests(HostingReadSession session, long repositoryId, boolean openOnly, int page, int pageSize)
+    {
+        checkArgument(page > 0, "page must be positive");
+        checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
+        HostingAccess access = session.access();
+        return integration(access.server().provider()).pullRequests().list(access, repository(access, repositoryId), openOnly, page, pageSize);
     }
 
     private HostingRepository repository(HostingAccess access, long repositoryId)

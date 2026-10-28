@@ -16,8 +16,10 @@ package com.bytequay.core.store;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
+import com.bytequay.core.hosting.PullRequestListPage;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 public interface HostingPullRequestStore
@@ -27,6 +29,10 @@ public interface HostingPullRequestStore
 
     HostingPullRequestSnapshot save(long accountId, long repositoryId, String credentialScope, FetchedPullRequest pullRequest, PrRawDetail detail,
             Optional<String> etag, Instant validatedAt);
+
+    PullRequestListPage findPage(long accountId, long repositoryId, String credentialScope, int page, int pageSize);
+
+    void savePage(long accountId, long repositoryId, String credentialScope, List<FetchedPullRequest> pullRequests);
 
     /** Removes only a matching account and credential scope's snapshot, retaining request identity and local work. */
     void evict(long accountId, long repositoryId, int number, String credentialScope);

@@ -18,17 +18,20 @@ import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
+import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -94,6 +97,8 @@ class TestHostingController
             "POST,/api/hosting/accounts",
             "DELETE,/api/hosting/accounts/7/credential",
             "POST,/api/hosting/accounts/7/repositories/resolve",
+            "GET,/api/hosting/accounts/7/repositories/11/requests",
+            "GET,/api/hosting/accounts/7/repositories/11/requests/cached",
             "GET,/api/hosting/accounts/7/repositories/11/requests/17",
             "GET,/api/hosting/accounts/7/repositories/11/requests/17/cached"})
     void protectsEveryHostingEndpointWithTheDesktopSession(String method, String path)
@@ -199,6 +204,65 @@ class TestHostingController
                 .andExpect(status().isOk());
         verify(requests).cached(7, 11, 17);
         verifyNoInteractions(connections);
+    }
+
+    @Test
+    void listsTheFirstRepositoryPageByDefault()
+            throws Exception
+    {
+        HostingReadSession session = new HostingReadSession(7, HostingPullRequestSnapshot.CONNECTED_ACCOUNT, new HostingAccess(INSTANCE, TOKEN));
+        when(connections.readSession(7)).thenReturn(session);
+        when(requests.refreshPage(session, 11, false, 1, 100)).thenReturn(new PullRequestListPage(ImmutableList.of(), false));
+
+        mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(requests).refreshPage(session, 11, false, 1, 100);
+    }
+
+    @Test
+    void listsTheRequestedPageForTheSelectedAccount()
+            throws Exception
+    {
+        HostingReadSession session = new HostingReadSession(7, HostingPullRequestSnapshot.CONNECTED_ACCOUNT, new HostingAccess(INSTANCE, TOKEN));
+        FetchedPullRequest summary = new FetchedPullRequest(99L, "group/project", 17, "Change", "alice", WEB + "/group/project/-/merge_requests/17",
+                Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
+        when(connections.readSession(7)).thenReturn(session);
+        when(requests.refreshPage(session, 11, true, 3, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
+
+        String body = mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests")
+                        .param("openOnly", "true").param("page", "3").param("pageSize", "25").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items[0].number").value(17))
+                .andExpect(jsonPath("$.items[0].repo").value("group/project"))
+                .andExpect(jsonPath("$.hasNext").value(true))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain(TOKEN, SESSION);
+        verify(connections).readSession(7);
+        verify(requests).refreshPage(session, 11, true, 3, 25);
+        verifyNoMoreInteractions(connections, requests);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"'',1,100", "?page=2&pageSize=25,2,25"})
+    void readsRepositoryPagesFromTheSelectedAccountCache(String query, int page, int pageSize)
+            throws Exception
+    {
+        HostingReadSession session = new HostingReadSession(7, HostingPullRequestSnapshot.CONNECTED_ACCOUNT, new HostingAccess(INSTANCE, TOKEN));
+        when(connections.readSession(7)).thenReturn(session);
+        when(requests.cachedPage(session, 11, page, pageSize)).thenReturn(new PullRequestListPage(ImmutableList.of(), false));
+
+        mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/cached" + query).header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.items").isEmpty())
+                .andExpect(jsonPath("$.hasNext").value(false));
+
+        verify(connections).readSession(7);
+        verify(requests).cachedPage(session, 11, page, pageSize);
+        verifyNoMoreInteractions(connections, requests);
     }
 
     @ParameterizedTest

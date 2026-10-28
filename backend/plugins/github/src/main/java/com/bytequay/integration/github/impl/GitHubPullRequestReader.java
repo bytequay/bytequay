@@ -20,12 +20,14 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -63,9 +65,33 @@ public final class GitHubPullRequestReader
         if (response.body().isEmpty()) {
             return new PullRequestFetch(Optional.empty(), response.validator());
         }
+        GitHubPullRequestResponse item = response.body().orElseThrow();
+        if (item.number() != number) {
+            throw new HostingFailure(INVALID_RESPONSE, "GitHub returned another pull request");
+        }
+        return toPullRequest(access, repository, item, response.validator());
+    }
+
+    @Override
+    public PullRequestListPage list(HostingAccess access, HostingRepository repository, boolean openOnly, int page, int pageSize)
+    {
+        requireNonNull(access, "access is null");
+        requireNonNull(repository, "repository is null");
+        checkArgument(access.instanceId().orElseThrow() == repository.instanceId(), "repository belongs to another hosting instance");
+        checkArgument(page > 0, "page must be positive");
+        checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
+        String path = GitHubHttpClient.repositoryPath(repository.fullPath()) + "/pulls?state=" + (openOnly ? "open" : "all") +
+                "&sort=updated&direction=desc&per_page=" + pageSize + "&page=" + page;
+        GitHubHttpClient.Response<GitHubPullRequestResponse[]> response = http.get(access, path, GitHubPullRequestResponse[].class, Optional.empty());
+        List<FetchedPullRequest> items = Arrays.stream(response.body().orElseThrow())
+                .map(item -> toPullRequest(access, repository, item, Optional.empty()).pullRequest().orElseThrow()).collect(toImmutableList());
+        return new PullRequestListPage(items, response.hasNext());
+    }
+
+    private static PullRequestFetch toPullRequest(HostingAccess access, HostingRepository repository, GitHubPullRequestResponse item, Optional<String> validator)
+    {
         try {
-            GitHubPullRequestResponse item = response.body().orElseThrow();
-            if (item.id() <= 0 || item.number() != number || item.base() == null || item.base().repo() == null || item.base().repo().id() <= 0 ||
+            if (item.id() <= 0 || item.number() <= 0 || item.base() == null || item.base().repo() == null || item.base().repo().id() <= 0 ||
                     !Long.toString(item.base().repo().id()).equals(repository.remoteId())) {
                 throw new HostingFailure(INVALID_RESPONSE, "GitHub returned invalid pull request metadata");
             }
@@ -85,7 +111,7 @@ public final class GitHubPullRequestReader
                     item.id(), repository.fullPath(), item.number(), detail.title(), detail.author(), detail.htmlUrl(), detail.createdAt(), detail.updatedAt(),
                     OTHER, detail.labels(), detail.labelColors(), detail.draft(), detail.state(), item.closedAt(), detail.mergedAt(), reviewers,
                     detail.mergeable(), detail.mergeableState(), detail.headRef());
-            return new PullRequestFetch(Optional.of(summary), response.validator(), Optional.of(detail));
+            return new PullRequestFetch(Optional.of(summary), validator, Optional.of(detail));
         }
         catch (IllegalArgumentException | NullPointerException e) {
             throw new HostingFailure(INVALID_RESPONSE, "GitHub returned invalid pull request metadata");

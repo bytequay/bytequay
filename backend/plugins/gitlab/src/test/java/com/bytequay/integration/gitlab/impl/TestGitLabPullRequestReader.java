@@ -19,6 +19,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.integration.gitlab.GitLabIntegration;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -64,6 +65,7 @@ class TestGitLabPullRequestReader
     private final AtomicReference<String> requestedPath = new AtomicReference<>();
     private final AtomicReference<String> requestToken = new AtomicReference<>();
     private final AtomicReference<String> requestValidator = new AtomicReference<>();
+    private final AtomicReference<Optional<String>> nextLink = new AtomicReference<>(Optional.empty());
     private HttpServer server;
     private HttpClient http;
     private HostingAccess access;
@@ -84,6 +86,7 @@ class TestGitLabPullRequestReader
             byte[] bytes = result.body().getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().set("Content-Type", "application/json");
             result.etag().ifPresent(value -> exchange.getResponseHeaders().set("ETag", value));
+            nextLink.get().ifPresent(value -> exchange.getResponseHeaders().set("Link", value));
             exchange.getResponseHeaders().set("Retry-After", "17");
             exchange.getResponseHeaders().set("Location", "/redirected");
             exchange.sendResponseHeaders(result.status(), result.status() == 304 ? -1 : bytes.length);
@@ -109,6 +112,88 @@ class TestGitLabPullRequestReader
     {
         http.close();
         server.stop(0);
+    }
+
+    @Test
+    void listsProjectPagesWithNormalizedStatesAndExplicitAllScope()
+    {
+        reply.set(new Reply(200, "[" + listedMergeRequest(17, "opened", 42) + "," + listedMergeRequest(18, "merged", 42) + "]", Optional.empty()));
+        nextLink.set(Optional.of("<" + base + "/api/v4/projects/42/merge_requests?page=2>; rel=\"next\""));
+
+        PullRequestListPage result = GitLabIntegration.create(http, MAPPER).pullRequests().list(access, repository, false, 1, 2);
+
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests?scope=all&state=all&order_by=updated_at&sort=desc&per_page=2&page=1");
+        assertThat(requestToken.get()).isEqualTo("secret-token");
+        assertThat(requestValidator.get()).isNull();
+        assertThat(result.hasNext()).isTrue();
+        assertThat(result.items()).extracting(item -> item.number()).containsExactly(17, 18);
+        assertThat(result.items()).extracting(item -> item.state()).containsExactly("open", "merged");
+        assertThat(result.items()).allSatisfy(item -> {
+            assertThat(item.repo()).isEqualTo("group/subgroup/repo");
+            assertThat(item.requestedReviewers()).isEmpty();
+            assertThat(item.labels()).containsExactly("bug");
+            assertThat(item.htmlUrl()).isEqualTo(base + "/group/subgroup/repo/-/merge_requests/" + item.number());
+        });
+    }
+
+    @Test
+    void readsTheRequestedOpenPageAndUsesLinksToIdentifyTheLastPage()
+    {
+        reply.set(new Reply(200, "[" + listedMergeRequest(17, "opened", 42) + "]", Optional.empty()));
+        nextLink.set(Optional.of("<" + base + "/api/v4/projects/42/merge_requests?page=1>; rel=\"prev\""));
+
+        PullRequestListPage result = reader.list(access, repository, true, 2, 1);
+
+        assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/42/merge_requests?scope=all&state=opened&order_by=updated_at&sort=desc&per_page=1&page=2");
+        assertThat(result.items()).hasSize(1);
+        assertThat(result.hasNext()).isFalse();
+    }
+
+    @Test
+    void acceptsAnEmptyRepositoryPage()
+    {
+        reply.set(new Reply(200, "[]", Optional.empty()));
+
+        PullRequestListPage result = reader.list(access, repository, false, 1, 100);
+
+        assertThat(result.items()).isEmpty();
+        assertThat(result.hasNext()).isFalse();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0,100", "1,0", "1,101"})
+    void validatesListingCoordinatesBeforeSendingCredentials(int page, int pageSize)
+    {
+        assertThatThrownBy(() -> reader.list(access, repository, false, page, pageSize)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(requestedPath.get()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "[null]", "[] {}"})
+    void rejectsMalformedListResponses(String body)
+    {
+        reply.set(new Reply(200, body, Optional.empty()));
+
+        assertThatThrownBy(() -> reader.list(access, repository, false, 1, 100))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
+    }
+
+    @Test
+    void rejectsAListedMergeRequestFromAnotherProject()
+    {
+        reply.set(new Reply(200, "[" + listedMergeRequest(17, "opened", 99) + "]", Optional.empty()));
+
+        assertThatThrownBy(() -> reader.list(access, repository, false, 1, 100))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
+    }
+
+    @Test
+    void reportsAListingFailureWithoutReturningAPartialPage()
+    {
+        reply.set(new Reply(429, "{}", Optional.empty()));
+
+        assertThatThrownBy(() -> reader.list(access, repository, false, 2, 100))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.RATE_LIMITED));
     }
 
     @Test
@@ -604,6 +689,15 @@ class TestGitLabPullRequestReader
         mr.putArray("reviewers").addObject().put("username", "already-reviewed");
         mr.putObject("diff_refs").put("base_sha", MERGE_BASE).put("head_sha", HEAD).put("start_sha", TARGET);
         return mr;
+    }
+
+    private String listedMergeRequest(int number, String state, int projectId)
+    {
+        return """
+                {"id":%d,"iid":%d,"project_id":%d,"title":"Support nested projects","state":"%s","draft":false,
+                 "web_url":"%s/group/subgroup/repo/-/merge_requests/%d","author":{"username":"alice"},"labels":["bug"],
+                 "created_at":"2026-10-01T10:00:00Z","updated_at":"2026-10-02T10:00:00Z","source_branch":"feature/nested"}
+                """.formatted(9000 + number, number, projectId, state, base, number);
     }
 
     private record Reply(int status, String body, Optional<String> etag) {}

@@ -156,7 +156,7 @@ from the configured server; `app` composes the concrete implementations. The
 adapters depend on `core`, not application services or persistence.
 
 The implemented contracts cover account verification, repository resolution and
-PR/MR metadata reads. GitLab.com and company GitLab servers use the same adapter
+paginated repository PR/MR listing and metadata reads. GitLab.com and company GitLab servers use the same adapter
 with configured web/API base URLs, including path prefixes and ports. Credentials
 are encrypted separately from retained object identities. Redirects cannot
 forward tokens, and native GitHub operations reject other hosting servers before
@@ -174,7 +174,9 @@ PRs and MRs use the existing `pull_requests` table, keyed by local hosting
 repository ID and request number, with the remote request ID retained separately.
 `pr_metadata_snapshots` stores normalized summary/detail data and ETags for each
 observing account. Credential source distinguishes connected-account, global and
-workspace credentials. Cache eviction keeps request identity and local work.
+workspace credentials. List refresh stores summaries without loading full detail
+or advancing its validation time; cached lists are paged within that account,
+repository and credential source. Cache eviction keeps request identity and local work.
 Hibernate owns the schema; no migration framework or database reset is required.
 
 Legacy desktop rows remain separate because matching repository paths cannot
@@ -203,12 +205,17 @@ remain where they predate this integration.
 Scheduled refresh visits each watched workspace so explicit account bindings work
 without a global credential, including workspaces for the same repository using
 different accounts. Publication follow-up and backport reads use the selected
-workspace account. Remote writes still require direct user action.
+workspace account. Repository discovery uses the shared paginated reader, ordered
+by update time. The first pass reads recent changes and all open requests; later
+passes stop at the last successful refresh cutoff. Each page is saved as it arrives,
+and the checkpoint advances only after discovery completes. Existing GitHub
+workspaces retain their desktop projection and GitHub card enrichment.
+Remote writes still require direct user action.
 
 ### Remaining integration
 
 Shared metadata storage and backend connection endpoints support both providers.
-The desktop still uses GitHub readers for lists, discussions, checks and diffs,
+The desktop still uses GitHub readers for personal discovery, discussions, checks and diffs,
 and GitHub implementations for remote writes. GitLab workspace creation, desktop
 navigation/account selection, and these remaining provider contracts are not yet
 implemented. Extend contracts as those consumers are migrated; keep provider

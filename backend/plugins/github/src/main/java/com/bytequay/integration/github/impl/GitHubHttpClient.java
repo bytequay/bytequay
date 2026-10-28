@@ -106,7 +106,7 @@ final class GitHubHttpClient
             }
             Optional<String> responseValidator = response.headers().firstValue("etag");
             if (status == 304 && validator.isPresent()) {
-                return new Response<>(Optional.empty(), responseValidator.or(() -> validator));
+                return new Response<>(Optional.empty(), responseValidator.or(() -> validator), false);
             }
             if (status != 200) {
                 throw switch (status) {
@@ -121,7 +121,8 @@ final class GitHubHttpClient
             if (body == null) {
                 throw new HostingFailure(INVALID_RESPONSE, "GitHub returned no valid object");
             }
-            return new Response<>(Optional.of(body), responseValidator);
+            boolean hasNext = response.headers().allValues("link").stream().anyMatch(value -> value.contains("rel=\"next\""));
+            return new Response<>(Optional.of(body), responseValidator, hasNext);
         }
         catch (IOException e) {
             throw new HostingFailure(INVALID_RESPONSE, "GitHub returned invalid JSON");
@@ -165,5 +166,5 @@ final class GitHubHttpClient
         });
     }
 
-    record Response<T>(Optional<T> body, Optional<String> validator) {}
+    record Response<T>(Optional<T> body, Optional<String> validator, boolean hasNext) {}
 }

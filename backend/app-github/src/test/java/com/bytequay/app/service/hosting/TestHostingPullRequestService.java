@@ -27,6 +27,7 @@ import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -46,6 +47,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
@@ -60,6 +62,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -116,6 +119,57 @@ class TestHostingPullRequestService
         assertThat(result.pullRequest().title()).isEqualTo("First");
         assertThat(result.validatedAt()).isEqualTo(NOW);
         assertThat(service.cached(20, 30, 7)).contains(result);
+    }
+
+    @ParameterizedTest
+    @EnumSource(HostingProvider.class)
+    void listsAndCachesPagesThroughTheSelectedProvider(HostingProvider provider)
+    {
+        service = service(provider);
+        HostingReadSession session = connections.readSession(20);
+        HostingRepository repository = identities.findRepository(30).orElseThrow();
+        FetchedPullRequest summary = fetched("Listed", Optional.empty()).pullRequest().orElseThrow();
+        when(reader.list(session.access(), repository, true, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
+
+        PullRequestListPage result = service.refreshPage(session, 30, true, 2, 25);
+
+        assertThat(result.items()).containsExactly(summary.withViewerOrigin("alice"));
+        assertThat(result.hasNext()).isTrue();
+        verify(snapshots).savePage(20, 30, CONNECTED_ACCOUNT, result.items());
+        verify(reader, never()).fetch(any(), any(), anyInt(), any());
+        assertThat(cache).isEmpty();
+    }
+
+    @Test
+    void readsCachedPagesWithinTheSelectedCredentialScope()
+    {
+        HostingReadSession session = connections.readSession(20);
+        PullRequestListPage page = new PullRequestListPage(ImmutableList.of(), false);
+        when(snapshots.findPage(20, 30, CONNECTED_ACCOUNT, 2, 25)).thenReturn(page);
+        reset(reader);
+
+        assertThat(service.cachedPage(session, 30, 2, 25)).isEqualTo(page);
+
+        verifyNoInteractions(reader);
+    }
+
+    @Test
+    void failedListingDoesNotReplaceCachedSummaries()
+    {
+        HostingReadSession session = connections.readSession(20);
+        when(reader.list(any(), any(), eq(false), eq(1), eq(100))).thenThrow(new HostingFailure(UNAVAILABLE, "Offline"));
+
+        assertThatThrownBy(() -> service.refreshPage(session, 30, false, 1, 100)).isInstanceOf(HostingFailure.class);
+
+        verify(snapshots, never()).savePage(anyLong(), anyLong(), anyString(), any());
+    }
+
+    @Test
+    void detailRefreshKeepsTheViewersOriginInStoredListSummaries()
+    {
+        HostingPullRequestSnapshot result = service.refresh(20, 30, 7);
+
+        assertThat(result.pullRequest().origin()).isEqualTo(AUTHORED);
     }
 
     @Test

@@ -93,7 +93,7 @@ final class GitLabHttpClient
             int status = response.statusCode();
             Optional<String> etag = response.headers().firstValue("etag");
             if (status == 304 && validator.isPresent()) {
-                return new Response<>(Optional.empty(), etag.or(() -> validator));
+                return new Response<>(Optional.empty(), etag.or(() -> validator), false);
             }
             switch (status) {
                 case 200 -> {}
@@ -113,7 +113,8 @@ final class GitLabHttpClient
             if (body == null) {
                 throw new HostingFailure(INVALID_RESPONSE, "GitLab returned no valid object");
             }
-            return new Response<>(Optional.of(body), etag);
+            boolean hasNext = response.headers().allValues("Link").stream().anyMatch(link -> link.contains("rel=\"next\""));
+            return new Response<>(Optional.of(body), etag, hasNext);
         }
         catch (IOException e) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned invalid JSON");
@@ -152,5 +153,5 @@ final class GitLabHttpClient
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    record Response<T>(Optional<T> body, Optional<String> etag) {}
+    record Response<T>(Optional<T> body, Optional<String> etag, boolean hasNext) {}
 }

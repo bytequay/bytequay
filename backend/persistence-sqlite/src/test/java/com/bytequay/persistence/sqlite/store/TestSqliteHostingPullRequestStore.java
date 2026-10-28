@@ -23,6 +23,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.review.ReviewDraft;
@@ -100,6 +101,90 @@ class TestSqliteHostingPullRequestStore
         assertThat(retained.getWorkspaceVisible()).isFalse();
         assertThat(requests.count()).isEqualTo(1);
         assertThat(snapshots.count()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @EnumSource(HostingProvider.class)
+    void pagesSummariesByLastUpdateWithoutCreatingDetailSnapshots(HostingProvider provider)
+    {
+        Scope scope = scope(provider, provider == GITHUB ? "https://github.com" : "https://gitlab.com");
+        FetchedPullRequest newest = pullRequest(scope, 42, 7, "Newest", NOW);
+        FetchedPullRequest middle = pullRequest(scope, 43, 8, "Middle", NOW.minusSeconds(10));
+        FetchedPullRequest oldest = pullRequest(scope, 44, 9, "Oldest", NOW.minusSeconds(20));
+        store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of(oldest, newest));
+        store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of(middle));
+        entities.flush();
+        entities.clear();
+
+        PullRequestListPage first = store.findPage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1, 2);
+        PullRequestListPage last = store.findPage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 2, 2);
+        assertThat(first.items()).containsExactly(newest, middle);
+        assertThat(first.hasNext()).isTrue();
+        assertThat(last.items()).containsExactly(oldest);
+        assertThat(last.hasNext()).isFalse();
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).isEmpty();
+        assertThat(requests.count()).isEqualTo(3);
+        assertThat(snapshots.count()).isEqualTo(3);
+
+        HostingPullRequestSnapshot fetched = store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT,
+                newest, detail(newest, "Full description"), Optional.of("\"detail\""), NOW);
+        entities.flush();
+        entities.clear();
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(fetched);
+        assertThat(requests.count()).isEqualTo(3);
+        assertThat(snapshots.count()).isEqualTo(3);
+    }
+
+    @Test
+    void listRefreshPreservesMetadataUntilAnotherCredentialSourceReplacesIt()
+    {
+        Scope scope = scope(GITLAB, "https://git.company.com/gitlab");
+        HostingPullRequestSnapshot original = save(scope, "Original", "Full description");
+        FetchedPullRequest summary = pullRequest(scope, 42, "Updated summary");
+        store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of(summary));
+        entities.flush();
+        entities.clear();
+
+        HostingPullRequestSnapshot updated = store.find(scope.account().id(), scope.repository().id(), 7).orElseThrow();
+        assertThat(updated.request()).isEqualTo(original.request());
+        assertThat(updated.pullRequest()).isEqualTo(summary);
+        assertThat(updated.detail()).isEqualTo(original.detail());
+        assertThat(updated.etag()).isEqualTo(original.etag());
+        assertThat(updated.validatedAt()).isEqualTo(original.validatedAt());
+
+        store.savePage(scope.account().id(), scope.repository().id(), "workspace-token", ImmutableList.of(summary));
+        entities.flush();
+        entities.clear();
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).isEmpty();
+        assertThat(store.findPage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1, 100).items()).isEmpty();
+        assertThat(store.findPage(scope.account().id(), scope.repository().id(), "workspace-token", 1, 100).items()).containsExactly(summary);
+        assertThat(requests.count()).isEqualTo(1);
+        assertThat(snapshots.count()).isEqualTo(1);
+    }
+
+    @Test
+    void listPagesAreScopedToAccountRepositoryAndCredentialSource()
+    {
+        Scope first = scope(GITLAB, "https://gitlab.com");
+        Scope second = new Scope(first.instance(), identities.upsertAccount(first.instance().id(), new RemoteHostingAccount("2", "bob")), first.repository());
+        Scope otherHost = scope(GITLAB, "https://git.company.com");
+        Scope github = scope(GITHUB, "https://github.com");
+        for (Scope scope : ImmutableList.of(first, second, otherHost, github)) {
+            store.savePage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT,
+                    ImmutableList.of(pullRequest(scope, 42, scope.account().login() + " on " + scope.instance().webBaseUrl())));
+        }
+        entities.flush();
+        entities.clear();
+
+        for (Scope scope : ImmutableList.of(first, second, otherHost, github)) {
+            assertThat(store.findPage(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1, 100).items())
+                    .containsExactly(pullRequest(scope, 42, scope.account().login() + " on " + scope.instance().webBaseUrl()));
+            assertThat(store.findPage(scope.account().id(), scope.repository().id(), "other-token", 1, 100).items()).isEmpty();
+        }
+        assertThat(requests.count()).isEqualTo(3);
+        assertThat(snapshots.count()).isEqualTo(4);
+        assertThatIllegalArgumentException().isThrownBy(() -> store.findPage(first.account().id(), otherHost.repository().id(), CONNECTED_ACCOUNT, 1, 100));
+        assertThatIllegalArgumentException().isThrownBy(() -> store.savePage(first.account().id(), otherHost.repository().id(), CONNECTED_ACCOUNT, ImmutableList.of()));
     }
 
     @Test
@@ -372,8 +457,13 @@ class TestSqliteHostingPullRequestStore
 
     private static FetchedPullRequest pullRequest(Scope scope, long remoteId, int number, String title)
     {
+        return pullRequest(scope, remoteId, number, title, NOW);
+    }
+
+    private static FetchedPullRequest pullRequest(Scope scope, long remoteId, int number, String title, Instant updatedAt)
+    {
         String url = scope.repository().webUrl() + (scope.instance().provider() == GITHUB ? "/pull/" : "/-/merge_requests/") + number;
-        return new FetchedPullRequest(remoteId, scope.repository().fullPath(), number, title, "alice", url, NOW.minusSeconds(60), NOW,
+        return new FetchedPullRequest(remoteId, scope.repository().fullPath(), number, title, "alice", url, NOW.minusSeconds(60), updatedAt,
                 PullRequest.Origin.AUTHORED, ImmutableList.of("bug"), ImmutableMap.of("bug", "ff0000"), false, "open", null, null, ImmutableList.of(), null, null, "feature");
     }
 

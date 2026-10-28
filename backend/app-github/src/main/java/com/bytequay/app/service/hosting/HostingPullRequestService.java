@@ -18,6 +18,7 @@ import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.HostingPullRequestStore;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUI
 import static com.bytequay.core.hosting.HostingFailure.Kind.FORBIDDEN;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Keeps remote snapshots separate from retained request identity and local review state. */
@@ -63,6 +65,20 @@ public class HostingPullRequestService
         return refresh(connections.readSession(accountId), repositoryId, number, false);
     }
 
+    public PullRequestListPage refreshPage(HostingReadSession session, long repositoryId, boolean openOnly, int page, int pageSize)
+    {
+        PullRequestListPage fetched = connections.listPullRequests(session, repositoryId, openOnly, page, pageSize);
+        String login = connections.account(session).login();
+        PullRequestListPage result = new PullRequestListPage(fetched.items().stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList()), fetched.hasNext());
+        snapshots.savePage(session.accountId(), repositoryId, session.credentialScope(), result.items());
+        return result;
+    }
+
+    public PullRequestListPage cachedPage(HostingReadSession session, long repositoryId, int page, int pageSize)
+    {
+        return snapshots.findPage(session.accountId(), repositoryId, session.credentialScope(), page, pageSize);
+    }
+
     public void invalidateRepository(long repositoryId, int number)
     {
         snapshots.evictRepository(repositoryId, number);
@@ -87,7 +103,7 @@ public class HostingPullRequestService
                         .orElseThrow(() -> new HostingFailure(INVALID_RESPONSE, "Hosting response has no matching cached metadata"));
                 fetched = new PullRequestFetch(Optional.of(unchanged.pullRequest()), fetched.etag().or(unchanged::etag), Optional.of(unchanged.detail()));
             }
-            FetchedPullRequest summary = fetched.pullRequest().orElseThrow();
+            FetchedPullRequest summary = fetched.pullRequest().orElseThrow().withViewerOrigin(connections.account(session).login());
             if (summary.number() != number) {
                 throw new HostingFailure(INVALID_RESPONSE, "Hosting response identifies another request");
             }

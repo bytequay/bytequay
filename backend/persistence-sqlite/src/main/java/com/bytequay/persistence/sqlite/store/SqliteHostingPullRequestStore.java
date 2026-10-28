@@ -17,6 +17,7 @@ import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.store.HostingPullRequestStore;
 import com.bytequay.persistence.sqlite.entity.HostingAccountEntity;
 import com.bytequay.persistence.sqlite.entity.HostingPullRequestSnapshotEntity;
@@ -27,10 +28,13 @@ import com.bytequay.persistence.sqlite.repository.HostingPullRequestSnapshotJpaR
 import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
 import com.google.common.collect.ImmutableList;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
@@ -38,6 +42,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -62,8 +67,9 @@ public class SqliteHostingPullRequestStore
     @Override
     public Optional<HostingPullRequestSnapshot> find(long accountId, long repositoryId, int number)
     {
-        target(accountId, repositoryId, number);
-        return snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, number).map(HostingPullRequestSnapshotEntity::toDomain);
+        checkArgument(number > 0, "number must be positive");
+        target(accountId, repositoryId);
+        return snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, number).flatMap(HostingPullRequestSnapshotEntity::toDomain);
     }
 
     @Override
@@ -76,32 +82,39 @@ public class SqliteHostingPullRequestStore
         checkOptionalText(etag, "etag");
         requireNonNull(validatedAt, "validatedAt is null");
         checkText(credentialScope, "credentialScope");
-        checkArgument(pullRequest.githubId() > 0, "remote request ID must be positive");
-        Target target = target(accountId, repositoryId, pullRequest.number());
-        String remoteId = pullRequest.githubId().toString();
-        PullRequestEntity request = requests.findByHostingRepositoryIdAndNumber(repositoryId, pullRequest.number()).orElseGet(() -> {
-            PullRequestEntity created = new PullRequestEntity();
-            created.setHostingRepository(target.repository());
-            created.setRemoteId(remoteId);
-            created.setRepo(pullRequest.repo());
-            created.setNumber(pullRequest.number());
-            created.setTitle("");
-            created.setOrigin(OTHER.name());
-            created.setLabels(ImmutableList.of());
-            created.setSyncedAt(validatedAt);
-            created.setDashboardVisible(false);
-            created.setWorkspaceVisible(false);
-            return requests.save(created);
-        });
-        if (!request.getRemoteId().equals(remoteId)) {
-            throw new HostingFailure(INVALID_RESPONSE, "The remote request identity changed for this repository and number");
-        }
+        Target target = target(accountId, repositoryId);
+        PullRequestEntity request = request(target, pullRequest, validatedAt);
         HostingPullRequestSnapshotEntity snapshot = snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, pullRequest.number())
                 .orElseGet(() -> new HostingPullRequestSnapshotEntity(request, target.account()));
         snapshot.update(new HostingPullRequestSnapshot(request.hostingIdentity(), accountId, credentialScope, pullRequest, detail, etag, validatedAt));
-        request.setRepo(pullRequest.repo());
-        request.setHtmlUrl(pullRequest.htmlUrl());
-        return snapshots.save(snapshot).toDomain();
+        return snapshots.save(snapshot).toDomain().orElseThrow();
+    }
+
+    @Override
+    public PullRequestListPage findPage(long accountId, long repositoryId, String credentialScope, int page, int pageSize)
+    {
+        target(accountId, repositoryId);
+        checkText(credentialScope, "credentialScope");
+        checkArgument(page > 0, "page must be positive");
+        checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
+        var rows = snapshots.findByAccountIdAndRequestHostingRepositoryIdAndCredentialScope(accountId, repositoryId, credentialScope,
+                PageRequest.of(page - 1, pageSize, Sort.by(Sort.Direction.DESC, "updatedAt", "id")));
+        return new PullRequestListPage(rows.stream().map(HostingPullRequestSnapshotEntity::summary).collect(toImmutableList()), rows.hasNext());
+    }
+
+    @Override
+    @Transactional
+    public void savePage(long accountId, long repositoryId, String credentialScope, List<FetchedPullRequest> pullRequests)
+    {
+        Target target = target(accountId, repositoryId);
+        checkText(credentialScope, "credentialScope");
+        for (FetchedPullRequest pullRequest : pullRequests) {
+            PullRequestEntity request = request(target, pullRequest, pullRequest.updatedAt());
+            HostingPullRequestSnapshotEntity snapshot = snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, pullRequest.number())
+                    .orElseGet(() -> new HostingPullRequestSnapshotEntity(request, target.account()));
+            snapshot.updateSummary(credentialScope, pullRequest);
+            snapshots.save(snapshot);
+        }
     }
 
     @Override
@@ -109,7 +122,8 @@ public class SqliteHostingPullRequestStore
     public void evict(long accountId, long repositoryId, int number, String credentialScope)
     {
         checkText(credentialScope, "credentialScope");
-        target(accountId, repositoryId, number);
+        checkArgument(number > 0, "number must be positive");
+        target(accountId, repositoryId);
         snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, number)
                 .filter(snapshot -> snapshot.credentialScope().equals(credentialScope)).ifPresent(snapshots::delete);
     }
@@ -123,11 +137,37 @@ public class SqliteHostingPullRequestStore
         snapshots.deleteByRequestHostingRepositoryIdAndRequestNumber(repositoryId, number);
     }
 
-    private Target target(long accountId, long repositoryId, int number)
+    private PullRequestEntity request(Target target, FetchedPullRequest pullRequest, Instant observedAt)
+    {
+        checkArgument(pullRequest.number() > 0, "number must be positive");
+        checkArgument(pullRequest.githubId() > 0, "remote request ID must be positive");
+        String remoteId = pullRequest.githubId().toString();
+        PullRequestEntity request = requests.findByHostingRepositoryIdAndNumber(target.repository().getId(), pullRequest.number()).orElseGet(() -> {
+            PullRequestEntity created = new PullRequestEntity();
+            created.setHostingRepository(target.repository());
+            created.setRemoteId(remoteId);
+            created.setRepo(pullRequest.repo());
+            created.setNumber(pullRequest.number());
+            created.setTitle("");
+            created.setOrigin(OTHER.name());
+            created.setLabels(ImmutableList.of());
+            created.setSyncedAt(observedAt);
+            created.setDashboardVisible(false);
+            created.setWorkspaceVisible(false);
+            return requests.save(created);
+        });
+        if (!request.getRemoteId().equals(remoteId)) {
+            throw new HostingFailure(INVALID_RESPONSE, "The remote request identity changed for this repository and number");
+        }
+        request.setRepo(pullRequest.repo());
+        request.setHtmlUrl(pullRequest.htmlUrl());
+        return request;
+    }
+
+    private Target target(long accountId, long repositoryId)
     {
         checkArgument(accountId > 0, "accountId must be positive");
         checkArgument(repositoryId > 0, "repositoryId must be positive");
-        checkArgument(number > 0, "number must be positive");
         HostingAccountEntity account = accounts.findById(accountId).orElseThrow(() -> new IllegalArgumentException("Hosting account does not exist"));
         HostingRepositoryEntity repository = repositories.findById(repositoryId).orElseThrow(() -> new IllegalArgumentException("Hosting repository does not exist"));
         checkArgument(account.toDomain().instanceId() == repository.toDomain().instanceId(), "Hosting account and repository belong to different instances");

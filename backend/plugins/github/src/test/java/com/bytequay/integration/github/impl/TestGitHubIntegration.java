@@ -21,6 +21,7 @@ import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -257,6 +258,84 @@ class TestGitHubIntegration
             assertThat(value.deletions()).isEqualTo(3);
             assertThat(value.changedFiles()).isEqualTo(2);
         });
+    }
+
+    @Test
+    void listsUpdatedPullRequestsWithProviderPagination()
+    {
+        String path = "/api/v3/repos/bytequay/bytequay/pulls";
+        serve(path, 200, "[" + PULL_REQUEST + "]", ImmutableMap.of("Link", "<https://github.example/unused?page=2>; rel=\"next\""));
+
+        PullRequestListPage first = integration.pullRequests().list(access, repository, true, 1, 1);
+
+        assertThat(first.hasNext()).isTrue();
+        assertThat(first.items()).singleElement().satisfies(item -> {
+            assertThat(item.number()).isEqualTo(7);
+            assertThat(item.githubId()).isEqualTo(1007);
+            assertThat(item.repo()).isEqualTo("bytequay/bytequay");
+            assertThat(item.title()).isEqualTo("Preserve request context");
+            assertThat(item.author()).isEqualTo("alice");
+            assertThat(item.updatedAt()).isEqualTo(Instant.parse("2026-10-02T10:00:00Z"));
+            assertThat(item.labels()).containsExactly("bug");
+            assertThat(item.requestedReviewers()).containsExactly("charlie");
+            assertThat(item.draft()).isTrue();
+        });
+        assertThat(request.get().path()).isEqualTo(path);
+        assertThat(request.get().query()).contains("state=open&sort=updated&direction=desc&per_page=1&page=1");
+        assertThat(request.get().authorization()).isEqualTo("Bearer private-token");
+        assertThat(request.get().validator()).isEmpty();
+
+        server.removeContext(path);
+        serve(path, 200, "[" + PULL_REQUEST.replace("\"number\": 7", "\"number\": 8")
+                .replace("\"state\": \"open\"", "\"state\": \"closed\", \"merged_at\": \"2026-10-02T10:00:00Z\"") + "]",
+                ImmutableMap.of("Link", "<https://github.example/unused?page=1>; rel=\"prev\""));
+
+        PullRequestListPage last = integration.pullRequests().list(access, repository, false, 2, 1);
+
+        assertThat(last.hasNext()).isFalse();
+        assertThat(last.items()).singleElement().satisfies(item -> {
+            assertThat(item.number()).isEqualTo(8);
+            assertThat(item.state()).isEqualTo("merged");
+        });
+        assertThat(request.get().query()).contains("state=all&sort=updated&direction=desc&per_page=1&page=2");
+    }
+
+    @Test
+    void acceptsAnEmptyRepositoryList()
+    {
+        serve("/api/v3/repos/bytequay/bytequay/pulls", 200, "[]", ImmutableMap.of());
+
+        PullRequestListPage page = integration.pullRequests().list(access, repository, false, 1, 100);
+
+        assertThat(page.items()).isEmpty();
+        assertThat(page.hasNext()).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"{}", "null", "[null]", "[{\"id\":0}]"})
+    void rejectsMalformedPullRequestLists(String body)
+    {
+        serve("/api/v3/repos/bytequay/bytequay/pulls", 200, body, ImmutableMap.of());
+
+        assertThatThrownBy(() -> integration.pullRequests().list(access, repository, false, 1, 100))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
+    }
+
+    @Test
+    void rejectsListItemsFromAnotherRepository()
+    {
+        serve("/api/v3/repos/bytequay/bytequay/pulls", 200, "[" + PULL_REQUEST.replace("\"id\": 42", "\"id\": 43") + "]", ImmutableMap.of());
+
+        assertThatThrownBy(() -> integration.pullRequests().list(access, repository, false, 1, 100))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0,1", "1,0", "1,101"})
+    void rejectsInvalidPaginationBeforeSending(int page, int pageSize)
+    {
+        assertThatThrownBy(() -> integration.pullRequests().list(access, repository, false, page, pageSize)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(request.get()).isNull();
     }
 
     @ParameterizedTest
@@ -540,7 +619,8 @@ class TestGitHubIntegration
     private void serve(String path, int status, String body, Map<String, String> headers)
     {
         server.createContext(path, exchange -> {
-            request.set(new Request(exchange.getRequestURI().getRawPath(), exchange.getRequestHeaders().getFirst("Authorization"),
+            request.set(new Request(exchange.getRequestURI().getRawPath(), Optional.ofNullable(exchange.getRequestURI().getRawQuery()),
+                    exchange.getRequestHeaders().getFirst("Authorization"),
                     Optional.ofNullable(exchange.getRequestHeaders().getFirst("If-None-Match"))));
             headers.forEach((name, value) -> exchange.getResponseHeaders().set(name, value));
             byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
@@ -575,5 +655,5 @@ class TestGitHubIntegration
         });
     }
 
-    private record Request(String path, String authorization, Optional<String> validator) {}
+    private record Request(String path, Optional<String> query, String authorization, Optional<String> validator) {}
 }

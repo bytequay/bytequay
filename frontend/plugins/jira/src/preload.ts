@@ -28,6 +28,7 @@ export function createJiraBridge(ipcRenderer: Pick<IpcRenderer, 'invoke'>): Jira
     listJiraBoards: (connectionId, cloudId, refresh) => ipcRenderer.invoke('jira:boards', connectionId, cloudId, refresh),
     listJiraSprints: (connectionId, cloudId, boardId, refresh) => ipcRenderer.invoke('jira:sprints', connectionId, cloudId, boardId, refresh),
     listJiraIssues: (query, refresh) => ipcRenderer.invoke('jira:issues', query, refresh),
+    listWorkspaceJiraIssues: (workspaceId, refresh) => ipcRenderer.invoke('jira:workspace:issues', workspaceId, refresh),
     getJiraIssue: (location, refresh, automatic) => ipcRenderer.invoke('jira:issue', location, refresh, automatic),
     recordJiraRecentTouch: (location, dwellSeconds) => ipcRenderer.invoke('jira:issue:recent', location, dwellSeconds),
     refreshJiraIssueByKey: (connectionId, cloudId, key) => ipcRenderer.invoke('jira:key:refresh', connectionId, cloudId, key),

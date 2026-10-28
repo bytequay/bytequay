@@ -49,6 +49,10 @@ export function registerJiraIpc({ ipc, backend }: JiraMainHost): void {
       ...(refresh ? { signal: AbortSignal.timeout(3 * 60_000) } : {}),
     });
   });
+  ipc.handle('jira:workspace:issues', (_event, workspaceId: string, refresh: boolean) =>
+    backend(`/api/jira/workspaces/${encodeURIComponent(workspaceId)}/issues${refresh ? '/refresh' : ''}`, {
+      method: refresh ? 'POST' : 'GET', ...(refresh ? { signal: AbortSignal.timeout(3 * 60_000) } : {}),
+    }));
   ipc.handle('jira:issue', (_event, location: JiraLocation, refresh: boolean, automatic: boolean) =>
     backend(`${jiraIssuePath(location)}${refresh ? '/refresh' : ''}${refresh && automatic ? '?automatic=true' : ''}`, { method: refresh ? 'POST' : 'GET' }));
   ipc.handle('jira:key:refresh', (_event, connectionId: string, cloudId: string, key: string) =>

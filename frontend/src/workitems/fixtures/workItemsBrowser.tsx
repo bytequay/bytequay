@@ -75,6 +75,7 @@ export async function markdownHistory() {
       return pull;
     },
     listJiraConnections: async () => [],
+    listWorkspaceJiraIssues: async () => ({ issues: [], fetchedAt: null, error: null, nextPageToken: null }),
   } satisfies Partial<Bridge> });
   window.location.hash = workItemRoute(workspace.id, work.id);
   const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);

@@ -118,4 +118,18 @@ class TestSqliteSettingsStores
         assertThat(settings.get("github.quietHours")).isEmpty();
         assertThat(settings.get("other")).contains("keep");
     }
+
+    @Test
+    void listsOnlyKeysWithLiteralPrefix()
+    {
+        settings.put("jira.a_b.issue.1", "ticket");
+        settings.put("jira.axb.issue.2", "other ticket");
+        settings.put("other", "keep");
+        entities.flush();
+        entities.clear();
+
+        assertThat(settings.keys("jira.")).containsExactlyInAnyOrder("jira.a_b.issue.1", "jira.axb.issue.2");
+        assertThat(settings.keys("jira.a_b.")).containsExactly("jira.a_b.issue.1");
+        assertThat(settings.keys("jira.%")).isEmpty();
+    }
 }

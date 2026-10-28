@@ -70,4 +70,12 @@ describe('Jira desktop boundary', () => {
       body: JSON.stringify({ body: 'Edited', expectedUpdated: 'version-2' }),
     });
   });
+
+  it('reads assigned workspace tickets independently of board filters', async () => {
+    const { bridge, requests } = connect();
+    await bridge.listWorkspaceJiraIssues('workspace / one');
+    expect(requests).toHaveBeenLastCalledWith('/api/jira/workspaces/workspace%20%2F%20one/issues', { method: 'GET' });
+    await bridge.listWorkspaceJiraIssues('workspace / one', true);
+    expect(requests).toHaveBeenLastCalledWith('/api/jira/workspaces/workspace%20%2F%20one/issues/refresh', { method: 'POST', signal: expect.any(AbortSignal) });
+  });
 });

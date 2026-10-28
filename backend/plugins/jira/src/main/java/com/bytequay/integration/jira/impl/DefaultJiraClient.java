@@ -552,15 +552,16 @@ public class DefaultJiraClient
         });
     }
 
-    /** Every cached ticket of every saved board scope, each once; no network. */
+    /** Read ticket snapshots directly: a board refresh or the saved-scope limit must not hide assigned work. */
     @Override
     public List<JiraIssue> cachedIssues()
     {
         Map<String, JiraIssue> result = new LinkedHashMap<>();
-        for (Scope scope : scopes()) {
-            cache.read(scope.key(), JiraDtos.IssuePage.class).ifPresent(page -> page.issues().forEach(item ->
-                    cache.read(issueKey(item.connectionId(), item.cloudId(), item.id()), JiraIssue.class).map(this::metadata)
-                            .ifPresent(issue -> result.putIfAbsent(issue.cloudId() + ":" + issue.id(), issue))));
+        for (String key : cache.keys()) {
+            if (key.matches("[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.issue\\.[A-Za-z0-9_-]+")) {
+                cache.read(key, JiraIssue.class).map(this::metadata).ifPresent(issue -> result.merge(issue.cloudId() + ":" + issue.id(), issue,
+                        (left, right) -> right.updatedAt().isAfter(left.updatedAt()) ? right : left));
+            }
         }
         return ImmutableList.copyOf(result.values());
     }

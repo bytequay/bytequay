@@ -473,8 +473,12 @@ sends no invitations, and **Insights** cover only what ByteQuay has collected.
 
 1. Open **Settings → Integrations → Jira → Add account** with your site, email,
    and API token.
-2. In **Work items → Jira**, choose a board and a sprint or backlog.
-3. Open a ticket and choose **Start development**.
+2. Open **Jira**, choose a board and a sprint or backlog, then open a ticket.
+3. In the ticket's **Details**, choose **Assign workspace**. The workspace's
+   **Work items → Jira** lists its assigned tickets across boards, sprints,
+   sites, and assignees, under **Open** or **Completed**.
+4. Choose **Start development** to work on a ticket. **Refresh tickets** updates
+   the workspace's saved tickets; a failed refresh keeps them visible.
 
 **Open in Jira** handles anything ByteQuay doesn’t.
 

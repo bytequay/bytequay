@@ -15,8 +15,13 @@ package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.AppSettingEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+
+import java.util.List;
 
 public interface AppSettingJpaRepository
         extends JpaRepository<AppSettingEntity, String>
 {
+    @Query("SELECT s.key FROM AppSettingEntity s WHERE s.key LIKE :prefix ESCAPE '\\'")
+    List<String> findKeysByPrefix(String prefix);
 }

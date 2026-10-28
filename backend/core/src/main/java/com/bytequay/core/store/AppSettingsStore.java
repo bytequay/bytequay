@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.store;
 
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -23,6 +24,8 @@ import java.util.Optional;
 public interface AppSettingsStore
 {
     Optional<String> get(String key);
+
+    List<String> keys(String prefix);
 
     void put(String key, String value);
 

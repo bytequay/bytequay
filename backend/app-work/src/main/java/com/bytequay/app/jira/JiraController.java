@@ -149,6 +149,18 @@ public class JiraController
         return jira.issues(connectionId, cloudId, boardId, sprintId, mine, coassigned, completed, false, Optional.empty());
     }
 
+    @GetMapping("/workspaces/{workspaceId}/issues")
+    public JiraDtos.IssuePage workspaceIssues(@PathVariable String workspaceId)
+    {
+        return jira.workspaceIssues(workspaceId, false);
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/issues/refresh")
+    public JiraDtos.IssuePage refreshWorkspaceIssues(@PathVariable String workspaceId)
+    {
+        return jira.workspaceIssues(workspaceId, true);
+    }
+
     @PostMapping(SITE + "/issues/refresh")
     public JiraDtos.IssuePage refreshIssues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
             @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean coassigned,

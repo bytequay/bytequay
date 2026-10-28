@@ -99,6 +99,7 @@ class TestDefaultJiraClient
     {
         when(context.metadata(any())).thenAnswer(call -> call.getArgument(0));
         when(settings.get(anyString())).thenAnswer(call -> Optional.ofNullable(saved.get(call.getArgument(0))));
+        when(settings.keys(anyString())).thenAnswer(call -> saved.keySet().stream().filter(key -> key.startsWith(call.getArgument(0))).collect(ImmutableList.toImmutableList()));
         doAnswer(call -> {
             saved.put(call.getArgument(0), call.getArgument(1));
             return null;

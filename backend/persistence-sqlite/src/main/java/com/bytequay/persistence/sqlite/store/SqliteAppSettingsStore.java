@@ -16,9 +16,11 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.persistence.sqlite.entity.AppSettingEntity;
 import com.bytequay.persistence.sqlite.repository.AppSettingJpaRepository;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -50,6 +52,13 @@ public class SqliteAppSettingsStore
         AppSettingEntity entity = repository.findById(requireKey(key)).orElseGet(() -> new AppSettingEntity(key, value));
         entity.setValue(value);
         repository.save(entity);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> keys(String prefix)
+    {
+        return ImmutableList.copyOf(repository.findKeysByPrefix(requireKey(prefix).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"));
     }
 
     @Override

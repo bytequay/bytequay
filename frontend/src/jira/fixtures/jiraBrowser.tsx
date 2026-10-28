@@ -604,36 +604,51 @@ export async function run(richDescription: string): Promise<{ name: string; erro
         assert(document.querySelector('.jira-error') === null, 'An old mutation error cannot appear on the selected site');
       }
     },
-    async 'filters workspace tickets and retains workspace navigation'() {
+    async 'lists assigned workspace tickets across boards, sites and assignees'() {
       await mountPreview(false, false);
       const workspace = { id: 'workspace / one', name: 'Repository' };
-      issue = { ...issue, workspace };
-      const listIssues = window.bridge.listJiraIssues;
-      window.bridge.listJiraIssues = async (...args) => {
-        const page = await listIssues(...args);
-        return { ...page, issues: page.issues.map((value, index) => ({ ...value, workspace: index === 0 ? workspace : index === 1 ? { id: 'other', name: 'Other' } : null })) };
+      issue = { ...issue, workspace, assignee: null };
+      const another = { ...issue, cloudId: 'other-site', connectionId: 'other', key: 'OPS-7', title: 'Work from another site' };
+      let assigned = [issue, another, { ...completedIssues()[0], workspace }];
+      let offline = false;
+      calls.length = 0;
+      window.bridge.listWorkspaceJiraIssues = async (id, refresh) => {
+        record('workspace-issues', id, refresh);
+        assert(id === workspace.id, 'Tickets are read by workspace identity');
+        return { issues: assigned, fetchedAt: null, error: offline && refresh ? 'Some tickets could not be refreshed. Showing saved tickets.' : null, nextPageToken: null };
       };
+      window.bridge.listJiraBoards = async () => { throw new Error('Workspace must not load a board'); };
+      window.bridge.listJiraSprints = async () => { throw new Error('Workspace must not load a sprint'); };
+      window.bridge.listJiraIssues = async () => { throw new Error('Workspace must not load filtered board tickets'); };
       window.location.hash = jiraRoute(undefined, workspace.id); await settle();
       const mounted = root; assert(mounted !== null, 'Screen is mounted');
-      flushSync(() => mounted.render(<JiraScreen workspace={workspace} />));
-      button('Refresh tickets').click(); await until(() => cards().length === 1);
-      assert(document.querySelector('.jira-count-label')?.textContent === '1 ticket assigned to Repository', 'Workspace scope is visible');
-      assert(document.querySelector('.jira-card .card-key')?.textContent === 'ENG-1007', 'Current sprint excludes other-workspace and unassigned tickets');
+      flushSync(() => mounted.render(<JiraScreen key="workspace" workspace={workspace} />));
+      await until(() => cards().length === 2);
+      assert(document.querySelector('.jira-count-label')?.textContent === '2 tickets assigned to Repository', 'All open assigned tickets are counted');
+      assert(document.querySelector('.jira-scope') === null && document.querySelector('.jira-mine') === null, 'Board and assignee filters cannot hide workspace assignments');
+      assert(document.querySelector('.jira-error') === null && calls.every(call => call.name !== 'issues'), 'No board read is needed');
+      assert(calls.filter(call => call.name === 'workspace-issues').every(call => call.args[1] === false), 'Opening the workspace reads saved tickets');
       await filterStatus('In progress'); assert(cards().length === 0, 'Status filters within the workspace tickets');
       await filterStatus('All');
       button('List view').click(); await settle();
-      assert(document.querySelectorAll('.jira-list .jira-row').length === 1, 'List uses the same workspace scope');
+      assert(document.querySelectorAll('.jira-list .jira-row').length === 2, 'Both sites remain visible in list view');
       document.querySelector<HTMLElement>('.jira-row[aria-label^="ENG-1007:"]')?.click(); await until(() => document.querySelector('.jira-detail h2') !== null);
       assert(window.location.hash === jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: '1007' }, workspace.id), 'Opening a ticket keeps its workspace route');
+      assert(document.querySelector('.jira-detail')?.textContent?.includes('Choose a board') !== true, 'No unrelated board is attributed to the ticket');
       button('Close ticket').click(); await until(() => document.querySelector('.jira-detail') === null);
       assert(window.location.hash === jiraRoute(undefined, workspace.id), 'Closing a ticket returns to workspace Jira');
       button('Connector reliability', document.querySelector('.jira-row') ?? document).click(); await until(() => document.querySelector('.jira-detail h2') !== null);
       assert(window.location.hash === jiraRoute({ connectionId: 'connection', cloudId: 'site', issueId: '1000' }, workspace.id), 'Parent links retain the workspace route');
       button('Close ticket').click(); await until(() => document.querySelector('.jira-detail') === null);
       button('Completed').click();
-      await until(() => document.querySelectorAll('.jira-row').length === 1 && document.querySelector('.jira-row .card-key')?.textContent === 'ENG-2001', 'Completed history also excludes other-workspace and unassigned tickets');
-      scope().click(); await settle(); siteItems()[1].click(); await until(() => document.querySelector('.jira-scope-menu') === null);
-      assert((await chosenSite()).includes('another.atlassian.net') && window.location.hash === jiraRoute(undefined, workspace.id), 'Site changes retain the workspace route');
+      await until(() => document.querySelectorAll('.jira-row').length === 1 && document.querySelector('.jira-row .card-key')?.textContent === 'ENG-2001', 'Completed workspace tickets are separate');
+      button('Open').click(); await until(() => document.querySelectorAll('.jira-row').length === 2);
+      offline = true;
+      button('Refresh tickets').click(); await until(() => document.querySelector('.jira-error')?.textContent?.includes('Showing saved tickets') === true);
+      assert(document.querySelectorAll('.jira-row').length === 2, 'A failed refresh preserves assigned tickets');
+      offline = false; assigned = [another];
+      button('Refresh tickets').click(); await until(() => document.querySelectorAll('.jira-row').length === 1);
+      assert(document.querySelector('.jira-row .card-key')?.textContent === 'OPS-7', 'Reassigned tickets leave the old workspace');
     },
     async 'keeps cached tickets visible offline'() {
       await mountPreview(true); await until(() => document.body.textContent?.includes('Jira is offline') ?? false);

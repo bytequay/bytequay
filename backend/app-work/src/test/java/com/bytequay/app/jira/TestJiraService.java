@@ -58,6 +58,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -97,6 +98,7 @@ class TestJiraService
         when(settingsProvider.getObject()).thenReturn(appSettings);
         when(work.getObject()).thenReturn(workService);
         when(settings.get(anyString())).thenAnswer(call -> Optional.ofNullable(saved.get(call.getArgument(0))));
+        when(settings.keys(anyString())).thenAnswer(call -> saved.keySet().stream().filter(key -> key.startsWith(call.getArgument(0))).collect(ImmutableList.toImmutableList()));
         doAnswer(call -> {
             saved.put(call.getArgument(0), call.getArgument(1));
             return null;
@@ -143,6 +145,7 @@ class TestJiraService
                 .contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         assertThat(jira.epic("connection", "cloud", "1001", true).issue().isEpic()).isTrue();
         assertThat(jira.assignedWorkspace("cloud", "1001")).contains("workspace");
+        assertThat(jira.workspaceIssues("workspace", false).issues()).extracting(JiraIssue::id).containsExactly("1001");
         verifyNoInteractions(workService);
         assertThat(jira.epic("connection", "cloud", "1001", false).issue().isEpic()).isFalse();
         verify(workService).releaseEpic("workspace", "JIRA:5:cloud:1001");
@@ -158,6 +161,34 @@ class TestJiraService
             when(workspaces.findById("workspace")).thenReturn(Optional.empty());
             assertThat(reopened.issue("other", "cloud", "1001").workspace()).isEmpty();
         }
+    }
+
+    @Test
+    void workspaceTicketsSurviveBoardEvictionAndFailedRefresh()
+            throws Exception
+    {
+        cache.write("connection.cloud.issue.1001", ticketIssue("connection"));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Workspace")));
+        when(workspaces.findById("other")).thenReturn(Optional.of(workspace("other", "Other")));
+        jira.assignWorkspace("connection", "cloud", "1001", "workspace");
+        cache.write("scopes", ImmutableList.of());
+        cache.write("connection.cloud.issue.1001.detail", "not a ticket snapshot");
+        assertThat(jira.workspaceIssues("workspace", false).issues()).extracting(JiraIssue::id).containsExactly("1001");
+        assertThat(jira.workspaceIssues("other", false).issues()).isEmpty();
+        assertThatThrownBy(() -> jira.workspaceIssues("missing", false)).hasMessageContaining("missing");
+        verifyNoInteractions(remote);
+
+        doReturn(ticket()).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
+        assertThat(jira.workspaceIssues("workspace", true).error()).isEmpty();
+        doThrow(new IllegalStateException("Offline")).when(remote)
+                .request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?"), eq("GET"), any());
+        JiraDtos.IssuePage stale = jira.workspaceIssues("workspace", true);
+        assertThat(stale.issues()).extracting(JiraIssue::id).containsExactly("1001");
+        assertThat(stale.error()).hasValueSatisfying(error -> assertThat(error).contains("Showing saved tickets"));
+        saved.remove("jira.connection.cloud.issue.1001.detail");
+        jira.assignWorkspace("connection", "cloud", "1001", "other");
+        assertThat(jira.workspaceIssues("workspace", false).issues()).isEmpty();
+        assertThat(jira.workspaceIssues("other", false).issues()).extracting(JiraIssue::id).containsExactly("1001");
     }
 
     @Test

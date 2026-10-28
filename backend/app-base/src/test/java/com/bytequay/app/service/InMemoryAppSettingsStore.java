@@ -16,9 +16,12 @@ package com.bytequay.app.service;
 import com.bytequay.core.store.AppSettingsStore;
 import com.google.common.collect.ImmutableMap;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 public final class InMemoryAppSettingsStore
         implements AppSettingsStore
@@ -35,6 +38,12 @@ public final class InMemoryAppSettingsStore
     public void put(String key, String value)
     {
         rows.put(key, value);
+    }
+
+    @Override
+    public List<String> keys(String prefix)
+    {
+        return rows.keySet().stream().filter(key -> key.startsWith(prefix)).collect(toImmutableList());
     }
 
     @Override

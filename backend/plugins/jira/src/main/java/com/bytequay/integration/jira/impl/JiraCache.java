@@ -17,8 +17,10 @@ import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 public class JiraCache
@@ -40,6 +42,11 @@ public class JiraCache
     public void write(String key, Object value)
     {
         settings.put("jira." + key, encode(value));
+    }
+
+    public List<String> keys()
+    {
+        return settings.keys("jira.").stream().map(key -> key.substring("jira.".length())).collect(toImmutableList());
     }
 
     public void delete(String key)

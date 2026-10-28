@@ -27,6 +27,7 @@ import com.bytequay.integration.jira.JiraClient;
 import com.bytequay.integration.jira.JiraDtos;
 import com.bytequay.integration.jira.JiraIssue;
 import com.bytequay.integration.jira.JiraIssueLocks;
+import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -34,6 +35,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -162,6 +165,28 @@ public class JiraService
     public JiraIssue issue(String connectionId, String cloudId, String issueId)
     {
         return client.issue(connectionId, cloudId, issueId);
+    }
+
+    public JiraDtos.IssuePage workspaceIssues(String workspaceId, boolean refresh)
+    {
+        WorkspaceException.requireWorkspace(workspaces, workspaceId);
+        List<JiraIssue> assigned = client.cachedIssues().stream()
+                .filter(issue -> issue.workspace().filter(workspace -> workspace.id().equals(workspaceId)).isPresent())
+                .sorted(Comparator.comparing(JiraIssue::updatedAt).reversed()).collect(ImmutableList.toImmutableList());
+        List<JiraIssue> result = new ArrayList<>();
+        Optional<String> error = Optional.empty();
+        for (JiraIssue issue : assigned) {
+            if (refresh) {
+                try {
+                    issue = client.refreshIssue(issue.connectionId(), issue.cloudId(), issue.id());
+                }
+                catch (RuntimeException failure) {
+                    error = Optional.of("Some tickets could not be refreshed. Showing saved tickets. Refresh to try again.");
+                }
+            }
+            result.add(issue);
+        }
+        return new JiraDtos.IssuePage(result, refresh && error.isEmpty() ? Optional.of(Instant.now()) : Optional.empty(), error, Optional.empty());
     }
 
     public Optional<JiraIssue> cachedIssue(String cloudId, String issueId)

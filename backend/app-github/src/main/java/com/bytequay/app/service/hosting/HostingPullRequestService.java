@@ -14,11 +14,9 @@
 package com.bytequay.app.service.hosting;
 
 import com.bytequay.core.domain.FetchedPullRequest;
-import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.PullRequestFetch;
-import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingPullRequestStore;
 import com.google.common.util.concurrent.Striped;
 import org.springframework.stereotype.Service;
@@ -40,50 +38,67 @@ import static java.util.Objects.requireNonNull;
 public class HostingPullRequestService
 {
     private final HostingConnectionService connections;
-    private final HostingCredentialStore credentials;
     private final HostingPullRequestStore snapshots;
     private final Clock clock;
     private final Striped<Lock> refreshLocks = Striped.lock(64);
 
-    public HostingPullRequestService(HostingConnectionService connections, HostingCredentialStore credentials, HostingPullRequestStore snapshots, Clock clock)
+    public HostingPullRequestService(HostingConnectionService connections, HostingPullRequestStore snapshots, Clock clock)
     {
         this.connections = requireNonNull(connections, "connections is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
     public Optional<HostingPullRequestSnapshot> cached(long accountId, long repositoryId, int number)
     {
+        return cached(connections.readSession(accountId), repositoryId, number);
+    }
+
+    public Optional<HostingPullRequestSnapshot> cached(HostingReadSession session, long repositoryId, int number)
+    {
         new Resource(repositoryId, number);
-        long generation = generation(accountId);
-        return connections.withCurrentCredential(accountId, generation, () -> snapshots.find(accountId, repositoryId, number)
-                .filter(snapshot -> snapshot.credentialGeneration() == generation));
+        return session.withCurrent(() -> snapshots.find(session.accountId(), repositoryId, number)
+                .filter(snapshot -> snapshot.credentialScope().equals(session.credentialScope()) && snapshot.credentialGeneration() == session.generation()));
     }
 
     public HostingPullRequestSnapshot refresh(long accountId, long repositoryId, int number)
     {
+        return refresh(connections.readSession(accountId), repositoryId, number, false);
+    }
+
+    public HostingPullRequestSnapshot refresh(HostingReadSession session, long repositoryId, int number, boolean force)
+    {
         // Serializing this resource also prevents two accounts from creating its retained identity twice.
-        return withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> refreshLocked(accountId, repositoryId, number));
+        return withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> refreshLocked(session, repositoryId, number, force));
     }
 
     public void evict(long accountId, long repositoryId, int number)
     {
-        checkArgument(accountId > 0, "accountId must be positive");
+        evict(connections.readSession(accountId), repositoryId, number);
+    }
+
+    public void evict(HostingReadSession session, long repositoryId, int number)
+    {
+        withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> session.withCurrent(() -> {
+            snapshots.evict(session.accountId(), repositoryId, number, session.credentialScope());
+            return null;
+        }));
+    }
+
+    public void invalidateRepository(long repositoryId, int number)
+    {
         withLock(refreshLocks.get(new Resource(repositoryId, number)), () -> {
-            snapshots.evict(accountId, repositoryId, number);
+            snapshots.evictRepository(repositoryId, number);
             return null;
         });
     }
 
-    private HostingPullRequestSnapshot refreshLocked(long accountId, long repositoryId, int number)
+    private HostingPullRequestSnapshot refreshLocked(HostingReadSession session, long repositoryId, int number, boolean force)
     {
-        long generation = generation(accountId);
-        Optional<HostingPullRequestSnapshot> previous = connections.withCurrentCredential(accountId, generation, () -> snapshots.find(accountId, repositoryId, number)
-                .filter(snapshot -> snapshot.credentialGeneration() == generation));
+        Optional<HostingPullRequestSnapshot> previous = cached(session, repositoryId, number);
         try {
-            PullRequestFetch fetched = connections.readPullRequest(accountId, repositoryId, number, generation,
-                    previous.map(snapshot -> snapshot.pullRequest().repo()), previous.flatMap(HostingPullRequestSnapshot::etag));
+            PullRequestFetch fetched = connections.readPullRequest(session, repositoryId, number,
+                    previous.map(snapshot -> snapshot.pullRequest().repo()), force ? Optional.empty() : previous.flatMap(HostingPullRequestSnapshot::etag));
             if (fetched.pullRequest().isPresent() != fetched.detail().isPresent()) {
                 throw new HostingFailure(INVALID_RESPONSE, "Hosting response contains incomplete request metadata");
             }
@@ -97,22 +112,15 @@ public class HostingPullRequestService
                 throw new HostingFailure(INVALID_RESPONSE, "Hosting response identifies another request");
             }
             PullRequestFetch accepted = fetched;
-            return connections.withCurrentCredential(accountId, generation, () -> snapshots.save(accountId, repositoryId, generation,
+            return session.withCurrent(() -> snapshots.save(session.accountId(), repositoryId, session.credentialScope(), session.generation(),
                     summary, accepted.detail().orElseThrow(), accepted.etag(), clock.instant()));
         }
         catch (HostingFailure failure) {
             if (failure.kind() == AUTHENTICATION_REQUIRED || failure.kind() == FORBIDDEN || failure.kind() == MISSING_OR_INACCESSIBLE) {
-                snapshots.evict(accountId, repositoryId, number);
+                snapshots.evict(session.accountId(), repositoryId, number, session.credentialScope());
             }
             throw failure;
         }
-    }
-
-    private long generation(long accountId)
-    {
-        checkArgument(accountId > 0, "accountId must be positive");
-        return credentials.find(accountId).map(HostingCredential::generation)
-                .orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "Reconnect this hosting account to continue"));
     }
 
     private record Resource(long repositoryId, int number)

@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -131,5 +132,18 @@ public class SqliteHostingIdentityStore
     {
         checkArgument(id > 0, "id must be positive");
         return repositories.findById(id).map(HostingRepositoryEntity::toDomain);
+    }
+
+    @Override
+    public List<HostingRepository> findRepositories(HostingServer server, String fullPath)
+    {
+        requireNonNull(server, "server is null");
+        HostingUrls.checkRepositoryPath(fullPath);
+        return instances.findByProviderAndWebBaseUrl(server.provider(), server.webBaseUrl().toASCIIString())
+                .filter(instance -> instance.toDomain().apiBaseUrl().equals(server.apiBaseUrl()))
+                .stream().flatMap(instance -> (server.provider() == GITHUB
+                        ? repositories.findByInstanceIdAndFullPathIgnoreCase(instance.getId(), fullPath)
+                        : repositories.findByInstanceIdAndFullPath(instance.getId(), fullPath)).stream())
+                .map(HostingRepositoryEntity::toDomain).collect(toImmutableList());
     }
 }

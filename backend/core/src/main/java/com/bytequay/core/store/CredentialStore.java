@@ -23,6 +23,9 @@ public interface CredentialStore
 
     Optional<String> source();
 
+    /** Stable until the saved credential is replaced or removed; never derived from its secret. */
+    String revision();
+
     void save(String token, String source);
 
     void delete();

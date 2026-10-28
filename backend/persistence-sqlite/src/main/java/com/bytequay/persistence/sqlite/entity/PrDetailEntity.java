@@ -113,6 +113,8 @@ public class PrDetailEntity
     @Column(name = "viewer_can_write")
     private Boolean viewerCanWrite;
 
+    private String credentialScope;
+
     private String etag;
 
     @Column(name = "check_runs_etag")

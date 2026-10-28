@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -27,16 +28,20 @@ import static java.util.Objects.requireNonNull;
 public record HostingPullRequestSnapshot(
         HostingPullRequest request,
         long accountId,
+        String credentialScope,
         long credentialGeneration,
         FetchedPullRequest pullRequest,
         PrRawDetail detail,
         Optional<String> etag,
         Instant validatedAt)
 {
+    public static final String CONNECTED_ACCOUNT = "hosting-account";
+
     public HostingPullRequestSnapshot
     {
         requireNonNull(request, "request is null");
         checkArgument(accountId > 0, "accountId must be positive");
+        checkText(credentialScope, "credentialScope");
         checkArgument(credentialGeneration > 0, "credentialGeneration must be positive");
         requireNonNull(pullRequest, "pullRequest is null");
         requireNonNull(detail, "detail is null");

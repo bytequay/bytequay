@@ -16,34 +16,50 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.service.hosting.DesktopHostingService;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
-import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Supplier;
 
+import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,11 +72,22 @@ class TestPullRequestSnapshotService
     private static final PullRequestRef REF = PullRequestRef.of("owner", "repo", 7);
     private static final String BASE = "a".repeat(40);
     private static final String HEAD = "b".repeat(40);
+    private static final String SCOPE = "desktop-scope";
     private static final Instant UPDATED = Instant.parse("2026-09-20T00:00:00Z");
     private final GitHubPullRequestReadClient gitHub = mock(GitHubPullRequestReadClient.class);
+    private final DesktopHostingService desktop = mock(DesktopHostingService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PrDiffStore diffs = mock(PrDiffStore.class);
-    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(gitHub, mock(GitHubActionsClient.class), details, diffs);
+    private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
+    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(gitHub, actions, desktop, details, diffs);
+
+    @BeforeEach
+    void setUp()
+    {
+        when(desktop.scope("pat")).thenReturn(SCOPE);
+        when(desktop.withCurrent(eq(SCOPE), any())).thenAnswer(invocation -> invocation.<Supplier<?>>getArgument(1).get());
+        when(details.findCredentialScope(1L)).thenReturn(Optional.of(SCOPE));
+    }
 
     @ParameterizedTest
     @NullAndEmptySource
@@ -84,9 +111,10 @@ class TestPullRequestSnapshotService
         when(details.find(1L)).thenReturn(Optional.of(retained));
         Instant sourceAt = UPDATED.plusSeconds(10);
 
-        assertThat(snapshots.saveDiscussion(1L, fetched, sourceAt)).isSameAs(retained);
+        assertThat(snapshots.saveDiscussion(1L, fetched, sourceAt, SCOPE)).isSameAs(retained);
 
         verify(details).saveDiscussion(1L, fetched, sourceAt);
+        verify(details).setCredentialScope(1L, SCOPE);
         verify(details, never()).save(anyLong(), any());
         verify(details, never()).saveStatus(anyLong(), any());
     }
@@ -103,7 +131,7 @@ class TestPullRequestSnapshotService
                 .thenReturn(new ConditionalList<>(unchangedFiles ? Optional.empty() : Optional.of(stored.files()), Optional.of("files")));
         when(gitHub.fetchPrDiffCommits("pat", REF, stored.commits(), Optional.of("commits")))
                 .thenReturn(new ConditionalList<>(Optional.empty(), Optional.of("commits")));
-        when(gitHub.getPullRequest("pat", REF, Optional.empty())).thenReturn(coordinates(HEAD));
+        when(desktop.refresh("pat", REF, true)).thenReturn(coordinates(HEAD));
 
         snapshots.refreshDefaultDiff("pat", REF, 1L);
 
@@ -126,7 +154,7 @@ class TestPullRequestSnapshotService
                 .thenReturn(new ConditionalList<>(Optional.of(stored.files()), Optional.of("new-files")));
         when(gitHub.fetchPrDiffCommits("pat", REF, stored.commits(), Optional.empty()))
                 .thenReturn(new ConditionalList<>(Optional.of(stored.commits()), Optional.of("new-commits")));
-        when(gitHub.getPullRequest("pat", REF, Optional.empty())).thenReturn(coordinates("c".repeat(40)));
+        when(desktop.refresh("pat", REF, true)).thenReturn(coordinates("c".repeat(40)));
 
         assertThatThrownBy(() -> snapshots.refreshDefaultDiff("pat", REF, 1L))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(409));
@@ -222,6 +250,7 @@ class TestPullRequestSnapshotService
     void refreshingTheSameCommitRangeKeepsCachedFileBodies()
     {
         StoredPrDiff stored = diff();
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
         when(diffs.find(1L, BASE, HEAD)).thenReturn(Optional.of(stored));
         when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenReturn(stored.files());
 
@@ -245,7 +274,7 @@ class TestPullRequestSnapshotService
                 .thenReturn(new ConditionalList<>(Optional.of(previous.files()), Optional.empty()));
         when(gitHub.fetchPrDiffCommits("pat", REF, previous.commits(), Optional.empty()))
                 .thenReturn(new ConditionalList<>(Optional.of(previous.commits()), Optional.empty()));
-        when(gitHub.getPullRequest("pat", REF, Optional.empty())).thenReturn(coordinates(base, head));
+        when(desktop.refresh("pat", REF, true)).thenReturn(coordinates(base, head));
 
         snapshots.refreshDefaultDiff("pat", REF, 1L);
 
@@ -263,14 +292,136 @@ class TestPullRequestSnapshotService
         verify(diffs).saveDefaultFileContent(1L, base, head, "a.txt", content);
     }
 
-    private static PullRequestFetch coordinates(String head)
+    @Test
+    void rangedDiffWithoutMetadataStoresItsCredentialOwnerBeforeFetchingFiles()
+    {
+        when(details.findCredentialScope(1L)).thenReturn(Optional.empty());
+        when(desktop.refresh("pat", REF, false)).thenReturn(coordinates(HEAD));
+        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenReturn(diff().files());
+
+        snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD);
+
+        InOrder order = inOrder(desktop, details, gitHub, diffs);
+        order.verify(desktop).refresh("pat", REF, false);
+        order.verify(details).saveMetadata(eq(1L), any());
+        order.verify(details).setCredentialScope(1L, SCOPE);
+        order.verify(gitHub).fetchPrDiffFiles("pat", REF, BASE, HEAD);
+        order.verify(diffs).save(eq(1L), eq(BASE), eq(HEAD), any());
+    }
+
+    @Test
+    void credentialRotationDuringRangedDiffFetchRejectsTheOldBytes()
+    {
+        AtomicBoolean current = new AtomicBoolean(true);
+        doAnswer(invocation -> {
+            if (!current.get()) {
+                throw new HostingFailure(REVISION_CONFLICT, "Credential changed");
+            }
+            return invocation.<Supplier<?>>getArgument(1).get();
+        }).when(desktop).withCurrent(eq(SCOPE), any());
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
+        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(invocation -> {
+            current.set(false);
+            return diff().files();
+        });
+
+        assertThatThrownBy(() -> snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+
+        verify(diffs, never()).save(anyLong(), any(), any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"checks,401", "checks,403", "checks,404", "files,401", "files,403", "files,404", "commits,401", "commits,403", "commits,404",
+            "range,401", "range,403", "range,404", "content,401", "content,403", "content,404"})
+    void nativeAccessRejectionClearsRemoteProjection(String source, int status)
+    {
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
+        when(diffs.find(1L, null, null)).thenReturn(Optional.of(diff()));
+        when(diffs.findDefaultEtags(1L)).thenReturn(PrDiffEtags.none());
+        ResponseStatusException failure = new ResponseStatusException(HttpStatusCode.valueOf(status), "Access rejected");
+        Runnable refresh = switch (source) {
+            case "checks" -> {
+                when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq(HEAD), any(), any(), any())).thenThrow(failure);
+                yield () -> snapshots.refreshChecks("pat", REF, 1L);
+            }
+            case "files", "commits" -> {
+                if (source.equals("files")) {
+                    when(gitHub.fetchPrDiffFiles(eq("pat"), eq(REF), anyList(), any())).thenThrow(failure);
+                }
+                else {
+                    when(gitHub.fetchPrDiffCommits(eq("pat"), eq(REF), any(), any())).thenThrow(failure);
+                }
+                yield () -> snapshots.refreshDefaultDiff("pat", REF, 1L);
+            }
+            case "range" -> {
+                when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenThrow(failure);
+                yield () -> snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD);
+            }
+            case "content" -> {
+                when(gitHub.fetchPrDiffFileContent("pat", REF, "new.txt", BASE, HEAD)).thenThrow(failure);
+                yield () -> snapshots.refreshFileContent("pat", REF, 1L, "new.txt", null, null);
+            }
+            default -> throw new AssertionError(source);
+        };
+
+        assertThatThrownBy(refresh::run).isSameAs(failure);
+
+        verify(details).clearRemote(1L);
+        verify(diffs).deleteByPrIds(ImmutableSet.of(1L));
+        verify(details, never()).saveStatus(anyLong(), any());
+        verify(diffs, never()).saveDefault(anyLong(), any(), any());
+        verify(diffs, never()).save(anyLong(), any(), any(), any());
+        verify(diffs, never()).saveDefaultFileContent(anyLong(), any(), any(), any(), any());
+    }
+
+    @Test
+    void transientNativeFailureKeepsRemoteProjection()
+    {
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
+        ResponseStatusException failure = new ResponseStatusException(HttpStatusCode.valueOf(503), "Temporarily unavailable");
+        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenThrow(failure);
+
+        assertThatThrownBy(() -> snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD)).isSameAs(failure);
+
+        verify(details, never()).clearRemote(anyLong());
+        verify(diffs, never()).deleteByPrIds(any());
+    }
+
+    @Test
+    void oldNativeRejectionCannotClearReplacementProjection()
+    {
+        AtomicBoolean current = new AtomicBoolean(true);
+        doAnswer(invocation -> {
+            if (!current.get()) {
+                throw new HostingFailure(REVISION_CONFLICT, "Credential changed");
+            }
+            return invocation.<Supplier<?>>getArgument(1).get();
+        }).when(desktop).withCurrent(eq(SCOPE), any());
+        when(details.find(1L)).thenReturn(Optional.of(stored()));
+        when(gitHub.fetchPrDiffFiles("pat", REF, BASE, HEAD)).thenAnswer(invocation -> {
+            current.set(false);
+            throw new ResponseStatusException(HttpStatusCode.valueOf(403), "Access rejected");
+        });
+
+        assertThatThrownBy(() -> snapshots.refreshDiff("pat", REF, 1L, BASE, HEAD))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+
+        verify(details, never()).clearRemote(anyLong());
+        verify(diffs, never()).deleteByPrIds(any());
+    }
+
+    private static HostingPullRequestSnapshot coordinates(String head)
     {
         return coordinates(BASE, head);
     }
 
-    private static PullRequestFetch coordinates(String base, String head)
+    private static HostingPullRequestSnapshot coordinates(String base, String head)
     {
-        return new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(raw(base, head)));
+        PrRawDetail detail = raw(base, head);
+        FetchedPullRequest summary = new FetchedPullRequest(77L, REF.repoFullName(), REF.number(), detail.title(), detail.author(), detail.htmlUrl(), UPDATED, UPDATED,
+                PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), true, "clean", "feature");
+        return new HostingPullRequestSnapshot(new HostingPullRequest(100, 200, REF.number(), "77"), 300, SCOPE, 1, summary, detail, Optional.empty(), UPDATED);
     }
 
     private static StoredPrDetail stored()

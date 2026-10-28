@@ -34,6 +34,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static java.util.Objects.requireNonNull;
 
 @Entity
@@ -51,6 +52,8 @@ public class HostingPullRequestSnapshotEntity
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "account_id", nullable = false)
     private HostingAccountEntity account;
+
+    private String credentialScope;
 
     @Column(nullable = false)
     private long credentialGeneration;
@@ -78,9 +81,10 @@ public class HostingPullRequestSnapshotEntity
 
     public void update(HostingPullRequestSnapshot snapshot)
     {
-        if (snapshot.credentialGeneration() < credentialGeneration) {
+        if (snapshot.credentialScope().equals(credentialScope()) && snapshot.credentialGeneration() < credentialGeneration) {
             throw new HostingFailure(REVISION_CONFLICT, "A newer credential has already refreshed this request");
         }
+        credentialScope = snapshot.credentialScope();
         credentialGeneration = snapshot.credentialGeneration();
         pullRequest = snapshot.pullRequest();
         detail = snapshot.detail();
@@ -90,6 +94,12 @@ public class HostingPullRequestSnapshotEntity
 
     public HostingPullRequestSnapshot toDomain()
     {
-        return new HostingPullRequestSnapshot(request.hostingIdentity(), account.getId(), credentialGeneration, pullRequest, detail, Optional.ofNullable(etag), validatedAt);
+        return new HostingPullRequestSnapshot(request.hostingIdentity(), account.getId(), credentialScope(), credentialGeneration,
+                pullRequest, detail, Optional.ofNullable(etag), validatedAt);
+    }
+
+    public String credentialScope()
+    {
+        return Optional.ofNullable(credentialScope).orElse(CONNECTED_ACCOUNT);
     }
 }

@@ -22,4 +22,6 @@ public interface HostingPullRequestSnapshotJpaRepository
         extends JpaRepository<HostingPullRequestSnapshotEntity, Long>
 {
     Optional<HostingPullRequestSnapshotEntity> findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(long accountId, long repositoryId, int number);
+
+    void deleteByRequestHostingRepositoryIdAndRequestNumber(long repositoryId, int number);
 }

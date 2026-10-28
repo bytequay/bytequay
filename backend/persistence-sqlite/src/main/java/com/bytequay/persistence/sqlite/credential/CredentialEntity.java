@@ -41,5 +41,10 @@ class CredentialEntity
     @Setter(AccessLevel.PACKAGE)
     private String source;
 
+    @Column(name = "read_revision")
+    @Getter(AccessLevel.PACKAGE)
+    @Setter(AccessLevel.PACKAGE)
+    private String readRevision;
+
     protected CredentialEntity() {}
 }

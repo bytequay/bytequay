@@ -41,4 +41,7 @@ public interface HostingIdentityStore
     HostingRepository upsertRepository(long instanceId, RemoteHostingRepository remote);
 
     Optional<HostingRepository> findRepository(long id);
+
+    /** All retained identities at these coordinates, including a path later assigned to another remote repository. */
+    List<HostingRepository> findRepositories(HostingServer server, String fullPath);
 }

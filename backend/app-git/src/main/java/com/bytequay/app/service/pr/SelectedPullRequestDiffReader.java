@@ -37,6 +37,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.bytequay.app.service.pr.SelectedPullRequestReader.allowsCachedFallback;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -89,13 +90,14 @@ public class SelectedPullRequestDiffReader
         expectedVersion.ifPresent(value -> checkArgument(value.matches("[0-9a-f]{64}"), "Expected diff version must be lowercase SHA-256"));
         checkArgument(expectedVersion.isEmpty() || !forceRefresh, "A diff continuation cannot force refresh");
         String repository = parseRef(repo, number).repoFullName().toLowerCase(Locale.ROOT);
+        String scope = pullRequests.prepareRead(repository, number);
         if (expectedVersion.isPresent()) {
             Cached cached = row(repository, number).flatMap(value -> cached(value, false)).orElseThrow(SelectedPullRequestDiffReader::restart);
             Read read = result(repository, number, cached, false, false);
             if (!read.version().equals(expectedVersion.orElseThrow())) {
                 throw restart();
             }
-            return read;
+            return pullRequests.withCurrentScope(scope, () -> read);
         }
 
         Optional<PullRequest> row = row(repository, number);
@@ -109,20 +111,22 @@ public class SelectedPullRequestDiffReader
         }
         Optional<Cached> original = row.flatMap(value -> cached(value, true));
         if (original.isPresent() && !forceRefresh && coordinatesMatch(original.orElseThrow())) {
-            return result(repository, number, original.orElseThrow(), attempted, failed);
+            Read read = result(repository, number, original.orElseThrow(), attempted, failed);
+            return pullRequests.withCurrentScope(scope, () -> read);
         }
         try {
             refresh.refreshDiffFiles(repository, number, null, null);
-            Cached updated = row(repository, number).flatMap(value -> cached(value, true))
+            Optional<Cached> updated = row(repository, number).flatMap(value -> cached(value, true));
+            Cached available = updated.or(() -> original)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Selected pull request diff has not been refreshed"));
-            return result(repository, number, updated, true, false);
+            return pullRequests.withCurrentScope(scope, () -> result(repository, number, available, true, updated.isEmpty()));
         }
         catch (RuntimeException failure) {
             log.info("Selected PR {}#{} diff refresh failed; cached fallback={}: {}", repository, number, original.isPresent(), failure.getClass().getSimpleName());
-            if (original.isEmpty()) {
+            if (original.isEmpty() || !allowsCachedFallback(failure)) {
                 throw failure;
             }
-            return result(repository, number, original.orElseThrow(), true, true);
+            return pullRequests.withCurrentScope(scope, () -> result(repository, number, original.orElseThrow(), true, true));
         }
     }
 

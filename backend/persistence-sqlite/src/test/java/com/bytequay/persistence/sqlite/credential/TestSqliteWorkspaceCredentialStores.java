@@ -30,6 +30,7 @@ import java.time.Instant;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 @DataJpaTest
@@ -47,6 +48,9 @@ class TestSqliteWorkspaceCredentialStores
 
     @Autowired
     private SqliteCredentialStore credentials;
+
+    @Autowired
+    private CredentialJpaRepository credentialRows;
 
     @Autowired
     private SqliteJiraConnectionStore jiraConnections;
@@ -154,5 +158,59 @@ class TestSqliteWorkspaceCredentialStores
 
         assertThat(credentials.exists()).isFalse();
         assertThat(credentials.getSecret()).isEmpty();
+    }
+
+    @Test
+    void credentialRevisionChangesOnEverySaveAndSurvivesReload()
+    {
+        credentials.save("first-token", "pat");
+        String first = credentials.revision();
+        assertThat(UUID.fromString(first).version()).isEqualTo(4);
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(credentials.revision()).isEqualTo(first);
+
+        credentials.save("first-token", "pat");
+        String repeated = credentials.revision();
+        assertThat(repeated).isNotEqualTo(first);
+        credentials.save("second-token", "pat");
+        String second = credentials.revision();
+        credentials.save("first-token", "pat");
+        assertThat(credentials.revision()).isNotIn(first, repeated, second);
+        assertThat(credentialRows.count()).isEqualTo(1);
+    }
+
+    @Test
+    void existingCredentialGetsOneDurableRevisionWithoutReplacingItsSecret()
+    {
+        CredentialEntity existing = new CredentialEntity();
+        existing.setCiphertext(cipher.encrypt("retained-token"));
+        existing.setSource("gh-cli");
+        credentialRows.saveAndFlush(existing);
+        entityManager.clear();
+
+        String revision = credentials.revision();
+        entityManager.flush();
+        entityManager.clear();
+        assertThat(credentials.revision()).isEqualTo(revision);
+        CredentialEntity retained = credentialRows.findFirstByOrderByIdAsc().orElseThrow();
+        assertThat(retained.getReadRevision()).isEqualTo(revision);
+        assertThat(cipher.decrypt(retained.getCiphertext())).isEqualTo("retained-token");
+        assertThat(retained.getSource()).isEqualTo("gh-cli");
+        assertThat(credentialRows.count()).isEqualTo(1);
+    }
+
+    @Test
+    void deletingAndReconnectingCannotRestoreTheOldRevision()
+    {
+        assertThatIllegalStateException().isThrownBy(credentials::revision);
+        credentials.save("same-token", "pat");
+        String original = credentials.revision();
+        credentials.delete();
+        entityManager.flush();
+        entityManager.clear();
+        assertThatIllegalStateException().isThrownBy(credentials::revision);
+        credentials.save("same-token", "pat");
+        assertThat(credentials.revision()).isNotEqualTo(original);
     }
 }

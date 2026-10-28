@@ -34,6 +34,7 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -67,13 +68,14 @@ public class SqliteHostingPullRequestStore
 
     @Override
     @Transactional
-    public HostingPullRequestSnapshot save(long accountId, long repositoryId, long credentialGeneration, FetchedPullRequest pullRequest, PrRawDetail detail,
+    public HostingPullRequestSnapshot save(long accountId, long repositoryId, String credentialScope, long credentialGeneration, FetchedPullRequest pullRequest, PrRawDetail detail,
             Optional<String> etag, Instant validatedAt)
     {
         requireNonNull(pullRequest, "pullRequest is null");
         requireNonNull(detail, "detail is null");
         checkOptionalText(etag, "etag");
         requireNonNull(validatedAt, "validatedAt is null");
+        checkText(credentialScope, "credentialScope");
         checkArgument(credentialGeneration > 0, "credentialGeneration must be positive");
         checkArgument(pullRequest.githubId() > 0, "remote request ID must be positive");
         Target target = target(accountId, repositoryId, pullRequest.number());
@@ -97,7 +99,7 @@ public class SqliteHostingPullRequestStore
         }
         HostingPullRequestSnapshotEntity snapshot = snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, pullRequest.number())
                 .orElseGet(() -> new HostingPullRequestSnapshotEntity(request, target.account()));
-        snapshot.update(new HostingPullRequestSnapshot(request.hostingIdentity(), accountId, credentialGeneration, pullRequest, detail, etag, validatedAt));
+        snapshot.update(new HostingPullRequestSnapshot(request.hostingIdentity(), accountId, credentialScope, credentialGeneration, pullRequest, detail, etag, validatedAt));
         request.setRepo(pullRequest.repo());
         request.setHtmlUrl(pullRequest.htmlUrl());
         return snapshots.save(snapshot).toDomain();
@@ -105,10 +107,21 @@ public class SqliteHostingPullRequestStore
 
     @Override
     @Transactional
-    public void evict(long accountId, long repositoryId, int number)
+    public void evict(long accountId, long repositoryId, int number, String credentialScope)
     {
+        checkText(credentialScope, "credentialScope");
         target(accountId, repositoryId, number);
-        snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, number).ifPresent(snapshots::delete);
+        snapshots.findByAccountIdAndRequestHostingRepositoryIdAndRequestNumber(accountId, repositoryId, number)
+                .filter(snapshot -> snapshot.credentialScope().equals(credentialScope)).ifPresent(snapshots::delete);
+    }
+
+    @Override
+    @Transactional
+    public void evictRepository(long repositoryId, int number)
+    {
+        checkArgument(repositoryId > 0, "repositoryId must be positive");
+        checkArgument(number > 0, "number must be positive");
+        snapshots.deleteByRequestHostingRepositoryIdAndRequestNumber(repositoryId, number);
     }
 
     private Target target(long accountId, long repositoryId, int number)

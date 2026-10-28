@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.hosting.HostingFailure;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -151,6 +152,8 @@ class TestGitHubRateLimitInterceptor
         });
         assertThat(isRateLimit(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "GraphQL rate limit"))).isTrue();
         assertThat(isRateLimit(new ResponseStatusException(HttpStatus.FORBIDDEN, "Missing permission"))).isFalse();
+        assertThat(isRateLimit(new IllegalStateException(new HostingFailure(HostingFailure.Kind.RATE_LIMITED, "Rate limited")))).isTrue();
+        assertThat(isRateLimit(new HostingFailure(HostingFailure.Kind.FORBIDDEN, "Missing permission"))).isFalse();
     }
 
     @Test

@@ -39,7 +39,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
-import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static java.util.stream.Collectors.joining;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -89,7 +88,7 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void listAndDetailReadsKeepTheSamePullRequestFacts()
+    void listReadsKeepPullRequestFacts()
     {
         String response = """
                 {"id":12,"number":42,"title":"Fix parser","state":"closed","draft":false,
@@ -102,12 +101,9 @@ class TestGitHubPullRequestOverviewClient
                 """;
         server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1"))
                 .andRespond(withSuccess("[" + response + "]", MediaType.APPLICATION_JSON));
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
 
         FetchedPullRequest listed = client.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature").getFirst();
 
-        assertThat(client.getPullRequest("pat", PULL_REQUEST)).isEqualTo(listed);
         assertThat(listed.labels()).containsExactly("bug", "bug", "parser");
         assertThat(listed.labelColors()).hasSize(1).containsEntry("bug", "ff0000");
         assertThat(listed.requestedReviewers()).containsExactly("bob");
@@ -116,22 +112,15 @@ class TestGitHubPullRequestOverviewClient
         assertThat(listed.mergedAt()).isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
     }
 
-    @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void preservesEachEndpointsHandlingOfMissingReviewerLogins(boolean list)
+    @Test
+    void listRejectsMissingReviewerLogins()
     {
-        String response = """
-                {"id":12,"number":42,"title":"Fix parser","state":"open","requested_reviewers":[{}, {"login":"bob"}]}
-                """;
-        String path = list ? "/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1" : "/repos/owner/repo/pulls/42";
-        server.expect(requestTo("https://api.github.test" + path)).andRespond(withSuccess(list ? "[" + response + "]" : response, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":12,"number":42,"title":"Fix parser","state":"open","requested_reviewers":[{}, {"login":"bob"}]}]
+                        """, MediaType.APPLICATION_JSON));
 
-        if (list) {
-            assertThatThrownBy(() -> client.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature")).isInstanceOf(NullPointerException.class);
-        }
-        else {
-            assertThat(client.getPullRequest("pat", PULL_REQUEST).requestedReviewers()).containsExactly("bob");
-        }
+        assertThatThrownBy(() -> client.fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature")).isInstanceOf(NullPointerException.class);
     }
 
     @Test
@@ -176,61 +165,6 @@ class TestGitHubPullRequestOverviewClient
 
         assertThat(client.fetchPrDiffFileContent("pat", PULL_REQUEST, "src/App.java", "base-sha", "head-sha"))
                 .isEqualTo(new DiffFileContent("old content", "new content"));
-    }
-
-    @Test
-    void conditionallyFetchesPullRequestWithTheStoredEtag()
-    {
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"etag-1\""))
-                .andRespond(withStatus(HttpStatus.NOT_MODIFIED));
-
-        var fetched = client.getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\""));
-
-        assertThat(fetched.pullRequest()).isEmpty();
-        assertThat(fetched.detail()).isEmpty();
-        assertThat(fetched.etag()).contains("\"etag-1\"");
-    }
-
-    @Test
-    void conditionalFetchPreservesGitHubNotFound()
-    {
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"etag-1\""))
-                .andRespond(withStatus(HttpStatus.NOT_FOUND)
-                        .body("{\"message\":\"Not Found\"}")
-                        .contentType(MediaType.APPLICATION_JSON));
-
-        assertThatThrownBy(() -> client.getPullRequest("pat", PULL_REQUEST, Optional.of("\"etag-1\"")))
-                .isInstanceOf(ResponseStatusException.class)
-                .extracting(failure -> ((ResponseStatusException) failure).getStatusCode())
-                .isEqualTo(HttpStatus.NOT_FOUND);
-    }
-
-    @Test
-    void storesTheEtagReturnedWithModifiedPullRequestData()
-    {
-        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andRespond(withSuccess("""
-                        {"id":12,"number":42,"title":"Title","state":"open","labels":[],
-                         "requested_reviewers":[],"draft":false,
-                         "mergeable":false,"mergeable_state":"dirty",
-                         "head":{"sha":"head-sha","ref":"feature"},"base":{"sha":"base-sha","ref":"main"}}
-                        """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"etag-2\""));
-
-        var fetched = client.getPullRequest("pat", PULL_REQUEST, Optional.empty());
-
-        assertThat(fetched.pullRequest()).isPresent();
-        assertThat(fetched.pullRequest().orElseThrow().origin()).isEqualTo(OTHER);
-        assertThat(fetched.pullRequest().orElseThrow().mergeable()).isFalse();
-        assertThat(fetched.pullRequest().orElseThrow().mergeableState()).isEqualTo("dirty");
-        assertThat(fetched.detail()).hasValueSatisfying(detail -> {
-            assertThat(detail.title()).isEqualTo("Title");
-            assertThat(detail.mergeable()).isFalse();
-            assertThat(detail.headSha()).isEqualTo("head-sha");
-            assertThat(detail.baseSha()).isEqualTo("base-sha");
-        });
-        assertThat(fetched.etag()).contains("\"etag-2\"");
     }
 
     @Test

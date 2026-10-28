@@ -78,7 +78,7 @@ class TestWorkspaceHostingService
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
             ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests)));
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
-    private final HostingPullRequestService cache = new HostingPullRequestService(connections, credentials, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
     private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections, cache);
 
     @BeforeEach
@@ -86,10 +86,10 @@ class TestWorkspaceHostingService
     {
         workspaces.createOrGet(workspace());
         when(snapshots.find(anyLong(), anyLong(), anyInt())).thenReturn(Optional.empty());
-        when(snapshots.save(anyLong(), anyLong(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
-            FetchedPullRequest summary = call.getArgument(3);
+        when(snapshots.save(anyLong(), anyLong(), any(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
+            FetchedPullRequest summary = call.getArgument(4);
             return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number(), summary.githubId().toString()),
-                    call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
+                    call.getArgument(0), call.getArgument(2), call.getArgument(3), summary, call.getArgument(5), call.getArgument(6), call.getArgument(7));
         });
         when(identities.findAccount(20)).thenReturn(Optional.of(new HostingAccount(20, 10, "42", "alice")));
         when(identities.findInstance(10)).thenReturn(Optional.of(INSTANCE));

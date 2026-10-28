@@ -65,6 +65,8 @@ import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Function;
 
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Objects.requireNonNull;
@@ -143,6 +145,33 @@ public class SqlitePrDetailStore
                 checkRunRepo.findByPrId(prId).stream().map(PrCheckRunEntity::toDomain).collect(toImmutableList()),
                 detail.getUnavailableSections() != null ? detail.getUnavailableSections() : ImmutableList.of(),
                 Boolean.TRUE.equals(detail.getViewerCanWrite())));
+    }
+
+    @Override
+    public Optional<String> findCredentialScope(long prId)
+    {
+        checkArgument(prId > 0, "prId must be positive");
+        return detailRepo.findById(prId).map(PrDetailEntity::getCredentialScope);
+    }
+
+    @Override
+    @Transactional
+    public void setCredentialScope(long prId, String scope)
+    {
+        checkArgument(prId > 0, "prId must be positive");
+        checkText(scope, "scope");
+        detailRepo.findById(prId).orElseThrow(() -> new IllegalArgumentException("Pull-request detail is not stored")).setCredentialScope(scope);
+    }
+
+    @Override
+    @Transactional
+    public void clearRemote(long prId)
+    {
+        checkArgument(prId > 0, "prId must be positive");
+        detailRepo.deleteById(prId);
+        reviewRepo.deleteByPrId(prId);
+        checkRunRepo.deleteByPrId(prId);
+        timelineRepo.deleteByPrIdAndLocalEventKeyIsNull(prId);
     }
 
     @Override

@@ -22,7 +22,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
-import com.bytequay.core.hosting.PullRequestFetch;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.ListenableFuture;
 import com.google.common.util.concurrent.UncheckedExecutionException;
@@ -73,11 +72,6 @@ class PullRequestDetailFetcher
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
-    PrRawDetail raw(String pat, PullRequestRef ref, PullRequestFetch fetched)
-    {
-        return requireRaw(fetched.detail().orElseGet(() -> gitHub.fetchPrDetail(pat, ref)));
-    }
-
     ListenableFuture<StoredPrDetail> fetchDiscussion(String pat, PullRequestRef ref, StoredPrDetail existing)
     {
         PrRawDetail raw = existing.raw();
@@ -111,14 +105,6 @@ class PullRequestDetailFetcher
                                 unavailable(reviews, timeline, comments, commits, threads, descriptionReactions, checks),
                                 existing.viewerCanWrite()),
                         directExecutor());
-    }
-
-    private static PrRawDetail requireRaw(PrRawDetail raw)
-    {
-        if (raw == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response from GitHub PR detail");
-        }
-        return raw;
     }
 
     // Unwrap so a ResponseStatusException from a fetch keeps its HTTP status

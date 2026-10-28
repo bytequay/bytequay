@@ -25,11 +25,13 @@ import com.bytequay.agent.spi.AgentProviderUnavailableException;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.context.ContextStorageException;
 import com.bytequay.app.review.LocalRunRefusedException;
+import com.bytequay.app.web.hosting.HostingExceptionHandler;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickNotFoundException;
 import com.bytequay.core.ci.CiAutofixConflictException;
 import com.bytequay.core.ci.CiAutofixNotFoundException;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.google.common.collect.ImmutableSet;
@@ -87,6 +89,12 @@ public class GlobalExceptionHandler
         }
         String message = exception.getReason() != null ? exception.getReason() : statusCode.toString();
         return errorResponse(statusCode.value(), message, request.getRequestURI());
+    }
+
+    @ExceptionHandler(HostingFailure.class)
+    public ResponseEntity<ErrorResponse> handleHostingFailure(HostingFailure failure, HttpServletRequest request)
+    {
+        return errorResponse(HostingExceptionHandler.status(failure).value(), failure.getMessage(), request.getRequestURI());
     }
 
     @ExceptionHandler(ResourceAccessException.class)

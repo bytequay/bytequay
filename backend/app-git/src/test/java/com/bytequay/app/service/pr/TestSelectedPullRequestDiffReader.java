@@ -19,12 +19,15 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PrDiffStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.NullAndEmptySource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
@@ -35,10 +38,15 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -60,6 +68,36 @@ class TestSelectedPullRequestDiffReader
     private final SelectedPullRequestReader selected = mock(SelectedPullRequestReader.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final SelectedPullRequestDiffReader reader = new SelectedPullRequestDiffReader(pullRequests, diffs, details, selected, refresh, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    @BeforeEach
+    void credentialScope()
+    {
+        lenient().when(pullRequests.prepareRead(any(), anyInt())).thenReturn("scope");
+        lenient().when(pullRequests.withCurrentScope(eq("scope"), any())).thenAnswer(call -> call.<Supplier<?>>getArgument(1).get());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HostingFailure.Kind.class, names = {"AUTHENTICATION_REQUIRED", "FORBIDDEN", "MISSING_OR_INACCESSIBLE", "REVISION_CONFLICT"})
+    void rejectedAccessCannotReturnCachedData(HostingFailure.Kind kind)
+    {
+        cache(REPO, NUMBER, ImmutableList.of(FILE));
+        HostingFailure failure = new HostingFailure(kind, "Access changed");
+        when(refresh.refreshDiffFiles(REPO, NUMBER, null, null)).thenThrow(failure);
+
+        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), true)).isSameAs(failure);
+    }
+
+    @Test
+    void credentialChangeCannotReturnCachedData()
+    {
+        cache(REPO, NUMBER, ImmutableList.of(FILE));
+        when(details.find(ID)).thenReturn(Optional.of(detail(HEAD, 1)));
+        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Credential changed");
+        when(pullRequests.withCurrentScope(eq("scope"), any())).thenThrow(failure);
+
+        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Optional.empty(), false)).isSameAs(failure);
+        verifyNoInteractions(refresh);
+    }
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

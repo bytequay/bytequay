@@ -16,10 +16,15 @@ package com.bytequay.persistence.sqlite.repository;
 import com.bytequay.persistence.sqlite.entity.HostingRepositoryEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface HostingRepositoryJpaRepository
         extends JpaRepository<HostingRepositoryEntity, Long>
 {
     Optional<HostingRepositoryEntity> findByInstanceIdAndRemoteId(long instanceId, String remoteId);
+
+    List<HostingRepositoryEntity> findByInstanceIdAndFullPathIgnoreCase(long instanceId, String fullPath);
+
+    List<HostingRepositoryEntity> findByInstanceIdAndFullPath(long instanceId, String fullPath);
 }

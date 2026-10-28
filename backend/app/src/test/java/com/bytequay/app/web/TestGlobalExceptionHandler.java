@@ -14,9 +14,13 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.review.LocalRunRefusedException;
+import com.bytequay.core.hosting.HostingFailure;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 
@@ -48,9 +52,27 @@ class TestGlobalExceptionHandler
                 .andExpect(jsonPath("$.message").value("Your login shell environment could not be read"));
     }
 
+    @ParameterizedTest
+    @CsvSource({"AUTHENTICATION_REQUIRED,401", "FORBIDDEN,403", "MISSING_OR_INACCESSIBLE,404", "RATE_LIMITED,429",
+            "REVISION_CONFLICT,409", "UNAVAILABLE,503", "INVALID_RESPONSE,502"})
+    void preservesHostingFailuresForDesktopRoutes(HostingFailure.Kind kind, int statusCode)
+            throws Exception
+    {
+        standaloneSetup(new MissingResourceController()).setControllerAdvice(new GlobalExceptionHandler()).build()
+                .perform(get("/prs/detail").param("kind", kind.name()))
+                .andExpect(status().is(statusCode))
+                .andExpect(jsonPath("$.message").value("Refresh failed"));
+    }
+
     @RestController
     static class MissingResourceController
     {
+        @GetMapping("/prs/detail")
+        void hosting(@RequestParam HostingFailure.Kind kind)
+        {
+            throw new HostingFailure(kind, "Refresh failed");
+        }
+
         @GetMapping("/ci-autofix/runs/missing")
         void missing()
                 throws NoResourceFoundException

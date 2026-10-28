@@ -177,7 +177,7 @@ class TestHostingController
                 ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
         PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, Instant.EPOCH, Instant.EPOCH, null, "Account-specific details", ImmutableList.of(),
                 ImmutableMap.of(), ImmutableList.of(), null, false, null, null, -1, -1, -1, -1, ImmutableList.of(), "head", "topic", "main", "base");
-        when(requests.refresh(7, 11, 17)).thenReturn(new HostingPullRequestSnapshot(new HostingPullRequest(50, 11, 17, "99"), 7, 4, summary, detail,
+        when(requests.refresh(7, 11, 17)).thenReturn(new HostingPullRequestSnapshot(new HostingPullRequest(50, 11, 17, "99"), 7, HostingPullRequestSnapshot.CONNECTED_ACCOUNT, 4, summary, detail,
                 Optional.of("etag"), Instant.EPOCH));
         String body = mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/17").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk())

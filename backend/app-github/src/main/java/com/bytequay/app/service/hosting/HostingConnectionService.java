@@ -42,6 +42,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUI
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -117,6 +118,28 @@ public class HostingConnectionService
         return saveRepository(access, integration(access.server().provider()).repositories().findById(access, remoteId));
     }
 
+    public HostingReadSession readSession(long accountId)
+    {
+        synchronized (lock(server(account(accountId)))) {
+            HostingCredential selected = credential(accountId);
+            return new HostingReadSession(accountId, CONNECTED_ACCOUNT, selected.generation(), access(accountId), new HostingReadSession.Guard()
+            {
+                @Override
+                public <T> T withCurrent(Supplier<T> action)
+                {
+                    return withCurrentCredential(accountId, selected.generation(), action);
+                }
+            });
+        }
+    }
+
+    public HostingRepository resolveRepository(HostingReadSession session, String fullPath)
+    {
+        HostingAccess access = session.access();
+        RemoteHostingRepository remote = integration(access.server().provider()).repositories().findByPath(access, fullPath);
+        return session.withCurrent(() -> identities.upsertRepository(access.instanceId().orElseThrow(), remote));
+    }
+
     /** The action may accept or persist local results, but must not perform remote I/O while holding the credential lock. */
     public <T> T withCurrentCredential(long accountId, long generation, Supplier<T> action)
     {
@@ -142,18 +165,21 @@ public class HostingConnectionService
     public PullRequestFetch readPullRequest(long accountId, long repositoryId, int number)
     {
         checkArgument(number > 0, "request number must be positive");
-        HostingAccess access = access(accountId);
-        return readPullRequest(access, repository(access, repositoryId), number, Optional.empty());
+        return readPullRequest(readSession(accountId), repositoryId, number, Optional.empty(), Optional.empty());
     }
 
     public PullRequestFetch readPullRequest(long accountId, long repositoryId, int number, long credentialGeneration, Optional<String> repositoryPath, Optional<String> etag)
     {
+        return readPullRequest(withCurrentCredential(accountId, credentialGeneration, () -> readSession(accountId)), repositoryId, number, repositoryPath, etag);
+    }
+
+    public PullRequestFetch readPullRequest(HostingReadSession session, long repositoryId, int number, Optional<String> repositoryPath, Optional<String> etag)
+    {
         checkArgument(number > 0, "request number must be positive");
         checkOptionalText(repositoryPath, "repositoryPath");
         requireNonNull(etag, "etag is null");
-        HostingAccess access = withCurrentCredential(accountId, credentialGeneration, () -> access(accountId));
-        HostingRepository repository = repository(access, repositoryId);
-        return readPullRequest(access, repository, number, repositoryPath.filter(repository.fullPath()::equals).isPresent() ? etag : Optional.empty());
+        HostingRepository repository = session.withCurrent(() -> repository(session.access(), repositoryId));
+        return readPullRequest(session, repository, number, repositoryPath.filter(repository.fullPath()::equals).isPresent() ? etag : Optional.empty());
     }
 
     private HostingRepository repository(HostingAccess access, long repositoryId)
@@ -164,17 +190,16 @@ public class HostingConnectionService
         return repository;
     }
 
-    private PullRequestFetch readPullRequest(HostingAccess access, HostingRepository repository, int number, Optional<String> etag)
+    private PullRequestFetch readPullRequest(HostingReadSession session, HostingRepository repository, int number, Optional<String> etag)
     {
+        HostingAccess access = session.access();
         PullRequestFetch result = integration(access.server().provider()).pullRequests().fetch(access, repository, number, etag);
-        synchronized (lock(access.server())) {
-            // The bound accessor rechecks credential generation before accepting remote data.
-            access.token();
+        return session.withCurrent(() -> {
             if (etag.isEmpty() && result.pullRequest().isEmpty() && result.detail().isEmpty()) {
                 throw new HostingFailure(INVALID_RESPONSE, "Hosting provider returned an unchanged response without a validator");
             }
             return result;
-        }
+        });
     }
 
     private HostingAccess access(long accountId)

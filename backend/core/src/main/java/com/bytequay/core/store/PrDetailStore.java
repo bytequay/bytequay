@@ -35,6 +35,14 @@ public interface PrDetailStore
 
     Optional<StoredPrDetail> find(long prId);
 
+    Optional<String> findCredentialScope(long prId);
+
+    /** Stamps an existing detail row after its remote data is fetched under the current credential. */
+    void setCredentialScope(long prId, String scope);
+
+    /** Clears remote cached groups while preserving locally recorded timeline events. */
+    void clearRemote(long prId);
+
     /** Reads only cached list badges; missing details have no entry. */
     Map<Long, PrStateSummary> findStates(Set<Long> prIds);
 

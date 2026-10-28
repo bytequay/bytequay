@@ -28,7 +28,15 @@ public class HostingExceptionHandler
     @ExceptionHandler(HostingFailure.class)
     public ProblemDetail failure(HostingFailure failure)
     {
-        HttpStatus status = switch (failure.kind()) {
+        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status(failure), failure.getMessage());
+        problem.setProperty("kind", failure.kind());
+        failure.retryAfter().ifPresent(duration -> problem.setProperty("retryAfterSeconds", duration.toSeconds()));
+        return problem;
+    }
+
+    public static HttpStatus status(HostingFailure failure)
+    {
+        return switch (failure.kind()) {
             case AUTHENTICATION_REQUIRED -> HttpStatus.UNAUTHORIZED;
             case FORBIDDEN -> HttpStatus.FORBIDDEN;
             case MISSING_OR_INACCESSIBLE -> HttpStatus.NOT_FOUND;
@@ -37,10 +45,6 @@ public class HostingExceptionHandler
             case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             case INVALID_RESPONSE -> HttpStatus.BAD_GATEWAY;
         };
-        ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, failure.getMessage());
-        problem.setProperty("kind", failure.kind());
-        failure.retryAfter().ifPresent(duration -> problem.setProperty("retryAfterSeconds", duration.toSeconds()));
-        return problem;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

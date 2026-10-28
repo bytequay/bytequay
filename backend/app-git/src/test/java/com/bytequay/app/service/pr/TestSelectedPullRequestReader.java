@@ -21,9 +21,11 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.PrDetailStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -38,11 +40,15 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -64,6 +70,36 @@ class TestSelectedPullRequestReader
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
     private final SelectedPullRequestReader reader = new SelectedPullRequestReader(pullRequests, details, refresh, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    @BeforeEach
+    void credentialScope()
+    {
+        lenient().when(pullRequests.prepareRead(any(), anyInt())).thenReturn("scope");
+        lenient().when(pullRequests.withCurrentScope(eq("scope"), any())).thenAnswer(call -> call.<Supplier<?>>getArgument(1).get());
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = HostingFailure.Kind.class, names = {"AUTHENTICATION_REQUIRED", "FORBIDDEN", "MISSING_OR_INACCESSIBLE", "REVISION_CONFLICT"})
+    void rejectedAccessCannotReturnCachedData(HostingFailure.Kind kind)
+    {
+        cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
+        when(details.findFreshness(ID)).thenReturn(PrDetailFreshness.unknown());
+        HostingFailure failure = new HostingFailure(kind, "Access changed");
+        when(refresh.refreshDetail(REPO, NUMBER)).thenThrow(failure);
+
+        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
+    }
+
+    @Test
+    void credentialChangeCannotReturnCachedData()
+    {
+        cached(row(UPDATED, "open", null), stored(UPDATED, HEAD, ImmutableList.of()), Optional.of(NOW));
+        HostingFailure failure = new HostingFailure(HostingFailure.Kind.REVISION_CONFLICT, "Credential changed");
+        when(pullRequests.withCurrentScope(eq("scope"), any())).thenThrow(failure);
+
+        assertThatThrownBy(() -> reader.read(REPO, NUMBER, Section.PR)).isSameAs(failure);
+        verifyNoInteractions(refresh);
+    }
 
     @ParameterizedTest
     @EnumSource(Section.class)

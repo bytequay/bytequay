@@ -23,7 +23,6 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.StoredPrDetail;
-import com.bytequay.core.hosting.PullRequestFetch;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +47,6 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.springframework.http.HttpStatus.BAD_GATEWAY;
 import static org.springframework.http.HttpStatus.NOT_FOUND;
 import static org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE;
 
@@ -130,25 +128,6 @@ class TestPullRequestDetailFetcher
         assertThat(stored.checkRuns()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly(StoredPrDetail.CHECKS);
         verify(gitHub, never()).fetchPrDetail("pat", REF);
-    }
-
-    @Test
-    void reusesTheNormalizedDetailFromTheMetadataRead()
-    {
-        PrRawDetail detail = raw("head");
-
-        assertThat(fetcher.raw("pat", REF, new PullRequestFetch(Optional.empty(), Optional.empty(), Optional.of(detail)))).isEqualTo(detail);
-
-        verify(gitHub, never()).fetchPrDetail("pat", REF);
-    }
-
-    @Test
-    void rejectsEmptyDetailAsBadGateway()
-    {
-        when(gitHub.fetchPrDetail("pat", REF)).thenReturn(null);
-
-        assertThatThrownBy(() -> fetcher.raw("pat", REF, new PullRequestFetch(Optional.empty(), Optional.empty())))
-                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode()).isEqualTo(BAD_GATEWAY));
     }
 
     @Test

@@ -16,6 +16,7 @@ package com.bytequay.app.service.credentials;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
 import com.google.common.collect.ImmutableMap;
@@ -31,8 +32,12 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Supplier;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
+import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -76,11 +81,37 @@ public class CredentialService
      * {@code gh} track its live token and fall back to the stored copy when
      * the CLI is unavailable; pasted PATs always use the stored value.
      */
-    public String resolveGitHubToken()
+    public synchronized String resolveGitHubToken()
     {
-        return liveGhCliToken()
-                .or(this::storedGitHubToken)
+        Optional<String> stored = storedGitHubToken();
+        Optional<String> live = liveGhCliToken();
+        String token = live.or(() -> stored)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT not configured. Add it in Settings → GitHub token."));
+        if (live.isPresent() && stored.filter(token::equals).isEmpty()) {
+            credentialStore.save(token, GITHUB_CLI_SOURCE);
+            cachedGitHubCredential = null;
+        }
+        return token;
+    }
+
+    public synchronized GitHubReadSelection captureGitHubRead(String expectedToken)
+    {
+        if (!resolveGitHubToken().equals(requireNonNull(expectedToken, "expectedToken is null"))) {
+            throw new HostingFailure(REVISION_CONFLICT, "The GitHub credential changed; refresh to retry");
+        }
+        return new GitHubReadSelection(expectedToken, credentialStore.revision());
+    }
+
+    /** Only local validation and local acceptance run under this lock; the selection was captured before remote work. */
+    public synchronized <T> T withCurrentGitHubRead(GitHubReadSelection selection, Supplier<T> action)
+    {
+        requireNonNull(selection, "selection is null");
+        requireNonNull(action, "action is null");
+        String current = storedGitHubToken().orElseThrow(() -> new HostingFailure(AUTHENTICATION_REQUIRED, "GitHub authentication is required"));
+        if (!current.equals(selection.token()) || !credentialStore.revision().equals(selection.revision())) {
+            throw new HostingFailure(REVISION_CONFLICT, "The GitHub credential changed; refresh to retry");
+        }
+        return action.get();
     }
 
     /**
@@ -244,6 +275,27 @@ public class CredentialService
         {
             requireNonNull(token, "token is null");
             requireNonNull(profile, "profile is null");
+        }
+
+        @Override
+        public String toString()
+        {
+            return "GitHubCredential[token=<redacted>, profile=" + profile + "]";
+        }
+    }
+
+    public record GitHubReadSelection(String token, String revision)
+    {
+        public GitHubReadSelection
+        {
+            checkText(token, "token");
+            checkText(revision, "revision");
+        }
+
+        @Override
+        public String toString()
+        {
+            return "GitHubReadSelection[token=<redacted>, revision=" + revision + "]";
         }
     }
 

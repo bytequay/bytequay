@@ -17,7 +17,9 @@ import com.bytequay.core.domain.PrDetailFreshness;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.StoredPrDetail;
+import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.PrDetailStore;
+import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -71,9 +73,10 @@ public class SelectedPullRequestReader
     {
         String repository = parseRef(repo, number).repoFullName().toLowerCase(Locale.ROOT);
         requireNonNull(section, "section is null");
+        String scope = pullRequests.prepareRead(repository, number);
         Optional<Cached> cached = cached(repository, number);
         if (cached.isPresent() && fresh(cached.orElseThrow(), section) && !incomplete(cached.orElseThrow().stored(), section)) {
-            return result(cached.orElseThrow(), section, false, false);
+            return pullRequests.withCurrentScope(scope, () -> result(cached.orElseThrow(), section, false, false));
         }
         try {
             if (section == Section.CHECKS) {
@@ -82,17 +85,34 @@ public class SelectedPullRequestReader
             else {
                 refresh.refreshDetail(repository, number);
             }
-            Cached updated = cached(repository, number)
+            Optional<Cached> updated = cached(repository, number);
+            Cached available = updated.or(() -> cached)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request detail has not been refreshed"));
-            return result(updated, section, true, false);
+            return pullRequests.withCurrentScope(scope, () -> result(available, section, true, updated.isEmpty()));
         }
         catch (RuntimeException failure) {
             log.info("Selected PR {}#{} {} refresh failed; cached fallback={}: {}", repository, number, section, cached.isPresent(), failure.getClass().getSimpleName());
-            if (cached.isEmpty()) {
+            if (cached.isEmpty() || !allowsCachedFallback(failure)) {
                 throw failure;
             }
-            return result(cached.orElseThrow(), section, true, true);
+            return pullRequests.withCurrentScope(scope, () -> result(cached.orElseThrow(), section, true, true));
         }
+    }
+
+    static boolean allowsCachedFallback(RuntimeException failure)
+    {
+        return Throwables.getCausalChain(failure).stream().noneMatch(cause -> {
+            if (cause instanceof HostingFailure hosting) {
+                return switch (hosting.kind()) {
+                    case AUTHENTICATION_REQUIRED, FORBIDDEN, MISSING_OR_INACCESSIBLE, REVISION_CONFLICT -> true;
+                    default -> false;
+                };
+            }
+            return cause instanceof ResponseStatusException response && switch (response.getStatusCode().value()) {
+                case 401, 403, 404, 409 -> true;
+                default -> false;
+            };
+        });
     }
 
     private Optional<Cached> cached(String repo, int number)

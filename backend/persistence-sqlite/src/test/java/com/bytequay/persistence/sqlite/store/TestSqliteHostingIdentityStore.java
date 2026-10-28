@@ -109,6 +109,35 @@ class TestSqliteHostingIdentityStore
     }
 
     @Test
+    void localPathLookupReturnsAllRetainedGitHubIdentitiesOnOnlyTheExactServer()
+    {
+        HostingServer server = new HostingServer(HostingProvider.GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        HostingInstance instance = store.upsertInstance(server);
+        HostingRepository original = repository(instance, "99", "Team/Project");
+        HostingRepository replacement = repository(instance, "100", "team/project");
+        repository(gitlab("https://gitlab.com"), "99", "Team/Project");
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.findRepositories(server, "TEAM/PROJECT")).containsExactlyInAnyOrder(original, replacement);
+        assertThat(store.findRepositories(new HostingServer(HostingProvider.GITHUB, server.webBaseUrl(), URI.create("https://api.github.com/other")), "Team/Project"))
+                .isEmpty();
+        assertThat(store.findRepositories(new HostingServer(HostingProvider.GITHUB, URI.create("https://github.com:8443"), server.apiBaseUrl()), "Team/Project"))
+                .isEmpty();
+        assertThat(store.findRepositories(new HostingServer(HostingProvider.GITLAB, server.webBaseUrl(), server.apiBaseUrl()), "Team/Project")).isEmpty();
+    }
+
+    @Test
+    void otherProvidersKeepExactNestedPathSpellingInLocalLookups()
+    {
+        HostingInstance instance = gitlab("https://git.example.com/gitlab");
+        HostingRepository repository = repository(instance, "99", "Team/Subgroup/Project");
+        HostingServer server = new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl());
+        assertThat(store.findRepositories(server, "Team/Subgroup/Project")).containsExactly(repository);
+        assertThat(store.findRepositories(server, "team/subgroup/project")).isEmpty();
+    }
+
+    @Test
     void rejectsUnknownInstancesAndCoordinatesOutsideTheirBase()
     {
         assertThatIllegalArgumentException().isThrownBy(() -> store.upsertAccount(999, new RemoteHostingAccount("17", "alice")));

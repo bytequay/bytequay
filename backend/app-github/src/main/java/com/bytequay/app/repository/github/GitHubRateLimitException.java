@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.hosting.HostingFailure;
 import com.google.common.base.Throwables;
 import org.slf4j.Logger;
 import org.springframework.http.HttpStatus;
@@ -31,7 +32,8 @@ public final class GitHubRateLimitException
     public static boolean isRateLimit(Throwable failure)
     {
         return Throwables.getCausalChain(failure).stream()
-                .anyMatch(cause -> cause instanceof ResponseStatusException response && response.getStatusCode().value() == 429);
+                .anyMatch(cause -> cause instanceof ResponseStatusException response && response.getStatusCode().value() == 429
+                        || cause instanceof HostingFailure hosting && hosting.kind() == HostingFailure.Kind.RATE_LIMITED);
     }
 
     /** Runs one background refresh; a rate limit waits silently for the next tick, anything else is logged and skipped. */

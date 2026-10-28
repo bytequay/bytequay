@@ -31,7 +31,6 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepoUser;
 import com.bytequay.core.hosting.DiscussionProbe;
-import com.bytequay.core.hosting.PullRequestFetch;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
@@ -1450,28 +1449,6 @@ public class GitHubPullRequestReadClient
     private record ViewerReactionNode(String id, List<ViewerReactionGroup> reactionGroups) {}
 
     private record ViewerReactionGroup(String content, Boolean viewerHasReacted) {}
-
-    public FetchedPullRequest getPullRequest(String pat, PullRequestRef pr) {
-        return getPullRequest(pat, pr, Optional.empty()).pullRequest()
-                .orElseThrow(() -> new IllegalStateException("Unconditional GitHub PR request returned no body"));
-    }
-
-    public PullRequestFetch getPullRequest(String pat, PullRequestRef pr, Optional<String> etag) {
-        String fullName = pr.repoFullName();
-        requireNonNull(etag, "etag is null");
-        RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number());
-        etag.ifPresent(value -> request.header(HttpHeaders.IF_NONE_MATCH, value));
-        ResponseEntity<GitHubPullRequestDetailResponse> response = translating(() -> request.retrieve().toEntity(GitHubPullRequestDetailResponse.class));
-        Optional<String> responseEtag = Optional.ofNullable(response.getHeaders().getETag()).or(() -> etag);
-        if (response.getStatusCode() == HttpStatus.NOT_MODIFIED) {
-            return new PullRequestFetch(Optional.empty(), responseEtag);
-        }
-        GitHubPullRequestDetailResponse item = response.getBody();
-        checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
-        List<String> reviewers = Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                .map(GitHubUser::login).filter(Objects::nonNull).collect(toImmutableList());
-        return new PullRequestFetch(Optional.of(toPullRequest(item, fullName, reviewers)), responseEtag, Optional.of(toPrRawDetail(pr, item)));
-    }
 
     private static FetchedPullRequest toPullRequest(GitHubPullRequestDetailResponse item, String fullName, List<String> reviewers)
     {

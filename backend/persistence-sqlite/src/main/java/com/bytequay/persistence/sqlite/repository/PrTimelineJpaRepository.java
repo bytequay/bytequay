@@ -131,4 +131,8 @@ public interface PrTimelineJpaRepository
     @Modifying
     @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId")
     void deleteByPrId(@Param("prId") Long prId);
+
+    @Modifying
+    @Query("DELETE FROM PrTimelineEntity e WHERE e.prId = :prId AND e.localEventKey IS NULL")
+    void deleteByPrIdAndLocalEventKeyIsNull(@Param("prId") long prId);
 }

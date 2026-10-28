@@ -160,18 +160,29 @@ results after credential, binding or repository-routing changes.
 
 Hosting request reads for either provider retain identity in `pull_requests`,
 keyed by the local hosting repository and request number. Metadata snapshots and
-their validators are scoped to the observing account and credential generation
+their validators are scoped to the observing account, credential source and generation
 in `pr_metadata_snapshots`. Conditional refresh returns complete normalized
 metadata; explicit cached reads report its validation time. Refreshes for one
 request are serialized, and credential replacement or repository path changes
 prevent reuse of old validators. Access failures discard only the affected
 account's snapshot; eviction keeps request identity and local work.
 
+Desktop PR metadata and diff revision checks use these shared contracts and
+snapshots. The desktop's existing global PAT or CLI selection stays separate from
+manually connected account tokens. Each explicit credential save or observed CLI
+rotation gets a durable revision; cached metadata, detail and diff projections
+cannot cross that revision. Remote results are accepted only while their captured
+selection remains current. Shared invalidation after a write uses local retained
+identities and waits for in-flight metadata refreshes; it performs no remote I/O.
+
 Legacy rows remain unbound because their repository paths alone cannot prove
-remote identity. Existing desktop workspace and review flows retain their original
-GitHub readers and caches, which exclude hosted rows from lookup, mutation and
-workspace purge. Migrating those consumers with their credential selection and
-adding GitLab workspace creation remain separate integration work.
+historical remote identity. The desktop projects shared metadata onto its existing
+PR IDs, preserving drafts and local events. These rows remain isolated from hosted
+rows in lookup, mutation and workspace purge. Lists, discussions, checks and diff
+bytes still use native GitHub readers, with detail/diff projections guarded by the
+desktop credential revision. Backport source metadata retains its workspace-token
+path. Migrating these remaining provider operations, local identity associations,
+and GitLab desktop/workspace creation remains separate integration work.
 
 ## Git hosting boundary (target)
 

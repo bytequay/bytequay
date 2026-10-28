@@ -47,6 +47,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,7 +85,7 @@ class TestSqliteHostingPullRequestStore
         Scope scope = scope(provider, provider == GITHUB ? "https://github.com" : "https://gitlab.com");
         FetchedPullRequest fetched = pullRequest(scope, 42, "Request title");
         PrRawDetail detail = detail(fetched, "Private description");
-        HostingPullRequestSnapshot saved = store.save(scope.account().id(), scope.repository().id(), 1, fetched, detail, Optional.of("\"metadata\""), NOW);
+        HostingPullRequestSnapshot saved = store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1, fetched, detail, Optional.of("\"metadata\""), NOW);
         entities.flush();
         entities.clear();
 
@@ -187,7 +188,7 @@ class TestSqliteHostingPullRequestStore
         HostingPullRequestSnapshot alice = save(first, 1, "Alice", "alice-body");
         HostingPullRequestSnapshot bob = save(second, 1, "Bob", "bob-body");
         views.markViewed(alice.request().id());
-        store.evict(first.account().id(), first.repository().id(), 7);
+        store.evict(first.account().id(), first.repository().id(), 7, CONNECTED_ACCOUNT);
         entities.flush();
         entities.clear();
 
@@ -196,8 +197,8 @@ class TestSqliteHostingPullRequestStore
         assertThat(views.findByPrIds(ImmutableSet.of(alice.request().id()))).containsKey(alice.request().id());
         HostingPullRequestSnapshot refreshed = save(first, 2, "Alice refreshed", "refreshed-body");
         assertThat(refreshed.request()).isEqualTo(alice.request());
-        store.evict(first.account().id(), first.repository().id(), 7);
-        store.evict(second.account().id(), second.repository().id(), 7);
+        store.evict(first.account().id(), first.repository().id(), 7, CONNECTED_ACCOUNT);
+        store.evict(second.account().id(), second.repository().id(), 7, CONNECTED_ACCOUNT);
         entities.flush();
         entities.clear();
         assertThat(requests.count()).isEqualTo(1);
@@ -222,14 +223,44 @@ class TestSqliteHostingPullRequestStore
         HostingPullRequestSnapshot original = save(scope, 1, "Original", "body");
         FetchedPullRequest reusedNumber = pullRequest(scope, 43, "Different request");
 
-        assertThatThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), 1, reusedNumber, detail(reusedNumber, "wrong"), Optional.empty(), NOW))
+        assertThatThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1,
+                reusedNumber, detail(reusedNumber, "wrong"), Optional.empty(), NOW))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(original);
-        store.evict(scope.account().id(), scope.repository().id(), 7);
-        assertThatThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), 1, reusedNumber, detail(reusedNumber, "wrong"), Optional.empty(), NOW))
+        store.evict(scope.account().id(), scope.repository().id(), 7, CONNECTED_ACCOUNT);
+        assertThatThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 1,
+                reusedNumber, detail(reusedNumber, "wrong"), Optional.empty(), NOW))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
         assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).isEmpty();
         assertThat(requests.findById(original.request().id()).orElseThrow().getRemoteId()).isEqualTo("42");
+    }
+
+    @Test
+    void repositoryInvalidationClearsAllScopesAndAccountsWithoutDeletingIdentity()
+    {
+        Scope first = scope(GITHUB, "https://github.com");
+        Scope second = new Scope(first.instance(), identities.upsertAccount(first.instance().id(), new RemoteHostingAccount("2", "bob")), first.repository());
+        Scope otherHost = scope(GITLAB, "https://gitlab.com");
+        HostingPullRequestSnapshot original = save(first, 1, "Connected", "connected-body");
+        FetchedPullRequest desktop = pullRequest(second, 42, "Desktop");
+        store.save(second.account().id(), second.repository().id(), "github-global:revision", 1, desktop, detail(desktop, "desktop-body"), Optional.empty(), NOW);
+        HostingPullRequestSnapshot unrelated = save(otherHost, 1, "Other host", "other-body");
+        FetchedPullRequest otherNumber = pullRequest(first, 43, 8, "Other number");
+        HostingPullRequestSnapshot next = store.save(first.account().id(), first.repository().id(), CONNECTED_ACCOUNT, 1,
+                otherNumber, detail(otherNumber, "next-body"), Optional.empty(), NOW);
+        views.markViewed(original.request().id());
+
+        store.evictRepository(first.repository().id(), 7);
+        entities.flush();
+        entities.clear();
+
+        assertThat(store.find(first.account().id(), first.repository().id(), 7)).isEmpty();
+        assertThat(store.find(second.account().id(), second.repository().id(), 7)).isEmpty();
+        assertThat(store.find(first.account().id(), first.repository().id(), 8)).contains(next);
+        assertThat(store.find(otherHost.account().id(), otherHost.repository().id(), 7)).contains(unrelated);
+        assertThat(requests.findById(original.request().id())).isPresent();
+        assertThat(views.findByPrIds(ImmutableSet.of(original.request().id()))).containsKey(original.request().id());
+        assertThat(snapshots.count()).isEqualTo(2);
     }
 
     @Test
@@ -249,6 +280,49 @@ class TestSqliteHostingPullRequestStore
     }
 
     @Test
+    void scopesReplaceOneSnapshotWithoutSharingValidatorsOrGenerationOrder()
+    {
+        Scope scope = scope(GITHUB, "https://github.com");
+        HostingPullRequestSnapshot connected = save(scope, 9, "Connected account", "connected-body");
+        String desktopScope = "github-global:revision-a";
+        FetchedPullRequest desktop = pullRequest(scope, 42, "Desktop account");
+        HostingPullRequestSnapshot projected = store.save(scope.account().id(), scope.repository().id(), desktopScope, 1,
+                desktop, detail(desktop, "desktop-body"), Optional.of("\"desktop\""), NOW);
+        entities.flush();
+        entities.clear();
+
+        assertThat(projected.request()).isEqualTo(connected.request());
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(projected);
+        assertThat(projected.credentialScope()).isEqualTo(desktopScope);
+        assertThat(projected.etag()).contains("\"desktop\"");
+        store.evict(scope.account().id(), scope.repository().id(), 7, CONNECTED_ACCOUNT);
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(projected);
+
+        HostingPullRequestSnapshot replaced = save(scope, 2, "Connected again", "new-body");
+        store.evict(scope.account().id(), scope.repository().id(), 7, desktopScope);
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(replaced);
+        assertThat(replaced.credentialScope()).isEqualTo(CONNECTED_ACCOUNT);
+        assertThatThrownBy(() -> save(scope, 1, "Stale connected", "stale-body"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        assertThat(snapshots.count()).isEqualTo(1);
+    }
+
+    @Test
+    void snapshotsWrittenBeforeScopesDefaultToConnectedAccount()
+    {
+        Scope scope = scope(GITHUB, "https://github.com");
+        HostingPullRequestSnapshot saved = save(scope, 3, "Existing metadata", "body");
+        entities.createQuery("UPDATE HostingPullRequestSnapshotEntity SET credentialScope = NULL").executeUpdate();
+        entities.clear();
+
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(saved);
+        assertThatThrownBy(() -> save(scope, 2, "Older credential", "stale-body"))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        store.evict(scope.account().id(), scope.repository().id(), 7, CONNECTED_ACCOUNT);
+        assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).isEmpty();
+    }
+
+    @Test
     void rejectsCrossInstanceAccessForEveryOperation()
     {
         Scope github = scope(GITHUB, "https://github.com");
@@ -256,8 +330,8 @@ class TestSqliteHostingPullRequestStore
         HostingPullRequestSnapshot original = save(gitlab, 1, "GitLab", "body");
 
         assertThatIllegalArgumentException().isThrownBy(() -> store.find(github.account().id(), gitlab.repository().id(), 7));
-        assertThatIllegalArgumentException().isThrownBy(() -> store.evict(github.account().id(), gitlab.repository().id(), 7));
-        assertThatIllegalArgumentException().isThrownBy(() -> store.save(github.account().id(), gitlab.repository().id(), 1,
+        assertThatIllegalArgumentException().isThrownBy(() -> store.evict(github.account().id(), gitlab.repository().id(), 7, CONNECTED_ACCOUNT));
+        assertThatIllegalArgumentException().isThrownBy(() -> store.save(github.account().id(), gitlab.repository().id(), CONNECTED_ACCOUNT, 1,
                 original.pullRequest(), original.detail(), original.etag(), NOW));
         assertThat(store.find(gitlab.account().id(), gitlab.repository().id(), 7)).contains(original);
         assertThat(requests.count()).isEqualTo(1);
@@ -272,8 +346,8 @@ class TestSqliteHostingPullRequestStore
         assertThatIllegalArgumentException().isThrownBy(() -> store.find(scope.account().id(), 0, 7));
         assertThatIllegalArgumentException().isThrownBy(() -> store.find(scope.account().id(), scope.repository().id(), 0));
         assertThatIllegalArgumentException().isThrownBy(() -> store.find(999, scope.repository().id(), 7));
-        assertThatIllegalArgumentException().isThrownBy(() -> store.evict(scope.account().id(), 999, 7));
-        assertThatIllegalArgumentException().isThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), 0,
+        assertThatIllegalArgumentException().isThrownBy(() -> store.evict(scope.account().id(), 999, 7, CONNECTED_ACCOUNT));
+        assertThatIllegalArgumentException().isThrownBy(() -> store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, 0,
                 fetched, detail(fetched, "body"), Optional.empty(), NOW));
         assertThat(requests.count()).isZero();
         assertThat(snapshots.count()).isZero();
@@ -295,7 +369,7 @@ class TestSqliteHostingPullRequestStore
     private HostingPullRequestSnapshot save(Scope scope, long generation, String title, String body)
     {
         FetchedPullRequest fetched = pullRequest(scope, 42, title);
-        return store.save(scope.account().id(), scope.repository().id(), generation, fetched, detail(fetched, body), Optional.of("\"" + title + "\""), NOW);
+        return store.save(scope.account().id(), scope.repository().id(), CONNECTED_ACCOUNT, generation, fetched, detail(fetched, body), Optional.of("\"" + title + "\""), NOW);
     }
 
     private Scope scope(HostingProvider provider, String base)
@@ -314,8 +388,13 @@ class TestSqliteHostingPullRequestStore
 
     private static FetchedPullRequest pullRequest(Scope scope, long remoteId, String title)
     {
-        String url = scope.repository().webUrl() + (scope.instance().provider() == GITHUB ? "/pull/7" : "/-/merge_requests/7");
-        return new FetchedPullRequest(remoteId, scope.repository().fullPath(), 7, title, "alice", url, NOW.minusSeconds(60), NOW,
+        return pullRequest(scope, remoteId, 7, title);
+    }
+
+    private static FetchedPullRequest pullRequest(Scope scope, long remoteId, int number, String title)
+    {
+        String url = scope.repository().webUrl() + (scope.instance().provider() == GITHUB ? "/pull/" : "/-/merge_requests/") + number;
+        return new FetchedPullRequest(remoteId, scope.repository().fullPath(), number, title, "alice", url, NOW.minusSeconds(60), NOW,
                 PullRequest.Origin.AUTHORED, ImmutableList.of("bug"), ImmutableMap.of("bug", "ff0000"), false, "open", null, null, ImmutableList.of(), null, null, "feature");
     }
 

@@ -55,6 +55,7 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUI
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -62,6 +63,7 @@ import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -80,6 +82,7 @@ class TestHostingPullRequestService
     private final Map<Long, Long> generations = new ConcurrentHashMap<>();
     private final Map<Long, HostingPullRequestSnapshot> cache = new ConcurrentHashMap<>();
     private HostingPullRequestService service;
+    private HostingConnectionService connections;
 
     @BeforeEach
     void setUp()
@@ -92,14 +95,21 @@ class TestHostingPullRequestService
         when(identities.findRepository(30)).thenReturn(Optional.of(new HostingRepository(30, 10, "100", "team/project", URI.create("https://hosting.test/team/project"),
                 URI.create("https://hosting.test/team/project.git"), Optional.empty(), Optional.of("main"))));
         when(snapshots.find(anyLong(), eq(30L), eq(7))).thenAnswer(call -> Optional.ofNullable(cache.get(call.<Long>getArgument(0))));
-        when(snapshots.save(anyLong(), eq(30L), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
-            FetchedPullRequest summary = call.getArgument(3);
+        when(snapshots.save(anyLong(), eq(30L), anyString(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
+            FetchedPullRequest summary = call.getArgument(4);
             HostingPullRequestSnapshot snapshot = new HostingPullRequestSnapshot(new HostingPullRequest(40, 30, 7, summary.githubId().toString()),
-                    call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
+                    call.getArgument(0), call.getArgument(2), call.getArgument(3), summary, call.getArgument(5), call.getArgument(6), call.getArgument(7));
             cache.put(snapshot.accountId(), snapshot);
             return snapshot;
         });
-        doAnswer(call -> cache.remove(call.<Long>getArgument(0))).when(snapshots).evict(anyLong(), eq(30L), eq(7));
+        doAnswer(call -> {
+            cache.computeIfPresent(call.getArgument(0), (id, snapshot) -> snapshot.credentialScope().equals(call.<String>getArgument(3)) ? null : snapshot);
+            return null;
+        }).when(snapshots).evict(anyLong(), eq(30L), eq(7), anyString());
+        doAnswer(ignored -> {
+            cache.clear();
+            return null;
+        }).when(snapshots).evictRepository(30, 7);
         when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(fetched("First", Optional.of("v1")));
         service = service(HostingProvider.GITLAB);
     }
@@ -151,6 +161,36 @@ class TestHostingPullRequestService
         reset(reader);
         when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Replacement", Optional.empty()));
         assertThat(service.refresh(20, 30, 7).credentialGeneration()).isEqualTo(2);
+        assertThat(cache.get(20L).etag()).isEmpty();
+    }
+
+    @Test
+    void scopesFromTheSameAccountNeverShareMetadataOrValidators()
+    {
+        service.refresh(20, 30, 7);
+        HostingReadSession connected = connections.readSession(20);
+        HostingReadSession desktop = new HostingReadSession(20, "github-global:revision", 1, connected.access(), connected.guard());
+        assertThat(service.cached(desktop, 30, 7)).isEmpty();
+        reset(reader);
+        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Desktop", Optional.of("desktop")));
+
+        HostingPullRequestSnapshot result = service.refresh(desktop, 30, 7, false);
+
+        assertThat(result.credentialScope()).isEqualTo("github-global:revision");
+        assertThat(service.cached(20, 30, 7)).isEmpty();
+        service.evict(connected, 30, 7);
+        assertThat(service.cached(desktop, 30, 7)).contains(result);
+    }
+
+    @Test
+    void forcedRefreshDropsTheMatchingScopesValidator()
+    {
+        service.refresh(20, 30, 7);
+        reset(reader);
+        when(reader.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched("Forced", Optional.empty()));
+
+        assertThat(service.refresh(connections.readSession(20), 30, 7, true).pullRequest().title()).isEqualTo("Forced");
+        assertThat(cache.get(20L).credentialScope()).isEqualTo(CONNECTED_ACCOUNT);
         assertThat(cache.get(20L).etag()).isEmpty();
     }
 
@@ -263,12 +303,45 @@ class TestHostingPullRequestService
         }
     }
 
+    @Test
+    void writeInvalidationWaitsForInflightRefreshAndRemovesItsResult()
+            throws Exception
+    {
+        CountDownLatch started = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Thread> invalidating = new AtomicReference<>();
+        when(reader.fetch(any(), any(), anyInt(), any())).thenAnswer(ignored -> {
+            started.countDown();
+            assertThat(release.await(5, SECONDS)).isTrue();
+            return fetched("Before write", Optional.of("old"));
+        });
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            var refresh = executor.submit(() -> service.refresh(20, 30, 7));
+            try {
+                assertThat(started.await(5, SECONDS)).isTrue();
+                var invalidate = executor.submit(() -> {
+                    invalidating.set(Thread.currentThread());
+                    service.invalidateRepository(30, 7);
+                });
+                await().atMost(5, SECONDS).until(() -> invalidating.get() != null && (invalidate.isDone() || invalidating.get().getState() == Thread.State.WAITING));
+                assertThat(invalidate.isDone()).isFalse();
+                release.countDown();
+                refresh.get(5, SECONDS);
+                invalidate.get(5, SECONDS);
+                assertThat(cache).isEmpty();
+            }
+            finally {
+                release.countDown();
+            }
+        }
+    }
+
     private HostingPullRequestService service(HostingProvider provider)
     {
         when(identities.findInstance(10)).thenReturn(Optional.of(new HostingInstance(10, provider, URI.create("https://hosting.test"), URI.create("https://hosting.test/api"))));
-        HostingConnectionService connections = new HostingConnectionService(identities, credentials,
+        connections = new HostingConnectionService(identities, credentials,
                 ImmutableList.of(new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), reader)));
-        return new HostingPullRequestService(connections, credentials, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
+        return new HostingPullRequestService(connections, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     private static PullRequestFetch fetched(String title, Optional<String> etag)

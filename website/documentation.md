@@ -119,9 +119,14 @@ workspace** fetches updates; **Choose GitLab account** switches accounts on the
 same server. Accounts can also be connected or disconnected in **Settings →
 Integrations → GitLab**.
 
-GitLab setup and code sync are available. Merge-request review, issues, agent
-tasks and delivery inside ByteQuay are not available yet; use **Open project in
-GitLab** for those remote features.
+Open **Merge requests** in the workspace to browse cached requests. **Sync merge requests**
+updates them using the selected account; **Load more** reads the next cached
+page. Search and state filters apply to loaded rows. Select a merge request to
+open it in GitLab. GitHub workspaces use the same cached list and keep their
+existing review and monitoring controls.
+
+GitLab review, issues, agent tasks and delivery inside ByteQuay are not available
+yet; use GitLab for those remote features.
 
 ### Plan the day with Today
 

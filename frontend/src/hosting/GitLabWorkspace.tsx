@@ -63,7 +63,7 @@ export default function GitLabWorkspace({ workspace, onWorkspaceChanged }: {
       <a href={settingsRoute('ws-token', workspace.id)}>Choose GitLab account</a>
       <button type="button" className="setw-btn" onClick={() => { void window.bridge.openInAppBrowser(webUrl); }}>Open project in GitLab</button>
     </div>
-    <p>GitLab workspace setup and code sync are available. Merge-request review, issues, agent tasks and delivery in ByteQuay are not available yet.</p>
+    <p>GitLab workspace setup, merge-request lists and code sync are available. Merge-request review, issues, agent tasks and delivery in ByteQuay are not available yet.</p>
     {error !== null && <p className="setw-error" role="alert">{error}</p>}
   </div>;
 }

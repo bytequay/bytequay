@@ -14,6 +14,7 @@
 package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 
 import java.util.List;
@@ -46,6 +47,10 @@ public interface WorkspaceStore
     Optional<Workspace> findBySelectedHostingRepositoryId(long repositoryId);
 
     Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId);
+
+    Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId);
+
+    void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target);
 
     /** Selects an account and retained repository identities on the workspace's hosting server. */
     WorkspaceHostingBinding bindHosting(String workspaceId, long accountId, long selectedRepositoryId, Optional<Long> upstreamRepositoryId);

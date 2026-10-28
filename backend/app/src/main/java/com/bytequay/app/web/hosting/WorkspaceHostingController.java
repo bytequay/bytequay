@@ -14,6 +14,7 @@
 package com.bytequay.app.web.hosting;
 
 import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspacePullRequestPage;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
@@ -22,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
@@ -53,6 +55,13 @@ public class WorkspaceHostingController
         WorkspaceHostingBinding binding = hosting.bind(workspaceId, request.accountId());
         repositories.requestSyncAfterConfigurationChange(workspaceId);
         return binding;
+    }
+
+    @GetMapping("/requests")
+    public WorkspacePullRequestPage cachedRequests(@PathVariable String workspaceId,
+            @RequestParam(defaultValue = "1") int page, @RequestParam(defaultValue = "50") int pageSize)
+    {
+        return hosting.cachedPullRequests(workspaceId, page, pageSize);
     }
 
     @GetMapping("/requests/{number}")

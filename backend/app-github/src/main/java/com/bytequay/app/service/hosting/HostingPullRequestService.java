@@ -14,6 +14,7 @@
 package com.bytequay.app.service.hosting;
 
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingServer;
@@ -77,6 +78,11 @@ public class HostingPullRequestService
     public PullRequestListPage cachedPage(HostingReadSession session, long repositoryId, int page, int pageSize)
     {
         return snapshots.findPage(session.accountId(), repositoryId, session.credentialScope(), page, pageSize);
+    }
+
+    public PullRequestListPage cachedPage(HostingCacheTarget target, int page, int pageSize)
+    {
+        return snapshots.findPage(target.accountId(), target.repositoryId(), target.credentialScope(), page, pageSize);
     }
 
     public void invalidateRepository(long repositoryId, int number)

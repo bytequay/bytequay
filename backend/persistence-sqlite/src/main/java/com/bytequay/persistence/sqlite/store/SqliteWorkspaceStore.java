@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
@@ -122,6 +123,22 @@ public class SqliteWorkspaceStore
     public Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId)
     {
         return repository.findById(checkText(workspaceId, "workspaceId")).flatMap(WorkspaceEntity::hostingBinding);
+    }
+
+    @Override
+    public Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId)
+    {
+        return repository.findById(checkText(workspaceId, "workspaceId")).flatMap(WorkspaceEntity::hostingCacheTarget);
+    }
+
+    @Override
+    @Transactional
+    public void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target)
+    {
+        requireNonNull(target, "target is null");
+        WorkspaceEntity entity = repository.findById(workspaceId).orElseThrow(() -> new IllegalArgumentException("Workspace not found: " + workspaceId));
+        entity.setHostingCacheTarget(target);
+        repository.save(entity);
     }
 
     @Override

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import GitLabWorkspace from '../hosting/GitLabWorkspace';
+import HostingPullsScreen from '../hosting/HostingPullsScreen';
 import React, { Activity, useCallback, useEffect, useRef, useState } from 'react';
 import AgentHome from '../agents/AgentHome';
 import type { TaskAttention } from '../agents/attention';
@@ -77,12 +78,15 @@ type Props = {
 };
 
 export default function WorkspaceShell(props: Props) {
+  if (props.tab === 'prs') return <HostingPullsScreen key={props.workspace.id} workspace={props.workspace}
+    initialPullRequestNumber={props.initialPullRequestNumber} browserOpen={props.browserOpen}
+    onSelectPullRequest={props.onSelectPullRequest} onClosePullRequest={() => { window.location.hash = workspaceRoute(props.workspace.id, 'prs'); }} />;
   return props.workspace.hostingServer?.provider === 'GITLAB'
     ? <GitLabWorkspace workspace={props.workspace} onWorkspaceChanged={props.onWorkspaceChanged} />
     : <GitHubWorkspaceShell {...props} />;
 }
 
-function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: Props) {
+function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectIssue }: Props) {
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
   // The Epic whose view is open over Home, by the identity its work names it with.
   const [openEpic, setOpenEpic] = useState<string | null>(null);
@@ -196,10 +200,6 @@ function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceI
       )}
     </div>
   );
-  const selectScopedPullRequest = useCallback((reference: { number: number }, mode: NavigationMode) => {
-    onSelectPullRequest(reference.number, mode);
-  }, [onSelectPullRequest]);
-
   // Commits browsed from another repository name their own; everything
   // else zooms the workspace's monitored one.
   const zoomPullRequest = useCallback((number: number, repo?: string) => {
@@ -274,18 +274,6 @@ function GitHubWorkspaceShell({ workspace, taskAttention, tab, relatedWorkspaceI
           onSourceSelectionChange={setCommitSourceSelection}
           onOpenPullRequest={zoomPullRequest}
           onOpenSettings={() => { window.location.hash = settingsRoute('ws-repository', workspace.id); }}
-        />
-      );
-    }
-    if (tab === 'prs') {
-      return (
-        <PullsScreen
-          initialPr={initialPullRequestNumber === null
-            ? undefined
-            : { repo: monitoredRepository, number: initialPullRequestNumber }}
-          repositoryScope={{ workspaceId: workspace.id, repository: monitoredRepository }}
-          browserOpen={browserOpen}
-          onSelectPullRequest={selectScopedPullRequest}
         />
       );
     }

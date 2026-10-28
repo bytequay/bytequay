@@ -87,7 +87,7 @@ function WatchedReposGrid({ workspaces, loading, prs, onOpenWorkspace, onWatch }
                     aria-hidden="true"
                   />
                 </div>
-                {workspace.hostingServer?.provider === 'GITLAB' ? <div className="home-repo-tile__stats">GitLab · code sync</div> : <div className="home-repo-tile__stats">
+                {workspace.hostingServer?.provider === 'GITLAB' ? <div className="home-repo-tile__stats">GitLab · merge requests</div> : <div className="home-repo-tile__stats">
                   <span><b>{counts.open}</b> open</span>
                   <span><b>{counts.needsYou}</b> need you</span>
                 </div>}

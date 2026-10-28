@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.entity;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import jakarta.persistence.Column;
@@ -64,6 +65,11 @@ public class WorkspaceEntity
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(columnDefinition = "TEXT")
     private HostingServer hostingServer;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "TEXT")
+    @Setter
+    private HostingCacheTarget hostingCacheTarget;
 
     @Column(nullable = false)
     private String selectedOwner;
@@ -148,6 +154,7 @@ public class WorkspaceEntity
         if (selectedRepositoryId > 0 && (!Objects.equals(hostingServer, workspace.hostingServer().orElse(null)) || selectedRepositoryId != workspace.selectedRepositoryId()
                 || !Objects.equals(upstreamRepositoryId, workspace.upstreamRepositoryId().orElse(null))
                 || monitoredRepositoryId != workspace.monitoredRepositoryId() || topology != workspace.topology())) {
+            hostingCacheTarget = null;
             hostingAccount = null;
             selectedHostingRepository = null;
             upstreamHostingRepository = null;
@@ -175,6 +182,11 @@ public class WorkspaceEntity
         displayOrder = workspace.displayOrder();
         createdAt = workspace.createdAt();
         updatedAt = workspace.updatedAt();
+    }
+
+    public Optional<HostingCacheTarget> hostingCacheTarget()
+    {
+        return Optional.ofNullable(hostingCacheTarget);
     }
 
     public Optional<WorkspaceHostingBinding> hostingBinding()

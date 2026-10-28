@@ -372,6 +372,14 @@ export type HostingRepositoryDto = {
 export type WorkspaceHostingBindingDto = {
   workspaceId: string; accountId: number; selectedRepositoryId: number; upstreamRepositoryId: number | null;
 };
+export type HostingPullRequestSummaryDto = {
+  repo: string; number: number; title: string; author: string; htmlUrl: string;
+  createdAt: string; updatedAt: string; origin: PullRequestDto['origin'];
+  labels: string[]; labelColors: Record<string, string>; draft: boolean; state: string;
+  closedAt: string | null; mergedAt: string | null; requestedReviewers: string[]; headRef: string | null;
+};
+export type WorkspaceHostingRequestDto = { summary: HostingPullRequestSummaryDto; github: PullRequestDto | null };
+export type WorkspaceHostingRequestsDto = { items: WorkspaceHostingRequestDto[]; hasNext: boolean };
 
 export type WorkspaceDto = {
   hostingServer?: HostingServerDto | null;
@@ -1737,6 +1745,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   createHostingWorkspace: (accountId: number, repositoryId: number) => Promise<WorkspaceDto>;
   getWorkspaceHosting: (workspaceId: string) => Promise<WorkspaceHostingBindingDto | null>;
   setWorkspaceHosting: (workspaceId: string, accountId: number) => Promise<WorkspaceHostingBindingDto>;
+  fetchWorkspaceHostingRequests: (workspaceId: string, page: number, pageSize: number) => Promise<WorkspaceHostingRequestsDto>;
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
   previewWatch: (selectedRepositoryId: number, topology?: WatchRepositoryTopology) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;

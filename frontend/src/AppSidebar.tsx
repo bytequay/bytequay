@@ -224,6 +224,7 @@ export default function AppSidebar({
   };
 
   const workspaceItem = ({ tab, label, icon }: typeof WORKSPACE_TABS[number]) => {
+    if (tab === 'prs' && workspace?.hostingServer?.provider === 'GITLAB') label = 'Merge requests';
     const reason = disabledReason(tab);
     return row({
       key: tab,
@@ -380,7 +381,7 @@ export default function AppSidebar({
             <span className="app-sidebar__ws-name app-sidebar__label" title={workspace.name}>{workspace.name}</span>
           </button>
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
-            {WORKSPACE_TABS.filter(item => workspace.hostingServer?.provider !== 'GITLAB' || item.tab === 'home').map(workspaceItem)}
+            {WORKSPACE_TABS.filter(item => workspace.hostingServer?.provider !== 'GITLAB' || item.tab === 'home' || item.tab === 'prs').map(workspaceItem)}
           </nav>
         </>
       )}

@@ -75,6 +75,18 @@ describe('watched repository workspace UI', () => {
     expect(workspaceSidebar).not.toContain('contributor.png');
   });
 
+  it('offers cached merge requests before a GitLab workspace is cloned', () => {
+    const html = renderToStaticMarkup(<AppSidebar browserRailVisible onToggleBrowserRail={() => {}}
+      canGoBack={false} canGoForward={false} onBack={() => {}} onForward={() => {}} onNavigate={() => {}}
+      page="workspaces" workspaceTab="prs" onWorkspaceTab={() => {}} workspace={workspaceFixture({
+        hostingServer: { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' },
+        lastCodeSyncAt: null,
+      })} />);
+    expect(html).toContain('aria-label="Merge requests" aria-current="page"');
+    expect(html).not.toContain('aria-label="Pull requests"');
+    expect(html).not.toMatch(/aria-label="Merge requests"[^>]*disabled/);
+  });
+
   it('shows the same durable ID and state on Home and Workspaces', () => {
     const value = { ...workspace('FORK'), upstreamDefaultBranch: 'master' };
     const home = renderToStaticMarkup(<WatchedReposGrid

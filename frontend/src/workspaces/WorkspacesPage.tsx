@@ -467,7 +467,7 @@ export function WorkspaceCards({
               {fork ? `${defaultBranch} · follows ${name}` : defaultBranch}
             </div>
 
-            {gitlab ? <p className="ws-retired-note">GitLab · code sync</p> : <div className="ws-stats">
+            {gitlab ? <p className="ws-retired-note">GitLab · merge requests</p> : <div className="ws-stats">
               <div className="ws-stat">
                 <div className={`ws-stat__n${stats?.openPrs ? '' : ' is-zero'}`}>{stats?.openPrs ?? 0}</div>
                 <div className="ws-stat__label">open PRs</div>

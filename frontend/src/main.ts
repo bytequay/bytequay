@@ -1832,6 +1832,8 @@ function registerIpc(): void {
   ipcMain.handle('workspaces:hosting', (_event, workspaceId: string) => backendJson(workspaceUrl(workspaceId, '/hosting')));
   ipcMain.handle('workspaces:hosting:set', (_event, workspaceId: string, accountId: number) =>
     backendJson(workspaceUrl(workspaceId, '/hosting'), jsonInit('POST', { accountId })));
+  ipcMain.handle('workspaces:hosting:requests', (_event, workspaceId: string, page: number, pageSize: number) =>
+    backendJson(`${workspaceUrl(workspaceId, '/hosting/requests')}?${new URLSearchParams({ page: String(page), pageSize: String(pageSize) })}`));
   ipcMain.handle('workspaces:search', (_event, query: string, limit: number) =>
     backendJson(`${backendBase()}/api/repository-search?${new URLSearchParams({ q: query, limit: String(limit) })}`));
   ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number, topology?: WatchRepositoryTopology) =>

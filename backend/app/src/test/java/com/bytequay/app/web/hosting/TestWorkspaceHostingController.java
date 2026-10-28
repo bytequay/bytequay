@@ -19,11 +19,16 @@ import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
+import com.bytequay.app.workspace.WorkspacePullRequestPage;
+import com.bytequay.app.workspace.WorkspacePullRequestRow;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -35,9 +40,11 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.app.web.agent.AgentController.SESSION_HEADER;
+import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -58,7 +65,8 @@ class TestWorkspaceHostingController
     private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
 
     @ParameterizedTest
-    @CsvSource({"GET,/api/workspaces/workspace/hosting", "POST,/api/workspaces/workspace/hosting", "GET,/api/workspaces/workspace/hosting/requests/7"})
+    @CsvSource({"GET,/api/workspaces/workspace/hosting", "POST,/api/workspaces/workspace/hosting", "GET,/api/workspaces/workspace/hosting/requests/7",
+            "GET,/api/workspaces/workspace/hosting/requests"})
     void requiresLocalDesktopSession(String method, String path)
             throws Exception
     {
@@ -68,6 +76,22 @@ class TestWorkspaceHostingController
                         .contentType(MediaType.APPLICATION_JSON).content("{\"accountId\":20}"))
                 .andExpect(status().isForbidden());
         verifyNoInteractions(hosting);
+    }
+
+    @Test
+    void returnsTheSharedCachedPageWithoutRefreshing()
+            throws Exception
+    {
+        Instant now = Instant.parse("2026-08-01T00:00:00Z");
+        FetchedPullRequest summary = new FetchedPullRequest(99L, "group/project", 7, "Change", "alice", "https://gitlab.com/group/project/-/merge_requests/7",
+                now, now, OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
+        when(hosting.cachedPullRequests("workspace", 2, 25))
+                .thenReturn(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, Optional.empty())), true));
+
+        mvc().perform(get(BASE + "/requests").header(SESSION_HEADER, SESSION).param("page", "2").param("pageSize", "25"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.items[0].summary.title").value("Change"))
+                .andExpect(jsonPath("$.items[0].github").isEmpty()).andExpect(jsonPath("$.hasNext").value(true));
+        verifyNoInteractions(repositories);
     }
 
     @Test

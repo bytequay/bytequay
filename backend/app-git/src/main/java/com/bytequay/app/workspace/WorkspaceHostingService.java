@@ -20,13 +20,17 @@ import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingIdentityStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -39,7 +43,9 @@ import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERV
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Binds existing workspace routing to an explicitly selected hosting account, without moving its credentials. */
@@ -50,17 +56,20 @@ public class WorkspaceHostingService
     private final HostingIdentityStore identities;
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
+    private final PullRequestStore pullRequests;
     private final CredentialService desktopCredentials;
     private final WorkspacePaths paths;
     private final Clock clock;
 
     public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities,
-            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials, WorkspacePaths paths, Clock clock)
+            HostingConnectionService connections, HostingPullRequestService requests, CredentialService desktopCredentials,
+            WorkspacePaths paths, Clock clock, PullRequestStore pullRequests)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.identities = requireNonNull(identities, "identities is null");
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.desktopCredentials = requireNonNull(desktopCredentials, "desktopCredentials is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -134,7 +143,25 @@ public class WorkspaceHostingService
         checkArgument(account.instanceId() == session.access().instanceId().orElseThrow(), "Hosting account belongs to another instance");
         checkArgument(repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())), "Workspace repository identity changed");
         binding.ifPresent(value -> checkArgument(repository.id() == value.monitoredRepositoryId(), "Workspace repository identity changed"));
+        if (binding.isEmpty()) {
+            workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(session.accountId(), repository.id(), session.credentialScope()));
+        }
         return new WorkspaceHostingRead(session, repository, account.login());
+    }
+
+    public WorkspacePullRequestPage cachedPullRequests(String workspaceId, int page, int pageSize)
+    {
+        checkArgument(page > 0, "page must be positive");
+        checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        Optional<HostingCacheTarget> target = workspaces.findHostingBinding(workspaceId)
+                .map(binding -> new HostingCacheTarget(binding.accountId(), binding.monitoredRepositoryId(), CONNECTED_ACCOUNT))
+                .or(() -> workspaces.findHostingCacheTarget(workspaceId));
+        PullRequestListPage found = target.map(value -> requests.cachedPage(value, page, pageSize))
+                .orElseGet(() -> new PullRequestListPage(ImmutableList.of(), false));
+        return new WorkspacePullRequestPage(found.items().stream().map(summary -> new WorkspacePullRequestRow(summary, workspace.isGitHub()
+                ? pullRequests.findIdByRepoAndNumber(summary.repo(), summary.number()).flatMap(pullRequests::findById) : Optional.empty()))
+                .collect(toImmutableList()), found.hasNext());
     }
 
     public HostingPullRequestSnapshot readPullRequest(String workspaceId, int number)

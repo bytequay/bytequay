@@ -139,6 +139,7 @@ const bridge: Bridge = {
   createHostingWorkspace: invoke('hosting:workspace'),
   getWorkspaceHosting: invoke('workspaces:hosting'),
   setWorkspaceHosting: invoke('workspaces:hosting:set'),
+  fetchWorkspaceHostingRequests: invoke('workspaces:hosting:requests'),
   searchRepositories: invoke('workspaces:search'),
   previewWatch: invoke('workspaces:preview'),
   watchRepository: invoke('workspaces:watch'),

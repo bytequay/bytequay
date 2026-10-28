@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
@@ -58,6 +59,23 @@ class TestSqliteWorkspaceHostingBinding
 
     @Autowired
     private EntityManager entities;
+
+    @Test
+    void retainsCacheRoutingWithoutChangingAccountSelection()
+    {
+        Workspace workspace = store.createOrGet(workspace());
+        HostingCacheTarget target = new HostingCacheTarget(20, 30, "github-workspace:" + workspace.id());
+        store.saveHostingCacheTarget(workspace.id(), target);
+        entities.flush();
+        entities.clear();
+
+        assertThat(store.findHostingCacheTarget(workspace.id())).contains(target);
+        assertThat(store.findHostingBinding(workspace.id())).isEmpty();
+        store.save(workspace.withName("Renamed", NOW.plusSeconds(1)));
+        assertThat(store.findHostingCacheTarget(workspace.id())).contains(target);
+        store.save(withUpstream(workspace));
+        assertThat(store.findHostingCacheTarget(workspace.id())).isEmpty();
+    }
 
     @Test
     void attachesRenamedRepositoryWithoutChangingWorkspaceData()

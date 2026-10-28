@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -34,6 +35,7 @@ final class InMemoryWorkspaceStore
     private final Map<String, Workspace> byId = new LinkedHashMap<>();
     private final Set<String> unwatched = new HashSet<>();
     private final Map<String, WorkspaceHostingBinding> bindings = new LinkedHashMap<>();
+    private final Map<String, HostingCacheTarget> cacheTargets = new LinkedHashMap<>();
 
     @Override
     public synchronized List<Workspace> findAll()
@@ -120,6 +122,7 @@ final class InMemoryWorkspaceStore
                 || !previous.upstreamRepositoryId().equals(workspace.upstreamRepositoryId())
                 || previous.monitoredRepositoryId() != workspace.monitoredRepositoryId() || previous.topology() != workspace.topology())) {
             bindings.remove(workspace.id());
+            cacheTargets.remove(workspace.id());
         }
         return workspace;
     }
@@ -128,6 +131,18 @@ final class InMemoryWorkspaceStore
     public synchronized Optional<WorkspaceHostingBinding> findHostingBinding(String workspaceId)
     {
         return Optional.ofNullable(bindings.get(workspaceId));
+    }
+
+    @Override
+    public synchronized Optional<HostingCacheTarget> findHostingCacheTarget(String workspaceId)
+    {
+        return Optional.ofNullable(cacheTargets.get(workspaceId));
+    }
+
+    @Override
+    public synchronized void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target)
+    {
+        cacheTargets.put(workspaceId, target);
     }
 
     @Override
@@ -145,5 +160,6 @@ final class InMemoryWorkspaceStore
         byId.remove(workspaceId);
         unwatched.remove(workspaceId);
         bindings.remove(workspaceId);
+        cacheTargets.remove(workspaceId);
     }
 }

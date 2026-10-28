@@ -19,11 +19,13 @@ import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
+import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
@@ -34,12 +36,14 @@ import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.HostingPullRequestStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -57,12 +61,14 @@ import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -84,8 +90,9 @@ class TestWorkspaceHostingService
     private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
     private final HostingPullRequestService cache = new HostingPullRequestService(connections, snapshots, identities, Clock.fixed(NOW, ZoneOffset.UTC));
     private final CredentialService desktop = mock(CredentialService.class);
+    private final PullRequestStore legacy = mock(PullRequestStore.class);
     private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, connections, cache, desktop,
-            new WorkspacePaths("/tmp/managed-workspaces"), Clock.fixed(NOW, ZoneOffset.UTC));
+            new WorkspacePaths("/tmp/managed-workspaces"), Clock.fixed(NOW, ZoneOffset.UTC), legacy);
 
     @BeforeEach
     void setUp()
@@ -165,6 +172,64 @@ class TestWorkspaceHostingService
         assertThat(snapshot.credentialScope()).isEqualTo("workspace-override");
         verify(repositories).findById(any(), eq("200"));
         verifyNoInteractions(credentials);
+    }
+
+    @Test
+    void readsTheExplicitBindingCacheLocallyAndKeepsGitHubEnrichment()
+    {
+        workspaces.bindHosting("workspace", 20, 30, Optional.of(31L));
+        workspaces.saveHostingCacheTarget("workspace", new HostingCacheTarget(21, 32, "old-workspace-scope"));
+        FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
+        PullRequest github = new PullRequest(12, summary.repo(), summary.number(), "Old title", summary.author(), summary.htmlUrl(), NOW, NOW,
+                OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 4, 2, 3, "open", null, null,
+                null, null, null, "topic", NOW, null, null, null);
+        when(snapshots.findPage(20, 31, CONNECTED_ACCOUNT, 2, 25)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), true));
+        when(legacy.findIdByRepoAndNumber(summary.repo(), 7)).thenReturn(Optional.of(12L));
+        when(legacy.findById(12)).thenReturn(Optional.of(github));
+
+        assertThat(service.cachedPullRequests("workspace", 2, 25))
+                .isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(new WorkspacePullRequestRow(summary, Optional.of(github))), true));
+        verify(snapshots).findPage(20, 31, CONNECTED_ACCOUNT, 2, 25);
+        verifyNoInteractions(identities, credentials, repositories, requests, desktop);
+    }
+
+    @Test
+    void keepsAnUnboundWorkspacesVerifiedCacheTargetForLocalReads()
+    {
+        when(desktop.captureWorkspaceHostingRead("workspace"))
+                .thenReturn(new HostingReadSession(20, "github-workspace:workspace", new HostingAccess(INSTANCE, "workspace-token")));
+        service.captureRead("workspace");
+        assertThat(workspaces.findHostingCacheTarget("workspace")).contains(new HostingCacheTarget(20, 31, "github-workspace:workspace"));
+        assertThat(workspaces.findHostingBinding("workspace")).isEmpty();
+        clearInvocations(identities, credentials, repositories, requests, desktop);
+        FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
+        when(snapshots.findPage(20, 31, "github-workspace:workspace", 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
+
+        assertThat(service.cachedPullRequests("workspace", 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, Optional.empty()));
+        verifyNoInteractions(identities, credentials, repositories, requests, desktop);
+    }
+
+    @Test
+    void readsGitLabCacheWithoutGitHubProjectionOrConnectedCredentials()
+    {
+        gitLab("https://git.company.test/gitlab");
+        Workspace workspace = service.watch(40, 60, Optional.empty());
+        when(credentials.find(40)).thenReturn(Optional.empty());
+        clearInvocations(identities, credentials, repositories, requests, desktop);
+        FetchedPullRequest summary = fetched().pullRequest().orElseThrow();
+        when(snapshots.findPage(40, 60, CONNECTED_ACCOUNT, 1, 50)).thenReturn(new PullRequestListPage(ImmutableList.of(summary), false));
+
+        assertThat(service.cachedPullRequests(workspace.id(), 1, 50).items()).containsExactly(new WorkspacePullRequestRow(summary, Optional.empty()));
+        verifyNoInteractions(identities, credentials, repositories, requests, desktop, legacy);
+    }
+
+    @Test
+    void returnsEmptyBeforeTheFirstRefreshWithoutResolvingCredentials()
+    {
+        assertThat(service.cachedPullRequests("workspace", 1, 50)).isEqualTo(new WorkspacePullRequestPage(ImmutableList.of(), false));
+        assertThatThrownBy(() -> service.cachedPullRequests("workspace", 0, 50)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.cachedPullRequests("workspace", 1, 101)).isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(identities, credentials, repositories, requests, snapshots, desktop, legacy);
     }
 
     @Test

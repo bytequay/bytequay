@@ -59,12 +59,15 @@ import com.bytequay.app.discussion.TaskDiscussionService;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.DiffCommit;
@@ -73,7 +76,9 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
@@ -100,6 +105,7 @@ import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -112,6 +118,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -138,6 +145,8 @@ import static com.bytequay.app.review.ReviewTestData.discoveryCandidate;
 import static com.bytequay.app.review.ReviewTestData.perspectives;
 import static com.bytequay.app.review.ReviewTestData.pullRequestReview;
 import static com.bytequay.app.review.ReviewTestData.withSource;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -145,6 +154,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -195,11 +205,11 @@ class TestAgentReviewService
     void mismatchedPullRequestDiffCannotStartAReview()
     {
         ResponseStatusException conflict = new ResponseStatusException(HttpStatus.CONFLICT, "Refresh the pull request before reviewing its changed files");
-        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, HEAD)).thenThrow(conflict);
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(fixture.route, HEAD)).thenThrow(conflict);
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isSameAs(conflict);
 
-        verify(fixture.pullRequests).getValidatedPullRequestDiffFiles(REPO, NUMBER, HEAD);
+        verify(fixture.pullRequests).getValidatedPullRequestDiffFiles(fixture.route, HEAD);
         assertThat(fixture.store.listOpenReviews()).isEmpty();
         verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
         verify(fixture.turns, never()).start(any());
@@ -664,6 +674,51 @@ class TestAgentReviewService
     }
 
     @Test
+    void gitLabExplorationPreparesTheLatestHeadUsingTheWorkspaceAccount()
+    {
+        HostingInstance instance = new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com/gitlab"), URI.create("https://gitlab.example.com/gitlab/api/v4"));
+        HostingRepository repository = new HostingRepository(22, 2, "123", REPO, URI.create("https://gitlab.example.com/gitlab/owner/repo"),
+                URI.create("https://gitlab.example.com/gitlab/owner/repo.git"), Optional.empty(), Optional.of("main"));
+        PullRequestRead route = new PullRequestRead(new HostingReadSession(9, "gitlab-token", new HostingAccess(instance, "token")), repository, NUMBER, "gitlab-user");
+        Map<String, String> authentication = ImmutableMap.of("GIT_CONFIG_COUNT", "1");
+        when(fixture.hosting.captureRead(WORKSPACE)).thenReturn(new WorkspaceHostingRead(route.session(), repository, route.login()));
+        when(fixture.pullRequests.prepareRead(WORKSPACE, REPO, NUMBER)).thenReturn(route);
+        when(fixture.pullRequests.getPullRequestDetail(route)).thenReturn(detail("https://gitlab.example.com/gitlab/owner/repo/-/merge_requests/7"));
+        when(fixture.pullRequests.findHeadSha(route)).thenReturn(Optional.of(HEAD), Optional.of(NEW_HEAD));
+        when(fixture.pullRequests.requestHeadRef(route)).thenReturn("refs/merge-requests/7/head");
+        when(fixture.credentials.gitAuthenticationEnvironment(WORKSPACE, ImmutableList.of(repository.httpCloneUrl().toString()))).thenReturn(authentication);
+        when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/7^{commit}")).thenReturn(ok(NEW_HEAD));
+        when(fixture.git.run(REPOSITORY, "merge-base", NEW_HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));
+        when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + NEW_HEAD))
+                .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Fix the parser\n"));
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(route, NEW_HEAD)).thenReturn(ImmutableList.of());
+        when(fixture.tasks.prepare(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
+
+        AgentReviewProjection prepared = fixture.service.prepare(WORKSPACE, REPO, NUMBER);
+
+        assertThat(prepared.review().worktreeHeadSha()).contains(NEW_HEAD);
+        assertThat(prepared.review().followUpPaused()).isTrue();
+        assertThat(prepared.runs()).isEmpty();
+        ArgumentCaptor<CreateAgentTaskCommand> command = ArgumentCaptor.forClass(CreateAgentTaskCommand.class);
+        verify(fixture.tasks).prepare(command.capture());
+        assertThat(command.getValue().workspaceId()).isEqualTo(WORKSPACE);
+        assertThat(command.getValue().startCommit()).isEqualTo(NEW_HEAD);
+        assertThat(command.getValue().generatedBranch()).startsWith("gitlab-user/bytequay/");
+        verify(fixture.git).run(REPOSITORY, Duration.ofMinutes(2), authentication, ImmutableList.of(
+                "fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "origin",
+                "+refs/merge-requests/7/head:refs/bytequay/review/7", "+refs/heads/main:refs/remotes/origin/main"));
+        verify(fixture.credentials).gitAuthenticationEnvironment(WORKSPACE, ImmutableList.of(repository.httpCloneUrl().toString()));
+        verify(fixture.refresh).refreshAllDetail(route);
+        verify(fixture.pullRequests).getValidatedPullRequestDiffFiles(route, NEW_HEAD);
+        verify(fixture.credentials, never()).resolveGitHubCredential();
+        verify(fixture.pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
+        verify(fixture.pullRequests, never()).findHeadSha(anyString(), anyInt());
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
+        verify(fixture.driver, never()).probe();
+    }
+
+    @Test
     void aReplayReviewsItsPastHeadOutsideThePullRequestsReviewsAndEndsWithItsRun()
     {
         when(fixture.browse.history(REPOSITORY, MERGE_BASE, HEAD)).thenReturn(new WorktreeDiffReader.History(ImmutableList.of(
@@ -723,13 +778,13 @@ class TestAgentReviewService
     }
 
     @Test
-    void unavailableGitHubAccountPreventsTaskCreation()
+    void unavailableHostingAccountPreventsTaskCreation()
     {
-        when(fixture.credentials.resolveGitHubCredential()).thenThrow(new IllegalStateException("GitHub credential unavailable"));
+        when(fixture.hosting.captureRead(WORKSPACE)).thenThrow(new IllegalStateException("Hosting credential unavailable"));
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("GitHub credential unavailable");
+                .hasMessageContaining("Hosting credential unavailable");
 
         assertThat(fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER)).isEmpty();
         verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
@@ -2263,13 +2318,14 @@ class TestAgentReviewService
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(baseline.id());
 
         when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(NEW_HEAD));
+        when(fixture.pullRequests.findHeadSha(fixture.route)).thenReturn(Optional.of(NEW_HEAD));
         when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(NEW_HEAD));
         when(fixture.git.run(REPOSITORY, "merge-base", NEW_HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));
         when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + NEW_HEAD))
                 .thenReturn(ok(NEW_HEAD + FIELD + "Alice" + FIELD + "Address review\n"));
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
-        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, NEW_HEAD))
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(fixture.route, NEW_HEAD))
                 .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         TurnId updateTurn = TurnId.valueOf("55555555-5555-4555-8555-555555555555");
         when(fixture.turns.start(any(StartAgentTurnCommand.class))).thenReturn(AgentTurn.accepted(updateTurn, TASK_ID, "review-update", SETTINGS, NOW));
@@ -3400,7 +3456,7 @@ class TestAgentReviewService
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
         when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
-        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(REPO, NUMBER, NEW_HEAD))
+        when(fixture.pullRequests.getValidatedPullRequestDiffFiles(fixture.route, NEW_HEAD))
                 .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
         when(fixture.git.runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {
             List<String> arguments = invocation.getArgument(3);
@@ -3434,10 +3490,11 @@ class TestAgentReviewService
         return ImmutableList.of("-c", "core.hooksPath=/dev/null", "checkout", "--no-overwrite-ignore", "--no-recurse-submodules", "-B", taskWorktree().generatedBranch(), head);
     }
 
-    /** GitHub and the fetched pull request ref both report the given head. */
+    /** The hosting provider and the fetched pull request ref both report the given head. */
     private static void pushHead(Fixture fixture, String head)
     {
         when(fixture.pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(head));
+        when(fixture.pullRequests.findHeadSha(fixture.route)).thenReturn(Optional.of(head));
         when(fixture.git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(head));
         when(fixture.git.run(REPOSITORY, "merge-base", head, BASE_SHA)).thenReturn(ok(MERGE_BASE));
         when(fixture.git.run(REPOSITORY, "log", "--reverse", "--format=%H%x1f%an%x1f%s", MERGE_BASE + ".." + head))
@@ -3619,12 +3676,17 @@ class TestAgentReviewService
 
     private static PullRequestDetail detail()
     {
+        return detail("https://github.test/owner/repo/pull/7");
+    }
+
+    private static PullRequestDetail detail(String url)
+    {
         return new PullRequestDetail(
                 12L,
                 REPO,
                 NUMBER,
                 "Fix the parser",
-                "https://github.test/owner/repo/pull/7",
+                url,
                 "open",
                 false,
                 true,
@@ -3711,6 +3773,11 @@ class TestAgentReviewService
         private final PullRequestService pullRequests = mock(PullRequestService.class);
         private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         private final CredentialService credentials = mock(CredentialService.class);
+        private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+        private final HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        private final HostingRepository repository = new HostingRepository(1, 1, "12", REPO, URI.create("https://github.com/owner/repo"),
+                URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main"));
+        private final PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "token", new HostingAccess(instance, "token")), repository, NUMBER, "octocat");
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
         private final ReviewSweep sweeps = mock(ReviewSweep.class);
         private final TaskDiscussionService discussions = mock(TaskDiscussionService.class);
@@ -3741,6 +3808,7 @@ class TestAgentReviewService
                     pullRequests,
                     refresh,
                     credentials,
+                    hosting,
                     observer,
                     sweeps,
                     discussions,
@@ -3773,10 +3841,13 @@ class TestAgentReviewService
                     "main",
                     ImmutableList.of());
             when(workspaces.requireReadyRepository(WORKSPACE)).thenReturn(workspace);
-            when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("octocat", "Octo Cat", "", "", 0, 0, 0, "", "", "", "")));
-            when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+            when(hosting.captureRead(WORKSPACE)).thenReturn(new WorkspaceHostingRead(route.session(), repository, route.login()));
+            when(pullRequests.prepareRead(WORKSPACE, REPO, NUMBER)).thenReturn(route);
+            when(pullRequests.getPullRequestDetail(route)).thenReturn(detail());
             when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(HEAD));
-            when(pullRequests.getValidatedPullRequestDiffFiles(eq(REPO), eq(NUMBER), anyString()))
+            when(pullRequests.findHeadSha(route)).thenReturn(Optional.of(HEAD));
+            when(pullRequests.requestHeadRef(route)).thenReturn("refs/pull/" + NUMBER + "/head");
+            when(pullRequests.getValidatedPullRequestDiffFiles(eq(route), anyString()))
                     .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +1,3 @@\n context\n+added\n")));
             when(tasks.create(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
             when(tasks.get(TASK_ID)).thenReturn(idleTask());
@@ -3804,6 +3875,7 @@ class TestAgentReviewService
         private void stubGit()
         {
             when(git.run(eq(REPOSITORY), anyList())).thenReturn(ok(""));
+            when(git.run(eq(REPOSITORY), eq(Duration.ofMinutes(2)), anyMap(), anyList())).thenReturn(ok(""));
             // No range can be compared unless a test supplies it, so a new head is a different change by default.
             when(git.runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
             when(git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(HEAD));

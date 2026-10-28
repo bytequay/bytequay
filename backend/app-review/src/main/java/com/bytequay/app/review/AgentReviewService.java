@@ -57,6 +57,7 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.PullRequest;
@@ -158,7 +159,7 @@ public class AgentReviewService
     private final ReviewExperiments experiments;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService refresh;
-    private final CredentialService credentials;
+    private final WorkspaceHostingService hosting;
     private final ReviewTaskObserver observer;
     private final ReviewSweep sweeps;
     private final TaskDiscussionService discussions;
@@ -189,6 +190,7 @@ public class AgentReviewService
             PullRequestService pullRequests,
             PullRequestRefreshService refresh,
             CredentialService credentials,
+            WorkspaceHostingService hosting,
             ReviewTaskObserver observer,
             ReviewSweep sweeps,
             TaskDiscussionService discussions,
@@ -215,13 +217,13 @@ public class AgentReviewService
         this.experiments = requireNonNull(experiments, "experiments is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
         this.observer = requireNonNull(observer, "observer is null");
         this.sweeps = requireNonNull(sweeps, "sweeps is null");
         this.discussions = requireNonNull(discussions, "discussions is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
-        this.snapshots = new ReviewSnapshots(git, browse, worktrees, pullRequests, refresh);
+        this.snapshots = new ReviewSnapshots(git, browse, worktrees, pullRequests, refresh, credentials);
     }
 
     /** The open review of a pull request, else its most recent ended one, else empty. */
@@ -366,7 +368,7 @@ public class AgentReviewService
             OptionalInt number, Optional<String> sourceTaskId, Optional<AgentReview.Replay> replay, boolean paused, Optional<Snapshot> firstRun)
     {
         TaskId taskId = TaskId.random();
-        String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
+        String branch = TaskBranches.generate(taskId, hosting.captureRead(workspace.workspaceId()).login(), title);
         CreateAgentTaskCommand command = new CreateAgentTaskCommand(taskId, workspace.workspaceId(), selection.laneId(),
                 WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), headSha, branch, title, selection.defaults());
         AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> sourceTaskId.map(id -> createSharedReviewer(command, TaskId.valueOf(id)))

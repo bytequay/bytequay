@@ -18,6 +18,8 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.app.agent.runtime.WorkflowAgentTasks;
 import com.bytequay.app.git.command.GitCommandRunner;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -31,6 +33,7 @@ import com.google.common.collect.ImmutableList;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -50,46 +53,51 @@ final class ReviewSnapshots
     private final WorktreeService worktrees;
     private final PullRequestService pullRequests;
     private final PullRequestRefreshService refresh;
+    private final CredentialService credentials;
 
-    ReviewSnapshots(GitCommandRunner git, WorktreeDiffReader browse, WorktreeService worktrees, PullRequestService pullRequests, PullRequestRefreshService refresh)
+    ReviewSnapshots(GitCommandRunner git, WorktreeDiffReader browse, WorktreeService worktrees, PullRequestService pullRequests,
+            PullRequestRefreshService refresh, CredentialService credentials)
     {
         this.git = requireNonNull(git, "git is null");
         this.browse = requireNonNull(browse, "browse is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.refresh = requireNonNull(refresh, "refresh is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
     }
 
     /**
      * Freezes the pull request at its current remote head: the exact head and base are fetched
      * through the pull request's own refs, so a fork head needs no agent-supplied remote, and the
-     * publication diff is the one GitHub reports for that head.
+     * publication diff is the one the hosting provider reports for that head.
      */
     Snapshot pullRequest(WorkspaceRepositoryContext workspace, String repository, int number)
     {
-        PullRequestDetail detail = pullRequests.getPullRequestDetail(repository, number);
-        String headSha = pullRequests.findHeadSha(repository, number)
+        PullRequestRead route = pullRequests.prepareRead(workspace.workspaceId(), repository, number);
+        PullRequestDetail detail = pullRequests.getPullRequestDetail(route);
+        String headSha = pullRequests.findHeadSha(route)
                 .orElseThrow(() -> new ReviewConflictException("The pull request head is unknown; refresh the pull request"));
         String baseRef = Optional.ofNullable(detail.baseRef()).orElseThrow(() -> new ReviewConflictException("The pull request base branch is unknown"));
         String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
         Path repositoryPath = workspace.repository();
         String headRef = "refs/bytequay/review/" + number;
-        GitCommandRunner.Result fetched = git.run(repositoryPath, ImmutableList.of(
+        GitCommandRunner.Result fetched = git.run(repositoryPath, Duration.ofMinutes(2),
+                credentials.gitAuthenticationEnvironment(workspace.workspaceId(), ImmutableList.of(route.repository().httpCloneUrl().toString())), ImmutableList.of(
                 "fetch",
                 "--no-tags",
                 "--no-recurse-submodules",
                 "--no-write-fetch-head",
                 remote,
-                "+refs/pull/" + number + "/head:" + headRef,
+                "+" + pullRequests.requestHeadRef(route) + ":" + headRef,
                 "+refs/heads/" + baseRef + ":refs/remotes/" + remote + "/" + baseRef));
         if (!fetched.successful()) {
             throw new ReviewConflictException("Cannot fetch pull request " + repository + "#" + number + ": " + fetched.output().strip());
         }
         String fetchedHead = resolve(repositoryPath, headRef);
         if (!fetchedHead.equals(headSha)) {
-            // The head moved between GitHub's answer and the fetch; the fetched commit is the newer truth.
-            refresh.refreshAllDetail(repository, number);
-            String refreshed = pullRequests.findHeadSha(repository, number).orElse(fetchedHead);
+            // The head moved between the API response and the fetch; the fetched commit is the newer truth.
+            refresh.refreshAllDetail(route);
+            String refreshed = pullRequests.findHeadSha(route).orElse(fetchedHead);
             if (!refreshed.equals(fetchedHead)) {
                 throw new ReviewConflictException("The pull request head moved while the review was starting; try again");
             }
@@ -109,7 +117,7 @@ final class ReviewSnapshots
                 .map(line -> line.split("\\u001f", 3))
                 .map(parts -> new ReviewCommit(parts[0], parts.length > 2 ? parts[2] : "", parts.length > 1 ? parts[1] : ""))
                 .collect(toImmutableList());
-        List<DiffFile> diff = pullRequests.getValidatedPullRequestDiffFiles(repository, number, headSha);
+        List<DiffFile> diff = pullRequests.getValidatedPullRequestDiffFiles(route, headSha);
         return new Snapshot(OptionalLong.of(detail.id()), headSha, Optional.empty(), baseRef, baseSha, mergeBase, commits, diff);
     }
 

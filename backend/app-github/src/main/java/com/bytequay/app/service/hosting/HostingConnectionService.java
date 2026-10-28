@@ -36,8 +36,10 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
+import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -141,14 +143,36 @@ public class HostingConnectionService
     {
         checkArgument(number > 0, "request number must be positive");
         HostingAccess access = access(accountId);
+        return readPullRequest(access, repository(access, repositoryId), number, Optional.empty());
+    }
+
+    public PullRequestFetch readPullRequest(long accountId, long repositoryId, int number, long credentialGeneration, Optional<String> repositoryPath, Optional<String> etag)
+    {
+        checkArgument(number > 0, "request number must be positive");
+        checkOptionalText(repositoryPath, "repositoryPath");
+        requireNonNull(etag, "etag is null");
+        HostingAccess access = withCurrentCredential(accountId, credentialGeneration, () -> access(accountId));
+        HostingRepository repository = repository(access, repositoryId);
+        return readPullRequest(access, repository, number, repositoryPath.filter(repository.fullPath()::equals).isPresent() ? etag : Optional.empty());
+    }
+
+    private HostingRepository repository(HostingAccess access, long repositoryId)
+    {
         HostingRepository repository = identities.findRepository(repositoryId)
                 .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Repository identity is unavailable"));
         checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "repository belongs to a different hosting instance");
-        // No shared validator or snapshot is reused across accounts. The adapter authenticates every read.
-        PullRequestFetch result = integration(access.server().provider()).pullRequests().fetch(access, repository, number, Optional.empty());
+        return repository;
+    }
+
+    private PullRequestFetch readPullRequest(HostingAccess access, HostingRepository repository, int number, Optional<String> etag)
+    {
+        PullRequestFetch result = integration(access.server().provider()).pullRequests().fetch(access, repository, number, etag);
         synchronized (lock(access.server())) {
             // The bound accessor rechecks credential generation before accepting remote data.
             access.token();
+            if (etag.isEmpty() && result.pullRequest().isEmpty() && result.detail().isEmpty()) {
+                throw new HostingFailure(INVALID_RESPONSE, "Hosting provider returned an unchanged response without a validator");
+            }
             return result;
         }
     }

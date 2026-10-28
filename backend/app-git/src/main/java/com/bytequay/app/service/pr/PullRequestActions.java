@@ -556,8 +556,11 @@ final class PullRequestActions
     MergeResult mergePullRequest(String repo, int number, long prId, String strategy, String headSha)
     {
         checkText(headSha, "pull request head commit");
-        String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
+        if (store.findIdByRepoAndNumber(ref.repoFullName(), number).filter(id -> id == prId).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request identity does not match this GitHub request; reopen it before merging");
+        }
+        String pat = credentialService.resolveGitHubToken();
         if ("when-ready".equalsIgnoreCase(strategy)) {
             String nodeId = pullRequestWrites.pullRequestNodeId(pat, ref)
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));

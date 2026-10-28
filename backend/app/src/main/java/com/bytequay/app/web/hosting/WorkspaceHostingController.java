@@ -14,7 +14,7 @@
 package com.bytequay.app.web.hosting;
 
 import com.bytequay.app.workspace.WorkspaceHostingService;
-import com.bytequay.core.hosting.PullRequestFetch;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,7 +51,7 @@ public class WorkspaceHostingController
     }
 
     @GetMapping("/requests/{number}")
-    public PullRequestFetch request(@PathVariable String workspaceId, @PathVariable int number)
+    public HostingPullRequestSnapshot request(@PathVariable String workspaceId, @PathVariable int number)
     {
         return hosting.readPullRequest(workspaceId, number);
     }

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.hosting;
 
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingAccounts;
@@ -23,24 +25,30 @@ import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingAccount;
 import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
+import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
+import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
@@ -246,12 +254,107 @@ class TestHostingConnectionService
     @Test
     void routesReadWithSelectedAccountAndWithoutSharedValidator()
     {
-        RemoteHostingRepository remote = remoteRepository();
-        HostingRepository repository = new HostingRepository(30, 10, remote.remoteId(), remote.fullPath(), remote.webUrl(), remote.httpCloneUrl(),
-                remote.sshCloneUrl(), remote.defaultBranch());
+        HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
+        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(metadata());
         service.readPullRequest(20, 30, 7);
         verify(requests).fetch(any(HostingAccess.class), eq(repository), eq(7), eq(Optional.empty()));
+    }
+
+    @Test
+    void forwardsValidatorOnlyForTheCapturedCredentialGeneration()
+    {
+        HostingRepository repository = storedRepository();
+        PullRequestFetch unchanged = new PullRequestFetch(Optional.empty(), Optional.of("\"v1\""));
+        when(identities.findRepository(30)).thenReturn(Optional.of(repository));
+        when(requests.fetch(any(), eq(repository), eq(7), eq(unchanged.etag()))).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.token()).isEqualTo("first-secret");
+            return unchanged;
+        });
+
+        assertThat(service.readPullRequest(20, 30, 7, 1, Optional.of(repository.fullPath()), unchanged.etag())).isSameAs(unchanged);
+    }
+
+    @Test
+    void rejectsOldGenerationBeforeDispatchingItsValidator()
+    {
+        credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
+
+        assertThatThrownBy(() -> service.readPullRequest(20, 30, 7, 1, Optional.of(storedRepository().fullPath()), Optional.of("\"v1\"")))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        verifyNoInteractions(requests);
+    }
+
+    @Test
+    void replacementAfterGenerationCheckCannotSendValidatorWithNewToken()
+    {
+        HostingRepository repository = storedRepository();
+        when(identities.findRepository(30)).thenAnswer(ignored -> {
+            credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
+            return Optional.of(repository);
+        });
+        AtomicReference<String> sentToken = new AtomicReference<>();
+        when(requests.fetch(any(), eq(repository), eq(7), any())).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            sentToken.set(access.token());
+            return metadata();
+        });
+
+        assertThatThrownBy(() -> service.readPullRequest(20, 30, 7, 1, Optional.of(repository.fullPath()), Optional.of("\"v1\"")))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
+        assertThat(sentToken).hasNullValue();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void credentialChangesRejectConditionalResults(boolean disconnect)
+    {
+        HostingRepository repository = storedRepository();
+        when(identities.findRepository(30)).thenReturn(Optional.of(repository));
+        when(requests.fetch(any(), eq(repository), eq(7), any())).thenAnswer(ignored -> {
+            if (disconnect) {
+                service.disconnect(20);
+            }
+            else {
+                credential.set(Optional.of(new HostingCredential(20, 2, "replacement")));
+            }
+            return new PullRequestFetch(Optional.empty(), Optional.of("\"v1\""));
+        });
+
+        assertThatThrownBy(() -> service.readPullRequest(20, 30, 7, 1, Optional.of(repository.fullPath()), Optional.of("\"v1\"")))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(disconnect ? AUTHENTICATION_REQUIRED : REVISION_CONFLICT));
+    }
+
+    @Test
+    void repositoryRenameDropsThePreviousPathValidator()
+    {
+        HostingRepository repository = storedRepository();
+        when(identities.findRepository(30)).thenReturn(Optional.of(repository));
+        PullRequestFetch result = metadata();
+        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
+
+        assertThat(service.readPullRequest(20, 30, 7, 1, Optional.of("old/group/project"), Optional.of("\"v1\""))).isSameAs(result);
+        verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void rejectsUnchangedResultsWithoutAnEffectiveValidator(boolean renamed)
+    {
+        HostingRepository repository = storedRepository();
+        when(identities.findRepository(30)).thenReturn(Optional.of(repository));
+        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty())))
+                .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"v1\"")));
+
+        assertThatThrownBy(() -> {
+            if (renamed) {
+                service.readPullRequest(20, 30, 7, 1, Optional.of("old/group/project"), Optional.of("\"v1\""));
+            }
+            else {
+                service.readPullRequest(20, 30, 7);
+            }
+        }).isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
     @Test
@@ -262,9 +365,38 @@ class TestHostingConnectionService
         verify(identities, never()).upsertInstance(any());
     }
 
+    @Test
+    void coldCacheReadHasNoValidatorWithoutAnObservedPath()
+    {
+        HostingRepository repository = storedRepository();
+        when(identities.findRepository(30)).thenReturn(Optional.of(repository));
+        PullRequestFetch result = metadata();
+        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
+
+        assertThat(service.readPullRequest(20, 30, 7, 1, Optional.empty(), Optional.of("\"unscoped\""))).isSameAs(result);
+        verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
+    }
+
     private static RemoteHostingRepository remoteRepository()
     {
         return new RemoteHostingRepository("99", "team/subgroup/project", URI.create("https://git.company.test/code/team/subgroup/project"),
                 URI.create("https://git.company.test/code/team/subgroup/project.git"), Optional.empty(), Optional.empty());
+    }
+
+    private static HostingRepository storedRepository()
+    {
+        RemoteHostingRepository remote = remoteRepository();
+        return new HostingRepository(30, 10, remote.remoteId(), remote.fullPath(), remote.webUrl(), remote.httpCloneUrl(), remote.sshCloneUrl(), remote.defaultBranch());
+    }
+
+    private static PullRequestFetch metadata()
+    {
+        String url = "https://git.company.test/code/team/subgroup/project/-/merge_requests/7";
+        Instant updatedAt = Instant.parse("2026-10-01T10:00:00Z");
+        FetchedPullRequest summary = new FetchedPullRequest(1007L, "team/subgroup/project", 7, "Title", "alice", url, updatedAt, updatedAt,
+                OTHER, ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, null);
+        PrRawDetail detail = new PrRawDetail("Title", url, "open", "alice", null, updatedAt, updatedAt, null, "Body", ImmutableList.of(), ImmutableMap.of(),
+                ImmutableList.of(), null, false, null, null, UNKNOWN_COUNT, UNKNOWN_COUNT, UNKNOWN_COUNT, UNKNOWN_COUNT, ImmutableList.of(), null, null, null, null);
+        return new PullRequestFetch(Optional.of(summary), Optional.empty(), Optional.of(detail));
     }
 }

@@ -119,9 +119,9 @@ final class GitHubHttpClient
             if (status >= 500) {
                 throw new HostingFailure(UNAVAILABLE, "GitHub is temporarily unavailable");
             }
-            Optional<String> responseValidator = response.headers().firstValue("etag").or(() -> validator);
+            Optional<String> responseValidator = response.headers().firstValue("etag");
             if (status == 304 && validator.isPresent()) {
-                return new Response<>(Optional.empty(), responseValidator);
+                return new Response<>(Optional.empty(), responseValidator.or(() -> validator));
             }
             if (status != 200) {
                 throw switch (status) {

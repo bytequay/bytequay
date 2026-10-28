@@ -2646,6 +2646,7 @@ class TestPullRequestService
     void keepsALandedMergeWhenTheLocalCopyCannotBeUpdated()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
         doThrow(new IllegalStateException("database is locked")).when(viewStateStore).markReviewed(anyLong(), any(), any(), any());
@@ -2665,10 +2666,23 @@ class TestPullRequestService
         verifyNoInteractions(writes);
     }
 
+    @ParameterizedTest
+    @CsvSource({"squash,false", "squash,true", "rebase,false", "rebase,true", "queue,false", "queue,true", "when-ready,false", "when-ready,true"})
+    void rejectsMergeWithoutTheMatchingLegacyIdentity(String strategy, boolean collidingLegacyRequest)
+    {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(collidingLegacyRequest ? Optional.of(99L) : Optional.empty());
+
+        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, strategy, "displayed-head"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+        verifyNoInteractions(credentialService, writes, gitHub, actions, viewStateStore, recent, detailStore, diffStore);
+    }
+
     @Test
     void doesNotMarkReviewedOrEnqueueWhenTheMergeHeadChanged()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Head changed"));
 

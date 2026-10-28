@@ -177,7 +177,8 @@ final class SqliteWorkspacePurge
             update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND lower(repo) = :repo", parameters);
         }
         // Dashboard rows, explicitly monitored PRs, and local review drafts belong to the account independently of watching.
-        String pullRequests = "SELECT p.id FROM pull_requests p WHERE lower(p.repo) = :repo AND p.dashboard_visible = 0 AND p.monitored_at IS NULL"
+        String pullRequests = "SELECT p.id FROM pull_requests p WHERE p.hosting_repository_id IS NULL AND lower(p.repo) = :repo"
+                + " AND p.dashboard_visible = 0 AND p.monitored_at IS NULL"
                 + " AND NOT EXISTS (SELECT 1 FROM pr_review_draft d WHERE lower(d.repo) = lower(p.repo) AND d.number = p.number)"
                 + " AND NOT EXISTS (SELECT 1 FROM agent_review r WHERE lower(r.repo) = lower(p.repo) AND r.number = p.number)";
         for (String table : ImmutableList.of("recent_touch", "recent_text")) {
@@ -188,7 +189,7 @@ final class SqliteWorkspacePurge
             update("DELETE FROM " + table + " WHERE pr_id IN (" + pullRequests + ")", parameters);
         }
         update("DELETE FROM pull_requests WHERE id IN (" + pullRequests + ")", parameters);
-        update("UPDATE pull_requests SET workspace_visible = 0 WHERE lower(repo) = :repo", parameters);
+        update("UPDATE pull_requests SET workspace_visible = 0 WHERE hosting_repository_id IS NULL AND lower(repo) = :repo", parameters);
     }
 
     private boolean exists(String statement, Map<String, Object> parameters)

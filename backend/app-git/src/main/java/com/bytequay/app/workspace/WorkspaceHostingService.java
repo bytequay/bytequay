@@ -14,12 +14,13 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
-import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -44,13 +45,16 @@ public class WorkspaceHostingService
     private final HostingIdentityStore identities;
     private final HostingCredentialStore credentials;
     private final HostingConnectionService connections;
+    private final HostingPullRequestService requests;
 
-    public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities, HostingCredentialStore credentials, HostingConnectionService connections)
+    public WorkspaceHostingService(WorkspaceStore workspaces, HostingIdentityStore identities, HostingCredentialStore credentials,
+            HostingConnectionService connections, HostingPullRequestService requests)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.identities = requireNonNull(identities, "identities is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.connections = requireNonNull(connections, "connections is null");
+        this.requests = requireNonNull(requests, "requests is null");
     }
 
     public Optional<WorkspaceHostingBinding> findBinding(String workspaceId)
@@ -83,14 +87,13 @@ public class WorkspaceHostingService
         }));
     }
 
-    public PullRequestFetch readPullRequest(String workspaceId, int number)
+    public HostingPullRequestSnapshot readPullRequest(String workspaceId, int number)
     {
         checkArgument(number > 0, "request number must be positive");
         WorkspaceHostingBinding binding = findBinding(workspaceId)
                 .orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "Select a hosting account for this workspace before reading requests"));
         long generation = credentials.generation(binding.accountId());
-        // This live path does not reuse the legacy accountless PR cache or its validators.
-        PullRequestFetch result = connections.readPullRequest(binding.accountId(), binding.monitoredRepositoryId(), number);
+        HostingPullRequestSnapshot result = requests.refresh(binding.accountId(), binding.monitoredRepositoryId(), number);
         return WorkspaceOperationLocks.withLock(workspaceId, () -> connections.withCurrentCredential(binding.accountId(), generation, () -> {
             requireGeneration(workspaceId, binding.generation());
             return result;

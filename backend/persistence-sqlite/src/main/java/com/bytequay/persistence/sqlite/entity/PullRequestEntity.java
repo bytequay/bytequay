@@ -18,19 +18,24 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrViewState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.hosting.HostingPullRequest;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
+import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Index;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
 import jakarta.persistence.PrePersist;
 import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.JdbcTypeCode;
@@ -47,7 +52,8 @@ import java.util.Optional;
         name = "pull_requests",
         indexes = @Index(
                 name = "idx_pull_requests_repo_number",
-                columnList = "repo, number"))
+                columnList = "repo, number"),
+        uniqueConstraints = @UniqueConstraint(columnNames = {"hosting_repository_id", "number"}))
 @Getter
 @Setter
 public class PullRequestEntity
@@ -55,6 +61,12 @@ public class PullRequestEntity
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "hosting_repository_id")
+    private HostingRepositoryEntity hostingRepository;
+
+    private String remoteId;
 
     @Column(nullable = false)
     private String repo;
@@ -169,7 +181,14 @@ public class PullRequestEntity
     @PreUpdate
     public void normalizeRepo()
     {
-        this.repo = repo.toLowerCase(Locale.ROOT);
+        if (hostingRepository == null) {
+            this.repo = repo.toLowerCase(Locale.ROOT);
+        }
+    }
+
+    public HostingPullRequest hostingIdentity()
+    {
+        return new HostingPullRequest(id, hostingRepository.getId(), number, remoteId);
     }
 
     /** The row for a pull request GitHub reported. */

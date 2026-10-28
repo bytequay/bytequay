@@ -155,11 +155,23 @@ transport and provider mapping; only `app` composes their concrete factories.
 Existing GitHub.com workspaces can explicitly bind to a connected hosting account.
 The binding retains local account and repository identities beside the existing
 workspace fields; remote numeric IDs are verified before binding, so repository
-renames preserve identity. A workspace-scoped live metadata endpoint uses this
-binding and rejects results after credential, binding or repository-routing changes.
-It does not reuse legacy PR caches or validators. Existing desktop workspace and
-review flows still use the original GitHub clients; GitLab workspace creation and
-the shared PR cache/UI remain to be integrated.
+renames preserve identity. Workspace metadata reads use this binding and reject
+results after credential, binding or repository-routing changes.
+
+Hosting request reads for either provider retain identity in `pull_requests`,
+keyed by the local hosting repository and request number. Metadata snapshots and
+their validators are scoped to the observing account and credential generation
+in `pr_metadata_snapshots`. Conditional refresh returns complete normalized
+metadata; explicit cached reads report its validation time. Refreshes for one
+request are serialized, and credential replacement or repository path changes
+prevent reuse of old validators. Access failures discard only the affected
+account's snapshot; eviction keeps request identity and local work.
+
+Legacy rows remain unbound because their repository paths alone cannot prove
+remote identity. Existing desktop workspace and review flows retain their original
+GitHub readers and caches, which exclude hosted rows from lookup, mutation and
+workspace purge. Migrating those consumers with their credential selection and
+adding GitLab workspace creation remain separate integration work.
 
 ## Git hosting boundary (target)
 

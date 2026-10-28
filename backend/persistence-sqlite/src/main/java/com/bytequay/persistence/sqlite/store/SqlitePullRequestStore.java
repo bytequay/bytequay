@@ -79,14 +79,14 @@ public class SqlitePullRequestStore
     public Optional<PullRequest> findById(long prId)
     {
         PrViewState state = viewStateStore.findByPrIds(ImmutableSet.of(prId)).get(prId);
-        return jpaRepository.findById(prId).map(row -> row.toDomain(state));
+        return jpaRepository.findByIdAndHostingRepositoryIsNull(prId).map(row -> row.toDomain(state));
     }
 
     @Override
     @Transactional
     public void setMonitored(long prId, boolean monitored)
     {
-        PullRequestEntity row = jpaRepository.findById(prId).orElseThrow();
+        PullRequestEntity row = jpaRepository.findByIdAndHostingRepositoryIsNull(prId).orElseThrow();
         checkArgument(!monitored || !"merged".equalsIgnoreCase(canonicalState(row.getState(), row.getMergedAt())), "Merged pull requests cannot be monitored");
         if (monitored != (row.getMonitoredAt() != null)) {
             row.setMonitoredAt(monitored ? Instant.now() : null);
@@ -115,7 +115,7 @@ public class SqlitePullRequestStore
     @Transactional
     public void observeActivity(long prId, Optional<PrActivitySummary> activity, Instant discussionActivityAt)
     {
-        jpaRepository.findById(prId).ifPresent(row -> {
+        jpaRepository.findByIdAndHostingRepositoryIsNull(prId).ifPresent(row -> {
             if (row.getDiscussionActivityAt() == null || discussionActivityAt.isAfter(row.getDiscussionActivityAt())) {
                 row.setDiscussionActivityAt(discussionActivityAt);
                 if (row.getActivityAt() == null || discussionActivityAt.isAfter(row.getActivityAt())) {
@@ -154,7 +154,7 @@ public class SqlitePullRequestStore
     public void observeAttentionActivity(long prId, Instant at)
     {
         requireNonNull(at, "at is null");
-        jpaRepository.findById(prId)
+        jpaRepository.findByIdAndHostingRepositoryIsNull(prId)
                 .filter(row -> row.getAttentionActivityAt() == null || at.isAfter(row.getAttentionActivityAt()))
                 .ifPresent(row -> row.setAttentionActivityAt(at));
     }
@@ -348,7 +348,7 @@ public class SqlitePullRequestStore
     {
         requireNonNull(detail, "detail is null");
         String normalizedState = canonicalState(detail.state(), detail.mergedAt());
-        jpaRepository.findById(prId).ifPresent(entity -> {
+        jpaRepository.findByIdAndHostingRepositoryIsNull(prId).ifPresent(entity -> {
             if (detail.updatedAt() != null && entity.getUpdatedAt() != null && detail.updatedAt().isBefore(entity.getUpdatedAt())) {
                 return;
             }
@@ -382,7 +382,7 @@ public class SqlitePullRequestStore
     public void updateTitle(long prId, String title)
     {
         requireNonNull(title, "title is null");
-        jpaRepository.findById(prId).ifPresent(entity -> {
+        jpaRepository.findByIdAndHostingRepositoryIsNull(prId).ifPresent(entity -> {
             entity.setTitle(title);
             entity.setActivityAt(Instant.now());
         });
@@ -407,7 +407,7 @@ public class SqlitePullRequestStore
             Optional<String> reviewDecision,
             Map<String, String> activityFingerprints)
     {
-        jpaRepository.findById(prId).ifPresent(entity -> {
+        jpaRepository.findByIdAndHostingRepositoryIsNull(prId).ifPresent(entity -> {
             if (sourceUpdatedAt != null && entity.getUpdatedAt() != null && sourceUpdatedAt.isBefore(entity.getUpdatedAt())) {
                 return;
             }

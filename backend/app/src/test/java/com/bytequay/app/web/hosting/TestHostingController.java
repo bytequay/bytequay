@@ -17,11 +17,17 @@ import com.bytequay.app.agent.runtime.AgentProperties;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentRequestFilter;
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrRawDetail;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
@@ -30,6 +36,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -43,6 +50,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -78,6 +86,7 @@ class TestHostingController
             """;
 
     private final HostingConnectionService connections = mock(HostingConnectionService.class);
+    private final HostingPullRequestService requests = mock(HostingPullRequestService.class);
 
     @ParameterizedTest
     @CsvSource({
@@ -85,7 +94,9 @@ class TestHostingController
             "POST,/api/hosting/accounts",
             "DELETE,/api/hosting/accounts/7/credential",
             "POST,/api/hosting/accounts/7/repositories/resolve",
-            "GET,/api/hosting/accounts/7/repositories/11/requests/17"})
+            "GET,/api/hosting/accounts/7/repositories/11/requests/17",
+            "GET,/api/hosting/accounts/7/repositories/11/requests/17/cached",
+            "DELETE,/api/hosting/accounts/7/repositories/11/requests/17/cache"})
     void protectsEveryHostingEndpointWithTheDesktopSession(String method, String path)
             throws Exception
     {
@@ -100,7 +111,7 @@ class TestHostingController
                         .contentType(MediaType.APPLICATION_JSON).content(CONNECT_BODY))
                 .andExpect(status().isForbidden());
 
-        verifyNoInteractions(connections);
+        verifyNoInteractions(connections, requests);
     }
 
     @Test
@@ -112,7 +123,7 @@ class TestHostingController
             return request;
         })).andExpect(status().isForbidden());
 
-        verifyNoInteractions(connections);
+        verifyNoInteractions(connections, requests);
     }
 
     @Test
@@ -157,6 +168,44 @@ class TestHostingController
         verifyNoMoreInteractions(connections);
     }
 
+    @Test
+    void returnsSharedIdentityAndSelectedAccountMetadata()
+            throws Exception
+    {
+        String url = WEB + "/group/project/-/merge_requests/17";
+        FetchedPullRequest summary = new FetchedPullRequest(99L, "group/project", 17, "Change", "alice", url, Instant.EPOCH, Instant.EPOCH, PullRequest.Origin.OTHER,
+                ImmutableList.of(), ImmutableMap.of(), false, "open", null, null, ImmutableList.of(), null, null, "topic");
+        PrRawDetail detail = new PrRawDetail("Change", url, "open", "alice", null, Instant.EPOCH, Instant.EPOCH, null, "Account-specific details", ImmutableList.of(),
+                ImmutableMap.of(), ImmutableList.of(), null, false, null, null, -1, -1, -1, -1, ImmutableList.of(), "head", "topic", "main", "base");
+        when(requests.refresh(7, 11, 17)).thenReturn(new HostingPullRequestSnapshot(new HostingPullRequest(50, 11, 17, "99"), 7, 4, summary, detail,
+                Optional.of("etag"), Instant.EPOCH));
+        String body = mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/17").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.request.id").value(50))
+                .andExpect(jsonPath("$.request.repositoryId").value(11))
+                .andExpect(jsonPath("$.accountId").value(7))
+                .andExpect(jsonPath("$.credentialGeneration").value(4))
+                .andExpect(jsonPath("$.detail.body").value("Account-specific details"))
+                .andExpect(jsonPath("$.detail.additions").value(-1))
+                .andReturn().getResponse().getContentAsString();
+        assertThat(body).doesNotContain(TOKEN, SESSION);
+        verifyNoInteractions(connections);
+    }
+
+    @Test
+    void readsAndEvictsOnlyTheSelectedAccountCache()
+            throws Exception
+    {
+        when(requests.cached(7, 11, 17)).thenReturn(Optional.empty());
+        mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/17/cached").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk());
+        mvc(connections).perform(delete("/api/hosting/accounts/7/repositories/11/requests/17/cache").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk());
+        verify(requests).cached(7, 11, 17);
+        verify(requests).evict(7, 11, 17);
+        verifyNoInteractions(connections);
+    }
+
     @ParameterizedTest
     @CsvSource({"AUTHENTICATION_REQUIRED,401", "FORBIDDEN,403", "MISSING_OR_INACCESSIBLE,404", "RATE_LIMITED,429",
             "REVISION_CONFLICT,409", "UNAVAILABLE,503", "INVALID_RESPONSE,502"})
@@ -164,7 +213,7 @@ class TestHostingController
             throws Exception
     {
         Optional<Duration> retryAfter = kind == HostingFailure.Kind.RATE_LIMITED ? Optional.of(Duration.ofSeconds(37)) : Optional.empty();
-        when(connections.readPullRequest(7, 11, 17)).thenThrow(new HostingFailure(kind, "Remote operation could not complete", retryAfter));
+        when(requests.refresh(7, 11, 17)).thenThrow(new HostingFailure(kind, "Remote operation could not complete", retryAfter));
 
         var result = mvc(connections).perform(get("/api/hosting/accounts/7/repositories/11/requests/17").header(SESSION_HEADER, SESSION))
                 .andExpect(status().is(expectedStatus))
@@ -178,7 +227,7 @@ class TestHostingController
             result.andExpect(jsonPath("$.retryAfterSeconds").doesNotExist());
         }
         assertThat(result.andReturn().getResponse().getContentAsString()).doesNotContain(TOKEN, SESSION);
-        verify(connections).readPullRequest(7, 11, 17);
+        verify(requests).refresh(7, 11, 17);
         verifyNoMoreInteractions(connections);
     }
 
@@ -193,7 +242,7 @@ class TestHostingController
                 .andReturn().getResponse().getContentAsString();
 
         assertThat(response).doesNotContain(TOKEN, SESSION);
-        verifyNoInteractions(connections);
+        verifyNoInteractions(connections, requests);
     }
 
     @Test
@@ -256,14 +305,14 @@ class TestHostingController
                 CONNECT_BODY.replace("\"provider\":\"GITLAB\",", ""), CONNECT_BODY.replace("https://gitlab.company.test/team/api/v4", "invalid URI"));
     }
 
-    private static MockMvc mvc(HostingConnectionService service)
+    private MockMvc mvc(HostingConnectionService service)
     {
         AgentProperties properties = new AgentProperties(
                 Path.of("/tmp/agent-runtime"), Duration.ofMinutes(30), SESSION, "codex", "0.153.4", Path.of("/tmp/agent-codex-home"), "claude",
                 Path.of("/tmp/agent-claude-home"));
         ObjectMapper mapper = Jackson2ObjectMapperBuilder.json().modules(new Jdk8Module(), new JavaTimeModule())
                 .featuresToDisable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS).build();
-        return standaloneSetup(new HostingController(service))
+        return standaloneSetup(new HostingController(service, requests))
                 .setControllerAdvice(new GlobalExceptionHandler(), new HostingExceptionHandler())
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(mapper))
                 .addFilters(new AgentRequestFilter(properties, mapper, new AgentServingGate()))

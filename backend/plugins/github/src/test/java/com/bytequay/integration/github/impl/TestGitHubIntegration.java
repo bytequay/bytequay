@@ -430,6 +430,18 @@ class TestGitHubIntegration
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(INVALID_RESPONSE));
     }
 
+    @Test
+    void clearsTheValidatorWhenAChangedResponseOmitsIt()
+    {
+        serve(METADATA_PATH, 200, PULL_REQUEST, ImmutableMap.of());
+
+        PullRequestFetch fetched = integration.pullRequests().fetch(access, repository, 7, Optional.of("\"v1\""));
+
+        assertThat(fetched.pullRequest()).isPresent();
+        assertThat(fetched.detail()).isPresent();
+        assertThat(fetched.etag()).isEmpty();
+    }
+
     @ParameterizedTest
     @CsvSource({"401,AUTHENTICATION_REQUIRED", "403,FORBIDDEN", "404,MISSING_OR_INACCESSIBLE", "409,REVISION_CONFLICT", "500,UNAVAILABLE"})
     void translatesErrorsWithoutExposingBodiesOrCredentials(int status, HostingFailure.Kind expected)

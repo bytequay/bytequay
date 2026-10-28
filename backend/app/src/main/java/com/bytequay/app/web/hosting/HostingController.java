@@ -15,9 +15,10 @@ package com.bytequay.app.web.hosting;
 
 import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
-import com.bytequay.core.hosting.PullRequestFetch;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -38,10 +40,12 @@ import static java.util.Objects.requireNonNull;
 public class HostingController
 {
     private final HostingConnectionService connections;
+    private final HostingPullRequestService requests;
 
-    public HostingController(HostingConnectionService connections)
+    public HostingController(HostingConnectionService connections, HostingPullRequestService requests)
     {
         this.connections = requireNonNull(connections, "connections is null");
+        this.requests = requireNonNull(requests, "requests is null");
     }
 
     @GetMapping("/accounts")
@@ -69,9 +73,21 @@ public class HostingController
     }
 
     @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests/{number}")
-    public PullRequestFetch pullRequest(@PathVariable long accountId, @PathVariable long repositoryId, @PathVariable int number)
+    public HostingPullRequestSnapshot pullRequest(@PathVariable long accountId, @PathVariable long repositoryId, @PathVariable int number)
     {
-        return connections.readPullRequest(accountId, repositoryId, number);
+        return requests.refresh(accountId, repositoryId, number);
+    }
+
+    @GetMapping("/accounts/{accountId}/repositories/{repositoryId}/requests/{number}/cached")
+    public Optional<HostingPullRequestSnapshot> cachedPullRequest(@PathVariable long accountId, @PathVariable long repositoryId, @PathVariable int number)
+    {
+        return requests.cached(accountId, repositoryId, number);
+    }
+
+    @DeleteMapping("/accounts/{accountId}/repositories/{repositoryId}/requests/{number}/cache")
+    public void evictPullRequest(@PathVariable long accountId, @PathVariable long repositoryId, @PathVariable int number)
+    {
+        requests.evict(accountId, repositoryId, number);
     }
 
     public record ConnectRequest(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl, String token)

@@ -29,67 +29,69 @@ import java.util.Set;
 public interface PullRequestJpaRepository
         extends JpaRepository<PullRequestEntity, Long>
 {
-    @Query("SELECT e FROM PullRequestEntity e WHERE e.dashboardVisible = true OR e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND (e.dashboardVisible = true OR e.origin IN ('AUTHORED', 'REVIEW_REQUESTED') "
             + "OR e.monitoredAt IS NOT NULL OR e.reviewRequestedAt IS NOT NULL "
             + "OR EXISTS (SELECT v.prId FROM PrViewStateEntity v WHERE v.prId = e.id AND v.reviewedAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo))))) "
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "ORDER BY e.updatedAt DESC, e.id DESC")
     List<PullRequestEntity> findAttentionCandidates();
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE "
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND ("
             + "(e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
-            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))")
+            + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo))))))")
     Page<PullRequestEntity> findDashboardPage(Pageable pageable);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true")
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true")
     Page<PullRequestEntity> findWorkspacePage(@Param("repo") String repo, Pageable pageable);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true "
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
     Page<PullRequestEntity> searchWorkspacePage(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
 
-    @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true AND e.mergedAt IS NOT NULL "
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true AND e.mergedAt IS NOT NULL "
             + "AND (:search = '' OR LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number) ORDER BY e.mergedAt DESC, e.id DESC")
     List<PullRequestEntity> findMergedWorkspace(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
 
-    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE "
+    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND "
             + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "
             + "WHERE w.watched = true AND LOWER(e.repo) = LOWER(CONCAT(w.monitoredOwner, CONCAT('/', w.monitoredRepo)))))) "
             + "AND (e.state IS NULL OR e.state = 'open')")
     long countOpenDashboard();
 
-    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) "
+    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) "
             + "AND e.workspaceVisible = true AND (e.state IS NULL OR e.state = 'open')")
     long countOpenWorkspace(@Param("repo") String repo);
 
-    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) "
+    @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) "
             + "AND e.workspaceVisible = true AND (e.state IS NULL OR e.state = 'open') "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
     long countOpenWorkspaceSearch(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number);
 
-    /**
-     * Looks a pull request up by its natural key. Together with
-     * {@code findById} this is the only way a caller should reach a single row:
-     * both hit an index and both are served from the persistence context on a
-     * repeat read within one transaction.
-     */
-    Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(String repo, int number);
+    Optional<PullRequestEntity> findByIdAndHostingRepositoryIsNull(long id);
 
-    List<PullRequestEntity> findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(String repo, String headRef);
+    Optional<PullRequestEntity> findByHostingRepositoryIdAndNumber(long repositoryId, int number);
 
-    @Query("SELECT e.discussionActivityAt FROM PullRequestEntity e WHERE e.id = :id")
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.number = :number")
+    Optional<PullRequestEntity> findByRepoIgnoreCaseAndNumber(@Param("repo") String repo, @Param("number") int number);
+
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND LOWER(e.repo) = LOWER(:repo) AND e.headRef = :headRef ORDER BY e.number DESC")
+    List<PullRequestEntity> findByRepoIgnoreCaseAndHeadRefOrderByNumberDesc(@Param("repo") String repo, @Param("headRef") String headRef);
+
+    @Query("SELECT e.discussionActivityAt FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id = :id")
     Optional<Instant> findDiscussionActivityAt(@Param("id") long id);
 
-    @Query("SELECT e.id AS id, e.cardActivity AS cardActivity FROM PullRequestEntity e WHERE e.id IN :ids AND e.cardActivity IS NOT NULL")
+    @Query("SELECT e.id AS id, e.cardActivity AS cardActivity FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id IN :ids AND e.cardActivity IS NOT NULL")
     List<CardActivity> findCardActivities(@Param("ids") Set<Long> ids);
 
-    @Query("SELECT e.id AS id, e.attentionActivityAt AS attentionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids AND e.attentionActivityAt IS NOT NULL")
+    @Query("SELECT e.id AS id, e.attentionActivityAt AS attentionActivityAt FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id IN :ids "
+            + "AND e.attentionActivityAt IS NOT NULL")
     List<AttentionActivity> findAttentionActivities(@Param("ids") Set<Long> ids);
 
-    @Query("SELECT e.id AS id, e.discussionActivityAt AS discussionActivityAt FROM PullRequestEntity e WHERE e.id IN :ids AND e.discussionActivityAt IS NOT NULL")
+    @Query("SELECT e.id AS id, e.discussionActivityAt AS discussionActivityAt FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND e.id IN :ids "
+            + "AND e.discussionActivityAt IS NOT NULL")
     List<DiscussionActivity> findDiscussionActivities(@Param("ids") Set<Long> ids);
 
     interface DiscussionActivity

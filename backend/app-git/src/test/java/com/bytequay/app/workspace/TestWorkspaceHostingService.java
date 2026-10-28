@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.RepoRef;
@@ -24,6 +25,8 @@ import com.bytequay.core.hosting.HostingCredential;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingPullRequest;
+import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestFetch;
@@ -32,13 +35,16 @@ import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 import com.bytequay.core.store.HostingCredentialStore;
 import com.bytequay.core.store.HostingIdentityStore;
+import com.bytequay.core.store.HostingPullRequestStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.net.URI;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -50,6 +56,8 @@ import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
@@ -69,12 +77,20 @@ class TestWorkspaceHostingService
     private final AtomicLong credentialGeneration = new AtomicLong(1);
     private final HostingConnectionService connections = new HostingConnectionService(identities, credentials,
             ImmutableList.of(new HostingIntegration(GITHUB, mock(HostingAccounts.class), repositories, requests)));
-    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections);
+    private final HostingPullRequestStore snapshots = mock(HostingPullRequestStore.class);
+    private final HostingPullRequestService cache = new HostingPullRequestService(connections, credentials, snapshots, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final WorkspaceHostingService service = new WorkspaceHostingService(workspaces, identities, credentials, connections, cache);
 
     @BeforeEach
     void setUp()
     {
         workspaces.createOrGet(workspace());
+        when(snapshots.find(anyLong(), anyLong(), anyInt())).thenReturn(Optional.empty());
+        when(snapshots.save(anyLong(), anyLong(), anyLong(), any(), any(), any(), any())).thenAnswer(call -> {
+            FetchedPullRequest summary = call.getArgument(3);
+            return new HostingPullRequestSnapshot(new HostingPullRequest(50, call.getArgument(1), summary.number(), summary.githubId().toString()),
+                    call.getArgument(0), call.getArgument(2), summary, call.getArgument(4), call.getArgument(5), call.getArgument(6));
+        });
         when(identities.findAccount(20)).thenReturn(Optional.of(new HostingAccount(20, 10, "42", "alice")));
         when(identities.findInstance(10)).thenReturn(Optional.of(INSTANCE));
         when(credentials.generation(20)).thenAnswer(ignored -> credentialGeneration.get());
@@ -101,10 +117,13 @@ class TestWorkspaceHostingService
     }
 
     @Test
-    void routesLiveReadToTheExplicitAccountAndMonitoredRepository()
+    void routesCachedRefreshToTheExplicitAccountAndMonitoredRepository()
     {
         service.bind("workspace", 20);
-        assertThat(service.readPullRequest("workspace", 7)).isEqualTo(fetched());
+        HostingPullRequestSnapshot snapshot = service.readPullRequest("workspace", 7);
+        assertThat(snapshot.accountId()).isEqualTo(20);
+        assertThat(snapshot.request().repositoryId()).isEqualTo(31);
+        assertThat(snapshot.pullRequest()).isEqualTo(fetched().pullRequest().orElseThrow());
         verify(requests).fetch(any(), eq(retained(remote("200"))), eq(7), eq(Optional.empty()));
     }
 

@@ -144,6 +144,31 @@ class TestGitLabPermissionReader
         assertThat(requests).containsExactly(OAUTH, PERSONAL);
     }
 
+    @Test
+    void legacyPersonalTokenCanVerifyAndDiscoverProjectsWithoutInspection()
+    {
+        String userPath = "/gitlab/api/v4/user";
+        String projectsPath = "/gitlab/api/v4/projects?membership=true&order_by=last_activity_at&sort=desc&per_page=10";
+        String base = access.server().webBaseUrl().toString();
+        replies.put(userPath, new Reply(200, "{\"id\":17,\"username\":\"alice\",\"state\":\"active\"}"));
+        replies.put(OAUTH, new Reply(401, "{\"error\":\"invalid_token\"}"));
+        replies.put(PERSONAL, new Reply(404, "{\"error\":\"404 Not Found\"}"));
+        // GitLab 14.10.5 lacks token self-inspection and can omit default_branch without download_code access.
+        replies.put(projectsPath, new Reply(200, """
+                [{"id":42,"path_with_namespace":"group/project","web_url":"%s/group/project",
+                  "http_url_to_repo":"%s/group/project.git","topics":["tools"]}]
+                """.formatted(base, base)));
+
+        assertThat(client.verify(access).login()).isEqualTo("alice");
+        assertThat(client.checkPermissions(access).orElseThrow().status()).isEqualTo(UNAVAILABLE);
+        assertThat(client.search(access, "", 10)).singleElement().satisfies(project -> {
+            assertThat(project.remoteId()).isEqualTo("42");
+            assertThat(project.fullPath()).isEqualTo("group/project");
+            assertThat(project.defaultBranch()).isEmpty();
+        });
+        assertThat(requests).containsExactly(userPath, OAUTH, PERSONAL, projectsPath);
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"{}", "{\"scope\":null}", "{\"scope\":[null]}", "{\"scope\":[\"api\",\"secret_token\"]}", "{\"scope\":[\"api\\nsecret\"]}",
             "{\"scope\":[7]}", "{\"scope\":\"api\"}", "{\"scope\":[\"api\"]} {}"})

@@ -55,10 +55,12 @@ public final class GitLabPullRequestWriter
 {
     private static final Pattern HUNK = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? [+](\\d+)(?:,\\d+)? @@.*");
     private final GitLabHttpClient http;
+    private final GitLabMergeRequestDiffs diffs;
 
     public GitLabPullRequestWriter(HttpClient http, ObjectMapper mapper)
     {
         this.http = new GitLabHttpClient(http, mapper);
+        this.diffs = new GitLabMergeRequestDiffs(this.http);
     }
 
     @Override
@@ -90,7 +92,7 @@ public final class GitLabPullRequestWriter
             return thread(new Discussion(discussion.id(), ImmutableList.<Note>builder().addAll(discussion.notes()).add(reply).build(), null), url(repository, number), current);
         }
         checkHead(current, comment.commitId());
-        GitLabDiffPosition position = position(pages(access, path + "/diffs", FileDiff[].class), current, comment);
+        GitLabDiffPosition position = position(diffs.read(access, path), current, comment);
         checkRevision(current, get(access, path, MergeRequest.class));
         return createDiscussion(access, repository, number, comment.body(), position, current);
     }
@@ -193,8 +195,8 @@ public final class GitLabPullRequestWriter
         MergeRequest current = get(access, path, MergeRequest.class);
         checkHead(current, commitId);
         Optional<User> viewer = "APPROVE".equals(event) ? Optional.of(get(access, "user", User.class)) : Optional.empty();
-        List<FileDiff> files = comments.stream().anyMatch(comment -> comment.replyToCommentId().isEmpty())
-                ? pages(access, path + "/diffs", FileDiff[].class) : ImmutableList.of();
+        List<GitLabFileDiff> files = comments.stream().anyMatch(comment -> comment.replyToCommentId().isEmpty())
+                ? diffs.read(access, path) : ImmutableList.of();
         List<PrTimelineEvent> events = new ArrayList<>();
         int published = 0;
         try {
@@ -300,12 +302,12 @@ public final class GitLabPullRequestWriter
         return thread(created, url(repository, number), current);
     }
 
-    private static GitLabDiffPosition position(List<FileDiff> files, MergeRequest current, InlineReviewComment comment)
+    private static GitLabDiffPosition position(List<GitLabFileDiff> files, MergeRequest current, InlineReviewComment comment)
     {
         if (current.diffRefs() == null || !current.sha().equals(current.diffRefs().headSha())) {
             throw new HostingFailure(REVISION_CONFLICT, "GitLab has not prepared the current merge request diff");
         }
-        FileDiff file = files.stream().filter(diff -> diff.newPath().equals(comment.path()) || diff.oldPath().equals(comment.path()))
+        GitLabFileDiff file = files.stream().filter(diff -> diff.newPath().equals(comment.path()) || diff.oldPath().equals(comment.path()))
                 .findFirst().orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "The file is not present in the current merge request diff"));
         int oldLine = 0;
         int newLine = 0;
@@ -464,9 +466,6 @@ public final class GitLabPullRequestWriter
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Discussion(String id, List<Note> notes, List<String> summary) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record FileDiff(@JsonProperty("old_path") String oldPath, @JsonProperty("new_path") String newPath, String diff) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Award(long id, String name, User user) {}

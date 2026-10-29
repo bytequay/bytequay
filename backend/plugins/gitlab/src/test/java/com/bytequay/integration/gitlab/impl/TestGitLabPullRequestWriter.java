@@ -27,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -164,15 +165,19 @@ class TestGitLabPullRequestWriter
         assertThat(received).isEmpty();
     }
 
-    @Test
-    void contextLineCommentUsesBothDiffCoordinates()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void contextLineCommentUsesBothDiffCoordinates(boolean legacy)
             throws Exception
     {
-        responses.put("GET " + PREFIX, "{\"sha\":\"" + HEAD + "\",\"diff_refs\":{\"base_sha\":\"" + BASE + "\",\"start_sha\":\"" + BASE
+        responses.put("GET " + PREFIX, "{\"project_id\":42,\"iid\":7,\"sha\":\"" + HEAD + "\",\"diff_refs\":{\"base_sha\":\"" + BASE + "\",\"start_sha\":\"" + BASE
                 + "\",\"head_sha\":\"" + HEAD + "\"}}");
         responses.put("GET " + PREFIX + "/diffs?per_page=100&page=1",
                 "[{\"new_path\":\"file.txt\",\"old_path\":\"file.txt\",\"diff\":\"@@ -3,2 +3,3 @@\\n same\\n+added\\n final\"}]");
         responses.put("POST " + PREFIX + "/discussions", "{\"id\":\"thread\",\"notes\":[" + note() + "]}");
+        if (legacy) {
+            legacyDiffResponses();
+        }
         InlineReviewComment comment = new InlineReviewComment("file.txt", "Why?", 5, "RIGHT", null, null, HEAD, OptionalLong.empty());
 
         var result = writer.createReviewComment(access, repository, 7, comment);
@@ -183,6 +188,7 @@ class TestGitLabPullRequestWriter
         assertThat(request.position().newLine()).isEqualTo(5);
         assertThat(request.position().headSha()).isEqualTo(HEAD);
         assertThat(request.position().baseSha()).isEqualTo(BASE);
+        assertThat(received.stream().filter(value -> value.key().equals("GET " + PREFIX + "/changes"))).hasSize(legacy ? 1 : 0);
     }
 
     @Test
@@ -349,11 +355,15 @@ class TestGitLabPullRequestWriter
         assertThat(received.stream().filter(request -> request.key().startsWith("POST ")).map(Request::key)).containsExactly(write);
     }
 
-    @Test
-    void inlineReviewBatchLoadsTheDiffOnlyOnce()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void inlineReviewBatchLoadsTheDiffOnlyOnce(boolean legacy)
             throws Exception
     {
         inlineBatchResponses();
+        if (legacy) {
+            legacyDiffResponses();
+        }
         var comments = ImmutableList.of(
                 new InlineReviewComment("file.txt", "First", 3, "RIGHT", null, null, HEAD, OptionalLong.empty()),
                 new InlineReviewComment("file.txt", "Second", 4, "RIGHT", null, null, HEAD, OptionalLong.empty()));
@@ -362,10 +372,41 @@ class TestGitLabPullRequestWriter
 
         assertThat(result.events()).hasSize(2);
         assertThat(received.stream().filter(request -> request.key().contains("/diffs?"))).hasSize(1);
+        assertThat(received.stream().filter(request -> request.key().equals("GET " + PREFIX + "/changes"))).hasSize(legacy ? 1 : 0);
         var posted = received.stream().filter(request -> request.key().equals("POST " + PREFIX + "/discussions")).toList();
         assertThat(posted).hasSize(2);
         assertThat(mapper.readValue(posted.getFirst().body(), DiscussionBody.class).position().newLine()).isEqualTo(3);
         assertThat(mapper.readValue(posted.getLast().body(), DiscussionBody.class).position().newLine()).isEqualTo(4);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void incompleteOrChangedLegacyDiffCannotPublishComments(boolean batch, boolean changed)
+    {
+        inlineBatchResponses();
+        legacyDiffResponses();
+        if (changed) {
+            beforeResponse = key -> {
+                if (key.equals("GET " + PREFIX + "/changes")) {
+                    responses.put("GET " + PREFIX, "{\"sha\":\"" + BASE + "\"}");
+                }
+            };
+        }
+        else {
+            responses.compute("GET " + PREFIX + "/changes", (key, body) -> body.replace("\"overflow\":false", "\"overflow\":true"));
+        }
+        var comment = new InlineReviewComment("file.txt", "Comment", 4, "RIGHT", null, null, HEAD, OptionalLong.empty());
+
+        assertThatThrownBy(() -> {
+            if (batch) {
+                writer.submitReview(access, repository, 7, "COMMENT", "Summary", ImmutableList.of(comment), HEAD);
+            }
+            else {
+                writer.createReviewComment(access, repository, 7, comment);
+            }
+        }).isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(
+                changed ? HostingFailure.Kind.REVISION_CONFLICT : HostingFailure.Kind.UNAVAILABLE));
+        assertThat(received).allSatisfy(request -> assertThat(request.key()).startsWith("GET "));
     }
 
     @Test
@@ -390,11 +431,20 @@ class TestGitLabPullRequestWriter
     private void inlineBatchResponses()
     {
         responses.put("GET " + PREFIX, """
-                {"sha":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"}}
+                {"project_id":42,"iid":7,"sha":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"}}
                 """.formatted(HEAD, BASE, BASE, HEAD));
         responses.put("GET " + PREFIX + "/diffs?per_page=100&page=1",
                 "[{\"new_path\":\"file.txt\",\"old_path\":\"file.txt\",\"diff\":\"@@ -3,2 +3,3 @@\\n same\\n+added\\n final\"}]");
         responses.put("POST " + PREFIX + "/discussions", "{\"id\":\"thread\",\"notes\":[" + note() + "]}");
+    }
+
+    private void legacyDiffResponses()
+    {
+        statuses.put("GET " + PREFIX + "/diffs?per_page=100&page=1", 404);
+        responses.put("GET " + PREFIX + "/changes", """
+                {"project_id":42,"iid":7,"sha":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"},
+                 "overflow":false,"changes":%s}
+                """.formatted(HEAD, BASE, BASE, HEAD, responses.get("GET " + PREFIX + "/diffs?per_page=100&page=1")));
     }
 
     private static String note()

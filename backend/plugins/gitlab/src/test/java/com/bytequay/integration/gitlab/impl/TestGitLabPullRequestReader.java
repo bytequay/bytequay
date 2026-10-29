@@ -423,6 +423,38 @@ class TestGitLabPullRequestReader
     }
 
     @ParameterizedTest
+    @CsvSource({"can_be_merged,true,clean", "cannot_be_merged,false,dirty", "unchecked,,", "checking,,", "cannot_be_merged_recheck,,", "future_status,,"})
+    void readsLegacyMergeStatusInListsAndDetails(String status, Boolean mergeable, String mergeableState)
+    {
+        ObjectNode body = mr().put("merge_status", status);
+        body.remove("detailed_merge_status");
+        reply.set(new Reply(200, body.toString(), Optional.empty()));
+
+        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+            assertThat(detail.mergeable()).isEqualTo(mergeable);
+            assertThat(detail.mergeableState()).isEqualTo(mergeableState);
+        });
+        reply.set(new Reply(200, "[" + body + "]", Optional.empty()));
+        assertThat(reader.list(access, repository, true, 1, 10).items()).singleElement().satisfies(summary -> {
+            assertThat(summary.mergeable()).isEqualTo(mergeable);
+            assertThat(summary.mergeableState()).isEqualTo(mergeableState);
+        });
+    }
+
+    @ParameterizedTest
+    @CsvSource({"mergeable,cannot_be_merged,true,clean", "conflict,can_be_merged,false,dirty", "checking,can_be_merged,,", "not_approved,can_be_merged,,",
+            "commits_status,cannot_be_merged,,", "future_status,can_be_merged,,"})
+    void detailedMergeStatusTakesPrecedenceOverLegacyStatus(String detailedStatus, String legacyStatus, Boolean mergeable, String mergeableState)
+    {
+        reply.set(new Reply(200, mr().put("detailed_merge_status", detailedStatus).put("merge_status", legacyStatus).toString(), Optional.empty()));
+
+        assertThat(reader.fetch(access, repository, 17, Optional.empty()).detail()).hasValueSatisfying(detail -> {
+            assertThat(detail.mergeable()).isEqualTo(mergeable);
+            assertThat(detail.mergeableState()).isEqualTo(mergeableState);
+        });
+    }
+
+    @ParameterizedTest
     @ValueSource(strings = {"", "1000+", "999999999999999999999999"})
     void keepsMissingOrTruncatedCountsUnknown(String changes)
     {
@@ -712,6 +744,8 @@ class TestGitLabPullRequestReader
                 Arguments.of("created_at", "1700000000"),
                 Arguments.of("description", "42"),
                 Arguments.of("changes_count", "9"),
+                Arguments.of("merge_status", "true"),
+                Arguments.of("detailed_merge_status", "42"),
                 Arguments.of("labels", "[1]"),
                 Arguments.of("labels", "[null]"),
                 Arguments.of("labels", "[\"\"]"),

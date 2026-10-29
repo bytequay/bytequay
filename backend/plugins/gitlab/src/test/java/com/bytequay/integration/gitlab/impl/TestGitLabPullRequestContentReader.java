@@ -158,6 +158,30 @@ class TestGitLabPullRequestContentReader
         assertThat(detail.timelineComplete()).isFalse();
     }
 
+    @ParameterizedTest
+    @ValueSource(ints = {403, 404})
+    void unavailableApprovalEndpointDoesNotHideGitLabDiscussions(int status)
+    {
+        discussionData("""
+                [{"id":"discussion","individual_note":true,"notes":[{"id":10,"type":null,"body":"Please check",
+                "attachment":null,"author":{"id":3,"username":"reviewer","avatar_url":null},"created_at":"2026-01-01T00:00:00Z",
+                "system":false,"resolvable":false,"noteable_type":"MergeRequest","noteable_iid":7,"commands_changes":{}}]}]
+                """);
+        statuses.put(PREFIX + "/approvals", status);
+        responses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", "[]");
+
+        StoredPrDetail detail = reader.discussion(access, repository, 7, existing());
+
+        assertThat(detail.unavailableSections()).containsExactly(StoredPrDetail.REVIEWS);
+        assertThat(detail.reviewsComplete()).isFalse();
+        assertThat(detail.timelineComplete()).isTrue();
+        assertThat(detail.timeline()).singleElement().satisfies(event -> {
+            assertThat(event.event()).isEqualTo("commented");
+            assertThat(event.body()).isEqualTo("Please check");
+            assertThat(event.actor()).isEqualTo("reviewer");
+        });
+    }
+
     @Test
     void readsCurrentPipelineJobsIncludingTheirFailureState()
     {
@@ -174,6 +198,35 @@ class TestGitLabPullRequestContentReader
             assertThat(check.conclusion()).isEqualTo("failure");
             assertThat(check.source()).isEqualTo("job");
         });
+    }
+
+    @Test
+    void readsGitLab14PipelineJobsAndBridgesFromTheirOwnProject()
+    {
+        responses.put(PREFIX, """
+                {"sha":"%s","source_project_id":43,"target_project_id":42,"head_pipeline":{
+                "id":9,"iid":3,"project_id":43,"sha":"%s","ref":"feature","status":"running","source":"merge_request_event",
+                "web_url":"https://gitlab.example/group/fork/-/pipelines/9","yaml_errors":null,"finished_at":null,"coverage":null}}
+                """.formatted(HEAD, HEAD));
+        responses.put("/gitlab/api/v4/projects/43/pipelines/9/jobs?per_page=100&page=1", """
+                [{"id":12,"name":"test","status":"running","stage":"test","allow_failure":false,
+                "started_at":"2026-01-01T00:00:00Z","finished_at":null,"web_url":"https://gitlab.example/group/fork/-/jobs/12",
+                "pipeline":{"id":9,"project_id":43},"runner":null,"artifacts":[]}]
+                """);
+        responses.put("/gitlab/api/v4/projects/43/pipelines/9/bridges?per_page=100&page=1", """
+                [{"id":13,"name":"downstream","status":"pending","stage":"deploy","allow_failure":false,
+                "started_at":null,"finished_at":null,"web_url":"https://gitlab.example/group/fork/-/jobs/13",
+                "pipeline":{"id":9,"project_id":43},"downstream_pipeline":null}]
+                """);
+
+        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+
+        assertThat(result.complete()).isTrue();
+        assertThat(result.checkRuns()).extracting(check -> check.source()).containsExactly("job", "status");
+        assertThat(result.checkRuns()).extracting(check -> check.status()).containsExactly("in_progress", "queued");
+        assertThat(result.checkRuns()).extracting(check -> check.completedAt()).containsExactly(null, null);
+        assertThat(received).containsExactly(PREFIX, "/gitlab/api/v4/projects/43/pipelines/9/jobs?per_page=100&page=1",
+                "/gitlab/api/v4/projects/43/pipelines/9/bridges?per_page=100&page=1");
     }
 
     @ParameterizedTest
@@ -251,6 +304,35 @@ class TestGitLabPullRequestContentReader
     }
 
     @Test
+    void loadsChangedFilesFromLegacyApiWhenDiffsEndpointIsMissing()
+    {
+        statuses.put(PREFIX + "/diffs?per_page=100&page=1", 404);
+        responses.put(PREFIX, """
+                {"id":70,"project_id":42,"iid":7,"sha":"%s","source_project_id":42,"target_project_id":42,
+                "draft":false,"work_in_progress":false,"diff_refs":{"head_sha":"%s","start_sha":"%s","base_sha":"%s"},"head_pipeline":null}
+                """.formatted(HEAD, HEAD, BASE, BASE));
+        responses.put(PREFIX + "/changes", """
+                {"project_id":42,"iid":7,"sha":"%s","diff_refs":{"head_sha":"%s","start_sha":"%s","base_sha":"%s"},
+                "changes_count":"2","overflow":false,"changes":[
+                {"new_path":"file.txt","old_path":"file.txt","a_mode":"100644","b_mode":"100644","new_file":false,
+                "renamed_file":false,"deleted_file":false,"diff":"@@ -1 +1 @@\\n-old\\n+new"},
+                {"new_path":"added.txt","old_path":"added.txt","a_mode":"0","b_mode":"100644","new_file":true,
+                "renamed_file":false,"deleted_file":false,"diff":"@@ -0,0 +1 @@\\n+added"}]}
+                """.formatted(HEAD, HEAD, BASE, BASE));
+        responses.put(PREFIX + "/commits?per_page=100&page=1", "[{\"id\":\"" + HEAD + "\",\"parent_ids\":[\"" + BASE + "\"],\"message\":\"Fix\"}]");
+
+        var result = reader.diff(access, repository, 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
+
+        assertThat(result.files()).hasSize(2);
+        assertThat(result.files().getFirst().patch()).isEqualTo("@@ -1 +1 @@\n-old\n+new");
+        assertThat(result.files().getFirst().additions()).isEqualTo(1);
+        assertThat(result.files().getFirst().deletions()).isEqualTo(1);
+        assertThat(result.files().getLast().status()).isEqualTo("added");
+        assertThat(result.commits()).singleElement().satisfies(commit -> assertThat(commit.parentSha()).isEqualTo(BASE));
+        assertThat(received).containsExactly(PREFIX + "/diffs?per_page=100&page=1", PREFIX, PREFIX + "/changes", PREFIX + "/commits?per_page=100&page=1");
+    }
+
+    @Test
     void countsIncrementAndDecrementLinesAsChanges()
     {
         responses.put(PREFIX + "/diffs?per_page=100&page=1", """
@@ -290,6 +372,26 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/43/repository/files/new.txt?ref=" + HEAD, "{\"encoding\":\"base64\",\"content\":\"bmV3\"}");
 
         var content = reader.fileContent(access, repository, 7, "new.txt", BASE, HEAD, false);
+
+        assertThat(content.oldContent()).isEqualTo("old");
+        assertThat(content.newContent()).isEqualTo("new");
+    }
+
+    @Test
+    void readsGitLab14ComparisonAndEncodedFilePathsWithoutModernDiffFlags()
+    {
+        responses.put(PREFIX, "{\"source_project_id\":42}");
+        responses.put("/gitlab/api/v4/projects/42/repository/compare?from=" + BASE + "&to=" + HEAD + "&straight=true", """
+                {"commits":[],"compare_timeout":false,"compare_same_ref":false,"diffs":[
+                {"old_path":"dir/old name.txt","new_path":"dir/new name.txt","a_mode":"100644","b_mode":"100644",
+                "new_file":false,"renamed_file":true,"deleted_file":false,"diff":"@@ -1 +1 @@\\n-old\\n+new"}]}
+                """);
+        responses.put("/gitlab/api/v4/projects/42/repository/files/dir%2Fold%20name.txt?ref=" + BASE,
+                "{\"file_path\":\"dir/old name.txt\",\"encoding\":\"base64\",\"content\":\"b2xk\",\"execute_filemode\":false}");
+        responses.put("/gitlab/api/v4/projects/42/repository/files/dir%2Fnew%20name.txt?ref=" + HEAD,
+                "{\"file_path\":\"dir/new name.txt\",\"encoding\":\"base64\",\"content\":\"bmV3\",\"execute_filemode\":false}");
+
+        var content = reader.fileContent(access, repository, 7, "dir/new name.txt", BASE, HEAD, false);
 
         assertThat(content.oldContent()).isEqualTo("old");
         assertThat(content.newContent()).isEqualTo("new");

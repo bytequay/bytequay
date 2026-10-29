@@ -75,10 +75,12 @@ public final class GitLabPullRequestContentReader
         implements PullRequestContentReader
 {
     private final GitLabHttpClient http;
+    private final GitLabMergeRequestDiffs mergeRequestDiffs;
 
     public GitLabPullRequestContentReader(HttpClient http, ObjectMapper mapper)
     {
         this.http = new GitLabHttpClient(http, mapper);
+        this.mergeRequestDiffs = new GitLabMergeRequestDiffs(this.http);
     }
 
     @Override
@@ -274,7 +276,7 @@ public final class GitLabPullRequestContentReader
             StoredPrDiff existing, PrDiffEtags etags)
     {
         String path = request(access, repository, number);
-        List<FileDiff> files;
+        List<GitLabFileDiff> files;
         List<DiffCommit> commits;
         if (baseSha.isPresent()) {
             Compare compare = get(access, project(access, repository) + "/repository/compare?from=" + encode(baseSha.orElseThrow()) + "&to=" + encode(headSha.orElseThrow())
@@ -286,7 +288,7 @@ public final class GitLabPullRequestContentReader
             commits = compare.commits().stream().map(GitLabPullRequestContentReader::commit).collect(toImmutableList());
         }
         else {
-            files = pages(access, path + "/diffs", FileDiff[].class);
+            files = mergeRequestDiffs.read(access, path);
             commits = commits(access, path);
         }
         return new Diff(files.stream().map(file -> {
@@ -341,8 +343,8 @@ public final class GitLabPullRequestContentReader
         if (compare.compareTimeout()) {
             throw new HostingFailure(UNAVAILABLE, "GitLab comparison timed out; the diff is incomplete");
         }
-        FileDiff diff = compare.diffs().stream().filter(file -> file.newPath().equals(path)).findFirst().orElse(null);
-        String oldPath = Optional.ofNullable(diff).map(FileDiff::oldPath).orElse(path);
+        GitLabFileDiff diff = compare.diffs().stream().filter(file -> file.newPath().equals(path)).findFirst().orElse(null);
+        String oldPath = Optional.ofNullable(diff).map(GitLabFileDiff::oldPath).orElse(path);
         return new DiffFileContent(diff != null && diff.newFile() ? null : file(access, target, oldPath, contentBase),
                 diff != null && diff.deletedFile() ? null : file(access, source, path, headSha));
     }
@@ -494,12 +496,7 @@ public final class GitLabPullRequestContentReader
             @JsonProperty("started_at") String startedAt, @JsonProperty("finished_at") String finishedAt, @JsonProperty("allow_failure") boolean allowFailure) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record FileDiff(@JsonProperty("old_path") String oldPath, @JsonProperty("new_path") String newPath, String diff,
-            @JsonProperty("new_file") boolean newFile, @JsonProperty("renamed_file") boolean renamedFile, @JsonProperty("deleted_file") boolean deletedFile,
-            boolean collapsed, @JsonProperty("too_large") boolean tooLarge) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Compare(List<FileDiff> diffs, List<Commit> commits, @JsonProperty("compare_timeout") boolean compareTimeout) {}
+    private record Compare(List<GitLabFileDiff> diffs, List<Commit> commits, @JsonProperty("compare_timeout") boolean compareTimeout) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record FileBody(String encoding, String content) {}

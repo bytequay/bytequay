@@ -49,6 +49,7 @@ record GitLabMergeRequestResponse(
         String sha,
         @JsonProperty("diff_refs") DiffRefs diffRefs,
         @JsonProperty("changes_count") String changesCount,
+        @JsonProperty("merge_status") String mergeStatus,
         @JsonProperty("detailed_merge_status") String detailedMergeStatus)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)

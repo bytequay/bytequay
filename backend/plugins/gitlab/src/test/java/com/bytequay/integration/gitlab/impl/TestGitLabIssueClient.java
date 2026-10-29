@@ -92,6 +92,37 @@ class TestGitLabIssueClient
     }
 
     @Test
+    void readsGitLab14IssueFieldsWithoutRequiringNewerUserMetadata()
+    {
+        replies.put("GET /gitlab/api/v4/projects/42/issues/7", new Reply(200, """
+                {"id":70,"iid":7,"project_id":42,"title":"Investigate incident","description":null,"state":"opened",
+                 "created_at":"2022-05-01T00:00:00Z","updated_at":"2022-05-02T00:00:00Z","closed_at":null,"closed_by":null,
+                 "labels":["bug"],"milestone":null,"assignees":[],"assignee":null,
+                 "author":{"id":1,"username":"alice","name":"Alice","state":"active","avatar_url":null,"web_url":"%s/alice"},
+                 "type":"INCIDENT","issue_type":"incident","user_notes_count":1,"merge_requests_count":0,
+                 "upvotes":0,"downvotes":0,"due_date":null,"confidential":false,"discussion_locked":null,
+                 "web_url":"%s/group/subgroup/repo/-/issues/7","task_completion_status":{"count":0,"completed_count":0}}
+                """.formatted(base, base), false));
+        replies.put("GET /gitlab/api/v4/projects/42/issues/7/notes?sort=asc&order_by=created_at&per_page=100&page=1", new Reply(200, "[" + note() + "]", false));
+        for (String events : ImmutableList.of("resource_state_events", "resource_label_events", "resource_milestone_events")) {
+            replies.put("GET /gitlab/api/v4/projects/42/issues/7/" + events + "?&per_page=100&page=1", new Reply(200, "[]", false));
+        }
+
+        var issue = client.find(access, repository, 7).orElseThrow();
+        var detail = client.detail(access, repository, 7);
+
+        assertThat(issue.number()).isEqualTo(7);
+        assertThat(issue.author()).isEqualTo("alice");
+        assertThat(issue.body()).isEmpty();
+        assertThat(issue.authorAvatarUrl()).isEmpty();
+        assertThat(issue.assignees()).isEmpty();
+        assertThat(issue.htmlUrl()).isEqualTo(base + "/group/subgroup/repo/-/issues/7");
+        assertThat(detail.currentType()).isEqualTo("incident");
+        assertThat(detail.availableTypes()).containsExactly("issue", "incident");
+        assertThat(detail.timeline()).singleElement().satisfies(event -> assertThat(event.body()).isEqualTo("Please fix this"));
+    }
+
+    @Test
     void commandOnlyCommentSucceedsWithoutInventingANoteIdentity()
     {
         replies.put("POST /gitlab/api/v4/projects/42/issues/7/notes", new Reply(202,
@@ -184,6 +215,26 @@ class TestGitLabIssueClient
         replies.put("POST /gitlab/api/v4/projects/42/issues/7/notes", new Reply(201, note(), false));
         assertThat(client.comment(access, repository, 7, "Please fix this").body()).isEqualTo("Please fix this");
         assertThat(MAPPER.readValue(body.get(), CommentRequest.class).body()).isEqualTo("Please fix this");
+    }
+
+    @Test
+    void readsGitLab14ProjectOverviewAndUsers()
+    {
+        replies.put("GET /gitlab/api/v4/projects/42", new Reply(200,
+                "{\"id\":42,\"description\":null,\"star_count\":3,\"tag_list\":[\"backend\"],\"topics\":[\"backend\"]}", false));
+        replies.put("GET /gitlab/api/v4/projects/42/languages", new Reply(200, "{\"Java\":80.5,\"Shell\":19.5}", false));
+        replies.put("GET /gitlab/api/v4/projects/42/users?&per_page=100&page=1", new Reply(200,
+                "[{\"id\":1,\"username\":\"alice\",\"name\":\"Alice\",\"state\":\"active\",\"avatar_url\":null,\"web_url\":\"" + base + "/alice\"}]", false));
+
+        var overview = client.overview(access, repository);
+
+        assertThat(overview.topics()).containsExactly("backend");
+        assertThat(overview.stargazersCount()).isEqualTo(3);
+        assertThat(overview.languages()).containsEntry("Java", 80500L).containsEntry("Shell", 19500L);
+        assertThat(client.repositoryUsers(access, repository)).singleElement().satisfies(user -> {
+            assertThat(user.login()).isEqualTo("alice");
+            assertThat(user.bot()).isFalse();
+        });
     }
 
     @Test

@@ -129,7 +129,13 @@ public final class GitLabPullRequestReader
         List<String> labels = mr.labels().stream().map(label -> checkText(label, "label")).collect(toImmutableList());
         // Assigned reviewers include people who already reviewed; this read cannot establish pending requests or approvals.
         List<String> requestedReviewers = ImmutableList.of();
-        Boolean mergeable = switch (Optional.ofNullable(mr.detailedMergeStatus()).orElse("")) {
+        // GitLab before 15.6 exposes only merge_status; newer detailed states must take precedence.
+        String mergeStatus = Optional.ofNullable(mr.detailedMergeStatus()).orElseGet(() -> switch (Optional.ofNullable(mr.mergeStatus()).orElse("")) {
+            case "can_be_merged" -> "mergeable";
+            case "cannot_be_merged" -> "conflict";
+            default -> "";
+        });
+        Boolean mergeable = switch (mergeStatus) {
             case "mergeable" -> Boolean.TRUE;
             case "conflict" -> Boolean.FALSE;
             default -> null;

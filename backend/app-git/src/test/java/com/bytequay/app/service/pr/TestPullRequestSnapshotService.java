@@ -25,6 +25,7 @@ import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
@@ -110,6 +111,40 @@ class TestPullRequestSnapshotService
 
         verify(details, never()).saveStatus(anyLong(), any());
         verify(details, never()).updateStatusEtags(anyLong(), any(), any());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false,false", "false,true", "true,false", "true,true"})
+    void checkResultsRemainUnavailableUntilComplete(boolean complete, boolean previouslyUnavailable)
+    {
+        var reader = mock(PullRequestContentReader.class);
+        when(reader.provider()).thenReturn(GITHUB_SERVER.provider());
+        var service = new PullRequestSnapshotService(new HostingPullRequestContents(ImmutableList.of(reader)),
+                mock(HostingPullRequestWrites.class), requests, details, diffs);
+        var previous = new PrCheckRunState(1L, "test", "completed", "failure", null, "job", null, null);
+        var current = new PrCheckRunState(2L, "test", "completed", "success", null, "job", null, null);
+        StoredPrDetail existing = new StoredPrDetail(raw(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(previous),
+                previouslyUnavailable ? ImmutableList.of(StoredPrDetail.TIMELINE, StoredPrDetail.CHECKS) : ImmutableList.of(StoredPrDetail.TIMELINE), true);
+        when(details.find(1L)).thenReturn(Optional.of(existing));
+        when(details.findCheckRunsEtag(1L)).thenReturn(Optional.of("old-checks"));
+        when(details.findCommitStatusesEtag(1L)).thenReturn(Optional.of("old-statuses"));
+        when(reader.checks(session.access(), route.repository(), 7, HEAD, existing.checkRuns(),
+                previouslyUnavailable ? Optional.empty() : Optional.of("old-checks"), previouslyUnavailable ? Optional.empty() : Optional.of("old-statuses")))
+                .thenReturn(new PullRequestContentReader.Checks(ImmutableList.of(current), Optional.of("new-checks"), Optional.of("new-statuses"), complete));
+
+        StoredPrDetail result = service.refreshChecks(route, 1L);
+
+        assertThat(result.raw()).isEqualTo(existing.raw());
+        assertThat(result.checkRuns()).containsExactly(current);
+        assertThat(result.viewerCanWrite()).isTrue();
+        assertThat(result.checkRunsComplete()).isEqualTo(complete);
+        assertThat(result.unavailableSections()).containsExactlyElementsOf(complete
+                ? ImmutableList.of(StoredPrDetail.TIMELINE) : ImmutableList.of(StoredPrDetail.TIMELINE, StoredPrDetail.CHECKS));
+        verify(details).saveStatus(1L, result);
+        verify(details).setCredentialScope(1L, route.scope());
+        verify(details).updateStatusEtags(1L, complete ? Optional.of("new-checks") : Optional.empty(), complete ? Optional.of("new-statuses") : Optional.empty());
+        verify(details, never()).clearRemote(anyLong());
+        verifyNoInteractions(diffs);
     }
 
     @Test

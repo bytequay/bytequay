@@ -27,6 +27,10 @@ const github = workspaceFixture({ id: 'github-project' });
 
 async function sharedRequests(workspace: WorkspaceDto) {
   const view = createFixtureRoot();
+  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+  const copied: string[] = [];
+  const failure = 'Server offline (HTTP 503).\n\nRequest: GET /api/v4/projects/:project/merge_requests\nTime (UTC): 2026-01-01T12:00:00Z\nGitLab request ID: request-456';
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => { copied.push(value); } } });
   const repository = `${workspace.monitoredOwner}/${workspace.monitoredRepo}`;
   const htmlUrl = workspace.hostingServer ? `${server.webBaseUrl}/${repository}/-/merge_requests/7` : `https://github.com/${repository}/pull/7`;
   let title = 'Shared request';
@@ -46,7 +50,7 @@ async function sharedRequests(workspace: WorkspaceDto) {
     getWorkspaceHostingViewer: async id => { route(id); return 'bob'; },
     fetchWorkspaceHostingAttention: async id => { route(id); return { login: 'bob', pullRequests: [row()] }; },
     onPullRequestsSynced: callback => { synced = callback; return () => { synced = undefined; }; },
-    syncPrs: async id => { route(id); if (failSync) throw new Error('Server offline'); title = 'Refreshed request'; },
+    syncPrs: async id => { route(id); if (failSync) throw new Error(failure); title = 'Refreshed request'; },
     setPrMonitored: async (id, value, workspaceId) => { route(workspaceId); assert(id === 70, 'Monitoring must use the saved request ID'); monitored = value; return row(); },
     fetchPullRequestDetailByRef: async (_repo, _number, id) => { route(id); return details; },
     refreshPullRequestDetailByRef: async (_repo, _number, _checks, _opened, id) => { route(id); return { full: true, detail: details, status: null }; },
@@ -54,6 +58,7 @@ async function sharedRequests(workspace: WorkspaceDto) {
     findAgentReview: async () => null, findPullRequestTask: async () => null, listLocalReviewComments: async () => [], recordRecentTouch: async () => {},
     fetchPrDiffFiles: async () => [], fetchPrDiffCommits: async () => [],
     openInAppBrowser: async url => { opened.push(url); },
+    getAppVersion: async () => ({ version: '0.5.3' }),
   };
   window.bridge = bridge as Bridge;
   function Screen() {
@@ -75,6 +80,9 @@ async function sharedRequests(workspace: WorkspaceDto) {
     const before = reads; synced?.(); await until(() => reads > before, 'Shared refresh did not reload the cache');
     failSync = true; button('Sync pull requests', view.host).click();
     await until(() => view.host.textContent?.includes('Server offline') === true, 'Refresh failure was not shown');
+    button('Copy error details', element('.pulls-sync-error', view.host)).click();
+    await until(() => copied.length === 1, 'Request list error could not be copied');
+    assert(copied[0].startsWith('ByteQuay 0.5.3\n\n') && copied[0].endsWith(failure), 'Request list lost diagnostic context');
     assert(view.host.textContent?.includes('Shared request') === true, 'Failed refresh discarded saved rows');
     failSync = false; button('Sync pull requests', view.host).click();
     await until(() => view.host.textContent?.includes('Refreshed request') === true, 'Refresh did not reload the shared cache');
@@ -89,7 +97,11 @@ async function sharedRequests(workspace: WorkspaceDto) {
     }
     assert(routed.length > 3, 'List and detail must use the selected workspace');
   }
-  finally { view.dispose(); }
+  finally {
+    view.dispose();
+    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+    else Reflect.deleteProperty(navigator, 'clipboard');
+  }
 }
 
 export async function run() {

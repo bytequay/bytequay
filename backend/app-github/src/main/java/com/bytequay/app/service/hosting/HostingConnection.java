@@ -15,14 +15,18 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingPermissions;
+
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-public record HostingConnection(HostingAccount account, HostingInstance instance, boolean connected)
+public record HostingConnection(HostingAccount account, HostingInstance instance, boolean connected, Optional<HostingPermissions> permissions)
 {
     public HostingConnection
     {
         requireNonNull(account, "account is null");
         requireNonNull(instance, "instance is null");
+        requireNonNull(permissions, "permissions is null");
     }
 }

@@ -15,6 +15,6 @@ import { testBrowserScenarios } from '../fixtures/browserScenarios';
 
 testBrowserScenarios([{
   name: 'manages GitLab accounts, watches projects and selects workspace accounts in Chromium',
-  expected: 13, timeout: 60_000,
+  expected: 16, timeout: 60_000,
   fixture: { prefix: 'bytequay-gitlab-setup-', entry: 'src/hosting/fixtures/gitLabSetupBrowser.tsx', global: 'GitLabSetupTests', styles: true },
 }]);

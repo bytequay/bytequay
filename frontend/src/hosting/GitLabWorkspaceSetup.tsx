@@ -13,7 +13,9 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import RepoAvatar from '../RepoAvatar';
+import ErrorDetails from '../ErrorDetails';
 import { Clickable } from '../cards/Card';
+import { remoteErrorMessage } from '../remoteError';
 import type { HostingConnectionDto, HostingRepositoryDto, WorkspaceDto } from '../types';
 import GitLabAccounts from './GitLabAccounts';
 
@@ -35,7 +37,7 @@ export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { in
       setLoading(true); setError(null);
       void window.bridge.searchHostingRepositories(account.account.id, query.trim(), 30)
         .then(rows => { if (!cancelled) setRepositories(rows); })
-        .catch(failure => { if (!cancelled) { setRepositories([]); setError(failure instanceof Error ? failure.message : String(failure)); } })
+        .catch(failure => { if (!cancelled) { setRepositories([]); setError(remoteErrorMessage(failure)); } })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 250);
     return () => { cancelled = true; window.clearTimeout(timer); };
@@ -46,7 +48,7 @@ export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { in
     if (repository.defaultBranch === null) { setError('This project has no default branch yet.'); return; }
     setAdding(repository.id); setError(null);
     try { onAdded(await window.bridge.createHostingWorkspace(account.account.id, repository.id)); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setAdding(null); }
   };
 
@@ -59,7 +61,7 @@ export default function GitLabWorkspaceSetup({ initialWorkspace, onAdded }: { in
         <input className="modal__search" aria-label="Search GitLab projects" placeholder="Search GitLab projects…" autoFocus
           value={query} disabled={adding !== null} onChange={event => setQuery(event.target.value)} />
       </div>
-      {error !== null && <div role="alert" className="modal__empty">{error}</div>}
+      {error !== null && <ErrorDetails message={error} className="modal__empty" />}
       <div className="modal__list">
         {loading ? <div className="modal__loading" role="status">Searching…</div> : repositories.map(repository => {
           const slash = repository.fullPath.lastIndexOf('/');

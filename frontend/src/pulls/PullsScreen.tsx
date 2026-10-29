@@ -70,6 +70,7 @@ import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
 import PullOverview, { commentedCodeLines, isAutoMergeEnabled, isQueued, mergePullRequestWriteDetail, useViewer, type PullDetailUpdater } from './PullOverview';
 import { remoteErrorMessage } from '../remoteError';
+import ErrorDetails from '../ErrorDetails';
 import PullRequestConflictFiles from './PullRequestConflictFiles';
 import MergeQueueRemoval from './MergeQueueRemoval';
 import { PullRequestChip } from './PullRequestChip';
@@ -1086,19 +1087,15 @@ function PullsContent({
         <div className="pulls-list__rows" id={rowsId} role="tabpanel" aria-labelledby={`${rowsId}-${tab}`}>
           {loading && <div className="hp-loading">Loading…</div>}
           {!loading && syncError && (
-            <div className="pulls-sync-error" role="alert">
-              Could not sync pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {syncError}
-            </div>
+            <ErrorDetails className="pulls-sync-error" message={`Could not sync pull requests${repositoryScope ? ` for ${repositoryScope.repository}` : ''}. ${syncError}`} />
           )}
           {monitorError && <div className="pulls-sync-error" role="alert">{monitorError}</div>}
           {!loading && currentNumberLookup?.loading && <div className="hp-loading" role="status">Looking up #{exactNumber}…</div>}
           {!loading && currentNumberLookup?.error && (
-            <div className="pulls-sync-error" role="alert">Could not load #{exactNumber} from {scopedRepository}. {currentNumberLookup.error}</div>
+            <ErrorDetails className="pulls-sync-error" message={`Could not load #${exactNumber} from ${scopedRepository}. ${currentNumberLookup.error}`} />
           )}
           {!loading && error && rows.length === 0 && (
-            <div className="hp-empty" role="alert">
-              Could not load pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {error}
-            </div>
+            <ErrorDetails className="hp-empty" message={`Could not load pull requests${repositoryScope ? ` for ${repositoryScope.repository}` : ''}. ${error}`} />
           )}
           {!loading && !error && !syncError && !currentNumberLookup?.loading && !currentNumberLookup?.error && rows.length === 0 && (
             <div className="hp-empty">
@@ -1171,7 +1168,7 @@ function PullsContent({
             </div>
           </header>
           {error
-            ? <div className="pull-detail__error" role="alert">{error}</div>
+            ? <ErrorDetails className="pull-detail__error" message={error} />
             : <div className="pull-detail__body"><DetailSkeleton label="Loading details…" /></div>}
         </section>
       )}
@@ -1208,7 +1205,7 @@ function PullsContent({
             agent={reviewWorkspace === undefined ? undefined : 'reviewer'}
           />
           {reviewWorkspace !== undefined && <div className="agt-panel__scroll" ref={setAgentBodyTarget} hidden={detailTab !== 'agents' && detailTab !== 'discussions'} />}
-          {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
+          {displayedDetailError && <ErrorDetails className="pull-detail__error" message={displayedDetailError} />}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
             <div className="pull-detail__body"><DetailSkeleton label="Loading details…" /></div>
           ) : detail === null ? (

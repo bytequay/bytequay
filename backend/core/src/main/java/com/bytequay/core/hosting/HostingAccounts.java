@@ -13,8 +13,15 @@
  */
 package com.bytequay.core.hosting;
 
+import java.util.Optional;
+
 public interface HostingAccounts
 {
     /** Verify the credential's current remote subject, not merely whether a token was supplied. */
     RemoteHostingAccount verify(HostingAccess access);
+
+    default Optional<HostingPermissions> checkPermissions(HostingAccess access)
+    {
+        return Optional.empty();
+    }
 }

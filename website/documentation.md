@@ -132,12 +132,29 @@ GitLab normally, create the token, then paste it into ByteQuay and choose
 **Connect GitLab**. If your server does not preselect the permissions, select
 `api` yourself before generating the token.
 
+After sign-in, ByteQuay checks the permissions GitLab actually granted. A token
+missing `api` is rejected with instructions to reconnect. **Settings →
+Integrations → GitLab → Check permissions** checks an existing account again.
+If the server cannot report token permissions, ByteQuay shows that verification
+is unavailable; a successful sign-in alone does not confirm project access.
+
 The first connected GitLab account is selected automatically. Type a project
 name or full path, such as `group/subgroup/project`, to search, then choose
 **Watch** on the project. ByteQuay creates a direct HTTPS clone using that account.
 **Sync workspace** fetches updates; **Choose GitLab account** switches accounts on the
 same server. Accounts can also be connected or disconnected in **Settings →
 Integrations → GitLab**.
+
+When a project or merge request cannot load, the error identifies the failed
+operation and GitLab's HTTP status. Missing API permissions and expired sign-ins
+include reconnect guidance. GitLab uses the same `404` response for missing and
+inaccessible resources, so ByteQuay reports that uncertainty explicitly.
+Choose **Copy error details** beside a login, project-search, or request-loading
+error to copy its message and ByteQuay version. GitLab API failures include the
+HTTP method, an endpoint template with resource identifiers removed, the UTC
+time, and GitLab's request ID when available. A GitLab administrator can use that
+ID to find the matching server log. Credentials, query values, and raw response
+bodies are excluded from these API diagnostics.
 
 GitLab workspaces use the same workspace home, request list, review detail,
 Work items and Tasks as GitHub workspaces. Refresh reads through the selected

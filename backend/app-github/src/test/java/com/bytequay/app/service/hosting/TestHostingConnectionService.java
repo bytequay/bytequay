@@ -23,6 +23,7 @@ import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
@@ -37,6 +38,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.net.URI;
@@ -46,6 +49,7 @@ import java.util.Optional;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
+import static com.bytequay.core.hosting.HostingFailure.Kind.FORBIDDEN;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
@@ -123,6 +127,117 @@ class TestHostingConnectionService
 
         verify(cli).login(server);
         verify(credentials).save(20, "cli-token", Source.CLI);
+    }
+
+    @ParameterizedTest
+    @CsvSource({"TOKEN,VERIFIED", "TOKEN,UNAVAILABLE", "CLI,VERIFIED", "CLI,UNAVAILABLE"})
+    void connectionReturnsTheGrantedPermissionCheck(Source source, HostingPermissions.Status status)
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        var report = new HostingPermissions(status, status == HostingPermissions.Status.VERIFIED ? ImmutableList.of("api") : ImmutableList.of(), "Permission check result");
+        when(cli.readToken(server)).thenReturn("new-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("42", "alice"));
+        when(accounts.checkPermissions(any())).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.server()).isEqualTo(server);
+            assertThat(access.token()).isEqualTo("new-token");
+            return Optional.of(report);
+        });
+        when(identities.upsertInstance(server)).thenReturn(instance);
+        when(identities.upsertAccount(10, new RemoteHostingAccount("42", "alice"))).thenReturn(account);
+
+        HostingConnection result = source == Source.CLI ? service.connectCli(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl())
+                : service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "new-token");
+
+        assertThat(result.permissions()).contains(report);
+        assertThat(result.connected()).isTrue();
+        verify(credentials).save(20, "new-token", source);
+    }
+
+    @ParameterizedTest
+    @EnumSource(Source.class)
+    void missingRequiredPermissionDoesNotStoreOrReplaceCredentials(Source source)
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        var report = new HostingPermissions(HostingPermissions.Status.MISSING, ImmutableList.of("read_user"), "Grant api permission and reconnect GitLab");
+        when(cli.readToken(server)).thenReturn("restricted-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("42", "alice"));
+        when(accounts.checkPermissions(any())).thenReturn(Optional.of(report));
+
+        assertThatThrownBy(() -> {
+            if (source == Source.CLI) {
+                service.connectCli(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+            }
+            else {
+                service.connect(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl(), "restricted-token");
+            }
+        }).isInstanceOfSatisfying(HostingFailure.class, failure -> {
+            assertThat(failure.kind()).isEqualTo(FORBIDDEN);
+            assertThat(failure.getMessage()).isEqualTo(report.detail());
+        });
+
+        verify(credentials, never()).save(anyLong(), anyString(), any());
+        verify(identities, never()).upsertInstance(any());
+        verify(identities, never()).upsertAccount(anyLong(), any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(Source.class)
+    void explicitPermissionCheckUsesTheSelectedAccountsCurrentCredential(Source source)
+    {
+        HostingServer server = new HostingServer(GITLAB, instance.webBaseUrl(), instance.apiBaseUrl());
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "stored-token", source)));
+        when(cli.readToken(server)).thenReturn("refreshed-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("42", "alice"));
+        var report = new HostingPermissions(HostingPermissions.Status.VERIFIED, ImmutableList.of("api"), "API permission granted");
+        when(accounts.checkPermissions(any())).thenAnswer(call -> {
+            HostingAccess access = call.getArgument(0);
+            assertThat(access.instanceId()).hasValue(10);
+            assertThat(access.token()).isEqualTo(source == Source.CLI ? "refreshed-token" : "stored-token");
+            return Optional.of(report);
+        });
+
+        assertThat(service.checkPermissions(20)).isSameAs(report);
+
+        verify(credentials, never()).save(anyLong(), anyString(), any());
+    }
+
+    @ParameterizedTest
+    @EnumSource(Source.class)
+    void changedAccountCannotCheckPermissionsThroughThePreviousAccount(Source source)
+    {
+        when(credentials.find(20)).thenReturn(Optional.of(new HostingCredential(20, "old-token", source)));
+        when(cli.readToken(any())).thenReturn("other-token");
+        when(accounts.verify(any())).thenReturn(new RemoteHostingAccount("43", "bob"));
+
+        assertThatThrownBy(() -> service.checkPermissions(20))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(AUTHENTICATION_REQUIRED));
+
+        verify(accounts, never()).checkPermissions(any());
+    }
+
+    @Test
+    void expiredTokenFailsAuthenticationBeforeCheckingPermissions()
+    {
+        HostingFailure failure = new HostingFailure(AUTHENTICATION_REQUIRED, "GitLab authentication is required");
+        when(accounts.verify(any())).thenThrow(failure);
+
+        assertThatThrownBy(() -> service.checkPermissions(20)).isSameAs(failure);
+
+        verify(accounts, never()).checkPermissions(any());
+    }
+
+    @Test
+    void listsAccountsWithoutClaimingPermissionsWereChecked()
+    {
+        assertThat(service.connections()).singleElement().satisfies(connection -> {
+            assertThat(connection.account()).isEqualTo(account);
+            assertThat(connection.connected()).isTrue();
+            assertThat(connection.permissions()).isEmpty();
+        });
+        verifyNoInteractions(accounts);
+        verify(cli, never()).readToken(any());
+        verify(cli, never()).login(any());
     }
 
     @Test

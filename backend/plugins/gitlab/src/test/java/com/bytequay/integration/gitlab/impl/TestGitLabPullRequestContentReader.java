@@ -167,12 +167,69 @@ class TestGitLabPullRequestContentReader
 
         var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
 
+        assertThat(result.complete()).isTrue();
         assertThat(result.checkRuns()).singleElement().satisfies(check -> {
             assertThat(check.githubId()).isEqualTo(12);
             assertThat(check.status()).isEqualTo("completed");
             assertThat(check.conclusion()).isEqualTo("failure");
             assertThat(check.source()).isEqualTo("job");
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {403, 404})
+    void unavailablePipelineJobsKeepTheMergeRequestReadable(int status)
+    {
+        responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":43,\"status\":\"failed\"}}");
+        statuses.put("/gitlab/api/v4/projects/43/pipelines/9/jobs?per_page=100&page=1", status);
+        responses.put("/gitlab/api/v4/projects/43/pipelines/9/bridges?per_page=100&page=1", "[]");
+
+        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+
+        assertThat(result.complete()).isFalse();
+        assertThat(result.checkRuns()).singleElement().satisfies(check -> {
+            assertThat(check.githubId()).isNull();
+            assertThat(check.name()).isEqualTo("Pipeline #9");
+            assertThat(check.conclusion()).isEqualTo("failure");
+        });
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {403, 404})
+    void unavailableTriggerJobsKeepReadableJobsAndPipelineStatus(int status)
+    {
+        responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42,\"status\":\"failed\"}}");
+        responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"success\"}]");
+        statuses.put("/gitlab/api/v4/projects/42/pipelines/9/bridges?per_page=100&page=1", status);
+
+        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+
+        assertThat(result.complete()).isFalse();
+        assertThat(result.checkRuns()).extracting(check -> check.name()).containsExactly("test", "Pipeline #9");
+        assertThat(result.checkRuns().getLast().githubId()).isNull();
+        assertThat(result.checkRuns().getLast().conclusion()).isEqualTo("failure");
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 429})
+    void pipelineAuthenticationAndRateLimitFailuresRemainErrors(int status)
+    {
+        responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42,\"status\":\"failed\"}}");
+        statuses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", status);
+
+        assertThatThrownBy(() -> reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
+                .isInstanceOfSatisfying(HostingFailure.class,
+                        failure -> assertThat(failure.kind()).isEqualTo(status == 401 ? HostingFailure.Kind.AUTHENTICATION_REQUIRED : HostingFailure.Kind.RATE_LIMITED));
+    }
+
+    @Test
+    void inaccessibleMergeRequestStillFailsBeforeReadingPipelineJobs()
+    {
+        statuses.put(PREFIX, 404);
+
+        assertThatThrownBy(() -> reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.MISSING_OR_INACCESSIBLE));
+        assertThat(received).containsExactly(PREFIX);
     }
 
     @Test
@@ -264,6 +321,20 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/jobs/12/trace", "test failed\n");
 
         assertThat(reader.readCheckLog(access, repository, 7, 12).text()).isEqualTo("test failed\n");
+    }
+
+    @Test
+    void unavailableJobLogKeepsSafeApiDiagnostics()
+    {
+        responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
+        responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
+        statuses.put("/gitlab/api/v4/projects/42/jobs/12/trace", 404);
+
+        var result = reader.readCheckLog(access, repository, 7, 12);
+
+        assertThat(result.text()).isEmpty();
+        assertThat(result.unavailableReason()).hasValueSatisfying(reason -> assertThat(reason)
+                .contains("HTTP 404", "Request: GET <api>/projects/{id}/jobs/{id}/trace", "Time (UTC):"));
     }
 
 

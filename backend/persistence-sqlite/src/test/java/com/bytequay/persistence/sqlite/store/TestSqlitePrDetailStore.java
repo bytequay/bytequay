@@ -570,6 +570,24 @@ class TestSqlitePrDetailStore
     }
 
     @Test
+    void partialCheckRefreshReplacesSyntheticPipelineSummaryWithoutValidatingChecks()
+    {
+        var job = new PrCheckRunState(21L, "build", "completed", "success", null, "job", null, null);
+        var failedPipeline = new PrCheckRunState(null, "Pipeline #9", "completed", "failure", null, "status", null, null);
+        var passedPipeline = new PrCheckRunState(null, "Pipeline #10", "completed", "success", null, "status", null, null);
+        store.save(prId, detail(ImmutableList.of(), ImmutableList.of(job)));
+        var freshness = store.findFreshness(prId);
+        store.saveStatus(prId, partial(ImmutableList.of(), ImmutableList.of(job, failedPipeline), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS)));
+
+        store.saveStatus(prId, partial(ImmutableList.of(), ImmutableList.of(passedPipeline), ImmutableList.of(), ImmutableList.of(StoredPrDetail.CHECKS)));
+
+        StoredPrDetail restored = store.find(prId).orElseThrow();
+        assertThat(restored.checkRuns()).containsExactlyInAnyOrder(job, passedPipeline);
+        assertThat(restored.checkRunsComplete()).isFalse();
+        assertThat(store.findFreshness(prId)).isEqualTo(freshness);
+    }
+
+    @Test
     void refreshKeepsTimelineRowIdentityIncludingEventsWithoutAGitHubId()
     {
         PrTimelineEvent comment = remote(31, NOW);

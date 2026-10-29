@@ -49,6 +49,9 @@ async function send(input: string | URL, init?: RequestInit): Promise<Response> 
       if ('message' in body && typeof body.message === 'string' && body.message) {
         throw new Error('code' in body && body.code === 'IDE_FILE_CHANGED' ? `IDE_FILE_CHANGED: ${body.message}` : body.message);
       }
+      if ('detail' in body && typeof body.detail === 'string' && body.detail.trim()) {
+        throw new Error(body.detail);
+      }
     }
     throw new Error(text || `${init?.method ?? 'GET'} ${input.toString()} returned ${response.status}`);
   }

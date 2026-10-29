@@ -15,13 +15,14 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import AddRepoModal from '../../AddRepoModal';
+import ErrorDetails from '../../ErrorDetails';
 import { assert, button, changeInput, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import SettingsWindow from '../../settings/SettingsWindow';
-import type { AppPreferencesDto, Bridge, HostingConnectionDto, HostingRepositoryDto, HostingServerDto, WorkspaceDto } from '../../types';
+import type { AppPreferencesDto, Bridge, HostingConnectionDto, HostingPermissionsDto, HostingRepositoryDto, HostingServerDto, WorkspaceDto } from '../../types';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
-import { GitLabConnectionForm } from '../GitLabAccounts';
+import GitLabAccounts, { GitLabConnectionForm } from '../GitLabAccounts';
 import GitLabSettings from '../GitLabSettings';
 import '../../index.css';
 
@@ -29,7 +30,7 @@ const readyCli = async () => ({ ready: true, homebrewAvailable: true });
 const SERVER: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.example.com:8443/tools', apiBaseUrl: 'https://gitlab.example.com:8443/tools/api/v4' };
 const account = (id: number, server = SERVER): HostingConnectionDto => ({
   account: { id, instanceId: id === 3 ? 2 : 1, remoteId: String(id), login: `developer-${id}` },
-  instance: { ...server, id: id === 3 ? 2 : 1 }, connected: true,
+  instance: { ...server, id: id === 3 ? 2 : 1 }, connected: true, permissions: null,
 });
 const WORKSPACE = workspaceFixture({ hostingServer: SERVER, name: 'group/subgroup/project', selectedOwner: 'group/subgroup',
   monitoredOwner: 'group/subgroup', lastCodeSyncAt: '2026-10-01T00:00:00Z' });
@@ -52,6 +53,42 @@ function accountCard(host: HTMLElement, login: string): HTMLElement {
 
 export async function run() {
   return runScenarios([
+    ['Copy readable error diagnostics with app version and report clipboard failures', async () => {
+      const view = createFixtureRoot();
+      const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+      const copied: string[] = [];
+      let versionFails = false;
+      let clipboardFails = true;
+      let versionReads = 0;
+      const message = 'GitLab project access failed (HTTP 404).\n\nRequest: GET /api/v4/projects/:project/merge_requests/:request\n'
+        + 'Time (UTC): 2026-01-01T12:00:00Z\nGitLab request ID: request-123';
+      window.bridge = { getAppVersion: async () => { versionReads++; if (versionFails) throw new Error('Version unavailable'); return { version: '0.5.3' }; } } as Bridge;
+      Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (value: string) => {
+        if (clipboardFails) throw new Error('Clipboard unavailable');
+        copied.push(value);
+      } } });
+      try {
+        flushSync(() => view.root.render(<ErrorDetails message={message} />));
+        assert(element('.error-details__message', view.host).textContent === message && versionReads === 0, 'Diagnostics must remain readable without requesting app details on display');
+        assert(getComputedStyle(element('.error-details__message', view.host)).whiteSpace === 'pre-wrap', 'Diagnostic newlines must remain visible');
+        button('Copy error details', view.host).click();
+        await until(() => view.host.textContent?.includes('Could not copy. Try again.') === true, 'Clipboard failure must be visible');
+        assert(copied.length === 0 && view.host.querySelector('.is-copied') === null, 'Failed clipboard write must not claim success');
+        clipboardFails = false;
+        button('Copy error details', view.host).click();
+        await until(() => copied.length === 1, 'Copy retry did not finish');
+        assert(copied[0] === `ByteQuay 0.5.3\n\n${message}`, 'Copied diagnostics lost version, status, endpoint, time or request ID');
+        assert(!view.host.textContent?.includes('Could not copy. Try again.'), 'Successful copy retained its failure');
+        versionFails = true;
+        element<HTMLButtonElement>('.pr-copy-button', view.host).click();
+        await until(() => copied.length === 2, 'Version failure must not prevent copying');
+        assert(copied[1] === message, 'Failed version lookup changed the error details');
+      } finally {
+        view.dispose();
+        if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard);
+        else Reflect.deleteProperty(navigator, 'clipboard');
+      }
+    }],
     ['Install GitLab CLI on click before browser sign-in and stop on installation failure', async () => {
       const view = createFixtureRoot();
       const installation = Promise.withResolvers<{ ready: boolean; homebrewAvailable: boolean }>();
@@ -176,14 +213,21 @@ export async function run() {
       const view = createFixtureRoot();
       const requests: (HostingServerDto & { token: string })[] = [];
       let connected = false;
-      window.bridge = { getGitLabCliStatus: readyCli, connectHostingAccount: async request => { requests.push(request); return account(1, request); } } as Bridge;
+      window.bridge = { getGitLabCliStatus: readyCli, connectHostingAccount: async request => {
+        requests.push(request);
+        if (requests.length === 1) throw new Error("Error invoking remote method 'hosting:connect': Error: Missing api permission. Create a token with api scope.");
+        return account(1, request);
+      } } as Bridge;
       try {
         flushSync(() => view.root.render(<GitLabConnectionForm onConnected={() => { connected = true; }} />));
         const token = element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host);
         changeInput(token, 'test-token'); await settle(); button('Connect GitLab', view.host).click();
+        await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Missing api permission. Create a token with api scope.', 'Permission rejection lost its repair guidance');
+        assert(!connected && token.value === 'test-token', 'Missing permission must keep the connection form open for correction');
+        changeInput(token, 'replacement-token'); await settle(); button('Connect GitLab', view.host).click();
         await until(() => connected, 'GitLab.com connection did not finish');
         assert(requests[0].webBaseUrl === 'https://gitlab.com' && requests[0].apiBaseUrl === 'https://gitlab.com/api/v4', 'GitLab.com URLs differ');
-        assert(token.value === '', 'Submitted token remains visible');
+        assert(element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host).value === '', 'Submitted token remains visible');
       } finally { view.dispose(); }
     }],
     ['Connect a private GitLab server, search a nested project, and watch it without GitHub calls', async () => {
@@ -199,7 +243,10 @@ export async function run() {
         listJiraConnections: async () => [], listJiraAttention: async () => [],
         getGitLabCliStatus: readyCli,
         listHostingAccounts: async () => [],
-        connectHostingAccount: async request => { requests.push(request); return account(1, request); },
+        connectHostingAccount: async request => {
+          requests.push(request);
+          return { ...account(1, request), permissions: { status: 'VERIFIED', scopes: ['api'], detail: 'API scope verified; project membership still applies.' } };
+        },
         searchHostingRepositories: async (accountId, query) => { searches.push({ accountId, query }); return query === '' ? [] : [repository()]; },
         createHostingWorkspace: async (accountId, repositoryId) => { created.push({ accountId, repositoryId }); return WORKSPACE; },
       };
@@ -219,6 +266,8 @@ export async function run() {
         changeInput(element<HTMLInputElement>('[aria-label="GitLab personal access token"]', view.host), 'private-token');
         await settle(); button('Connect GitLab', view.host).click();
         await until(() => view.host.querySelector('[aria-label="Search GitLab projects"]') !== null, 'Connected account was not selected');
+        assert(view.host.textContent?.includes('Permissions verified') && view.host.textContent.includes('Granted scopes: api'),
+          'Workspace setup must show the permissions returned by sign-in');
         assert(requests[0].webBaseUrl === SERVER.webBaseUrl && requests[0].apiBaseUrl === SERVER.apiBaseUrl, 'Private port or prefix was lost');
         changeInput(element<HTMLInputElement>('[aria-label="Search GitLab projects"]', view.host), 'group/subgroup/project');
         await until(() => view.host.querySelector('.modal-repo-row') !== null, 'Project search did not return a row');
@@ -268,7 +317,7 @@ export async function run() {
         listHostingAccounts: async () => [account(1), account(2)],
         searchHostingRepositories: async (accountId, query) => {
           searches.push({ accountId, query });
-          if (query === 'failure') throw new Error('Project search failed');
+          if (query === 'failure') throw new Error("Error invoking remote method 'hosting:repositories:search': Error: Project search failed");
           return query === 'project' ? [repository()] : [];
         },
       } as Partial<Bridge> as Bridge;
@@ -334,6 +383,87 @@ export async function run() {
         assert(view.host.querySelector('[role="alert"]') === null, 'Successful retry retained the error');
       } finally { view.dispose(); }
     }],
+    ['Check permissions for one saved account and distinguish missing scopes from unavailable inspection', async () => {
+      const view = createFixtureRoot();
+      const checked: number[] = [];
+      let failure = false;
+      let permissions: HostingPermissionsDto = { status: 'MISSING', scopes: ['read_user'], detail: 'Reconnect with the api permission to load projects.' };
+      window.bridge = {
+        listHostingAccounts: async () => [account(1), account(2)],
+        checkHostingPermissions: async id => {
+          checked.push(id);
+          if (failure) throw new Error("Error invoking remote method 'hosting:permissions': Error: Reconnect this account");
+          return permissions;
+        },
+      } as Partial<Bridge> as Bridge;
+      try {
+        flushSync(() => view.root.render(<GitLabSettings />));
+        await until(() => view.host.textContent?.includes('developer-2') === true, 'Accounts did not load');
+        assert(checked.length === 0 && accountCard(view.host, 'developer-1').textContent?.includes('Permissions have not been checked.'),
+          'Opening settings must not inspect credentials automatically');
+        const chosen = () => accountCard(view.host, 'developer-2');
+        button('Check permissions', chosen()).click();
+        await until(() => chosen().textContent?.includes('Missing permissions') === true, 'Missing permission report did not appear');
+        assert(chosen().textContent?.includes('Granted scopes: read_user') && chosen().textContent?.includes(permissions.detail), 'Granted scopes or repair guidance is missing');
+        assert(accountCard(view.host, 'developer-1').textContent?.includes('Permissions have not been checked.'), 'Checking changed the wrong account');
+
+        permissions = { status: 'UNAVAILABLE', scopes: [], detail: 'This server cannot inspect the token; permissions remain unverified.' };
+        button('Check permissions', chosen()).click();
+        await until(() => chosen().textContent?.includes('Permissions unavailable') === true, 'Unavailable inspection was not distinguished');
+        assert(chosen().textContent?.includes(permissions.detail) && !chosen().textContent?.includes('read_user'), 'Unavailable inspection retained stale scopes');
+        permissions = { status: 'VERIFIED', scopes: ['api'], detail: 'API scope verified; project membership still applies.' };
+        button('Check permissions', chosen()).click();
+        await until(() => chosen().textContent?.includes('Permissions verified') === true, 'Verified report did not appear');
+        assert(chosen().textContent?.includes('Connected') && checked.join(',') === '2,2,2', 'Checks must preserve the connection and target account');
+        failure = true;
+        button('Check permissions', chosen()).click();
+        await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Reconnect this account', 'Check failure did not show its actionable reason');
+        assert(!chosen().textContent?.includes('Permissions verified'), 'A failed recheck must clear its previous verified result');
+      } finally { view.dispose(); }
+    }],
+    ['Starting a rejected reconnect clears only permission reports on that server', async () => {
+      for (const surface of ['settings', 'selector']) {
+        const view = createFixtureRoot();
+        const login = Promise.withResolvers<HostingConnectionDto>();
+        let logins = 0;
+        const publicServer: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' };
+        const rows = [account(1), account(2), account(3, publicServer)].map(row => ({
+          ...row, permissions: { status: 'VERIFIED' as const, scopes: ['api'], detail: 'API permission verified.' },
+        }));
+        window.bridge = {
+          getGitLabCliStatus: readyCli,
+          listHostingAccounts: async () => rows,
+          connectHostingCliAccount: async request => { logins++; assert(request.webBaseUrl === SERVER.webBaseUrl, 'Wrong reconnect server'); return login.promise; },
+        } as Partial<Bridge> as Bridge;
+        const Selector = () => {
+          const [selected, setSelected] = useState(1);
+          return <GitLabAccounts selected={selected} onSelect={value => setSelected(value.account.id)} />;
+        };
+        const cleared = () => surface === 'settings'
+          ? !accountCard(view.host, 'developer-1').textContent?.includes('Permissions verified') && !accountCard(view.host, 'developer-2').textContent?.includes('Permissions verified')
+          : !view.host.textContent?.includes('Permissions verified');
+        try {
+          flushSync(() => view.root.render(surface === 'settings' ? <GitLabSettings /> : <Selector />));
+          await until(() => view.host.textContent?.includes('Permissions verified') === true, 'Verified account report did not load');
+          if (surface === 'settings') button('Update…', accountCard(view.host, 'developer-1')).click();
+          else button('Add or reconnect a GitLab account', view.host).click();
+          await until(() => view.host.textContent?.includes('Sign in with GitLab') === true, 'Reconnect form did not load');
+          if (surface === 'selector') changeInput(element<HTMLInputElement>('[aria-label="GitLab server"]', view.host), SERVER.webBaseUrl);
+          await settle(); button('Sign in with GitLab', view.host).click();
+          await until(() => logins === 1 && cleared(), 'Starting reconnect retained stale verified permissions');
+          login.reject(new Error("Error invoking remote method 'hosting:cli-login': Error: Missing api permission"));
+          await until(() => view.host.querySelector('[role="alert"]')?.textContent === 'Missing api permission', 'Reconnect rejection did not appear');
+          assert(cleared(), 'Rejected reconnect restored stale verified permissions');
+          if (surface === 'settings') assert(accountCard(view.host, 'developer-3').textContent?.includes('Permissions verified'), 'Reconnect cleared another server permissions');
+          else {
+            select(view.host, 2); await settle();
+            assert(cleared(), 'Reconnect did not clear the other account on its server');
+            select(view.host, 3); await settle();
+            assert(view.host.textContent?.includes('Permissions verified'), 'Reconnect cleared another server permissions');
+          }
+        } finally { view.dispose(); }
+      }
+    }],
     ['Update and reconnect GitLab accounts on their saved servers', async () => {
       const view = createFixtureRoot();
       const publicServer: HostingServerDto = { provider: 'GITLAB', webBaseUrl: 'https://gitlab.com', apiBaseUrl: 'https://gitlab.com/api/v4' };
@@ -370,7 +500,10 @@ export async function run() {
         window.bridge = {
           getGitLabCliStatus: readyCli,
           listHostingAccounts: async () => rows,
-          connectHostingCliAccount: async request => { connections++; return account(2, request); },
+          connectHostingCliAccount: async request => {
+            connections++;
+            return { ...account(2, request), permissions: { status: 'UNAVAILABLE', scopes: [], detail: 'This server cannot inspect the credential scopes.' } };
+          },
         } as Partial<Bridge> as Bridge;
         try {
           flushSync(() => view.root.render(<GitLabSettings />));
@@ -385,6 +518,7 @@ export async function run() {
           button('Sign in with GitLab', view.host).click();
           await until(() => view.host.textContent?.includes('developer-2') === true, 'Added account did not appear');
           assert(Number(connections) === 1 && accountCard(view.host, 'developer-2').textContent?.includes('Connected'), 'Added account did not become connected');
+          assert(accountCard(view.host, 'developer-2').textContent?.includes('Permissions unavailable'), 'Unverified sign-in must retain its permission report');
           if (rows.length > 0) accountCard(view.host, 'developer-1');
         } finally { view.dispose(); }
       }

@@ -41,7 +41,11 @@ it.each([new Response(null, { status: 204 }), new Response('')])('returns null f
 
 it.each([
   [JSON.stringify({ message: 'Busy' }), 409, 'Busy'],
+  [JSON.stringify({ message: 'Busy', detail: 'Other detail' }), 409, 'Busy'],
   [JSON.stringify({ code: 'IDE_FILE_CHANGED', message: 'Reload first' }), 409, 'IDE_FILE_CHANGED: Reload first'],
+  [JSON.stringify({ type: 'about:blank', title: 'Not Found', status: 404, detail: 'The GitLab project is missing or inaccessible.\n\nRequest: GET /api/v4/projects/:project\nGitLab request ID: request-123' }),
+    404, 'The GitLab project is missing or inaccessible.\n\nRequest: GET /api/v4/projects/:project\nGitLab request ID: request-123'],
+  [JSON.stringify({ detail: ' ' }), 500, JSON.stringify({ detail: ' ' })],
   ['Unavailable', 503, 'Unavailable'],
   ['', 500, 'GET /local returned 500'],
 ])('retains meaningful failure details', async (body, status, message) => {

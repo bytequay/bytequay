@@ -34,6 +34,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
@@ -50,6 +51,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
@@ -67,6 +69,7 @@ import java.util.stream.Stream;
 import static com.bytequay.app.web.agent.AgentController.SESSION_HEADER;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.is;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -105,6 +108,7 @@ class TestHostingController
     @CsvSource({
             "GET,/api/hosting/accounts",
             "POST,/api/hosting/accounts",
+            "POST,/api/hosting/accounts/7/permissions",
             "POST,/api/hosting/cli/login",
             "GET,/api/hosting/gitlab/cli",
             "POST,/api/hosting/gitlab/cli/install",
@@ -179,7 +183,8 @@ class TestHostingController
     void connectsWithNormalizedIdentityWithoutReturningTheToken()
             throws Exception
     {
-        when(connections.connect(GITLAB, WEB, API, TOKEN)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true));
+        var permissions = new HostingPermissions(HostingPermissions.Status.VERIFIED, ImmutableList.of("api"), "API permission granted");
+        when(connections.connect(GITLAB, WEB, API, TOKEN)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true, Optional.of(permissions)));
 
         String body = mvc(connections).perform(post("/api/hosting/accounts").header(SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON).content(CONNECT_BODY))
@@ -192,6 +197,8 @@ class TestHostingController
                 .andExpect(jsonPath("$.instance.provider").value("GITLAB"))
                 .andExpect(jsonPath("$.instance.webBaseUrl").value(WEB.toString()))
                 .andExpect(jsonPath("$.instance.apiBaseUrl").value(API.toString()))
+                .andExpect(jsonPath("$.permissions.status").value("VERIFIED"))
+                .andExpect(jsonPath("$.permissions.scopes[0]").value("api"))
                 .andExpect(jsonPath("$.token").doesNotExist())
                 .andReturn().getResponse().getContentAsString();
 
@@ -204,7 +211,8 @@ class TestHostingController
     void connectsThroughCliWithoutExposingCredentials()
             throws Exception
     {
-        when(connections.connectCli(GITLAB, WEB, API)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true));
+        var permissions = new HostingPermissions(HostingPermissions.Status.UNAVAILABLE, ImmutableList.of(), "Permissions could not be verified. Check again.");
+        when(connections.connectCli(GITLAB, WEB, API)).thenReturn(new HostingConnection(ACCOUNT, INSTANCE, true, Optional.of(permissions)));
 
         mvc(connections).perform(post("/api/hosting/cli/login").header(SESSION_HEADER, SESSION)
                         .contentType(MediaType.APPLICATION_JSON).content("""
@@ -213,6 +221,8 @@ class TestHostingController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.account.id").value(7))
                 .andExpect(jsonPath("$.connected").value(true))
+                .andExpect(jsonPath("$.permissions.status").value("UNAVAILABLE"))
+                .andExpect(jsonPath("$.permissions.detail").value(permissions.detail()))
                 .andExpect(jsonPath("$.token").doesNotExist());
 
         verify(connections).connectCli(GITLAB, WEB, API);
@@ -222,7 +232,7 @@ class TestHostingController
     void listsRetainedDisconnectedAccountsWithoutCredentials()
             throws Exception
     {
-        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(ACCOUNT, INSTANCE, false)));
+        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(ACCOUNT, INSTANCE, false, Optional.empty())));
 
         String body = mvc(connections).perform(get("/api/hosting/accounts").header(SESSION_HEADER, SESSION))
                 .andExpect(status().isOk())
@@ -233,6 +243,32 @@ class TestHostingController
         assertThat(body).doesNotContain(TOKEN, SESSION, "token");
         verify(connections).connections();
         verifyNoMoreInteractions(connections);
+    }
+
+    @ParameterizedTest
+    @EnumSource(HostingPermissions.Status.class)
+    void checksGrantedPermissionsForTheSelectedAccountWithoutExposingCredentials(HostingPermissions.Status permissionStatus)
+            throws Exception
+    {
+        var scopes = switch (permissionStatus) {
+            case VERIFIED -> ImmutableList.of("api");
+            case MISSING -> ImmutableList.of("read_user");
+            case UNAVAILABLE -> ImmutableList.<String>of();
+        };
+        var permissions = new HostingPermissions(permissionStatus, scopes, "Permission check result");
+        when(connections.checkPermissions(7)).thenReturn(permissions);
+
+        String body = mvc(connections).perform(post("/api/hosting/accounts/7/permissions").header(SESSION_HEADER, SESSION))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value(permissionStatus.name()))
+                .andExpect(jsonPath("$.scopes").value(is(scopes)))
+                .andExpect(jsonPath("$.detail").value(permissions.detail()))
+                .andReturn().getResponse().getContentAsString();
+
+        assertThat(body).doesNotContain(TOKEN, SESSION);
+        verify(connections).checkPermissions(7);
+        verifyNoMoreInteractions(connections);
+        verifyNoInteractions(cli, requests);
     }
 
     @Test

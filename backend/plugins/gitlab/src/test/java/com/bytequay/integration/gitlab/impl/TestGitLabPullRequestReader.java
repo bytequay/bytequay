@@ -588,11 +588,13 @@ class TestGitLabPullRequestReader
     }
 
     @Test
-    void returnsNoMatchForAnIncompleteProjectPath()
+    void reportsInaccessibleExactProjectPaths()
     {
         reply.set(new Reply(404, "{}", Optional.empty()));
 
-        assertThat(new GitLabConnectionClient(http, MAPPER).search(access, "group/subgroup/re", 30)).isEmpty();
+        assertThatThrownBy(() -> new GitLabConnectionClient(http, MAPPER).search(access, "group/subgroup/re", 30))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.MISSING_OR_INACCESSIBLE))
+                .hasMessageContaining("404");
         assertThat(requestedPath.get()).isEqualTo("/gitlab/api/v4/projects/group%2Fsubgroup%2Fre");
     }
 

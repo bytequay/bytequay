@@ -314,6 +314,18 @@ it('searches hosting projects with the selected account and encoded query', asyn
   expect(String(fetch.mock.calls[0][0])).toBe('http://127.0.0.1:9527/api/hosting/accounts/7/repositories?query=group%2Fproject+%26+tools&limit=30');
 });
 
+it('checks permissions for the selected hosting account through the local backend', async () => {
+  await startMain();
+  const permissions = { status: 'VERIFIED', scopes: ['api'], detail: 'API permission verified' };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(permissions), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+
+  await expect(desktop.handlers.get('hosting:permissions')?.({}, 7)).resolves.toEqual(permissions);
+
+  expect(fetch).toHaveBeenCalledOnce();
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/hosting/accounts/7/permissions', expect.objectContaining({ method: 'POST' }));
+});
+
 it('reads activity titles through the local stored-PR endpoint without an import IPC', async () => {
   await startMain();
   const fetch = vi.fn(async (_url: string | URL) => new Response('null', { headers: { 'Content-Type': 'application/json' } }));

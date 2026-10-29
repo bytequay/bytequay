@@ -1,0 +1,11 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ */
+.error-details { display: grid; gap: 8px; text-align: left; }
+.error-details__message { white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.error-details .pr-copy-button { display: inline-flex; align-items: center; justify-self: start; flex-wrap: wrap; gap: 6px; padding: 4px 8px; border: 1px solid currentColor; border-radius: 6px; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.error-details .pr-copy-button__message { position: static; transform: none; padding: 0; background: transparent; color: inherit; white-space: normal; }

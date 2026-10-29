@@ -16,6 +16,7 @@ package com.bytequay.integration.gitlab.impl;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -32,7 +33,6 @@ import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
-import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -61,19 +61,17 @@ public final class GitLabConnectionClient
     }
 
     @Override
+    public Optional<HostingPermissions> checkPermissions(HostingAccess access)
+    {
+        return Optional.of(new GitLabPermissionReader(http).check(access));
+    }
+
+    @Override
     public List<RemoteHostingRepository> search(HostingAccess access, String query, int limit)
     {
         checkArgument(limit > 0 && limit <= 30, "limit must be between 1 and 30");
         if (query.matches("[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)+")) {
-            try {
-                return ImmutableList.of(findByPath(access, query));
-            }
-            catch (HostingFailure failure) {
-                if (failure.kind() != MISSING_OR_INACCESSIBLE) {
-                    throw failure;
-                }
-                return ImmutableList.of();
-            }
+            return ImmutableList.of(findByPath(access, query));
         }
         String filter = query.isEmpty() ? "membership=true&order_by=last_activity_at&sort=desc" : "search=" + encode(query) + "&order_by=name&sort=asc";
         GitLabRepositoryResponse[] repositories = http.get(access, "projects?" + filter + "&per_page=" + limit, Optional.empty(), GitLabRepositoryResponse[].class)

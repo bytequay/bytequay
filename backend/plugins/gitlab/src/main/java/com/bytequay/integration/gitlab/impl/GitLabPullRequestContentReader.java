@@ -238,21 +238,24 @@ public final class GitLabPullRequestContentReader
         MergeRequest request = get(access, request(access, repository, number), MergeRequest.class);
         checkArgument(headSha.equals(request.sha()), "Merge request head changed while reading checks");
         if (request.headPipeline() == null) {
-            return new Checks(ImmutableList.of(), Optional.empty(), Optional.empty());
+            return new Checks(ImmutableList.of(), Optional.empty(), Optional.empty(), true);
         }
         Pipeline pipeline = request.headPipeline();
         String path = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId()) + "/pipelines/" + pipeline.id();
-        List<PrCheckRunState> checks = new ArrayList<>(pages(access, path + "/jobs", Job[].class).stream()
+        // Pipeline access can differ from merge request access, especially for fork pipelines.
+        List<String> unavailable = new ArrayList<>();
+        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> pages(access, path + "/jobs", Job[].class)).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "job", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
-        checks.addAll(pages(access, path + "/bridges", Job[].class).stream()
+        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> pages(access, path + "/bridges", Job[].class)).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "status", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
-        if (checks.isEmpty()) {
-            checks = ImmutableList.of(check(pipeline.id(), "Pipeline #" + pipeline.id(), pipeline.status(), pipeline.webUrl(), "status", null, null, false));
+        if (checks.isEmpty() || !unavailable.isEmpty()) {
+            // A summary has no job identity; null replaces it on the next partial refresh.
+            checks.add(check(null, "Pipeline #" + pipeline.id(), pipeline.status(), pipeline.webUrl(), "status", null, null, false));
         }
-        return new Checks(checks, Optional.empty(), Optional.empty());
+        return new Checks(checks, Optional.empty(), Optional.empty(), unavailable.isEmpty());
     }
 
-    private static PrCheckRunState check(long id, String name, String state, String url, String source, String startedAt, String completedAt, boolean allowFailure)
+    private static PrCheckRunState check(Long id, String name, String state, String url, String source, String startedAt, String completedAt, boolean allowFailure)
     {
         String conclusion = switch (state) {
             case "success" -> "success";
@@ -314,7 +317,7 @@ public final class GitLabPullRequestContentReader
         }
         catch (HostingFailure failure) {
             if (failure.kind() == MISSING_OR_INACCESSIBLE) {
-                return new PullRequestCheckLog("", Optional.of("GitLab job log is unavailable"));
+                return new PullRequestCheckLog("", Optional.of(failure.getMessage()));
             }
             throw failure;
         }

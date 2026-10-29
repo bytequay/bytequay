@@ -19,6 +19,7 @@ import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
+import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
@@ -68,6 +69,12 @@ public class HostingController
     public HostingConnection connect(@RequestBody ConnectRequest request)
     {
         return connections.connect(request.provider(), request.webBaseUrl(), request.apiBaseUrl(), request.token());
+    }
+
+    @PostMapping("/accounts/{accountId}/permissions")
+    public HostingPermissions permissions(@PathVariable long accountId)
+    {
+        return connections.checkPermissions(accountId);
     }
 
     @DeleteMapping("/accounts/{accountId}/credential")

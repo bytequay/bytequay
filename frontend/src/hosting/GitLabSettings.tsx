@@ -13,22 +13,25 @@
  */
 import { useEffect, useState } from 'react';
 import Avatar from '../Avatar';
+import ErrorDetails from '../ErrorDetails';
+import { remoteErrorMessage } from '../remoteError';
 import { SettingsCard, SettingsRow, StatusDot } from '../settings/primitives';
 import type { HostingConnectionDto } from '../types';
-import { GitLabConnectionForm } from './GitLabAccounts';
+import { clearGitLabPermissions, GitLabConnectionForm, GitLabPermissions } from './GitLabAccounts';
 
 export default function GitLabSettings() {
   const [accounts, setAccounts] = useState<HostingConnectionDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<number | 'new' | null>(null);
   const [disconnecting, setDisconnecting] = useState<number | null>(null);
+  const [checking, setChecking] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     void window.bridge.listHostingAccounts()
       .then(rows => { if (active) setAccounts(rows.filter(row => row.instance.provider === 'GITLAB')); })
-      .catch(failure => { if (active) setError(failure instanceof Error ? failure.message : String(failure)); })
+      .catch(failure => { if (active) setError(remoteErrorMessage(failure)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -43,14 +46,23 @@ export default function GitLabSettings() {
     setDisconnecting(id); setError(null);
     try {
       await window.bridge.disconnectHostingAccount(id);
-      setAccounts(rows => rows.map(row => row.account.id === id ? { ...row, connected: false } : row));
-    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+      setAccounts(rows => rows.map(row => row.account.id === id ? { ...row, connected: false, permissions: null } : row));
+    } catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setDisconnecting(null); }
+  };
+  const checkPermissions = async (id: number) => {
+    setChecking(id); setError(null);
+    setAccounts(rows => rows.map(row => row.account.id === id ? { ...row, permissions: null } : row));
+    try {
+      const permissions = await window.bridge.checkHostingPermissions(id);
+      setAccounts(rows => rows.map(row => row.account.id === id ? { ...row, permissions } : row));
+    } catch (failure) { setError(remoteErrorMessage(failure)); }
+    finally { setChecking(null); }
   };
 
   return <div className="setw-page"><h1>GitLab</h1>
     <div className="setw-section"><span className="setw-section-title">Accounts</span></div>
-    {error !== null && <p className="setw-error" role="alert">{error}</p>}
+    {error !== null && <ErrorDetails message={error} className="setw-error" />}
     {loading ? <p role="status">Loading GitLab accounts…</p> : <>
       {accounts.map(account => <SettingsCard key={account.account.id}>
         <SettingsRow title={<>
@@ -58,23 +70,28 @@ export default function GitLabSettings() {
           <span>{account.account.login}</span><StatusDot tone={account.connected ? 'ok' : 'idle'} />
         </>} subtitle={`${account.instance.webBaseUrl} · ${account.connected ? 'Connected' : 'Disconnected'}`}>
           {editing !== account.account.id && <>
-            <button type="button" className="setw-btn" disabled={disconnecting !== null}
+            <button type="button" className="setw-btn" disabled={disconnecting !== null || checking !== null}
               onClick={() => setEditing(account.account.id)}>{account.connected ? 'Update…' : 'Reconnect'}</button>
-            {account.connected && <button type="button" className="setw-btn is-danger" disabled={disconnecting !== null}
+            {account.connected && <button type="button" className="setw-btn is-danger" disabled={disconnecting !== null || checking !== null}
               onClick={() => { void disconnect(account.account.id); }}>{disconnecting === account.account.id ? 'Disconnecting…' : 'Disconnect'}</button>}
           </>}
         </SettingsRow>
+        {account.connected && <SettingsRow title="API permissions" subtitle={checking === account.account.id
+          ? <p role="status">Checking permissions…</p> : <GitLabPermissions permissions={account.permissions} />}>
+          <button type="button" className="setw-btn" disabled={disconnecting !== null || checking !== null || editing !== null}
+            onClick={() => { void checkPermissions(account.account.id); }}>Check permissions</button>
+        </SettingsRow>}
         {editing === account.account.id && <div className="setw-row hosting-account-form">
-          <GitLabConnectionForm server={account.instance} onConnected={connected} />
+          <GitLabConnectionForm server={account.instance} onConnecting={target => setAccounts(rows => clearGitLabPermissions(rows, target))} onConnected={connected} />
           <button type="button" className="setw-btn" onClick={() => setEditing(null)}>Cancel</button>
         </div>}
       </SettingsCard>)}
       {editing === 'new' || accounts.length === 0 && error === null ? <SettingsCard>
         <div className="setw-row hosting-account-form">
-          <GitLabConnectionForm onConnected={connected} />
+          <GitLabConnectionForm onConnecting={target => setAccounts(rows => clearGitLabPermissions(rows, target))} onConnected={connected} />
           {accounts.length > 0 && <button type="button" className="setw-btn" onClick={() => setEditing(null)}>Cancel</button>}
         </div>
-      </SettingsCard> : <button type="button" className="setw-btn" disabled={disconnecting !== null} onClick={() => setEditing('new')}>Add GitLab account</button>}
+      </SettingsCard> : <button type="button" className="setw-btn" disabled={disconnecting !== null || checking !== null} onClick={() => setEditing('new')}>Add GitLab account</button>}
     </>}
   </div>;
 }

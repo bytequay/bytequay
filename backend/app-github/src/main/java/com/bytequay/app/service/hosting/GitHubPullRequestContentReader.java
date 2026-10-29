@@ -157,7 +157,7 @@ public class GitHubPullRequestContentReader
                 .map(check -> "job".equals(check.source()) ? withSource(check, check.githubId(), "check_run") : check).collect(toImmutableList());
         var result = actions.refreshPrCheckRuns(access.token(), ref.owner(), ref.repo(), headSha, cached, checksEtag, statusesEtag);
         return new Checks(result.checkRuns().stream().map(GitHubPullRequestContentReader::normalizeJob).collect(toImmutableList()),
-                result.checkRunsEtag(), result.commitStatusesEtag());
+                result.checkRunsEtag(), result.commitStatusesEtag(), true);
     }
 
     private static PrCheckRunState normalizeJob(PrCheckRunState check)

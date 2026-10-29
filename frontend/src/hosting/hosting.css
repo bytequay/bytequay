@@ -13,3 +13,5 @@
 
 .hosting-watch-accounts { padding: 0 20px 16px; }
 .hosting-account-form { display: block; }
+.hosting-permissions { display: grid; gap: 6px; font-size: 13px; line-height: 1.5; }
+.hosting-permissions p { margin: 0; }

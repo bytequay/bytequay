@@ -12,12 +12,15 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { GitLabCliStatusDto, HostingConnectionDto, HostingServerDto } from '../types';
+import ErrorDetails from '../ErrorDetails';
+import { remoteErrorMessage } from '../remoteError';
+import type { GitLabCliStatusDto, HostingConnectionDto, HostingPermissionsDto, HostingServerDto } from '../types';
 import '../css/settings-window.css';
 import './hosting.css';
 
-export function GitLabConnectionForm({ server, onConnected }: {
+export function GitLabConnectionForm({ server, onConnecting, onConnected }: {
   server?: HostingServerDto;
+  onConnecting?: (server: HostingServerDto) => void;
   onConnected: (account: HostingConnectionDto) => void;
 }) {
   const [url, setUrl] = useState(server?.webBaseUrl ?? 'https://gitlab.com');
@@ -29,7 +32,7 @@ export function GitLabConnectionForm({ server, onConnected }: {
   const checkCli = useCallback(async () => {
     setChecking(true); setError(null);
     try { setCliStatus(await window.bridge.getGitLabCliStatus()); }
-    catch (failure) { setCliStatus(null); setError(failure instanceof Error ? failure.message : String(failure)); }
+    catch (failure) { setCliStatus(null); setError(remoteErrorMessage(failure)); }
     finally { setChecking(false); }
   }, []);
   useEffect(() => { void checkCli(); }, [checkCli]);
@@ -46,9 +49,10 @@ export function GitLabConnectionForm({ server, onConnected }: {
         if (!installed.ready) throw new Error('GitLab CLI is not ready. Check again or use a personal access token.');
         setBusy('cli');
       }
+      onConnecting?.(target);
       const account = await (cli ? window.bridge.connectHostingCliAccount(target) : window.bridge.connectHostingAccount({ ...target, token: token.trim() }));
       setToken(''); onConnected(account);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    } catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setBusy(null); }
   };
   const openTokenPage = async () => {
@@ -61,7 +65,7 @@ export function GitLabConnectionForm({ server, onConnected }: {
       target.pathname = `${target.pathname.replace(/\/+$/, '')}/-/user_settings/personal_access_tokens`;
       target.search = new URLSearchParams({ name: 'ByteQuay', scopes: 'api' }).toString();
       await window.bridge.openExternal(target.href);
-    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    } catch (failure) { setError(remoteErrorMessage(failure)); }
   };
   return <form className="hosting-form" onSubmit={event => {
     event.preventDefault();
@@ -80,7 +84,7 @@ export function GitLabConnectionForm({ server, onConnected }: {
       {cliStatus !== null && !cliStatus.ready && !cliStatus.homebrewAvailable && <>
         <p>Install Homebrew first, then check again. You can also connect with a personal access token below.</p>
         <button type="button" className="setw-btn" disabled={busy !== null || checking} onClick={() => {
-          void window.bridge.openExternal('https://brew.sh').catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+          void window.bridge.openExternal('https://brew.sh').catch(failure => setError(remoteErrorMessage(failure)));
         }}>Open Homebrew setup</button>
       </>}
       <button type="button" className="setw-link" disabled={busy !== null || checking} onClick={() => { void checkCli(); }}>Check again</button>
@@ -90,9 +94,24 @@ export function GitLabConnectionForm({ server, onConnected }: {
     <button type="button" className="setw-link" disabled={busy !== null} onClick={() => { void openTokenPage(); }}>Create access token</button>
     <p>The shortcut preselects the required <code>api</code> permission. If your server does not preselect it, select it before generating the token.
       The token is stored encrypted on this Mac.</p>
-    {error !== null && <p role="alert" className="setw-error">{error}</p>}
+    {error !== null && <ErrorDetails message={error} className="setw-error" />}
     <button type="submit" className="setw-btn" disabled={busy !== null || token.trim() === ''}>{busy === 'token' ? 'Connecting…' : 'Connect GitLab'}</button>
   </form>;
+}
+
+export function GitLabPermissions({ permissions }: { permissions: HostingPermissionsDto | null }) {
+  if (permissions === null) return <p>Permissions have not been checked.</p>;
+  const label = { VERIFIED: 'Permissions verified', MISSING: 'Missing permissions', UNAVAILABLE: 'Permissions unavailable' }[permissions.status];
+  return <div className="hosting-permissions" role={permissions.status === 'MISSING' ? 'alert' : 'status'}>
+    <strong>{label}</strong>
+    {permissions.scopes.length > 0 && <p>Granted scopes: <code>{permissions.scopes.join(', ')}</code></p>}
+    <p>{permissions.detail}</p>
+  </div>;
+}
+
+export function clearGitLabPermissions(accounts: HostingConnectionDto[], server: HostingServerDto): HostingConnectionDto[] {
+  return accounts.map(account => account.instance.provider === server.provider && account.instance.webBaseUrl === server.webBaseUrl
+    && account.instance.apiBaseUrl === server.apiBaseUrl ? { ...account, permissions: null } : account);
 }
 
 export default function GitLabAccounts({ selected, server, onSelect, autoSelectFirst = false, disabled = false }: {
@@ -110,7 +129,7 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
   useEffect(() => {
     let active = true;
     void window.bridge.listHostingAccounts().then(rows => { if (active) setAccounts(rows); })
-      .catch(failure => { if (active) setError(failure instanceof Error ? failure.message : String(failure)); })
+      .catch(failure => { if (active) setError(remoteErrorMessage(failure)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
@@ -118,14 +137,15 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
     if (!autoSelectFirst || selected !== undefined) return;
     const first = accounts.find(account => account.connected && account.instance.provider === 'GITLAB' && (server === undefined
       || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
-    if (first) void Promise.resolve(onSelect(first)).catch(failure => setError(failure instanceof Error ? failure.message : String(failure)));
+    if (first) void Promise.resolve(onSelect(first)).catch(failure => setError(remoteErrorMessage(failure)));
   }, [accounts, autoSelectFirst, selected, server, onSelect]);
   const choices = accounts.filter(account => account.instance.provider === 'GITLAB' && (server === undefined
     || account.instance.webBaseUrl === server.webBaseUrl && account.instance.apiBaseUrl === server.apiBaseUrl));
+  const permissions = choices.find(account => account.account.id === selected)?.permissions ?? null;
   const choose = async (account: HostingConnectionDto) => {
     setBusy(true); setError(null);
     try { await onSelect(account); }
-    catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)); }
+    catch (failure) { setError(remoteErrorMessage(failure)); }
     finally { setBusy(false); }
   };
   return <div className="hosting-accounts">
@@ -137,10 +157,11 @@ export default function GitLabAccounts({ selected, server, onSelect, autoSelectF
           {account.account.login} · {account.instance.webBaseUrl}{account.connected ? '' : ' · disconnected'}
         </option>)}
       </select></label>}
-      {(adding || choices.length === 0) ? <GitLabConnectionForm server={server} onConnected={account => {
+      {permissions !== null && <GitLabPermissions permissions={permissions} />}
+      {(adding || choices.length === 0) ? <GitLabConnectionForm server={server} onConnecting={target => setAccounts(rows => clearGitLabPermissions(rows, target))} onConnected={account => {
         setAccounts(rows => [...rows.filter(row => row.account.id !== account.account.id), account]); setAdding(false); void choose(account);
       }} /> : <button type="button" className="setw-link" disabled={disabled} onClick={() => setAdding(true)}>Add or reconnect a GitLab account</button>}
     </>}
-    {error !== null && <p className="setw-error" role="alert">{error}</p>}
+    {error !== null && <ErrorDetails message={error} className="setw-error" />}
   </div>;
 }

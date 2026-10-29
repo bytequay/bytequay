@@ -215,7 +215,7 @@ export async function run() {
     window.bridge.listHostingAccounts = async () => account === null ? [] : [account];
     window.bridge.getGitLabCliStatus = async () => ({ ready: true, homebrewAvailable: true });
     window.bridge.connectHostingAccount = async server => {
-      account = { account: { id: 1, instanceId: 1, remoteId: '42', login: 'developer' }, instance: { id: 1, ...server }, connected: true };
+      account = { account: { id: 1, instanceId: 1, remoteId: '42', login: 'developer' }, instance: { id: 1, ...server }, connected: true, permissions: null };
       return account;
     };
     window.bridge.listRetiredWorkspaces = async () => [];

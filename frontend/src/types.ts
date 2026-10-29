@@ -365,10 +365,12 @@ export type WatchRepositoryCommand = {
 
 export type HostingServerDto = { provider: 'GITHUB' | 'GITLAB'; webBaseUrl: string; apiBaseUrl: string };
 export type GitLabCliStatusDto = { ready: boolean; homebrewAvailable: boolean };
+export type HostingPermissionsDto = { status: 'VERIFIED' | 'MISSING' | 'UNAVAILABLE'; scopes: string[]; detail: string };
 export type HostingConnectionDto = {
   account: { id: number; instanceId: number; remoteId: string; login: string };
   instance: HostingServerDto & { id: number };
   connected: boolean;
+  permissions: HostingPermissionsDto | null;
 };
 export type HostingRepositoryDto = {
   id: number; instanceId: number; remoteId: string; fullPath: string; webUrl: string;
@@ -1761,6 +1763,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   listHostingAccounts: () => Promise<HostingConnectionDto[]>;
   connectHostingAccount: (request: HostingServerDto & { token: string }) => Promise<HostingConnectionDto>;
   connectHostingCliAccount: (request: HostingServerDto) => Promise<HostingConnectionDto>;
+  checkHostingPermissions: (accountId: number) => Promise<HostingPermissionsDto>;
   getGitLabCliStatus: () => Promise<GitLabCliStatusDto>;
   installGitLabCli: () => Promise<GitLabCliStatusDto>;
   disconnectHostingAccount: (accountId: number) => Promise<void>;

@@ -48,7 +48,6 @@ import java.util.function.Supplier;
 import java.util.function.UnaryOperator;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /** Owns persisted pull-request detail and diff snapshots. */
@@ -208,20 +207,24 @@ public class PullRequestSnapshotService
         }
         PullRequestContentReader.Checks checks = readRemote(prId, () -> contents.reader(route.session()).checks(
                 route.session().access(), route.repository(), route.number(), raw.headSha(), existing.checkRuns(),
-                details.findCheckRunsEtag(prId), details.findCommitStatusesEtag(prId)));
+                existing.checkRunsComplete() ? details.findCheckRunsEtag(prId) : Optional.empty(),
+                existing.checkRunsComplete() ? details.findCommitStatusesEtag(prId) : Optional.empty()));
+        List<String> unavailable = new ArrayList<>(existing.unavailableSections());
+        unavailable.removeIf(StoredPrDetail.CHECKS::equals);
+        if (!checks.complete()) {
+            unavailable.add(StoredPrDetail.CHECKS);
+        }
         StoredPrDetail stored = new StoredPrDetail(
                 raw,
                 existing.reviews(),
                 existing.timeline(),
                 checks.checkRuns(),
-                existing.unavailableSections().stream()
-                        .filter(section -> !"checks".equals(section))
-                        .collect(toImmutableList()),
+                unavailable,
                 existing.viewerCanWrite());
         details.saveStatus(prId, stored);
         details.setCredentialScope(prId, route.scope());
         // Only a full refresh validates the timeline; a status response must not undo a write's invalidation.
-        details.updateStatusEtags(prId, checks.checkRunsEtag(), checks.commitStatusesEtag());
+        details.updateStatusEtags(prId, checks.complete() ? checks.checkRunsEtag() : Optional.empty(), checks.complete() ? checks.commitStatusesEtag() : Optional.empty());
         return stored;
     }
 

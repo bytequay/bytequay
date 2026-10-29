@@ -135,6 +135,7 @@ const bridge: Bridge = {
   listHostingAccounts: invoke('hosting:accounts'),
   connectHostingAccount: invoke('hosting:connect'),
   connectHostingCliAccount: invoke('hosting:cli-login'),
+  checkHostingPermissions: invoke('hosting:permissions'),
   getGitLabCliStatus: invoke('hosting:gitlab-cli'),
   installGitLabCli: invoke('hosting:gitlab-cli-install'),
   disconnectHostingAccount: invoke('hosting:disconnect'),

@@ -20,6 +20,7 @@ import com.bytequay.core.hosting.HostingCredential.Source;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
@@ -40,8 +41,11 @@ import java.util.Optional;
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
+import static com.bytequay.core.hosting.HostingFailure.Kind.FORBIDDEN;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.UNAVAILABLE;
+import static com.bytequay.core.hosting.HostingPermissions.Status.MISSING;
 import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -82,19 +86,38 @@ public class HostingConnectionService
     {
         checkText(token, "token");
         // Verify before retaining an instance so a mistyped API address is not stored.
-        RemoteHostingAccount remote = integration(server.provider()).accounts().verify(new HostingAccess(server, token));
+        HostingAccess access = new HostingAccess(server, token);
+        var accounts = integration(server.provider()).accounts();
+        RemoteHostingAccount remote = accounts.verify(access);
+        Optional<HostingPermissions> permissions = accounts.checkPermissions(access);
+        permissions.filter(report -> report.status() == MISSING).ifPresent(report -> {
+            throw new HostingFailure(FORBIDDEN, report.detail());
+        });
         HostingInstance instance = identities.upsertInstance(server);
         HostingAccount account = identities.upsertAccount(instance.id(), remote);
         credentials.save(account.id(), token, source);
-        return new HostingConnection(account, instance, true);
+        return new HostingConnection(account, instance, true, permissions);
     }
 
     public List<HostingConnection> connections()
     {
         return identities.listInstances().stream()
                 .flatMap(instance -> identities.listAccounts(instance.id()).stream()
-                        .map(account -> new HostingConnection(account, instance, credentials.find(account.id()).isPresent())))
+                        .map(account -> new HostingConnection(account, instance, credentials.find(account.id()).isPresent(), Optional.empty())))
                 .collect(toImmutableList());
+    }
+
+    public HostingPermissions checkPermissions(long accountId)
+    {
+        HostingReadSession session = readSession(accountId);
+        HostingAccess access = session.access();
+        var accounts = integration(access.server().provider()).accounts();
+        RemoteHostingAccount remote = accounts.verify(access);
+        if (!remote.remoteId().equals(account(session).remoteUserId())) {
+            throw new HostingFailure(AUTHENTICATION_REQUIRED, "The credential belongs to a different account. Reconnect this hosting account to continue");
+        }
+        return accounts.checkPermissions(access)
+                .orElseThrow(() -> new HostingFailure(UNAVAILABLE, "Permission checks are unavailable for this hosting provider"));
     }
 
     public void disconnect(long accountId)

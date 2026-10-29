@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import ErrorDetails from '../ErrorDetails';
+import { remoteErrorMessage } from '../remoteError';
 import type { WorkspaceDto } from '../types';
 import GitLabAccounts from './GitLabAccounts';
 
@@ -21,7 +23,7 @@ export function WorkspaceHostingAccount({ workspace }: { workspace: WorkspaceDto
   useEffect(() => {
     let active = true;
     void window.bridge.getWorkspaceHosting(workspace.id).then(binding => { if (active) setAccountId(binding?.accountId); })
-      .catch(failure => { if (active) setError(failure instanceof Error ? failure.message : String(failure)); });
+      .catch(failure => { if (active) setError(remoteErrorMessage(failure)); });
     return () => { active = false; };
   }, [workspace.id]);
   return <div className="setw-page">
@@ -31,6 +33,6 @@ export function WorkspaceHostingAccount({ workspace }: { workspace: WorkspaceDto
       const binding = await window.bridge.setWorkspaceHosting(workspace.id, account.account.id);
       setAccountId(binding.accountId); setError(null);
     }} />
-    {error !== null && <p className="setw-error" role="alert">{error}</p>}
+    {error !== null && <ErrorDetails message={error} className="setw-error" />}
   </div>;
 }

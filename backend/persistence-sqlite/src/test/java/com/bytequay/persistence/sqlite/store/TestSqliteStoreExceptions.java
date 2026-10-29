@@ -20,7 +20,9 @@ import com.bytequay.core.rebase.BranchRebaseException;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewDraft;
+import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.StorageException;
+import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.entity.PrReviewDraftEntity;
 import com.bytequay.persistence.sqlite.entity.TaskDiscussionEntity;
 import com.bytequay.persistence.sqlite.repository.PrReviewDraftJpaRepository;
@@ -100,7 +102,8 @@ class TestSqliteStoreExceptions
         DataIntegrityViolationException failure = rejected(reason);
         when(repository.saveAndFlush(any(PrReviewDraftEntity.class))).thenThrow(failure);
 
-        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository, mock(AgentReviewStore.class)).save(ReviewDraft.empty("owner/repo#1", "owner/repo", 1, Instant.EPOCH)))
+        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository, mock(AgentReviewStore.class), mock(HostingIdentityStore.class), mock(WorkspaceStore.class))
+                .save(ReviewDraft.empty("owner/repo#1", "owner/repo", 1, Instant.EPOCH)))
                 .isInstanceOf(StorageException.class)
                 .hasCause(failure);
     }
@@ -111,7 +114,8 @@ class TestSqliteStoreExceptions
         PrReviewDraftJpaRepository repository = mock(PrReviewDraftJpaRepository.class);
         when(repository.saveAndFlush(any(PrReviewDraftEntity.class))).thenThrow(rejected("[SQLITE_CONSTRAINT_PRIMARYKEY] duplicate draft"));
 
-        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository, mock(AgentReviewStore.class)).save(ReviewDraft.empty("owner/repo#1", "owner/repo", 1, Instant.EPOCH)))
+        assertThatThrownBy(() -> new SqliteReviewDraftStore(repository, mock(AgentReviewStore.class), mock(HostingIdentityStore.class), mock(WorkspaceStore.class))
+                .save(ReviewDraft.empty("owner/repo#1", "owner/repo", 1, Instant.EPOCH)))
                 .isInstanceOf(ReviewConflictException.class);
     }
 

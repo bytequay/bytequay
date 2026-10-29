@@ -810,7 +810,7 @@ public class ReviewPublicationService
 
     public Optional<ReviewDraft> findDraft(long repositoryId, int number)
     {
-        return drafts.find(repositoryId + "#" + number).map(this::effective);
+        return withLock(locks.get(repositoryId + "#" + number), () -> drafts.find(repositoryId, number).map(this::effective));
     }
 
     private static String draftId(PullRequestRead route)
@@ -820,7 +820,7 @@ public class ReviewPublicationService
 
     private ReviewDraft stored(PullRequestRead route)
     {
-        return effective(drafts.find(draftId(route))
+        return effective(drafts.find(route.repository().id(), route.number())
                 .orElseGet(() -> ReviewDraft.empty(draftId(route), route.repository().fullPath(), route.number(), now())));
     }
 

@@ -1433,6 +1433,12 @@ class TestReviewPublicationService
         }
 
         @Override
+        public Optional<ReviewDraft> find(long repositoryId, int number)
+        {
+            return find(repositoryId + "#" + number);
+        }
+
+        @Override
         public ReviewDraft save(ReviewDraft draft)
         {
             Optional<RuntimeException> failure = failNext;

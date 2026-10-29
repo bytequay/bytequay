@@ -14,6 +14,13 @@
 package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidate;
@@ -40,6 +47,8 @@ import com.bytequay.core.review.ReviewTestCheck;
 import com.bytequay.core.review.ReviewThreadVerdict;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.review.ReviewVerification;
+import com.bytequay.core.store.HostingIdentityStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -49,18 +58,23 @@ import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.hibernate.Session;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -104,6 +118,12 @@ class TestSqliteReviewStores
 
     @Autowired
     private SqliteReviewDraftStore draftStore;
+
+    @Autowired
+    private HostingIdentityStore identities;
+
+    @Autowired
+    private WorkspaceStore workspaces;
 
     @Autowired
     private EntityManager entityManager;
@@ -446,6 +466,124 @@ class TestSqliteReviewStores
             assertThat(value.line()).isEqualTo(42);
             assertThat(value.commitId()).isEmpty();
         });
+    }
+
+    @Test
+    void adoptsRetainedGitHubDraftWithoutLosingTextVersionsOrReceipts()
+    {
+        HostingRepository repository = draftRepository(GITHUB, "https://github.com", "99");
+        ReviewPublication reserved = new ReviewPublication("interrupted", ReviewPublication.State.RESERVED,
+                OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
+        ReviewPublication uncertain = new ReviewPublication("unconfirmed", ReviewPublication.State.UNCERTAIN,
+                OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
+        ReviewPublication published = new ReviewPublication("confirmed", ReviewPublication.State.PUBLISHED,
+                OptionalLong.of(9001), OptionalLong.of(9002), Optional.of("https://github.com/bytequay/sample/pull/7#discussion_r9002"), NOW);
+        ReviewDraftItem manual = new ReviewDraftItem("manual", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
+                "RIGHT", 42, OptionalInt.empty(), "Retained wording", true, Optional.empty(), Optional.of(HEAD_SHA), OptionalLong.empty());
+        ReviewDraftItem promoted = new ReviewDraftItem("finding", ReviewDraftItem.Source.AGENT_FINDING, Optional.of("finding-1"), OptionalInt.of(2), REVIEW_TOOLS,
+                "RIGHT", 42, OptionalInt.empty(), "Published wording", true, Optional.of(published), Optional.of(HEAD_SHA), OptionalLong.empty());
+        ReviewDraftItem reply = new ReviewDraftItem("reply", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
+                "RIGHT", 42, OptionalInt.empty(), "Unconfirmed reply", true, Optional.of(uncertain), Optional.empty(), OptionalLong.of(91));
+        ReviewDraft original = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "ByteQuay/Sample", 7, NOW)
+                .withItems(ImmutableList.of(manual, promoted, reply), NOW)
+                .withSummaryFindings(ImmutableList.of("pending-finding"), ImmutableList.of("posted-finding"), NOW)
+                .withReviewPublication(Optional.of(reserved), NOW));
+        ReviewDraft retained = draftStore.save(original.withReview("Retained summary", "REQUEST_CHANGES", NOW.plusSeconds(1)));
+        entityManager.clear();
+
+        ReviewDraft adopted = draftStore.find(repository.id(), 7).orElseThrow();
+        entityManager.clear();
+
+        assertThat(adopted).isEqualTo(retained.withId(repository.id() + "#7"));
+        assertThat(adopted.version()).isEqualTo(1);
+        assertThat(draftStore.find(retained.id())).isEmpty();
+        assertThat(draftStore.find(repository.id(), 7)).contains(adopted);
+        ReviewDraft edited = draftStore.save(adopted.withReview("Updated summary", "COMMENT", NOW.plusSeconds(2)));
+        assertThat(edited.version()).isEqualTo(2);
+        assertThatThrownBy(() -> draftStore.save(adopted.withReview("Stale summary", "COMMENT", NOW.plusSeconds(3))))
+                .isInstanceOf(ReviewConflictException.class);
+    }
+
+    @Test
+    void leavesRetainedGitHubDraftSeparateFromOtherServers()
+    {
+        ReviewDraft retained = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "bytequay/sample", 7, NOW).withReview("GitHub text", "COMMENT", NOW));
+        HostingRepository gitLab = draftRepository(GITLAB, "https://gitlab.example.com", "99");
+        HostingRepository enterprise = draftRepository(GITHUB, "https://github.example.com", "99");
+
+        assertThat(draftStore.find(gitLab.id(), 7)).isEmpty();
+        assertThat(draftStore.find(enterprise.id(), 7)).isEmpty();
+        assertThat(draftStore.find(retained.id())).contains(retained);
+    }
+
+    @Test
+    void doesNotAdoptDraftWhenGitHubRepositoryPathIsAmbiguous()
+    {
+        ReviewDraft retained = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "bytequay/sample", 7, NOW).withReview("Retained text", "COMMENT", NOW));
+        HostingRepository first = draftRepository(GITHUB, "https://github.com", "99");
+        HostingRepository replacement = draftRepository(GITHUB, "https://github.com", "100");
+
+        assertThatThrownBy(() -> draftStore.find(first.id(), 7)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("text is preserved");
+        assertThatThrownBy(() -> draftStore.find(replacement.id(), 7)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("text is preserved");
+        assertThat(draftStore.find(retained.id())).contains(retained);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void adoptsDraftWhenRetainedWorkspaceIdentityMatches(boolean monitored)
+    {
+        retainDraftWorkspace(99, monitored);
+        HostingRepository repository = draftRepository(GITHUB, "https://github.com", "99");
+        ReviewDraft retained = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "bytequay/sample", 7, NOW).withReview("Retained text", "COMMENT", NOW));
+
+        assertThat(draftStore.find(repository.id(), 7)).contains(retained.withId(repository.id() + "#7"));
+        assertThat(draftStore.find(retained.id())).isEmpty();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesDraftAndReportsReplacementOfRetainedWorkspaceRepository(boolean monitored)
+    {
+        retainDraftWorkspace(99, monitored);
+        HostingRepository replacement = draftRepository(GITHUB, "https://github.com", "100");
+        ReviewDraft retained = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "bytequay/sample", 7, NOW).withReview("Retained text", "COMMENT", NOW));
+
+        assertThatThrownBy(() -> draftStore.find(replacement.id(), 7))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("text is preserved");
+        assertThat(draftStore.find(retained.id())).contains(retained);
+        assertThat(draftStore.find(replacement.id() + "#7")).isEmpty();
+    }
+
+    @Test
+    void keepsExistingScopedDraftWhenRetainedDraftAlsoExists()
+    {
+        HostingRepository repository = draftRepository(GITHUB, "https://github.com", "99");
+        ReviewDraft retained = draftStore.save(ReviewDraft.empty("bytequay/sample#7", "bytequay/sample", 7, NOW).withReview("Retained text", "COMMENT", NOW));
+        ReviewDraft scoped = draftStore.save(ReviewDraft.empty(repository.id() + "#7", "bytequay/sample", 7, NOW).withReview("Current text", "COMMENT", NOW));
+
+        assertThat(draftStore.find(repository.id(), 7)).contains(scoped);
+        assertThat(draftStore.find(retained.id())).contains(retained);
+    }
+
+    private HostingRepository draftRepository(HostingProvider provider, String base, String remoteId)
+    {
+        String api = provider == GITHUB ? (base.equals("https://github.com") ? "https://api.github.com" : base + "/api/v3") : base + "/api/v4";
+        HostingInstance instance = identities.upsertInstance(new HostingServer(provider, URI.create(base), URI.create(api)));
+        return identities.upsertRepository(instance.id(), new RemoteHostingRepository(remoteId, "ByteQuay/Sample", URI.create(base + "/ByteQuay/Sample"),
+                URI.create(base + "/ByteQuay/Sample.git"), Optional.empty(), Optional.of("main")));
+    }
+
+    private void retainDraftWorkspace(long remoteId, boolean monitored)
+    {
+        RepoRef target = new RepoRef("bytequay", "sample");
+        RepoRef selected = monitored ? new RepoRef("fork", "sample") : target;
+        Workspace workspace = new Workspace("draft-workspace", "Draft workspace", monitored ? remoteId + 1 : remoteId, selected,
+                monitored ? Optional.of(remoteId) : Optional.empty(), monitored ? Optional.of(target) : Optional.empty(), remoteId, target,
+                monitored ? Workspace.Topology.FORK : Workspace.Topology.DIRECT, "main", "https://github.com/" + selected.fullName() + ".git",
+                monitored ? Optional.of("main") : Optional.empty(), monitored ? Optional.of("https://github.com/bytequay/sample.git") : Optional.empty(),
+                "/tmp/draft-workspace", Optional.empty(), Optional.empty(), 0, NOW, NOW);
+        workspaces.createOrGet(workspace);
+        workspaces.setWatched(workspace.id(), false);
     }
 
     @Test

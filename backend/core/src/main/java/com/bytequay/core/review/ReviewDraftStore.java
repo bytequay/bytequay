@@ -21,6 +21,9 @@ public interface ReviewDraftStore
 {
     Optional<ReviewDraft> find(String id);
 
+    /** Finds the hosting-scoped draft, adopting a retained GitHub.com draft when its identity is unambiguous. */
+    Optional<ReviewDraft> find(long repositoryId, int number);
+
     /**
      * Inserts a new draft or replaces the stored one whose version matches; the returned draft
      * carries the next version.

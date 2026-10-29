@@ -78,6 +78,11 @@ public record ReviewDraft(
         return new ReviewDraft(id, repo, number, body, event, reviewPublication, items, summaryFindingIds, postedSummaryFindingIds, updatedVersion, updatedAt);
     }
 
+    public ReviewDraft withId(String updatedId)
+    {
+        return new ReviewDraft(updatedId, repo, number, body, event, reviewPublication, items, summaryFindingIds, postedSummaryFindingIds, version, updatedAt);
+    }
+
     public ReviewDraft withItems(List<ReviewDraftItem> updatedItems, Instant now)
     {
         return new ReviewDraft(id, repo, number, body, event, reviewPublication, updatedItems, summaryFindingIds, postedSummaryFindingIds, version, now);

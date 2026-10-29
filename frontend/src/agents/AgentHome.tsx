@@ -305,7 +305,7 @@ export function AgentHomeView({
             })}
           </div>
         </section>
-        {availability.any && <ComposerDock repository={repository} chips={<>
+        <ComposerDock repository={repository} chips={availability.any ? <>
           {startHere.length > 0 && <>
             <span className="today-start-label"><Sun size={13} aria-hidden="true" />Today</span>
             {startHere.map(item => {
@@ -329,10 +329,10 @@ export function AgentHomeView({
               </button>
             );
           })}
-        </>}>
+        </> : undefined}>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
           <TaskComposer {...composer} workspaceId={workspaceId} backport />
-        </ComposerDock>}
+        </ComposerDock>
       </div>
       {wide && todayCard !== null && <aside className="agt-today">{todayCard}</aside>}
     </div>

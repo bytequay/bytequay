@@ -1283,8 +1283,8 @@ export function AgentTaskList({
         </div>
 
         {/* Anchored under the list: sending this first message is what creates a task. */}
-        {active && availability.any && (
-          <ComposerDock repository={repository} chips={<BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />}>
+        {active && (
+          <ComposerDock repository={repository} chips={availability.any ? <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} /> : undefined}>
             <TaskComposer {...composer} backport />
           </ComposerDock>
         )}

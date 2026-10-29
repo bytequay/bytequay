@@ -13,12 +13,16 @@
  */
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { flushSync } from 'react-dom';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, runScenarios, settle } from '../../fixtures/harness';
 import type { Bridge, ModelSettingsDto } from '../../types';
+import { PullRequestWorkspaceProvider } from '../../pulls/PullRequestWorkspace';
+import { settingsRoute } from '../../settings/routes';
+import { AgentHomeView } from '../AgentHome';
+import { AgentTaskList, type TaskComposerProps } from '../AgentTasksView';
 import { NO_AGENT_CAPABILITIES } from '../capabilities';
 import { AgentAvailabilityProvider, useAgentAvailability } from '../availability';
 
-export async function run() {
+async function readinessAndScope() {
   const { host, root, dispose } = createFixtureRoot();
   let reads = 0;
   let probes = 0;
@@ -56,8 +60,53 @@ export async function run() {
     await settle();
     assert(reads > beforeFocus && probes === 1, 'Focus must reread readiness without repeating expensive CLI checks');
     assert(host.querySelector('button') === null && host.textContent?.includes('Saved task history'), 'Lost authentication hides starts and preserves history');
-    return [{ name: 'Readiness changes and scope preserve history and gate new work' }];
   }
-  catch (error) { return [{ name: 'Agent availability updates', error: error instanceof Error ? error.message : String(error) }]; }
   finally { dispose(); }
+}
+
+async function workspaceComposers() {
+  const { host, root, dispose } = createFixtureRoot();
+  let settings: ModelSettingsDto = { agents: [], providers: [], apiKeys: [], keyProviders: [] };
+  let fail = false;
+  window.bridge = {
+    getModelSettings: async () => { if (fail) throw new Error('Unavailable'); return settings; },
+    refreshModelSettings: async () => settings,
+    getLinkedWorkspaceWork: async () => [],
+  } as Pick<Bridge, 'getModelSettings' | 'refreshModelSettings' | 'getLinkedWorkspaceWork'> as Bridge;
+  const composer: TaskComposerProps = {
+    workspaceId: 'work', laneId: 'codex', providers: [], models: [], selection: null, draft: '', blocker: null,
+    onDraftChange: () => {}, onSelectProvider: () => {}, onSelectModel: () => {}, onCreate: () => {},
+  };
+  const repository = 'group/subgroup/repository';
+  const server = { provider: 'GITLAB' as const, webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' };
+  const notices = () => [...host.querySelectorAll<HTMLAnchorElement>('.agt-dock a')].filter(link => link.getAttribute('href') === settingsRoute('ws-agents', 'work'));
+  try {
+    flushSync(() => root.render(<AgentAvailabilityProvider><PullRequestWorkspaceProvider workspaceId="work" server={server} repository={repository}>
+      <AgentHomeView {...composer} repository={repository} tasks={[]} onOpenTask={() => {}} onOpenReview={() => {}} onShowAll={() => {}} />
+      <AgentTaskList {...composer} repository={repository} tasks={[]} loading={false} error={null} onOpenTask={() => {}} />
+    </PullRequestWorkspaceProvider></AgentAvailabilityProvider>));
+    await settle();
+    assert(notices().length === 2 && host.querySelector('textarea') === null, 'Home and Tasks explain agent setup and link to this workspace settings');
+    assert(host.querySelector('.agt-start') === null, 'Unavailable agents do not offer task suggestions');
+
+    settings = { ...settings, providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '', selectedModel: 'sol', selectedEffort: '',
+      capabilities: { ...NO_AGENT_CAPABILITIES, permissionPolicies: ['AUTO'] }, models: [{ id: 'sol', name: 'Sol', description: '', efforts: [] }] }] };
+    window.dispatchEvent(new Event('bytequay:models-changed'));
+    await settle();
+    assert(host.querySelectorAll('textarea[aria-label="Describe a task"]').length === 2 && notices().length === 0,
+      'Both composers appear once the workspace has a usable agent');
+
+    fail = true;
+    window.dispatchEvent(new Event('focus'));
+    await settle();
+    assert(notices().length === 2 && host.querySelector('textarea') === null, 'A catalog failure leaves an actionable setup link instead of an empty dock');
+  }
+  finally { dispose(); }
+}
+
+export async function run() {
+  return runScenarios([
+    ['Readiness changes and scope preserve history and gate new work', readinessAndScope],
+    ['GitLab workspace Home and Tasks explain unavailable composers', workspaceComposers],
+  ]);
 }

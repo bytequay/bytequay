@@ -13,25 +13,25 @@
  */
 import { useAgentAvailability } from '../agents/availability';
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Eye, LoaderCircle, RefreshCw } from 'lucide-react';
+import { Bot, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { remoteErrorMessage } from '../remoteError';
 import { findConversationReview } from '../agents/agentConversations';
 import type { AgentReviewDto } from './agent-review/contracts';
 
-export default function PullRequestTaskActions({ repo, number, authored, workspaceId, loading, contextError, review, onNavigate, onRetryContext }: {
+export default function PullRequestTaskActions({ repo, number, authored, workspaceId, loading, contextError, existingTask, review, onNavigate, onRetryContext }: {
   repo: string;
   number: number;
   authored: boolean;
   workspaceId?: string;
   loading: boolean;
   contextError: string | null;
+  existingTask: boolean;
   review: AgentReviewDto | null;
   onNavigate: (route: string) => void;
   onRetryContext: () => void;
 }) {
   const availability = useAgentAvailability(workspaceId);
-  const [existingTask, setExistingTask] = useState(false);
   const [busy, setBusy] = useState<'development' | 'review' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const operation = useRef(false);
@@ -43,16 +43,6 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
     setError(null);
     return () => { generation.current = current + 1; };
   }, [authored, workspaceId, repo, number]);
-
-  useEffect(() => {
-    let active = true;
-    setExistingTask(false);
-    if (workspaceId !== undefined && !availability.development) {
-      void window.bridge.findPullRequestTask(workspaceId, repo, number)
-        .then(link => { if (active) setExistingTask(link !== null); }).catch(() => {});
-    }
-    return () => { active = false; };
-  }, [availability.development, workspaceId, repo, number]);
 
   const open = async (kind: 'development' | 'review') => {
     if (workspaceId === undefined || operation.current) return;
@@ -91,15 +81,17 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   const blocked = loading ? 'Loading workspace…' : contextError !== null ? `Workspace unavailable: ${contextError}`
     : workspaceId === undefined ? 'Add a workspace for this repository to use agent tasks' : null;
   return <>
-    {authored && (availability.development || existingTask) && <button type="button" className="pr-task-action" aria-label="Development task" title={blocked ?? 'Open or create the development task'}
+    {authored && (availability.development || existingTask) && <button type="button" className={`pr-task-action pr-task-action--development${existingTask ? ' is-assigned' : ''}`} aria-label="Development"
+      aria-description={existingTask ? 'Task assigned' : undefined} title={blocked ?? (existingTask ? 'Open assigned development task' : 'Create development task')}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('development'); }}>
       {busy === 'development' ? <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /></span> : <Bot size={16} aria-hidden="true" />}
-      Development task
+      Development
     </button>}
-    {(availability.review || review !== null) && <button type="button" className="pr-task-action" aria-label="Review task" title={blocked ?? 'Open the review task, or start a review if none exists'}
+    {(availability.review || review !== null) && <button type="button" className={`pr-task-action pr-task-action--review${review !== null ? ' is-assigned' : ''}`} aria-label="Review"
+      aria-description={review !== null ? 'Task assigned' : undefined} title={blocked ?? (review !== null ? 'Open assigned review task' : 'Start review task')}
       disabled={blocked !== null || busy !== null} onClick={() => { void open('review'); }}>
-      {busy === 'review' ? <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /></span> : <Eye size={16} aria-hidden="true" />}
-      Review task
+      {busy === 'review' ? <span className="bq-spinner is-spinning"><LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /></span> : <Bot size={16} aria-hidden="true" />}
+      Review
     </button>}
     {busy !== null && <span className="pr-task-message" role="status">{busy === 'development' ? 'Opening development task…' : 'Opening review task…'}</span>}
     {contextError !== null && <span className="pr-task-message" role="alert">{contextError}

@@ -224,7 +224,7 @@ answer tasks, change Epics and work items, or acknowledge and snooze items. Each
 switch is off by default.
 
 Ask it to work on one of your own pull requests and it uses that PR's
-development task, as the PR's **Development task** button does, and sends your
+development task, as the PR's **Development** button does, and sends your
 words there. A task started some other way can't be linked to a PR later.
 
 Every action leaves a receipt with **Open**; **Stop** cancels the first turn of
@@ -293,7 +293,9 @@ explore**. It opens a local editor and starts no agent.
 - **Shift twice** or **⌘⇧F** searches everywhere; **⌘F** searches the file.
 - A test’s play button runs or debugs it.
 
-On your own PR, **Development task** opens or creates its agent task.
+On your own PR, **Development** opens or creates its agent task. **Review** opens
+or starts a review task. Both use a robot icon; an assigned Development task has
+a green background, and an assigned Review task has a blue background.
 
 <a id="private-review"></a>
 

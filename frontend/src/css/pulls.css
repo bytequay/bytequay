@@ -702,6 +702,8 @@
 .pr-overview__branches button:disabled { opacity: .4; cursor: not-allowed; }
 .pr-task-message { flex-basis: 100%; font-size: 12px; }
 .pr-overview__branches .pr-task-action { display: inline-flex; width: auto; gap: 6px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
+.pr-overview__branches button.pr-task-action--development.is-assigned { background: var(--bg-success); color: var(--fg-success); }
+.pr-overview__branches button.pr-task-action--review.is-assigned { background: var(--bg-info); color: var(--fg-link); }
 .pr-overview__branches .pr-epic-link { display: inline-flex; width: auto; min-width: 0; max-width: 260px; gap: 5px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .pr-epic-link svg { flex: none; }
 .pr-epic-link span, .pr-epic-card__next li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -1349,6 +1349,7 @@ export async function runCheckLogs(): Promise<string> {
 
 export async function runAssignedPrActions(): Promise<string> {
   const { host, root, dispose } = createFixtureRoot();
+  host.className = 'pr-overview__branches';
   let assigned = 0;
   let reviewed = 0;
   let linkedReviewReads = 0;
@@ -1368,9 +1369,9 @@ export async function runAssignedPrActions(): Promise<string> {
     assignPullRequestAgent: async () => { assigned++; return new Promise(resolve => { resolveAssignment = resolve; }); },
     startAgentReview: async () => { reviewed++; return review; },
   };
-  const render = (authored: boolean, workspaceId?: string, existing: AgentReviewDto | null = null, key = 'pr') => {
+  const render = (authored: boolean, workspaceId?: string, existing: AgentReviewDto | null = null, key = 'pr', existingTask = false) => {
     flushSync(() => root.render(<PullRequestTaskActions key={key} repo="owner/repo" number={7} authored={authored}
-      workspaceId={workspaceId} loading={false} contextError={null} review={existing} onRetryContext={() => {}}
+      workspaceId={workspaceId} loading={false} contextError={null} existingTask={existingTask} review={existing} onRetryContext={() => {}}
       onNavigate={value => { route = value; }} />));
   };
   const button = (name: string): HTMLButtonElement => {
@@ -1381,55 +1382,73 @@ export async function runAssignedPrActions(): Promise<string> {
   try {
     render(true);
     assert(host.querySelectorAll('button').length === 2, 'Own PRs offer distinct development and review tasks');
-    assert(button('Development task').textContent === 'Development task' && button('Review task').textContent === 'Review task', 'Both task buttons have visible labels');
-    assert(button('Development task').disabled && button('Review task').disabled, 'Opening either task requires a workspace');
+    assert(button('Development').textContent === 'Development' && button('Review').textContent === 'Review', 'Both task buttons have visible labels');
+    assert(host.querySelectorAll('.lucide-bot').length === 2, 'Both actions use the robot icon');
+    assert(host.querySelector('.is-assigned') === null, 'Unassigned task actions stay neutral');
+    assert(button('Development').disabled && button('Review').disabled, 'Opening either task requires a workspace');
     render(true, 'workspace');
     await settle();
-    button('Development task').click();
-    button('Review task').click();
-    button('Development task').click();
+    button('Development').click();
+    button('Review').click();
+    button('Development').click();
     await settle();
     assert(assigned === 1 && reviewed === 0, 'Own PR assignment must use one development task request, never a review');
-    assert(button('Development task').disabled && button('Review task').disabled, 'Do not start duplicate tasks while assigning');
+    assert(button('Development').disabled && button('Review').disabled, 'Do not start duplicate tasks while assigning');
     resolveAssignment?.({ workspaceId: 'workspace', taskId: 'assigned-task' });
     await settle();
     assert(route === '#/workspaces/workspace/tasks/agent/assigned-task', `Open the assigned conversation with its PR: ${route}`);
     window.bridge.findPullRequestTask = async () => ({ workspaceId: 'workspace', taskId: 'completed-task' });
-    render(true, 'workspace', null, 'completed');
+    render(true, 'workspace', null, 'completed', true);
     await settle();
-    button('Development task').click();
+    assert(button('Development').classList.contains('is-assigned') && !button('Review').classList.contains('is-assigned'),
+      'An existing development task is highlighted independently of a review');
+    assert(button('Development').getAttribute('aria-description') === 'Task assigned', 'Expose assignment to assistive technology');
+    button('Development').click();
     await settle();
     assert(String(route) === '#/workspaces/workspace/tasks/agent/completed-task' && assigned === 1, 'Open an existing completed development conversation without creating another');
     window.bridge.findPullRequestTask = async () => ({ workspaceId: 'workspace', taskId: 'development-task' });
-    render(true, 'workspace', review, 'both');
-    button('Review task').click();
+    render(true, 'workspace', review, 'both', true);
+    for (const theme of ['light', 'dark']) {
+      host.style.colorScheme = theme;
+      const developmentBackground = getComputedStyle(button('Development')).backgroundColor;
+      const reviewBackground = getComputedStyle(button('Review')).backgroundColor;
+      assert(button('Review').classList.contains('is-assigned') && button('Review').getAttribute('aria-description') === 'Task assigned',
+        'An existing review has its own accessible assigned state');
+      assert(developmentBackground !== 'rgba(0, 0, 0, 0)' && reviewBackground !== 'rgba(0, 0, 0, 0)' && developmentBackground !== reviewBackground,
+        `Assigned actions have distinct filled backgrounds in ${theme} mode`);
+    }
+    host.style.colorScheme = '';
+    button('Review').click();
     await settle();
     assert(route.endsWith(`/tasks/review/${taskReview.id}`) && linkedReviewReads === 1 && reviewed === 0,
       'Open the development task reviewer even when it predates publication and another PR review exists');
-    button('Development task').click();
+    button('Development').click();
     await settle();
     assert(String(route) === '#/workspaces/workspace/tasks/agent/development-task', 'The two buttons open different agents for the same PR');
     window.bridge.findTaskAgentReview = async () => null;
-    button('Review task').click();
+    button('Review').click();
     await settle();
     assert(route.endsWith(`/tasks/review/${review.id}`) && reviewed === 0, 'Fall back to the existing PR review when the developer has no reviewer');
     window.bridge.findPullRequestTask = async () => null;
     render(true, 'workspace', null, 'own-new-review');
-    button('Review task').click();
+    assert(host.querySelector('.is-assigned') === null && host.querySelector('[aria-description]') === null,
+      'Switching to a PR without tasks clears both assigned states');
+    button('Review').click();
     await settle();
     assert(Number(reviewed) === 1 && assigned === 1, 'Starting a review on an own PR must not assign a developer');
     render(false, 'workspace', review, 'other');
     await settle();
-    assert(host.querySelector('[aria-label="Development task"]') === null, 'Other authors do not offer development assignment');
-    button('Review task').click();
+    assert(host.querySelector('[aria-label="Development"]') === null, 'Other authors do not offer development assignment');
+    assert(button('Review').classList.contains('is-assigned'), 'A review is highlighted without a development task');
+    button('Review').click();
     await settle();
     assert(route.endsWith(`/tasks/review/${review.id}`) && Number(reviewed) === 1, 'Open an existing review without restarting it');
     render(false, 'workspace', null, 'new-review');
-    button('Review task').click();
+    button('Review').click();
     await settle();
     assert(Number(reviewed) === 2, 'An unassigned review opens via the existing review service');
     render(true, 'workspace', null, 'stale');
-    button('Development task').click();
+    button('Development').click();
     await settle();
     route = '';
     render(true, 'workspace', null, 'replacement');
@@ -1441,7 +1460,7 @@ export async function runAssignedPrActions(): Promise<string> {
       window.bridge.findPullRequestTask = () => new Promise(resolve => { resolveLookup = resolve; });
       const previous = kind === 'development' ? assigned : reviewed;
       render(true, 'workspace', null, `leave-before-${kind}-lookup`);
-      button(kind === 'development' ? 'Development task' : 'Review task').click();
+      button(kind === 'development' ? 'Development' : 'Review').click();
       route = '#/home';
       flushSync(() => root.render(<div>Home</div>));
       resolveLookup?.(null);
@@ -1455,9 +1474,9 @@ export async function runAssignedPrActions(): Promise<string> {
     const previousReviews = reviewed;
     window.bridge.findPullRequestTask = async () => { throw new Error('Task lookup failed'); };
     render(true, 'workspace', null, 'lookup-error');
-    button('Review task').click();
+    button('Review').click();
     await settle();
-    assert(host.querySelector('[role="alert"]')?.textContent === 'Task lookup failed' && !button('Review task').disabled,
+    assert(host.querySelector('[role="alert"]')?.textContent === 'Task lookup failed' && !button('Review').disabled,
       'A failed lookup reports the error and allows retry without starting a duplicate');
     assert(reviewed === previousReviews, 'Lookup errors must not create reviews');
     return 'Open distinct development and review task conversations';

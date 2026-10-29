@@ -1284,6 +1284,7 @@ function PullsContent({
                 repo={detail.repo} number={detail.number}
                 authored={viewerLogin ? detail.author?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr.origin === 'AUTHORED'}
                 workspaceId={workspaceId} loading={reviewLoading} contextError={reviewError} review={review}
+                existingTask={currentReviewContext?.developerTask != null}
                 onRetryContext={() => setReviewReload(value => value + 1)}
                 onNavigate={navigate} /> : undefined}
               pr={selectedPr}

@@ -400,13 +400,9 @@ describe('the strip never overflows its row', () => {
     expect(properties('.pulls-toolbar')).not.toContain('overflow');
   });
 
-  it('moves the repository chip onto the search row, where it can ellipsize', () => {
+  it('lets the search input fill the row and shrink with the pane', () => {
     expect(declarations('.pulls-search')).toEqual(expect.arrayContaining(['display: flex', 'gap: 7px']));
     expect(declarations('.pulls-search input')).toEqual(expect.arrayContaining(['flex: 1', 'min-width: 0']));
-    expect(declarations('.pulls-search .pulls-scope')).toEqual(
-      expect.arrayContaining(['flex: none', 'min-width: 0', 'max-width: 118px']),
-    );
-    expect(declarations('.pulls-scope')).toEqual(expect.arrayContaining(['text-overflow: ellipsis', 'overflow: hidden']));
   });
 });
 

@@ -1078,11 +1078,6 @@ function PullsContent({
             aria-label="Search pull requests by title, number, or author"
             onChange={event => setSearch(event.target.value)}
           />
-          {repositoryScope && (
-            <span className="pulls-scope" title={`Showing ${repositoryScope.repository}`}>
-              {repositoryScope.repository}
-            </span>
-          )}
         </div>
         <div className="pulls-list__rows" id={rowsId} role="tabpanel" aria-labelledby={`${rowsId}-${tab}`}>
           {loading && <div className="hp-loading">Loading…</div>}

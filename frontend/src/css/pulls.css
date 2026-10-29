@@ -203,8 +203,6 @@
   padding: 8px 10px;
   border-bottom: 1px solid light-dark(#f0f0f2, var(--dark-border-muted));
 }
-/* Only on the search row; the issue toolbar keeps the wider chip. */
-.pulls-search .pulls-scope { max-width: 118px; min-width: 0; flex: none; }
 .pulls-search input {
   min-width: 0;
   flex: 1;

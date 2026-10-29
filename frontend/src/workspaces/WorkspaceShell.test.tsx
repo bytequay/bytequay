@@ -295,7 +295,7 @@ describe('watched repository workspace UI', () => {
     vi.stubGlobal('window', { location: { hash: `#/workspaces/${value.id}/issues?source=github` } });
     const issues = renderToStaticMarkup(<WorkspaceShell {...props} tab="issues" />);
 
-    expect(pulls).toContain('upstream/project');
+    expect(pulls).toContain('aria-label="Search pull requests by title, number, or author"');
     expect(issues).toContain('GitHub issues');
     expect(issues).toContain('Open issues');
     expect(issues).toContain('upstream/project');

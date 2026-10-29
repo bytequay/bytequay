@@ -12,39 +12,20 @@
  * limitations under the License.
  */
 
-import { useId, useRef, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import type { ReactNode } from 'react';
 import { ExternalLink } from 'lucide-react';
-import { anchorPanel, previewMarkdown, useHoverCard } from '../ReferenceCard';
-import MarkdownBody from '../pulls/MarkdownBody';
 import { zoomReference } from '../githubReference';
 import type { JiraTaskSource } from './contracts';
 import { JiraIcon } from '@bytequay/jira/renderer';
 
-type Source = Pick<JiraTaskSource, 'connectionId' | 'cloudId' | 'issueId' | 'key' | 'title' | 'body'>;
+type Source = Pick<JiraTaskSource, 'connectionId' | 'cloudId' | 'issueId' | 'key' | 'title'>;
 export function JiraSourceAttachment({ source }: { source: Source }) {
-  const id = useId();
-  const container = useRef<HTMLDivElement>(null);
-  const hover = useHoverCard(0);
-  const open = () => { hover.close(); zoomReference({ kind: 'jira', connectionId: source.connectionId, cloudId: source.cloudId, issueId: source.issueId }); };
-  return <div ref={container} className="agt-issue-attachment">
-    <button type="button" className="agt-issue-attachment__source" aria-label={`Preview ticket ${source.key}`}
-      aria-haspopup="dialog" aria-expanded={hover.anchor !== null} aria-controls={hover.anchor ? id : undefined}
-      onMouseEnter={event => hover.show(event.currentTarget)} onMouseLeave={() => hover.hide()}
-      onFocus={event => hover.show(event.currentTarget)} onBlur={() => hover.hide()}
-      onClick={event => hover.show(event.currentTarget, 0)} onKeyDown={event => {
-        if (event.key === 'Escape') hover.close();
-        if (event.key === 'ArrowDown') { event.preventDefault(); hover.show(event.currentTarget, 0); requestAnimationFrame(() => document.getElementById(id)?.querySelector('button')?.focus()); }
-      }}>
+  const open = () => zoomReference({ kind: 'jira', connectionId: source.connectionId, cloudId: source.cloudId, issueId: source.issueId });
+  return <div className="agt-issue-attachment">
+    <button type="button" className="agt-issue-attachment__source" aria-label={`View ticket ${source.key}`} onClick={open}>
       <JiraIcon size={15} aria-hidden="true" /><strong>{source.key}</strong><span>{source.title}</span>
     </button>
     <button type="button" className="agt-headbtn" title="View ticket" aria-label={`View ticket ${source.key}`} onClick={open}><ExternalLink size={14} /></button>
-    {hover.anchor && createPortal(<div id={id} className="jira-source-preview" role="dialog" aria-label={`Ticket ${source.key}`}
-      style={anchorPanel(hover.anchor, Math.min(480, window.innerWidth - 20), 350, hover.anchor.left)}
-      onMouseEnter={hover.hold} onMouseLeave={() => hover.hide()} onFocus={hover.hold} onBlur={() => hover.hide()}>
-      <strong>{source.key} · {source.title}</strong><MarkdownBody body={previewMarkdown(source.body) || 'No description.'} />
-      <button type="button" className="bq-button" onClick={open}>View ticket</button>
-    </div>, container.current?.closest('dialog') ?? document.body)}
   </div>;
 }
 export function JiraRequestCard({ source, attachments }: { source: JiraTaskSource; attachments?: ReactNode }) {

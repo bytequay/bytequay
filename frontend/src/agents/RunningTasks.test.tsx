@@ -22,22 +22,24 @@ const task: RunningTask = {
   status: 'RUNNING', startedAt: new Date(now).toISOString(), expiresAt: null, pullRequestNumber: null, branch: null,
 };
 
-describe('Running sidebar', () => {
+describe('Working sidebar', () => {
   it('hides empty sections and places newer running tasks above recent completions', () => {
     expect(renderToStaticMarkup(<RunningTaskList tasks={[]} />)).toBe('');
     const older = { ...task, id: 'old', startedAt: new Date(now - 60_000).toISOString() };
-    const done: RunningTask = { ...task, id: 'done', status: 'COMPLETED', expiresAt: new Date(now + 600_000).toISOString() };
+    const eightHours = 8 * 60 * 60 * 1000;
+    const done: RunningTask = { ...task, id: 'done', status: 'COMPLETED', expiresAt: new Date(now + eightHours).toISOString() };
     const items = visibleRunningTasks([done, older, task], now);
     expect(items.map(item => item.id)).toEqual(['one', 'old', 'done']);
     const html = renderToStaticMarkup(<RunningTaskList tasks={items} />);
-    expect(html).toContain('aria-label="Running tasks" aria-expanded="true"');
+    expect(html).toContain('aria-label="Working tasks" aria-expanded="true"');
+    expect(html).toContain('>Working</span>');
     expect(html).toContain('is-completed');
     expect(html).toContain('Finished');
     expect(html).toContain('Fix the connector, Running, owner/repo');
     expect(html).toMatch(/Fix the connector<\/span><span class="app-sidebar__running-status" role="status" aria-label="Running">/);
-    expect(visibleRunningTasks([done], now + 599_999)).toHaveLength(1);
-    expect(visibleRunningTasks([done], now + 600_000)).toEqual([]);
-    expect(visibleRunningTasks([task], now + 600_000)).toEqual([task]);
+    expect(visibleRunningTasks([done], now + eightHours - 1)).toHaveLength(1);
+    expect(visibleRunningTasks([done], now + eightHours)).toEqual([]);
+    expect(visibleRunningTasks([task], now + eightHours)).toEqual([task]);
   });
 
   it('keeps failure, stop, approval and recovery statuses distinct', () => {

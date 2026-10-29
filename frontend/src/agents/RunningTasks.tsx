@@ -69,14 +69,14 @@ export function runningTaskRoute(task: RunningTask): string {
 export function RunningTaskList({ tasks }: { tasks: RunningTask[] }) {
   const [expanded, setExpanded] = useState(true);
   if (tasks.length === 0) return null;
-  return <section className="app-sidebar__running" aria-label="Running tasks">
-    <button type="button" className="app-sidebar__pinned-heading" aria-label="Running tasks"
+  return <section className="app-sidebar__running" aria-label="Working tasks">
+    <button type="button" className="app-sidebar__pinned-heading" aria-label="Working tasks"
       aria-expanded={expanded} aria-controls="running-tasks" onClick={() => setExpanded(value => !value)}>
       <LoaderCircle size={14} aria-hidden="true" />
-      <span className="app-sidebar__label">Running</span>
+      <span className="app-sidebar__label">Working</span>
       {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
     </button>
-    {expanded && <nav id="running-tasks" className="app-sidebar__nav app-sidebar__running-list" aria-label="Running task navigation">
+    {expanded && <nav id="running-tasks" className="app-sidebar__nav app-sidebar__running-list" aria-label="Working task navigation">
       {tasks.map(task => {
         const label = RUNNING_TASK_LABELS[task.status];
         const Icon = task.status === 'RUNNING' ? LoaderCircle : task.status === 'COMPLETED' ? CheckCircle2

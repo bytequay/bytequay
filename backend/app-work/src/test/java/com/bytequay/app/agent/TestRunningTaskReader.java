@@ -129,20 +129,21 @@ class TestRunningTaskReader
     }
 
     @Test
-    void restoresFinishedRunsAndExpiresExactlyTenMinutesAfterCompletion()
+    void restoresFinishedRunsAndExpiresExactlyEightHoursAfterCompletion()
     {
         AgentTask task = task(true);
         AgentTurn turn = turn(task, NOW.minusSeconds(60)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW);
         show(task, turn);
-        when(clock.instant()).thenReturn(NOW.plusSeconds(599));
+        Instant expiresAt = NOW.plus(Duration.ofHours(8));
+        when(clock.instant()).thenReturn(expiresAt.minusMillis(1));
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.COMPLETED);
-            assertThat(item.expiresAt()).contains(NOW.plusSeconds(600));
+            assertThat(item.expiresAt()).contains(expiresAt);
         });
-        when(clock.instant()).thenReturn(NOW.plusSeconds(600));
+        when(clock.instant()).thenReturn(expiresAt);
         assertThat(reader.current()).isEmpty();
-        show(task, turn(task, NOW.plusSeconds(601)));
-        when(clock.instant()).thenReturn(NOW.plusSeconds(601));
+        show(task, turn(task, expiresAt.plusSeconds(1)));
+        when(clock.instant()).thenReturn(expiresAt.plusSeconds(1));
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.RUNNING);
             assertThat(item.expiresAt()).isEmpty();
@@ -175,7 +176,7 @@ class TestRunningTaskReader
     void keepsAutomationAndUnverifiedCleanupVisible()
     {
         AgentTask task = task(true);
-        AgentTurn finished = turn(task, NOW.minusSeconds(1200)).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.minusSeconds(900));
+        AgentTurn finished = turn(task, NOW.minus(Duration.ofHours(10))).finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.minus(Duration.ofHours(9)));
         show(task.withDevelopmentContinuation(true, NOW), finished);
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.RUNNING);
@@ -215,7 +216,7 @@ class TestRunningTaskReader
         showRun(run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.COMPLETED);
-            assertThat(item.expiresAt()).contains(NOW.plusSeconds(600));
+            assertThat(item.expiresAt()).contains(NOW.plus(Duration.ofHours(8)));
         });
         showRun(run.ended(ReviewRun.State.INCOMPLETE, Optional.empty(), NOW));
         assertThat(reader.current()).singleElement().extracting(RunningTask::status).isEqualTo(Status.FAILED);
@@ -248,7 +249,7 @@ class TestRunningTaskReader
         when(queues.listQueued(task.id())).thenReturn(ImmutableList.of(input.paused("Please resume", NOW)));
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.COMPLETED);
-            assertThat(item.expiresAt()).contains(NOW.plusSeconds(600));
+            assertThat(item.expiresAt()).contains(NOW.plus(Duration.ofHours(8)));
         });
     }
 
@@ -273,7 +274,7 @@ class TestRunningTaskReader
         when(ciFixes.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(run.finish(CiAutofixRun.FinishReason.GREEN, "Passed", NOW)));
         assertThat(reader.current()).singleElement().satisfies(item -> {
             assertThat(item.status()).isEqualTo(Status.COMPLETED);
-            assertThat(item.expiresAt()).contains(NOW.plusSeconds(600));
+            assertThat(item.expiresAt()).contains(NOW.plus(Duration.ofHours(8)));
         });
     }
 

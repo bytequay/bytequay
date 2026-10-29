@@ -186,7 +186,7 @@ class AssistantReader
         return new Page(new Today("today", view.state().toLowerCase(Locale.ROOT), view.summary(), items, view.failure()), refs);
     }
 
-    /** Tasks at work, waiting on the user, or settled in the last few minutes, as the sidebar lists them. */
+    /** Tasks at work, waiting on the user, or recently settled, as the sidebar lists them. */
     Page running()
     {
         Map<String, String> agents = models.get().providers().stream().collect(toImmutableMap(ModelSettingsService.Provider::id, ModelSettingsService.Provider::label));

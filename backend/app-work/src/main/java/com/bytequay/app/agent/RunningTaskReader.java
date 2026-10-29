@@ -59,7 +59,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class RunningTaskReader
 {
-    private static final Duration COMPLETION_RETENTION = Duration.ofMinutes(10);
+    private static final Duration COMPLETION_RETENTION = Duration.ofHours(8);
 
     private final WorkspaceStore workspaces;
     private final AgentTaskStore tasks;

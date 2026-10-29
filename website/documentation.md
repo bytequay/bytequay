@@ -363,6 +363,10 @@ Existing tasks keep the account they started with.
 interrupts. Check **WorkBench → Changes** and the tests before **Mark it
 complete**.
 
+The sidebar’s **Working** section keeps active tasks visible. Finished tasks
+stay there for eight hours after work ends, then disappear from the sidebar.
+They remain available in **Tasks**.
+
 <a id="delivery-and-ci"></a>
 
 ## Deliver changes and repair CI

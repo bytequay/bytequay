@@ -127,9 +127,12 @@ public class AgentTurnEntity
 
     private String parentUserTurnId;
 
-    // Existing SQLite enum CHECK constraints cannot grow through Hibernate update; refinement has additive provenance.
+    // SQLite enum CHECK constraints cannot grow through Hibernate update; newer origins have additive provenance.
     @Column(name = "refinement_parent_user_turn_id")
     private String refinementParentUserTurnId;
+
+    @Column(name = "privacy_repair_parent_user_turn_id")
+    private String privacyRepairParentUserTurnId;
 
     @Enumerated(EnumType.STRING)
     private AgentTurnFailureKind failureKind;
@@ -170,10 +173,13 @@ public class AgentTurnEntity
         planJson = turn.plan().map(plan -> AGENT.write(plan, "turn plan")).orElse(null);
         guidelinesJson = turn.guidelines().isEmpty() ? null : AGENT.write(turn.guidelines(), "turn guidelines");
         memoriesJson = turn.memories().isEmpty() ? null : AGENT.write(turn.memories(), "turn memories");
-        Optional<DevelopmentTurnOrigin> deliveryOrigin = turn.developmentOrigin().filter(origin -> origin.kind() != DevelopmentTurnOrigin.Kind.REFINE_SUMMARY);
+        Optional<DevelopmentTurnOrigin> deliveryOrigin = turn.developmentOrigin()
+                .filter(origin -> origin.kind() != DevelopmentTurnOrigin.Kind.REFINE_SUMMARY && origin.kind() != DevelopmentTurnOrigin.Kind.PRIVACY_REPAIR);
         developmentOriginKind = deliveryOrigin.map(DevelopmentTurnOrigin::kind).orElse(null);
         parentUserTurnId = deliveryOrigin.map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
         refinementParentUserTurnId = turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY)
+                .map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
+        privacyRepairParentUserTurnId = turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.PRIVACY_REPAIR)
                 .map(DevelopmentTurnOrigin::parentUserTurnId).map(TurnId::toString).orElse(null);
         failureKind = turn.failureKind().orElse(null);
         metrics = new AgentMetricsColumns(turn.metrics());
@@ -211,6 +217,9 @@ public class AgentTurnEntity
     {
         if (refinementParentUserTurnId != null) {
             return Optional.of(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, TurnId.valueOf(refinementParentUserTurnId)));
+        }
+        if (privacyRepairParentUserTurnId != null) {
+            return Optional.of(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.PRIVACY_REPAIR, TurnId.valueOf(privacyRepairParentUserTurnId)));
         }
         if (developmentOriginKind == null && parentUserTurnId == null) {
             return Optional.empty();

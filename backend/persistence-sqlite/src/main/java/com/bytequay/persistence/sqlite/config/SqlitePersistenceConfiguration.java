@@ -33,9 +33,9 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 public class SqlitePersistenceConfiguration
 {
     @Bean
-    HibernatePropertiesCustomizer unmappedColumnCleanup()
+    HibernatePropertiesCustomizer schemaCleanup()
     {
-        return properties -> properties.put(JpaSettings.INTEGRATOR_PROVIDER, (IntegratorProvider) () -> ImmutableList.of(new UnmappedColumnCleanup()));
+        return properties -> properties.put(JpaSettings.INTEGRATOR_PROVIDER, (IntegratorProvider) () -> ImmutableList.of(new SqliteSchemaCleanup()));
     }
 
     @Bean

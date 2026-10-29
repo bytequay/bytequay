@@ -36,14 +36,13 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Locale.ENGLISH;
 
 /**
- * Hibernate's schema update adds columns but never drops them. A NOT NULL column without a default
- * that no entity maps any more, left by a removed field or re-added by an older build sharing the
- * database, makes every insert into its table fail, so drop it before the update runs.
+ * Hibernate's schema update leaves removed columns and unique indexes behind. Remove the obsolete
+ * constraints that prevent inserts before Hibernate updates the current schema.
  */
-final class UnmappedColumnCleanup
+final class SqliteSchemaCleanup
         implements Integrator
 {
-    private static final Logger log = LoggerFactory.getLogger(UnmappedColumnCleanup.class);
+    private static final Logger log = LoggerFactory.getLogger(SqliteSchemaCleanup.class);
 
     @Override
     public void integrate(Metadata metadata, BootstrapContext bootstrapContext, SessionFactoryImplementor sessionFactory)
@@ -58,6 +57,9 @@ final class UnmappedColumnCleanup
                 for (Table table : metadata.collectTableMappings()) {
                     if (table.isPhysicalTable()) {
                         dropUnmappedRequiredColumns(connection, table);
+                        if (table.getName().equals("watched_repo_workspaces")) {
+                            dropUnscopedRepositoryIndexes(connection);
+                        }
                     }
                 }
             }
@@ -66,7 +68,31 @@ final class UnmappedColumnCleanup
             }
         }
         catch (SQLException e) {
-            log.warn("Could not check for unmapped columns", e);
+            log.warn("Could not check for obsolete schema constraints", e);
+        }
+    }
+
+    private static void dropUnscopedRepositoryIndexes(Connection connection)
+            throws SQLException
+    {
+        ImmutableList.Builder<String> indexes = ImmutableList.builder();
+        // Older workspaces made the remote number globally unique; different hosting servers can reuse it.
+        try (Statement query = connection.createStatement();
+                ResultSet rows = query.executeQuery("""
+                        SELECT indexes.name FROM pragma_index_list('watched_repo_workspaces') indexes
+                        WHERE indexes."unique" = 1 AND indexes.origin = 'c' AND indexes.partial = 0
+                        AND (SELECT count(*) FROM pragma_index_info(indexes.name)) = 1
+                        AND (SELECT name FROM pragma_index_info(indexes.name)) = 'selected_repository_id'
+                        """)) {
+            while (rows.next()) {
+                indexes.add(rows.getString(1));
+            }
+        }
+        for (String index : indexes.build()) {
+            try (Statement statement = connection.createStatement()) {
+                statement.execute("DROP INDEX \"" + index.replace("\"", "\"\"") + "\"");
+                log.info("Dropped unscoped workspace repository index {}", index);
+            }
         }
     }
 

@@ -244,7 +244,7 @@ final class CodexAppServerClient
                 // Declared for one method: thread/backgroundTerminals/list is experimental and is
                 // the only inventory that can prove a thread owns no live process.
                 CodexProtocol.InitializeParams initialize = new CodexProtocol.InitializeParams(
-                        new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.5.3"),
+                        new CodexProtocol.ClientInfo("bytequay", "ByteQuay", "0.5.4"),
                         new CodexProtocol.InitializeCapabilities(true));
                 timing("codex.initialize.begin");
                 CodexProtocol.JsonRpcEnvelope initialized = awaitRequest("initialize", initialize, START_TIMEOUT);

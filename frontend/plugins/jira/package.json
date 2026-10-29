@@ -1,6 +1,6 @@
 {
   "name": "@bytequay/jira",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -37,7 +37,7 @@
     "prelint": "npm run build"
   },
   "dependencies": {
-    "@bytequay/ui": "0.5.3",
+    "@bytequay/ui": "0.5.4",
     "lucide-react": "^1.40.0"
   },
   "peerDependencies": {

@@ -36,19 +36,23 @@ import org.springframework.stereotype.Service;
 
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.function.Supplier;
 
 import static com.bytequay.core.hosting.HostingUrls.canonicalBaseUrl;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
-/** No reusable approval: every caller supplies the exact bytes it will publish. */
+/** Each call verifies its destination; destinations needing review supply the exact bytes they will publish. */
 @Service
 public class PublicationPrivacyService
         implements PublicationPrivacy
 {
+    // Reviewing full commit history at the task's selected effort can outlast a short text rewrite.
+    private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(10);
     private static final String BLOCKED = "Privacy check blocked publication. Remove private identifiers from files, every outgoing commit, branch and public text; "
             + "use synthetic test data and *** in quoted traces, then retry. No remote write was attempted by this check.";
     private static final String INSTRUCTIONS = """
@@ -92,16 +96,16 @@ public class PublicationPrivacyService
     @Override
     public void checkGit(TaskId taskId, HostingServer server, Path worktree, String base, String head, RepoRef pushRepository, RepoRef targetRepository, String branch, String text)
     {
-        check(taskId, server, pushRepository, targetRepository, branch + "\n" + text + "\n" + content.read(worktree, base, head));
+        check(taskId, server, pushRepository, targetRepository, () -> branch + "\n" + text + "\n" + content.read(worktree, base, head));
     }
 
     @Override
     public void checkText(TaskId taskId, HostingServer server, RepoRef repository, String text)
     {
-        check(taskId, server, repository, repository, text);
+        check(taskId, server, repository, repository, () -> text);
     }
 
-    private void check(TaskId taskId, HostingServer server, RepoRef push, RepoRef target, String outgoing)
+    private void check(TaskId taskId, HostingServer server, RepoRef push, RepoRef target, Supplier<String> outgoingContent)
     {
         requireNonNull(server, "server is null");
         AgentTask task = tasks.require(taskId);
@@ -109,7 +113,13 @@ public class PublicationPrivacyService
         WorkspaceHostingRead selected = hosting.captureRead(workspaceId);
         // The caller's actual destination must match before its visibility can grant an internal exemption.
         checkState(selected.session().access().server().equals(server), "Publication privacy destination changed; publication is held");
-        boolean internal = internalDestination(selected, push, target);
+        RepositoryVisibility audience = publicationAudience(selected, push, target);
+        if (audience == RepositoryVisibility.PRIVATE) {
+            checkState(publicationAudience(unchangedDestination(workspaceId, selected), push, target) == audience, "Privacy check inputs changed; retry publication");
+            return;
+        }
+        boolean internal = audience == RepositoryVisibility.INTERNAL;
+        String outgoing = outgoingContent.get();
         String source = source(taskId);
         RepositoryVisibility issueVisibility = issues.findByTaskId(taskId.toString())
                 .map(link -> sourceVisibility(selected, link.source())).orElse(RepositoryVisibility.UNKNOWN);
@@ -135,7 +145,7 @@ public class PublicationPrivacyService
         try {
             String payload = mapper.writeValueAsString(ImmutableMap.of("audience", internal ? "internal" : "public",
                     "issueVisibility", issueVisibility.name(), "source", source, "outgoing", outgoing));
-            String answer = reviewer.answer(task.laneId(), task.defaults().model(), task.defaults().effort(), payload, INSTRUCTIONS, "Privacy review unavailable");
+            String answer = reviewer.answer(task.laneId(), task.defaults().model(), task.defaults().effort(), payload, INSTRUCTIONS, "Privacy review unavailable", MAXIMUM_RUNTIME);
             if (answer.strip().equals("BLOCKED")) {
                 throw new PublicationPrivacyException(BLOCKED);
             }
@@ -145,14 +155,21 @@ public class PublicationPrivacyService
             throw new IllegalStateException("Privacy check could not prepare complete input");
         }
         // Source edits or account/destination changes while the model was reading invalidate its answer.
+        WorkspaceHostingRead current = unchangedDestination(workspaceId, selected);
+        checkState(issues.findByTaskId(taskId.toString()).map(link -> sourceVisibility(current, link.source()))
+                                .orElse(RepositoryVisibility.UNKNOWN) == issueVisibility
+                        && publicationAudience(current, push, target) == audience && source(taskId).equals(source),
+                "Privacy check inputs changed; retry publication");
+    }
+
+    private WorkspaceHostingRead unchangedDestination(String workspaceId, WorkspaceHostingRead selected)
+    {
         WorkspaceHostingRead current = hosting.captureRead(workspaceId);
         checkState(current.session().cacheScope().equals(selected.session().cacheScope()) && current.repository().equals(selected.repository())
                         && current.session().access().token().equals(selected.session().access().token())
-                        && current.session().access().server().equals(selected.session().access().server())
-                        && issues.findByTaskId(taskId.toString()).map(link -> sourceVisibility(current, link.source()))
-                                .orElse(RepositoryVisibility.UNKNOWN) == issueVisibility
-                        && internalDestination(current, push, target) == internal && source(taskId).equals(source),
+                        && current.session().access().server().equals(selected.session().access().server()),
                 "Privacy check inputs changed; retry publication");
+        return current;
     }
 
     private String source(TaskId taskId)
@@ -169,15 +186,14 @@ public class PublicationPrivacyService
         }
     }
 
-    private boolean internalDestination(WorkspaceHostingRead selected, RepoRef push, RepoRef target)
+    private RepositoryVisibility publicationAudience(WorkspaceHostingRead selected, RepoRef push, RepoRef target)
     {
         RepositoryVisibility pushVisibility = connections.visibility(selected.session(), push.fullName());
         RepositoryVisibility targetVisibility = push.equals(target) ? pushVisibility : connections.visibility(selected.session(), target.fullName());
         checkState(pushVisibility != null && targetVisibility != null && pushVisibility != RepositoryVisibility.UNKNOWN && targetVisibility != RepositoryVisibility.UNKNOWN,
                 "Destination visibility is unknown; publication is held");
         // Only the workspace's own non-public repository qualifies; an unrelated private fork does not.
-        return push.equals(target) && target.fullName().equals(selected.repository().fullPath())
-                && (targetVisibility == RepositoryVisibility.PRIVATE || targetVisibility == RepositoryVisibility.INTERNAL);
+        return push.equals(target) && target.fullName().equals(selected.repository().fullPath()) ? targetVisibility : RepositoryVisibility.PUBLIC;
     }
 
     private RepositoryVisibility sourceVisibility(WorkspaceHostingRead selected, GitHubIssueSource source)

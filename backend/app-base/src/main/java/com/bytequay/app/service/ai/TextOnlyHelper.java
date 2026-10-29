@@ -88,7 +88,13 @@ public class TextOnlyHelper
     /** Runs a short text request using the task's selected provider, model and effort. */
     public String answer(AgentLaneId laneId, Optional<String> model, Optional<String> effort, String prompt, String managedInstructions, String failure)
     {
-        return answer(laneId, model, effort, prompt, managedInstructions, failure, MAXIMUM_RUNTIME, UUID.randomUUID().toString());
+        return answer(laneId, model, effort, prompt, managedInstructions, failure, MAXIMUM_RUNTIME);
+    }
+
+    /** Runs a text request using the task's selected provider, model and effort, with a caller-specific runtime limit. */
+    public String answer(AgentLaneId laneId, Optional<String> model, Optional<String> effort, String prompt, String managedInstructions, String failure, Duration maximumRuntime)
+    {
+        return answer(laneId, model, effort, prompt, managedInstructions, failure, maximumRuntime, UUID.randomUUID().toString());
     }
 
     /**

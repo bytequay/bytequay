@@ -23,11 +23,14 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -40,6 +43,7 @@ import java.util.concurrent.TimeUnit;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -118,6 +122,24 @@ class TestTextOnlyHelper
                 .hasMessageContaining("No answer")
                 .hasMessageContaining("did not answer in time");
         verify(turn).cancel();
+        verify(session).close();
+        verify(resources).delete(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void taskSelectedAnswersUseTheirRequestedRuntime(boolean extended)
+    {
+        completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("SAFE"), Optional.empty(), Duration.ZERO, true));
+        AgentLaneId lane = new AgentLaneId("codex");
+        Optional<String> model = Optional.of("selected-model");
+        Optional<String> effort = Optional.of("high");
+        String answer = extended
+                ? helper.answer(lane, model, effort, "Review", "Review instructions", "No answer", Duration.ofMinutes(10))
+                : helper.answer(lane, model, effort, "Review", "Review instructions", "No answer");
+        assertThat(answer).isEqualTo("SAFE");
+        verify(driver).open(argThat(context -> context.model().equals(model) && context.effort().equals(effort) && context.access() == SessionAccess.TEXT_ONLY), any());
+        verify(session).start(argThat(command -> command.maximumRuntime().equals(extended ? Duration.ofMinutes(10) : Duration.ofSeconds(45))));
         verify(session).close();
         verify(resources).delete(any());
     }

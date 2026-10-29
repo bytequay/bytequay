@@ -19,7 +19,7 @@ import com.bytequay.core.hosting.HostingServer;
 
 import java.nio.file.Path;
 
-/** Every task-owned external write checks its exact payload, including resumed CI and reply publication. */
+/** Every task-owned external write verifies its destination and reviews its exact payload when required, including resumed CI and replies. */
 public interface PublicationPrivacy
 {
     void checkGit(TaskId taskId, HostingServer server, Path worktree, String base, String head, RepoRef pushRepository, RepoRef targetRepository, String branch, String text);

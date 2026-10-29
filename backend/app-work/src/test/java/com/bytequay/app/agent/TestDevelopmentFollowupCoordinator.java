@@ -32,6 +32,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
@@ -1137,6 +1138,23 @@ class TestDevelopmentFollowupCoordinator
         generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
                 coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("stopped during privacy review"));
         advance();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
+    }
+
+    @Test
+    void unavailablePrivacyReviewStopsWithoutRepairOrPublication()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        doThrow(new AgentUnavailableException("Privacy review unavailable: The model did not answer in time"))
+                .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
+
+        advance();
+
+        verify(turns).failDevelopmentContinuation(taskId, source.id(),
+                "Automation stopped. Check for private information: Privacy review unavailable: The model did not answer in time. Send another message to retry.");
+        noFollowup();
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verifyNoInteractions(writes);
     }

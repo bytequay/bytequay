@@ -97,6 +97,9 @@ class TestPullRequestConflictService
             arguments.set(6, repository.toString());
             return commands.run(repository, Duration.ofMinutes(2), ImmutableMap.of(), arguments);
         }).when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(), anyList());
+        doAnswer(invocation -> commands.run(repository, "ls-remote", "--exit-code", "--refs", "--", repository.toString(), "refs/heads/main"))
+                .when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(),
+                        eq(ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", URL, "refs/heads/main")));
         Files.createDirectories(repository.resolve("目录"));
         Files.writeString(repository.resolve(FILE), "base\n");
         command("add", ".");
@@ -108,6 +111,7 @@ class TestPullRequestConflictService
     void comparesRemoteCommitsWithoutChangingTheCheckout(String kind)
             throws IOException
     {
+        String previousBase = command("rev-parse", "HEAD").strip();
         command("checkout", "--quiet", "-b", "feature");
         if (kind.equals("rename")) {
             command("mv", FILE, "renamed.txt");
@@ -131,7 +135,7 @@ class TestPullRequestConflictService
         command("add", "-A");
         command("commit", "--quiet", "-m", "Target");
         String base = command("rev-parse", "HEAD").strip();
-        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(base, head));
+        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(previousBase, head));
         Files.writeString(repository.resolve("staged.txt"), "staged\n");
         command("add", "staged.txt");
         Files.writeString(repository.resolve("staged.txt"), "unstaged\n");
@@ -169,9 +173,25 @@ class TestPullRequestConflictService
     {
         String sha = command("rev-parse", "HEAD").strip();
         when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(sha, sha));
-        doReturn(Result.failed("authentication failed")).when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(), anyList());
+        doReturn(Result.failed("authentication failed")).when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(),
+                eq(ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--no-auto-maintenance", "--", URL, sha, sha)));
 
         assertThatThrownBy(() -> service.read("owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Could not fetch");
+    }
+
+    @Test
+    void rejectsMissingOrInvalidTargetBranchInsteadOfUsingTheOldBase()
+    {
+        String sha = command("rev-parse", "HEAD").strip();
+        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(sha, sha));
+        for (Result result : ImmutableList.of(Result.failed("authentication failed"), new Result(2, "", false),
+                new Result(0, sha + "\trefs/heads/main\n", true), new Result(0, "invalid\trefs/heads/main\n", false),
+                new Result(0, sha + "\trefs/heads/other\n", false), new Result(0, sha + "\trefs/heads/main\n" + sha + "\trefs/heads/other\n", false))) {
+            doReturn(result).when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(),
+                    eq(ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", URL, "refs/heads/main")));
+
+            assertThatThrownBy(() -> service.read("owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Could not read the current target branch");
+        }
     }
 
     @Test

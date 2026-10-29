@@ -31,6 +31,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static java.util.Objects.requireNonNull;
@@ -71,7 +72,7 @@ public class PullRequestConflictService
             if (identity.state() != GitHubPullRequestIdentity.State.OPEN) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This pull request is no longer open. Refresh the pull request.");
             }
-            if (!identity.baseRepository().fullName().equalsIgnoreCase(requested.fullName()) || !sha(identity.baseSha()) || !sha(identity.headSha())) {
+            if (!identity.baseRepository().fullName().equalsIgnoreCase(requested.fullName()) || !sha(identity.headSha())) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned an invalid pull-request comparison.");
             }
             Result shallow = git.run(local.repository(), "rev-parse", "--is-shallow-repository");
@@ -79,15 +80,24 @@ public class PullRequestConflictService
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Complete repository history is required to list conflicted files.");
             }
             String url = "https://github.com/" + canonical.fullName() + ".git";
+            Map<String, String> authentication = credentials.gitAuthenticationEnvironment(workspace.id(), ImmutableList.of(url));
+            // The PR's base SHA can lag behind the current target branch.
+            String baseRef = "refs/heads/" + identity.baseBranch();
+            Result remote = git.run(local.repository(), Duration.ofMinutes(2), authentication,
+                    ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", url, baseRef));
+            String[] target = remote.output().strip().split("\\s+", -1);
+            if (!remote.successful() || remote.truncated() || target.length != 2 || !sha(target[0]) || !target[1].equals(baseRef)) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not read the current target branch. Check repository access and retry.");
+            }
             // Fetch exact remote commits without moving local branches, tracking refs, or FETCH_HEAD.
-            Result fetched = git.run(local.repository(), Duration.ofMinutes(2), credentials.gitAuthenticationEnvironment(workspace.id(), ImmutableList.of(url)),
+            Result fetched = git.run(local.repository(), Duration.ofMinutes(2), authentication,
                     ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--no-auto-maintenance", "--", url,
-                            identity.baseSha(), identity.headSha()));
+                            target[0], identity.headSha()));
             if (!fetched.successful() || fetched.truncated()) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not fetch the PR and target branch. Check repository access and retry.");
             }
             Result merged = git.runStdout(local.repository(), 1, "--no-replace-objects", "merge-tree", "--write-tree", "--name-only", "-z", "--no-messages",
-                    identity.baseSha(), identity.headSha());
+                    target[0], identity.headSha());
             return new PullRequestConflicts(identity.baseBranch(), conflictPaths(merged));
         });
     }

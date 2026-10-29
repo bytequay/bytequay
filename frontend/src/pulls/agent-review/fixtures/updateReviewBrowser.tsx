@@ -15,7 +15,7 @@ import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createFixtureRoot } from '../../../fixtures/reactFixture';
 import type { Bridge } from '../../../types';
-import { assert, settle } from '../../../fixtures/harness';
+import { assert, changeInput, settle } from '../../../fixtures/harness';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
 import { reviewFixture, runningReviewFixture } from './review';
@@ -30,8 +30,15 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   let fail: (error: Error) => void = () => {};
   let show: (review: AgentReviewDto) => void = () => {};
   let resumes = 0;
+  const questions: Parameters<Bridge['askAgentReview']>[] = [];
   const bridge = {
     getAgentReview: async () => saved,
+    askAgentReview: async (...args) => {
+      questions.push(args);
+      saved = { ...saved, activeTurn: { id: 'question-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null },
+        task: { ...saved.task, mutationClaim: 'TURN' } };
+      return saved;
+    },
     updateAgentReview: (id: string) => {
       assert(id === saved.id, 'Update the selected review');
       return new Promise<AgentReviewDto>((resolve, reject) => {
@@ -47,7 +54,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         fail = reject;
       });
     },
-  } satisfies Pick<Bridge, 'getAgentReview' | 'updateAgentReview' | 'resumeAgentReview'>;
+  } satisfies Pick<Bridge, 'getAgentReview' | 'askAgentReview' | 'updateAgentReview' | 'resumeAgentReview'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   const mount = (initial = completed) => {
     saved = initial;
@@ -75,6 +82,37 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     finally { flushSync(() => root.render(null)); }
   };
   try {
+    for (const kind of ['finding', 'summary']) {
+      await scenario(`Asking about a ${kind} keeps the current review tab`, async () => {
+        mount({ ...completed, messages: [] }); await settle();
+        const selectedTab = () => host.querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+        assert(selectedTab()?.startsWith('Findings') === true, 'A completed review must start on Findings without clicking a tab');
+        const card = host.querySelector(kind === 'finding' ? '.agr-finding' : '[data-review-card$=":purpose"]');
+        const ask = card?.querySelector<HTMLButtonElement>('.lrc__ask, .agr-link');
+        assert(card != null && ask?.textContent === 'Ask reviewer', 'The displayed card must offer a private question');
+        ask.click(); await settle();
+        const input = card.querySelector('textarea');
+        assert(input !== null, 'Asking must open the card composer');
+        changeInput(input, 'Explain the suggested change'); await settle();
+        const before = questions.length;
+        if (kind === 'finding') input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true, cancelable: true }));
+        else card.querySelector<HTMLButtonElement>('.agr-composer button.is-primary')?.click();
+        await settle();
+        assert(questions.length === before + 1 && questions[before][3] === 'Explain the suggested change',
+          'Keyboard and button submission must each send one question');
+        assert(selectedTab()?.startsWith('Findings') === true && card.getBoundingClientRect().height > 0,
+          'Starting a reviewer answer must keep Findings and the question card visible');
+        flushSync(() => show(completed));
+        assert(selectedTab()?.startsWith('Findings') === true, 'Finishing the answer must keep Findings visible');
+        const chosen = kind === 'finding' ? 'Activity' : 'Evidence';
+        [...host.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(button => button.textContent?.startsWith(chosen))?.click();
+        await settle();
+        flushSync(() => show(saved));
+        assert(selectedTab()?.startsWith(chosen) === true, 'Starting another answer must preserve an explicitly selected tab');
+        flushSync(() => show(completed));
+        assert(selectedTab()?.startsWith(chosen) === true, 'Finishing another answer must preserve an explicitly selected tab');
+      });
+    }
     await scenario('An unfinished review resumes from its failure banner and remains retryable after an error', async () => {
       mount({ ...completed, runs: [{ ...completed.runs[0], state: 'FAILED', coverage: null, outcome: 'Provider rate limit' }] });
       const bannerButton = host.querySelector<HTMLButtonElement>('.agr-banner.is-danger .is-primary');

@@ -59,8 +59,8 @@ testBrowserScenarios([
       entry: 'src/pulls/agent-review/fixtures/summaryRefreshBrowser.tsx', global: 'SummaryRefresh', styles: true, charset: true },
   },
   {
-    name: 'reports review update results from both controls in Chromium',
-    expected: 7, timeout: 120_000,
+    name: 'preserves tabs for review questions and reports update results in Chromium',
+    expected: 9, timeout: 120_000,
     fixture: {
       prefix: 'bytequay-update-review-',
       entry: 'src/pulls/agent-review/fixtures/updateReviewBrowser.tsx',

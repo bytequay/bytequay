@@ -177,7 +177,7 @@ export default function AgentReviewTab({
   const [reportRunId, setReportRunId] = useState<string | null>(null);
   // Findings by review round: 'last' follows the newest round, 'all' shows every round, otherwise a run id.
   const [round, setRound] = useState('last');
-  // Null follows the review: Activity while it runs, Findings once it settles.
+  // Null follows the review round; follow-up discussion turns must not switch tabs.
   const [pickedTab, setPickedTab] = useState<ReviewTab | null>(null);
   useEffect(() => {
     if (mode === 'cards' && !timeline && focusReviewCard?.target.kind === 'card') setReportRunId(focusReviewCard.target.runId);
@@ -212,7 +212,7 @@ export default function AgentReviewTab({
 
   const now = useNow(running);
   // A development task's Summary says whether it is shown; other pages read while the review runs.
-  const tab = pickedTab ?? (running ? 'activity' : 'findings');
+  const tab = pickedTab ?? (running && currentRun?.state === 'RUNNING' ? 'activity' : 'findings');
   const activity = useReviewActivity(review, run, mode === 'cards' && tab === 'activity', running && (!timeline || ownStream));
 
   // The catalog names the model each turn ran with; the transcript shows a name, never a raw slug.

@@ -560,7 +560,7 @@ public class DevelopmentFollowupCoordinator
     private void checkPrivacy(DevelopmentTurnCompletion completion, DevelopmentBaseline baseline, DevelopmentLocalFacts local)
     {
         DevelopmentPublicationRoute route = baseline.route();
-        privacy.checkGit(completion.task().id(), baseline.worktree().canonicalWorktree(), route.baseSha(), local.headSha(),
+        privacy.checkGit(completion.task().id(), route.server(), baseline.worktree().canonicalWorktree(), route.baseSha(), local.headSha(),
                 route.headRepository(), route.baseRepository(), route.headBranch(), "");
         checkState(owns(completion), "Publication was stopped during privacy review");
     }
@@ -635,7 +635,7 @@ public class DevelopmentFollowupCoordinator
         TaskWorktree worktree = window.baseline().worktree();
         DevelopmentLocalFacts local = git.inspectLocal(worktree, route);
         checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0, "The verified local revision changed; publication was not attempted");
-        privacy.checkGit(id, worktree.canonicalWorktree(), route.baseSha(), window.localHead(), route.headRepository(), route.baseRepository(),
+        privacy.checkGit(id, route.server(), worktree.canonicalWorktree(), route.baseSha(), window.localHead(), route.headRepository(), route.baseRepository(),
                 route.headBranch(), withoutAttribution(title) + "\n" + withoutAttribution(body));
         checkState(publications.get(id) == window && turnStore.findActive(id).filter(turn -> turn.cancellationRequestedAt().isEmpty()).flatMap(AgentTurn::developmentOrigin)
                         .filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR).isPresent(), "Publication was stopped during privacy review");
@@ -663,7 +663,8 @@ public class DevelopmentFollowupCoordinator
         }
         String head = route.headRepository().equals(route.baseRepository()) ? route.headBranch() : route.headRepository().owner() + ":" + route.headBranch();
         var selected = hosting.captureRead(worktree.workspaceId());
-        checkState(selected.repository().fullPath().equals(route.baseRepository().fullName()), "The publication repository changed");
+        checkState(selected.session().access().server().equals(route.server()) && selected.repository().fullPath().equals(route.baseRepository().fullName()),
+                "The publication repository changed");
         CreatedPullRequest created = writes.forSession(selected.session()).create(selected.session().access(), selected.repository(),
                 head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
         return "Pushed " + window.localHead() + "; created draft pull request " + created.url();

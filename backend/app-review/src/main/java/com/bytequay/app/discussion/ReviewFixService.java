@@ -52,6 +52,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -189,7 +190,7 @@ public class ReviewFixService
                 continue;
             }
             try {
-                privacy.checkText(taskId, RepoRef.of(reply.repo().split("/", 2)[0], reply.repo().split("/", 2)[1]), reply.reply().orElseThrow());
+                privacy.checkText(taskId, GITHUB_SERVER, RepoRef.of(reply.repo().split("/", 2)[0], reply.repo().split("/", 2)[1]), reply.reply().orElseThrow());
             }
             catch (RuntimeException blocked) {
                 store.update(reply.failed(PRIVACY_HOLD));

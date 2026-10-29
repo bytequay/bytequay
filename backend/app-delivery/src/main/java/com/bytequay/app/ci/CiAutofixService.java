@@ -114,6 +114,7 @@ import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireSelectedRepository;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Ascii.truncate;
@@ -995,7 +996,7 @@ public class CiAutofixService
             return pause(run, PauseReason.ERROR, "PR description changed while validating the repair; no edit was applied", now);
         }
         privacy.checkText(TaskId.valueOf(run.scope().parentTaskId().orElseGet(() -> run.agentTaskId().orElseThrow())),
-                RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), change.body());
+                GITHUB_SERVER, RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), change.body());
         repairToken(run);
         CiAutofixRun journaled = store.update(run.updateAttempt(attempt.withDescriptionChange(change.startingWrite(now), now), now));
         writes.updatePullRequestDescription(repairToken(journaled), run.scope().pullRequest(), change.body());
@@ -1109,7 +1110,7 @@ public class CiAutofixService
     private void checkPrivacy(CiAutofixRun run, WorktreeSnapshot worktree, String base, String head)
     {
         privacy.checkGit(TaskId.valueOf(run.scope().parentTaskId().orElseGet(() -> run.agentTaskId().orElseThrow())),
-                worktree.worktree().canonicalWorktree(), base, head,
+                GITHUB_SERVER, worktree.worktree().canonicalWorktree(), base, head,
                 RepoRef.of(run.scope().headRepository().owner(), run.scope().headRepository().repo()),
                 RepoRef.of(run.scope().pullRequest().owner(), run.scope().pullRequest().repo()), run.scope().headRef(), "");
     }

@@ -50,6 +50,8 @@ import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,6 +61,7 @@ import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
@@ -77,6 +80,7 @@ import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.AUTO_COMMIT;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR;
 import static com.bytequay.agent.core.DevelopmentTurnOrigin.Kind.REFINE_SUMMARY;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -128,7 +132,7 @@ class TestDevelopmentFollowupCoordinator
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
-    private DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
+    private DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("owner", "repo"), new RepoRef("owner", "repo"),
             "https://github.com/owner/repo.git", "origin", "main", BASE, worktree.generatedBranch(), Optional.empty());
     private AgentTask task = created(taskId, true, "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
             AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO).withDevelopmentAutomation(FULL), NOW);
@@ -159,7 +163,7 @@ class TestDevelopmentFollowupCoordinator
         });
         when(git.branchHeld(eq(worktree), anyString())).thenAnswer(call -> held.contains(call.<String>getArgument(1)));
         when(ci.startDevelopment(any(), any(), any(), any())).thenAnswer(ignored -> ciRun());
-        when(hosting.captureRead("workspace")).thenAnswer(ignored -> HostingTestFixture.route(route.baseRepository().fullName(), "token"));
+        when(hosting.captureRead("workspace")).thenAnswer(ignored -> HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token"));
         when(dispatch.forSession(any())).thenReturn(writes);
         doAnswer(call -> {
             Runnable action = call.getArgument(2);
@@ -1113,7 +1117,7 @@ class TestDevelopmentFollowupCoordinator
         doAnswer(call -> {
             when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false));
             return null;
-        }).when(privacy).checkGit(eq(taskId), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
+        }).when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
         generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
                 coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("checked revision changed"));
         advance();
@@ -1129,7 +1133,7 @@ class TestDevelopmentFollowupCoordinator
         doAnswer(call -> {
             history.set(history.size() - 1, history.getLast().requestCancellation(NOW));
             return null;
-        }).when(privacy).checkGit(eq(taskId), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
+        }).when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
         generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
                 coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("stopped during privacy review"));
         advance();
@@ -1143,11 +1147,11 @@ class TestDevelopmentFollowupCoordinator
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
         doThrow(new PublicationPrivacyException("Privacy check blocked"))
-                .when(privacy).checkGit(eq(taskId), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
+                .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
         generated(DevelopmentTurnOrigin.Kind.PRIVACY_REPAIR, true, () -> when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false)));
         generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Generic change", "Generic explanation"));
         advance();
-        verify(privacy).checkGit(eq(taskId), any(), eq(BASE), eq(NEXT), any(), any(), anyString(), eq("Generic change\nGeneric explanation"));
+        verify(privacy).checkGit(eq(taskId), any(), any(), eq(BASE), eq(NEXT), any(), any(), anyString(), eq("Generic change\nGeneric explanation"));
         verify(git).pushDevelopmentHead(worktree, route, NEXT, Optional.empty());
     }
 
@@ -1157,7 +1161,7 @@ class TestDevelopmentFollowupCoordinator
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
         doThrow(new IllegalStateException("Privacy check blocked"))
-                .when(privacy).checkGit(eq(taskId), any(), anyString(), anyString(), any(), any(), anyString(), eq("Add a thing\nPrivate body"));
+                .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), anyString(), any(), any(), anyString(), eq("Add a thing\nPrivate body"));
         generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
                 coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Private body")).hasMessageContaining("Privacy check blocked"));
         advance();
@@ -1165,9 +1169,16 @@ class TestDevelopmentFollowupCoordinator
         verifyNoInteractions(writes);
     }
 
-    @Test
-    void publishPushesTheVerifiedRevisionAndOpensADraftPullRequest()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void publishPushesTheVerifiedRevisionAndOpensADraftPullRequest(boolean gitLab)
     {
+        if (gitLab) {
+            var server = new HostingServer(HostingProvider.GITLAB, URI.create("https://git.example.invalid"), URI.create("https://git.example.invalid/api/v4"));
+            route = new DevelopmentPublicationRoute(server, route.headRepository(), route.baseRepository(), "https://git.example.invalid/owner/repo.git",
+                    route.sourceRemote(), route.baseBranch(), route.baseSha(), route.headBranch(), route.assignedPullRequest());
+            when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
+        }
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.empty(), Optional.empty());
         generated(CREATE_DRAFT_PR, true, () -> assertThat(
@@ -1176,6 +1187,9 @@ class TestDevelopmentFollowupCoordinator
 
         advance();
 
+        verify(privacy).checkGit(taskId, route.server(), worktree.canonicalWorktree(), BASE, HEAD, route.headRepository(), route.baseRepository(), route.headBranch(), "");
+        verify(privacy).checkGit(taskId, route.server(), worktree.canonicalWorktree(), BASE, HEAD, route.headRepository(), route.baseRepository(),
+                route.headBranch(), "Add a thing\nBody");
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.empty());
         verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
@@ -1278,7 +1292,7 @@ class TestDevelopmentFollowupCoordinator
     void publishReusesTheTrackingPullRequestInsteadOfOpeningASecond(boolean assigned)
     {
         if (assigned) {
-            route = new DevelopmentPublicationRoute(route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+            route = new DevelopmentPublicationRoute(route.server(), route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
                     route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
         }
         GitHubPullRequestIdentity existing = pr(BASE, true);
@@ -1299,7 +1313,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void assignedPullRequestCannotFallBackToCreatingAnother()
     {
-        route = new DevelopmentPublicationRoute(route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+        route = new DevelopmentPublicationRoute(route.server(), route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
                 route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
@@ -1314,7 +1328,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void assignedPullRequestPromptsDistinguishLocalAndRemoteBranches()
     {
-        route = new DevelopmentPublicationRoute(route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+        route = new DevelopmentPublicationRoute(route.server(), route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
                 route.baseBranch(), route.baseSha(), "existing-pr", Optional.of(PullRequestRef.of("owner", "repo", 7)));
         DevelopmentBaseline baseline = new DevelopmentBaseline(worktree, route, local(BASE, false));
 
@@ -1327,7 +1341,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void publishSendsAForkQualifiedHeadForACrossRepositoryRoute()
     {
-        route = new DevelopmentPublicationRoute(new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
+        route = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
                 "https://github.com/forker/repo.git", "upstream", "release", BASE, worktree.generatedBranch(), Optional.empty());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
@@ -1346,10 +1360,10 @@ class TestDevelopmentFollowupCoordinator
     private void verifyCreated(String head, String base, String title, String body, boolean draft)
     {
         var access = org.mockito.ArgumentCaptor.forClass(com.bytequay.core.hosting.HostingAccess.class);
-        verify(writes).create(access.capture(), eq(HostingTestFixture.route(route.baseRepository().fullName(), "token").repository()),
+        verify(writes).create(access.capture(), eq(HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token").repository()),
                 eq(head), eq(base), eq(title), eq(body), eq(draft));
         assertThat(access.getValue().token()).isEqualTo("token");
-        assertThat(access.getValue().server()).isEqualTo(HostingTestFixture.route(route.baseRepository().fullName(), "token").session().access().server());
+        assertThat(access.getValue().server()).isEqualTo(route.server());
     }
 
     private AtomicReference<DevelopmentPublicationFacts> trackedRemote(Optional<String> remoteHead, Optional<GitHubPullRequestIdentity> existing)
@@ -1371,7 +1385,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void publicationPromptPinsForkRoutingLeaseAndExactObject()
     {
-        var fork = new DevelopmentPublicationRoute(new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"), "https://github.com/forker/repo.git",
+        var fork = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"), "https://github.com/forker/repo.git",
                 "upstream", "release", BASE, route.headBranch(), Optional.empty());
         var baseline = new DevelopmentBaseline(worktree, fork, local(BASE, false));
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
@@ -1616,7 +1630,8 @@ class TestDevelopmentFollowupCoordinator
         return new GitHubPullRequestIdentity(new PullRequestRef(
                 route.baseRepository().owner(),
                 route.baseRepository().repo(),
-                7), "https://github.com/" + route.baseRepository().fullName() + "/pull/7", route.headRepository(), route.headBranch(), head,
+                7), route.server().webBaseUrl() + "/" + route.baseRepository().fullName()
+                + (route.server().provider() == HostingProvider.GITLAB ? "/-/merge_requests/7" : "/pull/7"), route.headRepository(), route.headBranch(), head,
                 route.baseRepository(), route.baseBranch(), BASE, GitHubPullRequestIdentity.State.OPEN, draft, "owner");
     }
 

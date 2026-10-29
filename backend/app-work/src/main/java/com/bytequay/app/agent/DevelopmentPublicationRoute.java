@@ -15,6 +15,7 @@ package com.bytequay.app.agent;
 
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingServer;
 
 import java.util.Optional;
 
@@ -22,11 +23,12 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** The accepted destination; later workspace changes cannot silently reroute publication. */
-public record DevelopmentPublicationRoute(RepoRef headRepository, RepoRef baseRepository, String pushUrl, String sourceRemote,
+public record DevelopmentPublicationRoute(HostingServer server, RepoRef headRepository, RepoRef baseRepository, String pushUrl, String sourceRemote,
         String baseBranch, String baseSha, String headBranch, Optional<PullRequestRef> assignedPullRequest)
 {
     public DevelopmentPublicationRoute
     {
+        requireNonNull(server, "server is null");
         requireNonNull(headRepository, "headRepository is null");
         requireNonNull(baseRepository, "baseRepository is null");
         checkText(pushUrl, "pushUrl");
@@ -39,6 +41,6 @@ public record DevelopmentPublicationRoute(RepoRef headRepository, RepoRef baseRe
 
     public DevelopmentPublicationRoute withHeadBranch(String branch)
     {
-        return new DevelopmentPublicationRoute(headRepository, baseRepository, pushUrl, sourceRemote, baseBranch, baseSha, branch, assignedPullRequest);
+        return new DevelopmentPublicationRoute(server, headRepository, baseRepository, pushUrl, sourceRemote, baseBranch, baseSha, branch, assignedPullRequest);
     }
 }

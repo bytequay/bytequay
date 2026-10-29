@@ -25,6 +25,7 @@ import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
@@ -39,7 +40,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.core.hosting.HostingUrls.canonicalBaseUrl;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
@@ -90,24 +90,25 @@ public class PublicationPrivacyService
     }
 
     @Override
-    public void checkGit(TaskId taskId, Path worktree, String base, String head, RepoRef pushRepository, RepoRef targetRepository, String branch, String text)
+    public void checkGit(TaskId taskId, HostingServer server, Path worktree, String base, String head, RepoRef pushRepository, RepoRef targetRepository, String branch, String text)
     {
-        check(taskId, pushRepository, targetRepository, branch + "\n" + text + "\n" + content.read(worktree, base, head));
+        check(taskId, server, pushRepository, targetRepository, branch + "\n" + text + "\n" + content.read(worktree, base, head));
     }
 
     @Override
-    public void checkText(TaskId taskId, RepoRef repository, String text)
+    public void checkText(TaskId taskId, HostingServer server, RepoRef repository, String text)
     {
-        check(taskId, repository, repository, text);
+        check(taskId, server, repository, repository, text);
     }
 
-    private void check(TaskId taskId, RepoRef push, RepoRef target, String outgoing)
+    private void check(TaskId taskId, HostingServer server, RepoRef push, RepoRef target, String outgoing)
     {
+        requireNonNull(server, "server is null");
         AgentTask task = tasks.require(taskId);
         String workspaceId = task.workspaceId().orElseThrow();
         WorkspaceHostingRead selected = hosting.captureRead(workspaceId);
-        // CI and review reply writers currently target GitHub.com; another host must never grant their internal exemption.
-        checkState(selected.session().access().server().equals(GITHUB_SERVER), "Publication privacy requires a GitHub.com destination; publication is held");
+        // The caller's actual destination must match before its visibility can grant an internal exemption.
+        checkState(selected.session().access().server().equals(server), "Publication privacy destination changed; publication is held");
         boolean internal = internalDestination(selected, push, target);
         String source = source(taskId);
         RepositoryVisibility issueVisibility = issues.findByTaskId(taskId.toString())

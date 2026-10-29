@@ -15,13 +15,14 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingServer;
 
 import java.nio.file.Path;
 
 /** Every task-owned external write checks its exact payload, including resumed CI and reply publication. */
 public interface PublicationPrivacy
 {
-    void checkGit(TaskId taskId, Path worktree, String base, String head, RepoRef pushRepository, RepoRef targetRepository, String branch, String text);
+    void checkGit(TaskId taskId, HostingServer server, Path worktree, String base, String head, RepoRef pushRepository, RepoRef targetRepository, String branch, String text);
 
-    void checkText(TaskId taskId, RepoRef repository, String text);
+    void checkText(TaskId taskId, HostingServer server, RepoRef repository, String text);
 }

@@ -73,6 +73,7 @@ import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -217,13 +218,13 @@ class TestReviewFixService
         cache(thread(10, comment(11L, "bob", false, "Rename it.")));
         service.request(task);
         TurnId turnId = answered(new ReviewThreadReply(11, "Private reply", false));
-        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkText(any(), any(), anyString());
+        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkText(any(), eq(GITHUB_SERVER), any(), anyString());
         service.publish(task.id(), turnId, false);
         service.publish(task.id(), turnId, true);
         assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.failure()).hasValueSatisfying(value -> assertThat(value).contains("Privacy")));
         verify(pullRequests, never()).replyToReviewComment(anyString(), anyInt(), anyLong(), anyString());
         assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.postStartedAt()).isEmpty());
-        doNothing().when(privacy).checkText(any(), any(), anyString());
+        doNothing().when(privacy).checkText(any(), eq(GITHUB_SERVER), any(), anyString());
         service.publish(task.id(), answered(new ReviewThreadReply(11, "Generic reply", false)), false);
         verify(pullRequests).replyToReviewComment(REPO, 12, 10, "Generic reply");
     }
@@ -239,7 +240,7 @@ class TestReviewFixService
         doAnswer(call -> {
             authorized.set(false);
             return null;
-        }).when(privacy).checkText(any(), any(), anyString());
+        }).when(privacy).checkText(any(), eq(GITHUB_SERVER), any(), anyString());
         doAnswer(call -> {
             if (!authorized.get()) {
                 throw new AgentConflictException("Development automation stopped");

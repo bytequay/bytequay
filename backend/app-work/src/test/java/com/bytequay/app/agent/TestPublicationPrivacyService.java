@@ -22,18 +22,15 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.service.hosting.HostingConnectionService;
-import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workspace.PublicationContent;
-import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
@@ -43,13 +40,16 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 
 import java.net.URI;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -60,6 +60,11 @@ import static org.mockito.Mockito.withSettings;
 
 class TestPublicationPrivacyService
 {
+    private static final HostingServer GITLAB = new HostingServer(HostingProvider.GITLAB,
+            URI.create("https://git.example.invalid"), URI.create("https://git.example.invalid/api/v4"));
+    private static final Path WORKTREE = Path.of("/tmp/bytequay-publication");
+    private static final String BASE = "a".repeat(40);
+    private static final String HEAD = "b".repeat(40);
     private final TaskId id = TaskId.random();
     private final RepoRef repository = RepoRef.of("owner", "repo");
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
@@ -69,8 +74,9 @@ class TestPublicationPrivacyService
     private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
     private final HostingConnectionService connections = mock(HostingConnectionService.class);
     private final TextOnlyHelper reviewer = mock(TextOnlyHelper.class);
+    private final PublicationContent content = mock(PublicationContent.class);
     private final PublicationPrivacyService privacy = new PublicationPrivacyService(tasks, contexts, issues, jira, hosting, connections,
-            mock(PublicationContent.class), reviewer, new ObjectMapper());
+            content, reviewer, new ObjectMapper());
     private final AtomicReference<String> source = new AtomicReference<>("Private customer Example Customer; internal stack: com.example.privateproduct.Trace");
 
     @BeforeEach
@@ -85,6 +91,7 @@ class TestPublicationPrivacyService
         when(hosting.captureRead("workspace")).thenReturn(HostingTestFixture.route("owner/repo", "token"));
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PUBLIC);
         when(reviewer.answer(any(), any(), any(), anyString(), anyString(), anyString())).thenReturn("SAFE");
+        when(content.read(WORKTREE, BASE, HEAD)).thenReturn("Synthetic commit metadata and patch");
         var ticket = new JiraIssueSource("connection", "cloud", "42", "CASE-42", "https://issues.example.invalid/browse/CASE-42", "Fix example", "Private detail", Instant.EPOCH);
         when(jira.findByTaskId(id.toString())).thenReturn(Optional.of(new JiraIssueTask(id.toString(), "workspace", ticket, "Fix the example", Instant.EPOCH)));
     }
@@ -92,7 +99,7 @@ class TestPublicationPrivacyService
     @Test
     void blocksKnownPrivateLinksEvenWhenModelWouldPass()
     {
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Fixes CASE-42")).hasMessageContaining("Privacy check blocked");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Fixes CASE-42")).hasMessageContaining("Privacy check blocked");
         verify(reviewer, never()).answer(any(), any(), any(), anyString(), anyString(), anyString());
     }
 
@@ -100,32 +107,57 @@ class TestPublicationPrivacyService
     void internalReferencesAreAllowedOnlyInTheSelectedPrivateRepository()
     {
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PRIVATE);
-        privacy.checkText(id, repository, "Fixes CASE-42");
-        assertThatThrownBy(() -> privacy.checkText(id, RepoRef.of("other", "repo"), "Fixes CASE-42")).hasMessageContaining("Privacy check blocked");
+        privacy.checkText(id, GITHUB_SERVER, repository, "Fixes CASE-42");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, RepoRef.of("other", "repo"), "Fixes CASE-42")).hasMessageContaining("Privacy check blocked");
     }
 
     @Test
     void anotherHostCannotGrantAnInternalExemptionToGitHubWriters()
     {
-        var original = HostingTestFixture.route(repository.fullName(), "token");
-        var instance = new HostingInstance(1, HostingProvider.GITLAB, URI.create("https://git.example.invalid"), URI.create("https://git.example.invalid/api/v4"));
-        var session = new HostingReadSession(2, "selected", new HostingAccess(instance, "token"));
-        when(hosting.captureRead("workspace")).thenReturn(new WorkspaceHostingRead(session, original.repository(), original.login()));
+        when(hosting.captureRead("workspace")).thenReturn(HostingTestFixture.route(GITLAB, repository.fullName(), "token"));
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PRIVATE);
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Fixes CASE-42")).hasMessageContaining("destination");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Fixes CASE-42")).hasMessageContaining("destination");
+        assertThatThrownBy(() -> privacy.checkGit(id, GITHUB_SERVER, WORKTREE, BASE, HEAD, repository, repository, "topic", "Fixes CASE-42"))
+                .hasMessageContaining("destination");
         verify(reviewer, never()).answer(any(), any(), any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void gitLabPublicationUsesItsOwnVisibilityAndStillChecksPrivateContent()
+    {
+        when(hosting.captureRead("workspace")).thenReturn(HostingTestFixture.route(GITLAB, repository.fullName(), "token"));
+        privacy.checkGit(id, GITLAB, WORKTREE, BASE, HEAD, repository, repository, "topic", "Generic change");
+        verify(reviewer).answer(any(), any(), any(), contains("\"audience\":\"public\""), anyString(), anyString());
+        assertThatThrownBy(() -> privacy.checkGit(id, GITLAB, WORKTREE, BASE, HEAD, repository, repository, "topic", "Fixes CASE-42"))
+                .hasMessageContaining("Privacy check blocked");
+
+        when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PRIVATE);
+        privacy.checkGit(id, GITLAB, WORKTREE, BASE, HEAD, repository, repository, "topic", "Fixes CASE-42");
+        verify(reviewer).answer(any(), any(), any(), contains("\"audience\":\"internal\""), anyString(), anyString());
+    }
+
+    @Test
+    void changingTheHostingServerDuringReviewHoldsPublication()
+    {
+        when(hosting.captureRead("workspace")).thenReturn(HostingTestFixture.route(GITLAB, repository.fullName(), "token"));
+        when(reviewer.answer(any(), any(), any(), anyString(), anyString(), anyString())).thenAnswer(call -> {
+            when(hosting.captureRead("workspace")).thenReturn(HostingTestFixture.route(repository.fullName(), "token"));
+            return "SAFE";
+        });
+        assertThatThrownBy(() -> privacy.checkGit(id, GITLAB, WORKTREE, BASE, HEAD, repository, repository, "topic", "Generic change"))
+                .hasMessageContaining("inputs changed");
     }
 
     @Test
     void unknownDestinationAndInvalidOrUnavailableVerdictCannotPass()
     {
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.UNKNOWN);
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Generic change")).hasMessageContaining("visibility");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Generic change")).hasMessageContaining("visibility");
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PUBLIC);
         when(reviewer.answer(any(), any(), any(), anyString(), anyString(), anyString())).thenReturn("SAFE but incomplete");
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Generic change")).hasMessageContaining("invalid verdict");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Generic change")).hasMessageContaining("invalid verdict");
         when(reviewer.answer(any(), any(), any(), anyString(), anyString(), anyString())).thenThrow(new IllegalStateException("Reviewer unavailable"));
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Generic change")).hasMessageContaining("Reviewer unavailable");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Generic change")).hasMessageContaining("Reviewer unavailable");
     }
 
     @Test
@@ -136,15 +168,15 @@ class TestPublicationPrivacyService
                 "https://github.com/example/private-source/issues/7", "Example issue", "Private detail", Instant.EPOCH);
         when(issues.findByTaskId(id.toString())).thenReturn(Optional.of(new IssueTask(id.toString(), "workspace", issue, Optional.empty(), Instant.EPOCH)));
         when(connections.visibility(any(), eq(issue.repo()))).thenReturn(RepositoryVisibility.PRIVATE);
-        assertThatThrownBy(() -> privacy.checkText(id, repository, issue.url())).hasMessageContaining("Privacy check blocked");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, issue.url())).hasMessageContaining("Privacy check blocked");
         when(connections.visibility(any(), eq(issue.repo()))).thenThrow(new IllegalStateException("Unavailable"));
-        assertThatThrownBy(() -> privacy.checkText(id, repository, issue.repo())).hasMessageContaining("Privacy check blocked");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, issue.repo())).hasMessageContaining("Privacy check blocked");
         doReturn(RepositoryVisibility.PUBLIC).when(connections).visibility(any(), eq(issue.repo()));
-        privacy.checkText(id, repository, issue.url());
+        privacy.checkText(id, GITHUB_SERVER, repository, issue.url());
         var otherHost = new GitHubIssueSource("git.example.invalid", 42, issue.repo(), 7,
                 "https://git.example.invalid/example/private-source/issues/7", issue.title(), issue.body(), Instant.EPOCH);
         when(issues.findByTaskId(id.toString())).thenReturn(Optional.of(new IssueTask(id.toString(), "workspace", otherHost, Optional.empty(), Instant.EPOCH)));
-        assertThatThrownBy(() -> privacy.checkText(id, repository, otherHost.repo())).hasMessageContaining("Privacy check blocked");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, otherHost.repo())).hasMessageContaining("Privacy check blocked");
     }
 
     @Test
@@ -154,19 +186,19 @@ class TestPublicationPrivacyService
             source.set("New private context");
             return "SAFE";
         });
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Generic change")).hasMessageContaining("inputs changed");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Generic change")).hasMessageContaining("inputs changed");
         when(reviewer.answer(any(), any(), any(), anyString(), anyString(), anyString())).thenReturn("SAFE");
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PRIVATE, RepositoryVisibility.PUBLIC);
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Generic change")).hasMessageContaining("inputs changed");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Generic change")).hasMessageContaining("inputs changed");
     }
 
     @Test
     void passingEarlierTextDoesNotAuthorizeLaterTextOrInternalCredentials()
     {
-        privacy.checkText(id, repository, "Generic change");
+        privacy.checkText(id, GITHUB_SERVER, repository, "Generic change");
         when(reviewer.answer(any(), any(), any(), anyString(), anyString(), anyString())).thenReturn("BLOCKED");
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "Example Customer's proprietary stack")).hasMessageContaining("blocked");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "Example Customer's proprietary stack")).hasMessageContaining("blocked");
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PRIVATE);
-        assertThatThrownBy(() -> privacy.checkText(id, repository, "password=example-secret")).hasMessageContaining("blocked");
+        assertThatThrownBy(() -> privacy.checkText(id, GITHUB_SERVER, repository, "password=example-secret")).hasMessageContaining("blocked");
     }
 }

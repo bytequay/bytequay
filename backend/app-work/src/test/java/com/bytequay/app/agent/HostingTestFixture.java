@@ -18,6 +18,7 @@ import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 
 import java.net.URI;
 import java.util.Optional;
@@ -30,9 +31,15 @@ final class HostingTestFixture
 
     static WorkspaceHostingRead route(String repository, String token)
     {
-        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        return route(GITHUB_SERVER, repository, token);
+    }
+
+    static WorkspaceHostingRead route(HostingServer server, String repository, String token)
+    {
+        HostingInstance instance = new HostingInstance(1, server.provider(), server.webBaseUrl(), server.apiBaseUrl());
         HostingReadSession session = new HostingReadSession(2, "selected", new HostingAccess(instance, token));
         return new WorkspaceHostingRead(session, new HostingRepository(3, 1, "4", repository,
-                URI.create("https://github.com/" + repository), URI.create("https://github.com/" + repository + ".git"), Optional.empty(), Optional.of("main")), "contributor");
+                URI.create(server.webBaseUrl() + "/" + repository), URI.create(server.webBaseUrl() + "/" + repository + ".git"), Optional.empty(), Optional.of("main")),
+                "contributor");
     }
 }

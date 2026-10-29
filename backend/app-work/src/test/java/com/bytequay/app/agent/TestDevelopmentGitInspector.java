@@ -41,6 +41,7 @@ import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -57,6 +58,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockMakers;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -69,6 +71,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.app.git.GitTestSupport.configureUser;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -159,6 +162,7 @@ class TestDevelopmentGitInspector
         assertThat(baseline.local().diffFromBase()).isFalse();
         assertThat(baseline.route().headRepository()).isEqualTo(REPOSITORY);
         assertThat(baseline.route().baseRepository()).isEqualTo(REPOSITORY);
+        assertThat(baseline.route().server()).isEqualTo(GITHUB_SERVER);
         assertThat(baseline.route().pushUrl()).isEqualTo(ORIGIN);
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
@@ -606,6 +610,10 @@ class TestDevelopmentGitInspector
     void rejectsChangedWorkspaceBranchAndRemoteRouting()
     {
         DevelopmentPublicationRoute route = inspector.capture(task).route();
+        var server = new HostingServer(HostingProvider.GITLAB, URI.create("https://git.example.invalid"), URI.create("https://git.example.invalid/api/v4"));
+        var anotherServer = new DevelopmentPublicationRoute(server, route.headRepository(), route.baseRepository(), route.pushUrl(), route.sourceRemote(),
+                route.baseBranch(), route.baseSha(), route.headBranch(), route.assignedPullRequest());
+        assertThatThrownBy(() -> inspector.inspectLocal(worktree, anotherServer)).hasMessageContaining("routing changed");
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(false, "other-base")));
         assertThatThrownBy(() -> inspector.inspectLocal(worktree, route)).hasMessageContaining("routing changed");
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(false, "main")));

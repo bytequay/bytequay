@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -109,7 +110,8 @@ class TestDevelopmentBranchService
         String base = worktree.startCommit();
         RepoRef repo = new RepoRef("owner", "repo");
         when(git.capture(any())).thenReturn(new DevelopmentBaseline(worktree,
-                new DevelopmentPublicationRoute(repo, repo, "https://github.com/owner/repo.git", "origin", "main", base, worktree.generatedBranch(), Optional.empty()),
+                new DevelopmentPublicationRoute(GITHUB_SERVER, repo, repo, "https://github.com/owner/repo.git", "origin", "main", base,
+                        worktree.generatedBranch(), Optional.empty()),
                 new DevelopmentLocalFacts(worktree.generatedBranch(), base, "clean", 0, 0, false, false)));
         when(turns.findActive(id)).thenAnswer(ignored -> Optional.of(currentTurn.get()).filter(value -> value.state().active()));
         when(turns.list(id)).thenAnswer(ignored -> ImmutableList.of(currentTurn.get()));

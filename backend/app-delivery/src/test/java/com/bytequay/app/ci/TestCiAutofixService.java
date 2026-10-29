@@ -132,6 +132,7 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -1036,7 +1037,8 @@ class TestCiAutofixService
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint-1",
                 ImmutableList.of("src/Main.java"), ImmutableList.of("Fix example")));
-        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkGit(any(), any(), anyString(), anyString(), any(), any(), anyString(), anyString());
+        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy)
+                .checkGit(any(), eq(GITHUB_SERVER), any(), anyString(), anyString(), any(), any(), anyString(), anyString());
         run = service.advance(run.id());
         assertThat(run.status()).isEqualTo(Status.PAUSED);
         assertThat(run.pauseReason()).contains(PauseReason.INVALID_GIT_RESULT);
@@ -1057,7 +1059,7 @@ class TestCiAutofixService
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(sanitized, "sanitized-fingerprint",
                 ImmutableList.of("src/Main.java"), ImmutableList.of("Fix example")));
         // The old commit remains blocked; only the newly inspected commit may pass.
-        doNothing().when(privacy).checkGit(any(), any(), anyString(), eq(sanitized), any(), any(), anyString(), anyString());
+        doNothing().when(privacy).checkGit(any(), eq(GITHUB_SERVER), any(), anyString(), eq(sanitized), any(), any(), anyString(), anyString());
         run = service.advance(run.id());
         assertThat(run.pushJournal()).hasValueSatisfying(journal -> {
             assertThat(journal.localHeadSha()).isEqualTo(sanitized);
@@ -1072,7 +1074,7 @@ class TestCiAutofixService
         ArgumentCaptor<PushCiHeadCommand> push = ArgumentCaptor.forClass(PushCiHeadCommand.class);
         verify(gitService).push(push.capture());
         assertThat(push.getValue().journal().localHeadSha()).isEqualTo(sanitized);
-        verify(privacy, times(2)).checkGit(eq(development ? parent.id() : taskId), any(), anyString(), eq(sanitized), any(), any(), anyString(), anyString());
+        verify(privacy, times(2)).checkGit(eq(development ? parent.id() : taskId), eq(GITHUB_SERVER), any(), anyString(), eq(sanitized), any(), any(), anyString(), anyString());
     }
 
     @ParameterizedTest
@@ -1089,12 +1091,13 @@ class TestCiAutofixService
                 ImmutableList.of("src/Main.java"), ImmutableList.of("Fix example")));
         run = service.advance(run.id());
         assertThat(run.pushJournal()).isPresent();
-        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkGit(any(), any(), anyString(), anyString(), any(), any(), anyString(), anyString());
+        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy)
+                .checkGit(any(), eq(GITHUB_SERVER), any(), anyString(), anyString(), any(), any(), anyString(), anyString());
         clearInvocations(privacy);
         service = service(store);
         service.advance(run.id());
         service.advance(run.id());
-        verify(privacy).checkGit(eq(development ? parent.id() : taskId), any(), anyString(), eq(FIXED_HEAD), any(), any(), anyString(), anyString());
+        verify(privacy).checkGit(eq(development ? parent.id() : taskId), eq(GITHUB_SERVER), any(), anyString(), eq(FIXED_HEAD), any(), any(), anyString(), anyString());
         verify(gitService, never()).push(any());
     }
 

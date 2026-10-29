@@ -6,7 +6,7 @@
     <parent>
         <groupId>com.bytequay</groupId>
         <artifactId>backend</artifactId>
-        <version>0.5.2</version>
+        <version>0.5.3</version>
         <relativePath>../../pom.xml</relativePath>
     </parent>
     <artifactId>integration-gitlab</artifactId>

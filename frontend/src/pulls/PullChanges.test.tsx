@@ -323,10 +323,14 @@ describe('DiffViewer', () => {
     expect(html.indexOf('Binary-file discussion')).toBeGreaterThan(html.indexOf('Binary file or diff unavailable.'));
   });
 
-  it('projects agent findings only onto the displayed validated revision', () => {
+  it.each([
+    ['RIGHT', 96, 97, ['aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane', 'trailing']],
+    ['LEFT', 95, 96, ['context', 'old value']],
+    ['LEFT', 97, 97, ['trailing']],
+  ] as const)('keeps an older finding inline when its full %s range %i–%i still matches', (side, startLine, endLine, excerpt) => {
     const review = reviewFixture();
-    const finding = { ...review.findings[0], path: file.filename, startLine: 96, endLine: 96,
-      validatedHeadSha: commits[2].sha };
+    const finding = { ...review.findings[0], path: file.filename, side, startLine, endLine, excerpt: [...excerpt],
+      validatedHeadSha: 'older-head', outdated: true };
     const projection: NonNullable<DiffViewerProps['agentReview']> = {
       review: { ...review, findings: [finding] }, viewer: null, navigation: null,
       onReviewChange: () => {}, onOpenInReview: () => {},
@@ -335,17 +339,19 @@ describe('DiffViewer', () => {
       <DiffViewer files={[file]} commits={displayedCommits} agentReview={agentReview} />);
 
     expect(render()).toContain('is-review-finding');
-    expect(render(projection, commits.slice(0, 2))).not.toContain('is-review-finding');
-    expect(render({ ...projection, headSha: 'different-worktree-head' })).not.toContain('is-review-finding');
+    expect(render(projection, commits.slice(0, 2))).toContain('is-review-finding');
+    expect(render({ ...projection, headSha: 'different-worktree-head' })).toContain('is-review-finding');
     expect(render({ ...projection, headSha: finding.validatedHeadSha }, commits.slice(0, 2)))
       .toContain('is-review-finding');
     expect(render(projection, [])).toContain('is-review-finding');
+    expect(render().match(/data-finding-id=/g)).toHaveLength(1);
+    expect(render()).toContain('Outdated');
   });
 
-  it('guards finding navigation and highlighting against a different published revision', () => {
+  it('navigates older findings by identity and highlights only matching code', () => {
     const review = reviewFixture();
     const finding = { ...review.findings[0], path: file.filename, side: 'RIGHT' as const, startLine: 96, endLine: 96,
-      validatedHeadSha: commits[2].sha };
+      validatedHeadSha: commits[2].sha, excerpt: ['aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane'] };
     const navigation = { path: file.filename, side: 'RIGHT' as const, startLine: 96, endLine: 96, findingId: finding.id, token: 1 };
     const projection: NonNullable<DiffViewerProps['agentReview']> = {
       review: { ...review, findings: [finding] }, viewer: null, navigation,
@@ -356,16 +362,17 @@ describe('DiffViewer', () => {
 
     expect(render()).toContain('is-review-target');
     expect(render()).not.toContain('This finding does not match');
+    expect(render(projection, commits.slice(0, 2))).toContain('is-review-target');
+    expect(render(projection, [])).toContain('is-review-target');
+    // A saved navigation request may predate reassessment; the finding's current anchor wins.
+    expect(render({ ...projection, navigation: { ...navigation, startLine: 95 } }).match(/is-review-target/g)).toHaveLength(1);
     for (const html of [
-      render(projection, commits.slice(0, 2)),
-      render(projection, []),
       render(projection, commits, { start: 2, end: 2 }),
-      render({ ...projection, navigation: { ...navigation, startLine: 95 } }),
       render({ ...projection, navigation: { ...navigation, findingId: 'missing-finding' } }),
+      render({ ...projection, review: { ...projection.review, findings: [{ ...finding, excerpt: ['previous code'] }] } }, commits.slice(0, 2)),
     ]) {
       expect(html).not.toContain('is-review-target');
-      expect(html).toContain('This finding does not match the displayed revision');
-      expect(html).toContain('Its saved location and discussion remain in Summary.');
+      expect(html).not.toContain('This finding does not match');
       expect(html).toContain('>Open in Summary</button>');
     }
 
@@ -374,6 +381,44 @@ describe('DiffViewer', () => {
       review: { ...projection.review, number: null, findings: [{ ...finding, outdated: true }] } };
     expect(render(historical, [])).toContain('is-review-target');
     expect(render(historical, [])).not.toContain('This finding does not match');
+  });
+
+  it.each([
+    { excerpt: ['previous code', 'trailing'], startLine: 96, endLine: 97, patch: file.patch },
+    { excerpt: ['trailing'], startLine: 96, endLine: 97, patch: file.patch },
+    { excerpt: [], startLine: 96, endLine: 96, patch: file.patch },
+    { excerpt: ['hidden code'], startLine: 20, endLine: 20, patch: file.patch },
+    { excerpt: ['previous code'], startLine: 96, endLine: 96, patch: null },
+  ])('keeps unmatched or unavailable code below the file with the saved discussion: %j', ({ excerpt, startLine, endLine, patch }) => {
+    const review = reviewFixture();
+    const finding = { ...review.findings[0], path: file.filename, side: 'RIGHT' as const, startLine, endLine,
+      excerpt, validatedHeadSha: 'older-head' };
+    const html = renderToStaticMarkup(<DiffViewer files={[{ ...file, patch }]} commits={commits} agentReview={{
+      review: { ...review, findings: [finding], messages: [{ ...review.messages[0], findingId: finding.id, body: 'Keep this discussion' }] },
+      viewer: null, navigation: { path: file.filename, side: 'RIGHT', startLine, endLine, findingId: finding.id, token: 1 },
+      onReviewChange: () => {}, onOpenInReview: () => {},
+    }} />);
+
+    expect(html).not.toContain('is-review-finding');
+    expect(html).not.toContain('is-review-target');
+    expect(html).not.toContain('is-commented');
+    expect(html).not.toContain('This finding does not match');
+    expect(html.match(/data-finding-id=/g)).toHaveLength(1);
+    expect(html).toContain('Keep this discussion');
+    const fallback = html.indexOf('aria-label="Review findings outside the visible lines"');
+    expect(fallback).toBeGreaterThan(patch === null ? html.indexOf('Binary file or diff unavailable.') : html.indexOf('</table>'));
+    expect(html.indexOf(`data-finding-id="${finding.id}"`)).toBeGreaterThan(fallback);
+    if (excerpt.length > 0) expect(html).toContain('class="pull-diff-code is-excerpt"');
+  });
+
+  it('keeps findings on files outside the diff after the changed files', () => {
+    const review = reviewFixture({ findings: [reviewFixture().findings[0]] });
+    const html = renderToStaticMarkup(<DiffViewer files={[file]} commits={commits} agentReview={{
+      review, viewer: null, navigation: null, onReviewChange: () => {}, onOpenInReview: () => {},
+    }} />);
+    expect(html.indexOf('aria-label="Review findings on files outside this diff"')).toBeGreaterThan(html.indexOf('</table>'));
+    expect(html.match(/data-finding-id=/g)).toHaveLength(1);
+    expect(html).toContain('Open in Summary');
   });
 
   it('retains threads for files outside the diff and excludes unrelated timeline events', () => {
@@ -646,9 +691,10 @@ describe('the same finding in Changes', () => {
     expect(changes(talking)).toContain('Is the leaf name really ambiguous?');
   });
 
-  it('leaves an outdated finding out of the diff until reassessment, even when its lines map', () => {
+  it('keeps an outdated finding visible without changing its assessment', () => {
     const outdated = reviewFixture({ findings: [{ ...review.findings[0], outdated: true }] });
-    expect(changes(outdated)).not.toContain('data-finding-id');
+    expect(changes(outdated)).toContain('data-finding-id');
+    expect(changes(outdated)).toContain('Outdated');
   });
 
   it('leaves a withdrawn finding out of the diff', () => {

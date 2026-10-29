@@ -35,8 +35,8 @@ testBrowserScenarios([
     },
   },
   {
-    name: 'moves diff controls into the header and retains file-tree choices per layout in Chromium',
-    expected: 1, timeout: 30_000,
+    name: 'retains diff controls and navigates older findings in Chromium',
+    expected: 2, timeout: 30_000,
     fixture: {
       prefix: 'bytequay-diff-viewer-',
       entry: 'src/pulls/fixtures/diffViewerBrowser.tsx',

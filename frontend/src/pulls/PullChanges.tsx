@@ -35,7 +35,7 @@ import type {
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import { useResizablePane } from '../useResizablePane';
 import type { ReviewNavigationTarget } from './agent-review/AgentReviewTab';
-import type { AgentReviewDto, ReviewSide } from './agent-review/contracts';
+import { findingLines, type AgentReviewDto, type ReviewFindingDto, type ReviewSide } from './agent-review/contracts';
 import { findingInResults } from './agent-review/model';
 import ReviewFindingCard from './agent-review/ReviewFindingCard';
 import { useFindingActions } from './agent-review/useFindingActions';
@@ -62,9 +62,8 @@ export type DiffAgentComment = {
 /**
  * The Agent review findings projected onto this diff.
  *
- * <p>A finding renders at the validated end line of its range, as the same card the Agent review
- * tab draws: one finding ID and one discussion, shown in two places. An outdated finding may have
- * a mapped location but still needs reassessment, so it stays in the tab with its recorded snapshot.
+ * <p>A finding renders beside matching code, or below its file with its saved excerpt when the code
+ * changed: one finding ID and one discussion, shown in two places. Placement does not reassess it.
  */
 export type AgentReviewProjection = {
   review: AgentReviewDto;
@@ -241,43 +240,36 @@ export function DiffViewer({
     scrollRef.current?.scrollTo({ top: 0 });
   }, [baseSha, headSha]);
 
-  // A saved finding's coordinates belong to its validated revision, including when a newer PR is shown.
   const requestedNavigation = agentReview?.navigation ?? null;
-  const navigationFinding = agentReview?.review.findings.find(finding => finding.id === requestedNavigation?.findingId && findingInResults(agentReview.review, finding));
-  const navigationHeadSha = agentReview?.headSha ?? headSha;
-  const navigation = requestedNavigation !== null && commitRange === null && !loading && navigationHeadSha !== undefined
-    && navigationFinding?.validatedHeadSha === navigationHeadSha
-    && files.some(file => file.filename === requestedNavigation.path)
-    && navigationFinding.path === requestedNavigation.path && navigationFinding.side === requestedNavigation.side
-    && navigationFinding.startLine === requestedNavigation.startLine && navigationFinding.endLine === requestedNavigation.endLine
-    ? requestedNavigation : null;
+  const findings = agentReview?.review.findings.filter(finding =>
+    findingInResults(agentReview.review, finding) && finding.state !== 'WITHDRAWN' && finding.path !== null) ?? [];
+  const navigationFinding = findings.find(finding => finding.id === requestedNavigation?.findingId);
+  const navigationPath = navigationFinding?.path ?? null;
+  const navigation = navigationPath !== null && commitRange === null && !loading ? requestedNavigation : null;
   const displayedAgentReview = agentReview === undefined ? undefined : { ...agentReview, navigation };
-  const navigationToken = navigation?.token ?? null;
-  // Open the file first, so a single-file view has it mounted, then the row.
+  // Open the file first, so a single-file view mounts the inline card or its file-end fallback.
   useEffect(() => {
-    if (navigation === null) return;
-    if (!files.some(file => file.filename === navigation.path)) return;
-    setSelected(navigation.path);
+    if (navigation === null || navigationPath === null) return;
+    if (files.some(file => file.filename === navigationPath)) setSelected(navigationPath);
     setClosed(previous => {
-      if (!previous.has(navigation.path)) return previous;
+      if (!previous.has(navigationPath)) return previous;
       const next = new Set(previous);
-      next.delete(navigation.path);
+      next.delete(navigationPath);
       return next;
     });
     const scroll = () => {
       const container = scrollRef.current;
-      const row = container?.querySelector(
-        `[data-diff-row="${CSS.escape(`${navigation.path}:${navigation.side}:${navigation.startLine}`)}"]`);
-      const card = container?.querySelector(`[data-file-card="${CSS.escape(navigation.path)}"]`);
-      const target = row ?? card;
+      const target = container?.querySelector(`[data-finding-id="${CSS.escape(navigation.findingId)}"]`);
       if (!container || !target) return;
+      const disclosure = target.querySelector('details');
+      if (disclosure) disclosure.open = true;
       const top = target.getBoundingClientRect().top - container.getBoundingClientRect().top
         + container.scrollTop - 96;
       container.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
     };
     // Two frames: the first mounts the file the click may just have opened, the second measures it.
     requestAnimationFrame(() => requestAnimationFrame(scroll));
-  }, [files, navigation, navigationToken]);
+  }, [files, navigation, navigationPath]);
 
   const pick = (filename: string) => {
     setSelected(filename);
@@ -391,10 +383,6 @@ export function DiffViewer({
             </footer>
           </article>}
           {loading && <div className="pull-changes__loading">Loading selected commits…</div>}
-          {!loading && requestedNavigation !== null && navigation === null && <p className="pull-diff-file__content-error" role="status">
-            This finding does not match the displayed revision. Its saved location and discussion remain in Summary.{' '}
-            <button type="button" className="agr-action" onClick={() => agentReview?.onOpenInReview(requestedNavigation.findingId)}>Open in Summary</button>
-          </p>}
           {reviewThreads?.unavailable && <p className="pull-diff-file__content-error" role="alert">
             Review comments could not be loaded. Refresh the pull request to try again.
           </p>}
@@ -418,6 +406,9 @@ export function DiffViewer({
               onToggle={() => toggle(file.filename)}
             />
           ))}
+          {displayedAgentReview && <UnplacedAgentFindings agentReview={displayedAgentReview}
+            findings={findings.filter(finding => !files.some(file => file.filename === finding.path))}
+            label="Review findings on files outside this diff" />}
           {reviewThreads && <UnplacedReviewThreads
             reviewThreads={reviewThreads}
             viewerLogin={viewer?.login}
@@ -816,28 +807,32 @@ function DiffFileCard({
     && diffSideLines(hunks, thread.side === 'LEFT' ? oldLines : newLines,
       thread.side, thread.startLine ?? thread.line, thread.line)?.join('\n') === thread.code);
   const placedLocalThreads = new Set<string>();
-  // A mapped line alone does not clear an outdated finding; its card stays in Agent review
-  // until the claim is reassessed against the current scope.
   const findingHeadSha = agentReview?.headSha ?? headSha;
-  const fileFindings = (fullDiff && agentReview !== undefined
+  const fileFindings = (agentReview !== undefined
     ? agentReview.review.findings.filter(finding =>
-      findingInResults(agentReview.review, finding) && finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated
-        && (findingHeadSha === undefined || finding.validatedHeadSha === findingHeadSha))
+      findingInResults(agentReview.review, finding) && finding.path === file.filename && finding.state !== 'WITHDRAWN')
     : []);
+  // Across revisions, only an exact match of the whole saved range can anchor the card.
+  const anchoredFindings = fileFindings.filter(finding => {
+    const lines = findingLines(finding);
+    if (lines === null) return false;
+    if (fullDiff && finding.validatedHeadSha === findingHeadSha) return true;
+    return finding.excerpt.length === lines.endLine - lines.startLine + 1
+      && diffSideLines(hunks, lines.side === 'LEFT' ? oldLines : newLines,
+        lines.side, lines.startLine, lines.endLine)?.join('\n') === finding.excerpt.join('\n');
+  });
+  const placedFindings = new Set<string>();
+  const navigationFinding = anchoredFindings.find(finding => finding.id === agentReview?.navigation?.findingId);
+  const navigation = navigationFinding === undefined ? null : findingLines(navigationFinding);
   // Lines an open card below them comments on; resolved cards are folded, so their lines stay plain.
   const commentedRanges = [
     ...anchoredThreads.filter(({ payload }) => !payload.outdated && !payload.resolved && payload.line !== null)
       .map(({ payload }) => ({ side: payload.side, start: payload.startLine ?? payload.line, end: payload.line })),
     ...anchoredLocalThreads.filter(thread => !thread.resolved)
       .map(thread => ({ side: thread.side, start: thread.startLine ?? thread.line, end: thread.line })),
-    ...fileFindings.filter(finding => finding.state === 'OPEN')
+    ...anchoredFindings.filter(finding => finding.state === 'OPEN')
       .map(finding => ({ side: finding.side, start: finding.startLine ?? finding.endLine, end: finding.endLine })),
   ];
-  const findingActions = useFindingActions({
-    review: agentReview?.review ?? PLACEHOLDER_REVIEW,
-    onReviewChange: agentReview?.onReviewChange ?? (() => {}),
-    onNavigate: finding => agentReview?.onOpenInReview(finding.id),
-  });
 
   useEffect(() => {
     if (!selectingRange) return;
@@ -979,17 +974,15 @@ function DiffFileCard({
       review?.pendingComments ?? [], file.filename, oldLine, newLine, headSha);
     const rowSide: ReviewSide | null = newLine !== null ? 'RIGHT' : oldLine !== null ? 'LEFT' : null;
     const rowLine = rowSide === 'RIGHT' ? newLine : oldLine;
-    const rowFindings = rowSide === null || rowLine === null
-      ? []
-      : fileFindings.filter(finding => finding.side === rowSide && finding.endLine === rowLine);
-    const navigation = agentReview?.navigation ?? null;
+    const rowFindings = anchoredFindings.filter(finding => finding.endLine !== null
+      && finding.endLine === (finding.side === 'LEFT' ? oldLine : newLine));
+    rowFindings.forEach(finding => placedFindings.add(finding.id));
+    const navigationLine = navigation?.side === 'LEFT' ? oldLine : newLine;
     const inNavigatedRange = navigation !== null
-      && rowSide !== null
-      && rowLine !== null
+      && navigationLine !== null
       && navigation.path === file.filename
-      && navigation.side === rowSide
-      && rowLine >= navigation.startLine
-      && rowLine <= navigation.endLine;
+      && navigationLine >= navigation.startLine
+      && navigationLine <= navigation.endLine;
     const commented = commentedRanges.some(({ side, start, end }) => {
       const line = side === 'LEFT' ? oldLine : newLine;
       return line !== null && start !== null && end !== null && line >= start && line <= end;
@@ -1056,15 +1049,7 @@ function DiffFileCard({
         </tr>
         {agentReview !== undefined && rowFindings.map(finding => (
           <tr className={`is-review-thread is-review-finding is-${displayRow.kind}`} key={`finding:${finding.id}`}><td colSpan={3}>
-            <ReviewFindingCard
-              review={agentReview.review}
-              finding={finding}
-              viewerLogin={agentReview.viewer?.login ?? ''}
-              viewerAvatarUrl={agentReview.viewer?.avatarUrl ?? null}
-              projection="changes"
-              actions={findingActions.actions}
-              busy={findingActions.busy} />
-            {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
+            <DiffFindingCard agentReview={agentReview} finding={finding} />
           </td></tr>
         ))}
         {reviewThreads && rowThreads.map(activity => (
@@ -1235,8 +1220,41 @@ function DiffFileCard({
       />}
       {open && localReview && <UnplacedLocalReviewThreads localReview={localReview}
         threads={fileLocalThreads.filter(thread => !placedLocalThreads.has(thread.id))} baseSha={baseSha} headSha={headSha} />}
+      {open && agentReview && <UnplacedAgentFindings agentReview={agentReview}
+        findings={fileFindings.filter(finding => !placedFindings.has(finding.id))}
+        label="Review findings outside the visible lines" />}
     </article>
   );
+}
+
+function DiffFindingCard({ agentReview, finding, showCode = false }: {
+  agentReview: AgentReviewProjection;
+  finding: ReviewFindingDto;
+  showCode?: boolean;
+}) {
+  const { actions, busy, error } = useFindingActions({
+    review: agentReview.review,
+    onReviewChange: agentReview.onReviewChange,
+    onNavigate: finding => agentReview.onOpenInReview(finding.id),
+  });
+  return <>
+    <ReviewFindingCard review={agentReview.review} finding={finding}
+      viewerLogin={agentReview.viewer?.login ?? ''} viewerAvatarUrl={agentReview.viewer?.avatarUrl ?? null}
+      projection="changes" showCode={showCode} actions={actions} busy={busy} />
+    {error !== null && <div className="agr-error" role="alert">{error}</div>}
+  </>;
+}
+
+function UnplacedAgentFindings({ agentReview, findings, label }: {
+  agentReview: AgentReviewProjection;
+  findings: ReviewFindingDto[];
+  label: string;
+}) {
+  if (findings.length === 0) return null;
+  return <section className="pull-diff-threads" aria-label={label}>
+    <p>{label}</p>
+    {findings.map(finding => <DiffFindingCard key={finding.id} agentReview={agentReview} finding={finding} showCode />)}
+  </section>;
 }
 
 function UnplacedLocalReviewThreads({ localReview, threads, baseSha, headSha }: {

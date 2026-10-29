@@ -288,6 +288,11 @@ Watch the repository and pick a ready Review model first.
    fix it instead.
 4. **Review latest** checks new commits.
 
+**View in Changes** opens a finding on the displayed diff. Findings from an
+earlier review stay inline when the code at their saved lines is unchanged.
+Otherwise, their cards appear below the file with the original code and discussion.
+Findings on files outside the diff appear after the changed files.
+
 If a review could not finish, use **Resume review**.
 
 <a id="ask-from-review"></a>

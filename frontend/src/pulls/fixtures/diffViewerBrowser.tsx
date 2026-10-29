@@ -13,11 +13,16 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, settle, until } from '../../fixtures/harness';
 import type { DiffFileDto } from '../../types';
-import { DiffViewer } from '../PullChanges';
+import { DiffViewer, type AgentReviewProjection } from '../PullChanges';
+import { reviewFixture } from '../agent-review/fixtures/review';
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
+  return [...await runLayout(), ...await runFindingNavigation()];
+}
+
+async function runLayout(): Promise<{ name: string; error?: string }[]> {
   const name = 'Portal controls and layout-specific file-tree choices survive refresh and hidden tabs';
   const host = document.createElement('div');
   const header = document.createElement('header');
@@ -109,4 +114,64 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   }
   catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
   finally { flushSync(() => root.unmount()); host.remove(); header.remove(); }
+}
+
+async function runFindingNavigation(): Promise<{ name: string; error?: string }[]> {
+  const name = 'Old findings open their inline or file-end cards on the current diff';
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const patch = `@@ -0,0 +1,300 @@\n${Array.from({ length: 300 }, (_, index) => `+line ${index + 1}`).join('\n')}`;
+  let files: DiffFileDto[] = Array.from({ length: 13 }, (_, index) => ({
+    filename: `File${index}.ts`, status: 'added', additions: 300, deletions: 0, patch,
+  }));
+  const base = reviewFixture();
+  const finding = { ...base.findings[0], path: 'File12.ts', side: 'RIGHT' as const, startLine: 290, endLine: 290,
+    range: 'R290', excerpt: ['line 290'], state: 'RESOLVED' as const, validatedHeadSha: 'old-head' };
+  let projection: AgentReviewProjection = { review: { ...base, findings: [finding] }, viewer: null, headSha: 'new-head',
+    navigation: null, onReviewChange: () => {}, onOpenInReview: () => {} };
+  const render = () => flushSync(() => root.render(<DiffViewer files={files} agentReview={projection} />));
+  const navigate = async (token: number) => {
+    projection = { ...projection, navigation: { findingId: finding.id, path: finding.path, side: finding.side,
+      startLine: finding.startLine, endLine: finding.endLine, token } };
+    render(); await settle();
+    await until(() => {
+      const card = host.querySelector<HTMLElement>('[data-finding-id]');
+      const scroll = host.querySelector('.pull-changes__scroll');
+      if (!card || !scroll) return false;
+      const offset = card.getBoundingClientRect().top - scroll.getBoundingClientRect().top;
+      return Math.abs(offset - 96) < 1 && card.querySelector('details')?.open === true;
+    }, 'Navigation must open the resolved card and scroll it into view');
+    assert(!host.textContent?.includes('This finding does not match'), 'An old revision must not produce a navigation error');
+  };
+  try {
+    render(); await settle();
+    const scroll = host.querySelector<HTMLElement>('.pull-changes__scroll');
+    assert(scroll !== null, 'The diff must mount its scroll container');
+    scroll.style.height = '320px';
+    scroll.style.overflow = 'auto';
+    assert(host.querySelector('[data-finding-id]') === null, 'The finding starts in an unmounted file in a large diff');
+    await navigate(1);
+    assert(host.querySelector('[data-finding-id]')?.closest('tr.is-review-finding') !== null
+      && host.querySelectorAll('.is-review-target').length === 1, 'Unchanged saved code must anchor and highlight the old finding inline');
+    scroll.scrollTo({ top: 0, behavior: 'instant' });
+    projection = { ...projection, review: { ...projection.review, findings: [{ ...finding }] } };
+    render(); await settle();
+    assert(scroll.scrollTop === 0, `Refreshing the review must not repeat an old navigation request (scroll top ${scroll.scrollTop})`);
+
+    files = files.map(file => file.filename === finding.path ? { ...file, patch: patch.replace('+line 290\n', '+changed code\n') } : file);
+    await navigate(2);
+    assert(host.querySelector('[data-finding-id]')?.closest('[aria-label="Review findings outside the visible lines"]') !== null
+      && host.querySelector('.is-review-target') === null, 'Changed code must move the card below its file without highlighting the old line');
+    assert(host.querySelector('[data-finding-id] .is-excerpt')?.textContent?.includes('line 290') === true,
+      'The fallback card must retain the reviewed code');
+
+    files = files.filter(file => file.filename !== finding.path);
+    await navigate(3);
+    assert(host.querySelector('[data-finding-id]')?.closest('[aria-label="Review findings on files outside this diff"]') !== null,
+      'Navigation must still reach the card if its file leaves the diff');
+    return [{ name }];
+  }
+  catch (error) { return [{ name, error: error instanceof Error ? error.message : String(error) }]; }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }

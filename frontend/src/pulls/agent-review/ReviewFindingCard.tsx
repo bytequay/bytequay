@@ -55,7 +55,7 @@ function severityTone(severity: string | null): string {
  * One finding, with its evidence, its private discussion, and the two kinds of action it offers.
  *
  * The same card renders in the Agent review tab and at the finding's diff location in Changes:
- * one finding ID, one discussion, one layout. Changes leaves out the code its diff rows already show,
+ * one finding ID, one discussion, one layout. Inline cards leave out the code their diff rows already show,
  * and the navigation label always offers the way back to the other one.
  */
 export default function ReviewFindingCard({
@@ -64,6 +64,7 @@ export default function ReviewFindingCard({
   viewerLogin,
   viewerAvatarUrl,
   projection,
+  showCode = projection === 'review',
   actions,
   busy = false,
   defaultOpen,
@@ -72,8 +73,9 @@ export default function ReviewFindingCard({
   finding: ReviewFindingDto;
   viewerLogin: string;
   viewerAvatarUrl: string | null;
-  /** Which surface is drawing it: Changes has the code above the card and offers the way back to the Summary. */
+  /** Which surface is drawing it: Changes offers the way back to Summary. */
   projection: 'review' | 'changes';
+  showCode?: boolean;
   actions: FindingActions;
   busy?: boolean;
   defaultOpen?: boolean;
@@ -304,7 +306,7 @@ export default function ReviewFindingCard({
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
           <CopyLinkButton label="conversation" value={findingConversation(review, finding)} />
           {accepted && <span className="lrc__badge is-ready" title="Posted in your review">Accepted</span>}</>}
-        code={projection === 'review' && lines !== null && finding.excerpt.length > 0 && <CodeExcerpt path={lines.path}
+        code={showCode && lines !== null && finding.excerpt.length > 0 && <CodeExcerpt path={lines.path}
           lines={finding.excerpt.map((text, index) => ({ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }))} />}
         controls={composer !== 'draft' && <footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
           {responding && <span className="pr-local-review__progress" role="status"><span className="sr-only">Agent responding</span></span>}

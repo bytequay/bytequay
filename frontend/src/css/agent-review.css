@@ -336,8 +336,7 @@
 .lrc__action.is-added { border: 1px solid light-dark(#a7e3b6, var(--dark-green-border)); background: var(--bg-success); color: var(--fg-success); }
 .agr-draft__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: light-dark(#7d5a00, var(--dark-amber)); font-size: 12px; font-weight: 500; }
 .agr-draft__note { color: var(--fg-muted); font-weight: 500; }
-.agr-draft__head > button:not(.agr-link) { border: 0; border-radius: 6px; background: transparent; color: var(--text-2); padding: 2px 8px; font: inherit; font-size: 12px; font-weight: 400; }
-.agr-draft__head > button:not(.agr-link):hover:not(:disabled) { background: light-dark(#f3ead0, var(--dark-amber-soft)); }
+.agr-draft__head > .agr-action { padding: 4px 10px; font-size: 12px; font-weight: 500; }
 .agr-draft__head > .agr-link { font-weight: 400; }
 .agr-draft__body > .markdown-body { padding: 4px 0 0; font-size: inherit; }
 /* Your comment, or its editor, leads; the finding's evidence follows it. */

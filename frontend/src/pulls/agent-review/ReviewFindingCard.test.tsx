@@ -43,8 +43,8 @@ describe('finding suggestions', () => {
     expect(html).toContain('The server did not confirm this comment');
     expect(html).toContain('Your comment is saved here');
     expect(html).toContain('Guard the empty value.');
-    expect(html).toContain('<button type="button" disabled="">Edit</button>');
-    expect(html).toContain('<button type="button" disabled="">Remove</button>');
+    expect(html).toContain('<button type="button" class="agr-action" disabled="">Edit</button>');
+    expect(html).toContain('<button type="button" class="agr-action" disabled="">Remove</button>');
     expect(html).not.toContain('Posted remotely');
     expect(html).not.toContain('is-published');
     expect(html).not.toContain('Post now');

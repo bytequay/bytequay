@@ -262,9 +262,9 @@ export default function ReviewFindingCard({
               {originalOpen ? 'Hide original' : 'Show original'}</button></>}
           <span className="agr-spacer" />
           <span className="agr-draft__note">Agent · {relativeTime(finding.updatedAt)}</span>
-          <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? undefined}
+          <button type="button" className="agr-action" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? undefined}
             onClick={() => { setEditVersion(review.draft?.version ?? 0); openComposer('draft', outgoingBody); }}>Edit</button>
-          <button type="button" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? (reviewText !== null ? "Remove this finding's text from your review summary" : undefined)}
+          <button type="button" className="agr-action" disabled={actionsDisabled || awaitingConfirmation} title={waitingReason ?? (reviewText !== null ? "Remove this finding's text from your review summary" : undefined)}
             onClick={() => { void remove(); }}>Remove</button>
         </div>
         <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>

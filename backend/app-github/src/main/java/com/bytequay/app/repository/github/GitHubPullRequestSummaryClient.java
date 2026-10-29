@@ -96,6 +96,7 @@ public class GitHubPullRequestSummaryClient
             author { login } repository { nameWithOwner }
             additions deletions comments { totalCount }
             headRefName headRefOid mergeable mergeStateStatus reviewDecision
+            latestOpinionatedReviews(first:100) { nodes { state } pageInfo { hasNextPage } }
             labels(first:100) { nodes { name color } pageInfo { hasNextPage } }
             reviewRequests(first:100) { nodes { requestedReviewer { __typename ... on User { login } } } pageInfo { hasNextPage } }
             viewerReviews:reviews(last:1,author:$login,states:[APPROVED,CHANGES_REQUESTED,COMMENTED,DISMISSED]) {
@@ -336,6 +337,19 @@ public class GitHubPullRequestSummaryClient
         if (decision.isPresent() && !ImmutableSet.of("APPROVED", "CHANGES_REQUESTED", "REVIEW_REQUIRED").contains(decision.orElseThrow())) {
             throw incomplete("Unknown review decision");
         }
+        if (decision.isEmpty()) {
+            // GitHub can leave reviewDecision null even with an approval while merging is still blocked.
+            Set<String> verdicts = new HashSet<>();
+            for (ReviewVerdict review : completeNodes(row.latestOpinionatedReviews(), "latestOpinionatedReviews")) {
+                String verdict = text(review.state());
+                if (!ImmutableSet.of("APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED", "PENDING").contains(verdict)) {
+                    throw incomplete("Unknown review state");
+                }
+                verdicts.add(verdict);
+            }
+            decision = verdicts.contains("CHANGES_REQUESTED") ? Optional.of("CHANGES_REQUESTED")
+                    : verdicts.contains("APPROVED") ? Optional.of("APPROVED") : Optional.empty();
+        }
         // Full-detail review projection represents no active verdict as an absent decision.
         decision = decision.filter(valueDecision -> !"REVIEW_REQUIRED".equals(valueDecision));
         String headSha = text(row.headRefOid());
@@ -483,6 +497,7 @@ public class GitHubPullRequestSummaryClient
             @JsonProperty(required = true) Count comments, @JsonProperty(required = true) String headRefName,
             @JsonProperty(required = true) String headRefOid, @JsonProperty(required = true) String mergeable,
             @JsonProperty(required = true) String mergeStateStatus, @JsonProperty(required = true) Optional<String> reviewDecision,
+            @JsonProperty(required = true) Connection<ReviewVerdict> latestOpinionatedReviews,
             @JsonProperty(required = true) Connection<Label> labels, @JsonProperty(required = true) Connection<ReviewRequest> reviewRequests,
             @JsonProperty(required = true) Nodes<Review> viewerReviews, @JsonProperty(required = true) Nodes<CommitNode> commits,
             @JsonProperty(required = true) Optional<Rollup> statusCheckRollup, @JsonProperty(required = true) ActivityConnection activity,
@@ -499,6 +514,8 @@ public class GitHubPullRequestSummaryClient
     private record Reviewer(@JsonProperty(value = "__typename", required = true) String type, Optional<String> login) {}
 
     private record ReviewRequest(@JsonProperty(required = true) Reviewer requestedReviewer) {}
+
+    private record ReviewVerdict(@JsonProperty(required = true) String state) {}
 
     private record Review(@JsonProperty(required = true) long databaseId, @JsonProperty(required = true) String state,
             @JsonProperty(required = true) Instant submittedAt, @JsonProperty(required = true) User author,

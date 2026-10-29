@@ -914,6 +914,59 @@ class TestPullRequestService
     }
 
     @Test
+    void authoredCardsGetPriorityWithoutStarvingOtherCardsOrExceedingTheBatchLimit()
+    {
+        List<PullRequest> candidates = IntStream.rangeClosed(1, 14)
+                .mapToObj(number -> storedPullRequest(pullRequestNumber(number).withOrigin(number > 8 ? PullRequest.Origin.AUTHORED : PullRequest.Origin.REVIEW_REQUESTED)))
+                .collect(toImmutableList());
+        when(store.findAttentionCandidates()).thenReturn(candidates);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        ArgumentCaptor<List<PullRequestRef>> batches = ArgumentCaptor.forClass(List.class);
+        verify(summaries, times(3)).fetchSummaries(eq("pat"), batches.capture(), eq("me"));
+        assertThat(batches.getAllValues()).allSatisfy(batch -> assertThat(batch).hasSize(GitHubPullRequestSummaryClient.BATCH_SIZE));
+        assertThat(batches.getAllValues().stream().flatMap(List::stream).map(PullRequestRef::number))
+                .containsExactly(9, 10, 11, 12, 1, 13, 14, 9, 10, 2, 11, 12, 13, 14, 3);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = PullRequest.Origin.class, names = {"AUTHORED", "REVIEW_REQUESTED"})
+    void personalCardsKeepRefreshingWithoutDiscoveryOrNotifications(PullRequest.Origin origin)
+    {
+        FetchedPullRequest fetched = pullRequest().withOrigin(origin);
+        PullRequest row = storedPullRequest(fetched);
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        AtomicReference<Instant> now = new AtomicReference<>(REVIEWED_AT);
+        service = serviceAt(now);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(row.id()));
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        when(store.saveObserved(fetched)).thenReturn(row);
+        when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1")));
+
+        service.syncAttentionSummaries();
+        now.set(REVIEWED_AT.plusSeconds(59));
+        service.syncAttentionSummaries();
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(ref), "me");
+
+        now.set(REVIEWED_AT.plusSeconds(60));
+        service.syncAttentionSummaries();
+        verify(summaries, times(origin == PullRequest.Origin.AUTHORED ? 2 : 1)).fetchSummaries("pat", ImmutableList.of(ref), "me");
+
+        now.set(REVIEWED_AT.plusSeconds(600));
+        service.syncAttentionSummaries();
+        verify(summaries, times(origin == PullRequest.Origin.AUTHORED ? 3 : 2)).fetchSummaries("pat", ImmutableList.of(ref), "me");
+        verifyNoInteractions(detailStore, diffStore, actions);
+    }
+
+    @Test
     void olderMonitoredRowsStayCoveredByFastCardSyncWithoutWarmingDetails()
     {
         PullRequest monitored = monitoredPullRequest(91);

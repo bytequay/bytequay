@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -32,6 +33,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,6 +65,7 @@ class TestGitHubPullRequestSummaryClient
                     var payload = MAPPER.readTree(((MockClientHttpRequest) request).getBodyAsString());
                     assertThat(payload.path("query").asText()).contains("databaseId:fullDatabaseId", "reviews(last:1", "checkRunCountsByState", "reviewRequested:timelineItems(last:20")
                             .contains("activity:timelineItems(last:1)")
+                            .contains("latestOpinionatedReviews(first:100)")
                             .doesNotContain("files(", "reviewThreads(");
                     assertThat(payload.path("variables").path("login").asText()).isEqualTo("viewer");
                 }).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
@@ -84,6 +87,57 @@ class TestGitHubPullRequestSummaryClient
         assertThat(summary.viewerReview()).isPresent();
         assertThat(summary.viewerReview().orElseThrow().commitId()).isEqualTo("reviewed-sha");
         assertThat(summary.reviewRequestedAt()).contains(Instant.parse("2026-09-21T11:00:00Z"));
+    }
+
+    @ParameterizedTest
+    @CsvSource({"APPROVED, APPROVED", "CHANGES_REQUESTED, CHANGES_REQUESTED", "DISMISSED,", "COMMENTED,", "PENDING,"})
+    void missingReviewDecisionUsesCurrentVerdicts(String state, String expected)
+            throws Exception
+    {
+        ObjectNode row = row(1).putNull("reviewDecision").put("mergeStateStatus", "BLOCKED");
+        row.withArray("/latestOpinionatedReviews/nodes").addObject().put("state", state);
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+
+        GitHubPullRequestSummary summary = client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst();
+
+        assertThat(summary.reviewDecision()).isEqualTo(Optional.ofNullable(expected));
+        assertThat(summary.pullRequest().mergeableState()).isEqualTo("blocked");
+    }
+
+    @Test
+    void missingReviewDecisionPrefersRequestedChangesOverApproval()
+            throws Exception
+    {
+        ObjectNode row = row(1).putNull("reviewDecision");
+        row.withArray("/latestOpinionatedReviews/nodes").addObject().put("state", "APPROVED");
+        row.withArray("/latestOpinionatedReviews/nodes").addObject().put("state", "CHANGES_REQUESTED");
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+
+        assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).contains("CHANGES_REQUESTED");
+    }
+
+    @ParameterizedTest
+    @CsvSource({"APPROVED, APPROVED", "CHANGES_REQUESTED, CHANGES_REQUESTED", "REVIEW_REQUIRED,"})
+    void explicitReviewDecisionTakesPrecedenceOverIndividualReviews(String decision, String expected)
+            throws Exception
+    {
+        ObjectNode row = row(1).put("reviewDecision", decision);
+        row.withArray("/latestOpinionatedReviews/nodes").addObject().put("state", "APPROVED");
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+
+        assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer").getFirst().reviewDecision()).isEqualTo(Optional.ofNullable(expected));
+    }
+
+    @Test
+    void incompleteVerdictsDoNotReplaceTheSavedDecision()
+            throws Exception
+    {
+        ObjectNode row = row(1).putNull("reviewDecision");
+        row.withArray("/latestOpinionatedReviews/nodes").addObject().put("state", "APPROVED");
+        row.withObject("/latestOpinionatedReviews/pageInfo").put("hasNextPage", true);
+        graphServer.expect(requestTo(ENDPOINT)).andRespond(withSuccess(response(row), MediaType.APPLICATION_JSON));
+
+        assertThat(client.fetchSummaries("pat", ImmutableList.of(REF), "viewer")).isEmpty();
     }
 
     @Test
@@ -367,6 +421,7 @@ class TestGitHubPullRequestSummaryClient
                  "state":"OPEN","isDraft":false,"author":{"login":"author"},"repository":{"nameWithOwner":"owner/repo"},
                  "additions":15,"deletions":3,"comments":{"totalCount":4},"headRefName":"topic","headRefOid":"new-head",
                  "mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED",
+                 "latestOpinionatedReviews":{"nodes":[],"pageInfo":{"hasNextPage":false}},
                  "labels":{"nodes":[{"name":"bug","color":"ffffff"}],"pageInfo":{"hasNextPage":false}},
                  "reviewRequests":{"nodes":[{"requestedReviewer":{"__typename":"User","login":"viewer"}}],"pageInfo":{"hasNextPage":false}},
                  "viewerReviews":{"nodes":[]},"commits":{"nodes":[{"commit":{"committedDate":"2026-09-21T10:00:00Z"}}]},

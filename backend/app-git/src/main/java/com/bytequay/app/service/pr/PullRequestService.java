@@ -89,7 +89,6 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -142,6 +141,7 @@ public class PullRequestService
     private String summaryCredential;
     private String lastDiscovery = "";
     private Optional<PullRequestRef> lastAttentionSummary = Optional.empty();
+    private Optional<PullRequestRef> lastAuthoredSummary = Optional.empty();
     private final ReentrantLock summaryLock = new ReentrantLock(true);
     private long summaryGeneration;
     private final Map<DetailKey, DetailWork> detailRefreshes = new ConcurrentHashMap<>();
@@ -706,12 +706,13 @@ public class PullRequestService
         candidates.stream()
                 .filter(row -> {
                     SummaryStamp stamp = summaryStamps.get(parseRef(row.repo(), row.number()));
-                    boolean monitored = row.monitoredAt() != null && !unmonitored.contains(row.id());
-                    return stamp == null || !stamp.credential().equals(pat) || monitored || row.ciStatus() == PullRequestDetail.CiStatus.PENDING
+                    return stamp == null || !stamp.credential().equals(pat) || !unmonitored.contains(row.id()) && timed(row)
                             || discussionSource(row, discussed).isAfter(stamp.sourceAt());
                 })
                 .map(row -> parseRef(row.repo(), row.number())).forEach(changed::add);
-        enrichAttentionCards(session, login, ImmutableList.copyOf(changed));
+        Set<PullRequestRef> authored = candidates.stream().filter(row -> row.origin() == AUTHORED && !settled(row))
+                .map(row -> parseRef(row.repo(), row.number())).collect(toImmutableSet());
+        enrichAttentionCards(session, login, ImmutableList.copyOf(changed), authored);
     }
 
     /** Returns whether the query was due; one that completed within two minutes is skipped. */
@@ -895,7 +896,7 @@ public class PullRequestService
     }
 
     /** The inbox must keep polling while a repository scan owns the summary stream; each tick attempts only one batch. */
-    private void enrichAttentionCards(HostingReadSession session, String login, List<PullRequestRef> candidates)
+    private void enrichAttentionCards(HostingReadSession session, String login, List<PullRequestRef> candidates, Set<PullRequestRef> authored)
     {
         if (!summaryLock.tryLock()) {
             return;
@@ -905,18 +906,33 @@ public class PullRequestService
             if (refs.isEmpty()) {
                 return;
             }
-            int start = refs.size() <= GitHubPullRequestSummaryClient.BATCH_SIZE ? 0 : lastAttentionSummary.map(refs::indexOf).orElse(-1) + 1;
-            List<PullRequestRef> batch = new ArrayList<>();
-            for (int index = 0; index < Math.min(refs.size(), GitHubPullRequestSummaryClient.BATCH_SIZE); index++) {
-                batch.add(refs.get((start + index) % refs.size()));
-            }
+            List<PullRequestRef> others = refs.stream().filter(ref -> !authored.contains(ref)).collect(toImmutableList());
+            // Own work gets the first slots, with one reserved for other cards so neither stream can starve the other.
+            List<PullRequestRef> priority = attentionBatch(refs.stream().filter(authored::contains).collect(toImmutableList()), lastAuthoredSummary,
+                    GitHubPullRequestSummaryClient.BATCH_SIZE - (others.isEmpty() ? 0 : 1));
+            List<PullRequestRef> ordinary = attentionBatch(others, lastAttentionSummary, GitHubPullRequestSummaryClient.BATCH_SIZE - priority.size());
             // Failed and omitted summaries use their turn too, so later cards cannot starve.
-            lastAttentionSummary = Optional.of(batch.getLast());
-            enrichCardBatch(session, login, batch);
+            if (!priority.isEmpty()) {
+                lastAuthoredSummary = Optional.of(priority.getLast());
+            }
+            if (!ordinary.isEmpty()) {
+                lastAttentionSummary = Optional.of(ordinary.getLast());
+            }
+            enrichCardBatch(session, login, ImmutableList.<PullRequestRef>builder().addAll(priority).addAll(ordinary).build());
         }
         finally {
             summaryLock.unlock();
         }
+    }
+
+    private static List<PullRequestRef> attentionBatch(List<PullRequestRef> refs, Optional<PullRequestRef> previous, int limit)
+    {
+        int start = refs.size() <= limit ? 0 : previous.map(refs::indexOf).orElse(-1) + 1;
+        ImmutableList.Builder<PullRequestRef> batch = ImmutableList.builder();
+        for (int index = 0; index < Math.min(refs.size(), limit); index++) {
+            batch.add(refs.get((start + index) % refs.size()));
+        }
+        return batch.build();
     }
 
     private List<PullRequestRef> dueSummaries(String pat, List<PullRequestRef> candidates)
@@ -930,7 +946,7 @@ public class PullRequestService
             }
             PullRequest cached = row.orElseThrow();
             Instant source = store.findDiscussionActivityAt(cached.id()).filter(at -> at.isAfter(cached.updatedAt())).orElse(cached.updatedAt());
-            Duration interval = cached.ciStatus() == PullRequestDetail.CiStatus.PENDING ? Duration.ofMinutes(1) : Duration.ofMinutes(10);
+            Duration interval = cached.origin() == AUTHORED || cached.ciStatus() == PullRequestDetail.CiStatus.PENDING ? Duration.ofMinutes(1) : Duration.ofMinutes(10);
             // A notification's time trails the activity it reports, so GitHub's timeline can stay behind that marker for good;
             // a summary read a while after the notification already holds the activity.
             boolean behind = source.isAfter(stamp.sourceAt()) && stamp.checkedAt().isBefore(source.plus(NOTIFICATION_SETTLE));

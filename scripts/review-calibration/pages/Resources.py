@@ -77,7 +77,7 @@ def found(folder, runtime, last, earlier):
         st.warning({"failed": f"The last look failed: {last['problem']}", "stopped": "The last look was stopped before it finished."}.get(
             last["state"], "The last look ended before it finished."))
         if last["state"] == "failed" and advisor.UNWATCHED in (last["problem"] or ""):
-            st.button("Start the monitor", key="risk_monitor", on_click=batch.keep_agent, args=(monitor.AGENT, monitor.agent(folder)))
+            st.button("Start the monitor", key="risk_monitor", on_click=monitor.start_session, args=(folder,))
         return
     usage = last["usage"] or {}
     st.caption(f"Looked {dashboard.when(last['ended'])} with {last['model']}: {activity.count(last['steps'], 'model call')}, "

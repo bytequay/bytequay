@@ -540,7 +540,10 @@ Open Lab asks Electron to refresh the Lab's saved statistics and serve its
 Insights dashboard as an ordinary page in the embedded browser. The packaged
 app owns the Lab's Python runtime and dependencies. Electron chooses an available
 loopback port, waits for readiness, reuses the dashboard on subsequent opens,
-and stops it on quit; a managed dashboard also exits when its parent disappears.
+and stops it when the last Lab tab closes or on quit; a managed dashboard also
+exits when its parent disappears. Resource monitoring started from the dashboard
+belongs to that dashboard session. Closing its input pipe stops the sampler and
+its helpers, including after a dashboard crash, without installing a login job.
 The renderer stores only whether to show its sidebar shortcut. Pinned Lab pages
 resolve their temporary local address through the current managed dashboard
 when selected. Refresh reads task runtime files, the database and bounded existing

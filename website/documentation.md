@@ -522,8 +522,9 @@ needed.
 
 - **App health** shows recent errors, send latency, and resource use, with
   suggested actions. **Analyze now** refreshes it.
-- **Start resource monitoring** tracks memory and CPU until you stop it on
-  **Processes**.
+- **Start resource monitoring** tracks memory and CPU while Lab is open.
+  Closing the last Lab tab or quitting ByteQuay stops monitoring. It stays off
+  when you reopen Lab; **Processes** can stop it sooner.
 - **Agent activity** shows agent performance, review guidance, and context
   costs.
 - **Improve** writes and tests new review rules on cases the Lab never saw;

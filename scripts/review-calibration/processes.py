@@ -48,6 +48,9 @@ def stop(pid):
     if found is None:
         return
     if found["what"] == "Monitor":
+        if pid == monitor.session_pid():
+            monitor.stop_session()
+            return
         batch.keep_agent(monitor.AGENT, None)  # its LaunchAgent would start it again
     with contextlib.suppress(ProcessLookupError):
         os.kill(pid, signal.SIGTERM)

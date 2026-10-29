@@ -7,6 +7,7 @@ parts stand now."""
 from __future__ import annotations
 
 import argparse
+import atexit
 from array import array
 from collections import Counter, defaultdict
 import contextlib
@@ -15,6 +16,7 @@ import fcntl
 import os
 from pathlib import Path
 import re
+import signal
 import sqlite3
 import struct
 import subprocess
@@ -34,6 +36,8 @@ DATABASE = APP_DATA / "bytequay-1.0.db"
 WORKSPACES = Path.home() / ".bytequay/workspaces"
 STORE = "monitor.db"
 AGENT = "com.bytequay.lab.monitor"
+_session = None
+_session_lock = threading.Lock()
 EVERY = 15  # seconds between two samples; listing every process on the Mac is most of a sample's cost
 DISK_EVERY = 6 * 3600  # a disk count walks every file of the app's data, so it runs only a few times a day
 SAVE_EVERY = 3600  # the lab's tables are read again every hour, so no page shows numbers a day old
@@ -473,6 +477,62 @@ def snapshot(watch):
                         f"This Mac: {machine['memory_used'] / 2**30:.1f} of {machine['memory_total'] / 2**30:.0f} GB used, {machine['cpu']:.1f} cores busy."]
 
 
+def session_pid():
+    """The sampler owned by this dashboard, if it is still running."""
+    with _session_lock:
+        return _session.pid if _session is not None and _session.poll() is None else None
+
+
+def start_session(folder):
+    """Keep one sampler for this dashboard. Its input closes even when the dashboard is killed or crashes."""
+    global _session
+    with _session_lock:
+        if _session is not None:
+            if _session.poll() is None:
+                return
+            _session.stdin.close()
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+            with (folder / "monitor.log").open("a") as log:
+                _session = subprocess.Popen([sys.executable, "-B", "-s", str(Path(__file__).resolve()), "--sample", "--while-open", "--folder", str(folder)],
+                                            stdin=subprocess.PIPE, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        except OSError as problem:
+            raise ValueError(f"Could not start resource monitoring: {problem}") from problem
+
+
+def stop_session():
+    """Stop the sampler and its helpers without leaving a job that can restart it."""
+    global _session
+    with _session_lock:
+        if _session is None:
+            return
+        _session.stdin.close()
+        try:
+            _session.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(_session.pid, signal.SIGKILL)
+            _session.wait()
+        _session = None
+
+
+def stop_when_closed():
+    """The dashboard holds the only input writer; EOF ends the sampler's whole process group, including disk scans."""
+    group = os.getpid()
+    if os.getpgrp() != group:
+        raise ValueError("A session monitor must run in its own process group.")
+
+    def stop():
+        os.killpg(group, signal.SIGKILL)
+
+    def watch():
+        sys.stdin.buffer.read()
+        stop()
+
+    atexit.register(stop)
+    threading.Thread(target=watch, daemon=True).start()
+
+
 def agent(folder):
     """The LaunchAgent that keeps the sampler running: at every login and whenever it stops."""
     return {"ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--sample", "--folder", str(folder)],
@@ -483,12 +543,17 @@ def agent(folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--folder", type=Path, default=saved.FOLDER, help="The lab's folder, where the numbers are kept")
+    parser.add_argument("--while-open", action="store_true", help="With --sample, stop when the launching dashboard closes its input")
     chosen = parser.add_mutually_exclusive_group()
     chosen.add_argument("--sample", action="store_true", help="Sample every fifteen seconds until stopped (what the LaunchAgent runs)")
     chosen.add_argument("--start", action="store_true", help="Keep the sampler running from now on: at every login and whenever it stops")
     chosen.add_argument("--stop", action="store_true", help="Stop the sampler and remove its LaunchAgent")
     chosen.add_argument("--count-disk", action="store_true", help="Count once who holds the app's data on disk (what the sampler starts a few times a day)")
     args = parser.parse_args()
+    if args.while_open:
+        if not args.sample:
+            parser.error("--while-open requires --sample")
+        stop_when_closed()
     if args.sample:
         run(args.folder)
     elif args.count_disk:

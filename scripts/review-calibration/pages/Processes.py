@@ -36,20 +36,21 @@ def programs(folder):
             st.rerun()
     st.caption("Stopping the page you are on closes it. " + ("Choose Open Lab in ByteQuay to start it again." if os.environ.get("BYTEQUAY_LAB_PARENT_PID") else
                                                            "Start it again in the lab's folder with `uv run dashboard.py`"))
-    st.subheader("Kept running")
+    st.subheader("Resource monitoring")
     try:
-        if processes.loaded(monitor.AGENT):
-            st.write("The monitor is on. It starts at every login and again whenever it stops.")
+        if monitor.session_pid() is not None:
+            st.write("The monitor is on for this Lab session. It stops when you close Lab or quit ByteQuay.")
             if st.button("Stop the monitor"):
-                batch.keep_agent(monitor.AGENT, None)
+                monitor.stop_session()
                 st.rerun()
         else:
             st.write("The monitor is off, so the Resources page is not live.")
             if st.button("Start the monitor"):
-                batch.keep_agent(monitor.AGENT, monitor.agent(folder))
+                monitor.start_session(folder)
                 st.rerun()
     except ValueError as problem:
         st.error(str(problem))
+    st.caption("Monitoring stays off when you reopen Lab. Start it again here whenever you need live measurements.")
     st.caption(f"Nightly rounds are {'on' if processes.loaded(batch.AGENT) else 'off'}. Each experiment sets its own in the dashboard's Reviews tab.")
 
 

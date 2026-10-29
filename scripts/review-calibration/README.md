@@ -38,8 +38,9 @@ Health suggestions use local rules, require no model key, and prepare a task
 brief with evidence, a source location and a verification measurement. They do
 not execute fixes. Missing records preserve the last agent snapshots and mark
 them stale while still opening the health page. **Start resource monitoring**
-is an explicit opt-in to the existing persistent monitor; **Processes** stops
-it. Memory and open-file growth comparisons use one app/backend process session
+is an explicit opt-in for the current dashboard session. Closing the last Lab tab
+or quitting ByteQuay stops the sampler and its helpers; **Processes** can stop it
+sooner. Reopening Lab leaves monitoring off. Memory and open-file growth comparisons use one app/backend process session
 with a stable observed workload. Detached descendants remain counted after
 their parent exits, provided the monitor observed them beforehand. Neither
 growth nor detachment alone proves a leak. The health view does not directly
@@ -482,7 +483,9 @@ uv run monitor.py --stop
 ```
 
 `monitor.py` watches what ByteQuay takes from this Mac. With no option it
-prints how every part stands now. `--start` keeps a sampler running from then
+prints how every part stands now. Dashboard buttons start a session sampler that
+stops when the dashboard closes, including on a crash, and never installs a login
+job. For deliberate unattended monitoring from the command line, `--start` keeps a sampler running from then
 on, at every login and whenever it stops, as a second LaunchAgent the lab
 writes and removes (`com.bytequay.lab.monitor`); `--stop` ends it.
 
@@ -625,9 +628,10 @@ lab's folder; only one runs at a time.
 The dashboard's Processes page lists every program the lab's own Python runs
 now (its pages, the monitor, experiments and their review runs, improvements,
 the rules writer, tests) with when it started and its memory, looked at again every three seconds. Stop ends
-one as Ctrl+C would; for the monitor it also removes the LaunchAgent, which
-would otherwise start it again. Below, the monitor is started or stopped as
-`--start` and `--stop` do. A stopped page cannot start itself: start it again
+one as Ctrl+C would; a session monitor also stops its sampling helpers. Stopping
+a monitor started with the command line's `--start` also removes its LaunchAgent.
+Below, the monitor can be started or stopped for the current dashboard session.
+A stopped page cannot start itself: start it again
 with `uv run dashboard.py`.
 
 ## Tuning

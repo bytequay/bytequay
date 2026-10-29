@@ -55,6 +55,14 @@ class TestProcesses(unittest.TestCase):
         self.assertEqual((keep.call_args_list, kill.call_args_list),
                          ([mock.call(monitor.AGENT, None)], [mock.call(11, signal.SIGTERM), mock.call(10, signal.SIGTERM)]))
 
+    def test_stopping_a_session_monitor_stops_its_helpers_without_changing_login_jobs(self):
+        with mock.patch.object(monitor, "session_pid", return_value=10), mock.patch.object(monitor, "stop_session") as stop, \
+                mock.patch.object(processes.batch, "keep_agent") as keep, mock.patch.object(processes.os, "kill") as kill:
+            processes.stop(10)
+        stop.assert_called_once_with()
+        keep.assert_not_called()
+        kill.assert_not_called()
+
     def test_bundled_dashboard_and_refresh_are_listed_without_including_other_python_programs(self):
         for directory in (processes.BUNDLED_PYTHON, processes.DEVELOPMENT_PYTHON):
             with self.subTest(directory=directory):
@@ -73,19 +81,29 @@ class TestProcesses(unittest.TestCase):
 class TestPage(unittest.TestCase):
     def setUp(self):
         for patched in (mock.patch.object(processes.psutil, "process_iter", return_value=MACHINE[:2]), mock.patch.object(processes, "loaded", return_value=False),
+                        mock.patch.object(monitor, "session_pid", return_value=None),
                         mock.patch.object(sys, "argv", ["dashboard.py", "/lab"])):
             patched.start()
             self.addCleanup(patched.stop)
         config.set_option("server.address", dashboard.HOST)
         self.addCleanup(config.set_option, "server.address", None)
 
-    def test_stop_and_start_reach_the_program_and_the_monitors_agent(self):
+    def test_stop_and_start_reach_the_program_and_the_session_monitor(self):
         page = AppTest.from_file(str(PAGE), default_timeout=30).run()
         self.assertEqual(([button.label for button in page.button], list(page.exception)), (["Stop", "Stop", "Start the monitor"], []))
-        with mock.patch.object(processes, "stop") as stop, mock.patch.object(processes.batch, "keep_agent") as keep:
+        with mock.patch.object(processes, "stop") as stop, mock.patch.object(monitor, "start_session") as start, mock.patch.object(processes.batch, "keep_agent") as keep:
             page.button(key="stop-10").click().run()
             page.button[2].click().run()
-        self.assertEqual((stop.call_args_list, keep.call_args_list), ([mock.call(10)], [mock.call(monitor.AGENT, monitor.agent(Path("/lab")))]))
+        self.assertEqual((stop.call_args_list, start.call_args_list), ([mock.call(10)], [mock.call(Path("/lab"))]))
+        keep.assert_not_called()
+
+    def test_session_monitor_can_be_stopped_and_its_lifetime_is_visible(self):
+        with mock.patch.object(monitor, "session_pid", return_value=10), mock.patch.object(monitor, "stop_session") as stop:
+            page = AppTest.from_file(str(PAGE), default_timeout=30).run()
+            self.assertTrue(any("stops when you close Lab" in text.value for text in page.markdown))
+            next(button for button in page.button if button.label == "Stop the monitor").click().run()
+        stop.assert_called_once_with()
+        self.assertTrue(any("stays off when you reopen Lab" in caption.value for caption in page.caption))
 
     def test_page_started_another_way_shows_nothing(self):
         config.set_option("server.address", "0.0.0.0")

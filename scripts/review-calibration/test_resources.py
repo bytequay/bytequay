@@ -344,9 +344,9 @@ class TestPage(Kept):
         self.assertIn("The last look failed: RuntimeError: the API is down", [note.value for note in page.warning])
         self.assertNotIn("risk_monitor", [button.key for button in page.button])
         self.found(state="failed", problem="ValueError: " + advisor.UNWATCHED, suggestions=[], summary=None)
-        with mock.patch.object(batch, "keep_agent") as kept:
+        with mock.patch.object(monitor, "start_session") as started:
             self.page().button(key="risk_monitor").click().run()  # a look that failed for want of samples starts the monitor here
-        self.assertEqual(kept.call_args.args[0], monitor.AGENT)
+        started.assert_called_once_with(self.folder)
 
     def test_a_clean_up_starts_only_once_you_confirm_it(self):
         page = self.page()

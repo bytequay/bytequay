@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import plistlib
 import re
+import select
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -359,6 +361,88 @@ class TestSpace(Folder):
         self.assertEqual(dict(connection.execute("SELECT owner, SUM(files) FROM space GROUP BY owner")),
                          {monitor.RETIRED: 2, monitor.REPOSITORIES: 1, monitor.APP: 1, monitor.NOT_KNOWN: 3})
         self.assertEqual(connection.execute("SELECT SUM(bytes) FROM space WHERE owner = ? AND place = 'workspaces'", (monitor.NOT_KNOWN,)).fetchone(), (2**19,))
+
+
+class TestSession(Folder):
+    def test_one_sampler_per_dashboard_and_stop_closes_its_lifetime_pipe(self):
+        child = mock.Mock(pid=1234)
+        child.poll.return_value = None
+        with mock.patch.object(monitor, "_session", None), mock.patch.object(monitor.subprocess, "Popen", return_value=child) as spawn, \
+                mock.patch.object(monitor.batch, "keep_agent") as keep:
+            monitor.start_session(self.folder)
+            monitor.start_session(self.folder)
+            self.assertEqual(monitor.session_pid(), 1234)
+            self.assertEqual(spawn.call_count, 1)
+            self.assertEqual(spawn.call_args.args[0], [sys.executable, "-B", "-s", str(SCRIPT), "--sample", "--while-open", "--folder", str(self.folder)])
+            self.assertTrue(spawn.call_args.kwargs["start_new_session"])
+            self.assertEqual(spawn.call_args.kwargs["stdin"], subprocess.PIPE)
+            monitor.stop_session()
+            monitor.stop_session()
+            self.assertIsNone(monitor.session_pid())
+            child.stdin.close.assert_called_once_with()
+            child.wait.assert_called_once_with(timeout=5)
+            keep.assert_not_called()
+
+    def test_failed_start_is_reported_and_can_be_retried(self):
+        child = mock.Mock(pid=1234)
+        child.poll.return_value = None
+        with mock.patch.object(monitor, "_session", None), mock.patch.object(monitor.subprocess, "Popen", side_effect=[OSError("unavailable"), child]):
+            with self.assertRaisesRegex(ValueError, "Could not start resource monitoring: unavailable"):
+                monitor.start_session(self.folder)
+            self.assertIsNone(monitor.session_pid())
+            monitor.start_session(self.folder)
+            self.assertEqual(monitor.session_pid(), 1234)
+            monitor.stop_session()
+
+    def test_unresponsive_sampler_and_helpers_are_killed_together(self):
+        child = mock.Mock(pid=1234)
+        child.wait.side_effect = [subprocess.TimeoutExpired("monitor", 5), -signal.SIGKILL]
+        with mock.patch.object(monitor, "_session", child), mock.patch.object(monitor.os, "killpg") as kill:
+            monitor.stop_session()
+        kill.assert_called_once_with(1234, signal.SIGKILL)
+        self.assertEqual(child.wait.call_count, 2)
+
+    def test_dashboard_crash_stops_the_sampler_and_its_helpers(self):
+        sampler_code = """
+import monitor, subprocess, sys, time
+monitor.stop_when_closed()
+helper = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(60)'])
+print(helper.pid, flush=True)
+time.sleep(60)
+"""
+        dashboard_code = f"""
+import subprocess, sys, time
+sampler = subprocess.Popen([sys.executable, '-c', {sampler_code!r}], stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True, text=True)
+print(sampler.pid, sampler.stdout.readline().strip(), flush=True)
+time.sleep(60)
+"""
+        dashboard = subprocess.Popen([sys.executable, "-c", dashboard_code], cwd=SCRIPT.parent, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                     stderr=subprocess.PIPE, text=True, start_new_session=True)
+        owned = []
+        try:
+            self.assertTrue(select.select([dashboard.stdout], [], [], 10)[0], "The synthetic dashboard must start its sampler")
+            owned = [monitor.psutil.Process(int(pid)) for pid in dashboard.stdout.readline().split()]
+            self.assertEqual(len(owned), 2)
+            dashboard.kill()
+            dashboard.wait(timeout=5)
+            deadline = time.monotonic() + 5
+            def alive(process):
+                try:
+                    return process.is_running() and process.status() != monitor.psutil.STATUS_ZOMBIE
+                except monitor.psutil.NoSuchProcess:
+                    return False
+            while any(alive(process) for process in owned) and time.monotonic() < deadline:
+                time.sleep(0.05)
+            self.assertFalse(any(alive(process) for process in owned), "Closing the dashboard's pipe must stop both the sampler and its helper")
+        finally:
+            if dashboard.poll() is None:
+                dashboard.kill()
+            dashboard.communicate(timeout=5)
+            for process in owned:
+                try:
+                    process.kill()
+                except monitor.psutil.NoSuchProcess:
+                    pass
 
 
 class TestCommandLine(Folder):

@@ -7,7 +7,6 @@ import time
 import streamlit as st
 
 import app_logs
-import batch
 import dashboard
 import digest
 import health
@@ -75,10 +74,10 @@ def render(folder, runtime):
             st.metric("Turns running", values["turns"] if values["turns"] is not None else "Unknown", border=True)
         st.caption("Resource sample: " + dashboard.when(saved.stamp(samples["machine"]["at"].max())) + ". Analyze now updates this view; Resources shows live charts.")
     else:
-        st.caption("Resource history needs the optional monitor. It samples every fifteen seconds and continues after ByteQuay quits; Processes can stop it.")
+        st.caption("Resource history needs the optional monitor. It samples every fifteen seconds while Lab is open and stops when you close Lab or quit ByteQuay.")
         if st.button("Start resource monitoring", key="health_monitor"):
             try:
-                batch.keep_agent(monitor.AGENT, monitor.agent(folder))
+                monitor.start_session(folder)
                 st.success("Monitoring started. Choose Analyze now after samples arrive, or open Resources for live charts.")
             except ValueError as error:
                 st.error(str(error))

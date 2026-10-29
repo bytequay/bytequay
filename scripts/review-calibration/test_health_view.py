@@ -122,10 +122,11 @@ class TestHealthPage(unittest.TestCase):
         self.assertIn("No issue observed", [row.value for row in page.success])
         self.assertIn("App memory", [tile.label for tile in page.metric])
         page = self.page()
-        with mock.patch.object(health_view.batch, "keep_agent") as start:
+        with mock.patch.object(health_view.monitor, "start_session") as start:
             page.button(key="health_monitor").click().run()
         self.assertEqual(start.call_count, 1)
-        self.assertEqual(start.call_args.args[0], "com.bytequay.lab.monitor")
+        self.assertEqual(start.call_args.args[0], self.folder)
+        self.assertTrue(any("stops when you close Lab" in caption.value for caption in page.caption))
 
     def test_bad_snapshot_is_unknown_instead_of_crashing(self):
         saved.write(self.folder, app_logs.FILE, {"version": 1, "coverage": {}})

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { PullRequestWorkspaceProvider, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
+import { PullRequestWorkspaceProvider, readPullRequestViewer, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
@@ -491,15 +491,14 @@ function PullsContent({
 
   useEffect(() => {
     let cancelled = false;
-    const read = scopedWorkspaceId === undefined ? bridge.getUserProfile()
-      : bridge.getWorkspaceHostingViewer(scopedWorkspaceId).then(login => login === null ? null : { login, avatarUrl: null });
+    const read = readPullRequestViewer(bridge, { workspaceId: scopedWorkspaceId, repository: scopedRepository });
     void read.then(profile => {
       if (cancelled) return;
       setViewerLogin(profile?.login ?? null);
       setViewer(profile);
     }).catch(() => { if (!cancelled) setViewerLogin(null); });
     return () => { cancelled = true; };
-  }, [bridge, scopedWorkspaceId]);
+  }, [bridge, scopedRepository, scopedWorkspaceId]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     const selected = selectedPullRequest.current;

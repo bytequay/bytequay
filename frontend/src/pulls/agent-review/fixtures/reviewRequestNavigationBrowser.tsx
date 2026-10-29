@@ -31,6 +31,7 @@ import { element as fixtureElement, assert, settle } from '../../../fixtures/har
 
 const internal = 'Review frozen scope. Use review_get_context and review_save_summary, review_save_finding and review_finish. Reply privately with review_reply. Selected card: internal context.';
 const base = reviewFixture();
+const viewerAvatar = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="11" fill="blue"/></svg>')}`;
 const original = base.runs[0];
 assert(original.summary !== null, 'Review fixture needs a saved summary');
 const commitMessageBody = 'Represent a dotted column reference as ordered path segments.\n\nKeep schema lookup in IcebergUtil so parsing does not depend on table metadata.';
@@ -92,7 +93,11 @@ export async function run(): Promise<string[]> {
   const agent = createPreviewBridge(review.workspaceId);
   const bridge = {
     findPullRequestTask: async () => null,
-    getWorkspaceHostingViewer: async () => (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null,
+    getWorkspaceHostingViewer: async () => 'reader',
+    fetchRepoUsers: async (repository, workspaceId) => {
+      assert(repository === review.repo && workspaceId === review.workspaceId, 'Viewer avatars must come from the selected repository');
+      return [{ login: 'reader', avatarUrl: viewerAvatar, bot: false }];
+    },
     fetchWorkspaceHostingAttention: async () => ({ login: (await window.bridge.getUserProfile?.().catch(() => null))?.login ?? null, pullRequests: await window.bridge.fetchAttentionPrs?.().catch(() => []) ?? [] }),
     getUserProfile: async () => ({ login: 'reader', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
@@ -114,7 +119,7 @@ export async function run(): Promise<string[]> {
       sourceFingerprint: 'review-head', baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'review',
       files: [], commits: [], staged: [], unstaged: [], untracked: [], truncated: false }),
     recordRecentTouch: async () => {},
-  } satisfies Pick<Bridge, 'findPullRequestTask' | 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchWorkspaceHostingAttention' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
+  } satisfies Pick<Bridge, 'findPullRequestTask' | 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchRepoUsers' | 'fetchWorkspaceHostingAttention' | 'getModelSettings' | 'getAgentTurn' | 'getAgentReview' | 'readAgentReviewHistory'
     | 'fetchAttentionPrs' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'listLocalReviewComments'
     | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'readWorktreeChanges' | 'recordRecentTouch'>;
   const previous = window.bridge;
@@ -271,6 +276,9 @@ export async function run(): Promise<string[]> {
     pane.querySelector<HTMLElement>('.agr-summary > .review-comment-scroll')?.scrollTo(0, 0);
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
     await open('turn-finding', '[data-finding-id="finding-1"]');
+    const userAvatar = target('[data-finding-id="finding-1"]').querySelector<HTMLImageElement>('.agr-thread img[alt="reader"]');
+    assert(userAvatar?.src === viewerAvatar && userAvatar.complete && userAvatar.naturalWidth > 0,
+      'Saved user messages must display the repository account avatar');
     button(pane, 'Changes').click(); await settle();
     const localCard = request('turn-local');
     const inPlace = localCard.querySelector<HTMLButtonElement>('.agt-review-request__open');

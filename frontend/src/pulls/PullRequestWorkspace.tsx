@@ -13,7 +13,7 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import type { Bridge, HostingServerDto } from '../types';
+import type { Bridge, HostingServerDto, PullRequestViewer } from '../types';
 
 type HostingWorkspace = { workspaceId?: string; server?: HostingServerDto; repository?: string };
 const PullRequestWorkspace = createContext<HostingWorkspace>({});
@@ -31,6 +31,21 @@ export function usePullRequestWorkspace() {
 
 export function useHostingPresentation() {
   return useContext(PullRequestWorkspace);
+}
+
+export async function readPullRequestViewer(bridge: Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchRepoUsers'>,
+  { workspaceId, repository }: HostingWorkspace): Promise<PullRequestViewer | null> {
+  if (workspaceId === undefined) return bridge.getUserProfile();
+  const login = await bridge.getWorkspaceHostingViewer(workspaceId);
+  if (login === null) return null;
+  // Repository users already carry locally cached avatars from the workspace's hosting provider.
+  let avatarUrl: string | null = null;
+  try {
+    const users = repository === undefined ? [] : await bridge.fetchRepoUsers(repository, workspaceId);
+    avatarUrl = users.find(user => user.login.toLowerCase() === login.toLowerCase())?.avatarUrl ?? null;
+  }
+  catch { /* Keep the account identity when its cached image is unavailable. */ }
+  return { login, avatarUrl };
 }
 
 /** The existing review controls address the account and server selected for this workspace. */

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { usePullRequestBridge, usePullRequestWorkspace, useHostingPresentation } from './PullRequestWorkspace';
+import { readPullRequestViewer, usePullRequestBridge, usePullRequestWorkspace, useHostingPresentation } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import { remoteErrorMessage } from '../remoteError';
@@ -82,17 +82,16 @@ export type PullDetailUpdater = (
 /** The signed-in account, for review composers, local pending comments, and editing your own comments. */
 export function useViewer(enabled: boolean): PullRequestViewer | null {
   const bridge = usePullRequestBridge();
-  const workspaceId = usePullRequestWorkspace();
+  const { workspaceId, repository } = useHostingPresentation();
   const [viewer, setViewer] = useState<PullRequestViewer | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    (workspaceId === undefined ? bridge.getUserProfile()
-      : bridge.getWorkspaceHostingViewer(workspaceId).then(login => login === null ? null : { login, avatarUrl: null }))
+    readPullRequestViewer(bridge, { workspaceId, repository })
       .then(profile => { if (live) setViewer(profile); })
       .catch(() => { /* the composer just falls back to an initial */ });
     return () => { live = false; };
-  }, [bridge, enabled, workspaceId]);
+  }, [bridge, enabled, repository, workspaceId]);
   return viewer;
 }
 

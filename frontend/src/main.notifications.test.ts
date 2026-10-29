@@ -30,6 +30,8 @@ const desktop = vi.hoisted(() => ({
   reportBackendFailure: vi.fn(),
   startNotices: vi.fn(),
   listeners: new Map<string, () => Promise<void>>(),
+  windows: [] as EventEmitter[],
+  focusWindow: vi.fn(),
   notifications: [] as EventEmitter[],
   constructNotification: vi.fn(),
   show: vi.fn(),
@@ -51,7 +53,9 @@ vi.mock('electron', async () => {
       getAppPath: () => process.cwd(), getPath: () => desktop.userData, getVersion: () => 'test', setAboutPanelOptions: vi.fn(),
     },
     BrowserWindow: class extends EventEmitter {
+      constructor() { super(); desktop.windows.push(this); }
       webContents = Object.assign(new EventEmitter(), { send: desktop.send, setWindowOpenHandler: vi.fn(), focus: vi.fn(), isDestroyed: () => false });
+      focus = desktop.focusWindow;
       setWindowButtonVisibility = vi.fn();
       isDestroyed = () => false;
       loadURL = vi.fn();
@@ -96,6 +100,8 @@ beforeEach(() => {
   desktop.ready.mockReset().mockResolvedValue(true);
   desktop.startNotices.mockClear();
   desktop.reportBackendFailure.mockClear();
+  desktop.windows.length = 0;
+  desktop.focusWindow.mockClear();
   desktop.notifications.length = 0;
   desktop.constructNotification.mockReset();
   desktop.show.mockReset();
@@ -122,11 +128,56 @@ async function start(): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
+it('defers activation until backend readiness and appearance load, then allows reopening', async () => {
+  let ready!: (value: boolean) => void;
+  desktop.ready.mockImplementationOnce(() => new Promise<boolean>(resolve => { ready = resolve; }));
+  let appearance!: (value: Response) => void;
+  vi.mocked(fetch).mockImplementationOnce(() => new Promise<Response>(resolve => { appearance = resolve; }));
+  await import('./main');
+  await desktop.listeners.get('activate')?.();
+  const startup = desktop.listeners.get('ready')?.();
+  await desktop.listeners.get('activate')?.();
+  await desktop.listeners.get('activate')?.();
+  expect(desktop.windows).toHaveLength(0);
+
+  ready(true);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/settings/app', expect.anything());
+  await desktop.listeners.get('activate')?.();
+  expect(desktop.windows).toHaveLength(0);
+  appearance(new Response(JSON.stringify({ theme: 'DARK' })));
+  await startup;
+  expect(desktop.windows).toHaveLength(1);
+  await desktop.listeners.get('activate')?.();
+  expect(desktop.focusWindow).toHaveBeenCalledOnce();
+  expect(desktop.windows).toHaveLength(1);
+
+  desktop.windows[0].emit('closed');
+  await desktop.listeners.get('activate')?.();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(desktop.windows).toHaveLength(2);
+});
+
+it.each([false, true])('does not open a window after quitting during startup (backend ready: %s)', async backendReady => {
+  let ready!: (value: boolean) => void;
+  desktop.ready.mockImplementationOnce(() => new Promise<boolean>(resolve => { ready = resolve; }));
+  await import('./main');
+  const startup = desktop.listeners.get('ready')?.();
+  await desktop.listeners.get('before-quit')?.();
+  ready(backendReady);
+  await startup;
+  await desktop.listeners.get('activate')?.();
+  expect(desktop.windows).toHaveLength(0);
+  expect(desktop.startNotices).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
 it('starts background features once after a backend becomes ready beyond the startup deadline', async () => {
   desktop.ready.mockResolvedValueOnce(false).mockResolvedValueOnce(false).mockResolvedValue(true);
   const { IdeViews } = await import('./ideViews');
   const queries = vi.spyOn(IdeViews.prototype, 'startQueries').mockImplementation(() => {});
   await start();
+  expect(desktop.windows).toHaveLength(1);
   expect(desktop.reportBackendFailure).toHaveBeenCalledOnce();
   expect(desktop.startNotices).not.toHaveBeenCalled();
   expect(queries).not.toHaveBeenCalled();

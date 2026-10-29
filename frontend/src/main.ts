@@ -141,6 +141,7 @@ let prNotificationState: PrNotificationState | null = null;
 let prNotificationTimer: ReturnType<typeof setInterval> | undefined;
 let backendRecoveryTimer: ReturnType<typeof setTimeout> | undefined;
 let backendServicesStarted = false;
+let startupComplete = false;
 let quitting = false;
 let pollingPrNotifications = false;
 let repollPrNotifications = false;
@@ -487,6 +488,8 @@ function revealWindow(): Promise<void> {
 }
 
 function ensureWindow(): Promise<void> {
+  // Startup owns the first window; macOS activation can arrive while the backend is still starting.
+  if (!startupComplete || quitting) return Promise.resolve();
   if (mainWindow && !mainWindow.isDestroyed()) return Promise.resolve();
   pendingWindow ??= createWindow().finally(() => { pendingWindow = null; });
   return pendingWindow;
@@ -2141,11 +2144,14 @@ app.on('ready', async () => {
   spawnBackend();
   registerIpc();
   const backendReady = await waitForBackendReady();
+  if (quitting) return;
   if (!backendReady) reportBackendFailure();
   else {
     await backendJson<AppPreferencesDto>(`${backendBase()}/api/settings/app`)
       .then(applyAppearance).catch(error => console.warn('Unable to load appearance; following system', error));
   }
+  if (quitting) return;
+  startupComplete = true;
   await ensureWindow();
   if (backendReady) startBackendServices();
   else backendRecoveryTimer = setTimeout(() => { void recoverBackend(); }, 5_000);

@@ -93,7 +93,16 @@ function prState(pr: Pick<PullRequestDto, 'state' | 'draft'>): WorkPr['state'] {
 }
 
 function needsYou(row: PullRequestDto): boolean {
-  return row.reviewDecision === 'CHANGES_REQUESTED' || row.ciStatus === 'FAILING' || row.mergeableState === 'dirty';
+  return row.reviewDecision === 'CHANGES_REQUESTED' || row.ciStatus === 'FAILING' || row.mergeableState === 'dirty'
+    || row.reviewDecision === 'APPROVED' || hasReviewFeedback(row);
+}
+
+function hasReviewFeedback(row: PullRequestDto): boolean {
+  const activity = row.latestActivity;
+  if (activity == null || activity.actor === null || activity.actor.toLowerCase() === row.author?.toLowerCase() || activity.actor.endsWith('[bot]')
+    || !['commented', 'review_thread', 'reviewed'].includes(activity.event)) return false;
+  // Reading is not responding; a reply or a new revision hands the PR back to reviewers.
+  return [row.reviewedAt, row.headPushedAt].every(at => at === null || Date.parse(at) < Date.parse(activity.timestamp));
 }
 
 function readyToMerge(pr: WorkPr): boolean {
@@ -116,6 +125,7 @@ export function workPrStatus(pr: WorkPr): { text: string; tone: AttentionTone } 
   }
   if (row.mergeableState === 'dirty') return { text: 'Merge conflicts', tone: 'red' };
   if (row.reviewDecision === 'APPROVED') return { text: 'Approved', tone: 'green' };
+  if (hasReviewFeedback(row)) return { text: 'Feedback received', tone: 'amber' };
   return { text: row.requestedReviewers.length === 0 ? 'Waiting on review' : `Waiting on ${row.requestedReviewers.length}`, tone: 'amber' };
 }
 
@@ -135,7 +145,9 @@ function nextAction(lane: WorkLane, prs: WorkPr[], waiting: string | null): stri
   if (row === undefined || row === null) return null;
   if (row.reviewDecision === 'CHANGES_REQUESTED') return 'Address the requested changes';
   if (row.ciStatus === 'FAILING') return row.failingChecks?.[0] === undefined ? 'Fix the failing checks' : `Fix ${row.failingChecks[0]}`;
-  return 'Resolve the merge conflicts';
+  if (row.mergeableState === 'dirty') return 'Resolve the merge conflicts';
+  if (hasReviewFeedback(row)) return 'Respond to review feedback';
+  return 'Check merge requirements';
 }
 
 const later = (left: string, right: string) => Date.parse(right) > Date.parse(left) ? right : left;

@@ -20,7 +20,7 @@ import { laneLabel } from '../settings/model';
 import type { JiraTaskSource } from '../jira/contracts';
 import type { AuthoredIssueDto, PullRequestDto } from '../types';
 import { issueAttentionItem, pullRequestItem, type AttentionItem } from './attention';
-import { isOwnWork, myWorkItems } from './work';
+import { isOwnWork, myWorkItems, workPrStatus } from './work';
 
 const workspace = { id: 'ws1', name: 'Repository', repository: 'owner/repository' };
 
@@ -48,6 +48,58 @@ describe('My work', () => {
       ['repository#4', 'review', null],
       ['repository#5', 'progress', null],
     ]);
+  });
+
+  it.each([
+    { mergeable: null, mergeableState: null },
+    { mergeable: true, mergeableState: 'unknown' },
+    { mergeable: true, mergeableState: 'blocked' },
+    { mergeable: true, mergeableState: 'behind' },
+    { ciStatus: 'PENDING' as const },
+  ])('keeps an approved PR actionable when merge readiness is not confirmed: %j', extra => {
+    expect(lanes([mine(1, { reviewDecision: 'APPROVED', ...extra })]))
+      .toEqual([['repository#1', 'needs', 'Check merge requirements']]);
+  });
+
+  it.each(['commented', 'review_thread', 'reviewed'])('surfaces incoming %s feedback even after opening the PR', event => {
+    const items = myWorkItems({ candidates: [mine(1, {
+      latestActivity: feedback(event), viewedAt: '2026-08-15T00:02:00Z', headPushedAt: '2026-08-15T00:00:00Z',
+    })], tasks: [], activity: {}, work: [], viewerLogin: 'me' });
+    expect(items[0]).toMatchObject({ lane: 'needs', next: 'Respond to review feedback' });
+    expect(workPrStatus(items[0].prs[0])).toEqual({ text: 'Feedback received', tone: 'amber' });
+  });
+
+  it.each([
+    { latestActivity: feedback('commented', 'ME') },
+    { latestActivity: feedback('commented', 'checks[bot]') },
+    { latestActivity: feedback('commented', null) },
+    { latestActivity: feedback('labeled') },
+    { latestActivity: feedback('committed') },
+    { latestActivity: feedback(), headPushedAt: '2026-08-15T00:02:00Z' },
+    { latestActivity: feedback(), reviewedAt: '2026-08-15T00:02:00Z', handledAction: 'COMMENTED' as const },
+  ])('leaves quiet or already answered activity in review: %j', extra => {
+    expect(lanes([mine(1, extra)])).toEqual([['repository#1', 'review', null]]);
+  });
+
+  it('keeps concrete blockers ahead of approval and feedback, and ready PRs ready', () => {
+    expect(lanes([
+      mine(1, { latestActivity: feedback(), reviewDecision: 'APPROVED', ciStatus: 'FAILING', failingChecks: ['build'] }),
+      mine(2, { latestActivity: feedback(), reviewDecision: 'APPROVED', mergeable: false, mergeableState: 'dirty' }),
+      mine(3, { latestActivity: feedback(), reviewDecision: 'CHANGES_REQUESTED' }),
+      mine(4, { latestActivity: feedback(), reviewDecision: 'APPROVED' }),
+      mine(5, { latestActivity: feedback(), draft: true }),
+    ])).toEqual([
+      ['repository#1', 'needs', 'Fix build'],
+      ['repository#2', 'needs', 'Resolve the merge conflicts'],
+      ['repository#3', 'needs', 'Address the requested changes'],
+      ['repository#4', 'ready', 'Merge · no conflicts'],
+      ['repository#5', 'progress', null],
+    ]);
+  });
+
+  it('moves linked local work when its PR receives feedback', () => {
+    const task = { ...previewTask('ws1', 'task-1'), pullRequest: { number: 7, title: 'Change 7', state: 'open', draft: false } };
+    expect(lanes([mine(7, { latestActivity: feedback() })], [task])).toEqual([['', 'needs', 'Respond to review feedback']]);
   });
 
   it('lists a ticket with the task and pull request delivering it once, and leaves others’ pull requests out', () => {
@@ -84,6 +136,10 @@ describe('My work', () => {
     ]);
   });
 });
+
+function feedback(event = 'commented', actor: string | null = 'ana'): NonNullable<PullRequestDto['latestActivity']> {
+  return { event, actor, timestamp: '2026-08-15T00:01:00Z', state: event === 'reviewed' ? 'COMMENTED' : null, label: null, requestedReviewer: null };
+}
 
 function issue(number: number) {
   return { id: number, number, title: `Issue ${number}`, body: '', author: 'ana', authorAvatarUrl: '', htmlUrl: '', labels: [], assignees: ['me'],

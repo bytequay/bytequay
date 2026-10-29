@@ -1160,17 +1160,20 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
-    void repairsPrivateUnpublishedContentThenChecksTheNewRevision()
+    void blockedPrivacyCheckHoldsPublicationWithoutStartingAnotherTurn()
     {
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
         doThrow(new PublicationPrivacyException("Privacy check blocked"))
                 .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
-        generated(DevelopmentTurnOrigin.Kind.PRIVACY_REPAIR, true, () -> when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false)));
-        generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Generic change", "Generic explanation"));
+
         advance();
-        verify(privacy).checkGit(eq(taskId), any(), any(), eq(BASE), eq(NEXT), any(), any(), anyString(), eq("Generic change\nGeneric explanation"));
-        verify(git).pushDevelopmentHead(worktree, route, NEXT, Optional.empty());
+
+        verify(turns).failDevelopmentContinuation(taskId, source.id(),
+                "Automation stopped. Check for private information: Privacy check blocked. Send another message to retry.");
+        noFollowup();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
     }
 
     @Test

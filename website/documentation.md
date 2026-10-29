@@ -462,7 +462,11 @@ other destinations still receive the review. It keeps Jira and local context
 private for public destinations, permits internal references in the workspace’s
 own internal-visibility repository, and rejects credentials wherever it runs.
 
-Development publication allows one local privacy repair attempt, followed by another check.
+The development agent checks privacy and completes any cleanup while preparing changes
+for publication; this need not be the last step of a turn or run on every turn.
+ByteQuay checks the final outgoing content before publication.
+A blocked check holds publication without adding a repair turn;
+send a follow-up message when ready to address it.
 Quoted private traces use `***`; executable examples use synthetic data. CI repair
 pushes, PR-description repairs and automatic review replies are checked too.
 Blocked CI repairs and replies wait for a sanitized retry. A CI retry inspects the

@@ -969,6 +969,8 @@ samp {
   opacity: 0.5;
 }
 .app-sidebar__item:disabled:hover { background: transparent; }
+.app-sidebar__item:disabled[aria-busy="true"] { opacity: 1; cursor: progress; }
+.app-sidebar__item[aria-busy="true"] > span:first-child { color: var(--fg-link); }
 .app-sidebar__item.is-active {
   background: var(--left-nav-active-bg);
   color: var(--text-1);

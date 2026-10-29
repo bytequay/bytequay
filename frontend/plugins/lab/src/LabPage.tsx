@@ -29,15 +29,18 @@ export default function LabPage({ onOpen }: { onOpen: () => Promise<void> }) {
         </SettingsRow>
         <SettingsRow
           title="Open Lab"
-          subtitle={opening ? 'Starting the dashboard and analyzing local data…' : 'Analyzes existing logs, resource measurements, and agent activity on this Mac.'}
+          subtitle={opening
+            ? <span role="status">Analyzing local logs and agent activity, then starting the dashboard. This may take a few minutes. You can keep using ByteQuay.</span>
+            : 'Analyzes existing logs, resource measurements, and agent activity on this Mac. Starting Lab may take a few minutes.'}
         >
           <button
             type="button"
-            className="setw-btn-primary"
+            className="setw-btn-primary setw-lab-open"
             disabled={opening}
             aria-busy={opening}
             onClick={() => { void onOpen(); }}
           >
+            {opening && <span className="bq-spinner is-spinning setw-lab-spinner" aria-hidden="true" />}
             {opening ? 'Opening Lab…' : error !== null ? 'Retry' : 'Open Lab'}
           </button>
         </SettingsRow>

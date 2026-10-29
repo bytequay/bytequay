@@ -119,12 +119,18 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(toggle()?.getAttribute('aria-checked') === 'false' && labItem() === null, 'The shortcut starts turned off');
       assert(document.querySelector('[aria-label="Dashboard address"]') === null, 'The dashboard address is managed by the app');
       assert(openButton()?.textContent?.trim() === 'Open Lab', 'Settings offers Open Lab');
+      assert(document.querySelector('.setw-page')?.textContent?.includes('may take a few minutes'), 'Settings explains the wait before opening');
       assert(launches === 0, 'Visiting Settings does not start the dashboard');
       openButton()?.click();
       await until(() => openButton()?.disabled === true, 'Opening shows a disabled button');
       assert(openButton()?.getAttribute('aria-busy') === 'true' && openButton()?.textContent?.includes('Opening Lab'), 'The launch is visibly in progress');
+      const spinner = openButton()?.querySelector('.bq-spinner');
+      assert(spinner !== null && spinner !== undefined && getComputedStyle(spinner).animationName === 'bq-spin', 'Opening has an animated indicator');
+      const status = document.querySelector('.setw-page [role="status"]')?.textContent ?? '';
+      assert(status.includes('Analyzing local logs') && status.includes('may take a few minutes') && status.includes('keep using ByteQuay'), 'The live status explains the work, wait, and background behavior');
       assert(opened.length === 0, 'No web page opens before the dashboard is ready');
       await finishOpening();
+      assert(document.querySelector('.setw-page [role="status"]') === null && openButton()?.querySelector('.bq-spinner') === null, 'Readiness clears the loading indicator and status');
       assert(toggle()?.getAttribute('aria-checked') === 'false', 'Opening the Lab does not change sidebar visibility');
     });
 
@@ -137,6 +143,10 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       labItem()?.click();
       openButton()?.click();
       await until(() => labItem()?.disabled === true && openButton()?.disabled === true, 'Both entry points share launch progress');
+      const item = labItem();
+      assert(item !== null && item.getAttribute('aria-busy') === 'true' && getComputedStyle(item).opacity === '1', 'The busy sidebar stays readable');
+      const spinner = item.querySelector('.bq-spinner');
+      assert(spinner !== null && getComputedStyle(spinner).animationName === 'bq-spin' && item.title.includes('may take a few minutes'), 'The sidebar shows activity and explains the wait');
       assert(launches === 2 && opened.length === 1, 'Repeated clicks start just one refresh and wait to open');
       await finishOpening();
       assert(Number(opened.length) === 2, 'The sidebar opens one page after readiness');

@@ -255,6 +255,20 @@
 
 .setw-btn-primary:disabled { background: light-dark(#c7c7cc, var(--dark-hover)); border-color: light-dark(#c7c7cc, var(--dark-border)); cursor: default; }
 
+.setw-lab-open { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.setw-lab-open[aria-busy="true"] {
+  color: var(--fg-link);
+  background: var(--bg-info);
+  cursor: progress;
+}
+.setw-lab-spinner {
+  width: 13px;
+  height: 13px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+}
+
 .setw-link {
   border: none;
   background: transparent;

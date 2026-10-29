@@ -14,7 +14,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, FileText, FlaskConical, GitBranch, Globe, History, House, KeyRound,
-  Keyboard, LayoutDashboard, LayoutGrid, ListChecks, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  Keyboard, LayoutDashboard, LayoutGrid, ListChecks, LoaderCircle, MessageCircle, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, ToggleRight, TriangleAlert, Users,
 } from 'lucide-react';
 import UsageMeter from './usage/UsageMeter';
@@ -174,7 +174,7 @@ export default function AppSidebar({
   );
 
   /** Every sidebar row, whichever shape renders it. */
-  const row = ({ key, label, icon, active, pressed, disabled, title, hint, badge, unread, onClick }: {
+  const row = ({ key, label, icon, active, pressed, disabled, busy, title, hint, badge, unread, onClick }: {
     key: string;
     label: string;
     icon: ReactNode;
@@ -182,6 +182,7 @@ export default function AppSidebar({
     /** A row that opens a panel instead of a page is a toggle. */
     pressed?: boolean;
     disabled?: boolean;
+    busy?: boolean;
     title?: string;
     /** Dim text after the label, such as a shortcut. */
     hint?: string;
@@ -197,6 +198,7 @@ export default function AppSidebar({
       aria-label={badge !== undefined ? `${label}, ${badge.label}` : unread ? `${label}, unread` : label}
       aria-current={active ? 'page' : undefined}
       aria-pressed={pressed}
+      aria-busy={busy}
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
@@ -416,10 +418,11 @@ export default function AppSidebar({
         {lab.enabled && row({
           key: 'lab',
           label: 'Lab',
-          title: labLaunch.opening ? 'Starting the dashboard and refreshing its data…' : 'Open the lab dashboard',
-          icon: <LabIcon />,
+          title: labLaunch.opening ? 'Analyzing local data and starting Lab. This may take a few minutes. You can keep using ByteQuay.' : 'Open the lab dashboard',
+          icon: labLaunch.opening ? <span className="bq-spinner is-spinning"><LoaderCircle size={16} /></span> : <LabIcon />,
           active: false,
           disabled: labLaunch.opening,
+          busy: labLaunch.opening,
           hint: labLaunch.opening ? 'Opening…' : undefined,
           onClick: () => { void openLab(); },
         })}

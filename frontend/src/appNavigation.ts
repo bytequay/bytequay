@@ -20,7 +20,7 @@ export const APP_NAVIGATION_SHORTCUTS = [
   { page: 'pulls', label: 'Pull requests', accelerator: 'Alt+Command+5', hint: '⌥⌘5' },
   { page: 'settings', label: 'Settings', accelerator: 'Command+,', hint: '⌘,' },
   { page: 'new-task', label: 'New task', accelerator: 'Shift+Command+N', hint: '⇧⌘N' },
-  { page: 'switch-task', label: 'Switch task', accelerator: 'Control+Command+T', hint: '⌃⌘T' },
+  { page: 'switch-task', label: 'Switch task', accelerator: 'Command+\\', hint: '⌘\\ / ⌃⌘T' },
 ] as const;
 
 export type AppNavigationTarget = typeof APP_NAVIGATION_SHORTCUTS[number]['page'] | 'shortcuts';

@@ -30,5 +30,6 @@ it('switches tasks with the keyboard and isolates Escape', async () => {
   expect(results).toEqual([
     { name: 'switches tasks with the keyboard and isolates Escape' },
     { name: 'ignores superseded task list refreshes' },
+    { name: 'lists every workspace\'s tasks, running first, each with its repository' },
   ]);
 }, deadline(30_000));

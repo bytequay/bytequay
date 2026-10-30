@@ -249,7 +249,11 @@ export async function run(): Promise<{ name: string }[]> {
     await go('recent');
     await go('new-task', '#/workspaces');
     await go('recent');
-    await go('switch-task', '#/workspaces');
+    navigate('switch-task');
+    await until(() => document.querySelector('[aria-label="All tasks"]') !== null, 'Outside a workspace, Switch task opens every workspace\'s tasks');
+    assert(window.location.hash === '#/recent', 'The all-workspace switcher stays on the current page');
+    navigate('switch-task');
+    await until(() => document.querySelector('[aria-label="All tasks"]') === null, 'Repeating Switch task closes the all-workspace switcher');
     window.location.hash = '#/workspaces/workspace/commits';
     await until(() => document.querySelector('[aria-label="Workspace navigation"]') !== null, 'Task shortcuts have a current workspace');
     navigate('new-task');

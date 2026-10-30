@@ -152,7 +152,7 @@ describe('agent home and overview', () => {
     expect(markup).toContain('lucide-list-checks');
     expect(markup).toContain('lucide-git-pull-request');
     expect(markup).toContain('Open tasks · 2');
-    expect(markup).toContain('⇧⌘\\');
+    expect(markup).toContain('⌘\\');
     // Open tasks are compact cards, each renamable and hideable from Home.
     expect(markup).toContain('class="agt-open-grid"');
     expect(markup.match(/class="card is-compact agt-open-card"/g)).toHaveLength(2);

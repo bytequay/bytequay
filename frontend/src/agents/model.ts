@@ -49,6 +49,7 @@ export type AgentBridgePort = Pick<Bridge,
   | 'replyLocalReviewComment'
   | 'resolveLocalReviewComment'
   | 'retryLocalReviewComment'
+  | 'listWorkspaces'
   | 'listAgentTasks'
   | 'createAgentTask'
   | 'fetchWorkspaceIssue'

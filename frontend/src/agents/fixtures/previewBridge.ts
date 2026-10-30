@@ -153,6 +153,11 @@ export function createPreviewBridge(
       return PREVIEW_CATALOG;
     },
 
+    listWorkspaces: async () => {
+      record('listWorkspaces');
+      return [];
+    },
+
     refreshAgentProviderReadiness: async () => {
       record('refreshAgentProviderReadiness');
       return PREVIEW_CATALOG.providers.map((provider) => ({

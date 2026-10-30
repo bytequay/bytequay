@@ -435,6 +435,7 @@ function configureApplication(): void {
       { label: 'Go', submenu: [
         ...navigationItems.filter(item => item.id !== 'settings'),
         { label: 'Home', accelerator: 'Alt+Command+1', visible: false, acceleratorWorksWhenHidden: true, click: () => navigate('home') },
+        { label: 'Switch task', accelerator: 'Control+Command+T', visible: false, acceleratorWorksWhenHidden: true, click: () => navigate('switch-task') },
       ] },
       { role: 'windowMenu' },
       { role: 'help', submenu: [{ label: 'Keyboard shortcuts', click: () => navigate('shortcuts') }] },

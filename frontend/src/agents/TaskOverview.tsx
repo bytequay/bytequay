@@ -15,19 +15,22 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { taskArchived } from './taskStatus';
-import { TaskWindows } from './TaskCard';
+import { TaskWindows, type TaskRepository } from './TaskCard';
 import type { AgentBridgePort } from './model';
 import type { AgentTaskDto, ModelProviderDto } from '../types';
 
 interface TaskOverviewProps {
-  workspaceId: string;
+  /** Null reads every workspace's tasks, running ones first, each window naming its repository. */
+  workspaceId: string | null;
   bridge?: AgentBridgePort;
   /** The task open behind the overlay, ringed so the user knows where they came from. */
   activeTaskId: string | null;
-  onOpenTask: (taskId: string) => void;
+  onOpenTask: (taskId: string, workspaceId: string) => void;
   onNewTask: () => void;
   onDismiss: () => void;
 }
+
+const running = (task: AgentTaskDto): boolean => task.mutationClaim?.kind === 'TURN';
 
 /** Reads the tasks itself: the overlay is transient, and nothing else on screen owns this list. */
 export default function TaskOverview({
@@ -35,15 +38,24 @@ export default function TaskOverview({
 }: TaskOverviewProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const [tasks, setTasks] = useState<AgentTaskDto[]>([]);
+  const [repositories, setRepositories] = useState<ReadonlyMap<string, TaskRepository>>();
   const [providers, setProviders] = useState<ModelProviderDto[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const requestRef = useRef(0);
   const refresh = useCallback(() => {
     const request = ++requestRef.current;
-    return live().listAgentTasks(workspaceId)
-      .then((found) => {
+    const read = workspaceId !== null
+      ? live().listAgentTasks(workspaceId).then((found) => ({ found, workspaces: null }))
+      : live().listWorkspaces().then(async (workspaces) => ({
+        found: (await Promise.all(workspaces.map((workspace) => live().listAgentTasks(workspace.id)))).flat(), workspaces }));
+    return read
+      .then(({ found, workspaces }) => {
         if (request !== requestRef.current) return;
-        setTasks(found.filter((task) => task.state === 'OPEN' && !taskArchived(task)));
+        const open = found.filter((task) => task.state === 'OPEN' && !taskArchived(task));
+        setTasks(workspaces === null ? open
+          : open.sort((a, b) => Number(running(b)) - Number(running(a)) || b.updatedAt.localeCompare(a.updatedAt)));
+        setRepositories(workspaces === null ? undefined : new Map(workspaces.map((workspace) => [workspace.id,
+          { owner: workspace.monitoredOwner, repo: workspace.monitoredRepo, github: workspace.hostingServer?.provider !== 'GITLAB' }])));
         setNotice(null);
       })
       .catch((failure: unknown) => {
@@ -57,7 +69,8 @@ export default function TaskOverview({
   }, [refresh]);
   useEffect(() => {
     let active = true;
-    void live().getModelSettings(workspaceId)
+    // Across workspaces the global catalog names the models; a repository-only account falls back to its lane's name.
+    void live().getModelSettings(workspaceId ?? undefined)
       .then((catalog) => { if (active) setProviders(catalog.providers); })
       .catch(() => {});
     return () => { active = false; };
@@ -65,14 +78,15 @@ export default function TaskOverview({
   const [closing, setClosing] = useState<AgentTaskDto | null>(null);
   const close = useCallback((task: AgentTaskDto) => {
     setClosing(null);
-    void live().completeAgentTask(task.id, workspaceId)
+    void live().completeAgentTask(task.id, task.workspaceId)
       .then(() => refresh())
       .catch((failure: unknown) => setNotice(failure instanceof Error ? failure.message : String(failure)));
-  }, [live, refresh, workspaceId]);
+  }, [live, refresh]);
   return (
     <>
       <TaskOverviewView
         tasks={tasks}
+        repositories={repositories}
         providers={providers}
         bridge={live}
         notice={notice}
@@ -92,13 +106,14 @@ export default function TaskOverview({
   );
 }
 
-export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskId, onOpenTask, onCloseTask, onNewTask, onDismiss }: {
+export function TaskOverviewView({ tasks, repositories, providers, bridge, notice, activeTaskId, onOpenTask, onCloseTask, onNewTask, onDismiss }: {
   tasks: AgentTaskDto[];
+  repositories?: ReadonlyMap<string, TaskRepository>;
   providers: ModelProviderDto[];
   bridge: () => AgentBridgePort;
   notice: string | null;
   activeTaskId: string | null;
-  onOpenTask: (taskId: string) => void;
+  onOpenTask: (taskId: string, workspaceId: string) => void;
   onCloseTask: (task: AgentTaskDto) => void;
   onNewTask: () => void;
   onDismiss: () => void;
@@ -149,7 +164,7 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
     const next = index < 0 ? 0 : (index + step + cards.length) % cards.length;
     event.preventDefault(); event.stopPropagation(); cards[next]?.focus();
   };
-  const running = tasks.filter((task) => task.mutationClaim?.kind === 'TURN').length;
+  const runningCount = tasks.filter(running).length;
   // A click past the windows leaves the overlay, the same as Escape.
   const dismissOnEmpty = (event: React.MouseEvent): void => { if (event.target === event.currentTarget) dismiss(); };
   return (
@@ -157,7 +172,7 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
       <div className="agt-overview__head">
         <h1>Tasks</h1>
         <span className="agt-muted agt-overview__summary">
-          {tasks.length} open{running === 0 ? '' : ` · ${running} running`}
+          {tasks.length} open{runningCount === 0 ? '' : ` · ${runningCount} running`}
         </span>
         <span className="agt-spacer" />
         <button type="button" className="agt-action" title="New task (⇧⌘N)" onClick={onNewTask}><span aria-hidden="true">+ </span>New task</button>
@@ -165,14 +180,14 @@ export function TaskOverviewView({ tasks, providers, bridge, notice, activeTaskI
       </div>
       {notice !== null && <div className="agt-notice agt-overview__notice" role="alert">{notice}</div>}
       <div className="agt-overview__grid" onClick={dismissOnEmpty}>
-        <TaskWindows tasks={tasks} providers={providers} width={294} bridge={bridge} activeTaskId={activeTaskId} onOpen={onOpenTask} onClose={onCloseTask} />
+        <TaskWindows tasks={tasks} repositories={repositories} providers={providers} width={294} bridge={bridge} activeTaskId={activeTaskId} onOpen={onOpenTask} onClose={onCloseTask} />
         <button type="button" className="agt-card-new" aria-label="New task" title="New task (⇧⌘N)" onClick={onNewTask}>
           <span className="agt-card-new__plus" aria-hidden="true">+</span>
           <span>New task</span>
         </button>
       </div>
       <div className="agt-overview__foot">
-        <span><kbd className="agt-kbd">⌃⌘T</kbd> toggle overview</span>
+        <span><kbd className="agt-kbd">{'⌘\\'}</kbd> toggle overview</span>
         <span><kbd className="agt-kbd">esc</kbd> or a click outside · back to the current task</span>
         <span><kbd className="agt-kbd">← ↑ ↓ →</kbd> select · <kbd className="agt-kbd">Enter</kbd> open · ✕ closes the task</span>
       </div>

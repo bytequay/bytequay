@@ -93,7 +93,7 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
   const [creatingEpic, setCreatingEpic] = useState(false);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>();
-  // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
+  // Every agent screen can show every task as a window; Escape puts it away. ⌘\ opens the app's own switcher.
   const [overviewOpen, setOverviewOpen] = useState(false);
   const [openReview, setOpenReview] = useState<{ id: string; repo: string; number: number } | null>(null);
   // The launch chosen when development was started from an issue; the composer seeds itself with it.
@@ -148,17 +148,6 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
     setOpenReview(null);
     window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
   };
-  useEffect(() => {
-    if (!agentScreens || browserOpen) return;
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.code === 'Backslash' && event.shiftKey && (event.metaKey || event.ctrlKey)) {
-        event.preventDefault();
-        setOverviewOpen((open) => !open);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [agentScreens, browserOpen]);
   useEffect(() => { if (!agentScreens) setOverviewOpen(false); }, [agentScreens]);
   const overviewToggle = (
     <button
@@ -166,7 +155,7 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
       className={`agt-headbtn${taskDetail && !overviewOpen ? '' : ' agt-overview-toggle'}`}
       aria-pressed={overviewOpen}
       aria-label="Show all tasks"
-      title={'Show all tasks (⇧⌘\\)'}
+      title={'Show all tasks (⌘\\)'}
       onClick={() => setOverviewOpen((open) => !open)}
     >
       <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true">

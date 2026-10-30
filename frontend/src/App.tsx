@@ -157,7 +157,8 @@ function AppContent() {
   /** Issues, pull requests and Jira tickets shown over the page, the one opened last on top. */
   const [layers, setLayers] = useState<ZoomedReference[]>([]);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [taskSwitcher, setTaskSwitcher] = useState<{ workspaceId: string; activeTaskId: string | null } | null>(null);
+  // A null workspace is every workspace's tasks, from a page outside one.
+  const [taskSwitcher, setTaskSwitcher] = useState<{ workspaceId: string | null; activeTaskId: string | null } | null>(null);
   const [composerFocus, setComposerFocus] = useState<{ route: string; workspaceId?: string } | null>(null);
   const [pageComposerFocus, setPageComposerFocus] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
@@ -626,7 +627,6 @@ function AppContent() {
       const layer = layers.at(-1);
       const workspaceId = layer ? ('workspaceId' in layer ? layer.workspaceId ?? null : null) : workspace?.id ?? null;
       if (target === 'new-task') openTaskComposer(workspaceId);
-      else if (workspaceId === null) navigatePage('workspaces');
       else {
         const close = document.querySelector<HTMLButtonElement>('.agt-overview [aria-label="Close task switcher"]');
         if (close) close.click();
@@ -844,10 +844,10 @@ function AppContent() {
       )}
       {!browserOpen && <FindBar />}
       {taskSwitcher !== null && !browserOpen && <TaskOverview workspaceId={taskSwitcher.workspaceId} activeTaskId={taskSwitcher.activeTaskId}
-        onOpenTask={taskId => {
+        onOpenTask={(taskId, workspaceId) => {
           setTaskSwitcher(null);
           setLayers([]);
-          navigateTo(workspaceAgentTaskRoute(taskSwitcher.workspaceId, taskId), 'push');
+          navigateTo(workspaceAgentTaskRoute(workspaceId, taskId), 'push');
         }}
         onNewTask={() => openTaskComposer(taskSwitcher.workspaceId)} onDismiss={() => setTaskSwitcher(null)} />}
       </div>

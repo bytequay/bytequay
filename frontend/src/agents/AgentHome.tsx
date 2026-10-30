@@ -286,7 +286,7 @@ export function AgentHomeView({
             <span className="atn-head__label">Open tasks · {items.length}</span>
             <span className="agt-spacer" />
             <button type="button" className="agt-link" onClick={onShowAll}>
-              Show all <kbd className="agt-kbd">{'⇧⌘\\'}</kbd>
+              Show all <kbd className="agt-kbd">{'⌘\\'}</kbd>
             </button>
           </div>
           <div className="agt-open-grid">

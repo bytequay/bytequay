@@ -28,7 +28,6 @@ const SCOPED_SHORTCUTS: { title: string; rows: { label: string; keys: string; de
     { label: 'Submit a PR comment', keys: '⌘Enter', detail: 'In a comment editor; Escape cancels where available.' },
   ] },
   { title: 'Tasks and the Assistant', rows: [
-    { label: 'Show all tasks', keys: '⇧⌘\\', detail: 'On a workspace task screen.' },
     { label: 'Send / add a new line', keys: 'Enter / ⇧Enter', detail: 'In an agent or Assistant composer.' },
     { label: 'Dictate', keys: 'Hold right ⌥', detail: 'In a composer while dictation is on; release to stop, Escape cancels.' },
     { label: 'Edit a queued message', keys: '↑', detail: 'When the task composer is empty and a queued message can be edited.' },
@@ -69,13 +68,13 @@ export default function ShortcutsPage() {
       {APP_NAVIGATION_SHORTCUTS.map(shortcut => <SettingsRow key={shortcut.page} title={shortcut.label}
         subtitle={shortcut.page === 'settings' ? 'Opens repository settings when you are in a workspace.'
           : shortcut.page === 'new-task' ? 'Focuses or opens the task composer in the current workspace. Send creates the task.'
-          : shortcut.page === 'switch-task' ? 'Open tasks in the current workspace. Arrow keys select, Enter opens, Escape returns.' : undefined}>
+          : shortcut.page === 'switch-task' ? 'Open tasks in the current workspace, or in every workspace outside one, running first. Arrow keys select, Enter opens, Escape returns.' : undefined}>
         <kbd>{shortcut.hint}</kbd>
       </SettingsRow>)}
       <SettingsRow title="Toggle Assistant or task notices"><kbd>⌘J</kbd></SettingsRow>
       <SettingsRow title="Open the next waiting task"><kbd>⇧⌘J</kbd></SettingsRow>
       <SettingsRow title="Open the Assistant from any app"><kbd>⌥Space</kbd></SettingsRow>
-      <div className="setw-foot-row"><span>These work from app pages, web pages, and the code editor. Task commands open Workspaces when no workspace is selected. Finish or dismiss an open form before navigating.</span></div>
+      <div className="setw-foot-row"><span>These work from app pages, web pages, and the code editor. New task opens Workspaces when no workspace is selected. Finish or dismiss an open form before navigating.</span></div>
     </SettingsCard>
     {SCOPED_SHORTCUTS.map(group => <Fragment key={group.title}>
       <h2 className="setw-section">{group.title}</h2>

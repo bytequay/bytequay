@@ -16,6 +16,7 @@ import React, { useEffect, useMemo, useReducer, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import { getCached, setCached } from '../dataCache';
 import { relativeTime } from '@bytequay/ui/relativeTime';
+import RepoAvatar from '../RepoAvatar';
 import { displayModelName, laneLabel } from '../settings/model';
 import { TurnView } from './AgentTaskScreen';
 import TaskHeader from './TaskHeader';
@@ -29,12 +30,16 @@ import type { AgentTaskDto, ModelProviderDto } from '../types';
 /** How often a window re-reads its task and the events it has not shown yet. */
 const WINDOW_POLL_MS = 2000;
 
+/** The repository a window names when the overview mixes workspaces. */
+export type TaskRepository = { owner: string; repo: string; github: boolean };
+
 /**
  * One task as the overview's "task window": its own screen, scaled to fit, with a footer that names
  * it. Nothing inside the thumbnail is interactive; the thumbnail opens the task.
  */
-export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, historyIncomplete = false }: {
+export function TaskCard({ task, events, providers, width, active = false, now, onOpen, onClose, historyIncomplete = false, repository }: {
   task: AgentTaskDto;
+  repository?: TaskRepository;
   events: AgentEventEnvelope[];
   historyIncomplete?: boolean;
   providers: ModelProviderDto[];
@@ -96,6 +101,7 @@ export function TaskCard({ task, events, providers, width, active = false, now, 
         </div>
       </button>
       <div className="agt-card__foot">
+        {repository !== undefined && <RepoAvatar owner={repository.owner} repo={repository.repo} github={repository.github} size={16} radius={4} />}
         <span className="agt-card__name">{task.title}</span>
         {pillNode}
       </div>
@@ -127,6 +133,7 @@ function TaskWindow({ task: listed, tick, bridge, ...card }: {
   width: number;
   active: boolean;
   now: number;
+  repository?: TaskRepository;
   onOpen: () => void;
   onClose?: () => void;
 }): React.JSX.Element {
@@ -144,13 +151,15 @@ function TaskWindow({ task: listed, tick, bridge, ...card }: {
 }
 
 /** The windows for a set of tasks, each polling its own task on one shared tick. */
-export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = null, onOpen, onClose }: {
+export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = null, repositories, onOpen, onClose }: {
   tasks: AgentTaskDto[];
   providers: ModelProviderDto[];
   width: number;
   bridge: () => AgentBridgePort;
   activeTaskId?: string | null;
-  onOpen: (taskId: string) => void;
+  /** By workspace id; absent where every task is from one repository. */
+  repositories?: ReadonlyMap<string, TaskRepository>;
+  onOpen: (taskId: string, workspaceId: string) => void;
   onClose?: (task: AgentTaskDto) => void;
 }): React.JSX.Element {
   const [tick, setTick] = useState(0);
@@ -172,7 +181,8 @@ export function TaskWindows({ tasks, providers, width, bridge, activeTaskId = nu
           width={width}
           active={task.id === activeTaskId}
           now={now}
-          onOpen={() => onOpen(task.id)}
+          repository={repositories?.get(task.workspaceId)}
+          onOpen={() => onOpen(task.id, task.workspaceId)}
           onClose={onClose === undefined ? undefined : () => onClose(task)}
         />
       ))}

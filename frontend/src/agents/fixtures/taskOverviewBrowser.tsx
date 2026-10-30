@@ -16,7 +16,7 @@ import TaskOverview from '../TaskOverview';
 import { createPreviewBridge } from './previewBridge';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { assert, runScenarios, settle, until } from '../../fixtures/harness';
-import type { AgentTaskDto } from '../../types';
+import type { AgentTaskDto, WorkspaceDto } from '../../types';
 import '../../css/base.css';
 import '../../css/agents.css';
 
@@ -138,9 +138,40 @@ async function overlappingRefreshes(): Promise<void> {
   finally { older.resolve([]); dispose(); }
 }
 
+async function everyWorkspace(): Promise<void> {
+  const bridge = createPreviewBridge('workspace-1');
+  const base = await bridge.getAgentTask(bridge.events[0].taskId, 'workspace-1');
+  const turn = { kind: 'TURN', ownerId: 'turn-1', acquiredAt: '2026-08-20T08:00:00Z' };
+  const tasks: AgentTaskDto[] = [
+    { ...base, id: 'idle-new', workspaceId: 'workspace-1', title: 'Idle and newest', updatedAt: '2026-08-20T12:00:00Z', mutationClaim: null },
+    { ...base, id: 'idle-old', workspaceId: 'workspace-1', title: 'Idle and older', updatedAt: '2026-08-20T09:00:00Z', mutationClaim: null },
+    { ...base, id: 'running', workspaceId: 'workspace-2', title: 'Running elsewhere', updatedAt: '2026-08-20T08:00:00Z', mutationClaim: turn },
+  ];
+  bridge.listWorkspaces = async () => ([['workspace-1', 'app'], ['workspace-2', 'docs']] as const)
+    .map(([id, repo]) => ({ id, monitoredOwner: 'example', monitoredRepo: repo, hostingServer: null }) as unknown as WorkspaceDto);
+  bridge.listAgentTasks = async id => tasks.filter(task => task.workspaceId === id);
+  bridge.getAgentTask = async id => tasks.find(task => task.id === id) ?? tasks[0];
+  bridge.readAgentHistory = async () => ({ events: [], beforeCursor: null, afterCursor: null, latestSequence: 0 });
+  const { host, root, dispose } = createFixtureRoot();
+  let opened: string[] = [];
+  try {
+    flushSync(() => root.render(<TaskOverview workspaceId={null} bridge={bridge} activeTaskId={null}
+      onOpenTask={(taskId, workspaceId) => { opened = [taskId, workspaceId]; }} onNewTask={() => {}} onDismiss={() => {}} />));
+    await until(() => host.querySelectorAll('.agt-card').length === 3, 'Every workspace\'s tasks load');
+    const names = [...host.querySelectorAll('.agt-card__name')].map(name => name.textContent).join(', ');
+    assert(names === 'Running elsewhere, Idle and newest, Idle and older', `Running tasks lead, then the most recent: ${names}`);
+    const avatars = [...host.querySelectorAll('.agt-card__foot .repo-avatar')].map(avatar => avatar.getAttribute('aria-label')).join(', ');
+    assert(avatars === 'example/docs, example/app, example/app', `Each window names its repository: ${avatars}`);
+    host.querySelector<HTMLButtonElement>('.agt-card__open')?.click();
+    assert(opened.join(' ') === 'running workspace-2', 'Opening a window names its own workspace');
+  }
+  finally { dispose(); }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   return runScenarios([
     ['switches tasks with the keyboard and isolates Escape', keyboardSwitching],
     ['ignores superseded task list refreshes', overlappingRefreshes],
+    ['lists every workspace\'s tasks, running first, each with its repository', everyWorkspace],
   ]);
 }

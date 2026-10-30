@@ -12,16 +12,18 @@
  * limitations under the License.
  */
 
-import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import type { Bridge, HostingCapabilitiesDto, HostingServerDto, PullRequestViewer } from '../types';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import type { Bridge, HostingCapabilitiesDto, HostingConnectionDto, HostingServerDto, PullRequestRoute, PullRequestViewer } from '../types';
 
-type HostingWorkspace = { workspaceId?: string; server?: HostingServerDto; capabilities?: HostingCapabilitiesDto; repository?: string };
+type HostingWorkspace = { workspaceId?: string; accountId?: number; server?: HostingServerDto; capabilities?: HostingCapabilitiesDto; repository?: string };
 const PullRequestWorkspace = createContext<HostingWorkspace>({});
 
-export function PullRequestWorkspaceProvider({ workspaceId, server, capabilities, repository, children }: HostingWorkspace & { children: ReactNode }) {
+export function PullRequestWorkspaceProvider({ workspaceId, accountId, server, capabilities, repository, children }: HostingWorkspace & { children: ReactNode }) {
   const parent = useContext(PullRequestWorkspace);
-  const value = useMemo(() => ({ workspaceId, server: server ?? parent.server, capabilities: capabilities ?? parent.capabilities,
-    repository: repository ?? parent.repository }), [capabilities, parent.capabilities, parent.repository, parent.server, repository, server, workspaceId]);
+  // A request outside any workspace keeps the account it opens through.
+  const account = workspaceId === undefined ? accountId ?? parent.accountId : undefined;
+  const value = useMemo(() => ({ workspaceId, accountId: account, server: server ?? parent.server, capabilities: capabilities ?? parent.capabilities,
+    repository: repository ?? parent.repository }), [account, capabilities, parent.capabilities, parent.repository, parent.server, repository, server, workspaceId]);
   return <PullRequestWorkspace value={value}>{children}</PullRequestWorkspace>;
 }
 
@@ -33,8 +35,38 @@ export function useHostingPresentation() {
   return useContext(PullRequestWorkspace);
 }
 
-export async function readPullRequestViewer(bridge: Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchRepoUsers'>,
-  { workspaceId, repository }: HostingWorkspace): Promise<PullRequestViewer | null> {
+/** How this screen's requests are reached: its workspace, the account it opens through, or neither for the desktop sign-in. */
+export function usePullRequestRoute(): PullRequestRoute | undefined {
+  const { workspaceId, accountId } = useContext(PullRequestWorkspace);
+  return useMemo(() => workspaceId ?? (accountId === undefined ? undefined : { accountId }), [accountId, workspaceId]);
+}
+
+/** A request no workspace lists opens through the connected account that discovered it, with that provider's server and capabilities. */
+export function AccountPullRequestScope({ accountId, children }: { accountId?: number; children: ReactNode }) {
+  const [connection, setConnection] = useState<HostingConnectionDto | null>(null);
+  useEffect(() => {
+    if (accountId === undefined) return;
+    let current = true;
+    void globalThis.window?.bridge.listHostingAccounts()
+      .then(accounts => { if (current) setConnection(accounts.find(item => item.account.id === accountId) ?? null); })
+      .catch(() => { /* The route still names the account; only its presentation waits. */ });
+    return () => { current = false; };
+  }, [accountId]);
+  if (accountId === undefined) return children;
+  return (
+    <PullRequestWorkspaceProvider accountId={accountId} server={connection?.instance} capabilities={connection?.capabilities}>
+      {children}
+    </PullRequestWorkspaceProvider>
+  );
+}
+
+export async function readPullRequestViewer(
+  bridge: Pick<Bridge, 'getUserProfile' | 'getWorkspaceHostingViewer' | 'fetchRepoUsers'> & Partial<Pick<Bridge, 'listHostingAccounts'>>,
+  { workspaceId, accountId, repository }: HostingWorkspace): Promise<PullRequestViewer | null> {
+  if (workspaceId === undefined && accountId !== undefined) {
+    const connection = (await bridge.listHostingAccounts?.())?.find(item => item.account.id === accountId);
+    return connection === undefined ? null : { login: connection.account.login, avatarUrl: null };
+  }
   if (workspaceId === undefined) return bridge.getUserProfile();
   const login = await bridge.getWorkspaceHostingViewer(workspaceId);
   if (login === null) return null;
@@ -48,57 +80,57 @@ export async function readPullRequestViewer(bridge: Pick<Bridge, 'getUserProfile
   return { login, avatarUrl };
 }
 
-/** The existing review controls address the account and server selected for this workspace. */
-export function workspacePullRequestBridge(bridge: Bridge, workspaceId: string): Bridge {
+/** The review controls address the account the route names: a workspace's selected account, or a connected account. */
+export function routedPullRequestBridge(bridge: Bridge, route: PullRequestRoute): Bridge {
   return {
     ...bridge,
-    setPrMonitored: (prId, monitored) => bridge.setPrMonitored(prId, monitored, workspaceId),
-    findStoredPullRequest: (repo, number) => bridge.findStoredPullRequest(repo, number, workspaceId),
-    lookupPullRequest: (repo, number) => bridge.lookupPullRequest(repo, number, workspaceId),
-    findStoredPullRequestDescription: (repo, number) => bridge.findStoredPullRequestDescription(repo, number, workspaceId),
-    fetchPullRequestDetailByRef: (repo, number) => bridge.fetchPullRequestDetailByRef(repo, number, workspaceId),
-    fetchRepoUsers: (repo) => bridge.fetchRepoUsers(repo, workspaceId),
-    fetchRepoTeams: (repo) => bridge.fetchRepoTeams(repo, workspaceId),
-    fetchRepoLabels: (repo) => bridge.fetchRepoLabels(repo, workspaceId),
-    updatePrMetadata: (repo, number, assignees, labels) => bridge.updatePrMetadata(repo, number, assignees, labels, workspaceId),
-    updatePrReviewer: (repo, number, login, requested) => bridge.updatePrReviewer(repo, number, login, requested, workspaceId),
-    fetchMergeMode: (repo, branch) => bridge.fetchMergeMode(repo, branch, workspaceId),
-    fetchPrConflicts: (repo, number) => bridge.fetchPrConflicts(repo, number, workspaceId),
-    refreshPullRequestDetailByRef: (repo, number, checksOnly, opened) => bridge.refreshPullRequestDetailByRef(repo, number, checksOnly, opened, workspaceId),
-    refreshAllPullRequestDetailByRef: (repo, number) => bridge.refreshAllPullRequestDetailByRef(repo, number, workspaceId),
-    fetchPrDiffFiles: (repo, number, baseSha, headSha) => bridge.fetchPrDiffFiles(repo, number, baseSha, headSha, workspaceId),
-    refreshPrDiffFiles: (repo, number, baseSha, headSha) => bridge.refreshPrDiffFiles(repo, number, baseSha, headSha, workspaceId),
-    fetchPrDiffCommits: (repo, number) => bridge.fetchPrDiffCommits(repo, number, workspaceId),
-    refreshPrDiffFileContent: (repo, number, path, baseSha, headSha) => bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha, workspaceId),
-    postPrReviewComment: (repo, number, comment, key) => bridge.postPrReviewComment(repo, number, comment, key, workspaceId),
-    updatePrDescription: (repo, number, body) => bridge.updatePrDescription(repo, number, body, workspaceId),
-    updatePrTitle: (repo, number, title) => bridge.updatePrTitle(repo, number, title, workspaceId),
-    commentPr: (repo, number, body) => bridge.commentPr(repo, number, body, workspaceId),
-    setPrReaction: (repo, number, target, commentId, content, viewerHasReacted) => bridge.setPrReaction(repo, number, target, commentId, content, viewerHasReacted, workspaceId),
-    editPrComment: (repo, number, target, commentId, body) => bridge.editPrComment(repo, number, target, commentId, body, workspaceId),
-    closePr: (repo, number) => bridge.closePr(repo, number, workspaceId),
-    markPrReadyForReview: (repo, number) => bridge.markPrReadyForReview(repo, number, workspaceId),
-    replyToReviewComment: (repo, number, commentId, body) => bridge.replyToReviewComment(repo, number, commentId, body, workspaceId),
-    setReviewThreadResolved: (repo, number, commentId, resolved) => bridge.setReviewThreadResolved(repo, number, commentId, resolved, workspaceId),
-    getPrCheckLog: (repo, number, jobId) => bridge.getPrCheckLog(repo, number, jobId, workspaceId),
-    rerunFailedPrChecks: (repo, number) => bridge.rerunFailedPrChecks(repo, number, workspaceId),
-    mergePr: (prId, repo, number, strategy, headSha) => bridge.mergePr(prId, repo, number, strategy, headSha, workspaceId),
-    removePrFromMergeQueue: (repo, number, autoMerge) => bridge.removePrFromMergeQueue(repo, number, autoMerge, workspaceId),
-    getReviewDraft: (repo, number) => bridge.getReviewDraft(repo, number, workspaceId),
-    addReviewDraftComment: (repo, number, expectedVersion, comment) => bridge.addReviewDraftComment(repo, number, expectedVersion, comment, workspaceId),
-    addReviewDraftFinding: (repo, number, expectedVersion, reviewId, findingId) => bridge.addReviewDraftFinding(repo, number, expectedVersion, reviewId, findingId, workspaceId),
-    editReviewDraftComment: (repo, number, expectedVersion, itemId, body, included) => bridge.editReviewDraftComment(repo, number, expectedVersion, itemId, body, included, workspaceId),
-    removeReviewDraftComment: (repo, number, expectedVersion, itemId) => bridge.removeReviewDraftComment(repo, number, expectedVersion, itemId, workspaceId),
-    confirmReviewDraftCommentNotPosted: (repo, number, expectedVersion, itemId) => bridge.confirmReviewDraftCommentNotPosted(repo, number, expectedVersion, itemId, workspaceId),
-    confirmReviewDraftCommentPosted: (repo, number, expectedVersion, itemId) => bridge.confirmReviewDraftCommentPosted(repo, number, expectedVersion, itemId, workspaceId),
-    confirmReviewDraftReview: (repo, number, expectedVersion, posted) => bridge.confirmReviewDraftReview(repo, number, expectedVersion, posted, workspaceId),
-    saveReviewDraft: (repo, number, expectedVersion, body, event) => bridge.saveReviewDraft(repo, number, expectedVersion, body, event, workspaceId),
-    publishReviewDraftComment: (repo, number, expectedVersion, itemId) => bridge.publishReviewDraftComment(repo, number, expectedVersion, itemId, workspaceId),
-    submitReviewDraft: (repo, number, expectedVersion, body, event, headSha) => bridge.submitReviewDraft(repo, number, expectedVersion, body, event, headSha, workspaceId),
+    setPrMonitored: (prId, monitored) => bridge.setPrMonitored(prId, monitored, route),
+    findStoredPullRequest: (repo, number) => bridge.findStoredPullRequest(repo, number, route),
+    lookupPullRequest: (repo, number) => bridge.lookupPullRequest(repo, number, route),
+    findStoredPullRequestDescription: (repo, number) => bridge.findStoredPullRequestDescription(repo, number, route),
+    fetchPullRequestDetailByRef: (repo, number) => bridge.fetchPullRequestDetailByRef(repo, number, route),
+    fetchRepoUsers: (repo) => bridge.fetchRepoUsers(repo, route),
+    fetchRepoTeams: (repo) => bridge.fetchRepoTeams(repo, route),
+    fetchRepoLabels: (repo) => bridge.fetchRepoLabels(repo, route),
+    updatePrMetadata: (repo, number, assignees, labels) => bridge.updatePrMetadata(repo, number, assignees, labels, route),
+    updatePrReviewer: (repo, number, login, requested) => bridge.updatePrReviewer(repo, number, login, requested, route),
+    fetchMergeMode: (repo, branch) => bridge.fetchMergeMode(repo, branch, route),
+    fetchPrConflicts: (repo, number) => bridge.fetchPrConflicts(repo, number, route),
+    refreshPullRequestDetailByRef: (repo, number, checksOnly, opened) => bridge.refreshPullRequestDetailByRef(repo, number, checksOnly, opened, route),
+    refreshAllPullRequestDetailByRef: (repo, number) => bridge.refreshAllPullRequestDetailByRef(repo, number, route),
+    fetchPrDiffFiles: (repo, number, baseSha, headSha) => bridge.fetchPrDiffFiles(repo, number, baseSha, headSha, route),
+    refreshPrDiffFiles: (repo, number, baseSha, headSha) => bridge.refreshPrDiffFiles(repo, number, baseSha, headSha, route),
+    fetchPrDiffCommits: (repo, number) => bridge.fetchPrDiffCommits(repo, number, route),
+    refreshPrDiffFileContent: (repo, number, path, baseSha, headSha) => bridge.refreshPrDiffFileContent(repo, number, path, baseSha, headSha, route),
+    postPrReviewComment: (repo, number, comment, key) => bridge.postPrReviewComment(repo, number, comment, key, route),
+    updatePrDescription: (repo, number, body) => bridge.updatePrDescription(repo, number, body, route),
+    updatePrTitle: (repo, number, title) => bridge.updatePrTitle(repo, number, title, route),
+    commentPr: (repo, number, body) => bridge.commentPr(repo, number, body, route),
+    setPrReaction: (repo, number, target, commentId, content, viewerHasReacted) => bridge.setPrReaction(repo, number, target, commentId, content, viewerHasReacted, route),
+    editPrComment: (repo, number, target, commentId, body) => bridge.editPrComment(repo, number, target, commentId, body, route),
+    closePr: (repo, number) => bridge.closePr(repo, number, route),
+    markPrReadyForReview: (repo, number) => bridge.markPrReadyForReview(repo, number, route),
+    replyToReviewComment: (repo, number, commentId, body) => bridge.replyToReviewComment(repo, number, commentId, body, route),
+    setReviewThreadResolved: (repo, number, commentId, resolved) => bridge.setReviewThreadResolved(repo, number, commentId, resolved, route),
+    getPrCheckLog: (repo, number, jobId) => bridge.getPrCheckLog(repo, number, jobId, route),
+    rerunFailedPrChecks: (repo, number) => bridge.rerunFailedPrChecks(repo, number, route),
+    mergePr: (prId, repo, number, strategy, headSha) => bridge.mergePr(prId, repo, number, strategy, headSha, route),
+    removePrFromMergeQueue: (repo, number, autoMerge) => bridge.removePrFromMergeQueue(repo, number, autoMerge, route),
+    getReviewDraft: (repo, number) => bridge.getReviewDraft(repo, number, route),
+    addReviewDraftComment: (repo, number, expectedVersion, comment) => bridge.addReviewDraftComment(repo, number, expectedVersion, comment, route),
+    addReviewDraftFinding: (repo, number, expectedVersion, reviewId, findingId) => bridge.addReviewDraftFinding(repo, number, expectedVersion, reviewId, findingId, route),
+    editReviewDraftComment: (repo, number, expectedVersion, itemId, body, included) => bridge.editReviewDraftComment(repo, number, expectedVersion, itemId, body, included, route),
+    removeReviewDraftComment: (repo, number, expectedVersion, itemId) => bridge.removeReviewDraftComment(repo, number, expectedVersion, itemId, route),
+    confirmReviewDraftCommentNotPosted: (repo, number, expectedVersion, itemId) => bridge.confirmReviewDraftCommentNotPosted(repo, number, expectedVersion, itemId, route),
+    confirmReviewDraftCommentPosted: (repo, number, expectedVersion, itemId) => bridge.confirmReviewDraftCommentPosted(repo, number, expectedVersion, itemId, route),
+    confirmReviewDraftReview: (repo, number, expectedVersion, posted) => bridge.confirmReviewDraftReview(repo, number, expectedVersion, posted, route),
+    saveReviewDraft: (repo, number, expectedVersion, body, event) => bridge.saveReviewDraft(repo, number, expectedVersion, body, event, route),
+    publishReviewDraftComment: (repo, number, expectedVersion, itemId) => bridge.publishReviewDraftComment(repo, number, expectedVersion, itemId, route),
+    submitReviewDraft: (repo, number, expectedVersion, body, event, headSha) => bridge.submitReviewDraft(repo, number, expectedVersion, body, event, headSha, route),
   };
 }
 
 export function usePullRequestBridge(): Bridge {
-  const workspaceId = usePullRequestWorkspace();
-  return useMemo(() => workspaceId === undefined ? globalThis.window?.bridge : workspacePullRequestBridge(globalThis.window?.bridge, workspaceId), [workspaceId]);
+  const route = usePullRequestRoute();
+  return useMemo(() => route === undefined ? globalThis.window?.bridge : routedPullRequestBridge(globalThis.window?.bridge, route), [route]);
 }

@@ -68,7 +68,9 @@ const wideNow = () => window.matchMedia?.(WIDE_QUERY).matches ?? true;
 export function openTarget(target: AgendaTargetDto): void {
   const { kind, workspaceId, repo, number, id } = target;
   if ((kind === 'PULL' || kind === 'ISSUE') && repo !== null && number !== null) {
-    if (kind === 'PULL') zoomReference({ kind: 'pull', repo, number, workspaceId: workspaceId ?? undefined });
+    if (kind === 'PULL') {
+      zoomReference({ kind: 'pull', repo, number, workspaceId: workspaceId ?? undefined, ...(target.accountId === null || target.accountId === undefined ? {} : { accountId: target.accountId }) });
+    }
     else if (workspaceId !== null) zoomReference({ kind: 'issue', repo, number, workspaceId });
     // Only watched repositories have an issue view; another repository's issue is its GitHub page.
     else void window.bridge.openInAppBrowser(`https://github.com/${repo}/issues/${number}`);

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { workspacePullRequestBridge } from '../pulls/PullRequestWorkspace';
+import { routedPullRequestBridge } from '../pulls/PullRequestWorkspace';
 import { mergeReady } from '../pulls/PullsScreen';
 
 /** What a pull request's card in the Assistant panel can do; each is the user's own click, never the assistant's. */
@@ -22,7 +22,7 @@ export type PullAction = 'approve' | 'merge' | 'comment' | 'close';
  * commit the card showed. Resolves false, sending nothing, when the draft holds text or comments: those go out from the review itself.
  */
 export async function approvePull(repo: string, number: number, head: string | null, workspaceId?: string): Promise<boolean> {
-  const bridge = workspaceId === undefined ? window.bridge : workspacePullRequestBridge(window.bridge, workspaceId);
+  const bridge = workspaceId === undefined ? window.bridge : routedPullRequestBridge(window.bridge, workspaceId);
   const draft = await bridge.getReviewDraft(repo, number);
   if (draft.reviewPublication !== null) throw new Error('A review you sent has no answer yet. Open the pull request to settle it first.');
   if (draft.body.trim() !== '' || draft.items.length > 0) return false;
@@ -39,7 +39,7 @@ export async function approvePull(repo: string, number: number, head: string | n
  * Queue branches schedule GitHub's merge when ready.
  */
 export async function mergePull(repo: string, number: number, head: string | null, workspaceId?: string): Promise<void> {
-  const bridge = workspaceId === undefined ? window.bridge : workspacePullRequestBridge(window.bridge, workspaceId);
+  const bridge = workspaceId === undefined ? window.bridge : routedPullRequestBridge(window.bridge, workspaceId);
   const stored = await bridge.findStoredPullRequest(repo, number);
   if (stored === null) throw new Error('ByteQuay no longer holds this pull request.');
   await bridge.refreshPullRequestDetailByRef(repo, number);
@@ -52,6 +52,6 @@ export async function mergePull(repo: string, number: number, head: string | nul
 
 /** Closes as the pull request page's Close pull request does. */
 export async function closePull(repo: string, number: number, workspaceId?: string): Promise<void> {
-  const bridge = workspaceId === undefined ? window.bridge : workspacePullRequestBridge(window.bridge, workspaceId);
+  const bridge = workspaceId === undefined ? window.bridge : routedPullRequestBridge(window.bridge, workspaceId);
   await bridge.closePr(repo, number);
 }

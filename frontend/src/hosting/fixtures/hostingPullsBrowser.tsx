@@ -16,7 +16,7 @@ import { flushSync } from 'react-dom';
 import { assert, button, element, runScenarios, settle, until } from '../../fixtures/harness';
 import { createFixtureRoot } from '../../fixtures/reactFixture';
 import { pr, prDetail } from '../../pulls/fixtures/pullRequest';
-import type { Bridge, WorkspaceDto } from '../../types';
+import type { Bridge, PullRequestRoute, WorkspaceDto } from '../../types';
 import { workspaceFixture } from '../../workspaces/fixtures/workspace';
 import WorkspaceShell from '../../workspaces/WorkspaceShell';
 import '../../index.css';
@@ -38,13 +38,16 @@ async function sharedRequests(workspace: WorkspaceDto) {
   let failSync = false;
   let synced: (() => void) | undefined;
   let reads = 0;
-  const routed: string[] = [];
+  const routed: (PullRequestRoute | undefined)[] = [];
   const opened: string[] = [];
   const row = () => pr({ id: 70, repo: repository, number: 7, title, author: 'alice', origin: 'REVIEW_REQUESTED', htmlUrl,
     handledAction: 'COMMENTED', reviewedAt: '2026-02-02T00:00:00Z', monitoredAt: monitored ? '2026-02-01T00:00:00Z' : null, commentCount: 4 });
   const details = prDetail({ id: 70, repo: repository, number: 7, title, body: '**Shared detail** with #9.', author: 'alice', state: 'open', htmlUrl,
     draft: false, viewerCanWrite: false });
-  const route = (workspaceId?: string) => { assert(workspaceId === workspace.id, 'Request lost its workspace account'); routed.push(workspaceId); };
+  const route = (workspaceId?: PullRequestRoute) => {
+    assert(workspaceId === workspace.id, 'Request lost its workspace account');
+    routed.push(workspaceId);
+  };
   const bridge: Partial<Bridge> = {
     fetchPrs: async (id, page, size) => { route(id); reads++; return { pullRequests: [row()], page, pageSize: size, totalPullRequests: 1, openPullRequests: 1, hasMore: false }; },
     getWorkspaceHostingViewer: async id => { route(id); return 'bob'; },

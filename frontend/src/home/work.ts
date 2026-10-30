@@ -307,7 +307,7 @@ export function myWorkItems({ candidates, tasks, activity, work, viewerLogin, au
     items.push(workItem({
       key: item.key, source: 'pr', label: `${repoName(item.repo)}#${item.number}`, title: item.title, updatedAt: item.updatedAt,
       ended: prState(pr) === 'merged' ? 'Merged' : prState(pr) === 'closed' ? 'Closed' : null,
-      target: target('PULL', { repo: item.repo, number: item.number, workspaceId: item.workspaceId }),
+      target: target('PULL', { repo: item.repo, number: item.number, workspaceId: item.workspaceId, accountId: item.accountId ?? null }),
     }, claim(linked), [{ repo: item.repo, number: item.number, title: item.title, state: prState(pr), row: pr }], rows, activity));
   }
 

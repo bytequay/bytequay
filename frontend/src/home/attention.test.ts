@@ -16,6 +16,8 @@ import type { AttentionMarkDto, PullRequestDto, RepositoryIssueSnapshotDto } fro
 import {
   issueAttentionItems,
   attentionCandidates,
+  pullReferenceRoute,
+  pullRoute,
   attentionCards,
   attentionEnded,
   attentionKind,
@@ -56,6 +58,17 @@ describe('attentionKind', () => {
 
     expect(withAvatar.authorAvatarUrl).toBe(avatarUrl);
     expect(withoutAvatar.authorAvatarUrl).toBeNull();
+  });
+
+  it('opens a discovered request through its account when no workspace lists it', () => {
+    const [discovered] = attentionCandidates([pr({ accountId: 11 })]);
+    const [listed] = attentionCandidates([pr({ workspaceId: 'gitlab-workspace', accountId: 11 })]);
+    const [pathKeyed] = attentionCandidates([pr({})]);
+
+    expect(pullReferenceRoute(discovered)).toEqual({ accountId: 11 });
+    expect(pullRoute(discovered)).toEqual({ accountId: 11 });
+    expect(pullRoute(listed)).toBe('gitlab-workspace');
+    expect(pullRoute(pathKeyed)).toBeUndefined();
   });
 
   it('opens a hosted request through the watched workspace that lists it', () => {

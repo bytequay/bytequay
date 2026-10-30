@@ -27,6 +27,8 @@ import {
   issueAttentionItems,
   attentionCandidates,
   loadHandled,
+  pullReferenceRoute,
+  pullRoute,
   saveHandled,
   visibleAttention,
   type AttentionItem,
@@ -405,6 +407,10 @@ function HomePage({
           if (item.jira) { zoomReference({ kind: 'jira', ...jiraIssueLocation(item.jira) }); return; }
           if (item.type === 'issue' && item.workspaceId !== null) {
             zoomReference({ kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId });
+            return;
+          }
+          if (item.type === 'pr' && pullRoute(item) !== undefined) {
+            zoomReference({ kind: 'pull', repo: item.repo, number: item.number, ...pullReferenceRoute(item) });
             return;
           }
           const slash = item.repo.indexOf('/');

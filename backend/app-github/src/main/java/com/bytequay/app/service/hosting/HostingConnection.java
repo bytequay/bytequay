@@ -14,8 +14,10 @@
 package com.bytequay.app.service.hosting;
 
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPermissions;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.Optional;
 
@@ -28,5 +30,12 @@ public record HostingConnection(HostingAccount account, HostingInstance instance
         requireNonNull(account, "account is null");
         requireNonNull(instance, "instance is null");
         requireNonNull(permissions, "permissions is null");
+    }
+
+    /** What the app supports for this account's provider, for a request opened through the account. */
+    @JsonProperty
+    public HostingCapabilities capabilities()
+    {
+        return instance.provider().capabilities();
     }
 }

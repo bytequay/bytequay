@@ -109,6 +109,7 @@ import type {
   IssueAttentionRead,
   QueueAgentInputRequest,
   PullRequestDto,
+  PullRequestRoute,
   RecentDraftRequest,
   RecentFilterQuery,
   RecentTouchRequest,
@@ -148,7 +149,7 @@ let repollPrNotifications = false;
 let prNotificationGeneration = 0;
 let prMonitorMutations = 0;
 let nativePrNotificationsDisabled = false;
-let pendingPrNotification: { repo: string; number: number; workspaceId?: string } | null = null;
+let pendingPrNotification: { repo: string; number: number; workspaceId?: string; accountId?: number } | null = null;
 let sentAttention: SentAttention = new Map();
 let polledAttention: { etag: string | null; prs: PullRequestDto[] } | null = null;
 const showingPrNotifications = new Map<number, Notification>();
@@ -226,7 +227,8 @@ async function pollPrNotifications(): Promise<void> {
         if (showingPrNotifications.get(pr.id) === notification) showingPrNotifications.delete(pr.id);
       };
       notification.on('click', () => {
-        pendingPrNotification = { repo: item.repo, number: item.number, ...(item.workspaceId === null ? {} : { workspaceId: item.workspaceId }) };
+        pendingPrNotification = { repo: item.repo, number: item.number, ...(item.workspaceId === null ? {} : { workspaceId: item.workspaceId }),
+          ...(item.accountId == null ? {} : { accountId: item.accountId }) };
         void ensureWindow().then(() => {
           mainWindow?.show();
           mainWindow?.focus();
@@ -642,12 +644,18 @@ function githubAccountChanged(): void {
   }
 }
 
-function prUrl(pathname: string, repo: string, number: number, query: Record<string, string> = {}, workspaceId?: string): string {
-  return `${backendBase()}${pathname}?${new URLSearchParams({ repo, number: String(number), ...query, ...(workspaceId ? { workspaceId } : {}) })}`;
+/** The query parameter that names how a pull request is reached; none is the desktop sign-in. */
+function routeQuery(route?: PullRequestRoute): Record<string, string> {
+  if (route === undefined || route === '') return {};
+  return typeof route === 'string' ? { workspaceId: route } : { accountId: String(route.accountId) };
 }
 
-function prDiffUrl(pathname: string, repo: string, number: number, baseSha?: string, headSha?: string, query: Record<string, string> = {}, workspaceId?: string): string {
-  return prUrl(pathname, repo, number, { ...(baseSha && headSha ? { base: baseSha, head: headSha } : {}), ...query }, workspaceId);
+function prUrl(pathname: string, repo: string, number: number, query: Record<string, string> = {}, route?: PullRequestRoute): string {
+  return `${backendBase()}${pathname}?${new URLSearchParams({ repo, number: String(number), ...query, ...routeQuery(route) })}`;
+}
+
+function prDiffUrl(pathname: string, repo: string, number: number, baseSha?: string, headSha?: string, query: Record<string, string> = {}, route?: PullRequestRoute): string {
+  return prUrl(pathname, repo, number, { ...(baseSha && headSha ? { base: baseSha, head: headSha } : {}), ...query }, route);
 }
 
 let stopGoogle = () => {};
@@ -1213,32 +1221,32 @@ function registerIpc(): void {
     reviewSubscriptions.stop(subscriptionId);
   });
 
-  ipcMain.handle('review:draft:get', (_event, repo: string, number: number, workspaceId?: string) =>
-    draft('/drafts', { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }));
-  ipcMain.handle('review:draft:add-comment', (_event, repo: string, number: number, expectedVersion: number, comment: unknown, workspaceId?: string) =>
-    draft('/drafts/items', { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }, jsonInit('POST', { expectedVersion, ...(comment as Record<string, unknown>) })));
-  ipcMain.handle('review:draft:add-finding', (_event, repo: string, number: number, expectedVersion: number, reviewId: string, findingId: string, workspaceId?: string) =>
-    draft('/drafts/findings', { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }, jsonInit('POST', { expectedVersion, reviewId, findingId })));
-  ipcMain.handle('review:draft:edit', (_event, repo: string, number: number, expectedVersion: number, itemId: string, body: string, included: boolean, workspaceId?: string) =>
-    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }, jsonInit('PUT', { expectedVersion, body, included })));
-  ipcMain.handle('review:draft:remove', (_event, repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) =>
-    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}), expectedVersion: String(expectedVersion) }, { method: 'DELETE' }));
-  ipcMain.handle('review:draft:confirm-not-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) =>
+  ipcMain.handle('review:draft:get', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    draft('/drafts', { repo, number: String(number), ...routeQuery(route) }));
+  ipcMain.handle('review:draft:add-comment', (_event, repo: string, number: number, expectedVersion: number, comment: unknown, route?: PullRequestRoute) =>
+    draft('/drafts/items', { repo, number: String(number), ...routeQuery(route) }, jsonInit('POST', { expectedVersion, ...(comment as Record<string, unknown>) })));
+  ipcMain.handle('review:draft:add-finding', (_event, repo: string, number: number, expectedVersion: number, reviewId: string, findingId: string, route?: PullRequestRoute) =>
+    draft('/drafts/findings', { repo, number: String(number), ...routeQuery(route) }, jsonInit('POST', { expectedVersion, reviewId, findingId })));
+  ipcMain.handle('review:draft:edit', (_event, repo: string, number: number, expectedVersion: number, itemId: string, body: string, included: boolean, route?: PullRequestRoute) =>
+    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), ...routeQuery(route) }, jsonInit('PUT', { expectedVersion, body, included })));
+  ipcMain.handle('review:draft:remove', (_event, repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) =>
+    draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), ...routeQuery(route), expectedVersion: String(expectedVersion) }, { method: 'DELETE' }));
+  ipcMain.handle('review:draft:confirm-not-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-not-posted`,
-      { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
-  ipcMain.handle('review:draft:confirm-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) =>
+      { repo, number: String(number), ...routeQuery(route), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
+  ipcMain.handle('review:draft:confirm-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-posted`,
-      { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
-  ipcMain.handle('review:draft:confirm-review', (_event, repo: string, number: number, expectedVersion: number, posted: boolean, workspaceId?: string) =>
-    draft('/drafts/review/confirm', { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}), expectedVersion: String(expectedVersion), posted: String(posted === true) }, { method: 'POST' }));
-  ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string, workspaceId?: string) =>
-    draft('/drafts/review', { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }, jsonInit('PUT', { expectedVersion, body, event })));
-  ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) =>
-    backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}), expectedVersion: String(expectedVersion) }), {
+      { repo, number: String(number), ...routeQuery(route), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
+  ipcMain.handle('review:draft:confirm-review', (_event, repo: string, number: number, expectedVersion: number, posted: boolean, route?: PullRequestRoute) =>
+    draft('/drafts/review/confirm', { repo, number: String(number), ...routeQuery(route), expectedVersion: String(expectedVersion), posted: String(posted === true) }, { method: 'POST' }));
+  ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string, route?: PullRequestRoute) =>
+    draft('/drafts/review', { repo, number: String(number), ...routeQuery(route) }, jsonInit('PUT', { expectedVersion, body, event })));
+  ipcMain.handle('review:draft:publish', (_event, repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) =>
+    backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(itemId)}/publish`, { repo, number: String(number), ...routeQuery(route), expectedVersion: String(expectedVersion) }), {
       method: 'POST',
           }));
-  ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string, headSha: string, workspaceId?: string) =>
-    backendJson(reviewUrl('/drafts/submit', { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }),
+  ipcMain.handle('review:draft:submit', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string, headSha: string, route?: PullRequestRoute) =>
+    backendJson(reviewUrl('/drafts/submit', { repo, number: String(number), ...routeQuery(route) }),
       jsonInit('POST', { expectedVersion, body, event, headSha }))
       );
   ipcMain.handle('agent:providers:refresh', () =>
@@ -1645,19 +1653,19 @@ function registerIpc(): void {
     backendJson(`${workspaceId ? workspaceUrl(workspaceId, '/pull-requests') : `${backendBase()}/prs`}?${new URLSearchParams({ page: String(page), size: String(pageSize) })}`));
   ipcMain.handle('prs:attention', () => backendJson(`${backendBase()}/prs/attention`));
   ipcMain.handle('issues:authored', () => backendJson(`${backendBase()}/issues/authored`));
-  ipcMain.handle('prs:stored', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/stored', repo, number, {}, workspaceId)));
-  ipcMain.handle('prs:lookup', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/lookup', repo, number, {}, workspaceId)));
-  ipcMain.handle('prs:stored:description', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/stored/description', repo, number, {}, workspaceId)));
-  ipcMain.handle('prs:monitor', async (_event, prId: number, monitored: boolean, workspaceId?: string) => {
+  ipcMain.handle('prs:stored', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/stored', repo, number, {}, route)));
+  ipcMain.handle('prs:lookup', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/lookup', repo, number, {}, route)));
+  ipcMain.handle('prs:stored:description', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/stored/description', repo, number, {}, route)));
+  ipcMain.handle('prs:monitor', async (_event, prId: number, monitored: boolean, route?: PullRequestRoute) => {
     if (!Number.isSafeInteger(prId) || prId <= 0 || typeof monitored !== 'boolean') throw new Error('Invalid PR monitor request');
     prNotificationGeneration++;
     prMonitorMutations++;
     repollPrNotifications = true;
     try {
-      return await backendJson<PullRequestDto>(`${backendBase()}/prs/${prId}/monitor?${new URLSearchParams(workspaceId ? { workspaceId } : {})}`, jsonInit('PATCH', { monitored }));
+      return await backendJson<PullRequestDto>(`${backendBase()}/prs/${prId}/monitor?${new URLSearchParams(routeQuery(route))}`, jsonInit('PATCH', { monitored }));
     }
     finally {
       prNotificationGeneration++;
@@ -1686,40 +1694,40 @@ function registerIpc(): void {
       method: 'POST',
       signal: AbortSignal.timeout(15 * 60_000),
     }));
-  ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/detail', repo, number, {}, workspaceId)));
-  ipcMain.handle('prs:users', (_event, repo: string, workspaceId?: string) =>
-    backendJson(`${backendBase()}/prs/users?${new URLSearchParams({ repo, ...(workspaceId ? { workspaceId } : {}) })}`));
-  ipcMain.handle('prs:teams', (_event, repo: string, workspaceId?: string) =>
-    backendJson(`${backendBase()}/prs/teams?${new URLSearchParams({ repo, ...(workspaceId ? { workspaceId } : {}) })}`));
-  ipcMain.handle('prs:labels', (_event, repo: string, workspaceId?: string) =>
-    backendJson(`${backendBase()}/prs/labels?${new URLSearchParams({ repo, ...(workspaceId ? { workspaceId } : {}) })}`));
+  ipcMain.handle('prs:detail:by-ref', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/detail', repo, number, {}, route)));
+  ipcMain.handle('prs:users', (_event, repo: string, route?: PullRequestRoute) =>
+    backendJson(`${backendBase()}/prs/users?${new URLSearchParams({ repo, ...routeQuery(route) })}`));
+  ipcMain.handle('prs:teams', (_event, repo: string, route?: PullRequestRoute) =>
+    backendJson(`${backendBase()}/prs/teams?${new URLSearchParams({ repo, ...routeQuery(route) })}`));
+  ipcMain.handle('prs:labels', (_event, repo: string, route?: PullRequestRoute) =>
+    backendJson(`${backendBase()}/prs/labels?${new URLSearchParams({ repo, ...routeQuery(route) })}`));
   ipcMain.handle('prs:metadata:update', (
     _event,
     repo: string,
     number: number,
     assignees: string[],
     labels: string[],
-    workspaceId?: string,
-  ) => backendJson(prUrl('/prs/metadata', repo, number, {}, workspaceId), jsonInit('PATCH', { assignees, labels })));
+    route?: PullRequestRoute,
+  ) => backendJson(prUrl('/prs/metadata', repo, number, {}, route), jsonInit('PATCH', { assignees, labels })));
   ipcMain.handle('prs:reviewer:update', (
     _event,
     repo: string,
     number: number,
     login: string,
     requested: boolean,
-    workspaceId?: string,
-  ) => backendJson(prUrl('/prs/reviewers', repo, number, {}, workspaceId), jsonInit('PATCH', { login, requested })));
-  ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string, workspaceId?: string) =>
-    backendJson(`${backendBase()}/prs/merge-mode?${new URLSearchParams({ repo, branch, ...(workspaceId ? { workspaceId } : {}) })}`));
-  ipcMain.handle('prs:conflicts', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/conflicts', repo, number, {}, workspaceId), { signal: AbortSignal.timeout(4 * 60_000) }));
-  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number, checksOnly?: boolean, opened?: boolean, workspaceId?: string) =>
+    route?: PullRequestRoute,
+  ) => backendJson(prUrl('/prs/reviewers', repo, number, {}, route), jsonInit('PATCH', { login, requested })));
+  ipcMain.handle('prs:merge-mode', (_event, repo: string, branch: string, route?: PullRequestRoute) =>
+    backendJson(`${backendBase()}/prs/merge-mode?${new URLSearchParams({ repo, branch, ...routeQuery(route) })}`));
+  ipcMain.handle('prs:conflicts', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/conflicts', repo, number, {}, route), { signal: AbortSignal.timeout(4 * 60_000) }));
+  ipcMain.handle('prs:detail:refresh:by-ref', (_event, repo: string, number: number, checksOnly?: boolean, opened?: boolean, route?: PullRequestRoute) =>
     backendJson(prUrl('/prs/detail/refresh', repo, number, {
       ...(checksOnly === true ? { checksOnly: 'true' } : {}), ...(opened === true ? { opened: 'true' } : {}),
-    }, workspaceId), { method: 'POST' }));
-  ipcMain.handle('prs:detail:refresh-all:by-ref', (_event, repo: string, number: number, workspaceId?: string) => {
-    const url = prUrl('/prs/detail/refresh-all', repo, number, {}, workspaceId);
+    }, route), { method: 'POST' }));
+  ipcMain.handle('prs:detail:refresh-all:by-ref', (_event, repo: string, number: number, route?: PullRequestRoute) => {
+    const url = prUrl('/prs/detail/refresh-all', repo, number, {}, route);
     return backendJson(url, { method: 'POST' });
   });
   ipcMain.handle('prs:diff', (
@@ -1728,18 +1736,18 @@ function registerIpc(): void {
     number: number,
     baseSha?: string,
     headSha?: string,
-    workspaceId?: string,
-  ) => backendJson(prDiffUrl('/prs/diffFiles', repo, number, baseSha, headSha, {}, workspaceId)));
+    route?: PullRequestRoute,
+  ) => backendJson(prDiffUrl('/prs/diffFiles', repo, number, baseSha, headSha, {}, route)));
   ipcMain.handle('prs:diff:refresh', (
     _event,
     repo: string,
     number: number,
     baseSha?: string,
     headSha?: string,
-    workspaceId?: string,
-  ) => backendJson(prDiffUrl('/prs/diffFiles/refresh', repo, number, baseSha, headSha, {}, workspaceId), { method: 'POST' }));
-  ipcMain.handle('prs:diff-commits', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/diffCommits', repo, number, {}, workspaceId)));
+    route?: PullRequestRoute,
+  ) => backendJson(prDiffUrl('/prs/diffFiles/refresh', repo, number, baseSha, headSha, {}, route), { method: 'POST' }));
+  ipcMain.handle('prs:diff-commits', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/diffCommits', repo, number, {}, route)));
   ipcMain.handle('prs:diff-content:refresh', (
     _event,
     repo: string,
@@ -1747,8 +1755,8 @@ function registerIpc(): void {
     path: string,
     baseSha?: string,
     headSha?: string,
-    workspaceId?: string,
-  ) => backendJson(prDiffUrl('/prs/diffContent/refresh', repo, number, baseSha, headSha, { path }, workspaceId), { method: 'POST' }));
+    route?: PullRequestRoute,
+  ) => backendJson(prDiffUrl('/prs/diffContent/refresh', repo, number, baseSha, headSha, { path }, route), { method: 'POST' }));
   // Sent through the pending review under the comment box's key, so a retry after an unknown outcome meets the first send.
   ipcMain.handle('prs:review-comment:create', (
     _event,
@@ -1756,20 +1764,20 @@ function registerIpc(): void {
     number: number,
     comment: import('./types').InlineReviewCommentDto,
     key: string,
-    workspaceId?: string,
-  ) => backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(key)}/post`, { repo, number: String(number), ...(workspaceId ? { workspaceId } : {}) }), jsonInit('POST', comment)));
-  ipcMain.handle('prs:description:update', (_event, repo: string, number: number, body: string, workspaceId?: string) =>
-    backendJson(prUrl('/prs/description', repo, number, {}, workspaceId), jsonInit('PATCH', { body })));
-  ipcMain.handle('prs:title:update', (_event, repo: string, number: number, title: string, workspaceId?: string) =>
-    backendJson(prUrl('/prs/title', repo, number, {}, workspaceId), jsonInit('PATCH', { title })));
+    route?: PullRequestRoute,
+  ) => backendJson(reviewUrl(`/drafts/items/${encodeURIComponent(key)}/post`, { repo, number: String(number), ...routeQuery(route) }), jsonInit('POST', comment)));
+  ipcMain.handle('prs:description:update', (_event, repo: string, number: number, body: string, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/description', repo, number, {}, route), jsonInit('PATCH', { body })));
+  ipcMain.handle('prs:title:update', (_event, repo: string, number: number, title: string, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/title', repo, number, {}, route), jsonInit('PATCH', { title })));
   ipcMain.handle('prs:comment', (
     _event,
     repo: string,
     number: number,
     body: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => {
-    const url = prUrl('/prs/comment', repo, number, {}, workspaceId);
+    const url = prUrl('/prs/comment', repo, number, {}, route);
     return backendJson(url, jsonInit('POST', { body }));
   });
   ipcMain.handle('prs:reaction:set', (
@@ -1780,9 +1788,9 @@ function registerIpc(): void {
     commentId: number | null,
     content: import('./types').PullReactionContent,
     viewerHasReacted: boolean | null,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => backendJson<{ viewerHasReacted: boolean }>(
-    prUrl('/prs/reactions', repo, number, {}, workspaceId),
+    prUrl('/prs/reactions', repo, number, {}, route),
     jsonInit('POST', { target, commentId, content, viewerHasReacted }),
   ));
   ipcMain.handle('prs:comment:edit', (
@@ -1792,23 +1800,23 @@ function registerIpc(): void {
     target: import('./types').PullCommentTarget,
     commentId: number,
     body: string,
-    workspaceId?: string,
-  ) => backendJson(prUrl('/prs/comments', repo, number, {}, workspaceId), jsonInit('PATCH', { target, commentId, body })));
-  ipcMain.handle('prs:close', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/close', repo, number, {}, workspaceId), { method: 'POST' }));
-  ipcMain.handle('prs:ready-for-review', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/ready-for-review', repo, number, {}, workspaceId), { method: 'POST' }));
-  ipcMain.handle('prs:merge-queue:remove', (_event, repo: string, number: number, autoMerge: boolean, workspaceId?: string) =>
-    backendJson(prUrl('/prs/merge-queue', repo, number, { autoMerge: String(autoMerge) }, workspaceId), { method: 'DELETE' }));
+    route?: PullRequestRoute,
+  ) => backendJson(prUrl('/prs/comments', repo, number, {}, route), jsonInit('PATCH', { target, commentId, body })));
+  ipcMain.handle('prs:close', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/close', repo, number, {}, route), { method: 'POST' }));
+  ipcMain.handle('prs:ready-for-review', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/ready-for-review', repo, number, {}, route), { method: 'POST' }));
+  ipcMain.handle('prs:merge-queue:remove', (_event, repo: string, number: number, autoMerge: boolean, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/merge-queue', repo, number, { autoMerge: String(autoMerge) }, route), { method: 'DELETE' }));
   ipcMain.handle('prs:review-comment:reply', (
     _event,
     repo: string,
     number: number,
     commentId: number,
     body: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => {
-    const url = prUrl(`/prs/review-comments/${commentId}/replies`, repo, number, {}, workspaceId);
+    const url = prUrl(`/prs/review-comments/${commentId}/replies`, repo, number, {}, route);
     return backendJson(url, jsonInit('POST', { body }));
   });
   ipcMain.handle('prs:review-thread:resolution', (
@@ -1817,15 +1825,15 @@ function registerIpc(): void {
     number: number,
     commentId: number,
     resolved: boolean,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => {
-    const url = prUrl(`/prs/review-comments/${commentId}/resolution`, repo, number, {}, workspaceId);
+    const url = prUrl(`/prs/review-comments/${commentId}/resolution`, repo, number, {}, route);
     return backendJson(url, jsonInit('POST', { resolved }));
   });
-  ipcMain.handle('prs:checks:log', (_event, repo: string, number: number, jobId: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/checks/log', repo, number, { jobId: String(jobId) }, workspaceId)));
-  ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number, workspaceId?: string) =>
-    backendJson(prUrl('/prs/checks/rerun-failed', repo, number, {}, workspaceId), { method: 'POST' }));
+  ipcMain.handle('prs:checks:log', (_event, repo: string, number: number, jobId: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/checks/log', repo, number, { jobId: String(jobId) }, route)));
+  ipcMain.handle('prs:checks:rerun-failed', (_event, repo: string, number: number, route?: PullRequestRoute) =>
+    backendJson(prUrl('/prs/checks/rerun-failed', repo, number, {}, route), { method: 'POST' }));
   ipcMain.handle('prs:merge', (
     _event,
     prId: number,
@@ -1833,8 +1841,8 @@ function registerIpc(): void {
     number: number,
     strategy: string,
     headSha: string,
-    workspaceId?: string,
-  ) => backendJson(prUrl('/prs/merge', repo, number, { id: String(prId), strategy, headSha }, workspaceId), { method: 'POST' }));
+    route?: PullRequestRoute,
+  ) => backendJson(prUrl('/prs/merge', repo, number, { id: String(prId), strategy, headSha }, route), { method: 'POST' }));
 
   ipcMain.handle('hosting:accounts', () => backendJson(`${backendBase()}/api/hosting/accounts`));
   ipcMain.handle('hosting:connect', (_event, request: HostingServerDto & { token: string }) =>

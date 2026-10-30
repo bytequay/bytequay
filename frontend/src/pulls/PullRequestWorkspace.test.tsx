@@ -14,7 +14,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { Bridge, RepoUserDto, UserProfileDto } from '../types';
-import { PullRequestWorkspaceProvider, readPullRequestViewer } from './PullRequestWorkspace';
+import { PullRequestWorkspaceProvider, readPullRequestViewer, routedPullRequestBridge } from './PullRequestWorkspace';
 import ReviewThread from './agent-review/ReviewThread';
 import { reviewFixture } from './agent-review/fixtures/review';
 
@@ -68,6 +68,24 @@ describe('repository viewer avatars', () => {
     await expect(readPullRequestViewer(api, scope)).resolves.toBeNull();
     expect(api.fetchRepoUsers).not.toHaveBeenCalled();
     expect(api.getUserProfile).not.toHaveBeenCalled();
+  });
+
+  it('names the connected account a request outside any workspace opens through', async () => {
+    const api = {
+      ...bridge(),
+      listHostingAccounts: vi.fn(async () => [{ account: { id: 11, instanceId: 2, remoteId: '200', login: 'gitlab-user' },
+        instance: { id: 2, provider: 'GITLAB' as const, webBaseUrl: 'https://gitlab.example.com', apiBaseUrl: 'https://gitlab.example.com/api/v4' },
+        connected: true, permissions: null }]),
+    };
+    await expect(readPullRequestViewer(api, { accountId: 11 })).resolves.toEqual({ login: 'gitlab-user', avatarUrl: null });
+    expect(api.getUserProfile).not.toHaveBeenCalled();
+  });
+
+  it('routes every review control through the account it names', async () => {
+    const detail = vi.fn(async () => null);
+    const routed = routedPullRequestBridge({ fetchPullRequestDetailByRef: detail } as unknown as Bridge, { accountId: 11 });
+    await routed.fetchPullRequestDetailByRef('group/project', 4);
+    expect(detail).toHaveBeenCalledWith('group/project', 4, { accountId: 11 });
   });
 
   it('retains the profile avatar outside a repository workspace', async () => {

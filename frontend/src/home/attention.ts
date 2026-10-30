@@ -16,7 +16,7 @@ import type { JiraIssue } from '../jira/contracts';
 import { pullRequestIsMine } from '../pulls/model';
 import { teamAttentionMatch, type TeamAttentionPreference } from '../teams/priority';
 import type { TeamCircle } from '../teams/types';
-import type { AgentTaskActivityDto, AgentTaskDto, AttentionMarkDto, PullRequestDto, RepositoryIssueSnapshotDto } from '../types';
+import type { AgentTaskActivityDto, AgentTaskDto, AttentionMarkDto, PullRequestDto, PullRequestRoute, RepositoryIssueSnapshotDto } from '../types';
 
 /** Why an item is on the "Needs attention" list. */
 export type AttentionKind = 'approval' | 'review' | 'assigned' | 'changes' | 'failed' | 'blocked' | 'ci' | 'commits' | 'merge' | 'finished' | 'updated';
@@ -65,6 +65,8 @@ export type AttentionItem = {
   isEpic?: boolean;
   /** Issues open inside their workspace. */
   workspaceId: string | null;
+  /** A pull request no workspace lists: the connected account it opens through. */
+  accountId?: number | null;
   workspaceName?: string;
   /** Stable upstream identity, independent of which workspace supplied this issue. */
   sourceKey?: string;
@@ -115,6 +117,17 @@ export function issueAttentionKey(repo: string, number: number, workspaceId: str
   return `issue:${workspaceId ?? repo}:${number}`;
 }
 
+/** Where a pull request card opens: its workspace, else the connected account that discovered it, else the desktop sign-in. */
+export function pullReferenceRoute(item: Pick<AttentionItem, 'workspaceId' | 'accountId'>): { workspaceId?: string; accountId?: number } {
+  if (item.workspaceId !== null) return { workspaceId: item.workspaceId };
+  return item.accountId === null || item.accountId === undefined ? {} : { accountId: item.accountId };
+}
+
+export function pullRoute(item: Pick<AttentionItem, 'workspaceId' | 'accountId'>): PullRequestRoute | undefined {
+  const route = pullReferenceRoute(item);
+  return route.workspaceId ?? (route.accountId === undefined ? undefined : { accountId: route.accountId });
+}
+
 export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updated', workspaceId: string | null = null): AttentionItem {
   return {
     key: pullRequestAttentionKey(pr),
@@ -132,6 +145,7 @@ export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updat
     body: '',
     commentCount: pr.commentCount,
     workspaceId,
+    accountId: pr.accountId ?? null,
   };
 }
 

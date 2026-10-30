@@ -53,7 +53,7 @@ import {
 } from './settings/routes';
 import type { InAppBrowserState, PullRequestDto, RecentRowDto, RecentWordHitDto, SetupPreferencesDto, WorkspaceDto } from './types';
 import { applyAttentionUpdate } from './attentionUpdates';
-import { PullRequestWorkspaceProvider } from './pulls/PullRequestWorkspace';
+import { AccountPullRequestScope, PullRequestWorkspaceProvider } from './pulls/PullRequestWorkspace';
 import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
@@ -270,7 +270,8 @@ function AppContent() {
     });
     const stopNotification = window.bridge.onPrNotificationOpen(reference => {
       if (reference.repo.indexOf('/') < 1) return;
-      zoomReference({ kind: 'pull', repo: reference.repo, number: reference.number, ...(reference.workspaceId === undefined ? {} : { workspaceId: reference.workspaceId }) });
+      zoomReference({ kind: 'pull', repo: reference.repo, number: reference.number, ...(reference.workspaceId === undefined ? {} : { workspaceId: reference.workspaceId }),
+        ...(reference.accountId === undefined ? {} : { accountId: reference.accountId }) });
     });
     return () => { stopAttention(); stopNotification(); };
   }, []);
@@ -665,6 +666,12 @@ function AppContent() {
     );
   }
 
+  // The server and capabilities a zoomed request's workspace selects.
+  const workspacePresentation = (workspaceId: string) => {
+    const found = workspace?.id === workspaceId ? workspace : settingsWorkspaces.find(item => item.id === workspaceId);
+    return { server: found?.hostingServer ?? undefined, capabilities: found?.capabilities };
+  };
+
   const openPr = (owner: string, repo: string, number?: number) => {
     if (number !== undefined) {
       zoomReference({ kind: 'pull', repo: `${owner}/${repo}`, number });
@@ -809,14 +816,16 @@ function AppContent() {
           <LayerCovered.Provider key={key} value={browserOpen || assistantShown || covered}>
             <div style={{ display: 'contents' }} inert={covered}>
               {layer.kind === 'pull' && (
+                <AccountPullRequestScope accountId={layer.workspaceId === undefined ? layer.accountId : undefined}>
                 <PullsScreen
                   initialPr={layer}
                   repositoryScope={layer.workspaceId === undefined
                     ? undefined
-                    : { workspaceId: layer.workspaceId, repository: layer.repo, server: (workspace?.id === layer.workspaceId ? workspace : settingsWorkspaces.find(item => item.id === layer.workspaceId))?.hostingServer ?? undefined }}
+                    : { workspaceId: layer.workspaceId, repository: layer.repo, ...workspacePresentation(layer.workspaceId) }}
                   browserOpen={browserOpen}
                   onClose={() => closeLayer(key)}
                 />
+                </AccountPullRequestScope>
               )}
               {layer.kind === 'issue' && (
                 <PullRequestWorkspaceProvider workspaceId={layer.workspaceId} repository={layer.repo}

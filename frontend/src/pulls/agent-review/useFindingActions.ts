@@ -16,7 +16,7 @@ import { requestTaskFix } from '../../agents/taskFix';
 import { recordAttentionAction, recordPullRequestAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../../remoteError';
 import { findingFixPrompt } from '../local-review/conversation';
-import { workspacePullRequestBridge } from '../PullRequestWorkspace';
+import { routedPullRequestBridge } from '../PullRequestWorkspace';
 import { findingReviewText } from './model';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
@@ -44,7 +44,7 @@ export function useFindingActions({
   onReviewChange: (review: AgentReviewDto) => void;
   onNavigate: (finding: ReviewFindingDto) => void;
 }): { actions: FindingActions; busy: boolean; error: string | null; clearError: () => void } {
-  const bridge = workspacePullRequestBridge(globalThis.window?.bridge, review.workspaceId);
+  const bridge = routedPullRequestBridge(globalThis.window?.bridge, review.workspaceId);
   const fixKeys = useRef(new Map<string, string>());
   const askKeys = useRef(new Map<string, string>());
   const [busy, setBusy] = useState(false);

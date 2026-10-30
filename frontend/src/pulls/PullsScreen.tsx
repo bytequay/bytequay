@@ -360,6 +360,7 @@ function PullsContent({
   const bridge = usePullRequestBridge();
   const singlePullRequest = onClose !== undefined || reviewWorkspace !== undefined;
   const scopedWorkspaceId = repositoryScope?.workspaceId;
+  const { accountId } = useHostingPresentation();
   const scopedRepository = repositoryScope?.repository;
   const overlay = onClose !== undefined;
   const reviewPane = useTaskPane();
@@ -491,14 +492,14 @@ function PullsContent({
 
   useEffect(() => {
     let cancelled = false;
-    const read = readPullRequestViewer(bridge, { workspaceId: scopedWorkspaceId, repository: scopedRepository });
+    const read = readPullRequestViewer(bridge, { workspaceId: scopedWorkspaceId, accountId, repository: scopedRepository });
     void read.then(profile => {
       if (cancelled) return;
       setViewerLogin(profile?.login ?? null);
       setViewer(profile);
     }).catch(() => { if (!cancelled) setViewerLogin(null); });
     return () => { cancelled = true; };
-  }, [bridge, scopedRepository, scopedWorkspaceId]);
+  }, [accountId, bridge, scopedRepository, scopedWorkspaceId]);
 
   const applyPage = useCallback((result: PullRequestPageDto) => {
     const selected = selectedPullRequest.current;

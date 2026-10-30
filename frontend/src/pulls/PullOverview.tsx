@@ -82,16 +82,16 @@ export type PullDetailUpdater = (
 /** The signed-in account, for review composers, local pending comments, and editing your own comments. */
 export function useViewer(enabled: boolean): PullRequestViewer | null {
   const bridge = usePullRequestBridge();
-  const { workspaceId, repository } = useHostingPresentation();
+  const { workspaceId, accountId, repository } = useHostingPresentation();
   const [viewer, setViewer] = useState<PullRequestViewer | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let live = true;
-    readPullRequestViewer(bridge, { workspaceId, repository })
+    readPullRequestViewer(bridge, { workspaceId, accountId, repository })
       .then(profile => { if (live) setViewer(profile); })
       .catch(() => { /* the composer just falls back to an initial */ });
     return () => { live = false; };
-  }, [bridge, enabled, repository, workspaceId]);
+  }, [accountId, bridge, enabled, repository, workspaceId]);
   return viewer;
 }
 

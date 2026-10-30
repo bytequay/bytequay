@@ -32,6 +32,8 @@ import {
   attentionSource,
   attentionSummary,
   attentionTime,
+  pullReferenceRoute,
+  pullRoute,
   type AttentionCommit,
   type AttentionDetail,
   type AttentionItem,
@@ -88,7 +90,7 @@ export function itemRelation(item: AttentionItem, match?: TeamAttentionMatch | n
 function pinTarget(item: AttentionItem): PinnedItem['target'] | null {
   if (item.task) return { kind: 'task', workspaceId: item.task.dto.workspaceId, taskId: item.task.dto.id };
   if (item.jira) return { kind: 'jira', ...jiraIssueLocation(item.jira) };
-  if (item.type === 'pr') return { kind: 'pull', repo: item.repo, number: item.number, workspaceId: item.workspaceId ?? undefined };
+  if (item.type === 'pr') return { kind: 'pull', repo: item.repo, number: item.number, ...pullReferenceRoute(item) };
   return item.workspaceId === null ? null : { kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId };
 }
 
@@ -366,15 +368,16 @@ function previewItem(item: AttentionItem, summary: AttentionSummary): ReferenceC
 function useStoredDescription(item: AttentionItem): string | null | undefined {
   const [description, setDescription] = useState<string | null>();
   const pull = item.pr !== null;
+  const { workspaceId, accountId } = item;
   useEffect(() => {
     if (!pull) return;
     let current = true;
-    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number, item.workspaceId ?? undefined))
+    Promise.resolve().then(() => window.bridge.findStoredPullRequestDescription(item.repo, item.number, pullRoute({ workspaceId, accountId })))
       .then(stored => { if (current) setDescription(stored?.body ?? null); })
       .catch(() => { if (current) setDescription(null); });
     return () => { current = false; };
     // An update may come with a newly stored description, so an open card reads again.
-  }, [pull, item.repo, item.number, item.updatedAt, item.workspaceId]);
+  }, [pull, item.repo, item.number, item.updatedAt, workspaceId, accountId]);
   return description;
 }
 

@@ -47,6 +47,9 @@ import type {
 import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto } from './pulls/code-tests/contracts';
 
 type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
+/** A workspace id, or the connected account a request no workspace lists opens through. */
+export type PullRequestRoute = string | { accountId: number };
+
 export type PullRequestDto = {
   id: number;
   repo: string;
@@ -103,6 +106,8 @@ export type PullRequestDto = {
   mentioned?: boolean;
   /** Needs attention only: the watched workspace a hosted request opens through. */
   workspaceId?: string | null;
+  /** Needs attention only: the connected account a discovered request opens through when no workspace lists it. */
+  accountId?: number | null;
 };
 
 /** An attention poll as main sends it: every row's id in order, and only the rows that changed since the last update. */
@@ -377,6 +382,7 @@ export type HostingConnectionDto = {
   instance: HostingServerDto & { id: number };
   connected: boolean;
   permissions: HostingPermissionsDto | null;
+  capabilities?: HostingCapabilitiesDto;
 };
 export type HostingRepositoryDto = {
   id: number; instanceId: number; remoteId: string; fullPath: string; webUrl: string;
@@ -1464,6 +1470,8 @@ export type AgendaTargetDto = {
   id: string | null;
   connectionId: string | null;
   cloudId: string | null;
+  /** A pull request outside any workspace: the connected account it opens through. */
+  accountId?: number | null;
 };
 
 export type AgendaAction = 'start' | 'reply' | 'review' | 'fix' | 'merge' | 'answer' | 'decide' | 'follow_up';
@@ -1685,13 +1693,13 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;
   fetchAttentionPrs: () => Promise<PullRequestDto[]>;
-  findStoredPullRequest: (repo: string, number: number, workspaceId?: string) => Promise<PullRequestDto | null>;
+  findStoredPullRequest: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDto | null>;
   /** Open issues the viewer opened anywhere on GitHub and that changed in the last thirty days. */
   fetchAuthoredIssues: () => Promise<AuthoredIssueDto[]>;
-  lookupPullRequest: (repo: string, number: number, workspaceId?: string) => Promise<PullRequestDto>;
+  lookupPullRequest: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDto>;
   /** The description a detail read cached, without reaching GitHub or marking the PR viewed; null until one did. */
-  findStoredPullRequestDescription: (repo: string, number: number, workspaceId?: string) => Promise<{ body: string | null }>;
-  setPrMonitored: (prId: number, monitored: boolean, workspaceId?: string) => Promise<PullRequestDto>;
+  findStoredPullRequestDescription: (repo: string, number: number, route?: PullRequestRoute) => Promise<{ body: string | null }>;
+  setPrMonitored: (prId: number, monitored: boolean, route?: PullRequestRoute) => Promise<PullRequestDto>;
   setPrAttentionHandled: (handled: import('./home/attention').Handled) => Promise<void>;
   /** The Needs attention marks every build and the assistant share. */
   getAttentionMarks: () => Promise<AttentionMarkDto[]>;
@@ -1699,42 +1707,42 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   changeAttentionMarks: (changes: { saved: AttentionMarkDto[]; removed: string[] }) => Promise<void>;
   setPrAttentionPinned: (keys: string[]) => Promise<void>;
   onPrAttentionUpdated: (callback: (update: PrAttentionUpdate) => void) => () => void;
-  onPrNotificationOpen: (callback: (reference: { repo: string; number: number; workspaceId?: string }) => void) => () => void;
+  onPrNotificationOpen: (callback: (reference: { repo: string; number: number; workspaceId?: string; accountId?: number }) => void) => () => void;
   syncPrs: (workspaceId?: string) => Promise<void>;
   onPullRequestsSynced: (callback: () => void) => () => void;
-  fetchPullRequestDetailByRef: (repo: string, number: number, workspaceId?: string) => Promise<PullRequestDetailDto>;
-  fetchRepoUsers: (repo: string, workspaceId?: string) => Promise<RepoUserDto[]>;
+  fetchPullRequestDetailByRef: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDetailDto>;
+  fetchRepoUsers: (repo: string, route?: PullRequestRoute) => Promise<RepoUserDto[]>;
   /** The owner's teams as owner/slug; empty for a personal account. */
-  fetchRepoTeams: (repo: string, workspaceId?: string) => Promise<string[]>;
-  fetchRepoLabels: (repo: string, workspaceId?: string) => Promise<RepoLabelDto[]>;
-  updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[], workspaceId?: string) => Promise<void>;
-  updatePrReviewer: (repo: string, number: number, login: string, requested: boolean, workspaceId?: string) => Promise<void>;
-  fetchMergeMode: (repo: string, branch: string, workspaceId?: string) => Promise<MergeModeDto>;
-  fetchPrConflicts: (repo: string, number: number, workspaceId?: string) => Promise<PullRequestConflictsDto>;
-  refreshPullRequestDetailByRef: (repo: string, number: number, checksOnly?: boolean, opened?: boolean, workspaceId?: string) => Promise<PullRequestDetailRefreshDto>;
-  refreshAllPullRequestDetailByRef: (repo: string, number: number, workspaceId?: string) => Promise<PullRequestDetailDto>;
+  fetchRepoTeams: (repo: string, route?: PullRequestRoute) => Promise<string[]>;
+  fetchRepoLabels: (repo: string, route?: PullRequestRoute) => Promise<RepoLabelDto[]>;
+  updatePrMetadata: (repo: string, number: number, assignees: string[], labels: string[], route?: PullRequestRoute) => Promise<void>;
+  updatePrReviewer: (repo: string, number: number, login: string, requested: boolean, route?: PullRequestRoute) => Promise<void>;
+  fetchMergeMode: (repo: string, branch: string, route?: PullRequestRoute) => Promise<MergeModeDto>;
+  fetchPrConflicts: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestConflictsDto>;
+  refreshPullRequestDetailByRef: (repo: string, number: number, checksOnly?: boolean, opened?: boolean, route?: PullRequestRoute) => Promise<PullRequestDetailRefreshDto>;
+  refreshAllPullRequestDetailByRef: (repo: string, number: number, route?: PullRequestRoute) => Promise<PullRequestDetailDto>;
   fetchPrDiffFiles: (
     repo: string,
     number: number,
     baseSha?: string,
     headSha?: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<DiffFileDto[]>;
   refreshPrDiffFiles: (
     repo: string,
     number: number,
     baseSha?: string,
     headSha?: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<DiffFileDto[]>;
-  fetchPrDiffCommits: (repo: string, number: number, workspaceId?: string) => Promise<DiffCommitDto[]>;
+  fetchPrDiffCommits: (repo: string, number: number, route?: PullRequestRoute) => Promise<DiffCommitDto[]>;
   refreshPrDiffFileContent: (
     repo: string,
     number: number,
     path: string,
     baseSha?: string,
     headSha?: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<DiffFileContentDto>;
   /** `key` stays the same for every try from one comment box, so a retry after an unknown outcome cannot post twice. */
   postPrReviewComment: (
@@ -1742,11 +1750,11 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     number: number,
     comment: InlineReviewCommentDto,
     key: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<PullRequestDetailDto>;
-  updatePrDescription: (repo: string, number: number, body: string, workspaceId?: string) => Promise<void>;
-  updatePrTitle: (repo: string, number: number, title: string, workspaceId?: string) => Promise<void>;
-  commentPr: (repo: string, number: number, body: string, workspaceId?: string) => Promise<PullRequestDetailDto>;
+  updatePrDescription: (repo: string, number: number, body: string, route?: PullRequestRoute) => Promise<void>;
+  updatePrTitle: (repo: string, number: number, title: string, route?: PullRequestRoute) => Promise<void>;
+  commentPr: (repo: string, number: number, body: string, route?: PullRequestRoute) => Promise<PullRequestDetailDto>;
   setPrReaction: (
     repo: string,
     number: number,
@@ -1754,18 +1762,18 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     commentId: number | null,
     content: PullReactionContent,
     viewerHasReacted: boolean | null,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<{ viewerHasReacted: boolean }>;
-  editPrComment: (repo: string, number: number, target: PullCommentTarget, commentId: number, body: string, workspaceId?: string) => Promise<PullRequestDetailDto>;
-  closePr: (repo: string, number: number, workspaceId?: string) => Promise<void>;
-  markPrReadyForReview: (repo: string, number: number, workspaceId?: string) => Promise<void>;
-  replyToReviewComment: (repo: string, number: number, commentId: number, body: string, workspaceId?: string) => Promise<void>;
-  setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean, workspaceId?: string) => Promise<void>;
-  getPrCheckLog: (repo: string, number: number, jobId: number, workspaceId?: string) => Promise<{ text: string; unavailableReason: string | null }>;
-  rerunFailedPrChecks: (repo: string, number: number, workspaceId?: string) => Promise<void>;
+  editPrComment: (repo: string, number: number, target: PullCommentTarget, commentId: number, body: string, route?: PullRequestRoute) => Promise<PullRequestDetailDto>;
+  closePr: (repo: string, number: number, route?: PullRequestRoute) => Promise<void>;
+  markPrReadyForReview: (repo: string, number: number, route?: PullRequestRoute) => Promise<void>;
+  replyToReviewComment: (repo: string, number: number, commentId: number, body: string, route?: PullRequestRoute) => Promise<void>;
+  setReviewThreadResolved: (repo: string, number: number, commentId: number, resolved: boolean, route?: PullRequestRoute) => Promise<void>;
+  getPrCheckLog: (repo: string, number: number, jobId: number, route?: PullRequestRoute) => Promise<{ text: string; unavailableReason: string | null }>;
+  rerunFailedPrChecks: (repo: string, number: number, route?: PullRequestRoute) => Promise<void>;
   betterWords: (text: string, repository?: string, workspaceId?: string) => Promise<string>;
-  mergePr: (prId: number, repo: string, number: number, strategy: string, headSha: string, workspaceId?: string) => Promise<void>;
-  removePrFromMergeQueue: (repo: string, number: number, autoMerge: boolean, workspaceId?: string) => Promise<void>;
+  mergePr: (prId: number, repo: string, number: number, strategy: string, headSha: string, route?: PullRequestRoute) => Promise<void>;
+  removePrFromMergeQueue: (repo: string, number: number, autoMerge: boolean, route?: PullRequestRoute) => Promise<void>;
 
   listHostingAccounts: () => Promise<HostingConnectionDto[]>;
   connectHostingAccount: (request: HostingServerDto & { token: string }) => Promise<HostingConnectionDto>;
@@ -2275,13 +2283,13 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   ) => Promise<() => void>;
 
   /** The user's local pending review for one pull request; it exists without any agent review. */
-  getReviewDraft: (repo: string, number: number, workspaceId?: string) => Promise<ReviewDraftDto>;
+  getReviewDraft: (repo: string, number: number, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
   addReviewDraftComment: (
     repo: string,
     number: number,
     expectedVersion: number,
     comment: { path: string; side: ReviewSide; line: number; startLine: number | null; body: string; commitId: string | null; replyToCommentId?: number | null },
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<ReviewDraftDto>;
   addReviewDraftFinding: (
     repo: string,
@@ -2289,7 +2297,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     expectedVersion: number,
     reviewId: string,
     findingId: string,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<ReviewDraftDto>;
   editReviewDraftComment: (
     repo: string,
@@ -2298,19 +2306,19 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
     itemId: string,
     body: string,
     included: boolean,
-    workspaceId?: string,
+    route?: PullRequestRoute,
   ) => Promise<ReviewDraftDto>;
-  removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) => Promise<ReviewDraftDto>;
+  removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
   /** Returns an uncertain comment to pending after the user confirms it is absent on GitHub; does not publish it. */
-  confirmReviewDraftCommentNotPosted: (repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) => Promise<ReviewDraftDto>;
+  confirmReviewDraftCommentNotPosted: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
   /** Records an uncertain comment as posted after the user finds it on GitHub; it is never sent again. */
-  confirmReviewDraftCommentPosted: (repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) => Promise<ReviewDraftDto>;
+  confirmReviewDraftCommentPosted: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
   /** Settles review text whose send has an unknown outcome: posted clears it like a successful send, not posted unlocks it. Never publishes. */
-  confirmReviewDraftReview: (repo: string, number: number, expectedVersion: number, posted: boolean, workspaceId?: string) => Promise<ReviewDraftDto>;
-  saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent, workspaceId?: string) => Promise<ReviewDraftDto>;
+  confirmReviewDraftReview: (repo: string, number: number, expectedVersion: number, posted: boolean, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
+  saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent, route?: PullRequestRoute) => Promise<ReviewDraftDto>;
   /** Publishes one previewed comment at its saved commit; the backend validates the payload first. */
-  publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string, workspaceId?: string) => Promise<void>;
-  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent, headSha: string, workspaceId?: string) => Promise<void>;
+  publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string, route?: PullRequestRoute) => Promise<void>;
+  submitReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent, headSha: string, route?: PullRequestRoute) => Promise<void>;
   /** Why each pending comment cannot be sent right now; an eligible one is absent. */
 
   /** Streams one task's events; the returned function stops the subscription. */

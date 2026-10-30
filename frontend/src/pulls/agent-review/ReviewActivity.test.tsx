@@ -52,6 +52,15 @@ describe('the unified review conversation', () => {
     expect(render({ events: events.slice(0, 4), review: reviewFixture() })).not.toContain('class="agt-todos"');
   });
 
+  it('keeps the finished plan in the conversation after the composer plan disappears', () => {
+    const html = render({ events, review: reviewFixture() });
+    expect(html).toMatch(/class="agt-turn__head" aria-expanded="false"/);
+    expect(html.match(/class="agt-plan"/g)).toHaveLength(1);
+    expect(html).toContain('Run focused tests');
+    expect(html).not.toContain('class="agt-todos"');
+    expect(html).not.toContain('lucide-loader-circle');
+  });
+
   it('enables steering for a Claude review whose provider supports it', () => {
     const review = { ...props.review, task: { ...props.review.task, laneId: 'claude-cli', laneLabel: 'Claude', steering: true } };
     const html = render({ review, composer: 'Docker started now' });

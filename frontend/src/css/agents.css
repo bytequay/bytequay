@@ -1804,6 +1804,10 @@
   font-weight: 600;
 }
 
+.agt-plan__step .bq-spinner.is-spinning {
+  animation-duration: 2s;
+}
+
 .agt-plan__step.is-completed {
   color: var(--fg-dim);
 }

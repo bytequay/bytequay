@@ -1366,13 +1366,19 @@ describe('agent task detail', () => {
     expect(remembered).not.toContain('Document every new table property.');
   });
 
-  it('folds a finished turn to its final answer and keeps the totals under the composer', () => {
+  it('folds a finished turn to its plan and final answer and keeps the totals under the composer', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, {}, {});
 
     expect(markup).not.toContain('agt-turn__sum');
     expect(markup).not.toContain('Ran 1 command, edited 1 file, and used 1 tool');
     expect(markup).toMatch(/class="agt-turn__head" aria-expanded="false"/);
     expect(markup).toContain('Turn 1 · Worked for 11s');
+    expect(markup.match(/class="agt-plan"/g)).toHaveLength(1);
+    expect(markup).toContain('Read the changed files');
+    expect(markup).toContain('Run focused tests');
+    expect(markup).toContain('Write the review');
+    expect(markup).not.toContain('class="agt-todos"');
+    expect(markup).not.toContain('lucide-loader-circle');
     expect(markup).toContain('class="agt-answer"');
     expect(markup).toContain('I found one authentication regression.');
     expect(markup).not.toContain('agt-usage__tokens');
@@ -1388,6 +1394,7 @@ describe('agent task detail', () => {
     const finished = body(state, {}, {});
     expect(finished.match(/class="agt-turn__head" aria-expanded="false"/g)).toHaveLength(2);
     expect(finished.match(/I found one authentication regression\./g)).toHaveLength(2);
+    expect(finished.match(/class="agt-plan"/g)).toHaveLength(2);
 
     const running = body({ ...state, events: [...events, ...secondTurn.slice(0, -1)] }, {}, {});
     expect(running.match(/class="agt-turn__head" aria-expanded="false"/g)).toHaveLength(1);
@@ -1396,6 +1403,7 @@ describe('agent task detail', () => {
     const reopened = body(state, {}, { second: true });
     expect(reopened.match(/class="agt-turn__head" aria-expanded="true"/g)).toHaveLength(1);
     expect(reopened).toContain('Ran 1 command, edited 1 file, and used 1 tool');
+    expect(reopened.match(/class="agt-plan"/g)).toHaveLength(2);
   });
 
   it('keeps commentary visible when a finished turn has no final answer and respects explicit folding', () => {

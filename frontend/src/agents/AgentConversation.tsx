@@ -917,8 +917,8 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
           <Chevron open={open} />
         </button>
       )}
-      {/* Folding hides the log, never a question the turn waits on: the pending card at the top skips any approval a turn holds. */}
-      {turn.blocks.filter(block => open || asking(block)).map((block) => (
+      {/* Plans summarize the folded turn; pending questions have no duplicate card above the transcript. */}
+      {turn.blocks.filter(block => open || block.kind === 'plan' || asking(block)).map((block) => (
         <div key={block.id} data-history-anchor={'anchorId' in block ? block.anchorId : block.id}><BlockView
           block={block}
           repository={repository}

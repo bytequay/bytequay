@@ -455,13 +455,15 @@ describe('generated development request presentation', () => {
     expect(ciHtml(false)).toContain('Verified current CI context');
   });
 
-  it('keeps the open approval of a folded turn and hides the rest of its log', () => {
+  it('keeps the plan and open approval of a folded turn and hides its activity', () => {
     const [turn] = projectTranscript(parseAgentEventSequence(fixture.events));
     const html = renderToStaticMarkup(<TurnView turn={turn} first={false} open={false} now={0} models={[]} durableTurns={{}}
       activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
     expect(html).toContain('aria-label="Approval: Run a command in this workspace"');
     expect(html).not.toContain('Approval: Run the test suite');
-    expect(html).not.toContain('agt-plan');
+    expect(html.match(/class="agt-plan"/g)).toHaveLength(1);
+    expect(html).toContain('Run focused tests');
+    expect(html).not.toContain('class="agt-act');
   });
 
   it('shows a review-thread reply as its card before a thread read links it to the turn', () => {

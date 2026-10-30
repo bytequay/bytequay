@@ -17,7 +17,7 @@ import { BackportButton } from './BackportRequestHint';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, Circle, FileText, GitBranch, Link2, LoaderCircle, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Chevron } from '../Chevron';
 import RepoAvatar from '../RepoAvatar';
@@ -857,8 +857,8 @@ export type TaskComposerProps = {
 
 /** The @ commands the new-task composer completes, in the order it lists them. */
 const MENTIONS = [
-  { name: 'backport', detail: 'Backport a PR through related workspaces' },
-  { name: 'artifacts', detail: 'Ask about this repository in Artifacts' },
+  { name: 'backport', detail: 'Backport a PR through related workspaces', icon: GitBranch },
+  { name: 'artifacts', detail: 'Ask about this repository in Artifacts', icon: FileText },
 ];
 
 /** What follows a leading @artifacts, or null when the draft does not start with it. */
@@ -954,7 +954,7 @@ export function TaskComposer({
           {active !== undefined && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
             {options.map(entry => <button key={entry.name} type="button" id={`${mentionId}-${entry.name}`} role="option" aria-selected={entry === active}
               tabIndex={-1} onMouseDown={event => event.preventDefault()} onClick={() => selectMention(entry.name)}>
-              <strong>@{entry.name}</strong><span>{entry.detail}</span>
+              <entry.icon size={15} strokeWidth={1.8} aria-hidden="true" />@{entry.name}<span>{entry.detail}</span>
             </button>)}
           </div>}
         </>}

@@ -1432,7 +1432,7 @@ export function ConversationComposer({
           {activeMention !== null && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Mention an agent">
             <button type="button" id={`${mentionId}-ci`} role="option" aria-selected="true" tabIndex={-1}
               onMouseDown={event => event.preventDefault()} onClick={selectCi}>
-              <strong>@ci</strong><span>CI Autofix</span>
+              @ci<span>CI Autofix</span>
             </button>
           </div>}
         </>}

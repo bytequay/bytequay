@@ -577,12 +577,12 @@
 .agt-mentions button {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
-  padding: 9px 10px;
+  padding: 7px 10px;
   border: 0;
   border-radius: 6px;
-  background: light-dark(#f0f6ff, var(--dark-blue-soft));
+  background: transparent;
   color: var(--text-1);
   font: inherit;
   font-size: 13px;
@@ -590,8 +590,21 @@
   cursor: pointer;
 }
 
-.agt-mentions button span {
+.agt-mentions button[aria-selected="true"],
+.agt-mentions button:hover {
+  background: light-dark(#f0f6ff, var(--dark-blue-soft));
+}
+
+.agt-mentions button svg {
+  flex: none;
   color: var(--fg-muted);
+}
+
+.agt-mentions button span {
+  overflow: hidden;
+  color: var(--fg-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agt-compose__hint {

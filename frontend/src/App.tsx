@@ -270,7 +270,7 @@ function AppContent() {
     });
     const stopNotification = window.bridge.onPrNotificationOpen(reference => {
       if (reference.repo.indexOf('/') < 1) return;
-      zoomReference({ kind: 'pull', repo: reference.repo, number: reference.number });
+      zoomReference({ kind: 'pull', repo: reference.repo, number: reference.number, ...(reference.workspaceId === undefined ? {} : { workspaceId: reference.workspaceId }) });
     });
     return () => { stopAttention(); stopNotification(); };
   }, []);

@@ -186,7 +186,7 @@ export function attentionCandidates(
     if (!previous || (issue.workspaceId ?? '').localeCompare(previous.workspaceId ?? '') < 0) bySource.set(key, issue);
   }
   const items = prs
-    .map(pr => pullRequestItem(pr, attentionKind(pr, viewerLogin)))
+    .map(pr => pullRequestItem(pr, attentionKind(pr, viewerLogin), pr.workspaceId ?? null))
     .concat([...bySource.values()]);
   return items.sort(compareAttention);
 }

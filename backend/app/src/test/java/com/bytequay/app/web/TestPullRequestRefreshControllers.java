@@ -157,6 +157,7 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).findCachedFailingChecks(candidates);
         verify(pullRequests).findMentioned(candidates);
         verify(pullRequests).attentionVersion();
+        verify(pullRequests).listHostedAttentionCandidates();
         verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
@@ -184,6 +185,23 @@ class TestPullRequestRefreshControllers
                 .andExpect(header().string("ETag", "\"boot-8-42\""));
 
         verify(pullRequests, times(2)).listAttentionCandidates();
+    }
+
+    @Test
+    void listsWatchedHostedRequestsBesideThePathKeyedOnesWithTheirWorkspace()
+            throws Exception
+    {
+        PullRequestService pullRequests = pullRequests();
+        when(pullRequests.attentionVersion()).thenReturn("boot-7-42");
+        when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(attentionPullRequest(1)));
+        when(pullRequests.listHostedAttentionCandidates()).thenReturn(ImmutableMap.of("gitlab-workspace", ImmutableList.of(attentionPullRequest(2))));
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
+
+        mvc.perform(get("/prs/attention"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value(1))
+                .andExpect(jsonPath("$[1].id").value(2))
+                .andExpect(jsonPath("$[1].workspaceId").value("gitlab-workspace"));
     }
 
     private static PullRequest attentionPullRequest(long id)

@@ -44,6 +44,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,6 +82,16 @@ public class PullRequestController
             return null;
         }
         List<PullRequest> candidates = workspaceId == null ? pullRequests.listAttentionCandidates() : pullRequests.listWorkspaceAttentionCandidates(workspaceId);
+        Map<Long, String> routes = new HashMap<>();
+        if (workspaceId == null) {
+            // Hosted rows open through the watched workspace that lists them.
+            List<PullRequest> rows = new ArrayList<>(candidates);
+            pullRequests.listHostedAttentionCandidates().forEach((workspace, hosted) -> hosted.forEach(row -> {
+                rows.add(row);
+                routes.put(row.id(), workspace);
+            }));
+            candidates = rows;
+        }
         Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
         Map<Long, Instant> attentionActivities = pullRequests.findCachedAttentionActivities(candidates);
@@ -89,13 +101,13 @@ public class PullRequestController
         return candidates.stream()
                 .map(pullRequest -> new AttentionPullRequest(pullRequest, avatars.get(pullRequest.id()), activities.get(pullRequest.id()),
                         attentionActivities.get(pullRequest.id()), commits.getOrDefault(pullRequest.id(), ImmutableList.of()),
-                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id())))
+                        failingChecks.getOrDefault(pullRequest.id(), ImmutableList.of()), mentioned.contains(pullRequest.id()), routes.get(pullRequest.id())))
                 .collect(toImmutableList());
     }
 
     /**
-     * A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads GitHub. Its attention activity
-     * is the latest that ends an acknowledgment.
+     * A pull request as Needs attention draws it, with the cached facts its card details: nothing here reads the provider. Its attention
+     * activity is the latest that ends an acknowledgment. A request listed through a watched workspace names that workspace.
      */
     public record AttentionPullRequest(
             @JsonUnwrapped PullRequest pullRequest,
@@ -104,7 +116,8 @@ public class PullRequestController
             Instant attentionActivityAt,
             List<PrCommitLine> commitsSinceReview,
             List<String> failingChecks,
-            boolean mentioned) {}
+            boolean mentioned,
+            String workspaceId) {}
 
     @GetMapping("/prs/stored")
     public Optional<PullRequest> stored(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam(required = false) String workspaceId)

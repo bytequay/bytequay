@@ -148,7 +148,7 @@ let repollPrNotifications = false;
 let prNotificationGeneration = 0;
 let prMonitorMutations = 0;
 let nativePrNotificationsDisabled = false;
-let pendingPrNotification: { repo: string; number: number } | null = null;
+let pendingPrNotification: { repo: string; number: number; workspaceId?: string } | null = null;
 let sentAttention: SentAttention = new Map();
 let polledAttention: { etag: string | null; prs: PullRequestDto[] } | null = null;
 const showingPrNotifications = new Map<number, Notification>();
@@ -226,7 +226,7 @@ async function pollPrNotifications(): Promise<void> {
         if (showingPrNotifications.get(pr.id) === notification) showingPrNotifications.delete(pr.id);
       };
       notification.on('click', () => {
-        pendingPrNotification = { repo: item.repo, number: item.number };
+        pendingPrNotification = { repo: item.repo, number: item.number, ...(item.workspaceId === null ? {} : { workspaceId: item.workspaceId }) };
         void ensureWindow().then(() => {
           mainWindow?.show();
           mainWindow?.focus();

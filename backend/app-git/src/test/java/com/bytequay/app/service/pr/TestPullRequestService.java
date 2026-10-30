@@ -87,6 +87,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
@@ -117,6 +118,7 @@ import org.junit.jupiter.params.provider.NullSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockMakers;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.WebServer;
@@ -176,6 +178,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 
 @ExtendWith(MockitoExtension.class)
 class TestPullRequestService
@@ -1304,6 +1307,22 @@ class TestPullRequestService
         verify(syncSettings).put(anyString(), anyString());
         verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), startsWith("is:pr author:@me updated:>="), anyInt(), eq(100));
         verifyNoInteractions(detailStore, diffStore, actions);
+    }
+
+    @Test
+    void listsHostedRequestsOnlyForWatchedWorkspacesWithHostedRows()
+    {
+        Workspace gitlab = hostedWorkspace("gitlab", GITLAB);
+        Workspace unwatched = hostedWorkspace("unwatched", GITLAB);
+        Workspace github = hostedWorkspace("github", GITHUB);
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, unwatched, github));
+        when(workspaces.isWatched("gitlab")).thenReturn(true);
+        PullRequest row = storedPullRequest();
+        when(workspaceHosting.cachedAttention("gitlab")).thenReturn(ImmutableList.of(row));
+
+        assertThat(service.listHostedAttentionCandidates()).containsExactly(Map.entry("gitlab", ImmutableList.of(row)));
+        verify(workspaceHosting, never()).cachedAttention("unwatched");
+        verify(workspaceHosting, never()).cachedAttention("github");
     }
 
     @Test
@@ -3736,6 +3755,14 @@ class TestPullRequestService
     {
         return new PrRawDetail(null, null, null, null, null, null, updatedAt, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
                 false, mergeable, mergeableState, 4, 2, 1, 0, ImmutableList.of(), "head", "feature", "main", "base");
+    }
+
+    private static Workspace hostedWorkspace(String id, HostingProvider provider)
+    {
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        lenient().when(workspace.id()).thenReturn(id);
+        when(workspace.provider()).thenReturn(provider);
+        return workspace;
     }
 
     private static Workspace branchWorkspace()

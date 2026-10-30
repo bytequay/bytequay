@@ -271,7 +271,9 @@ repository. GitHub searches, reads its notifications inbox and summarizes cards
 with GraphQL. GitLab lists the account's merge requests, reads its to-do list and
 summarizes cards from each request's detail; it has no "reviewed by" or
 "involves" filter, and its cards carry no line counts, review decision or
-author-reply check.
+author-reply check. My Work lists each watched workspace's hosted requests beside
+the path-keyed rows and opens them through that workspace; requests discovered in
+projects no workspace watches are stored but not listed until they have a route.
 
 GitHub-specific CI automation, fork/backport operations and remote epic-child
 synchronization still have native GitHub consumers. These need their own provider integration before GitLab parity can be

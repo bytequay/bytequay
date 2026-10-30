@@ -1269,6 +1269,14 @@ public class PullRequestService
         return workspaceHosting.cachedAttention(workspaceId);
     }
 
+    /** The attention query reads path-keyed rows; each watched workspace with hosted rows lists its own, by workspace. */
+    public Map<String, List<PullRequest>> listHostedAttentionCandidates()
+    {
+        return workspaces.findAll().stream()
+                .filter(workspace -> !PullRequestRows.pathKeyed(workspace.provider()) && workspaces.isWatched(workspace.id()))
+                .collect(toImmutableMap(Workspace::id, workspace -> workspaceHosting.cachedAttention(workspace.id())));
+    }
+
     public boolean hasMergeQueue(PullRequestRead route, String baseRef)
     {
         return actions.hasMergeQueue(route, baseRef);

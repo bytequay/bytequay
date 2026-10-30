@@ -101,6 +101,8 @@ export type PullRequestDto = {
   failingChecks?: string[];
   /** Needs attention only: the viewer's GitHub inbox files this PR as a direct @mention. */
   mentioned?: boolean;
+  /** Needs attention only: the watched workspace a hosted request opens through. */
+  workspaceId?: string | null;
 };
 
 /** An attention poll as main sends it: every row's id in order, and only the rows that changed since the last update. */
@@ -1697,7 +1699,7 @@ export type Bridge = LabBridge & WorkItemBridge & JiraBridge & GoogleBridge & Ar
   changeAttentionMarks: (changes: { saved: AttentionMarkDto[]; removed: string[] }) => Promise<void>;
   setPrAttentionPinned: (keys: string[]) => Promise<void>;
   onPrAttentionUpdated: (callback: (update: PrAttentionUpdate) => void) => () => void;
-  onPrNotificationOpen: (callback: (reference: { repo: string; number: number }) => void) => () => void;
+  onPrNotificationOpen: (callback: (reference: { repo: string; number: number; workspaceId?: string }) => void) => () => void;
   syncPrs: (workspaceId?: string) => Promise<void>;
   onPullRequestsSynced: (callback: () => void) => () => void;
   fetchPullRequestDetailByRef: (repo: string, number: number, workspaceId?: string) => Promise<PullRequestDetailDto>;

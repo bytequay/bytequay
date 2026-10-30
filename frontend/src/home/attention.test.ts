@@ -58,6 +58,14 @@ describe('attentionKind', () => {
     expect(withoutAvatar.authorAvatarUrl).toBeNull();
   });
 
+  it('opens a hosted request through the watched workspace that lists it', () => {
+    const [hosted] = attentionCandidates([pr({ workspaceId: 'gitlab-workspace' })]);
+    const [pathKeyed] = attentionCandidates([pr({})]);
+
+    expect(hosted.workspaceId).toBe('gitlab-workspace');
+    expect(pathKeyed.workspaceId).toBeNull();
+  });
+
   it('keeps every authored PR eligible, with truthful status reasons', () => {
     expect(attentionKind(pr({ mergeableState: 'blocked' }))).toBe('blocked');
     expect(attentionKind(pr({ reviewDecision: 'CHANGES_REQUESTED' }))).toBe('changes');

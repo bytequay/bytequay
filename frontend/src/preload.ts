@@ -87,7 +87,7 @@ const bridge: Bridge = {
     let active = true;
     const consume = () => {
       void ipcRenderer.invoke('prs:notification:pending')
-        .then((reference: { repo: string; number: number } | null) => {
+        .then((reference: { repo: string; number: number; workspaceId?: string } | null) => {
           if (active && reference !== null) callback(reference);
         })
         .catch(() => {});

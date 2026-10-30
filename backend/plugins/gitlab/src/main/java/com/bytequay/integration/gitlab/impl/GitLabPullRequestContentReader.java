@@ -47,7 +47,6 @@ import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -120,7 +119,7 @@ public final class GitLabPullRequestContentReader
     public List<GitHubPullRequestIdentity> identitiesByHead(HostingAccess access, HostingRepository repository, RepoRef sourceRepository, String branch)
     {
         Project source = get(access, "projects/" + encode(sourceRepository.fullName()), Project.class);
-        return pages(access, project(access, repository) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch), MergeRequest[].class).stream()
+        return http.pages(access, project(access, repository) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch), MergeRequest[].class).stream()
                 .filter(request -> request.sourceProjectId() != null && request.sourceProjectId() == source.id())
                 .map(request -> identity(access, repository, request.iid())).collect(toImmutableList());
     }
@@ -170,7 +169,7 @@ public final class GitLabPullRequestContentReader
 
     private List<PrTimelineEvent> discussions(HostingAccess access, String path, PrRawDetail raw, List<String> unavailable)
     {
-        List<Discussion> discussions = pages(access, path + "/discussions", Discussion[].class);
+        List<Discussion> discussions = http.pages(access, path + "/discussions", Discussion[].class);
         Map<Long, List<PrReaction>> reactions = noteReactions(access, path, discussions, unavailable);
         List<PrTimelineEvent> events = new ArrayList<>();
         String url = raw.htmlUrl();
@@ -246,9 +245,9 @@ public final class GitLabPullRequestContentReader
         String path = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId()) + "/pipelines/" + pipeline.id();
         // Pipeline access can differ from merge request access, especially for fork pipelines.
         List<String> unavailable = new ArrayList<>();
-        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> pages(access, path + "/jobs", Job[].class)).stream()
+        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/jobs", Job[].class)).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "job", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
-        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> pages(access, path + "/bridges", Job[].class)).stream()
+        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/bridges", Job[].class)).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "status", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
         if (checks.isEmpty() || !unavailable.isEmpty()) {
             // A summary has no job identity; null replaces it on the next partial refresh.
@@ -309,7 +308,7 @@ public final class GitLabPullRequestContentReader
         }
         Pipeline pipeline = current.headPipeline();
         String project = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId());
-        boolean failed = pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", Job[].class).stream()
+        boolean failed = http.pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", Job[].class).stream()
                 .anyMatch(job -> job.id() == jobId && "failed".equals(job.status()));
         if (!failed) {
             throw new HostingFailure(REVISION_CONFLICT, "This failed job is no longer part of the current request checks");
@@ -368,7 +367,7 @@ public final class GitLabPullRequestContentReader
 
     private List<DiffCommit> commits(HostingAccess access, String path)
     {
-        return pages(access, path + "/commits", Commit[].class).stream().map(GitLabPullRequestContentReader::commit).collect(toImmutableList());
+        return http.pages(access, path + "/commits", Commit[].class).stream().map(GitLabPullRequestContentReader::commit).collect(toImmutableList());
     }
 
     private static DiffCommit commit(Commit commit)
@@ -378,7 +377,7 @@ public final class GitLabPullRequestContentReader
 
     private List<PrReaction> reactions(HostingAccess access, String path)
     {
-        Map<String, Long> counts = pages(access, path + "/award_emoji", Award[].class).stream().collect(groupingBy(Award::name, counting()));
+        Map<String, Long> counts = http.pages(access, path + "/award_emoji", Award[].class).stream().collect(groupingBy(Award::name, counting()));
         return counts.entrySet().stream().map(entry -> new PrReaction(switch (entry.getKey()) {
             case "thumbsup" -> "+1";
             case "thumbsdown" -> "-1";
@@ -412,18 +411,6 @@ public final class GitLabPullRequestContentReader
     private <T> T get(HostingAccess access, String path, Class<T> type)
     {
         return http.get(access, path, Optional.empty(), type).body().orElseThrow();
-    }
-
-    private <T> List<T> pages(HostingAccess access, String path, Class<T[]> type)
-    {
-        ImmutableList.Builder<T> items = ImmutableList.builder();
-        for (int page = 1; ; page++) {
-            GitLabHttpClient.Response<T[]> response = http.get(access, path + (path.contains("?") ? "&" : "?") + "per_page=100&page=" + page, Optional.empty(), type);
-            items.addAll(Arrays.asList(response.body().orElseThrow()));
-            if (!response.hasNext()) {
-                return items.build();
-            }
-        }
     }
 
     private static String request(HostingAccess access, HostingRepository repository, int number)

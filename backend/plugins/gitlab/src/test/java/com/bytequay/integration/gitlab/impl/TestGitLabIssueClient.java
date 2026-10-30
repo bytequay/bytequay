@@ -105,7 +105,7 @@ class TestGitLabIssueClient
                 """.formatted(base, base), false));
         replies.put("GET /gitlab/api/v4/projects/42/issues/7/notes?sort=asc&order_by=created_at&per_page=100&page=1", new Reply(200, "[" + note() + "]", false));
         for (String events : ImmutableList.of("resource_state_events", "resource_label_events", "resource_milestone_events")) {
-            replies.put("GET /gitlab/api/v4/projects/42/issues/7/" + events + "?&per_page=100&page=1", new Reply(200, "[]", false));
+            replies.put("GET /gitlab/api/v4/projects/42/issues/7/" + events + "?per_page=100&page=1", new Reply(200, "[]", false));
         }
 
         var issue = client.find(access, repository, 7).orElseThrow();
@@ -184,13 +184,13 @@ class TestGitLabIssueClient
     void deletedLabelsDoNotHideNotesOrOtherResourceEvents()
     {
         replies.put("GET /gitlab/api/v4/projects/42/issues/7/notes?sort=asc&order_by=created_at&per_page=100&page=1", new Reply(200, "[" + note() + "]", false));
-        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_state_events?&per_page=100&page=1", new Reply(200,
+        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_state_events?per_page=100&page=1", new Reply(200,
                 "[{\"id\":9,\"state\":\"closed\",\"created_at\":\"2026-10-01T00:01:00Z\",\"user\":{\"username\":\"alice\"}}]", false));
-        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_label_events?&per_page=100&page=1", new Reply(200, """
+        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_label_events?per_page=100&page=1", new Reply(200, """
                 [{"id":10,"action":"add","label":null,"created_at":"2026-10-01T00:02:00Z","user":{"username":"alice"}},
                 {"id":11,"action":"add","label":{"name":"bug","color":"#ff0000"},"created_at":"2026-10-01T00:03:00Z","user":{"username":"alice"}}]
                 """, false));
-        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_milestone_events?&per_page=100&page=1", new Reply(200, "[]", false));
+        replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_milestone_events?per_page=100&page=1", new Reply(200, "[]", false));
 
         var detail = client.detail(access, repository, 7);
 
@@ -223,7 +223,7 @@ class TestGitLabIssueClient
         replies.put("GET /gitlab/api/v4/projects/42", new Reply(200,
                 "{\"id\":42,\"description\":null,\"star_count\":3,\"tag_list\":[\"backend\"],\"topics\":[\"backend\"]}", false));
         replies.put("GET /gitlab/api/v4/projects/42/languages", new Reply(200, "{\"Java\":80.5,\"Shell\":19.5}", false));
-        replies.put("GET /gitlab/api/v4/projects/42/users?&per_page=100&page=1", new Reply(200,
+        replies.put("GET /gitlab/api/v4/projects/42/users?per_page=100&page=1", new Reply(200,
                 "[{\"id\":1,\"username\":\"alice\",\"name\":\"Alice\",\"state\":\"active\",\"avatar_url\":null,\"web_url\":\"" + base + "/alice\"}]", false));
 
         var overview = client.overview(access, repository);
@@ -240,7 +240,7 @@ class TestGitLabIssueClient
     @Test
     void fetchesLabelsFromTheConfiguredServerPrefixAndNormalizesColors()
     {
-        replies.put("GET /gitlab/api/v4/projects/42/labels?&per_page=100&page=1",
+        replies.put("GET /gitlab/api/v4/projects/42/labels?per_page=100&page=1",
                 new Reply(200, "[{\"id\":1,\"name\":\"bug\",\"color\":\"#aabbcc\"}]", false));
         assertThat(client.repositoryLabels(access, repository)).singleElement().satisfies(label -> {
             assertThat(label.name()).isEqualTo("bug");

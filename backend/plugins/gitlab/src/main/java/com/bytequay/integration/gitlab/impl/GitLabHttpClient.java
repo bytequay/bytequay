@@ -24,6 +24,7 @@ import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.cfg.CoercionAction;
 import com.fasterxml.jackson.databind.cfg.CoercionInputShape;
 import com.fasterxml.jackson.databind.type.LogicalType;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
@@ -35,6 +36,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -100,6 +102,18 @@ final class GitLabHttpClient
         requireNonNull(access, "access is null");
         return request(access, "GET", URI.create(access.server().webBaseUrl() + "/oauth/token/info"), "token permission inspection",
                 "<web>/oauth/token/info", Optional.empty(), Optional.empty(), responseType);
+    }
+
+    <T> List<T> pages(HostingAccess access, String path, Class<T[]> type)
+    {
+        ImmutableList.Builder<T> items = ImmutableList.builder();
+        for (int page = 1; ; page++) {
+            Response<T[]> response = get(access, path + (path.contains("?") ? "&" : "?") + "per_page=100&page=" + page, Optional.empty(), type);
+            items.add(response.body().orElseThrow());
+            if (!response.hasNext()) {
+                return items.build();
+            }
+        }
     }
 
     String getText(HostingAccess access, String path)

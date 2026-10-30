@@ -123,7 +123,7 @@ public final class GitLabPullRequestWriter
             case "laugh" -> "smile";
             default -> content;
         };
-        Optional<Award> existing = pages(access, path, Award[].class).stream().filter(award -> award.name().equals(emoji) && award.user().id() == viewer.id()).findFirst();
+        Optional<Award> existing = http.pages(access, path, Award[].class).stream().filter(award -> award.name().equals(emoji) && award.user().id() == viewer.id()).findFirst();
         if (existing.isPresent()) {
             http.delete(access, path + "/" + existing.orElseThrow().id(), Void.class);
             return false;
@@ -249,7 +249,7 @@ public final class GitLabPullRequestWriter
         }
         Pipeline pipeline = current.headPipeline();
         String project = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId());
-        List<Job> failed = pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", Job[].class).stream()
+        List<Job> failed = http.pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", Job[].class).stream()
                 .filter(job -> "failed".equals(job.status())).collect(toImmutableList());
         if (failed.isEmpty()) {
             throw new HostingFailure(REVISION_CONFLICT, "No failed jobs are available to rerun");
@@ -335,7 +335,7 @@ public final class GitLabPullRequestWriter
 
     private Discussion discussion(HostingAccess access, HostingRepository repository, int number, long commentId)
     {
-        return pages(access, request(access, repository, number) + "/discussions", Discussion[].class).stream()
+        return http.pages(access, request(access, repository, number) + "/discussions", Discussion[].class).stream()
                 .filter(discussion -> discussion.notes().stream().anyMatch(note -> note.id() == commentId)).findFirst()
                 .orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "The selected discussion no longer exists"));
     }
@@ -349,18 +349,6 @@ public final class GitLabPullRequestWriter
     private <T> T get(HostingAccess access, String path, Class<T> type)
     {
         return http.get(access, path, Optional.empty(), type).body().orElseThrow();
-    }
-
-    private <T> List<T> pages(HostingAccess access, String path, Class<T[]> type)
-    {
-        ImmutableList.Builder<T> items = ImmutableList.builder();
-        for (int page = 1; ; page++) {
-            GitLabHttpClient.Response<T[]> response = http.get(access, path + "?per_page=100&page=" + page, Optional.empty(), type);
-            items.addAll(Arrays.asList(response.body().orElseThrow()));
-            if (!response.hasNext()) {
-                return items.build();
-            }
-        }
     }
 
     private static void checkHead(MergeRequest current, String sha)

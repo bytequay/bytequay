@@ -117,13 +117,13 @@ public final class GitLabIssueClient
         GitLabIssueResponse issue = read(access, repository, number);
         String path = issuePath(access, repository, number);
         ImmutableList.Builder<PrTimelineEvent> events = ImmutableList.builder();
-        for (Note note : all(access, path + "/notes?sort=asc&order_by=created_at", Note[].class)) {
+        for (Note note : http.pages(access, path + "/notes?sort=asc&order_by=created_at", Note[].class)) {
             events.add(note.event(issue.webUrl()));
         }
-        for (ResourceEvent event : all(access, path + "/resource_state_events?", ResourceEvent[].class)) {
+        for (ResourceEvent event : http.pages(access, path + "/resource_state_events", ResourceEvent[].class)) {
             events.add(event.event("closed".equals(event.state()) ? "closed" : "reopened", PrTimelinePayload.empty()));
         }
-        for (ResourceEvent event : all(access, path + "/resource_label_events?", ResourceEvent[].class)) {
+        for (ResourceEvent event : http.pages(access, path + "/resource_label_events", ResourceEvent[].class)) {
             // GitLab retains these events after the label has been deleted.
             if (event.label() == null) {
                 continue;
@@ -131,7 +131,7 @@ public final class GitLabIssueClient
             events.add(event.event("add".equals(event.action()) ? "labeled" : "unlabeled",
                     PrTimelinePayload.builder().label(event.label().name()).labelColor(color(event.label().color())).build()));
         }
-        for (ResourceEvent event : all(access, path + "/resource_milestone_events?", ResourceEvent[].class)) {
+        for (ResourceEvent event : http.pages(access, path + "/resource_milestone_events", ResourceEvent[].class)) {
             events.add(event.event("add".equals(event.action()) ? "milestoned" : "demilestoned",
                     PrTimelinePayload.builder().milestoneTitle(event.milestone().title()).build()));
         }
@@ -222,7 +222,7 @@ public final class GitLabIssueClient
     public List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository)
     {
         path(access, repository);
-        return all(access, "projects/" + encode(repository.remoteId()) + "/users?", GitLabIssueUser[].class).stream()
+        return http.pages(access, "projects/" + encode(repository.remoteId()) + "/users", GitLabIssueUser[].class).stream()
                 .map(user -> new HostingRepositoryUser(user.id(), user.username(), user.avatarUrl(), user.bot())).collect(toImmutableList());
     }
 
@@ -238,20 +238,8 @@ public final class GitLabIssueClient
     public List<RepositoryLabel> repositoryLabels(HostingAccess access, HostingRepository repository)
     {
         path(access, repository);
-        return all(access, "projects/" + encode(repository.remoteId()) + "/labels?", Label[].class).stream()
+        return http.pages(access, "projects/" + encode(repository.remoteId()) + "/labels", Label[].class).stream()
                 .map(label -> new RepositoryLabel(label.id(), label.name(), color(label.color()))).collect(toImmutableList());
-    }
-
-    private <T> List<T> all(HostingAccess access, String path, Class<T[]> type)
-    {
-        ImmutableList.Builder<T> result = ImmutableList.builder();
-        for (int page = 1; ; page++) {
-            var response = http.get(access, path + "&per_page=100&page=" + page, Optional.empty(), type);
-            result.add(response.body().orElseThrow());
-            if (!response.hasNext()) {
-                return result.build();
-            }
-        }
     }
 
     private GitLabIssueResponse read(HostingAccess access, HostingRepository repository, int number)

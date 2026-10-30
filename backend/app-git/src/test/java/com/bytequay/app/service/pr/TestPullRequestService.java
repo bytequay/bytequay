@@ -92,6 +92,7 @@ import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.ReviewVerdict;
 import com.bytequay.core.hosting.SubmittedReview;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
@@ -2361,7 +2362,7 @@ class TestPullRequestService
         var reply = new InlineReviewComment("", "/close", 0, null, null, null, null, OptionalLong.of(10));
         List<InlineReviewComment> comments = "reply-review".equals(kind) ? ImmutableList.of(reply) : ImmutableList.of();
         if ("review".equals(kind) || "reply-review".equals(kind)) {
-            when(writer.submitReview(any(), eq(7), eq("COMMENT"), eq("/close"), eq(comments), eq("head")))
+            when(writer.submitReview(any(), eq(7), eq(ReviewVerdict.COMMENT), eq("/close"), eq(comments), eq("head")))
                     .thenReturn(new SubmittedReview(Optional.empty(), ImmutableList.of(result)));
         }
         else if ("inline".equals(kind)) {
@@ -2407,7 +2408,7 @@ class TestPullRequestService
         var comment = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
         if (review) {
-            when(writer.submitReview(any(), eq(7), eq("COMMENT"), eq(""), eq(ImmutableList.of(comment)), eq("head")))
+            when(writer.submitReview(any(), eq(7), eq(ReviewVerdict.COMMENT), eq(""), eq(ImmutableList.of(comment)), eq("head")))
                     .thenReturn(new SubmittedReview(Optional.empty(), ImmutableList.of(result)));
         }
         else {
@@ -2875,7 +2876,7 @@ class TestPullRequestService
         StoredPrDetail cached = new StoredPrDetail(raw(), ImmutableList.of(previous), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(cached));
-        when(writer.submitReview(any(), eq(7), anyString(), eq(body), eq(ImmutableList.of()), eq("head")))
+        when(writer.submitReview(any(), eq(7), any(), eq(body), eq(ImmutableList.of()), eq("head")))
                 .thenReturn(new SubmittedReview(approved ? Optional.of(approvedReview) : Optional.empty(), events));
 
         var posted = service.submitReview("owner/repo", 7, 12L, approved ? "APPROVE" : "COMMENT", body, ImmutableList.of(), "head");
@@ -3169,6 +3170,16 @@ class TestPullRequestService
         verify(detailStore).findCredentialScope(12L);
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, gitHub, actions);
+    }
+
+    @Test
+    void rejectsAnUnknownMergeStrategyInsteadOfRebasing()
+    {
+        assertThatThrownBy(() -> service.mergePullRequest("owner/repo", 7, 12L, "fast-forward", "displayed-head"))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST))
+                .hasMessageContaining("unsupported merge strategy");
+
+        verifyNoInteractions(writes);
     }
 
     @ParameterizedTest

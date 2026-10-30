@@ -31,9 +31,10 @@ public interface PullRequestWriter
 
     void replyToReviewComment(HostingTarget target, int number, long commentId, String body);
 
-    void editComment(HostingTarget target, int number, String commentKind, long commentId, String body);
+    void editComment(HostingTarget target, int number, CommentTarget comment, long commentId, String body);
 
-    boolean toggleReaction(HostingTarget target, int number, String commentKind, Long commentId, String content, Boolean viewerHasReacted);
+    /** The comment ID is absent when the reaction is on the request itself. */
+    boolean toggleReaction(HostingTarget target, int number, CommentTarget comment, Long commentId, Reaction reaction, Boolean viewerHasReacted);
 
     void updateTitle(HostingTarget target, int number, String title);
 
@@ -49,9 +50,9 @@ public interface PullRequestWriter
 
     void resolveThread(HostingTarget target, int number, long commentId, boolean resolved);
 
-    SubmittedReview submitReview(HostingTarget target, int number, String event, String body, List<InlineReviewComment> comments, String commitId);
+    SubmittedReview submitReview(HostingTarget target, int number, ReviewVerdict verdict, String body, List<InlineReviewComment> comments, String commitId);
 
-    MergeResult merge(HostingTarget target, int number, String strategy, String headSha);
+    MergeResult merge(HostingTarget target, int number, MergeStrategy strategy, String headSha);
 
     void rerunFailedChecks(HostingTarget target, int number);
 

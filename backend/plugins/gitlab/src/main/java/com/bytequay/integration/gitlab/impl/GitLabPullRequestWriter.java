@@ -20,12 +20,16 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineComment;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
+import com.bytequay.core.hosting.CommentTarget;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
+import com.bytequay.core.hosting.MergeStrategy;
 import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.Reaction;
+import com.bytequay.core.hosting.ReviewVerdict;
 import com.bytequay.core.hosting.SubmittedReview;
 import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.DiffRefs;
 import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.Pipeline;
@@ -104,18 +108,19 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public void editComment(HostingTarget target, int number, String commentKind, long commentId, String body)
+    public void editComment(HostingTarget target, int number, CommentTarget comment, long commentId, String body)
     {
-        checkArgument("comment".equals(commentKind) || "review_comment".equals(commentKind) || "issue_comment".equals(commentKind), "GitLab can edit note comments only");
+        checkArgument(comment == CommentTarget.ISSUE_COMMENT || comment == CommentTarget.REVIEW_COMMENT, "GitLab can edit note comments only");
         http.put(target.access(), mergeRequestPath(target, number) + "/notes/" + commentId, new Body(body), Void.class);
     }
 
     @Override
-    public boolean toggleReaction(HostingTarget target, int number, String commentKind, Long commentId, String content, Boolean viewerHasReacted)
+    public boolean toggleReaction(HostingTarget target, int number, CommentTarget comment, Long commentId, Reaction reaction, Boolean viewerHasReacted)
     {
+        checkArgument(comment != CommentTarget.REVIEW, "GitLab has no review bodies to react to");
         String path = mergeRequestPath(target, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
         GitLabUser viewer = get(target.access(), "user", GitLabUser.class);
-        String emoji = GitLabAward.awardName(content);
+        String emoji = GitLabAward.awardName(reaction.value());
         List<GitLabAward> awards = http.pages(target.access(), path, GitLabAward[].class);
         Optional<GitLabAward> existing = mapped("award", () -> awards.stream()
                 .filter(award -> emoji.equals(award.name()) && viewer.id().equals(award.user().id())).findFirst());
@@ -182,15 +187,15 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public SubmittedReview submitReview(HostingTarget target, int number, String event, String body,
+    public SubmittedReview submitReview(HostingTarget target, int number, ReviewVerdict verdict, String body,
             List<InlineReviewComment> comments, String commitId)
     {
-        checkArgument("APPROVE".equals(event) || "COMMENT".equals(event), "GitLab request-changes reviews are not supported by this connection");
+        checkArgument(verdict != ReviewVerdict.REQUEST_CHANGES, "GitLab request-changes reviews are not supported by this connection");
         comments.forEach(GitLabPullRequestWriter::validateComment);
         String path = mergeRequestPath(target, number);
         GitLabMergeRequestResponse current = get(target.access(), path, GitLabMergeRequestResponse.class);
         checkHead(current, commitId);
-        Optional<GitLabUser> viewer = "APPROVE".equals(event) ? Optional.of(get(target.access(), "user", GitLabUser.class)) : Optional.empty();
+        Optional<GitLabUser> viewer = verdict == ReviewVerdict.APPROVE ? Optional.of(get(target.access(), "user", GitLabUser.class)) : Optional.empty();
         List<GitLabFileDiff> files = comments.stream().anyMatch(comment -> comment.replyToCommentId().isEmpty())
                 ? diffs.read(target.access(), path) : ImmutableList.of();
         List<PrTimelineEvent> events = new ArrayList<>();
@@ -211,7 +216,7 @@ public final class GitLabPullRequestWriter
                 events.add(comment(target, number, body));
                 published++;
             }
-            if ("APPROVE".equals(event)) {
+            if (verdict == ReviewVerdict.APPROVE) {
                 http.post(target.access(), path + "/approve", new Sha(commitId), Void.class);
             }
         }
@@ -227,11 +232,14 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public MergeResult merge(HostingTarget target, int number, String strategy, String headSha)
+    public MergeResult merge(HostingTarget target, int number, MergeStrategy strategy, String headSha)
     {
-        checkArgument("default".equals(strategy) || "merge".equals(strategy) || "squash".equals(strategy),
-                "GitLab's merge method is configured by the project; rebase merge is not a per-request choice");
-        Object command = "default".equals(strategy) ? new Sha(headSha) : new Merge(headSha, "squash".equals(strategy));
+        Object command = switch (strategy) {
+            case DEFAULT -> new Sha(headSha);
+            case MERGE -> new Merge(headSha, false);
+            case SQUASH -> new Merge(headSha, true);
+            case REBASE, WHEN_READY, QUEUE -> throw new IllegalArgumentException("GitLab's merge method is configured by the project; rebase merge is not a per-request choice");
+        };
         var result = http.put(target.access(), mergeRequestPath(target, number) + "/merge", command, GitLabMergeRequestResponse.class).body().orElseThrow();
         return new MergeResult(result.mergeCommitSha(), "merged".equals(result.state()), "merged".equals(result.state()) ? "Merged" : "GitLab has not merged this request");
     }

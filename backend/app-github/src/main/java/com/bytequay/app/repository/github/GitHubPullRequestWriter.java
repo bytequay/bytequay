@@ -25,8 +25,12 @@ import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.CommentTarget;
 import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.MergeStrategy;
 import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.Reaction;
+import com.bytequay.core.hosting.ReviewVerdict;
 import com.bytequay.core.hosting.SubmittedReview;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -130,35 +134,39 @@ public class GitHubPullRequestWriter
     }
 
     @Override
-    public void editComment(HostingTarget target, int number, String commentKind, long commentId, String body)
+    public void editComment(HostingTarget target, int number, CommentTarget comment, long commentId, String body)
     {
         PullRequestRef ref = ref(target, number);
-        switch (commentKind) {
-            case "issue_comment" -> writes.updateIssueComment(target.access().token(), ref, commentId, body);
-            case "review_comment" -> writes.updateReviewComment(target.access().token(), ref, commentId, body);
-            case "review" -> writes.updateReviewBody(target.access().token(), ref, commentId, body);
-            default -> throw new IllegalArgumentException("Unsupported comment target");
+        switch (comment) {
+            case ISSUE_COMMENT -> writes.updateIssueComment(target.access().token(), ref, commentId, body);
+            case REVIEW_COMMENT -> writes.updateReviewComment(target.access().token(), ref, commentId, body);
+            case REVIEW -> writes.updateReviewBody(target.access().token(), ref, commentId, body);
+            case PULL_REQUEST -> throw new IllegalArgumentException("Unsupported comment target");
         }
     }
 
     @Override
-    public boolean toggleReaction(HostingTarget target, int number, String commentKind, Long commentId, String content, Boolean viewerHasReacted)
+    public boolean toggleReaction(HostingTarget target, int number, CommentTarget comment, Long commentId, Reaction reaction, Boolean viewerHasReacted)
     {
         PullRequestRef ref = ref(target, number);
-        return switch (commentKind) {
-            case "pull_request" -> writes.togglePullRequestReaction(target.access().token(), ref, content, viewerHasReacted);
-            case "issue_comment" -> writes.toggleIssueCommentReaction(target.access().token(), ref, commentId, content, viewerHasReacted);
-            case "review_comment" -> writes.toggleReviewCommentReaction(target.access().token(), ref, commentId, content, viewerHasReacted);
-            default -> throw new IllegalArgumentException("Unsupported reaction target");
+        // The app spells reactions as GitHub's API does.
+        String content = reaction.value();
+        return switch (comment) {
+            case PULL_REQUEST -> writes.togglePullRequestReaction(target.access().token(), ref, content, viewerHasReacted);
+            case ISSUE_COMMENT -> writes.toggleIssueCommentReaction(target.access().token(), ref, commentId, content, viewerHasReacted);
+            case REVIEW_COMMENT -> writes.toggleReviewCommentReaction(target.access().token(), ref, commentId, content, viewerHasReacted);
+            case REVIEW -> throw new IllegalArgumentException("Unsupported reaction target");
         };
     }
 
     @Override
-    public SubmittedReview submitReview(HostingTarget target, int number, String event, String body,
+    public SubmittedReview submitReview(HostingTarget target, int number, ReviewVerdict verdict, String body,
             List<InlineReviewComment> comments, String commitId)
     {
         PullRequestRef ref = ref(target, number);
         String token = target.access().token();
+        // GitHub's review events carry the verdict names.
+        String event = verdict.name();
         Map<Long, String> replies = new LinkedHashMap<>();
         comments.stream().map(InlineReviewComment::replyToCommentId).filter(OptionalLong::isPresent).mapToLong(OptionalLong::getAsLong).distinct()
                 .forEach(id -> replies.put(id, reads.findReviewThreadId(token, ref, id)));
@@ -177,20 +185,20 @@ public class GitHubPullRequestWriter
     }
 
     @Override
-    public MergeResult merge(HostingTarget target, int number, String strategy, String headSha)
+    public MergeResult merge(HostingTarget target, int number, MergeStrategy strategy, String headSha)
     {
         PullRequestRef ref = ref(target, number);
         String token = target.access().token();
-        if ("when-ready".equalsIgnoreCase(strategy)) {
+        if (strategy == MergeStrategy.WHEN_READY) {
             return writes.enablePullRequestAutoMerge(token, node(target, number), headSha);
         }
-        if ("queue".equalsIgnoreCase(strategy)) {
+        if (strategy == MergeStrategy.QUEUE) {
             return writes.enqueuePullRequest(token, node(target, number), headSha);
         }
-        String requested = strategy == null || "default".equalsIgnoreCase(strategy) ? "rebase" : strategy.toLowerCase(Locale.ROOT);
-        String method = switch (requested) {
-            case "squash" -> "squash";
-            case "merge" -> "merge";
+        // The default GitHub merge is a rebase.
+        String method = switch (strategy) {
+            case SQUASH -> "squash";
+            case MERGE -> "merge";
             default -> "rebase";
         };
         try {

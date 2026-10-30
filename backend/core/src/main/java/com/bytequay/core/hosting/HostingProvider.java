@@ -15,6 +15,19 @@ package com.bytequay.core.hosting;
 
 public enum HostingProvider
 {
-    GITHUB,
-    GITLAB
+    GITHUB(true),
+    GITLAB(false);
+
+    private final boolean pathsIgnoreCase;
+
+    HostingProvider(boolean pathsIgnoreCase)
+    {
+        this.pathsIgnoreCase = pathsIgnoreCase;
+    }
+
+    /** Whether two repository paths that differ only in case name the same repository on this provider. */
+    public boolean pathsIgnoreCase()
+    {
+        return pathsIgnoreCase;
+    }
 }

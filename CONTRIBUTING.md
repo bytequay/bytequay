@@ -276,27 +276,19 @@ their scripts. Use GitHub Releases for published release notes.
 Developer runbooks: [agent shell](scripts/agent-e2e.md) and
 [CI Autofix shell](scripts/ci-autofix.md).
 
-Backend:
+Verify the touched modules or packages and their affected consumers during
+iteration and before committing or handing off. Scoped checks are sufficient
+to finish a contribution; a full backend or frontend run is not a default
+completion requirement. Documentation-only changes need no application build
+or test run.
+
+For backend changes, install the reactor without tests once, then verify the
+changed modules and their downstream dependents. List several changed modules
+with commas, and add `-T 2` so independent modules, such as `app-review` and
+`app-delivery`, build and test side by side:
 
 ```bash
 cd backend
-mvn verify
-```
-
-To work on one backend integration and its shared dependencies without building
-the executable application:
-
-```bash
-mvn -pl :integration-google -am verify
-mvn -pl :integration-jira -am verify
-```
-
-To test only what a change can break, install the reactor without tests once,
-then run the changed modules and the modules that depend on them. List several
-changed modules with commas, and add `-T 2` so independent modules, such as
-`app-review` and `app-delivery`, build and test side by side:
-
-```bash
 mvn -q install -DskipTests -Dcheckstyle.skip -Dlicense.skip
 mvn -T 2 -pl :app-review,:agent-cli -amd verify
 ```
@@ -304,14 +296,29 @@ mvn -T 2 -pl :app-review,:agent-cli -amd verify
 While working inside one module, `mvn -pl :app-git verify` runs only its own
 tests. The install step puts this checkout's modules in the local Maven
 repository; without it, `-pl` tests against whatever another checkout installed
-last. Run the full `mvn -T 2 verify` before committing.
+last. Refresh the install after switching checkouts or changing dependencies
+outside the selected modules. The install prepares dependencies; the scoped
+`verify` runs the required checks without the skip flags.
+
+To work on one backend integration and its shared dependencies without building
+the executable application, use `-am` instead of `-amd`:
+
+```bash
+mvn -T 2 -pl :integration-google -am verify
+mvn -T 2 -pl :integration-jira -am verify
+```
+
+These commands check upstream dependencies, not downstream consumers. Include
+the downstream checks above before finishing a change to an integration. Run
+the full `mvn -T 2 verify` only when shared build or dependency changes affect
+the whole reactor, or the affected modules cannot be bounded.
 
 The full backend verification checks license headers, Checkstyle, the retained
 unit tests, and a full Spring context boot. Hibernate creates or updates the current SQLite
 schema from the retained JPA entities. Since the app has no released user-data
 migration contract yet, there is no migration history to maintain.
 
-Frontend:
+Frontend host checks:
 
 ```bash
 cd frontend
@@ -321,8 +328,14 @@ npm test
 npm run package
 ```
 
+For a change with bounded impact, run lint, type checking, and the relevant
+tests with `npm test -- <test-path>`. Run `npm run package` when the change
+affects application assembly, packaging, or bundled runtime behavior. Use the
+full host test suite when the affected behavior cannot be bounded.
+
 Desktop integration packages have their own build, type-check, lint, and test
-targets. From `frontend/`, for example:
+targets. For a change confined to an integration, these workspace checks are
+sufficient. From `frontend/`, for example:
 
 ```bash
 npm run build --workspace @bytequay/google
@@ -334,7 +347,8 @@ npm test --workspace @bytequay/google
 Use `@bytequay/jira` or `@bytequay/lab` for the other integrations. Application
 builds assemble the workspace packages before bundling. Keep application wiring
 and cross-feature browser tests in the host, and provider behavior tests in the
-owning package. Run the complete checks above before delivering a change.
+owning package. Include checks for affected consuming packages and relevant
+host behavior when shared UI, exported contracts, or application wiring change.
 
 Vitest runs one worker for every two cores, at most four, because browser
 suites each build a bundle and launch Electron. This keeps browser startup and

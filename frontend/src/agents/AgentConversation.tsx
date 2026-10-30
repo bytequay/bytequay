@@ -45,6 +45,7 @@ import Composer, { ComposerAttachments } from '../Composer';
 import ComposerModelControls from './ComposerModelControls';
 import { IssueRequestCard } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
+import { WorkingLabel } from './RunningTasks';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
 import { agentDisplayName,activitySummary,formatDuration,itemKey,planChip,planSummary,projectTranscript,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
@@ -789,6 +790,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   const waiting = turn.blocks.some(asking);
   const running = turn.startedAt !== null && turn.endedAt === null;
   const live = running && !waiting;
+  const label = turnLabel(turn, now, waiting);
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const opening = turn.users[0];
@@ -912,8 +914,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
       ); })}
       {hasLog && (
         <button type="button" className="agt-turn__head" aria-expanded={open} onClick={onToggle} title="Show or hide this turn's log">
-          {live && <Spinner />}
-          <span className="agt-turn__label">{turnLabel(turn, now, waiting)}</span>
+          {live ? <WorkingLabel className="agt-turn__label" text={label} /> : <span className="agt-turn__label">{label}</span>}
           <Chevron open={open} />
         </button>
       )}

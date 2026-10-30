@@ -283,6 +283,7 @@ describe('historical activity presentation', () => {
     expect(html).not.toContain('>Working<');
     expect(html).not.toContain('agt-spin');
     expect(html).not.toContain('agt-cursor');
+    expect(html).not.toContain('app-sidebar__shimmer');
     expect(html).not.toContain('exit 0');
   });
 
@@ -300,6 +301,7 @@ describe('historical activity presentation', () => {
     expect(html).toContain('agt-act is-running');
     expect(html).toContain('agt-icon is-running');
     expect(html).toContain('agt-cursor');
+    expect(html).toContain('app-sidebar__shimmer');
     expect(html).toContain('>Running mvn verify<');
   });
 });

@@ -67,8 +67,8 @@ export function pinIsWorking(target: PinnedItem['target'], tasks: RunningTask[])
 }
 
 /** A working name carries a sweep of light; the copy under the moving window is what lights up. */
-export function WorkingLabel({ text }: { text: string }) {
-  return <span className="app-sidebar__label is-working">
+export function WorkingLabel({ text, className = '' }: { text: string; className?: string }) {
+  return <span className={`app-sidebar__label is-working${className === '' ? '' : ` ${className}`}`}>
     {text}<span className="app-sidebar__shimmer" aria-hidden="true"><span>{text}</span></span>
   </span>;
 }

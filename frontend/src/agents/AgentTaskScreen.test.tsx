@@ -1366,6 +1366,21 @@ describe('agent task detail', () => {
     expect(remembered).not.toContain('Document every new table property.');
   });
 
+  it('lights the turn label only while working, without a header spinner', () => {
+    const header = (shown: AgentEventEnvelope[]) => body({ task: task('t-1', 'OPEN', 'x'), events: shown, connection: 'open' })
+      .match(/<button[^>]*class="agt-turn__head"[^]*?<\/button>/)?.[0];
+    const running = header(events.slice(0, 2));
+    expect(running).toContain('Working for');
+    expect(running).toContain('class="app-sidebar__shimmer" aria-hidden="true"');
+    expect(running).not.toContain('bq-spinner');
+    const waiting = header(events.slice(0, -1));
+    expect(waiting).toContain('Waiting on you');
+    expect(waiting).not.toContain('app-sidebar__shimmer');
+    const finished = header(events);
+    expect(finished).toContain('Worked for');
+    expect(finished).not.toContain('app-sidebar__shimmer');
+  });
+
   it('folds a finished turn to its plan and final answer and keeps the totals under the composer', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events, connection: 'open' }, {}, {});
 

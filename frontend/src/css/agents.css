@@ -1622,6 +1622,7 @@
 .agt-turn__label {
   font-size: 12px;
   color: var(--fg-dim);
+  overflow: hidden;
   white-space: nowrap;
 }
 

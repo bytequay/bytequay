@@ -16,6 +16,7 @@ package com.bytequay.app.workspace;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -34,7 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
-import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
+import static com.bytequay.app.workspace.WorkspaceException.requireFeature;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -122,8 +123,8 @@ public class WorkspaceRelationships
     public List<Relationship> save(String workspaceId, Relationship relationship)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
-            Workspace source = requireGitHubWorkspace(workspaces, workspaceId);
-            Workspace destination = requireGitHubWorkspace(workspaces, relationship.workspaceId());
+            Workspace source = requireFeature(workspaces, workspaceId, HostingCapabilities::forkWorkflows);
+            Workspace destination = requireFeature(workspaces, relationship.workspaceId(), HostingCapabilities::forkWorkflows);
             checkArgument(workspaces.isWatched(destination.id()), "Choose a watched workspace");
             requireDifferent(source, destination);
             List<Relationship> existing = list(workspaceId);
@@ -198,7 +199,7 @@ public class WorkspaceRelationships
     public Map<String, RemoteSource> lineRemotes(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        if (!workspace.isGitHub()) {
+        if (!workspace.provider().capabilities().forkWorkflows()) {
             return ImmutableMap.of();
         }
         Map<String, List<Relationship>> links = watchedLinks();
@@ -238,9 +239,9 @@ public class WorkspaceRelationships
     /** Agent conversations may read any other watched project; a link only adds guidance and the right to start work there. */
     public Workspace requireReadable(String workspaceId, String destinationId)
     {
-        Workspace destination = requireGitHubWorkspace(workspaces, destinationId);
+        Workspace destination = requireFeature(workspaces, destinationId, HostingCapabilities::forkWorkflows);
         checkArgument(workspaces.isWatched(destinationId), "Related workspace is unavailable");
-        requireDifferent(requireGitHubWorkspace(workspaces, workspaceId), destination);
+        requireDifferent(requireFeature(workspaces, workspaceId, HostingCapabilities::forkWorkflows), destination);
         return destination;
     }
 

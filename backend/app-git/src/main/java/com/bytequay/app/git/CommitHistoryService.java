@@ -29,7 +29,6 @@ import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -117,7 +116,7 @@ public class CommitHistoryService
         // first guarantees a concurrent completion causes one later reload.
         CommitRefreshStatus refresh = status(workspaceId);
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
-        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty() || !hasGitHubEnrichment(workspaceId)
+        Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty() || !hasCommitAvatars(workspaceId)
                 ? ImmutableMap.of()
                 : store.findEnrichment(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
                 .commits().stream()
@@ -255,8 +254,8 @@ public class CommitHistoryService
 
     private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
     {
-        if (!hasGitHubEnrichment(context.workspaceId())) {
-            // GitLab history comes from the checkout; this enrichment cache contains GitHub identities only.
+        if (!hasCommitAvatars(context.workspaceId())) {
+            // History without provider enrichment comes from the checkout alone.
             refs.forEach(ref -> git.log(context.repository(), ref.gitRef(), MAX_COMMITS));
             return ImmutableList.of();
         }
@@ -275,10 +274,9 @@ public class CommitHistoryService
         return updates.values();
     }
 
-    private boolean hasGitHubEnrichment(String workspaceId)
+    private boolean hasCommitAvatars(String workspaceId)
     {
-        var server = workspaces.getWorkspace(workspaceId).hostingServer();
-        return server == null || server.provider() == HostingProvider.GITHUB;
+        return workspaces.getWorkspace(workspaceId).capabilities().commitAvatars();
     }
 
     private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, String token, Instant now)

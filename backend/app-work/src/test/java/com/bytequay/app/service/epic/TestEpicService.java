@@ -29,6 +29,7 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -96,7 +97,7 @@ class TestEpicService
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.provider()).thenReturn(HostingProvider.GITHUB);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(markers.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "org/repo", 7, true, NOW)));
         when(credentials.resolveGitHubToken()).thenReturn("pat");
@@ -144,9 +145,10 @@ class TestEpicService
     void gitLabEpicDoesNotReadGitHubChildrenWithTheSameIssueId()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.provider()).thenReturn(HostingProvider.GITLAB);
         when(workspaces.findById("gitlab-workspace")).thenReturn(Optional.of(workspace));
         assertThatThrownBy(() -> service.refreshChildren("gitlab-workspace", "ISSUE:https://gitlab.example.test/gitlab:1", Optional.empty()))
-                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Fetching GitLab issue children is not supported yet");
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Fetching issue children is not supported");
         verifyNoInteractions(github, credentials, markers);
     }
 
@@ -171,7 +173,7 @@ class TestEpicService
     void proposingReadsTheEpicsIssueAndAnAcceptedProposalBecomesItsWorkOnce()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.isGitHub()).thenReturn(true);
+        when(workspace.provider()).thenReturn(HostingProvider.GITHUB);
         when(workspace.issueHost()).thenReturn("github.com");
         when(workspace.monitoredRepositoryId()).thenReturn(5L);
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));

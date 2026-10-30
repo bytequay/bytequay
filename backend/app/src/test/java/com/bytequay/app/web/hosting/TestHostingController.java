@@ -502,7 +502,9 @@ class TestHostingController
                 .andExpect(jsonPath("$.id").value("workspace"))
                 .andExpect(jsonPath("$.selectedOwner").value("group/subgroup"))
                 .andExpect(jsonPath("$.hostingServer.provider").value("GITLAB"))
-                .andExpect(jsonPath("$.hostingServer.webBaseUrl").value(WEB.toString()));
+                .andExpect(jsonPath("$.hostingServer.webBaseUrl").value(WEB.toString()))
+                .andExpect(jsonPath("$.capabilities.requestChanges").value(false))
+                .andExpect(jsonPath("$.capabilities.forkWorkflows").value(false));
 
         verify(workspaces).watch(7, 11, Optional.of("Project"));
         verify(repositories).requestSync("workspace");

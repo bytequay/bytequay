@@ -15,9 +15,13 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingServer;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
+
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 
 public record WorkspaceSummary(
         String id,
@@ -62,5 +66,11 @@ public record WorkspaceSummary(
                 workspace.lastMetadataSyncAt().orElse(null),
                 workspace.displayOrder(),
                 workspace.hostingServer().orElse(null));
+    }
+
+    @JsonProperty
+    public HostingCapabilities capabilities()
+    {
+        return (hostingServer == null ? GITHUB : hostingServer.provider()).capabilities();
     }
 }

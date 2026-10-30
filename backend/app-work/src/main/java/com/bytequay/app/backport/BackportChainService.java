@@ -52,6 +52,7 @@ import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.GitHubPullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -731,7 +732,7 @@ public class BackportChainService
     private Route route(String workspaceId)
     {
         checkState(workspaces.isWatched(workspaceId), "A route workspace is unavailable");
-        return Route.of(WorkspaceException.requireGitHubWorkspace(workspaces, workspaceId));
+        return Route.of(WorkspaceException.requireFeature(workspaces, workspaceId, HostingCapabilities::forkWorkflows));
     }
 
     private BackportChain owned(String workspaceId, String id)

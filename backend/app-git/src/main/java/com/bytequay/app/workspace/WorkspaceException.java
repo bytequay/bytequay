@@ -14,8 +14,11 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.http.HttpStatus;
+
+import java.util.function.Predicate;
 
 import static java.util.Objects.requireNonNull;
 
@@ -40,18 +43,27 @@ public final class WorkspaceException
         return workspaces.findById(workspaceId).orElseThrow(() -> notFound(workspaceId));
     }
 
-    public static Workspace requireGitHubWorkspace(WorkspaceStore workspaces, String workspaceId)
+    public static Workspace requireFeature(WorkspaceStore workspaces, String workspaceId, Predicate<HostingCapabilities> feature)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        requireGitHub(workspace);
+        if (!feature.test(workspace.provider().capabilities())) {
+            throw unavailable();
+        }
         return workspace;
     }
 
+    /** A workspace with no hosting account bound reads through the GitHub credential, so it must be a GitHub workspace. */
     public static void requireGitHub(Workspace workspace)
     {
         if (!workspace.isGitHub()) {
-            throw new WorkspaceException("WORKSPACE_FEATURE_UNAVAILABLE", HttpStatus.NOT_IMPLEMENTED, "This feature is not available for GitLab workspaces yet.", false);
+            throw unavailable();
         }
+    }
+
+    private static WorkspaceException unavailable()
+    {
+        return new WorkspaceException("WORKSPACE_FEATURE_UNAVAILABLE", HttpStatus.NOT_IMPLEMENTED,
+                "This feature is not available for this workspace's hosting provider yet.", false);
     }
 
     public static WorkspaceException notFound(String workspaceId)

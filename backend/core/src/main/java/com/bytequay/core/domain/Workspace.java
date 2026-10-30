@@ -13,6 +13,7 @@
  */
 package com.bytequay.core.domain;
 
+import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 
 import java.time.Instant;
@@ -106,9 +107,15 @@ public record Workspace(
                 displayOrder, createdAt, updatedAt, Optional.empty());
     }
 
+    /** A workspace without a hosting server predates GitLab support and is a GitHub workspace. */
+    public HostingProvider provider()
+    {
+        return hostingServer.map(HostingServer::provider).orElse(GITHUB);
+    }
+
     public boolean isGitHub()
     {
-        return hostingServer.map(server -> server.provider() == GITHUB).orElse(true);
+        return provider() == GITHUB;
     }
 
     public Workspace withName(String nextName, Instant now)

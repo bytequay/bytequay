@@ -22,6 +22,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -51,7 +52,7 @@ import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
-import static com.bytequay.app.workspace.WorkspaceException.requireGitHubWorkspace;
+import static com.bytequay.app.workspace.WorkspaceException.requireFeature;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -339,7 +340,7 @@ public class WorkspaceRepositoryService
     public Workspace setUpstream(String workspaceId, Optional<Long> upstreamRepositoryId)
     {
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
-        Workspace workspace = requireGitHubWorkspace(store, workspaceId);
+        Workspace workspace = requireFeature(store, workspaceId, HostingCapabilities::forkWorkflows);
         if (workspace.upstreamRepositoryId().equals(upstreamRepositoryId)) {
             return workspace;
         }

@@ -109,13 +109,19 @@ public final class GitLabPullRequestReader
 
     private static FetchedPullRequest summary(HostingTarget target, GitLabMergeRequestResponse mr)
     {
-        checkArgument(mr.id() != null && mr.id() > 0 && mr.iid() != null && mr.iid() > 0 && mr.iid() <= Integer.MAX_VALUE, "invalid merge request identity");
         String projectId = target.repository().remoteId();
         checkArgument(mr.projectId() != null && mr.projectId() > 0 && mr.projectId().toString().equals(projectId), "invalid project identity");
         checkArgument(mr.targetProjectId() == null || (mr.targetProjectId() > 0 && mr.targetProjectId().toString().equals(projectId)), "invalid target project");
+        return summary(target.repository().fullPath(), target.access().server().webBaseUrl(), mr);
+    }
+
+    /** A request found outside a project listing is mapped against the project its reference names. */
+    static FetchedPullRequest summary(String projectPath, URI webBaseUrl, GitLabMergeRequestResponse mr)
+    {
+        checkArgument(mr.id() != null && mr.id() > 0 && mr.iid() != null && mr.iid() > 0 && mr.iid() <= Integer.MAX_VALUE, "invalid merge request identity");
         checkText(mr.state(), "state");
         String state = mr.requestState();
-        String url = HostingUrls.requireWithinBase(URI.create(checkText(mr.webUrl(), "webUrl")), target.access().server().webBaseUrl()).toASCIIString();
+        String url = HostingUrls.requireWithinBase(URI.create(checkText(mr.webUrl(), "webUrl")), webBaseUrl).toASCIIString();
         boolean draft = mr.isDraft();
         String author = Optional.ofNullable(mr.author()).map(GitLabUser::username).orElse(null);
         List<String> labels = mr.labels().stream().map(label -> checkText(label, "label")).collect(toImmutableList());
@@ -133,7 +139,7 @@ public final class GitLabPullRequestReader
             default -> null;
         };
         String mergeableState = mergeable == null ? null : mergeable ? "clean" : "dirty";
-        return new FetchedPullRequest(mr.id(), target.repository().fullPath(), mr.iid().intValue(), checkText(mr.title(), "title"), author, url,
+        return new FetchedPullRequest(mr.id(), projectPath, mr.iid().intValue(), checkText(mr.title(), "title"), author, url,
                 Instant.parse(mr.createdAt()), Instant.parse(mr.updatedAt()), OTHER, labels, ImmutableMap.of(), draft, state,
                 Optional.ofNullable(mr.closedAt()).map(Instant::parse).orElse(null), Optional.ofNullable(mr.mergedAt()).map(Instant::parse).orElse(null),
                 requestedReviewers, mergeable, mergeableState, mr.sourceBranch());

@@ -265,9 +265,16 @@ multi-line selection and fork/backport workflows where a provider lacks them, an
 publishes a saved range on its last line. Merge-train operations fail explicitly.
 The GitLab project's merge method remains authoritative.
 
-Global GitHub personal discovery, GitHub-specific CI automation, fork/backport
-operations and remote epic-child synchronization still have native GitHub
-consumers. These need their own provider integration before GitLab parity can be
+Account discovery runs through each integration's `PullRequestDiscovery`, for the
+desktop GitHub sign-in and each connected account whose rows name their
+repository. GitHub searches, reads its notifications inbox and summarizes cards
+with GraphQL. GitLab lists the account's merge requests, reads its to-do list and
+summarizes cards from each request's detail; it has no "reviewed by" or
+"involves" filter, and its cards carry no line counts, review decision or
+author-reply check.
+
+GitHub-specific CI automation, fork/backport operations and remote epic-child
+synchronization still have native GitHub consumers. These need their own provider integration before GitLab parity can be
 claimed. GitLab contributor account profiles are unavailable where the API only
 supplies commit author names and emails. GitLab commit history reads the local
 checkout without GitHub avatar or pull-request association enrichment.

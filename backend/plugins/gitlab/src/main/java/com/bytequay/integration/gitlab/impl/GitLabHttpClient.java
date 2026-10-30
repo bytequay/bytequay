@@ -62,7 +62,7 @@ final class GitLabHttpClient
             "(?:^Bearer\\s+|,\\s*)([a-z][a-z0-9_]*)\\s*=\\s*(?:\"((?:\\\\.|[^\"\\\\])*)\"|([^,\\s]+))", Pattern.CASE_INSENSITIVE);
     private static final Set<String> API_RESOURCES = ImmutableSet.of("projects", "user", "users", "personal_access_tokens", "merge_requests", "issues",
             "pipelines", "jobs", "bridges", "repository", "languages", "notes", "discussions", "diffs", "changes", "commits", "approvals", "approve",
-            "merge", "cancel_merge_when_pipeline_succeeds", "award_emoji", "trace", "retry");
+            "merge", "cancel_merge_when_pipeline_succeeds", "award_emoji", "trace", "retry", "todos");
 
     private final HttpClient http;
     private final ObjectReader reader;

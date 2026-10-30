@@ -34,6 +34,6 @@ public final class GitLabIntegration
         GitLabConnectionClient connections = new GitLabConnectionClient(http, mapper);
         GitLabIssueClient issues = new GitLabIssueClient(http, mapper);
         return new HostingIntegration(HostingProvider.GITLAB, connections, connections, new GitLabPullRequestReader(http, mapper),
-                new GitLabPullRequestContentReader(http, mapper), new GitLabPullRequestWriter(http, mapper), issues, issues, new GitLabPullRequestDiscovery());
+                new GitLabPullRequestContentReader(http, mapper), new GitLabPullRequestWriter(http, mapper), issues, issues, new GitLabPullRequestDiscovery(http, mapper));
     }
 }

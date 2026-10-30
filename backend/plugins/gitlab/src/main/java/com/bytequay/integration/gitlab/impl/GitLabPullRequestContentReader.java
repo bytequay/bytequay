@@ -32,7 +32,7 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.StoredPrDiff;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.DiffRefs;
@@ -95,34 +95,34 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public GitHubPullRequestIdentity identity(HostingAccess access, HostingRepository repository, int number)
+    public GitHubPullRequestIdentity identity(HostingTarget target, int number)
     {
-        GitLabMergeRequestResponse request = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
-        if (!Long.valueOf(number).equals(request.iid()) || !repository.remoteId().equals(String.valueOf(request.targetProjectId()))) {
+        GitLabMergeRequestResponse request = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class);
+        if (!Long.valueOf(number).equals(request.iid()) || !target.repository().remoteId().equals(String.valueOf(request.targetProjectId()))) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another merge request");
         }
         DiffRefs refs = request.diffRefs();
         if (refs == null || request.sha() == null || !request.sha().equals(refs.headSha())) {
             throw new HostingFailure(REVISION_CONFLICT, "GitLab has not prepared the current merge request diff");
         }
-        Project source = get(access, "projects/" + request.sourceProjectId(), Project.class);
-        RepoRef target = repositoryRef(repository.fullPath());
+        Project source = get(target.access(), "projects/" + request.sourceProjectId(), Project.class);
+        RepoRef targetRepository = repositoryRef(target.repository().fullPath());
         return mapped("merge request", () -> {
-            String url = HostingUrls.requireWithinBase(URI.create(request.webUrl()), access.server().webBaseUrl()).toASCIIString();
+            String url = HostingUrls.requireWithinBase(URI.create(request.webUrl()), target.access().server().webBaseUrl()).toASCIIString();
             GitHubPullRequestIdentity.State state = GitHubPullRequestIdentity.State.valueOf(request.requestState().toUpperCase(Locale.ROOT));
-            return new GitHubPullRequestIdentity(PullRequestRef.of(target.owner(), target.repo(), number), url, repositoryRef(source.pathWithNamespace()),
-                    request.sourceBranch(), request.sha(), target, request.targetBranch(), refs.startSha(), state, request.isDraft(), request.author().username());
+            return new GitHubPullRequestIdentity(PullRequestRef.of(targetRepository.owner(), targetRepository.repo(), number), url, repositoryRef(source.pathWithNamespace()),
+                    request.sourceBranch(), request.sha(), targetRepository, request.targetBranch(), refs.startSha(), state, request.isDraft(), request.author().username());
         });
     }
 
     @Override
-    public List<GitHubPullRequestIdentity> identitiesByHead(HostingAccess access, HostingRepository repository, RepoRef sourceRepository, String branch)
+    public List<GitHubPullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
     {
-        Project source = get(access, "projects/" + encode(sourceRepository.fullName()), Project.class);
-        String path = projectPath(access, repository) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch);
-        return http.pages(access, path, GitLabMergeRequestResponse[].class).stream()
+        Project source = get(target.access(), "projects/" + encode(sourceRepository.fullName()), Project.class);
+        String path = projectPath(target) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch);
+        return http.pages(target.access(), path, GitLabMergeRequestResponse[].class).stream()
                 .filter(request -> request.sourceProjectId() != null && request.sourceProjectId() == source.id())
-                .map(request -> identity(access, repository, mapped("merge request", () -> toIntExact(request.iid())))).collect(toImmutableList());
+                .map(request -> identity(target, mapped("merge request", () -> toIntExact(request.iid())))).collect(toImmutableList());
     }
 
     private static RepoRef repositoryRef(String path)
@@ -133,31 +133,31 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public boolean viewerCanWrite(HostingAccess access, HostingRepository repository)
+    public boolean viewerCanWrite(HostingTarget target)
     {
-        Project project = get(access, projectPath(access, repository), Project.class);
+        Project project = get(target.access(), projectPath(target), Project.class);
         return Optional.ofNullable(project.permissions()).map(permissions -> Math.max(level(permissions.projectAccess()), level(permissions.groupAccess())) >= 30).orElse(false);
     }
 
     @Override
-    public StoredPrDetail discussion(HostingAccess access, HostingRepository repository, int number, StoredPrDetail existing)
+    public StoredPrDetail discussion(HostingTarget target, int number, StoredPrDetail existing)
     {
-        String path = mergeRequestPath(access, repository, number);
+        String path = mergeRequestPath(target, number);
         List<String> unavailable = new ArrayList<>();
-        List<PrReviewState> reviews = optional(StoredPrDetail.REVIEWS, unavailable, () -> get(access, path + "/approvals", Approvals.class).approvedBy().stream()
+        List<PrReviewState> reviews = optional(StoredPrDetail.REVIEWS, unavailable, () -> get(target.access(), path + "/approvals", Approvals.class).approvedBy().stream()
                 .map(approval -> new PrReviewState(null, approval.user().username(), approval.user().avatarUrl(), false,
                         "APPROVED", null, null, existing.raw().htmlUrl(), existing.raw().headSha())).collect(toImmutableList()));
         List<PrTimelineEvent> timeline = new ArrayList<>(optional(StoredPrDetail.TIMELINE, unavailable,
-                () -> discussions(access, path, existing.raw(), unavailable)));
+                () -> discussions(target.access(), path, existing.raw(), unavailable)));
         if (unavailable.contains(StoredPrDetail.TIMELINE)) {
             unavailable.add(StoredPrDetail.COMMENTS);
             unavailable.add(StoredPrDetail.REVIEW_THREADS);
         }
-        timeline.addAll(optional(StoredPrDetail.COMMITS, unavailable, () -> commits(access, path).stream()
+        timeline.addAll(optional(StoredPrDetail.COMMITS, unavailable, () -> commits(target.access(), path).stream()
                 .map(commit -> new PrTimelineEvent(null, "committed", commit.author(), commit.authoredAt(), commit.message(),
                         PrTimelinePayload.builder().commitSha(commit.sha()).commitMessage(commit.message()).build(), Optional.empty()))
                 .collect(toImmutableList())));
-        List<PrReaction> reactions = optional(StoredPrDetail.REACTIONS, unavailable, () -> reactions(access, path));
+        List<PrReaction> reactions = optional(StoredPrDetail.REACTIONS, unavailable, () -> reactions(target.access(), path));
         if (!reactions.isEmpty()) {
             timeline.add(new PrTimelineEvent(null, "description_reactions", null, null, null,
                     PrTimelinePayload.builder().reactions(reactions).build(), Optional.empty()));
@@ -234,10 +234,10 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public Checks checks(HostingAccess access, HostingRepository repository, int number, String headSha,
+    public Checks checks(HostingTarget target, int number, String headSha,
             List<PrCheckRunState> existing, Optional<String> checksEtag, Optional<String> statusesEtag)
     {
-        GitLabMergeRequestResponse request = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
+        GitLabMergeRequestResponse request = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class);
         if (!headSha.equals(request.sha())) {
             throw new HostingFailure(REVISION_CONFLICT, "Merge request head changed while reading checks");
         }
@@ -245,12 +245,12 @@ public final class GitLabPullRequestContentReader
             return new Checks(ImmutableList.of(), Optional.empty(), Optional.empty(), true);
         }
         Pipeline pipeline = request.headPipeline();
-        String path = pipeline.path(repository);
+        String path = pipeline.path(target.repository());
         // Pipeline access can differ from merge request access, especially for fork pipelines.
         List<String> unavailable = new ArrayList<>();
-        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/jobs", GitLabJob[].class).stream()
+        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(target.access(), path + "/jobs", GitLabJob[].class).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "job", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList())));
-        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/bridges", GitLabJob[].class).stream()
+        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(target.access(), path + "/bridges", GitLabJob[].class).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "status", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList())));
         if (checks.isEmpty() || !unavailable.isEmpty()) {
             // A summary has no job identity; null replaces it on the next partial refresh.
@@ -274,14 +274,14 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public Diff diff(HostingAccess access, HostingRepository repository, int number, Optional<String> baseSha, Optional<String> headSha,
+    public Diff diff(HostingTarget target, int number, Optional<String> baseSha, Optional<String> headSha,
             StoredPrDiff existing, PrDiffEtags etags)
     {
-        String path = mergeRequestPath(access, repository, number);
+        String path = mergeRequestPath(target, number);
         List<GitLabFileDiff> files;
         List<DiffCommit> commits;
         if (baseSha.isPresent()) {
-            Compare compare = get(access, projectPath(access, repository) + "/repository/compare?from=" + encode(baseSha.orElseThrow()) + "&to=" + encode(headSha.orElseThrow())
+            Compare compare = get(target.access(), projectPath(target) + "/repository/compare?from=" + encode(baseSha.orElseThrow()) + "&to=" + encode(headSha.orElseThrow())
                     + "&straight=true", Compare.class);
             if (compare.compareTimeout()) {
                 throw new HostingFailure(UNAVAILABLE, "GitLab comparison timed out; the diff is incomplete");
@@ -290,8 +290,8 @@ public final class GitLabPullRequestContentReader
             commits = mapped("comparison", () -> compare.commits().stream().map(GitLabPullRequestContentReader::commit).collect(toImmutableList()));
         }
         else {
-            files = mergeRequestDiffs.read(access, path);
-            commits = commits(access, path);
+            files = mergeRequestDiffs.read(target.access(), path);
+            commits = commits(target.access(), path);
         }
         return mapped("changed file", () -> new Diff(files.stream().map(file -> {
             String patch = file.collapsed() || file.tooLarge() ? null : file.diff();
@@ -303,16 +303,16 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId)
+    public PullRequestCheckLog readCheckLog(HostingTarget target, int number, long jobId)
     {
-        Pipeline pipeline = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
-        boolean failed = http.pages(access, pipeline.path(repository) + "/jobs", GitLabJob[].class).stream()
+        Pipeline pipeline = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
+        boolean failed = http.pages(target.access(), pipeline.path(target.repository()) + "/jobs", GitLabJob[].class).stream()
                 .anyMatch(job -> job.id() == jobId && "failed".equals(job.status()));
         if (!failed) {
             throw new HostingFailure(REVISION_CONFLICT, "This failed job is no longer part of the current request checks");
         }
         try {
-            return new PullRequestCheckLog(http.getText(access, pipeline.projectPath(repository) + "/jobs/" + jobId + "/trace"), Optional.empty());
+            return new PullRequestCheckLog(http.getText(target.access(), pipeline.projectPath(target.repository()) + "/jobs/" + jobId + "/trace"), Optional.empty());
         }
         catch (HostingFailure failure) {
             if (failure.kind() == MISSING_OR_INACCESSIBLE) {
@@ -323,11 +323,11 @@ public final class GitLabPullRequestContentReader
     }
 
     @Override
-    public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff)
+    public DiffFileContent fileContent(HostingTarget target, int number, String path, String baseSha, String headSha, boolean fullDiff)
     {
-        String target = projectPath(access, repository);
-        GitLabMergeRequestResponse request = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
-        String source = request.sourceProjectId() == null ? target : "projects/" + request.sourceProjectId();
+        String targetProject = projectPath(target);
+        GitLabMergeRequestResponse request = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class);
+        String source = request.sourceProjectId() == null ? targetProject : "projects/" + request.sourceProjectId();
         String contentBase = baseSha;
         if (fullDiff) {
             DiffRefs refs = request.diffRefs();
@@ -336,14 +336,14 @@ public final class GitLabPullRequestContentReader
             }
             contentBase = refs.baseSha();
         }
-        Compare compare = get(access, target + "/repository/compare?from=" + encode(contentBase) + "&to=" + encode(headSha) + "&straight=true", Compare.class);
+        Compare compare = get(target.access(), targetProject + "/repository/compare?from=" + encode(contentBase) + "&to=" + encode(headSha) + "&straight=true", Compare.class);
         if (compare.compareTimeout()) {
             throw new HostingFailure(UNAVAILABLE, "GitLab comparison timed out; the diff is incomplete");
         }
         GitLabFileDiff diff = mapped("comparison", () -> compare.diffs().stream().filter(file -> path.equals(file.newPath())).findFirst().orElse(null));
         String oldPath = Optional.ofNullable(diff).map(GitLabFileDiff::oldPath).orElse(path);
-        return new DiffFileContent(diff != null && diff.newFile() ? null : file(access, target, oldPath, contentBase),
-                diff != null && diff.deletedFile() ? null : file(access, source, path, headSha));
+        return new DiffFileContent(diff != null && diff.newFile() ? null : file(target.access(), targetProject, oldPath, contentBase),
+                diff != null && diff.deletedFile() ? null : file(target.access(), source, path, headSha));
     }
 
     private String file(HostingAccess access, String project, String path, String sha)

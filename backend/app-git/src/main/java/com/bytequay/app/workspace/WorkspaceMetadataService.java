@@ -144,12 +144,12 @@ public class WorkspaceMetadataService
     public List<String> listTeams(String workspaceId)
     {
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-        return reader(route).repositoryTeams(route.session().access(), route.repository());
+        return reader(route).repositoryTeams(route.target());
     }
 
     private RepositoryMetadataReader reader(WorkspaceHostingRead route)
     {
-        return integrations.of(route.session()).metadata();
+        return integrations.of(route.target()).metadata();
     }
 
     private void refreshExpired(Workspace workspace)
@@ -167,16 +167,16 @@ public class WorkspaceMetadataService
         WorkspaceHostingRead route = hosting.captureRead(workspace.id());
         RepositoryMetadataReader reader = reader(route);
         Optional<RepositoryOverview> overview = overviewExpired
-                ? Optional.of(reader.overview(route.session().access(), route.repository()))
+                ? Optional.of(reader.overview(route.target()))
                 : Optional.empty();
         Optional<List<RepositoryContributor>> contributors = contributorsExpired
-                ? reader.contributors(route.session().access(), route.repository())
+                ? reader.contributors(route.target())
                 : Optional.empty();
         List<HostingRepositoryUser> pickerUsers = pickerUsersExpired
-                ? reader.repositoryUsers(route.session().access(), route.repository())
+                ? reader.repositoryUsers(route.target())
                 : ImmutableList.of();
         List<RepositoryLabel> labels = labelsExpired
-                ? reader.repositoryLabels(route.session().access(), route.repository())
+                ? reader.repositoryLabels(route.target())
                 : ImmutableList.of();
 
         overview.ifPresent(value -> metadata.upsertOverview(

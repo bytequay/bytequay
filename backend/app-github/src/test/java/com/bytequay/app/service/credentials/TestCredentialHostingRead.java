@@ -29,6 +29,7 @@ import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -124,7 +125,7 @@ class TestCredentialHostingRead
             cached.set(null);
             return null;
         }).when(snapshots).evictRepository(30, 7);
-        when(reader.fetch(any(), any(), anyInt(), any())).thenReturn(fetched());
+        when(reader.fetch(any(), anyInt(), any())).thenReturn(fetched());
         HostingConnectionService connections = new HostingConnectionService(identities, manualCredentials,
                 integrations(connections(GITHUB, accounts, repositories, reader)), ImmutableList.of());
         credentials = new CredentialService(globalStore, workspaceStore, ghCli, profiles, connections, mock(WorkspaceStore.class));
@@ -140,8 +141,8 @@ class TestCredentialHostingRead
         });
         HostingReadSession session = credentials.captureHostingRead();
         HostingPullRequestSnapshot first = requests.refresh(session, 30, 7, false);
-        when(reader.fetch(any(), any(), eq(7), eq(Optional.of("v1")))).thenAnswer(call -> {
-            HostingAccess access = call.getArgument(0);
+        when(reader.fetch(any(), eq(7), eq(Optional.of("v1")))).thenAnswer(call -> {
+            HostingAccess access = call.<HostingTarget>getArgument(0).access();
             assertThat(access.token()).isEqualTo("desktop-token");
             return new PullRequestFetch(Optional.empty(), Optional.of("v1"));
         });
@@ -165,7 +166,7 @@ class TestCredentialHostingRead
         HostingPullRequestSnapshot result = requests.refresh(credentials.captureHostingRead(), 30, 7, false);
 
         assertThat(result.credentialScope()).isEqualTo("github-global");
-        verify(reader).fetch(any(), any(), eq(7), eq(Optional.empty()));
+        verify(reader).fetch(any(), eq(7), eq(Optional.empty()));
         verifyNoInteractions(manualCredentials);
     }
 

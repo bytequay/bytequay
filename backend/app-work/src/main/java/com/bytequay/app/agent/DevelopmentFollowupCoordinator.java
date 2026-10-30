@@ -622,7 +622,7 @@ public class DevelopmentFollowupCoordinator
         var selected = hosting.captureRead(worktree.workspaceId());
         checkState(selected.session().access().server().equals(route.server()) && selected.repository().fullPath().equals(route.baseRepository().fullName()),
                 "The publication repository changed");
-        CreatedPullRequest created = integrations.of(selected.session()).writer().create(selected.session().access(), selected.repository(),
+        CreatedPullRequest created = integrations.of(selected.target()).writer().create(selected.target(),
                 head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);
         return "Pushed " + window.localHead() + "; created draft pull request " + created.url();
     }

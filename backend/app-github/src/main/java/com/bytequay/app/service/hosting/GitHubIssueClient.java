@@ -25,9 +25,8 @@ import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryLabel;
-import com.bytequay.core.hosting.HostingAccess;
-import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingRepositoryUser;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.IssueActivity;
 import com.bytequay.core.hosting.IssueClient;
 import com.bytequay.core.hosting.IssueMetadata;
@@ -64,130 +63,129 @@ public final class GitHubIssueClient
     }
 
     @Override
-    public IssueSyncPage list(HostingAccess access, HostingRepository repository, Optional<Instant> since, int page)
+    public IssueSyncPage list(HostingTarget target, Optional<Instant> since, int page)
     {
-        RepoRef ref = repository(access, repository);
+        RepoRef ref = repository(target);
         if (since.isPresent()) {
-            var fetched = reads.fetchChangedIssuesPage(access.token(), ref, since.orElseThrow(), page);
+            var fetched = reads.fetchChangedIssuesPage(target.access().token(), ref, since.orElseThrow(), page);
             return new IssueSyncPage(fetched.openIssues(), fetched.closedNumbers(), fetched.hasNext());
         }
-        var fetched = reads.fetchOpenIssuesPage(access.token(), ref, page);
+        var fetched = reads.fetchOpenIssuesPage(target.access().token(), ref, page);
         return new IssueSyncPage(fetched.issues(), ImmutableList.of(), fetched.hasNext());
     }
 
     @Override
-    public Optional<RepositoryIssue> find(HostingAccess access, HostingRepository repository, int number)
+    public Optional<RepositoryIssue> find(HostingTarget target, int number)
     {
-        return reads.fetchIssue(access.token(), repository(access, repository), number);
+        return reads.fetchIssue(target.access().token(), repository(target), number);
     }
 
     @Override
-    public GitHubIssuePreview preview(HostingAccess access, HostingRepository repository, int number)
+    public GitHubIssuePreview preview(HostingTarget target, int number)
     {
-        return reads.fetchIssuePreview(access.token(), repository(access, repository), number);
+        return reads.fetchIssuePreview(target.access().token(), repository(target), number);
     }
 
     @Override
-    public RepositoryIssueDetail detail(HostingAccess access, HostingRepository repository, int number)
+    public RepositoryIssueDetail detail(HostingTarget target, int number)
     {
-        RepoRef ref = repository(access, repository);
+        RepoRef ref = repository(target);
         PullRequestRef issue = PullRequestRef.of(ref.owner(), ref.repo(), number);
-        List<PrTimelineEvent> events = Stream.concat(timeline.fetchPrTimeline(access.token(), issue).stream().filter(event -> !"commented".equals(event.event())),
-                        timeline.fetchPrIssueComments(access.token(), issue).stream())
+        List<PrTimelineEvent> events = Stream.concat(timeline.fetchPrTimeline(target.access().token(), issue).stream().filter(event -> !"commented".equals(event.event())),
+                        timeline.fetchPrIssueComments(target.access().token(), issue).stream())
                 .sorted(Comparator.comparing(PrTimelineEvent::timestamp, Comparator.nullsLast(Comparator.naturalOrder())))
                 .collect(toImmutableList());
-        return new RepositoryIssueDetail(repository.id(), number, events, reads.fetchIssueType(access.token(), ref, number),
-                reads.fetchIssueTypes(access.token(), ref), Optional.empty());
+        return new RepositoryIssueDetail(target.repository().id(), number, events, reads.fetchIssueType(target.access().token(), ref, number),
+                reads.fetchIssueTypes(target.access().token(), ref), Optional.empty());
     }
 
     @Override
-    public GitHubIssueSource source(HostingAccess access, HostingRepository repository, int number, boolean requireOpen)
+    public GitHubIssueSource source(HostingTarget target, int number, boolean requireOpen)
     {
-        RepoRef ref = repository(access, repository);
-        return requireOpen ? reads.fetchOpenIssueSource(access.token(), ref, number) : reads.fetchIssueSource(access.token(), ref, number);
+        RepoRef ref = repository(target);
+        return requireOpen ? reads.fetchOpenIssueSource(target.access().token(), ref, number) : reads.fetchIssueSource(target.access().token(), ref, number);
     }
 
     @Override
-    public GitHubIssueSource create(HostingAccess access, HostingRepository repository, String title, String body)
+    public GitHubIssueSource create(HostingTarget target, String title, String body)
     {
-        return reads.publishWorkItem(access.token(), repository(access, repository), title, body);
+        return reads.publishWorkItem(target.access().token(), repository(target), title, body);
     }
 
     @Override
-    public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
+    public PrTimelineEvent comment(HostingTarget target, int number, String body)
     {
-        return writes.createIssueComment(access.token(), issue(access, repository, number), body);
+        return writes.createIssueComment(target.access().token(), issue(target, number), body);
     }
 
     @Override
-    public void close(HostingAccess access, HostingRepository repository, int number)
+    public void close(HostingTarget target, int number)
     {
-        writes.closeIssue(access.token(), issue(access, repository, number));
+        writes.closeIssue(target.access().token(), issue(target, number));
     }
 
     @Override
-    public String updateType(HostingAccess access, HostingRepository repository, int number, String type)
+    public String updateType(HostingTarget target, int number, String type)
     {
-        return writes.updateIssueType(access.token(), issue(access, repository, number), type);
+        return writes.updateIssueType(target.access().token(), issue(target, number), type);
     }
 
     @Override
-    public IssueMetadata updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
+    public IssueMetadata updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels)
     {
-        var updated = writes.updateIssueMetadata(access.token(), issue(access, repository, number), assignees, labels);
+        var updated = writes.updateIssueMetadata(target.access().token(), issue(target, number), assignees, labels);
         return new IssueMetadata(updated.assignees(), updated.labels(), updated.updatedAt());
     }
 
     @Override
-    public RepositoryOverview overview(HostingAccess access, HostingRepository repository)
+    public RepositoryOverview overview(HostingTarget target)
     {
-        var overview = reads.fetchOverview(access.token(), repository(access, repository));
+        var overview = reads.fetchOverview(target.access().token(), repository(target));
         return new RepositoryOverview(overview.description(), overview.stargazersCount(), overview.topics(), overview.languages());
     }
 
     @Override
-    public Optional<List<RepositoryContributor>> contributors(HostingAccess access, HostingRepository repository)
+    public Optional<List<RepositoryContributor>> contributors(HostingTarget target)
     {
-        return Optional.of(reads.fetchContributors(access.token(), repository(access, repository)));
+        return Optional.of(reads.fetchContributors(target.access().token(), repository(target)));
     }
 
     @Override
-    public List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository)
+    public List<HostingRepositoryUser> repositoryUsers(HostingTarget target)
     {
-        return timeline.fetchAssignableRepositoryUsers(access.token(), repository(access, repository)).stream()
+        return timeline.fetchAssignableRepositoryUsers(target.access().token(), repository(target)).stream()
                 .map(user -> new HostingRepositoryUser(user.id(), user.login(), user.avatarUrl(), user.bot())).collect(toImmutableList());
     }
 
     @Override
-    public List<String> repositoryTeams(HostingAccess access, HostingRepository repository)
+    public List<String> repositoryTeams(HostingTarget target)
     {
-        return timeline.fetchOrganizationTeams(access.token(), repository(access, repository).owner());
+        return timeline.fetchOrganizationTeams(target.access().token(), repository(target).owner());
     }
 
     @Override
-    public List<RepositoryLabel> repositoryLabels(HostingAccess access, HostingRepository repository)
+    public List<RepositoryLabel> repositoryLabels(HostingTarget target)
     {
-        return reads.fetchLabels(access.token(), repository(access, repository));
+        return reads.fetchLabels(target.access().token(), repository(target));
     }
 
     @Override
-    public IssueActivity activity(HostingAccess access, HostingRepository repository, int number)
+    public IssueActivity activity(HostingTarget target, int number)
     {
-        var value = reads.fetchIssueActivity(access.token(), repository(access, repository), number);
+        var value = reads.fetchIssueActivity(target.access().token(), repository(target), number);
         return new IssueActivity(value.commentCount(), value.updatedAt());
     }
 
-    private static PullRequestRef issue(HostingAccess access, HostingRepository repository, int number)
+    private static PullRequestRef issue(HostingTarget target, int number)
     {
-        RepoRef ref = repository(access, repository);
+        RepoRef ref = repository(target);
         return PullRequestRef.of(ref.owner(), ref.repo(), number);
     }
 
-    private static RepoRef repository(HostingAccess access, HostingRepository repository)
+    private static RepoRef repository(HostingTarget target)
     {
-        checkArgument(access.server().equals(GITHUB_SERVER), "GitHub issue operations require GitHub.com");
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "repository belongs to another hosting instance");
-        String[] parts = repository.fullPath().split("/", -1);
+        checkArgument(target.access().server().equals(GITHUB_SERVER), "GitHub issue operations require GitHub.com");
+        String[] parts = target.repository().fullPath().split("/", -1);
         checkArgument(parts.length == 2, "invalid GitHub repository path");
         return RepoRef.of(parts[0], parts[1]);
     }

@@ -17,6 +17,7 @@ import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 
 import java.net.URI;
 
@@ -34,6 +35,11 @@ public record WorkspaceHostingRead(HostingReadSession session, HostingRepository
         requireNonNull(repository, "repository is null");
         checkText(login, "login");
         checkArgument(repository.instanceId() == session.access().instanceId().orElseThrow(), "Repository belongs to another hosting instance");
+    }
+
+    public HostingTarget target()
+    {
+        return new HostingTarget(session.access(), repository);
     }
 
     public RepoRef githubRepository()

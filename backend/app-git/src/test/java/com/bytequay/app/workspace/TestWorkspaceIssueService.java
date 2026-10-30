@@ -101,16 +101,16 @@ class TestWorkspaceIssueService
         workspaces.put("gitlab", gitlab);
         var route = WorkspaceIssueTestData.route(gitlab);
         var client = mock(com.bytequay.core.hosting.IssueClient.class);
-        when(client.comment(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7), org.mockito.ArgumentMatchers.eq("Comment")))
+        when(client.comment(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7), org.mockito.ArgumentMatchers.eq("Comment")))
                 .thenReturn(event(1, "commented", NOW));
-        when(client.activity(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7)))
+        when(client.activity(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.eq(7)))
                 .thenReturn(new com.bytequay.core.hosting.IssueActivity(1, NOW));
         service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, integrations(issues(GITLAB, client)), recent,
                 Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
         when(hosting.captureRead("gitlab")).thenReturn(route);
 
         assertThat(service.comment("gitlab", 7, "Comment").event()).isEqualTo("commented");
-        verify(client).comment(route.session().access(), route.repository(), 7, "Comment");
+        verify(client).comment(route.target(), 7, "Comment");
         verifyNoInteractions(issueReads, issueWrites, timelineReads);
     }
 
@@ -125,10 +125,10 @@ class TestWorkspaceIssueService
         var client = mock(IssueClient.class);
         PrTimelineEvent result = new PrTimelineEvent(null, "system", null, null, "Command applied", Optional.empty());
         String command = closed ? "/close" : "/label ~bug";
-        when(client.comment(route.session().access(), route.repository(), 7, command)).thenReturn(result);
-        when(client.find(route.session().access(), route.repository(), 7)).thenReturn(closed ? Optional.empty() : Optional.of(issue(7)));
+        when(client.comment(route.target(), 7, command)).thenReturn(result);
+        when(client.find(route.target(), 7)).thenReturn(closed ? Optional.empty() : Optional.of(issue(7)));
         var refreshed = detail(100, 7, "Task", event(12, "system", NOW));
-        when(client.detail(route.session().access(), route.repository(), 7)).thenReturn(refreshed);
+        when(client.detail(route.target(), 7)).thenReturn(refreshed);
         service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, integrations(issues(GITHUB, client)), recent,
                 Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
 
@@ -155,8 +155,8 @@ class TestWorkspaceIssueService
         when(hosting.captureRead("direct")).thenReturn(route);
         var client = mock(IssueClient.class);
         PrTimelineEvent result = new PrTimelineEvent(null, "system", null, null, "Closed", Optional.empty());
-        when(client.comment(route.session().access(), route.repository(), 7, "/close")).thenReturn(result);
-        when(client.find(route.session().access(), route.repository(), 7)).thenThrow(new IllegalStateException("unavailable"));
+        when(client.comment(route.target(), 7, "/close")).thenReturn(result);
+        when(client.find(route.target(), 7)).thenThrow(new IllegalStateException("unavailable"));
         service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, hosting, integrations(issues(GITHUB, client)), recent,
                 Clock.fixed(NOW, ZoneOffset.UTC), mock(AppSettingsStore.class));
 

@@ -77,12 +77,12 @@ public class PullRequestSnapshotService
 
     PullRequestCheckLog readCheckLog(PullRequestRead route, long jobId)
     {
-        return integrations.of(route.session()).contents().readCheckLog(route.session().access(), route.repository(), route.number(), jobId);
+        return integrations.of(route.target()).contents().readCheckLog(route.target(), route.number(), jobId);
     }
 
     void rerunFailedChecks(PullRequestRead route)
     {
-        integrations.of(route.session()).writer().rerunFailedChecks(route.session().access(), route.repository(), route.number());
+        integrations.of(route.target()).writer().rerunFailedChecks(route.target(), route.number());
     }
 
     List<DiffFile> getDiffFiles(long prId, String baseSha, String headSha)
@@ -202,8 +202,8 @@ public class PullRequestSnapshotService
         if (raw.headSha() == null || raw.headSha().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Hosting provider returned no head commit for checks");
         }
-        PullRequestContentReader.Checks checks = readRemote(prId, () -> integrations.of(route.session()).contents().checks(
-                route.session().access(), route.repository(), route.number(), raw.headSha(), existing.checkRuns(),
+        PullRequestContentReader.Checks checks = readRemote(prId, () -> integrations.of(route.target()).contents().checks(
+                route.target(), route.number(), raw.headSha(), existing.checkRuns(),
                 existing.checkRunsComplete() ? details.findCheckRunsEtag(prId) : Optional.empty(),
                 existing.checkRunsComplete() ? details.findCommitStatusesEtag(prId) : Optional.empty()));
         List<String> unavailable = new ArrayList<>(existing.unavailableSections());
@@ -247,8 +247,8 @@ public class PullRequestSnapshotService
         Optional<String> headSha = raw.map(PrRawDetail::headSha);
         boolean sameCoordinates = baseSha.isPresent() && headSha.isPresent() && stored.baseSha().equals(baseSha) && stored.headSha().equals(headSha);
         PrDiffEtags etags = sameCoordinates ? diffs.findDefaultEtags(prId) : PrDiffEtags.none();
-        PullRequestContentReader.Diff fetched = readRemote(prId, () -> integrations.of(route.session()).contents().diff(
-                route.session().access(), route.repository(), route.number(), Optional.empty(), Optional.empty(), stored, etags));
+        PullRequestContentReader.Diff fetched = readRemote(prId, () -> integrations.of(route.target()).contents().diff(
+                route.target(), route.number(), Optional.empty(), Optional.empty(), stored, etags));
         if (baseSha.isPresent() && headSha.isPresent()) {
             // The default endpoints follow a moving PR. Do not label their bytes with coordinates that moved during retrieval.
             PrRawDetail verified = readRemote(prId, () -> requests.refresh(route.session(), route.repository().id(), route.number(), true)).detail();
@@ -278,7 +278,7 @@ public class PullRequestSnapshotService
                 .filter(stored -> stored.baseSha().equals(Optional.of(baseSha)) && stored.headSha().equals(Optional.of(headSha)))
                 .map(StoredPrDiff::fileContents)
                 .orElseGet(ImmutableMap::of);
-        List<DiffFile> files = readRemote(prId, () -> integrations.of(route.session()).contents().diff(route.session().access(), route.repository(), route.number(),
+        List<DiffFile> files = readRemote(prId, () -> integrations.of(route.target()).contents().diff(route.target(), route.number(),
                 Optional.of(baseSha), Optional.of(headSha), EMPTY_DIFF, PrDiffEtags.none()).files());
         StoredPrDiff fetched = new StoredPrDiff(files, ImmutableList.of(), fileContents,
                 Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now()));
@@ -299,8 +299,8 @@ public class PullRequestSnapshotService
         if (stored.baseSha().equals(Optional.of(contentBase)) && stored.headSha().equals(Optional.of(contentHead)) && stored.fileContents().containsKey(path)) {
             return;
         }
-        DiffFileContent content = readRemote(prId, () -> integrations.of(route.session()).contents().fileContent(
-                route.session().access(), route.repository(), route.number(), path, contentBase, contentHead, baseSha == null));
+        DiffFileContent content = readRemote(prId, () -> integrations.of(route.target()).contents().fileContent(
+                route.target(), route.number(), path, contentBase, contentHead, baseSha == null));
         if (baseSha == null) {
             if (!diffs.saveDefaultFileContent(prId, contentBase, contentHead, path, content)) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Pull request diff changed while fetching file content; refresh again");

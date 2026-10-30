@@ -16,7 +16,7 @@ package com.bytequay.integration.gitlab.impl;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingProvider;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -372,22 +372,21 @@ final class GitLabHttpClient
         }
     }
 
-    static String projectPath(HostingAccess access, HostingRepository repository)
+    static String projectPath(HostingTarget target)
     {
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "Repository belongs to another hosting instance");
-        return "projects/" + encode(repository.remoteId());
+        return "projects/" + encode(target.repository().remoteId());
     }
 
-    static String mergeRequestPath(HostingAccess access, HostingRepository repository, int number)
+    static String mergeRequestPath(HostingTarget target, int number)
     {
         checkArgument(number > 0, "number must be positive");
-        return projectPath(access, repository) + "/merge_requests/" + number;
+        return projectPath(target) + "/merge_requests/" + number;
     }
 
-    static String issuePath(HostingAccess access, HostingRepository repository, int number)
+    static String issuePath(HostingTarget target, int number)
     {
         checkArgument(number > 0, "number must be positive");
-        return projectPath(access, repository) + "/issues/" + number;
+        return projectPath(target) + "/issues/" + number;
     }
 
     record Response<T>(Optional<T> body, Optional<String> etag, boolean hasNext) {}

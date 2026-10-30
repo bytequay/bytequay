@@ -21,6 +21,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -102,6 +103,11 @@ class TestGitLabPullRequestContentReader
         reader = new GitLabPullRequestContentReader(http, new ObjectMapper());
     }
 
+    private HostingTarget target()
+    {
+        return new HostingTarget(access, repository);
+    }
+
     @AfterEach
     void tearDown()
     {
@@ -129,7 +135,7 @@ class TestGitLabPullRequestContentReader
         responses.put(PREFIX + "/notes/11/award_emoji?per_page=100&page=1", "[]");
         responses.put(PREFIX + "/award_emoji?per_page=100&page=1", "[{\"name\":\"thumbsup\"},{\"name\":\"thumbsup\"}]");
 
-        StoredPrDetail detail = reader.discussion(access, repository, 7, existing());
+        StoredPrDetail detail = reader.discussion(target(), 7, existing());
 
         assertThat(detail.reviews()).singleElement().satisfies(review -> {
             assertThat(review.login()).isEqualTo("reviewer");
@@ -152,7 +158,7 @@ class TestGitLabPullRequestContentReader
     void failedSourcesRemainExplicitlyUnavailable()
     {
         responses.put(PREFIX + "/commits?per_page=100&page=1", "[]");
-        StoredPrDetail detail = reader.discussion(access, repository, 7, existing());
+        StoredPrDetail detail = reader.discussion(target(), 7, existing());
         assertThat(detail.unavailableSections()).contains("reviews", "timeline", "comments", "reviewThreads", "reactions").doesNotContain("commits");
         assertThat(detail.reviewsComplete()).isFalse();
         assertThat(detail.timelineComplete()).isFalse();
@@ -170,7 +176,7 @@ class TestGitLabPullRequestContentReader
         statuses.put(PREFIX + "/approvals", status);
         responses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", "[]");
 
-        StoredPrDetail detail = reader.discussion(access, repository, 7, existing());
+        StoredPrDetail detail = reader.discussion(target(), 7, existing());
 
         assertThat(detail.unavailableSections()).containsExactly(StoredPrDetail.REVIEWS);
         assertThat(detail.reviewsComplete()).isFalse();
@@ -189,7 +195,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
         responses.put("/gitlab/api/v4/projects/42/pipelines/9/bridges?per_page=100&page=1", "[]");
 
-        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+        var result = reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
 
         assertThat(result.complete()).isTrue();
         assertThat(result.checkRuns()).singleElement().satisfies(check -> {
@@ -219,7 +225,7 @@ class TestGitLabPullRequestContentReader
                 "pipeline":{"id":9,"project_id":43},"downstream_pipeline":null}]
                 """);
 
-        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+        var result = reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
 
         assertThat(result.complete()).isTrue();
         assertThat(result.checkRuns()).extracting(check -> check.source()).containsExactly("job", "status");
@@ -237,7 +243,7 @@ class TestGitLabPullRequestContentReader
         statuses.put("/gitlab/api/v4/projects/43/pipelines/9/jobs?per_page=100&page=1", status);
         responses.put("/gitlab/api/v4/projects/43/pipelines/9/bridges?per_page=100&page=1", "[]");
 
-        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+        var result = reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
 
         assertThat(result.complete()).isFalse();
         assertThat(result.checkRuns()).singleElement().satisfies(check -> {
@@ -255,7 +261,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"success\"}]");
         statuses.put("/gitlab/api/v4/projects/42/pipelines/9/bridges?per_page=100&page=1", status);
 
-        var result = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
+        var result = reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty());
 
         assertThat(result.complete()).isFalse();
         assertThat(result.checkRuns()).extracting(check -> check.name()).containsExactly("test", "Pipeline #9");
@@ -270,7 +276,7 @@ class TestGitLabPullRequestContentReader
         responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42,\"status\":\"failed\"}}");
         statuses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", status);
 
-        assertThatThrownBy(() -> reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
+        assertThatThrownBy(() -> reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class,
                         failure -> assertThat(failure.kind()).isEqualTo(status == 401 ? HostingFailure.Kind.AUTHENTICATION_REQUIRED : HostingFailure.Kind.RATE_LIMITED));
     }
@@ -280,7 +286,7 @@ class TestGitLabPullRequestContentReader
     {
         statuses.put(PREFIX, 404);
 
-        assertThatThrownBy(() -> reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
+        assertThatThrownBy(() -> reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(HostingFailure.Kind.MISSING_OR_INACCESSIBLE));
         assertThat(received).containsExactly(PREFIX);
     }
@@ -294,7 +300,7 @@ class TestGitLabPullRequestContentReader
                 """);
         responses.put(PREFIX + "/commits?per_page=100&page=1", "[{\"id\":\"" + HEAD + "\",\"parent_ids\":[\"" + BASE + "\"],\"message\":\"Fix\"}]");
 
-        var result = reader.diff(access, repository, 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
+        var result = reader.diff(target(), 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
 
         assertThat(result.files()).hasSize(2);
         assertThat(result.files().getFirst().additions()).isEqualTo(1);
@@ -321,7 +327,7 @@ class TestGitLabPullRequestContentReader
                 """.formatted(HEAD, HEAD, BASE, BASE));
         responses.put(PREFIX + "/commits?per_page=100&page=1", "[{\"id\":\"" + HEAD + "\",\"parent_ids\":[\"" + BASE + "\"],\"message\":\"Fix\"}]");
 
-        var result = reader.diff(access, repository, 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
+        var result = reader.diff(target(), 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
 
         assertThat(result.files()).hasSize(2);
         assertThat(result.files().getFirst().patch()).isEqualTo("@@ -1 +1 @@\n-old\n+new");
@@ -340,7 +346,7 @@ class TestGitLabPullRequestContentReader
                 """);
         responses.put(PREFIX + "/commits?per_page=100&page=1", "[]");
 
-        var result = reader.diff(access, repository, 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
+        var result = reader.diff(target(), 7, Optional.empty(), Optional.empty(), new StoredPrDiff(ImmutableList.of(), ImmutableList.of()), PrDiffEtags.none());
 
         assertThat(result.files()).singleElement().satisfies(file -> {
             assertThat(file.additions()).isEqualTo(1);
@@ -354,7 +360,7 @@ class TestGitLabPullRequestContentReader
         discussionData("[]");
         responses.put(PREFIX + "/award_emoji?per_page=100&page=1", "[{\"name\":\"smile\"},{\"name\":\"smile\"}]");
 
-        var detail = reader.discussion(access, repository, 7, existing());
+        var detail = reader.discussion(target(), 7, existing());
 
         assertThat(detail.timeline()).singleElement().satisfies(event -> assertThat(event.payload().reactions()).singleElement().satisfies(reaction -> {
             assertThat(reaction.content()).isEqualTo("laugh");
@@ -371,7 +377,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/repository/files/old.txt?ref=" + BASE, "{\"encoding\":\"base64\",\"content\":\"b2xk\"}");
         responses.put("/gitlab/api/v4/projects/43/repository/files/new.txt?ref=" + HEAD, "{\"encoding\":\"base64\",\"content\":\"bmV3\"}");
 
-        var content = reader.fileContent(access, repository, 7, "new.txt", BASE, HEAD, false);
+        var content = reader.fileContent(target(), 7, "new.txt", BASE, HEAD, false);
 
         assertThat(content.oldContent()).isEqualTo("old");
         assertThat(content.newContent()).isEqualTo("new");
@@ -391,7 +397,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/repository/files/dir%2Fnew%20name.txt?ref=" + HEAD,
                 "{\"file_path\":\"dir/new name.txt\",\"encoding\":\"base64\",\"content\":\"bmV3\",\"execute_filemode\":false}");
 
-        var content = reader.fileContent(access, repository, 7, "dir/new name.txt", BASE, HEAD, false);
+        var content = reader.fileContent(target(), 7, "dir/new name.txt", BASE, HEAD, false);
 
         assertThat(content.oldContent()).isEqualTo("old");
         assertThat(content.newContent()).isEqualTo("new");
@@ -407,7 +413,7 @@ class TestGitLabPullRequestContentReader
                 """.formatted(HEAD, repository.webUrl(), HEAD, BASE));
         responses.put("/gitlab/api/v4/projects/43", "{\"id\":43,\"path_with_namespace\":\"another/nested/fork\"}");
 
-        var identity = reader.identity(access, repository, 7);
+        var identity = reader.identity(target(), 7);
 
         assertThat(identity.headRepository().fullName()).isEqualTo("another/nested/fork");
         assertThat(identity.baseRepository().fullName()).isEqualTo("group/nested/repo");
@@ -426,7 +432,7 @@ class TestGitLabPullRequestContentReader
                 """.formatted(HEAD, repository.webUrl(), HEAD, BASE));
         responses.put("/gitlab/api/v4/projects/42", "{\"id\":42,\"path_with_namespace\":\"group/nested/repo\"}");
 
-        assertThat(reader.identity(access, repository, 7).draft()).isTrue();
+        assertThat(reader.identity(target(), 7).draft()).isTrue();
     }
 
     @Test
@@ -436,7 +442,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
         responses.put("/gitlab/api/v4/projects/42/jobs/12/trace", "test failed\n");
 
-        assertThat(reader.readCheckLog(access, repository, 7, 12).text()).isEqualTo("test failed\n");
+        assertThat(reader.readCheckLog(target(), 7, 12).text()).isEqualTo("test failed\n");
     }
 
     @Test
@@ -446,7 +452,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
         statuses.put("/gitlab/api/v4/projects/42/jobs/12/trace", 404);
 
-        var result = reader.readCheckLog(access, repository, 7, 12);
+        var result = reader.readCheckLog(target(), 7, 12);
 
         assertThat(result.text()).isEmpty();
         assertThat(result.unavailableReason()).hasValueSatisfying(reason -> assertThat(reason)
@@ -466,7 +472,7 @@ class TestGitLabPullRequestContentReader
                 """.formatted(oldHead, oldStart));
         responses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", "[]");
 
-        var thread = reader.discussion(access, repository, 7, existing()).timeline().getFirst();
+        var thread = reader.discussion(target(), 7, existing()).timeline().getFirst();
 
         assertThat(thread.payload().outdated()).isTrue();
         assertThat(thread.payload().line()).isNull();
@@ -485,7 +491,7 @@ class TestGitLabPullRequestContentReader
         responses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", "[]");
         responses.put(PREFIX + "/notes/11/award_emoji?per_page=100&page=1", "[]");
 
-        assertThat(reader.discussion(access, repository, 7, existing()).timeline()).singleElement().satisfies(thread -> {
+        assertThat(reader.discussion(target(), 7, existing()).timeline()).singleElement().satisfies(thread -> {
             assertThat(thread.event()).isEqualTo("review_thread");
             assertThat(thread.payload().resolved()).isTrue();
             assertThat(thread.payload().path()).isNull();
@@ -502,7 +508,7 @@ class TestGitLabPullRequestContentReader
                 """);
         responses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", "[]");
 
-        var detail = reader.discussion(access, repository, 7, existing());
+        var detail = reader.discussion(target(), 7, existing());
 
         assertThat(detail.unavailableSections()).contains(StoredPrDetail.TIMELINE, StoredPrDetail.COMMENTS, StoredPrDetail.REVIEW_THREADS);
     }
@@ -512,7 +518,7 @@ class TestGitLabPullRequestContentReader
     {
         responses.put(PREFIX, "{\"sha\":\"" + BASE + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
 
-        assertThatThrownBy(() -> reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
+        assertThatThrownBy(() -> reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
         assertThat(received).containsExactly(PREFIX);
     }
@@ -530,7 +536,7 @@ class TestGitLabPullRequestContentReader
                 [{"id":4,"name":"optional downstream","status":"failed","allow_failure":true}]
                 """);
 
-        var checks = reader.checks(access, repository, 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
+        var checks = reader.checks(target(), 7, HEAD, ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
 
         assertThat(checks).extracting(check -> check.conclusion()).containsExactly("skipped", "neutral", null, "neutral");
         assertThat(checks).extracting(check -> check.status()).containsExactly("completed", "completed", "queued", "completed");
@@ -550,7 +556,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/repository/files/file.txt?ref=" + from, "{\"encoding\":\"base64\",\"content\":\"b2xk\"}");
         responses.put("/gitlab/api/v4/projects/42/repository/files/file.txt?ref=" + HEAD, "{\"encoding\":\"base64\",\"content\":\"bmV3\"}");
 
-        var content = reader.fileContent(access, repository, 7, "file.txt", BASE, HEAD, fullDiff);
+        var content = reader.fileContent(target(), 7, "file.txt", BASE, HEAD, fullDiff);
 
         assertThat(content.oldContent()).isEqualTo("old");
         assertThat(content.newContent()).isEqualTo("new");
@@ -564,7 +570,7 @@ class TestGitLabPullRequestContentReader
                 {"sha":"%s","diff_refs":{"base_sha":"%s","start_sha":"%s","head_sha":"%s"}}
                 """.formatted(BASE, BASE, BASE, BASE));
 
-        assertThatThrownBy(() -> reader.fileContent(access, repository, 7, "file.txt", BASE, HEAD, true))
+        assertThatThrownBy(() -> reader.fileContent(target(), 7, "file.txt", BASE, HEAD, true))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
         assertThat(received).containsExactly(PREFIX);
     }
@@ -576,7 +582,7 @@ class TestGitLabPullRequestContentReader
         responses.put("/gitlab/api/v4/projects/42/repository/compare?from=" + BASE + "&to=" + HEAD + "&straight=true",
                 "{\"compare_timeout\":true,\"diffs\":[]}");
 
-        assertThatThrownBy(() -> reader.fileContent(access, repository, 7, "new.txt", BASE, HEAD, false))
+        assertThatThrownBy(() -> reader.fileContent(target(), 7, "new.txt", BASE, HEAD, false))
                 .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(UNAVAILABLE));
         assertThat(received).noneMatch(path -> path.contains("/repository/files/"));
     }
@@ -609,7 +615,7 @@ class TestGitLabPullRequestContentReader
             }
         };
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            var result = executor.submit(() -> reader.discussion(access, repository, 7, existing()));
+            var result = executor.submit(() -> reader.discussion(target(), 7, existing()));
             try {
                 assertThat(firstBatch.await(5, SECONDS)).isTrue();
                 assertThat(received.stream().filter(path -> path.contains("/notes/"))).hasSize(4);
@@ -632,12 +638,12 @@ class TestGitLabPullRequestContentReader
                 """);
         statuses.put(PREFIX + "/notes/10/award_emoji?per_page=100&page=1", status);
         if (status == 403) {
-            var detail = reader.discussion(access, repository, 7, existing());
+            var detail = reader.discussion(target(), 7, existing());
             assertThat(detail.timeline()).hasSize(1);
             assertThat(detail.unavailableSections()).containsExactly("reactions");
         }
         else {
-            assertThatThrownBy(() -> reader.discussion(access, repository, 7, existing())).isInstanceOfSatisfying(HostingFailure.class,
+            assertThatThrownBy(() -> reader.discussion(target(), 7, existing())).isInstanceOfSatisfying(HostingFailure.class,
                     failure -> assertThat(failure.kind()).isEqualTo(status == 401 ? HostingFailure.Kind.AUTHENTICATION_REQUIRED : HostingFailure.Kind.RATE_LIMITED));
         }
     }

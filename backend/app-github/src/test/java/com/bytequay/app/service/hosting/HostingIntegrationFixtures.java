@@ -17,6 +17,8 @@ import com.bytequay.core.hosting.HostingAccounts;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepositories;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.IssueClient;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestReader;
@@ -24,6 +26,7 @@ import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RepositoryMetadataReader;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 
 /** Hosting integrations whose ports a test does not exercise are mocks. */
@@ -38,6 +41,12 @@ public final class HostingIntegrationFixtures
             beans.addBean(integration.provider().name(), integration);
         }
         return new HostingIntegrations(beans.getBeanProvider(HostingIntegration.class));
+    }
+
+    /** Matches a target for this repository, whichever access the code under test selected. */
+    public static HostingTarget targeting(HostingRepository repository)
+    {
+        return argThat(target -> target != null && target.repository().equals(repository));
     }
 
     public static HostingIntegration connections(HostingProvider provider, HostingAccounts accounts, HostingRepositories repositories, PullRequestReader pullRequests)

@@ -28,6 +28,7 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -90,7 +91,7 @@ class TestGitHubPullRequestContentReader
         when(actions.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(nativeCheck), Optional.of("checks"), Optional.empty()))
                 .thenReturn(new GitHubActionsClient.PrCheckRunsFetch(ImmutableList.of(nativeCheck, external), Optional.of("checks"), Optional.empty()));
 
-        var result = fetcher.checks(access, repository, 7, "head", ImmutableList.of(cachedJob), Optional.of("checks"), Optional.empty());
+        var result = fetcher.checks(new HostingTarget(access, repository), 7, "head", ImmutableList.of(cachedJob), Optional.of("checks"), Optional.empty());
 
         assertThat(result.checkRuns()).containsExactly(cachedJob, external);
         assertThat(result.checkRunsEtag()).contains("checks");

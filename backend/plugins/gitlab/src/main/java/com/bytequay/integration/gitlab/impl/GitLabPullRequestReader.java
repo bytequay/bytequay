@@ -15,9 +15,8 @@ package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrRawDetail;
-import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
-import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
@@ -59,17 +58,16 @@ public final class GitLabPullRequestReader
     }
 
     @Override
-    public PullRequestListPage list(HostingAccess access, HostingRepository repository, boolean openOnly, int page, int pageSize)
+    public PullRequestListPage list(HostingTarget target, boolean openOnly, int page, int pageSize)
     {
-        requireNonNull(access, "access is null");
-        requireNonNull(repository, "repository is null");
+        requireNonNull(target, "target is null");
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        String path = projectPath(access, repository) + "/merge_requests?scope=all&state=" + (openOnly ? "opened" : "all")
+        String path = projectPath(target) + "/merge_requests?scope=all&state=" + (openOnly ? "opened" : "all")
                 + "&order_by=updated_at&sort=desc&per_page=" + pageSize + "&page=" + page;
-        GitLabHttpClient.Response<GitLabMergeRequestResponse[]> response = http.get(access, path, Optional.empty(), GitLabMergeRequestResponse[].class);
+        GitLabHttpClient.Response<GitLabMergeRequestResponse[]> response = http.get(target.access(), path, Optional.empty(), GitLabMergeRequestResponse[].class);
         try {
-            List<FetchedPullRequest> items = Arrays.stream(response.body().orElseThrow()).map(mr -> summary(access, repository, mr)).collect(toImmutableList());
+            List<FetchedPullRequest> items = Arrays.stream(response.body().orElseThrow()).map(mr -> summary(target, mr)).collect(toImmutableList());
             return new PullRequestListPage(items, response.hasNext());
         }
         catch (IllegalArgumentException | NullPointerException | DateTimeParseException e) {
@@ -78,17 +76,16 @@ public final class GitLabPullRequestReader
     }
 
     @Override
-    public PullRequestFetch fetch(HostingAccess access, HostingRepository repository, int number, Optional<String> validator)
+    public PullRequestFetch fetch(HostingTarget target, int number, Optional<String> validator)
     {
-        requireNonNull(access, "access is null");
-        requireNonNull(repository, "repository is null");
-        var response = http.get(access, mergeRequestPath(access, repository, number), validator, GitLabMergeRequestResponse.class);
+        requireNonNull(target, "target is null");
+        var response = http.get(target.access(), mergeRequestPath(target, number), validator, GitLabMergeRequestResponse.class);
         if (response.body().isEmpty()) {
             return new PullRequestFetch(Optional.empty(), response.etag());
         }
         try {
             GitLabMergeRequestResponse mr = response.body().orElseThrow();
-            FetchedPullRequest summary = summary(access, repository, mr);
+            FetchedPullRequest summary = summary(target, mr);
             checkArgument(summary.number() == number, "invalid merge request identity");
             String authorAvatar = Optional.ofNullable(mr.author()).map(GitLabUser::avatarUrl).orElse(null);
             String headSha = optionalSha(mr.sha());
@@ -110,14 +107,15 @@ public final class GitLabPullRequestReader
         }
     }
 
-    private static FetchedPullRequest summary(HostingAccess access, HostingRepository repository, GitLabMergeRequestResponse mr)
+    private static FetchedPullRequest summary(HostingTarget target, GitLabMergeRequestResponse mr)
     {
         checkArgument(mr.id() != null && mr.id() > 0 && mr.iid() != null && mr.iid() > 0 && mr.iid() <= Integer.MAX_VALUE, "invalid merge request identity");
-        checkArgument(mr.projectId() != null && mr.projectId() > 0 && mr.projectId().toString().equals(repository.remoteId()), "invalid project identity");
-        checkArgument(mr.targetProjectId() == null || (mr.targetProjectId() > 0 && mr.targetProjectId().toString().equals(repository.remoteId())), "invalid target project");
+        String projectId = target.repository().remoteId();
+        checkArgument(mr.projectId() != null && mr.projectId() > 0 && mr.projectId().toString().equals(projectId), "invalid project identity");
+        checkArgument(mr.targetProjectId() == null || (mr.targetProjectId() > 0 && mr.targetProjectId().toString().equals(projectId)), "invalid target project");
         checkText(mr.state(), "state");
         String state = mr.requestState();
-        String url = HostingUrls.requireWithinBase(URI.create(checkText(mr.webUrl(), "webUrl")), access.server().webBaseUrl()).toASCIIString();
+        String url = HostingUrls.requireWithinBase(URI.create(checkText(mr.webUrl(), "webUrl")), target.access().server().webBaseUrl()).toASCIIString();
         boolean draft = mr.isDraft();
         String author = Optional.ofNullable(mr.author()).map(GitLabUser::username).orElse(null);
         List<String> labels = mr.labels().stream().map(label -> checkText(label, "label")).collect(toImmutableList());
@@ -135,7 +133,7 @@ public final class GitLabPullRequestReader
             default -> null;
         };
         String mergeableState = mergeable == null ? null : mergeable ? "clean" : "dirty";
-        return new FetchedPullRequest(mr.id(), repository.fullPath(), mr.iid().intValue(), checkText(mr.title(), "title"), author, url,
+        return new FetchedPullRequest(mr.id(), target.repository().fullPath(), mr.iid().intValue(), checkText(mr.title(), "title"), author, url,
                 Instant.parse(mr.createdAt()), Instant.parse(mr.updatedAt()), OTHER, labels, ImmutableMap.of(), draft, state,
                 Optional.ofNullable(mr.closedAt()).map(Instant::parse).orElse(null), Optional.ofNullable(mr.mergedAt()).map(Instant::parse).orElse(null),
                 requestedReviewers, mergeable, mergeableState, mr.sourceBranch());

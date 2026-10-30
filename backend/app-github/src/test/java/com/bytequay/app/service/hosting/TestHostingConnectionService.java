@@ -26,6 +26,7 @@ import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestReader;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -47,6 +48,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -400,9 +402,9 @@ class TestHostingConnectionService
     {
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(metadata());
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty()))).thenReturn(metadata());
         service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.empty());
-        verify(requests).fetch(any(HostingAccess.class), eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(repository), eq(7), eq(Optional.empty()));
     }
 
     @Test
@@ -411,8 +413,8 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         PullRequestFetch unchanged = new PullRequestFetch(Optional.empty(), Optional.of("\"v1\""));
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), eq(unchanged.etag()))).thenAnswer(call -> {
-            HostingAccess access = call.getArgument(0);
+        when(requests.fetch(targeting(repository), eq(7), eq(unchanged.etag()))).thenAnswer(call -> {
+            HostingAccess access = call.<HostingTarget>getArgument(0).access();
             assertThat(access.token()).isEqualTo("first-secret");
             return unchanged;
         });
@@ -426,10 +428,10 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         PullRequestFetch result = metadata();
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
 
         assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.of("old/group/project"), Optional.of("\"v1\""))).isSameAs(result);
-        verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(repository), eq(7), eq(Optional.empty()));
     }
 
     @ParameterizedTest
@@ -438,7 +440,7 @@ class TestHostingConnectionService
     {
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty())))
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty())))
                 .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"v1\"")));
 
         assertThatThrownBy(() -> {
@@ -465,10 +467,10 @@ class TestHostingConnectionService
         HostingRepository repository = storedRepository();
         when(identities.findRepository(30)).thenReturn(Optional.of(repository));
         PullRequestFetch result = metadata();
-        when(requests.fetch(any(), eq(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
+        when(requests.fetch(targeting(repository), eq(7), eq(Optional.empty()))).thenReturn(result);
 
         assertThat(service.readPullRequest(service.readSession(20), 30, 7, Optional.empty(), Optional.of("\"unscoped\""))).isSameAs(result);
-        verify(requests).fetch(any(), eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(repository), eq(7), eq(Optional.empty()));
     }
 
     private static RemoteHostingRepository remoteRepository()

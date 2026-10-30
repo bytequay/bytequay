@@ -2361,14 +2361,14 @@ class TestPullRequestService
         var reply = new InlineReviewComment("", "/close", 0, null, null, null, null, OptionalLong.of(10));
         List<InlineReviewComment> comments = "reply-review".equals(kind) ? ImmutableList.of(reply) : ImmutableList.of();
         if ("review".equals(kind) || "reply-review".equals(kind)) {
-            when(writer.submitReview(any(), any(), eq(7), eq("COMMENT"), eq("/close"), eq(comments), eq("head")))
+            when(writer.submitReview(any(), eq(7), eq("COMMENT"), eq("/close"), eq(comments), eq("head")))
                     .thenReturn(new SubmittedReview(Optional.empty(), ImmutableList.of(result)));
         }
         else if ("inline".equals(kind)) {
-            when(writer.createReviewComment(any(), any(), eq(7), eq(inline))).thenReturn(result);
+            when(writer.createReviewComment(any(), eq(7), eq(inline))).thenReturn(result);
         }
         else {
-            when(writer.comment(any(), any(), eq(7), eq("/close"))).thenReturn(result);
+            when(writer.comment(any(), eq(7), eq("/close"))).thenReturn(result);
         }
         AtomicReference<Optional<StoredPrDetail>> cached = new AtomicReference<>(Optional.of(stored()));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -2407,11 +2407,11 @@ class TestPullRequestService
         var comment = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
         if (review) {
-            when(writer.submitReview(any(), any(), eq(7), eq("COMMENT"), eq(""), eq(ImmutableList.of(comment)), eq("head")))
+            when(writer.submitReview(any(), eq(7), eq("COMMENT"), eq(""), eq(ImmutableList.of(comment)), eq("head")))
                     .thenReturn(new SubmittedReview(Optional.empty(), ImmutableList.of(result)));
         }
         else {
-            when(writer.createReviewComment(any(), any(), eq(7), eq(comment))).thenReturn(result);
+            when(writer.createReviewComment(any(), eq(7), eq(comment))).thenReturn(result);
         }
         PullRequestDetail before = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 7, stored(), true);
         PrRawDetail closed = new PrRawDetail(null, null, "closed", null, null, null, REVIEWED_AT, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
@@ -2875,7 +2875,7 @@ class TestPullRequestService
         StoredPrDetail cached = new StoredPrDetail(raw(), ImmutableList.of(previous), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(cached));
-        when(writer.submitReview(any(), any(), eq(7), anyString(), eq(body), eq(ImmutableList.of()), eq("head")))
+        when(writer.submitReview(any(), eq(7), anyString(), eq(body), eq(ImmutableList.of()), eq("head")))
                 .thenReturn(new SubmittedReview(approved ? Optional.of(approvedReview) : Optional.empty(), events));
 
         var posted = service.submitReview("owner/repo", 7, 12L, approved ? "APPROVE" : "COMMENT", body, ImmutableList.of(), "head");

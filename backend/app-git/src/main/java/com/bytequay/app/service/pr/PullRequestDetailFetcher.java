@@ -50,27 +50,27 @@ class PullRequestDetailFetcher
 
     String headRef(PullRequestRead route)
     {
-        return integrations.of(route.session()).contents().headRef(route.number());
+        return integrations.of(route.target()).contents().headRef(route.number());
     }
 
     boolean viewerCanWrite(PullRequestRead route)
     {
-        return integrations.of(route.session()).contents().viewerCanWrite(route.session().access(), route.repository());
+        return integrations.of(route.target()).contents().viewerCanWrite(route.target());
     }
 
     Optional<DiscussionProbe> probeDiscussion(PullRequestRead route, Map<String, String> etags)
     {
-        return integrations.of(route.session()).contents().probeDiscussion(route.session().access(), route.repository(), route.number(), etags);
+        return integrations.of(route.target()).contents().probeDiscussion(route.target(), route.number(), etags);
     }
 
     ListenableFuture<StoredPrDetail> fetchDiscussion(PullRequestRead route, StoredPrDetail existing)
     {
-        return submit(() -> integrations.of(route.session()).contents().discussion(route.session().access(), route.repository(), route.number(), existing), ioExecutor);
+        return submit(() -> integrations.of(route.target()).contents().discussion(route.target(), route.number(), existing), ioExecutor);
     }
 
     List<GitHubPullRequestIdentity> identitiesByHead(PullRequestRead route, RepoRef sourceRepository, String branch)
     {
-        return integrations.of(route.session()).contents().identitiesByHead(route.session().access(), route.repository(), sourceRepository, branch);
+        return integrations.of(route.target()).contents().identitiesByHead(route.target(), sourceRepository, branch);
     }
 
     static <T> T await(ListenableFuture<T> future)

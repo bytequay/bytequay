@@ -42,7 +42,6 @@ import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
-import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -52,6 +51,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.RepositoryVisibility;
@@ -166,7 +166,7 @@ class TestDevelopmentFollowupCoordinator
         when(git.branchHeld(eq(worktree), anyString())).thenAnswer(call -> held.contains(call.<String>getArgument(1)));
         when(ci.startDevelopment(any(), any(), any(), any())).thenAnswer(ignored -> ciRun());
         when(hosting.captureRead("workspace")).thenAnswer(ignored -> HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token"));
-        when(dispatch.of(any(HostingReadSession.class))).thenReturn(pullRequests(HostingProvider.GITHUB, mock(PullRequestContentReader.class), writes));
+        when(dispatch.of(any(HostingTarget.class))).thenReturn(pullRequests(HostingProvider.GITHUB, mock(PullRequestContentReader.class), writes));
         when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PUBLIC);
         doAnswer(call -> {
             Runnable action = call.getArgument(2);
@@ -345,7 +345,7 @@ class TestDevelopmentFollowupCoordinator
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(AUTO_COMMIT)), contains("Do not push"));
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME));
         verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
@@ -424,7 +424,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
         noFollowup();
         verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
     }
 
@@ -673,7 +673,7 @@ class TestDevelopmentFollowupCoordinator
         order.verify(ci).startDevelopment(any(), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
-        verify(writes, never()).create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(writes, never()).create(any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -1383,7 +1383,7 @@ class TestDevelopmentFollowupCoordinator
         advance();
 
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.of(BASE));
-        verify(writes, never()).create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
+        verify(writes, never()).create(any(), anyString(), anyString(), anyString(), anyString(), anyBoolean());
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
     }
 
@@ -1436,11 +1436,11 @@ class TestDevelopmentFollowupCoordinator
      */
     private void verifyCreated(String head, String base, String title, String body, boolean draft)
     {
-        var access = org.mockito.ArgumentCaptor.forClass(com.bytequay.core.hosting.HostingAccess.class);
-        verify(writes).create(access.capture(), eq(HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token").repository()),
-                eq(head), eq(base), eq(title), eq(body), eq(draft));
-        assertThat(access.getValue().token()).isEqualTo("token");
-        assertThat(access.getValue().server()).isEqualTo(route.server());
+        var target = org.mockito.ArgumentCaptor.forClass(HostingTarget.class);
+        verify(writes).create(target.capture(), eq(head), eq(base), eq(title), eq(body), eq(draft));
+        assertThat(target.getValue().repository()).isEqualTo(HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token").repository());
+        assertThat(target.getValue().access().token()).isEqualTo("token");
+        assertThat(target.getValue().access().server()).isEqualTo(route.server());
     }
 
     private AtomicReference<DevelopmentPublicationFacts> trackedRemote(Optional<String> remoteHead, Optional<GitHubPullRequestIdentity> existing)
@@ -1451,7 +1451,7 @@ class TestDevelopmentFollowupCoordinator
             remote.set(publication(Optional.of(HEAD), existing.map(ignored -> pr(HEAD, true))));
             return null;
         }).when(git).pushDevelopmentHead(worktree, route, HEAD, remoteHead);
-        when(writes.create(any(), any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
+        when(writes.create(any(), anyString(), anyString(), anyString(), anyString(), anyBoolean()))
                 .thenAnswer(call -> {
                     remote.set(publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
                     return new CreatedPullRequest(1, 7, pr(HEAD, true).url());
@@ -1496,7 +1496,7 @@ class TestDevelopmentFollowupCoordinator
                 "development-ci:" + taskId + ":" + HEAD)), eq(taskId), eq(pr(HEAD, true)), eq(NOW));
         order.verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(ci, never()).advance(any());
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }
 
@@ -1587,7 +1587,7 @@ class TestDevelopmentFollowupCoordinator
         else {
             verify(ci, never()).startDevelopment(any(), any(), any(), any());
         }
-        verify(writes, never()).markReady(any(), any(), anyInt());
+        verify(writes, never()).markReady(any(), anyInt());
         verify(turns).finishDevelopmentContinuation(taskId, source.id());
         verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
     }

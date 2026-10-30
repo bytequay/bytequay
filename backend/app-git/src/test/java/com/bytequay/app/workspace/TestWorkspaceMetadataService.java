@@ -184,7 +184,7 @@ class TestWorkspaceMetadataService
         var route = WorkspaceIssueTestData.route(gitlab);
         when(hosting.captureRead("gitlab")).thenReturn(route);
         var reader = mock(com.bytequay.core.hosting.RepositoryMetadataReader.class);
-        when(reader.overview(route.session().access(), route.repository())).thenReturn(new com.bytequay.core.hosting.RepositoryOverview("Project", 3,
+        when(reader.overview(route.target())).thenReturn(new com.bytequay.core.hosting.RepositoryOverview("Project", 3,
                 ImmutableList.of("java"), ImmutableMap.of("Java", 100L)));
         service = new WorkspaceMetadataService(workspaceStore, metadataStore, hosting, integrations(metadata(GITLAB, reader)), avatarCache, Clock.fixed(NOW, ZoneOffset.UTC));
 

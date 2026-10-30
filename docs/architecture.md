@@ -152,10 +152,11 @@ readers are verified with the matching application release.
 GitHub and GitLab share the contracts in `core.hosting`. The adapters in
 `plugins/github` and `plugins/gitlab` own HTTP requests, typed response records,
 provider-specific URLs and normalization. Each provider supplies one
-`HostingIntegration` holding all of its hosting ports, and application services
-select it only through `HostingIntegrations`, by the provider of the account in
-use; `app` composes the concrete implementations. The adapters depend on `core`,
-not application services or persistence.
+`HostingIntegration` holding all of its hosting ports. A remote call carries one
+`HostingTarget`, the selected account access and retained repository, and
+application services select the integration only through `HostingIntegrations`,
+by that target's provider; `app` composes the concrete implementations. The
+adapters depend on `core`, not application services or persistence.
 
 The contracts cover accounts, repository metadata, paginated PR/MR and issue
 reads, request discussion, checks, diffs, and explicit remote actions. Existing

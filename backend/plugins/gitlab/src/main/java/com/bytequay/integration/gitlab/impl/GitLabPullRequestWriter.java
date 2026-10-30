@@ -23,6 +23,7 @@ import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.SubmittedReview;
@@ -67,151 +68,151 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
+    public PrTimelineEvent comment(HostingTarget target, int number, String body)
     {
-        GitLabNote note = http.post(access, mergeRequestPath(access, repository, number) + "/notes", new Body(body), GitLabNote.class).body().orElseThrow();
-        return mapped("note", () -> note(note, url(repository, number)));
+        GitLabNote note = http.post(target.access(), mergeRequestPath(target, number) + "/notes", new Body(body), GitLabNote.class).body().orElseThrow();
+        return mapped("note", () -> note(note, url(target.repository(), number)));
     }
 
     @Override
-    public PrTimelineEvent createReviewComment(HostingAccess access, HostingRepository repository, int number, InlineReviewComment comment)
+    public PrTimelineEvent createReviewComment(HostingTarget target, int number, InlineReviewComment comment)
     {
         validateComment(comment);
-        String path = mergeRequestPath(access, repository, number);
-        GitLabMergeRequestResponse current = get(access, path, GitLabMergeRequestResponse.class);
+        String path = mergeRequestPath(target, number);
+        GitLabMergeRequestResponse current = get(target.access(), path, GitLabMergeRequestResponse.class);
         if (comment.replyToCommentId().isPresent()) {
-            GitLabDiscussion discussion = discussion(access, repository, number, comment.replyToCommentId().orElseThrow());
-            GitLabNote reply = http.post(access, path + "/discussions/" + encode(discussion.id()) + "/notes", new Body(comment.body()),
+            GitLabDiscussion discussion = discussion(target, number, comment.replyToCommentId().orElseThrow());
+            GitLabNote reply = http.post(target.access(), path + "/discussions/" + encode(discussion.id()) + "/notes", new Body(comment.body()),
                     GitLabNote.class).body().orElseThrow();
             if (reply.id() == null && reply.summary() != null) {
                 return commandResult(reply.summary());
             }
             List<GitLabNote> notes = ImmutableList.<GitLabNote>builder().addAll(discussion.notes()).add(reply).build();
-            return mapped("discussion", () -> thread(new GitLabDiscussion(discussion.id(), discussion.individualNote(), notes, null), url(repository, number), current));
+            return mapped("discussion", () -> thread(new GitLabDiscussion(discussion.id(), discussion.individualNote(), notes, null), url(target.repository(), number), current));
         }
         checkHead(current, comment.commitId());
-        GitLabDiffPosition position = position(diffs.read(access, path), current, comment);
-        checkRevision(current, get(access, path, GitLabMergeRequestResponse.class));
-        return createDiscussion(access, repository, number, comment.body(), position, current);
+        GitLabDiffPosition position = position(diffs.read(target.access(), path), current, comment);
+        checkRevision(current, get(target.access(), path, GitLabMergeRequestResponse.class));
+        return createDiscussion(target, number, comment.body(), position, current);
     }
 
     @Override
-    public void replyToReviewComment(HostingAccess access, HostingRepository repository, int number, long commentId, String body)
+    public void replyToReviewComment(HostingTarget target, int number, long commentId, String body)
     {
-        GitLabDiscussion discussion = discussion(access, repository, number, commentId);
-        http.post(access, mergeRequestPath(access, repository, number) + "/discussions/" + encode(discussion.id()) + "/notes", new Body(body), Void.class);
+        GitLabDiscussion discussion = discussion(target, number, commentId);
+        http.post(target.access(), mergeRequestPath(target, number) + "/discussions/" + encode(discussion.id()) + "/notes", new Body(body), Void.class);
     }
 
     @Override
-    public void editComment(HostingAccess access, HostingRepository repository, int number, String target, long commentId, String body)
+    public void editComment(HostingTarget target, int number, String commentKind, long commentId, String body)
     {
-        checkArgument("comment".equals(target) || "review_comment".equals(target) || "issue_comment".equals(target), "GitLab can edit note comments only");
-        http.put(access, mergeRequestPath(access, repository, number) + "/notes/" + commentId, new Body(body), Void.class);
+        checkArgument("comment".equals(commentKind) || "review_comment".equals(commentKind) || "issue_comment".equals(commentKind), "GitLab can edit note comments only");
+        http.put(target.access(), mergeRequestPath(target, number) + "/notes/" + commentId, new Body(body), Void.class);
     }
 
     @Override
-    public boolean toggleReaction(HostingAccess access, HostingRepository repository, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
+    public boolean toggleReaction(HostingTarget target, int number, String commentKind, Long commentId, String content, Boolean viewerHasReacted)
     {
-        String path = mergeRequestPath(access, repository, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
-        GitLabUser viewer = get(access, "user", GitLabUser.class);
+        String path = mergeRequestPath(target, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
+        GitLabUser viewer = get(target.access(), "user", GitLabUser.class);
         String emoji = GitLabAward.awardName(content);
-        List<GitLabAward> awards = http.pages(access, path, GitLabAward[].class);
+        List<GitLabAward> awards = http.pages(target.access(), path, GitLabAward[].class);
         Optional<GitLabAward> existing = mapped("award", () -> awards.stream()
                 .filter(award -> emoji.equals(award.name()) && viewer.id().equals(award.user().id())).findFirst());
         if (existing.isPresent()) {
-            http.delete(access, path + "/" + existing.orElseThrow().id(), Void.class);
+            http.delete(target.access(), path + "/" + existing.orElseThrow().id(), Void.class);
             return false;
         }
-        http.post(access, path, new Emoji(emoji), Void.class);
+        http.post(target.access(), path, new Emoji(emoji), Void.class);
         return true;
     }
 
     @Override
-    public void updateTitle(HostingAccess access, HostingRepository repository, int number, String title)
+    public void updateTitle(HostingTarget target, int number, String title)
     {
-        http.put(access, mergeRequestPath(access, repository, number), new Title(title), Void.class);
+        http.put(target.access(), mergeRequestPath(target, number), new Title(title), Void.class);
     }
 
     @Override
-    public void updateDescription(HostingAccess access, HostingRepository repository, int number, String description)
+    public void updateDescription(HostingTarget target, int number, String description)
     {
-        http.put(access, mergeRequestPath(access, repository, number), new Description(description), Void.class);
+        http.put(target.access(), mergeRequestPath(target, number), new Description(description), Void.class);
     }
 
     @Override
-    public void close(HostingAccess access, HostingRepository repository, int number)
+    public void close(HostingTarget target, int number)
     {
-        http.put(access, mergeRequestPath(access, repository, number), new State("close"), Void.class);
+        http.put(target.access(), mergeRequestPath(target, number), new State("close"), Void.class);
     }
 
     @Override
-    public void markReady(HostingAccess access, HostingRepository repository, int number)
+    public void markReady(HostingTarget target, int number)
     {
-        String path = mergeRequestPath(access, repository, number);
-        GitLabMergeRequestResponse current = get(access, path, GitLabMergeRequestResponse.class);
+        String path = mergeRequestPath(target, number);
+        GitLabMergeRequestResponse current = get(target.access(), path, GitLabMergeRequestResponse.class);
         String title = mapped("merge request", () -> current.title().replaceFirst("(?i)^(?:draft|wip):\\s*|^\\[(?:draft|wip)\\]\\s*|^\\((?:draft|wip)\\)\\s*", ""));
-        http.put(access, path, new Title(title), Void.class);
+        http.put(target.access(), path, new Title(title), Void.class);
     }
 
     @Override
-    public void updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
+    public void updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels)
     {
-        List<Long> ids = assignees.stream().map(login -> http.user(access, login).id()).collect(toImmutableList());
-        http.put(access, mergeRequestPath(access, repository, number), new Metadata(ids, String.join(",", labels)), Void.class);
+        List<Long> ids = assignees.stream().map(login -> http.user(target.access(), login).id()).collect(toImmutableList());
+        http.put(target.access(), mergeRequestPath(target, number), new Metadata(ids, String.join(",", labels)), Void.class);
     }
 
     @Override
-    public void updateReviewer(HostingAccess access, HostingRepository repository, int number, String login, boolean requested)
+    public void updateReviewer(HostingTarget target, int number, String login, boolean requested)
     {
-        String path = mergeRequestPath(access, repository, number);
-        GitLabMergeRequestResponse current = get(access, path, GitLabMergeRequestResponse.class);
-        long reviewer = http.user(access, login).id();
+        String path = mergeRequestPath(target, number);
+        GitLabMergeRequestResponse current = get(target.access(), path, GitLabMergeRequestResponse.class);
+        long reviewer = http.user(target.access(), login).id();
         List<Long> ids = new ArrayList<>(mapped("merge request", () -> current.reviewers().stream().map(GitLabUser::id).filter(id -> id != reviewer).collect(toImmutableList())));
         if (requested) {
             ids.add(reviewer);
         }
-        http.put(access, path, new Reviewers(ids), Void.class);
+        http.put(target.access(), path, new Reviewers(ids), Void.class);
     }
 
     @Override
-    public void resolveThread(HostingAccess access, HostingRepository repository, int number, long commentId, boolean resolved)
+    public void resolveThread(HostingTarget target, int number, long commentId, boolean resolved)
     {
-        GitLabDiscussion discussion = discussion(access, repository, number, commentId);
-        http.put(access, mergeRequestPath(access, repository, number) + "/discussions/" + encode(discussion.id()), new Resolved(resolved), Void.class);
+        GitLabDiscussion discussion = discussion(target, number, commentId);
+        http.put(target.access(), mergeRequestPath(target, number) + "/discussions/" + encode(discussion.id()), new Resolved(resolved), Void.class);
     }
 
     @Override
-    public SubmittedReview submitReview(HostingAccess access, HostingRepository repository, int number, String event, String body,
+    public SubmittedReview submitReview(HostingTarget target, int number, String event, String body,
             List<InlineReviewComment> comments, String commitId)
     {
         checkArgument("APPROVE".equals(event) || "COMMENT".equals(event), "GitLab request-changes reviews are not supported by this connection");
         comments.forEach(GitLabPullRequestWriter::validateComment);
-        String path = mergeRequestPath(access, repository, number);
-        GitLabMergeRequestResponse current = get(access, path, GitLabMergeRequestResponse.class);
+        String path = mergeRequestPath(target, number);
+        GitLabMergeRequestResponse current = get(target.access(), path, GitLabMergeRequestResponse.class);
         checkHead(current, commitId);
-        Optional<GitLabUser> viewer = "APPROVE".equals(event) ? Optional.of(get(access, "user", GitLabUser.class)) : Optional.empty();
+        Optional<GitLabUser> viewer = "APPROVE".equals(event) ? Optional.of(get(target.access(), "user", GitLabUser.class)) : Optional.empty();
         List<GitLabFileDiff> files = comments.stream().anyMatch(comment -> comment.replyToCommentId().isEmpty())
-                ? diffs.read(access, path) : ImmutableList.of();
+                ? diffs.read(target.access(), path) : ImmutableList.of();
         List<PrTimelineEvent> events = new ArrayList<>();
         int published = 0;
         try {
             for (InlineReviewComment comment : comments) {
                 if (comment.replyToCommentId().isPresent()) {
-                    events.add(createReviewComment(access, repository, number, comment));
+                    events.add(createReviewComment(target, number, comment));
                 }
                 else {
                     GitLabDiffPosition position = position(files, current, comment);
-                    checkRevision(current, get(access, path, GitLabMergeRequestResponse.class));
-                    events.add(createDiscussion(access, repository, number, comment.body(), position, current));
+                    checkRevision(current, get(target.access(), path, GitLabMergeRequestResponse.class));
+                    events.add(createDiscussion(target, number, comment.body(), position, current));
                 }
                 published++;
             }
             if (body != null && !body.isBlank()) {
-                events.add(comment(access, repository, number, body));
+                events.add(comment(target, number, body));
                 published++;
             }
             if ("APPROVE".equals(event)) {
-                http.post(access, path + "/approve", new Sha(commitId), Void.class);
+                http.post(target.access(), path + "/approve", new Sha(commitId), Void.class);
             }
         }
         catch (RuntimeException failure) {
@@ -226,20 +227,20 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public MergeResult merge(HostingAccess access, HostingRepository repository, int number, String strategy, String headSha)
+    public MergeResult merge(HostingTarget target, int number, String strategy, String headSha)
     {
         checkArgument("default".equals(strategy) || "merge".equals(strategy) || "squash".equals(strategy),
                 "GitLab's merge method is configured by the project; rebase merge is not a per-request choice");
         Object command = "default".equals(strategy) ? new Sha(headSha) : new Merge(headSha, "squash".equals(strategy));
-        var result = http.put(access, mergeRequestPath(access, repository, number) + "/merge", command, GitLabMergeRequestResponse.class).body().orElseThrow();
+        var result = http.put(target.access(), mergeRequestPath(target, number) + "/merge", command, GitLabMergeRequestResponse.class).body().orElseThrow();
         return new MergeResult(result.mergeCommitSha(), "merged".equals(result.state()), "merged".equals(result.state()) ? "Merged" : "GitLab has not merged this request");
     }
 
     @Override
-    public void rerunFailedChecks(HostingAccess access, HostingRepository repository, int number)
+    public void rerunFailedChecks(HostingTarget target, int number)
     {
-        Pipeline pipeline = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
-        List<GitLabJob> failed = http.pages(access, pipeline.path(repository) + "/jobs", GitLabJob[].class).stream()
+        Pipeline pipeline = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
+        List<GitLabJob> failed = http.pages(target.access(), pipeline.path(target.repository()) + "/jobs", GitLabJob[].class).stream()
                 .filter(job -> "failed".equals(job.status())).collect(toImmutableList());
         if (failed.isEmpty()) {
             throw new HostingFailure(REVISION_CONFLICT, "No failed jobs are available to rerun");
@@ -247,7 +248,7 @@ public final class GitLabPullRequestWriter
         int accepted = 0;
         try {
             for (GitLabJob job : failed) {
-                http.post(access, pipeline.projectPath(repository) + "/jobs/" + job.id() + "/retry", ImmutableMap.of(), Void.class);
+                http.post(target.access(), pipeline.projectPath(target.repository()) + "/jobs/" + job.id() + "/retry", ImmutableMap.of(), Void.class);
                 accepted++;
             }
         }
@@ -260,38 +261,38 @@ public final class GitLabPullRequestWriter
     }
 
     @Override
-    public void removeFromMergeQueue(HostingAccess access, HostingRepository repository, int number, boolean autoMerge)
+    public void removeFromMergeQueue(HostingTarget target, int number, boolean autoMerge)
     {
         checkArgument(autoMerge, "GitLab merge trains are not supported by this connection");
-        http.post(access, mergeRequestPath(access, repository, number) + "/cancel_merge_when_pipeline_succeeds", ImmutableMap.of(), Void.class);
+        http.post(target.access(), mergeRequestPath(target, number) + "/cancel_merge_when_pipeline_succeeds", ImmutableMap.of(), Void.class);
     }
 
     @Override
-    public boolean hasMergeQueue(HostingAccess access, HostingRepository repository, String baseRef)
+    public boolean hasMergeQueue(HostingTarget target, String baseRef)
     {
-        projectPath(access, repository);
+        projectPath(target);
         return false;
     }
 
     @Override
-    public CreatedPullRequest create(HostingAccess access, HostingRepository repository, String head, String base, String title, String body, boolean draft)
+    public CreatedPullRequest create(HostingTarget target, String head, String base, String title, String body, boolean draft)
     {
         checkArgument(!head.contains(":"), "Select the GitLab source project before creating a merge request from a fork");
-        GitLabMergeRequestResponse created = http.post(access, projectPath(access, repository) + "/merge_requests", new Create(head, base, draft ? "Draft: " + title : title, body),
+        GitLabMergeRequestResponse created = http.post(target.access(), projectPath(target) + "/merge_requests", new Create(head, base, draft ? "Draft: " + title : title, body),
                 GitLabMergeRequestResponse.class).body().orElseThrow();
         return mapped("merge request", () -> new CreatedPullRequest(created.id(), toIntExact(created.iid()),
-                HostingUrls.requireWithinBase(URI.create(created.webUrl()), access.server().webBaseUrl()).toASCIIString()));
+                HostingUrls.requireWithinBase(URI.create(created.webUrl()), target.access().server().webBaseUrl()).toASCIIString()));
     }
 
-    private PrTimelineEvent createDiscussion(HostingAccess access, HostingRepository repository, int number, String body, GitLabDiffPosition position,
+    private PrTimelineEvent createDiscussion(HostingTarget target, int number, String body, GitLabDiffPosition position,
             GitLabMergeRequestResponse current)
     {
-        GitLabDiscussion created = http.post(access, mergeRequestPath(access, repository, number) + "/discussions", new DiscussionBody(body, position), GitLabDiscussion.class)
+        GitLabDiscussion created = http.post(target.access(), mergeRequestPath(target, number) + "/discussions", new DiscussionBody(body, position), GitLabDiscussion.class)
                 .body().orElseThrow();
         if (created.id() == null && created.summary() != null) {
             return commandResult(created.summary());
         }
-        return mapped("discussion", () -> thread(created, url(repository, number), current));
+        return mapped("discussion", () -> thread(created, url(target.repository(), number), current));
     }
 
     private static GitLabDiffPosition position(List<GitLabFileDiff> files, GitLabMergeRequestResponse current, InlineReviewComment comment)
@@ -325,9 +326,9 @@ public final class GitLabPullRequestWriter
         throw new HostingFailure(REVISION_CONFLICT, "The selected line is not present in the current merge request diff");
     }
 
-    private GitLabDiscussion discussion(HostingAccess access, HostingRepository repository, int number, long commentId)
+    private GitLabDiscussion discussion(HostingTarget target, int number, long commentId)
     {
-        List<GitLabDiscussion> discussions = http.pages(access, mergeRequestPath(access, repository, number) + "/discussions", GitLabDiscussion[].class);
+        List<GitLabDiscussion> discussions = http.pages(target.access(), mergeRequestPath(target, number) + "/discussions", GitLabDiscussion[].class);
         return mapped("discussion", () -> discussions.stream().filter(discussion -> discussion.notes().stream().anyMatch(note -> note.id() == commentId)).findFirst())
                 .orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "The selected discussion no longer exists"));
     }

@@ -22,13 +22,13 @@ import java.util.Optional;
 /** Repository facts used by the workspace header and existing people/label pickers. */
 public interface RepositoryMetadataReader
 {
-    RepositoryOverview overview(HostingAccess access, HostingRepository repository);
+    RepositoryOverview overview(HostingTarget target);
 
-    Optional<List<RepositoryContributor>> contributors(HostingAccess access, HostingRepository repository);
+    Optional<List<RepositoryContributor>> contributors(HostingTarget target);
 
-    List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository);
+    List<HostingRepositoryUser> repositoryUsers(HostingTarget target);
 
-    List<String> repositoryTeams(HostingAccess access, HostingRepository repository);
+    List<String> repositoryTeams(HostingTarget target);
 
-    List<RepositoryLabel> repositoryLabels(HostingAccess access, HostingRepository repository);
+    List<RepositoryLabel> repositoryLabels(HostingTarget target);
 }

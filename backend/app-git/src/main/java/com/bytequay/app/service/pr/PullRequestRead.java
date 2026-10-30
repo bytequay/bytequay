@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 
 import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -33,6 +34,11 @@ public record PullRequestRead(HostingReadSession session, HostingRepository repo
         checkArgument(number > 0, "number must be positive");
         checkText(login, "login");
         checkArgument(repository.instanceId() == session.access().instanceId().orElseThrow(), "Repository belongs to another hosting instance");
+    }
+
+    public HostingTarget target()
+    {
+        return new HostingTarget(session.access(), repository);
     }
 
     public String scope()

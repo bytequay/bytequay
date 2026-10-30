@@ -34,29 +34,29 @@ public interface PullRequestContentReader
 {
     String headRef(int number);
 
-    GitHubPullRequestIdentity identity(HostingAccess access, HostingRepository repository, int number);
+    GitHubPullRequestIdentity identity(HostingTarget target, int number);
 
-    List<GitHubPullRequestIdentity> identitiesByHead(HostingAccess access, HostingRepository repository, RepoRef sourceRepository, String branch);
+    List<GitHubPullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch);
 
-    boolean viewerCanWrite(HostingAccess access, HostingRepository repository);
+    boolean viewerCanWrite(HostingTarget target);
 
-    default Optional<DiscussionProbe> probeDiscussion(HostingAccess access, HostingRepository repository, int number, Map<String, String> etags)
+    default Optional<DiscussionProbe> probeDiscussion(HostingTarget target, int number, Map<String, String> etags)
     {
         return Optional.empty();
     }
 
-    StoredPrDetail discussion(HostingAccess access, HostingRepository repository, int number, StoredPrDetail existing);
+    StoredPrDetail discussion(HostingTarget target, int number, StoredPrDetail existing);
 
-    Checks checks(HostingAccess access, HostingRepository repository, int number, String headSha,
+    Checks checks(HostingTarget target, int number, String headSha,
             List<PrCheckRunState> existing, Optional<String> checksEtag, Optional<String> statusesEtag);
 
-    Diff diff(HostingAccess access, HostingRepository repository, int number, Optional<String> baseSha, Optional<String> headSha,
+    Diff diff(HostingTarget target, int number, Optional<String> baseSha, Optional<String> headSha,
             StoredPrDiff existing, PrDiffEtags etags);
 
-    PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId);
+    PullRequestCheckLog readCheckLog(HostingTarget target, int number, long jobId);
 
     /** Full diff coordinates identify the request revision; explicit ranges always compare the supplied endpoints directly. */
-    DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff);
+    DiffFileContent fileContent(HostingTarget target, int number, String path, String baseSha, String headSha, boolean fullDiff);
 
     record Checks(List<PrCheckRunState> checkRuns, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag, boolean complete)
     {

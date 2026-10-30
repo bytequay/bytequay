@@ -17,6 +17,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.sun.net.httpserver.HttpServer;
@@ -84,6 +85,11 @@ class TestGitLabIssueClient
         replies.put("GET /gitlab/api/v4/projects/42/issues/7", new Reply(200, issue("opened"), false));
     }
 
+    private HostingTarget target()
+    {
+        return new HostingTarget(access, repository);
+    }
+
     @AfterEach
     void tearDown()
     {
@@ -108,8 +114,8 @@ class TestGitLabIssueClient
             replies.put("GET /gitlab/api/v4/projects/42/issues/7/" + events + "?per_page=100&page=1", new Reply(200, "[]", false));
         }
 
-        var issue = client.find(access, repository, 7).orElseThrow();
-        var detail = client.detail(access, repository, 7);
+        var issue = client.find(target(), 7).orElseThrow();
+        var detail = client.detail(target(), 7);
 
         assertThat(issue.number()).isEqualTo(7);
         assertThat(issue.author()).isEqualTo("alice");
@@ -128,7 +134,7 @@ class TestGitLabIssueClient
         replies.put("POST /gitlab/api/v4/projects/42/issues/7/notes", new Reply(202,
                 "{\"commands_changes\":{\"state_event\":\"close\"},\"summary\":[\"Closed this issue.\"]}", false));
 
-        var result = client.comment(access, repository, 7, "/close");
+        var result = client.comment(target(), 7, "/close");
 
         assertThat(result.githubId()).isNull();
         assertThat(result.timestamp()).isNull();
@@ -142,7 +148,7 @@ class TestGitLabIssueClient
         replies.put("GET /gitlab/api/v4/projects/42/issues?scope=all&state=all&order_by=updated_at&sort=asc&per_page=100&page=2&updated_after=2026-10-01T00%3A00%3A00Z",
                 new Reply(200, "[" + issue("opened") + "," + issue("closed") + "]", true));
 
-        var page = client.list(access, repository, Optional.of(NOW), 2);
+        var page = client.list(target(), Optional.of(NOW), 2);
 
         assertThat(page.hasNext()).isTrue();
         assertThat(page.openIssues()).singleElement().satisfies(issue -> {
@@ -158,21 +164,21 @@ class TestGitLabIssueClient
     @Test
     void returnsExistingSourceContractWithPrivateServerPrefixAndNestedNamespace()
     {
-        var source = client.source(access, repository, 7, true);
+        var source = client.source(target(), 7, true);
 
         assertThat(source.host()).isEqualTo(base);
         assertThat(source.repo()).isEqualTo("group/subgroup/repo");
         assertThat(source.url()).isEqualTo(base + "/group/subgroup/repo/-/work_items/7");
         replies.put("GET /gitlab/api/v4/projects/42/issues/7", new Reply(200, issue("closed"), false));
-        assertThat(client.find(access, repository, 7)).isEmpty();
-        assertThatThrownBy(() -> client.source(access, repository, 7, true)).isInstanceOf(IllegalArgumentException.class);
+        assertThat(client.find(target(), 7)).isEmpty();
+        assertThatThrownBy(() -> client.source(target(), 7, true)).isInstanceOf(IllegalArgumentException.class);
     }
 
     @Test
     void previewsClosedIssuesWithoutPuttingThemInTheOpenIssueCache()
     {
         replies.put("GET /gitlab/api/v4/projects/42/issues/7", new Reply(200, issue("closed"), false));
-        var preview = client.preview(access, repository, 7);
+        var preview = client.preview(target(), 7);
         assertThat(preview.state()).isEqualTo("closed");
         assertThat(preview.pullRequest()).isFalse();
         assertThat(preview.htmlUrl()).isEqualTo(base + "/group/subgroup/repo/-/work_items/7");
@@ -192,7 +198,7 @@ class TestGitLabIssueClient
                 """, false));
         replies.put("GET /gitlab/api/v4/projects/42/issues/7/resource_milestone_events?per_page=100&page=1", new Reply(200, "[]", false));
 
-        var detail = client.detail(access, repository, 7);
+        var detail = client.detail(target(), 7);
 
         assertThat(detail.repositoryId()).isEqualTo(900);
         assertThat(detail.timeline()).extracting(event -> event.event()).containsExactly("commented", "closed", "labeled");
@@ -208,12 +214,12 @@ class TestGitLabIssueClient
     {
         replies.put("GET /gitlab/api/v4/users?username=bob", new Reply(200, "[{\"id\":2,\"username\":\"bob\"}]", false));
         replies.put("PUT /gitlab/api/v4/projects/42/issues/7", new Reply(200, issue("opened"), false));
-        var metadata = client.updateMetadata(access, repository, 7, ImmutableList.of("bob"), ImmutableList.of("bug"));
+        var metadata = client.updateMetadata(target(), 7, ImmutableList.of("bob"), ImmutableList.of("bug"));
 
         assertThat(metadata.assignees()).containsExactly("bob");
         assertThat(MAPPER.readValue(body.get(), MetadataRequest.class)).isEqualTo(new MetadataRequest(ImmutableList.of(2L), "bug"));
         replies.put("POST /gitlab/api/v4/projects/42/issues/7/notes", new Reply(201, note(), false));
-        assertThat(client.comment(access, repository, 7, "Please fix this").body()).isEqualTo("Please fix this");
+        assertThat(client.comment(target(), 7, "Please fix this").body()).isEqualTo("Please fix this");
         assertThat(MAPPER.readValue(body.get(), CommentRequest.class).body()).isEqualTo("Please fix this");
     }
 
@@ -226,12 +232,12 @@ class TestGitLabIssueClient
         replies.put("GET /gitlab/api/v4/projects/42/users?per_page=100&page=1", new Reply(200,
                 "[{\"id\":1,\"username\":\"alice\",\"name\":\"Alice\",\"state\":\"active\",\"avatar_url\":null,\"web_url\":\"" + base + "/alice\"}]", false));
 
-        var overview = client.overview(access, repository);
+        var overview = client.overview(target());
 
         assertThat(overview.topics()).containsExactly("backend");
         assertThat(overview.stargazersCount()).isEqualTo(3);
         assertThat(overview.languages()).containsEntry("Java", 80500L).containsEntry("Shell", 19500L);
-        assertThat(client.repositoryUsers(access, repository)).singleElement().satisfies(user -> {
+        assertThat(client.repositoryUsers(target())).singleElement().satisfies(user -> {
             assertThat(user.login()).isEqualTo("alice");
             assertThat(user.bot()).isFalse();
         });
@@ -242,7 +248,7 @@ class TestGitLabIssueClient
     {
         replies.put("GET /gitlab/api/v4/projects/42/labels?per_page=100&page=1",
                 new Reply(200, "[{\"id\":1,\"name\":\"bug\",\"color\":\"#aabbcc\"}]", false));
-        assertThat(client.repositoryLabels(access, repository)).singleElement().satisfies(label -> {
+        assertThat(client.repositoryLabels(target())).singleElement().satisfies(label -> {
             assertThat(label.name()).isEqualTo("bug");
             assertThat(label.color()).isEqualTo("aabbcc");
         });
@@ -253,7 +259,7 @@ class TestGitLabIssueClient
     void failsAccessErrorsWithoutPretendingTheIssueListIsEmpty()
     {
         replies.put("GET /gitlab/api/v4/projects/42/issues?scope=all&state=opened&order_by=updated_at&sort=asc&per_page=100&page=1", new Reply(403, "{}", false));
-        assertThatThrownBy(() -> client.list(access, repository, Optional.empty(), 1)).isInstanceOf(HostingFailure.class);
+        assertThatThrownBy(() -> client.list(target(), Optional.empty(), 1)).isInstanceOf(HostingFailure.class);
     }
 
     private String issue(String state)

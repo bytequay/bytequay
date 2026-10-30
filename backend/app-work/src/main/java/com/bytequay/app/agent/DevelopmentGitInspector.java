@@ -245,9 +245,9 @@ public class DevelopmentGitInspector
     private DevelopmentPublicationFacts readPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
         var selected = hosting.captureRead(worktree.workspaceId());
-        var reader = integrations.of(selected.session()).contents();
+        var reader = integrations.of(selected.target()).contents();
         Optional<GitHubPullRequestIdentity> assigned = route.assignedPullRequest().map(pr -> {
-            GitHubPullRequestIdentity current = reader.identity(selected.session().access(), selected.repository(), pr.number());
+            GitHubPullRequestIdentity current = reader.identity(selected.target(), pr.number());
             checkState(current.pullRequest().equals(pr) && current.state() != GitHubPullRequestIdentity.State.CLOSED
                             && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
                             && current.baseRepository().equals(route.baseRepository()) && current.baseBranch().equals(route.baseBranch()),
@@ -271,7 +271,7 @@ public class DevelopmentGitInspector
             remoteHead = Optional.of(values[0]);
         }
         List<GitHubPullRequestIdentity> matches = assigned.<List<GitHubPullRequestIdentity>>map(ImmutableList::of)
-                .orElseGet(() -> reader.identitiesByHead(selected.session().access(), selected.repository(), route.headRepository(), route.headBranch()));
+                .orElseGet(() -> reader.identitiesByHead(selected.target(), route.headRepository(), route.headBranch()));
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }
 

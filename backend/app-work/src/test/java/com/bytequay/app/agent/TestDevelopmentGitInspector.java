@@ -296,7 +296,7 @@ class TestDevelopmentGitInspector
         assertThat(baseline.local().branch()).isEqualTo(worktree.generatedBranch());
         verifyNoInteractions(credentials, pullRequests);
         assertThat(git.remoteReads).isZero();
-        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(assigned);
+        when(pullRequests.identity(any(), eq(assigned.pullRequest().number()))).thenReturn(assigned);
         DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, baseline.route());
         assertThat(facts.matchingPullRequests()).containsExactly(assigned);
         assertThat(facts.remoteHeadSha()).contains(baseSha);
@@ -307,7 +307,7 @@ class TestDevelopmentGitInspector
         assertThat(run(bareRemote, "rev-parse", "refs/heads/" + assigned.headBranch())).isEqualTo(head);
         assertThat(git.run(bareRemote, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).exitCode()).isEqualTo(1);
         assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
-        verify(pullRequests, never()).identitiesByHead(any(), any(), any(), anyString());
+        verify(pullRequests, never()).identitiesByHead(any(), any(), anyString());
     }
 
     @ParameterizedTest
@@ -321,12 +321,12 @@ class TestDevelopmentGitInspector
                 change.equals("fork") ? BASE_REPOSITORY : assigned.headRepository(), change.equals("head") ? "other-head" : assigned.headBranch(), assigned.headSha(),
                 assigned.baseRepository(), change.equals("base") ? "other-base" : assigned.baseBranch(), assigned.baseSha(),
                 change.equals("closed") ? GitHubPullRequestIdentity.State.CLOSED : assigned.state(), assigned.draft(), assigned.author());
-        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(changed);
+        when(pullRequests.identity(any(), eq(assigned.pullRequest().number()))).thenReturn(changed);
 
         assertThatThrownBy(() -> inspector.inspectPublication(worktree, route)).hasMessageContaining("Assigned pull request destination changed");
 
         assertThat(git.remoteReads).isZero();
-        verify(pullRequests, never()).identitiesByHead(any(), any(), any(), anyString());
+        verify(pullRequests, never()).identitiesByHead(any(), any(), anyString());
     }
 
     @Test
@@ -337,7 +337,7 @@ class TestDevelopmentGitInspector
         GitHubPullRequestIdentity merged = new GitHubPullRequestIdentity(
                 assigned.pullRequest(), assigned.url(), assigned.headRepository(), assigned.headBranch(), assigned.headSha(),
                 assigned.baseRepository(), assigned.baseBranch(), assigned.baseSha(), GitHubPullRequestIdentity.State.MERGED, false, assigned.author());
-        when(pullRequests.identity(any(), any(), eq(assigned.pullRequest().number()))).thenReturn(merged);
+        when(pullRequests.identity(any(), eq(assigned.pullRequest().number()))).thenReturn(merged);
 
         DevelopmentPublicationFacts facts = inspector.inspectPublication(worktree, route);
 
@@ -414,7 +414,7 @@ class TestDevelopmentGitInspector
             inspector.pushDevelopmentHead(worktree, baseline.route(), baseSha, Optional.empty());
         }
         if (kind.equals("pull-request")) {
-            when(pullRequests.identitiesByHead(any(), any(),
+            when(pullRequests.identitiesByHead(any(),
                     eq(REPOSITORY), eq(worktree.generatedBranch())))
                     .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
                             "https://github.com/alice/project/pull/12", REPOSITORY, worktree.generatedBranch(), baseSha,
@@ -443,7 +443,7 @@ class TestDevelopmentGitInspector
             run(repository, "push", bareRemote.toString(), baseSha + ":refs/heads/" + branch);
         }
         if (kind.equals("pull-request")) {
-            when(pullRequests.identitiesByHead(any(), any(),
+            when(pullRequests.identitiesByHead(any(),
                     eq(REPOSITORY), eq(branch)))
                     .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
                             "https://github.com/alice/project/pull/12", REPOSITORY, branch, baseSha,
@@ -581,7 +581,7 @@ class TestDevelopmentGitInspector
         GitHubPullRequestIdentity wrongBase = new GitHubPullRequestIdentity(
                 PullRequestRef.of("acme", "project", 12), "https://github.com/acme/project/pull/12", REPOSITORY,
                 worktree.generatedBranch(), baseSha, BASE_REPOSITORY, "release", baseSha, GitHubPullRequestIdentity.State.OPEN, true, "alice");
-        when(pullRequests.identitiesByHead(any(), any(),
+        when(pullRequests.identitiesByHead(any(),
                     eq(REPOSITORY), eq(worktree.generatedBranch())))
                 .thenReturn(ImmutableList.of(wrongBase));
 

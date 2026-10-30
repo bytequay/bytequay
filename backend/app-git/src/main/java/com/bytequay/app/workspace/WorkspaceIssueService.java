@@ -126,7 +126,7 @@ public class WorkspaceIssueService
         requireWorkspace(workspaces, workspaceId);
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-        return client(route).preview(route.session().access(), route.repository(), issueNumber);
+        return client(route).preview(route.target(), issueNumber);
     }
 
     /** Returns locally persisted activity and type data without contacting its hosting server. */
@@ -153,18 +153,18 @@ public class WorkspaceIssueService
             WorkspaceHostingRead route = hosting.captureRead(workspaceId);
             long repositoryId = route.repository().id();
             Optional<RepositoryIssue> previous = issues.find(repositoryId, issueNumber);
-            PrTimelineEvent created = client(route).comment(route.session().access(), route.repository(), issueNumber, body.trim());
+            PrTimelineEvent created = client(route).comment(route.target(), issueNumber, body.trim());
             if (created.githubId() == null) {
                 // Command-only writes have no note to append; refresh the state they changed.
                 try {
-                    Optional<RepositoryIssue> issue = client(route).find(route.session().access(), route.repository(), issueNumber);
+                    Optional<RepositoryIssue> issue = client(route).find(route.target(), issueNumber);
                     if (issue.isPresent()) {
                         issues.saveSyncPage(repositoryId, ImmutableList.of(issue.orElseThrow()));
                     }
                     else {
                         issues.delete(repositoryId, issueNumber);
                     }
-                    details.save(client(route).detail(route.session().access(), route.repository(), issueNumber));
+                    details.save(client(route).detail(route.target(), issueNumber));
                     recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
                 }
                 catch (RuntimeException failure) {
@@ -194,7 +194,7 @@ public class WorkspaceIssueService
         WorkspaceOperationLocks.withLock(workspaceId, () -> {
             requireWorkspace(workspaces, workspaceId);
             WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-            client(route).close(route.session().access(), route.repository(), issueNumber);
+            client(route).close(route.target(), issueNumber);
             recent.issueAction(workspaceId, issueNumber, RecentReason.EDITED);
             issues.delete(route.repository().id(), issueNumber);
         });
@@ -210,7 +210,7 @@ public class WorkspaceIssueService
                 normalized = normalized.trim();
             }
             WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-            String current = client(route).updateType(route.session().access(), route.repository(), issueNumber, normalized);
+            String current = client(route).updateType(route.target(), issueNumber, normalized);
             RepositoryIssueDetail detail = cachedDetail(workspace, issueNumber)
                     .withType(current);
             details.save(detail);
@@ -232,7 +232,7 @@ public class WorkspaceIssueService
             List<String> normalizedLabels = normalizeNames(labels, "labels");
             WorkspaceHostingRead route = hosting.captureRead(workspaceId);
             var updated = client(route).updateMetadata(
-                    route.session().access(), route.repository(), issueNumber,
+                    route.target(), issueNumber,
                     normalizedAssignees,
                     normalizedLabels);
             issues.updateMetadata(
@@ -261,7 +261,7 @@ public class WorkspaceIssueService
                 WorkspaceHostingRead route = hosting.captureRead(workspace.id());
                 Lock lock = locks.get(route.repository().id());
                 withLock(lock, () -> {
-                    Optional<RepositoryIssue> issue = client(route).find(route.session().access(), route.repository(), issueNumber);
+                    Optional<RepositoryIssue> issue = client(route).find(route.target(), issueNumber);
                     if (issue.isPresent()) {
                         issues.saveSyncPage(route.repository().id(), ImmutableList.of(issue.orElseThrow()));
                     }
@@ -309,7 +309,7 @@ public class WorkspaceIssueService
             }
             Instant since = checkpoint.map(at -> at.minus(Duration.ofMinutes(5))).orElse(startedAt.minus(Duration.ofHours(1)));
             for (int page = 1; ; page++) {
-                IssueSyncPage fetched = client(route).list(route.session().access(), route.repository(), Optional.of(since), page);
+                IssueSyncPage fetched = client(route).list(route.target(), Optional.of(since), page);
                 issues.saveSyncPage(route.repository().id(), fetched.openIssues());
                 fetched.closedNumbers().forEach(number -> issues.delete(route.repository().id(), number));
                 if (!fetched.hasNext()) {
@@ -364,7 +364,7 @@ public class WorkspaceIssueService
             checkArgument(issueNumber > 0, "issueNumber must be positive");
             WorkspaceHostingRead route = hosting.captureRead(workspaceId);
             return refreshLocked(workspaceId, route.repository().id() + ":" + issueNumber, () -> {
-                RepositoryIssueDetail fetched = client(route).detail(route.session().access(), route.repository(), issueNumber);
+                RepositoryIssueDetail fetched = client(route).detail(route.target(), issueNumber);
                 RepositoryIssueDetail detail = new RepositoryIssueDetail(
                         route.repository().id(), issueNumber, fetched.timeline(), fetched.currentType(), fetched.availableTypes(),
                         Optional.of(clock.instant()));
@@ -392,7 +392,7 @@ public class WorkspaceIssueService
     {
         Set<Long> open = new HashSet<>();
         for (int page = 1; ; page++) {
-            IssueSyncPage fetched = client(route).list(route.session().access(), route.repository(), Optional.empty(), page);
+            IssueSyncPage fetched = client(route).list(route.target(), Optional.empty(), page);
             issues.saveSyncPage(route.repository().id(), fetched.openIssues());
             fetched.openIssues().forEach(issue -> open.add(issue.id()));
             if (!fetched.hasNext()) {
@@ -429,24 +429,24 @@ public class WorkspaceIssueService
     public GitHubIssueSource source(String workspaceId, int number, boolean requireOpen)
     {
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-        return client(route).source(route.session().access(), route.repository(), number, requireOpen);
+        return client(route).source(route.target(), number, requireOpen);
     }
 
     public GitHubIssueSource create(String workspaceId, String title, String body)
     {
         WorkspaceHostingRead route = hosting.captureRead(workspaceId);
-        return client(route).create(route.session().access(), route.repository(), title, body);
+        return client(route).create(route.target(), title, body);
     }
 
     private IssueClient client(WorkspaceHostingRead route)
     {
-        return integrations.of(route.session()).issues();
+        return integrations.of(route.target()).issues();
     }
 
     private void refreshActivity(WorkspaceHostingRead route, int issueNumber)
     {
         try {
-            var activity = client(route).activity(route.session().access(), route.repository(), issueNumber);
+            var activity = client(route).activity(route.target(), issueNumber);
             issues.updateActivity(route.repository().id(), issueNumber, activity.commentCount(), activity.updatedAt());
         }
         catch (RuntimeException failure) {

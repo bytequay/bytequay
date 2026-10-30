@@ -15,6 +15,7 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingTarget;
 import com.google.common.base.Suppliers;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
@@ -47,8 +48,8 @@ public class HostingIntegrations
         return integration;
     }
 
-    public HostingIntegration of(HostingReadSession session)
+    public HostingIntegration of(HostingTarget target)
     {
-        return of(session.access().server().provider());
+        return of(target.provider());
     }
 }

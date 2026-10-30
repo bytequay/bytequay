@@ -26,26 +26,26 @@ import java.util.Optional;
 /** Remote issue operations normalized for the existing workspace issue surface. */
 public interface IssueClient
 {
-    IssueSyncPage list(HostingAccess access, HostingRepository repository, Optional<Instant> since, int page);
+    IssueSyncPage list(HostingTarget target, Optional<Instant> since, int page);
 
-    Optional<RepositoryIssue> find(HostingAccess access, HostingRepository repository, int number);
+    Optional<RepositoryIssue> find(HostingTarget target, int number);
 
-    GitHubIssuePreview preview(HostingAccess access, HostingRepository repository, int number);
+    GitHubIssuePreview preview(HostingTarget target, int number);
 
-    RepositoryIssueDetail detail(HostingAccess access, HostingRepository repository, int number);
+    RepositoryIssueDetail detail(HostingTarget target, int number);
 
-    GitHubIssueSource source(HostingAccess access, HostingRepository repository, int number, boolean requireOpen);
+    GitHubIssueSource source(HostingTarget target, int number, boolean requireOpen);
 
-    GitHubIssueSource create(HostingAccess access, HostingRepository repository, String title, String body);
+    GitHubIssueSource create(HostingTarget target, String title, String body);
 
     /** Returns the note, or a command result with no remote ID when no note was created. */
-    PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body);
+    PrTimelineEvent comment(HostingTarget target, int number, String body);
 
-    void close(HostingAccess access, HostingRepository repository, int number);
+    void close(HostingTarget target, int number);
 
-    String updateType(HostingAccess access, HostingRepository repository, int number, String type);
+    String updateType(HostingTarget target, int number, String type);
 
-    IssueMetadata updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels);
+    IssueMetadata updateMetadata(HostingTarget target, int number, List<String> assignees, List<String> labels);
 
-    IssueActivity activity(HostingAccess access, HostingRepository repository, int number);
+    IssueActivity activity(HostingTarget target, int number);
 }

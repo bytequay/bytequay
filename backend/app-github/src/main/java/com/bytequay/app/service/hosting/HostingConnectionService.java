@@ -24,6 +24,7 @@ import com.bytequay.core.hosting.HostingPermissions;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.RemoteHostingAccount;
@@ -204,7 +205,7 @@ public class HostingConnectionService
         checkArgument(number > 0, "request number must be positive");
         checkOptionalText(repositoryPath, "repositoryPath");
         requireNonNull(etag, "etag is null");
-        HostingRepository repository = repository(session.access(), repositoryId);
+        HostingRepository repository = repository(repositoryId);
         return readPullRequest(session, repository, number, repositoryPath.filter(repository.fullPath()::equals).isPresent() ? etag : Optional.empty());
     }
 
@@ -212,22 +213,19 @@ public class HostingConnectionService
     {
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        HostingAccess access = session.access();
-        return integration(access.server().provider()).pullRequests().list(access, repository(access, repositoryId), openOnly, page, pageSize);
+        HostingTarget target = new HostingTarget(session.access(), repository(repositoryId));
+        return integrations.of(target).pullRequests().list(target, openOnly, page, pageSize);
     }
 
-    private HostingRepository repository(HostingAccess access, long repositoryId)
+    private HostingRepository repository(long repositoryId)
     {
-        HostingRepository repository = identities.findRepository(repositoryId)
-                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Repository identity is unavailable"));
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "repository belongs to a different hosting instance");
-        return repository;
+        return identities.findRepository(repositoryId).orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Repository identity is unavailable"));
     }
 
     private PullRequestFetch readPullRequest(HostingReadSession session, HostingRepository repository, int number, Optional<String> etag)
     {
-        HostingAccess access = session.access();
-        PullRequestFetch result = integration(access.server().provider()).pullRequests().fetch(access, repository, number, etag);
+        HostingTarget target = new HostingTarget(session.access(), repository);
+        PullRequestFetch result = integrations.of(target).pullRequests().fetch(target, number, etag);
         if (etag.isEmpty() && result.pullRequest().isEmpty() && result.detail().isEmpty()) {
             throw new HostingFailure(INVALID_RESPONSE, "Hosting provider returned an unchanged response without a validator");
         }

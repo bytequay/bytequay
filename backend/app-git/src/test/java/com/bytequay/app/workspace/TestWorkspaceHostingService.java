@@ -59,6 +59,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.connections;
 import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.targeting;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
@@ -115,7 +116,7 @@ class TestWorkspaceHostingService
         when(identities.upsertRepository(eq(10L), any())).thenAnswer(call -> retained(call.getArgument(1)));
         when(identities.findRepository(30)).thenReturn(Optional.of(retained(remote("100"))));
         when(identities.findRepository(31)).thenReturn(Optional.of(retained(remote("200"))));
-        when(requests.fetch(any(), any(), eq(7), eq(Optional.empty()))).thenReturn(fetched());
+        when(requests.fetch(any(), eq(7), eq(Optional.empty()))).thenReturn(fetched());
     }
 
     @Test
@@ -140,7 +141,7 @@ class TestWorkspaceHostingService
         assertThat(snapshot.accountId()).isEqualTo(20);
         assertThat(snapshot.request().repositoryId()).isEqualTo(31);
         assertThat(snapshot.pullRequest()).isEqualTo(fetched().pullRequest().orElseThrow().withViewerOrigin("alice"));
-        verify(requests).fetch(any(), eq(retained(remote("200"))), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(targeting(retained(remote("200"))), eq(7), eq(Optional.empty()));
         verifyNoInteractions(desktop);
     }
 
@@ -287,8 +288,8 @@ class TestWorkspaceHostingService
         assertThat(snapshot.accountId()).isEqualTo(40);
         assertThat(snapshot.request().repositoryId()).isEqualTo(60);
         HostingRepository repository = identities.findRepository(60).orElseThrow();
-        verify(requests).fetch(argThat(access -> access.instanceId().orElseThrow() == 90 && access.token().equals("gitlab-token")),
-                eq(repository), eq(7), eq(Optional.empty()));
+        verify(requests).fetch(argThat(target -> target.access().instanceId().orElseThrow() == 90 && target.access().token().equals("gitlab-token")
+                && target.repository().equals(repository)), eq(7), eq(Optional.empty()));
         verifyNoInteractions(desktop, legacy);
     }
 

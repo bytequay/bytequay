@@ -35,6 +35,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.PrDetailStore;
@@ -128,7 +129,7 @@ class TestPullRequestSnapshotService
         when(details.find(1L)).thenReturn(Optional.of(existing));
         when(details.findCheckRunsEtag(1L)).thenReturn(Optional.of("old-checks"));
         when(details.findCommitStatusesEtag(1L)).thenReturn(Optional.of("old-statuses"));
-        when(reader.checks(session.access(), route.repository(), 7, HEAD, existing.checkRuns(),
+        when(reader.checks(new HostingTarget(session.access(), route.repository()), 7, HEAD, existing.checkRuns(),
                 previouslyUnavailable ? Optional.empty() : Optional.of("old-checks"), previouslyUnavailable ? Optional.empty() : Optional.of("old-statuses")))
                 .thenReturn(new PullRequestContentReader.Checks(ImmutableList.of(current), Optional.of("new-checks"), Optional.of("new-statuses"), complete));
 
@@ -268,12 +269,12 @@ class TestPullRequestSnapshotService
         var stored = new StoredPrDiff(diff().files(), ImmutableList.of(), ImmutableMap.of(), Optional.of(BASE), Optional.of(HEAD), Optional.of(UPDATED));
         var content = new DiffFileContent("before", "after");
         when(diffs.find(1L, base, head)).thenReturn(Optional.of(stored));
-        when(reader.fileContent(route.session().access(), route.repository(), 7, "a.txt", BASE, HEAD, fullDiff)).thenReturn(content);
+        when(reader.fileContent(route.target(), 7, "a.txt", BASE, HEAD, fullDiff)).thenReturn(content);
         when(diffs.saveDefaultFileContent(1L, BASE, HEAD, "a.txt", content)).thenReturn(true);
 
         service.refreshFileContent(route, 1L, "a.txt", base, head);
 
-        verify(reader).fileContent(route.session().access(), route.repository(), 7, "a.txt", BASE, HEAD, fullDiff);
+        verify(reader).fileContent(route.target(), 7, "a.txt", BASE, HEAD, fullDiff);
         if (fullDiff) {
             verify(diffs).saveDefaultFileContent(1L, BASE, HEAD, "a.txt", content);
         }

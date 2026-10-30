@@ -414,7 +414,9 @@ class TestDefaultJiraClient
         JsonNode expected = json("""
                 {"body":{"version":1,"type":"doc","content":[{"type":"paragraph","content":[
                   {"type":"mention","attrs":{"id":"712020:sam","text":"@Sam Lee"}},
-                  {"type":"text","text":" https://example.com/owner/repo/pull/123 got merged"}]}]}}
+                  {"type":"text","text":" "},
+                  {"type":"inlineCard","attrs":{"url":"https://example.com/owner/repo/pull/123"}},
+                  {"type":"text","text":" got merged"}]}]}}
                 """);
         verify(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue/1001/comment"), eq("POST"),
                 argThat(request -> mapper.valueToTree(request.orElseThrow()).equals(expected)));

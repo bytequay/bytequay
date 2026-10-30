@@ -46,6 +46,8 @@ import static java.util.stream.Collectors.joining;
 /** Jira wire projections. Rich text is rendered as Markdown; credentials never enter this projection. */
 final class JiraMapping
 {
+    private static final Pattern URL = Pattern.compile("https?://[^\\s<>\"]+");
+    private static final Pattern URL_TAIL = Pattern.compile("[.,;:!?'\")\\]]+$");
     private static final Pattern PADDED = Pattern.compile("([\\s\\p{Z}]*)(.*?)([\\s\\p{Z}]*)", Pattern.DOTALL);
 
     private JiraMapping() {}
@@ -221,16 +223,25 @@ final class JiraMapping
                 return Optional.empty();
             }
             StringBuilder line = new StringBuilder();
-            for (JsonNode inline : nodes(paragraph.path("content"))) {
+            List<JsonNode> inlines = nodes(paragraph.path("content"));
+            for (int index = 0; index < inlines.size(); index++) {
+                JsonNode inline = inlines.get(index);
                 String type = inline.path("type").asText();
                 Optional<String> name = text(inline.path("attrs"), "text");
                 Optional<String> id = text(inline.path("attrs"), "id");
+                Optional<String> url = text(inline.path("attrs"), "url");
+                // Text glued to the link's end would become part of it when saved back.
+                boolean gluedAfter = index + 1 < inlines.size() && inlines.get(index + 1).path("type").asText().equals("text")
+                        && !inlines.get(index + 1).path("text").asText().matches("(?s)\\s.*");
                 // Mentions come back by name, so a name two people share cannot round-trip.
                 if (type.equals("text") && nodes(inline.path("marks")).isEmpty()) {
                     line.append(inline.path("text").asText());
                 }
                 else if (type.equals("mention") && name.isPresent() && id.isPresent() && mentions.computeIfAbsent(name.get(), ignored -> id.get()).equals(id.get())) {
                     line.append(name.get());
+                }
+                else if (type.equals("inlineCard") && url.isPresent() && URL.matcher(url.get()).matches() && webLink(url.get()).equals(url) && !gluedAfter) {
+                    line.append(url.get());
                 }
                 else {
                     return Optional.empty();
@@ -305,9 +316,39 @@ final class JiraMapping
         return content.addAll(textNode(line.substring(start))).build();
     }
 
+    /** Bare web addresses become smart links, as Jira's own editor posts them. */
     private static List<Map<String, Object>> textNode(String text)
     {
+        ImmutableList.Builder<Map<String, Object>> content = ImmutableList.builder();
+        Matcher matcher = URL.matcher(text);
+        int start = 0;
+        while (matcher.find()) {
+            Optional<String> url = webLink(matcher.group());
+            if (url.isPresent()) {
+                content.addAll(plainText(text.substring(start, matcher.start())));
+                content.add(ImmutableMap.of("type", "inlineCard", "attrs", ImmutableMap.of("url", url.get())));
+                start = matcher.start() + url.get().length();
+            }
+        }
+        return content.addAll(plainText(text.substring(start))).build();
+    }
+
+    private static List<Map<String, Object>> plainText(String text)
+    {
         return text.isEmpty() ? ImmutableList.of() : ImmutableList.of(ImmutableMap.of("type", "text", "text", text));
+    }
+
+    /** The address without trailing sentence punctuation, when it names a web host. */
+    private static Optional<String> webLink(String candidate)
+    {
+        String url = URL_TAIL.matcher(candidate).replaceFirst("");
+        try {
+            URI uri = URI.create(url);
+            return uri.getHost() == null || uri.getUserInfo() != null ? Optional.empty() : Optional.of(url);
+        }
+        catch (IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
     }
 
     static String markdown(String siteUrl, JsonNode node)

@@ -40,6 +40,12 @@ public interface PullRequestContentReader
 
     boolean viewerCanWrite(HostingTarget target);
 
+    /** A provider signal that the viewer was asked to review, such as a team request the request's own reviewer list does not name. */
+    default boolean reviewRequested(HostingTarget target, int number, String login)
+    {
+        return false;
+    }
+
     default Optional<DiscussionProbe> probeDiscussion(HostingTarget target, int number, Map<String, String> etags)
     {
         return Optional.empty();

@@ -15,6 +15,7 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
 import com.bytequay.core.domain.DiffFileContent;
@@ -91,13 +92,15 @@ public class GitHubPullRequestContentReader
     private final Executor ioExecutor;
     private final GitHubActionsClient actions;
     private final GitHubAccountClient accounts;
+    private final GitHubNotificationClient notifications;
 
     public GitHubPullRequestContentReader(GitHubPullRequestReadClient gitHub, GitHubActionsClient actions, GitHubAccountClient accounts,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+            GitHubNotificationClient notifications, @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
@@ -119,6 +122,13 @@ public class GitHubPullRequestContentReader
     {
         PullRequestRef ref = ref(target, 1);
         return gitHub.fetchPullRequestIdentities(target.access().token(), RepoRef.of(ref.owner(), ref.repo()), sourceRepository, branch);
+    }
+
+    @Override
+    public boolean reviewRequested(HostingTarget target, int number, String login)
+    {
+        // The inbox snapshot is read without a network call, so a refresh does not wait on it.
+        return notifications.reviewRequests(login).contains(ref(target, number));
     }
 
     @Override

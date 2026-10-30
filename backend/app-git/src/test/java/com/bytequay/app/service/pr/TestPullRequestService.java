@@ -211,7 +211,7 @@ class TestPullRequestService
     @BeforeEach
     void setUp()
     {
-        contents = new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run);
+        contents = new GitHubPullRequestContentReader(gitHub, actions, accounts, notifications, Runnable::run);
         integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions)));
         snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());

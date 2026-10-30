@@ -114,7 +114,6 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.domain.PullRequest.Origin.REVIEW_REQUESTED;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -1339,7 +1338,7 @@ public class PullRequestService
         if (metadataDue) {
             HostingPullRequestSnapshot fetched = refreshMetadata(route, policy.force() || missingCoordinates || missingHead);
             FetchedPullRequest observed = fetched.pullRequest().withViewerOrigin(login);
-            if (route.session().access().server().provider() == GITHUB && observed.origin() != AUTHORED && notifications.reviewRequests(login).contains(ref)) {
+            if (observed.origin() != AUTHORED && detailFetcher.reviewRequested(route, login)) {
                 observed = observed.withOrigin(REVIEW_REQUESTED);
             }
             row = rows.observe(route, observed);

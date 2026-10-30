@@ -15,6 +15,7 @@ package com.bytequay.app.service.hosting;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -30,6 +31,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -66,13 +68,14 @@ class TestGitHubPullRequestContentReader
     @Mock private GitHubPullRequestReadClient gitHub;
     @Mock private GitHubActionsClient actions;
     @Mock private GitHubAccountClient accounts;
+    @Mock private GitHubNotificationClient notifications;
 
     private GitHubPullRequestContentReader fetcher;
 
     @BeforeEach
     void setUp()
     {
-        fetcher = new GitHubPullRequestContentReader(gitHub, actions, accounts, Runnable::run);
+        fetcher = new GitHubPullRequestContentReader(gitHub, actions, accounts, notifications, Runnable::run);
         lenient().when(gitHub.fetchPrCommits("pat", REF)).thenReturn(ImmutableList.of());
         lenient().when(gitHub.fetchPrReviewThreads("pat", REF)).thenReturn(ImmutableList.of());
     }
@@ -95,6 +98,18 @@ class TestGitHubPullRequestContentReader
 
         assertThat(result.checkRuns()).containsExactly(cachedJob, external);
         assertThat(result.checkRunsEtag()).contains("checks");
+    }
+
+    @Test
+    void reviewRequestsComeFromTheViewersNotifications()
+    {
+        HostingInstance instance = new HostingInstance(1, GITHUB_SERVER.provider(), GITHUB_SERVER.webBaseUrl(), GITHUB_SERVER.apiBaseUrl());
+        HostingTarget target = new HostingTarget(new HostingAccess(instance, "pat"), new HostingRepository(2, 1, "99", "owner/repo",
+                URI.create("https://github.com/owner/repo"), URI.create("https://github.com/owner/repo.git"), Optional.empty(), Optional.of("main")));
+        when(notifications.reviewRequests("alice")).thenReturn(ImmutableSet.of(REF));
+
+        assertThat(fetcher.reviewRequested(target, 7, "alice")).isTrue();
+        assertThat(fetcher.reviewRequested(target, 8, "alice")).isFalse();
     }
 
     @Test
@@ -202,7 +217,7 @@ class TestGitHubPullRequestContentReader
         when(gitHub.fetchPrReviews("pat", REF)).thenAnswer(blocked);
         when(gitHub.fetchPrTimeline("pat", REF)).thenAnswer(blocked);
         var executor = Executors.newVirtualThreadPerTaskExecutor();
-        var discussion = new GitHubPullRequestContentReader(gitHub, actions, accounts, executor).fetchDiscussion("pat", REF, existing());
+        var discussion = new GitHubPullRequestContentReader(gitHub, actions, accounts, notifications, executor).fetchDiscussion("pat", REF, existing());
         AtomicReference<RuntimeException> failure = new AtomicReference<>();
         AtomicBoolean interruptRestored = new AtomicBoolean();
         Thread caller = Thread.startVirtualThread(() -> {

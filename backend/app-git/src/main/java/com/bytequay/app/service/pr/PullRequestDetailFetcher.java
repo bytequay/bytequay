@@ -58,6 +58,11 @@ class PullRequestDetailFetcher
         return integrations.of(route.target()).contents().viewerCanWrite(route.target());
     }
 
+    boolean reviewRequested(PullRequestRead route, String login)
+    {
+        return integrations.of(route.target()).contents().reviewRequested(route.target(), route.number(), login);
+    }
+
     Optional<DiscussionProbe> probeDiscussion(PullRequestRead route, Map<String, String> etags)
     {
         return integrations.of(route.target()).contents().probeDiscussion(route.target(), route.number(), etags);

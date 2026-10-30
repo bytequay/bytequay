@@ -16,6 +16,7 @@ package com.bytequay.app.service.pr;
 import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
+import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
@@ -93,8 +94,10 @@ class TestPullRequestSnapshotService
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final PrDiffStore diffs = mock(PrDiffStore.class);
     private final GitHubActionsClient actions = mock(GitHubActionsClient.class);
-    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(integrations(pullRequests(GITHUB,
-            new GitHubPullRequestContentReader(gitHub, actions, mock(GitHubAccountClient.class), Runnable::run), mock(PullRequestWriter.class))), requests, details, diffs);
+    private final GitHubPullRequestContentReader contents = new GitHubPullRequestContentReader(gitHub, actions, mock(GitHubAccountClient.class),
+            mock(GitHubNotificationClient.class), Runnable::run);
+    private final PullRequestSnapshotService snapshots = new PullRequestSnapshotService(integrations(pullRequests(GITHUB, contents, mock(PullRequestWriter.class))),
+            requests, details, diffs);
 
     @BeforeEach
     void setUp()

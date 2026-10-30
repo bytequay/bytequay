@@ -52,6 +52,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
@@ -109,12 +110,7 @@ public final class GitLabPullRequestContentReader
         DiffRefs refs = request.diffRefs();
         checkArgument(refs != null && request.sha().equals(refs.headSha()), "GitLab has not prepared the current merge request diff");
         String url = HostingUrls.requireWithinBase(URI.create(request.webUrl()), access.server().webBaseUrl()).toASCIIString();
-        GitHubPullRequestIdentity.State state = switch (request.state()) {
-            case "opened", "locked" -> GitHubPullRequestIdentity.State.OPEN;
-            case "closed" -> GitHubPullRequestIdentity.State.CLOSED;
-            case "merged" -> GitHubPullRequestIdentity.State.MERGED;
-            default -> throw new HostingFailure(INVALID_RESPONSE, "GitLab returned an invalid merge request state");
-        };
+        GitHubPullRequestIdentity.State state = GitHubPullRequestIdentity.State.valueOf(request.requestState().toUpperCase(Locale.ROOT));
         return new GitHubPullRequestIdentity(PullRequestRef.of(target.owner(), target.repo(), number), url, repositoryRef(source.pathWithNamespace()),
                 request.sourceBranch(), request.sha(), target, request.targetBranch(), refs.startSha(), state, request.isDraft(), request.author().username());
     }
@@ -247,7 +243,7 @@ public final class GitLabPullRequestContentReader
             return new Checks(ImmutableList.of(), Optional.empty(), Optional.empty(), true);
         }
         Pipeline pipeline = request.headPipeline();
-        String path = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId()) + "/pipelines/" + pipeline.id();
+        String path = pipeline.path(repository);
         // Pipeline access can differ from merge request access, especially for fork pipelines.
         List<String> unavailable = new ArrayList<>();
         List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/jobs", GitLabJob[].class)).stream()
@@ -307,19 +303,14 @@ public final class GitLabPullRequestContentReader
     @Override
     public PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId)
     {
-        GitLabMergeRequestResponse current = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
-        if (current.headPipeline() == null) {
-            throw new HostingFailure(REVISION_CONFLICT, "This request has no current pipeline");
-        }
-        Pipeline pipeline = current.headPipeline();
-        String project = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId());
-        boolean failed = http.pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", GitLabJob[].class).stream()
+        Pipeline pipeline = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
+        boolean failed = http.pages(access, pipeline.path(repository) + "/jobs", GitLabJob[].class).stream()
                 .anyMatch(job -> job.id() == jobId && "failed".equals(job.status()));
         if (!failed) {
             throw new HostingFailure(REVISION_CONFLICT, "This failed job is no longer part of the current request checks");
         }
         try {
-            return new PullRequestCheckLog(http.getText(access, project + "/jobs/" + jobId + "/trace"), Optional.empty());
+            return new PullRequestCheckLog(http.getText(access, pipeline.projectPath(repository) + "/jobs/" + jobId + "/trace"), Optional.empty());
         }
         catch (HostingFailure failure) {
             if (failure.kind() == MISSING_OR_INACCESSIBLE) {
@@ -383,13 +374,7 @@ public final class GitLabPullRequestContentReader
     private List<PrReaction> reactions(HostingAccess access, String path)
     {
         Map<String, Long> counts = http.pages(access, path + "/award_emoji", GitLabAward[].class).stream().collect(groupingBy(GitLabAward::name, counting()));
-        return counts.entrySet().stream().map(entry -> new PrReaction(switch (entry.getKey()) {
-            case "thumbsup" -> "+1";
-            case "thumbsdown" -> "-1";
-            case "tada" -> "hooray";
-            case "smile" -> "laugh";
-            default -> entry.getKey();
-        }, toIntExact(entry.getValue()), null)).collect(toImmutableList());
+        return counts.entrySet().stream().map(entry -> new PrReaction(GitLabAward.reaction(entry.getKey()), toIntExact(entry.getValue()), null)).collect(toImmutableList());
     }
 
     private static <T> List<T> optional(String section, List<String> unavailable, Supplier<List<T>> supplier)

@@ -115,12 +115,8 @@ public final class GitLabPullRequestReader
         checkArgument(mr.id() != null && mr.id() > 0 && mr.iid() != null && mr.iid() > 0 && mr.iid() <= Integer.MAX_VALUE, "invalid merge request identity");
         checkArgument(mr.projectId() != null && mr.projectId() > 0 && mr.projectId().toString().equals(repository.remoteId()), "invalid project identity");
         checkArgument(mr.targetProjectId() == null || (mr.targetProjectId() > 0 && mr.targetProjectId().toString().equals(repository.remoteId())), "invalid target project");
-        String state = switch (checkText(mr.state(), "state")) {
-            case "opened", "locked" -> "open";
-            case "closed" -> "closed";
-            case "merged" -> "merged";
-            default -> throw new IllegalArgumentException("invalid merge request state");
-        };
+        checkText(mr.state(), "state");
+        String state = mr.requestState();
         String url = HostingUrls.requireWithinBase(URI.create(checkText(mr.webUrl(), "webUrl")), access.server().webBaseUrl()).toASCIIString();
         boolean draft = mr.isDraft();
         String author = Optional.ofNullable(mr.author()).map(GitLabUser::username).orElse(null);

@@ -14,6 +14,7 @@
 package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.core.hosting.HostingRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonParser;
@@ -27,6 +28,8 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
+import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitLabMergeRequestResponse(
@@ -67,6 +70,22 @@ record GitLabMergeRequestResponse(
                 .orElseThrow(() -> new HostingFailure(INVALID_RESPONSE, "GitLab returned no merge request draft status"));
     }
 
+    /** The app's open, closed or merged state; GitLab locks an open request while it merges. */
+    String requestState()
+    {
+        return switch (state) {
+            case "opened", "locked" -> "open";
+            case "closed" -> "closed";
+            case "merged" -> "merged";
+            default -> throw new HostingFailure(INVALID_RESPONSE, "GitLab returned an invalid merge request state");
+        };
+    }
+
+    Pipeline requireHeadPipeline()
+    {
+        return Optional.ofNullable(headPipeline).orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "This request has no current pipeline"));
+    }
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Milestone(String title) {}
 
@@ -75,7 +94,19 @@ record GitLabMergeRequestResponse(
     record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Pipeline(long id, @JsonProperty("project_id") Long projectId, String status, @JsonProperty("web_url") String webUrl) {}
+    record Pipeline(long id, @JsonProperty("project_id") Long projectId, String status, @JsonProperty("web_url") String webUrl)
+    {
+        /** Fork pipelines run in their source project, not the request's target project. */
+        String projectPath(HostingRepository target)
+        {
+            return "projects/" + (projectId == null ? encode(target.remoteId()) : projectId);
+        }
+
+        String path(HostingRepository target)
+        {
+            return projectPath(target) + "/pipelines/" + id;
+        }
+    }
 
     /** Explicit null is malformed; only a missing draft field can use the older work_in_progress field. */
     static final class DraftDeserializer

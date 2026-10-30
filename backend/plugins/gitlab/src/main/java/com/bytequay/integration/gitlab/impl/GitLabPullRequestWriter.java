@@ -121,13 +121,7 @@ public final class GitLabPullRequestWriter
     {
         String path = mergeRequestPath(access, repository, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
         GitLabUser viewer = get(access, "user", GitLabUser.class);
-        String emoji = switch (content) {
-            case "+1" -> "thumbsup";
-            case "-1" -> "thumbsdown";
-            case "hooray" -> "tada";
-            case "laugh" -> "smile";
-            default -> content;
-        };
+        String emoji = GitLabAward.awardName(content);
         Optional<GitLabAward> existing = http.pages(access, path, GitLabAward[].class).stream()
                 .filter(award -> award.name().equals(emoji) && viewer.id().equals(award.user().id())).findFirst();
         if (existing.isPresent()) {
@@ -249,13 +243,8 @@ public final class GitLabPullRequestWriter
     @Override
     public void rerunFailedChecks(HostingAccess access, HostingRepository repository, int number)
     {
-        GitLabMergeRequestResponse current = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
-        if (current.headPipeline() == null) {
-            throw new HostingFailure(REVISION_CONFLICT, "This request has no current pipeline");
-        }
-        Pipeline pipeline = current.headPipeline();
-        String project = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId());
-        List<GitLabJob> failed = http.pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", GitLabJob[].class).stream()
+        Pipeline pipeline = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
+        List<GitLabJob> failed = http.pages(access, pipeline.path(repository) + "/jobs", GitLabJob[].class).stream()
                 .filter(job -> "failed".equals(job.status())).collect(toImmutableList());
         if (failed.isEmpty()) {
             throw new HostingFailure(REVISION_CONFLICT, "No failed jobs are available to rerun");
@@ -263,7 +252,7 @@ public final class GitLabPullRequestWriter
         int accepted = 0;
         try {
             for (GitLabJob job : failed) {
-                http.post(access, project + "/jobs/" + job.id() + "/retry", ImmutableMap.of(), Void.class);
+                http.post(access, pipeline.projectPath(repository) + "/jobs/" + job.id() + "/retry", ImmutableMap.of(), Void.class);
                 accepted++;
             }
         }

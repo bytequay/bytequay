@@ -413,6 +413,20 @@ class TestGitLabPullRequestContentReader
         assertThat(identity.baseRepository().fullName()).isEqualTo("group/nested/repo");
         assertThat(identity.headSha()).isEqualTo(HEAD);
         assertThat(identity.pullRequest().number()).isEqualTo(7);
+        assertThat(identity.draft()).isFalse();
+    }
+
+    @Test
+    void publicationIdentityReadsDraftStatusFromOlderServers()
+    {
+        responses.put(PREFIX, """
+                {"iid":7,"sha":"%s","state":"opened","work_in_progress":true,"author":{"id":3,"username":"author"},
+                "web_url":"%s/-/merge_requests/7","source_project_id":42,"target_project_id":42,"source_branch":"feature","target_branch":"main",
+                "diff_refs":{"head_sha":"%s","start_sha":"%s"}}
+                """.formatted(HEAD, repository.webUrl(), HEAD, BASE));
+        responses.put("/gitlab/api/v4/projects/42", "{\"id\":42,\"path_with_namespace\":\"group/nested/repo\"}");
+
+        assertThat(reader.identity(access, repository, 7).draft()).isTrue();
     }
 
     @Test

@@ -113,7 +113,7 @@ public final class GitLabPullRequestContentReader
             default -> throw new HostingFailure(INVALID_RESPONSE, "GitLab returned an invalid merge request state");
         };
         return new GitHubPullRequestIdentity(PullRequestRef.of(target.owner(), target.repo(), number), url, repositoryRef(source.pathWithNamespace()),
-                request.sourceBranch(), request.sha(), target, request.targetBranch(), refs.startSha(), state, request.draft(), request.author().username());
+                request.sourceBranch(), request.sha(), target, request.targetBranch(), refs.startSha(), state, request.isDraft(), request.author().username());
     }
 
     @Override
@@ -483,10 +483,18 @@ public final class GitLabPullRequestContentReader
     private record Pipeline(long id, @JsonProperty("project_id") Long projectId, String status, @JsonProperty("web_url") String webUrl) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record MergeRequest(int iid, String sha, String state, boolean draft, User author, @JsonProperty("web_url") String webUrl,
-            @JsonProperty("source_project_id") Long sourceProjectId, @JsonProperty("target_project_id") Long targetProjectId,
+    private record MergeRequest(int iid, String sha, String state, Boolean draft, @JsonProperty("work_in_progress") Boolean workInProgress, User author,
+            @JsonProperty("web_url") String webUrl, @JsonProperty("source_project_id") Long sourceProjectId, @JsonProperty("target_project_id") Long targetProjectId,
             @JsonProperty("source_branch") String sourceBranch, @JsonProperty("target_branch") String targetBranch,
-            @JsonProperty("diff_refs") DiffRefs diffRefs, @JsonProperty("head_pipeline") Pipeline headPipeline) {}
+            @JsonProperty("diff_refs") DiffRefs diffRefs, @JsonProperty("head_pipeline") Pipeline headPipeline)
+    {
+        // Servers before the draft field report only work_in_progress.
+        boolean isDraft()
+        {
+            return Optional.ofNullable(draft).or(() -> Optional.ofNullable(workInProgress))
+                    .orElseThrow(() -> new HostingFailure(INVALID_RESPONSE, "GitLab returned no merge request draft status"));
+        }
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}

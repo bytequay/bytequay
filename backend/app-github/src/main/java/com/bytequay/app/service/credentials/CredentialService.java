@@ -34,6 +34,7 @@ import java.util.Base64;
 import java.util.Collection;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -55,6 +56,8 @@ public class CredentialService
     private final WorkspaceStore workspaces;
     private volatile GitHubCredential cachedGitHubCredential;
     private volatile Optional<HostingReadSession> cachedHostingRead = Optional.empty();
+    // A changed workspace token verifies again, as the global one does.
+    private final Map<String, HostingReadSession> workspaceHostingReads = new ConcurrentHashMap<>();
 
     public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli,
             GitHubAccountClient gitHubAccount, HostingConnectionService hosting, WorkspaceStore workspaces)
@@ -113,7 +116,8 @@ public class CredentialService
         // Inheriting the global credential must not invalidate the same PR's global detail and diff.
         return workspaceCredentials.getSecret(workspaceId)
                 .filter(value -> !value.isBlank())
-                .map(token -> hosting.verifySession(GITHUB_SERVER, "github-workspace:" + workspaceId, token))
+                .map(token -> workspaceHostingReads.compute(workspaceId, (id, cached) -> cached != null && cached.access().token().equals(token)
+                        ? cached : hosting.verifySession(GITHUB_SERVER, "github-workspace:" + id, token)))
                 .orElseGet(this::captureHostingRead);
     }
 

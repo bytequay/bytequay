@@ -42,6 +42,8 @@ import java.util.Optional;
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -147,6 +149,26 @@ class TestCredentialService
                 .put("GIT_CONFIG_VALUE_0", expectedHeader)
                 .buildOrThrow());
         verify(store, never()).getSecret();
+    }
+
+    @Test
+    void verifiesAWorkspaceTokenOnceUntilItChanges()
+    {
+        InMemoryWorkspaceCredentialStore workspaceStore = new InMemoryWorkspaceCredentialStore();
+        workspaceStore.save("workspace-id", "first-token", "octocat");
+        HostingConnectionService hosting = mock(HostingConnectionService.class);
+        when(hosting.verifySession(eq(CredentialService.GITHUB_SERVER), eq("github-workspace:workspace-id"), anyString()))
+                .thenAnswer(call -> new HostingReadSession(7, call.getArgument(1), new HostingAccess(CredentialService.GITHUB_SERVER, call.getArgument(2))));
+        CredentialService service = new CredentialService(mock(CredentialStore.class), workspaceStore, mock(GhCliService.class), mock(GitHubAccountClient.class),
+                hosting, mock(WorkspaceStore.class));
+
+        HostingReadSession first = service.captureWorkspaceHostingRead("workspace-id");
+        assertThat(service.captureWorkspaceHostingRead("workspace-id")).isSameAs(first);
+        workspaceStore.save("workspace-id", "second-token", "octocat");
+        assertThat(service.captureWorkspaceHostingRead("workspace-id").access().token()).isEqualTo("second-token");
+
+        verify(hosting).verifySession(CredentialService.GITHUB_SERVER, "github-workspace:workspace-id", "first-token");
+        verify(hosting).verifySession(CredentialService.GITHUB_SERVER, "github-workspace:workspace-id", "second-token");
     }
 
     @Test

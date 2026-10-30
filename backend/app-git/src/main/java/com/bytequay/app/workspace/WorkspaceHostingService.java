@@ -136,23 +136,52 @@ public class WorkspaceHostingService
         return RepoRef.of(path.substring(0, slash), path.substring(slash + 1));
     }
 
+    /** Reads the workspace repository from its provider to verify it is still the same one, and stores it. */
     public WorkspaceHostingRead captureRead(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Optional<WorkspaceHostingBinding> binding = workspaces.findHostingBinding(workspaceId);
-        HostingReadSession session = binding.map(value -> connections.readSession(value.accountId()))
-                .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspaceId));
-        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        HostingReadSession session = session(workspace);
         HostingRepository repository = connections.resolveRepositoryById(session, Long.toString(workspace.monitoredRepositoryId()));
-        HostingAccount account = identities.findAccount(session.accountId())
-                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));
-        checkArgument(account.instanceId() == session.access().instanceId().orElseThrow(), "Hosting account belongs to another instance");
+        HostingAccount account = account(session);
         checkArgument(repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())), "Workspace repository identity changed");
         binding.ifPresent(value -> checkArgument(repository.id() == value.monitoredRepositoryId(), "Workspace repository identity changed"));
         if (binding.isEmpty()) {
             workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(session.accountId(), repository.id(), session.credentialScope()));
         }
         return new WorkspaceHostingRead(session, repository, account.login());
+    }
+
+    /**
+     * The route a verified read stored, without contacting the provider; for steps that repeat often, such as CI polling. A workspace
+     * with no stored repository for this account and remote repository verifies once.
+     */
+    public WorkspaceHostingRead storedRead(String workspaceId)
+    {
+        Workspace workspace = requireWorkspace(workspaces, workspaceId);
+        HostingReadSession session = session(workspace);
+        return cacheTarget(workspaceId)
+                .filter(target -> target.accountId() == session.accountId())
+                .flatMap(target -> identities.findRepository(target.repositoryId()))
+                .filter(repository -> repository.remoteId().equals(Long.toString(workspace.monitoredRepositoryId())))
+                .map(repository -> new WorkspaceHostingRead(session, repository, account(session).login()))
+                .orElseGet(() -> captureRead(workspaceId));
+    }
+
+    private HostingReadSession session(Workspace workspace)
+    {
+        HostingReadSession session = workspaces.findHostingBinding(workspace.id()).map(binding -> connections.readSession(binding.accountId()))
+                .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspace.id()));
+        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        return session;
+    }
+
+    private HostingAccount account(HostingReadSession session)
+    {
+        HostingAccount account = identities.findAccount(session.accountId())
+                .orElseThrow(() -> new HostingFailure(MISSING_OR_INACCESSIBLE, "Hosting account is unavailable"));
+        checkArgument(account.instanceId() == session.access().instanceId().orElseThrow(), "Hosting account belongs to another instance");
+        return account;
     }
 
     public WorkspacePullRequestPage cachedPullRequests(String workspaceId, int page, int pageSize)

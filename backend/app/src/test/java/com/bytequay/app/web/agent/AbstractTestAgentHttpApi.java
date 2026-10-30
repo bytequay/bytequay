@@ -293,6 +293,7 @@ abstract class AbstractTestAgentHttpApi
                 Optional.of(workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()))));
         workspaces.saveHostingCacheTarget(workspaceId, new HostingCacheTarget(account.id(), hosted.id(), session.credentialScope()));
         when(workspaceHosting.captureRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, hosted, login));
+        when(workspaceHosting.storedRead(workspaceId)).thenReturn(new WorkspaceHostingRead(session, hosted, login));
         when(workspaceHosting.viewerLogin(workspaceId)).thenReturn(Optional.of(login));
         when(workspaceHosting.cachedRepositoryId(workspaceId)).thenReturn(Optional.of(hosted.id()));
     }

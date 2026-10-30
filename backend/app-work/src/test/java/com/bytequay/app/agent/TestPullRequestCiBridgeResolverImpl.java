@@ -162,7 +162,7 @@ class TestPullRequestCiBridgeResolverImpl
         when(worktrees.currentBranch(worktree)).thenReturn(Optional.of(BRANCH));
         when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
-        when(hosting.captureRead("workspace")).thenReturn(new WorkspaceHostingRead(new HostingReadSession(1, "workspace", new HostingAccess(INSTANCE, "token")), HOSTED, "alice"));
+        when(hosting.storedRead("workspace")).thenReturn(new WorkspaceHostingRead(new HostingReadSession(1, "workspace", new HostingAccess(INSTANCE, "token")), HOSTED, "alice"));
         when(ci.inspect(targeting(HOSTED), eq(PR.number()))).thenReturn(failing);
     }
 

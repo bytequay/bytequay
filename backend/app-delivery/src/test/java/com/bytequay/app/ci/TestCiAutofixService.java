@@ -254,6 +254,7 @@ class TestCiAutofixService
 
         when(ci.deliveryChecks(any(), anyInt())).thenAnswer(_ -> deliveryChecks(true, ImmutableList.of(), ImmutableList.of()));
         when(hosting.captureRead("workspace-1")).thenReturn(route("author"));
+        when(hosting.storedRead("workspace-1")).thenReturn(route("author"));
         when(workspaceStore.findById("workspace-1")).thenReturn(Optional.of(workspace()));
         AgentDriver driver = mock(AgentDriver.class);
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, Set.of(AgentPermissionPolicy.CI_AUTOFIX), Set.of());
@@ -788,6 +789,7 @@ class TestCiAutofixService
         TaskId reserved = TaskId.valueOf(persisted.agentTaskId().orElseThrow());
 
         when(hosting.captureRead("workspace-1")).thenReturn(route("another-user"));
+        when(hosting.storedRead("workspace-1")).thenReturn(route("another-user"));
         doAnswer(invocation -> task(invocation.getArgument(0))).when(taskService).create(any());
         CiAutofixRun recovered = service.advance(persisted.id());
 
@@ -1183,6 +1185,7 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(hosting.captureRead("workspace-1")).thenReturn(route("another-user"));
+        when(hosting.storedRead("workspace-1")).thenReturn(route("another-user"));
         CiAutofixRun current = run;
         assertThatThrownBy(() -> service.advance(current.id())).hasMessageContaining("account changed");
         service.cancel(run.id());

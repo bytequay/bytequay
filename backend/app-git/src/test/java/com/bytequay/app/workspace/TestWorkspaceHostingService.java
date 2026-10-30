@@ -203,6 +203,31 @@ class TestWorkspaceHostingService
     }
 
     @Test
+    void storedReadReusesTheVerifiedRepositoryWithoutReadingItAgain()
+    {
+        when(desktop.captureWorkspaceHostingRead("workspace"))
+                .thenReturn(new HostingReadSession(20, "github-workspace:workspace", new HostingAccess(INSTANCE, "workspace-token")));
+        WorkspaceHostingRead verified = service.captureRead("workspace");
+        clearInvocations(repositories);
+
+        assertThat(service.storedRead("workspace")).isEqualTo(verified);
+        verifyNoInteractions(repositories);
+    }
+
+    @Test
+    void storedReadVerifiesOnceWhenNothingIsStored()
+    {
+        when(desktop.captureWorkspaceHostingRead("workspace"))
+                .thenReturn(new HostingReadSession(20, "github-workspace:workspace", new HostingAccess(INSTANCE, "workspace-token")));
+
+        WorkspaceHostingRead first = service.storedRead("workspace");
+        assertThat(service.storedRead("workspace")).isEqualTo(first);
+
+        verify(repositories).findById(any(), eq("200"));
+        assertThat(workspaces.findHostingCacheTarget("workspace")).contains(new HostingCacheTarget(20, 31, "github-workspace:workspace"));
+    }
+
+    @Test
     void keepsAnUnboundWorkspacesVerifiedCacheTargetForLocalReads()
     {
         when(desktop.captureWorkspaceHostingRead("workspace"))

@@ -326,6 +326,8 @@ class TestCiAutofixRestartEndToEnd
                         WorkspaceHostingService hosting = spy(context.getBean("workspaceHostingService", WorkspaceHostingService.class));
                         doAnswer(invocation -> CiAutofixE2eHarness.route(context.getBean(WorkspaceStore.class), context.getBean(HostingIdentityStore.class),
                                 invocation.getArgument(0))).when(hosting).captureRead(anyString());
+                        doAnswer(invocation -> CiAutofixE2eHarness.route(context.getBean(WorkspaceStore.class), context.getBean(HostingIdentityStore.class),
+                                invocation.getArgument(0))).when(hosting).storedRead(anyString());
                         return hosting;
                     },
                     bean -> bean.setPrimary(true));

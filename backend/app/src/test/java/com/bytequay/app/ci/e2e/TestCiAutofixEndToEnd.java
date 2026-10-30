@@ -258,6 +258,8 @@ class TestCiAutofixEndToEnd
                 clock);
         doAnswer(invocation -> workspaces.findById(invocation.getArgument(0)).isPresent() ? harness.route(invocation.getArgument(0)) : invocation.callRealMethod())
                 .when(hosting).captureRead(anyString());
+        doAnswer(invocation -> workspaces.findById(invocation.getArgument(0)).isPresent() ? harness.route(invocation.getArgument(0)) : invocation.callRealMethod())
+                .when(hosting).storedRead(anyString());
     }
 
     @AfterEach
@@ -281,6 +283,7 @@ class TestCiAutofixEndToEnd
                 URI.create("https://github.com/" + repo.fullName()), URI.create("https://github.com/" + repo.fullName() + ".git"),
                 Optional.empty(), Optional.of(E2eGitRepository.BASE_REF));
         doReturn(new WorkspaceHostingRead(session, retained, "author")).when(hosting).captureRead(fixture.workspaceId());
+        doReturn(new WorkspaceHostingRead(session, retained, "author")).when(hosting).storedRead(fixture.workspaceId());
         DevelopmentAutomation automation = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(ScriptedAgentDriver.LANE));
         TaskId sourceTaskId = TaskId.random();
         AgentTask source = tasks.createInteractive(new CreateInteractiveAgentTaskCommand(

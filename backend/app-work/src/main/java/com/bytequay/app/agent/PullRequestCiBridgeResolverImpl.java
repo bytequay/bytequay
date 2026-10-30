@@ -219,7 +219,7 @@ public class PullRequestCiBridgeResolverImpl
 
     private Remote remote(String workspaceId)
     {
-        HostingTarget target = hosting.captureRead(workspaceId).target();
+        HostingTarget target = hosting.storedRead(workspaceId).target();
         return new Remote(integrations.of(target), target);
     }
 

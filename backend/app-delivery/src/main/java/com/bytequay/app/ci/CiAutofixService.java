@@ -1774,17 +1774,22 @@ public class CiAutofixService
         return turn.idempotencyKey().equals(idempotencyKey);
     }
 
-    /** The workspace's current hosting route; every remote step reads it again, so an account change applies to the next call. */
+    /** Starting a run verifies the workspace repository with its provider. */
     private Remote remote(String workspaceId)
     {
-        WorkspaceHostingRead read = hosting.captureRead(workspaceId);
+        return remote(hosting.captureRead(workspaceId));
+    }
+
+    private Remote remote(WorkspaceHostingRead read)
+    {
         HostingTarget target = read.target();
         return new Remote(integrations.of(target), target, read.login());
     }
 
+    /** Later steps reuse the stored repository, so polling reads no repository; an account change still applies to the next step. */
     private Remote remote(CiAutofixRun run)
     {
-        Remote remote = remote(run.scope().workspaceId());
+        Remote remote = remote(hosting.storedRead(run.scope().workspaceId()));
         if (!remote.target().repository().fullPath().equalsIgnoreCase(run.scope().pullRequest().repoFullName())) {
             throw new CiAutofixConflictException("Workspace repository routing no longer matches the CI Autofix run");
         }

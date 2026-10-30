@@ -419,7 +419,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.at("/log/unavailableReason").asText()).contains("expired");
         assertThat(result.path("status").asText()).isEqualTo("available");
         assertThat(result.at("/log/excerpt").asText()).isEmpty();
-        assertThat(result.at("/log/githubAnnotations/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
+        assertThat(result.at("/log/failureNotes/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
         verifyNoInteractions(logs);
     }
 
@@ -591,7 +591,7 @@ class TestPullRequestCiBridgeResolverImpl
         assertThat(result.at("/log/rawLogId").asText()).isEqualTo(id);
         assertThat(result.at("/log/message").asText()).contains("No diagnostic", "tail", "32 KiB", "read_ci_raw_log");
         assertThat(result.at("/log/excerpt").asText()).isEqualTo(source.substring(source.length() - 32768));
-        assertThat(result.at("/log/githubAnnotations").isEmpty()).isTrue();
+        assertThat(result.at("/log/failureNotes").isEmpty()).isTrue();
         verifyNoInteractions(logs);
     }
 
@@ -607,7 +607,7 @@ class TestPullRequestCiBridgeResolverImpl
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
-        assertThat(result.at("/log/githubAnnotations/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
+        assertThat(result.at("/log/failureNotes/0").asText()).isEqualTo("The self-hosted runner lost communication with the server.");
     }
 
     private JsonNode read(PullRequestCiBridge bridge, Optional<Long> jobId)

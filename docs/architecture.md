@@ -261,7 +261,10 @@ publication uses the selected workspace's writer. CI jobs expose a normalized jo
 identity for log reads and explicit retry actions. CI Autofix reads runs, job logs
 and delivery checks, and reruns failed jobs, through the workspace integration's
 `PullRequestCi`; the raw-log cache and excerpt selection are shared by every
-provider.
+provider. On GitLab the run is the merge request's head pipeline: a retried job
+is a new attempt, the log's section headers become steps, the definition is the
+target project, and a rerun retries the pipeline's failed jobs. The agent's CI
+tools serve tasks on every provider.
 
 ### Provider differences and remaining integration
 
@@ -285,9 +288,9 @@ connected account that read them: an account route names that account instead of
 a workspace. A full discovery pass hides the requests an account no longer finds
 or is notified about.
 
-GitHub-specific CI automation, fork/backport operations and remote epic-child
-synchronization still have native GitHub consumers. These need their own provider integration before GitLab parity can be
-claimed. GitLab contributor account profiles are unavailable where the API only
+Fork/backport operations and remote epic-child synchronization still have native
+GitHub consumers; GitLab's capabilities hide and refuse them until they have their
+own provider integration. GitLab contributor account profiles are unavailable where the API only
 supplies commit author names and emails. GitLab commit history reads the local
 checkout without GitHub avatar or pull-request association enrichment.
 

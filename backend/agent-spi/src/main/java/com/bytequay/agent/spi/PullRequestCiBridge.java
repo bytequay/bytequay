@@ -31,10 +31,10 @@ public record PullRequestCiBridge(
     public static final String RERUN_TOOL_NAME = "request_ci_rerun";
     public static final int MAXIMUM_OUTPUT_LENGTH = 100_000;
     public static final String INSTRUCTION = """
-            Prefer read_pull_request_ci before gh or shell commands when inspecting this task's associated
+            Prefer read_pull_request_ci before a provider CLI or shell commands when inspecting this task's associated
             pull request checks or failed CI logs. Call without arguments for the current pull request,
             head revision, checks, and failed job identities. Supply only a returned failed jobId to read
-            its error log. Its githubAnnotations are failure messages GitHub attached to the job, such as a
+            its error log. Its failureNotes are failure messages the hosting provider attached to the job, such as a
             lost runner; they can explain a failure the log never shows. ByteQuay caches the complete credential-redacted raw log before selecting
             diagnostic blocks. When no diagnostic keywords or stack traces match, the result is explicitly
             only the last 32 KiB. If that tail or any excerpt is insufficient, call read_ci_raw_log with the

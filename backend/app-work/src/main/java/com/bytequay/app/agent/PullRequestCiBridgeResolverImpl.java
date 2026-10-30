@@ -45,7 +45,6 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.store.PrDetailStore;
@@ -144,7 +143,7 @@ public class PullRequestCiBridgeResolverImpl
     {
         return tasks.find(taskId)
                 .filter(task -> task.state() == TaskState.OPEN)
-                .filter(task -> task.workspaceId().flatMap(workspaces::findById).filter(Workspace::isGitHub).isPresent())
+                .filter(task -> task.workspaceId().flatMap(workspaces::findById).isPresent())
                 .filter(task -> (task.interactive() && !task.permissionPolicy().unattended()) || task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX)
                 .filter(task -> task.taskWorktree().isPresent() && task.worktreeRemovedAt().isEmpty());
     }
@@ -363,7 +362,7 @@ public class PullRequestCiBridgeResolverImpl
                 ? "Error blocks selected from the cached raw log. Use read_ci_raw_log with logId set to rawLogId for complete evidence."
                 : "No diagnostic keywords or stack trace matched. Only the log tail (at most 32 KiB) is shown. "
                         + "Call read_ci_raw_log with logId set to rawLogId for the full cached log."));
-        annotations.forEach(log.putArray("githubAnnotations")::add);
+        annotations.forEach(log.putArray("failureNotes")::add);
         ArrayNode errors = log.putArray("terminalErrorLines");
         log.put("terminalErrorLinesOmitted", fetched.terminalErrorLines().size());
         for (String error : fetched.terminalErrorLines()) {

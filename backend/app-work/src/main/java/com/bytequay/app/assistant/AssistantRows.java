@@ -203,7 +203,7 @@ class AssistantRows
     {
         return switch (AgendaRefs.kind(ref)) {
             case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
-                    .map(pr -> pullRequest(pr, shared));
+                    .map(this::pullRequest);
             case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> number.workspaceId().flatMap(workspaces::findById)
                     .or(() -> number.workspaceId().isPresent() ? Optional.empty() : workspace(shared.watched.get(), number.repo()))
                     .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(number.repo()))
@@ -218,7 +218,7 @@ class AssistantRows
         };
     }
 
-    private AssistantRow pullRequest(PullRequest pr, Shared shared)
+    private AssistantRow pullRequest(PullRequest pr)
     {
         Optional<String> viewer = credentials.cachedLogin();
         Optional<StoredPrDetail> detail = details.find(pr.id());
@@ -232,7 +232,7 @@ class AssistantRows
                 Optional.ofNullable(pr.ciStatus()).filter(ci -> ci != PullRequestDetail.CiStatus.NONE).map(ci -> lower(ci.name())),
                 Optional.ofNullable(pr.reviewDecision()).map(AssistantRows::lower), approvals, pr.mine(viewer), pr.mergeBlocked(), youApproved,
                 detail.map(stored -> stored.raw().headSha()), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(shared.watched.get(), pr.repo()).map(Workspace::id)));
+                Optional.empty(), Optional.empty(), at(pr), latest, AgendaTarget.pull(pr.repo(), pr.number(), workspace(pr)));
     }
 
     private static Latest latest(PrActivitySummary activity, Optional<String> viewer)
@@ -406,7 +406,7 @@ class AssistantRows
             boolean exact = number.filter(value -> value == pr.number()).isPresent();
             if (exact || matches(pr.title(), words)) {
                 add(found, new Found(AgendaRefs.pull(pr.repo(), pr.number()), pr.title(), Optional.of(state(pr)), at(pr),
-                        AgendaTarget.pull(pr.repo(), pr.number(), workspace(watched, pr.repo()).map(Workspace::id)), exact));
+                        AgendaTarget.pull(pr.repo(), pr.number(), workspace(pr)), exact));
             }
         }
         for (Workspace workspace : watched) {
@@ -507,6 +507,12 @@ class AssistantRows
     private static Optional<Instant> at(PullRequest pr)
     {
         return Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt()));
+    }
+
+    /** The workspace on the request's repository, a watched one first. */
+    private Optional<String> workspace(PullRequest pr)
+    {
+        return pullRequests.findHostingIdentity(pr.id()).flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId())).map(Workspace::id);
     }
 
     private static Optional<Workspace> workspace(List<Workspace> watched, String repo)

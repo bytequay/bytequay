@@ -18,6 +18,7 @@ import com.bytequay.app.git.command.GitCommandRunner.Result;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
@@ -36,7 +37,6 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -63,15 +63,14 @@ public class PullRequestConflictService
         this.git = requireNonNull(git, "git is null");
     }
 
-    public PullRequestConflicts read(String workspaceId, String repo, int number)
+    public PullRequestConflicts read(PullRequestRoute route, String repo, int number)
     {
-        Stream<Workspace> candidates = workspaceId == null || workspaceId.isBlank()
-                // A request without a workspace comes from the older GitHub rows.
-                ? workspaces.findAll().stream().filter(Workspace::isGitHub)
-                : workspaces.findById(workspaceId).stream();
-        Workspace workspace = candidates
-                .filter(value -> value.monitoredRepository().fullName().equalsIgnoreCase(repo) || value.selectedRepository().fullName().equalsIgnoreCase(repo))
-                .findFirst()
+        Workspace workspace = route.workspaceId()
+                .map(id -> workspaces.findById(id)
+                        .filter(value -> value.monitoredRepository().fullName().equalsIgnoreCase(repo) || value.selectedRepository().fullName().equalsIgnoreCase(repo)))
+                // Outside a workspace, the watched workspace on the request's repository holds the clone to compare in.
+                .orElseGet(() -> connections.findRepository(session(route), repo).flatMap(repository -> workspaces.findByHostingRepositoryId(repository.id()))
+                        .filter(found -> workspaces.isWatched(found.id())))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Watch repository to list conflicted files"));
         return WorkspaceOperationLocks.withLock(workspace.id(), () -> {
             var local = repositories.requireLocalRepository(workspace.id());
@@ -110,6 +109,11 @@ public class PullRequestConflictService
                     target[0], identity.headSha());
             return new PullRequestConflicts(identity.baseBranch(), conflictPaths(merged));
         });
+    }
+
+    private HostingReadSession session(PullRequestRoute route)
+    {
+        return route.accountId().isPresent() ? connections.readSession(route.accountId().getAsLong()) : credentials.captureHostingRead();
     }
 
     static List<String> conflictPaths(Result result)

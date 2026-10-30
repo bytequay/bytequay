@@ -194,8 +194,6 @@ public class AgendaReader
         Map<String, RefInfo> refs = new LinkedHashMap<>();
         Optional<String> viewer = credentials.cachedLogin();
         List<Workspace> watched = workspaces.findAll();
-        Map<String, String> workspaceByRepo = new HashMap<>();
-        watched.stream().filter(Workspace::isGitHub).forEach(workspace -> workspaceByRepo.putIfAbsent(lower(workspace.monitoredRepository().fullName()), workspace.id()));
         List<TeamCircle> circles = read("circles", teams::cachedCircles, ImmutableList.of());
 
         // A snoozed item stays out of the agenda and the assistant's answers until its snooze ends, as it stays out of Needs attention.
@@ -210,9 +208,9 @@ public class AgendaReader
                 .filter(pr -> pr.mine(viewer) || requested(pr, viewer) || pr.reviewedAt() != null || pr.monitoredAt() != null || mentioned.contains(pr.id()))
                 .collect(toImmutableList());
         for (PullRequest pr : involved) {
-            refs.putIfAbsent(AgendaRefs.pull(pr.repo(), pr.number()),
-                    new RefInfo(Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())), workspace(workspaceByRepo, pr.repo()),
-                            AgendaTarget.pull(pr.repo(), pr.number(), workspace(workspaceByRepo, pr.repo()))));
+            Optional<String> workspace = pullRequests.findWorkspace(pr.id()).map(Workspace::id);
+            refs.putIfAbsent(AgendaRefs.pull(pr.repo(), pr.number()), new RefInfo(Optional.ofNullable(pr.activityAt()).or(() -> Optional.ofNullable(pr.updatedAt())),
+                    workspace, AgendaTarget.pull(pr.repo(), pr.number(), workspace)));
         }
 
         List<Task> taskEntries = read("tasks", () -> tasks(refs), ImmutableList.of());
@@ -645,11 +643,6 @@ public class AgendaReader
     private static Optional<AgendaRefs.Numbered> numbered(String key)
     {
         return AgendaRefs.numbered("pr:" + key);
-    }
-
-    private static Optional<String> workspace(Map<String, String> workspaceByRepo, String repo)
-    {
-        return Optional.ofNullable(workspaceByRepo.get(lower(repo)));
     }
 
     private static boolean open(PullRequest pr)

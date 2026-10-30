@@ -51,7 +51,6 @@ import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingCapabilities;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.store.WorkspaceStore;
@@ -722,7 +721,7 @@ public class BackportChainService
             return selector;
         }
         var matches = workspaces.findAllRetained().stream()
-                .filter(Workspace::isGitHub)
+                .filter(workspace -> workspace.provider().capabilities().forkWorkflows())
                 .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(selector) && workspaces.isWatched(workspace.id()))
                 .collect(toImmutableList());
         checkArgument(matches.size() == 1, "Choose an available destination workspace ID or an unambiguous owner/repository: %s", selector);

@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.pr.PullRequestConflictService;
 import com.bytequay.app.service.pr.PullRequestConflicts;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,8 +33,9 @@ public class PullRequestConflictController
     }
 
     @GetMapping("/prs/conflicts")
-    public PullRequestConflicts conflicts(@RequestParam String repo, @RequestParam int number, @RequestParam(required = false) String workspaceId)
+    public PullRequestConflicts conflicts(@RequestParam String repo, @RequestParam int number, @RequestParam(required = false) String workspaceId,
+            @RequestParam(required = false) Long accountId)
     {
-        return conflicts.read(workspaceId, repo, number);
+        return conflicts.read(PullRequestRoute.of(workspaceId, accountId), repo, number);
     }
 }

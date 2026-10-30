@@ -15,7 +15,6 @@ package com.bytequay.app.workspace;
 
 import com.bytequay.app.git.AvatarCache;
 import com.bytequay.app.service.hosting.HostingIntegrations;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryContributor;
 import com.bytequay.core.domain.RepositoryLabel;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
@@ -129,16 +128,10 @@ public class WorkspaceMetadataService
         return snapshot(requireWorkspace(workspaces, workspaceId));
     }
 
-    /**
-     * Reads local metadata when the repository belongs to a watched workspace.
-     *
-     * @param repository monitored repository identity
-     * @return latest local snapshot, or empty when the repository is not watched
-     */
-    public Optional<RepositoryMetadataSnapshot> findSnapshot(RepoRef repository)
+    /** Reads local metadata when a workspace monitors the hosting repository; empty when none does. */
+    public Optional<RepositoryMetadataSnapshot> findSnapshot(long repositoryId)
     {
-        requireNonNull(repository, "repository is null");
-        return findWorkspace(repository).map(this::snapshot);
+        return workspaces.findByHostingRepositoryId(repositoryId).map(this::snapshot);
     }
 
     public List<String> listTeams(String workspaceId)
@@ -236,15 +229,6 @@ public class WorkspaceMetadataService
         return workspaces.findHostingRepositoryId(workspace.id()).flatMap(metadata::find)
                 .orElseGet(() -> RepositoryMetadataSnapshot.empty(
                         workspace.monitoredRepositoryId(), workspace.monitoredRepository()));
-    }
-
-    private Optional<Workspace> findWorkspace(RepoRef repository)
-    {
-        requireNonNull(repository, "repository is null");
-        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub)
-                .filter(workspace -> workspace.monitoredRepository().owner().equalsIgnoreCase(repository.owner())
-                        && workspace.monitoredRepository().repo().equalsIgnoreCase(repository.repo()))
-                .findFirst();
     }
 
     private static boolean expired(Optional<Instant> syncedAt, Instant now, Duration ttl)

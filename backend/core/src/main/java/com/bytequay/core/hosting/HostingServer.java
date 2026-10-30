@@ -15,11 +15,14 @@ package com.bytequay.core.hosting;
 
 import java.net.URI;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static java.util.Objects.requireNonNull;
 
 /** Validated connection coordinates, available before an account or persistent identity exists. */
 public record HostingServer(HostingProvider provider, URI webBaseUrl, URI apiBaseUrl)
 {
+    public static final HostingServer GITHUB_COM = new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+
     public HostingServer
     {
         requireNonNull(provider, "provider is null");

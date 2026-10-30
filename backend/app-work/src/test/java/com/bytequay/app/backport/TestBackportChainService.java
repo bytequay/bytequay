@@ -69,6 +69,7 @@ import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -92,6 +93,7 @@ import java.util.concurrent.TimeUnit;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.google.common.base.Preconditions.checkState;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -464,6 +466,17 @@ class TestBackportChainService
         return new RelatedWorkspaceWork.View("p2", "test/p2", owner.id().toString(), owner.title(), accepted.id().toString(), source.id().toString(),
                 "p4", source.title(), "test/p4", "FORK", purpose, "Check upstream", "main", Optional.of(P4_SHA), "FINISHED",
                 Optional.empty(), Optional.of("Finding and reproduction"), Optional.empty(), NOW, false);
+    }
+
+    @Test
+    void namesADestinationRepositoryAmongWorkspacesWithForkWorkflowsOnly()
+    {
+        var repo = RepoRef.of("test", "p3");
+        workspaceData.put("project", new Workspace("project", "Project", 30, repo, Optional.empty(), Optional.empty(), 30, repo, Workspace.Topology.DIRECT, "main",
+                "https://gitlab.example.com/test/p3.git", Optional.empty(), Optional.empty(), "/tmp/project", Optional.of(NOW), Optional.empty(), 0, NOW, NOW,
+                Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")))));
+
+        assertThat(save(service(), "test/p3").hops()).extracting(hop -> hop.route().workspaceId()).containsExactly("p3");
     }
 
     @Test

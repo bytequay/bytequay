@@ -20,7 +20,6 @@ import com.bytequay.core.domain.HostedIssueSource;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.RecentTextKind;
-import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -246,32 +245,26 @@ public class WorkspaceIssueService
         });
     }
 
-    public void refreshNotifiedIssue(RepoRef repository, int issueNumber)
+    /** Refreshes a notified issue's card through the watched workspace on its hosting repository; other repositories have no cards. */
+    public void refreshNotifiedIssue(long repositoryId, int issueNumber)
     {
-        requireNonNull(repository, "repository is null");
         checkArgument(issueNumber > 0, "issueNumber must be positive");
-        Set<Long> refreshed = new HashSet<>();
-        for (Workspace candidate : workspaces.findAll()) {
-            if (!candidate.isGitHub() || !candidate.monitoredRepository().fullName().equalsIgnoreCase(repository.fullName())
-                    || !refreshed.add(candidate.monitoredRepositoryId())) {
-                continue;
-            }
-            WorkspaceOperationLocks.withLock(candidate.id(), () -> {
-                Workspace workspace = requireWorkspace(workspaces, candidate.id());
-                WorkspaceHostingRead route = hosting.captureRead(workspace.id());
-                Lock lock = locks.get(route.repository().id());
-                withLock(lock, () -> {
-                    Optional<RepositoryIssue> issue = client(route).find(route.target(), issueNumber);
-                    if (issue.isPresent()) {
-                        issues.saveSyncPage(route.repository().id(), ImmutableList.of(issue.orElseThrow()));
-                    }
-                    else {
-                        issues.delete(route.repository().id(), issueNumber);
-                    }
-                    return null;
-                });
-            });
-        }
+        workspaces.findByHostingRepositoryId(repositoryId).filter(candidate -> workspaces.isWatched(candidate.id()))
+                .ifPresent(candidate -> WorkspaceOperationLocks.withLock(candidate.id(), () -> {
+                    Workspace workspace = requireWorkspace(workspaces, candidate.id());
+                    WorkspaceHostingRead route = hosting.captureRead(workspace.id());
+                    Lock lock = locks.get(route.repository().id());
+                    withLock(lock, () -> {
+                        Optional<RepositoryIssue> issue = client(route).find(route.target(), issueNumber);
+                        if (issue.isPresent()) {
+                            issues.saveSyncPage(route.repository().id(), ImmutableList.of(issue.orElseThrow()));
+                        }
+                        else {
+                            issues.delete(route.repository().id(), issueNumber);
+                        }
+                        return null;
+                    });
+                }));
     }
 
     /** Incremental open-card changes and closures; a completed cursor survives sleep and restarts. */

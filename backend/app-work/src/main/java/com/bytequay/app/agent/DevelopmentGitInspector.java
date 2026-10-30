@@ -46,7 +46,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -102,7 +101,7 @@ public class DevelopmentGitInspector
         String baseSha = output(worktree, "rev-parse", "--verify", "refs/remotes/" + sourceRemote + "/" + baseBranch + "^{commit}").strip();
         checkSha(baseSha, "sha");
         DevelopmentPublicationRoute route = new DevelopmentPublicationRoute(
-                workspace.hostingServer().orElse(GITHUB_SERVER), workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
+                workspace.server(), workspace.selectedRepository(), workspace.monitoredRepository(), workspace.originCloneUrl(), sourceRemote,
                 baseBranch, baseSha, headBranch, assigned);
         return new DevelopmentBaseline(worktree, route, inspectLocal(worktree, route, snapshot));
     }
@@ -368,7 +367,7 @@ public class DevelopmentGitInspector
         checkState(snapshot.worktree().equals(worktree), "Development worktree ownership changed");
         Workspace workspace = workspace(worktree);
         String sourceRemote = workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin";
-        checkState(workspace.hostingServer().orElse(GITHUB_SERVER).equals(route.server())
+        checkState(workspace.server().equals(route.server())
                         && workspace.selectedRepository().equals(route.headRepository()) && workspace.monitoredRepository().equals(route.baseRepository())
                         && workspace.originCloneUrl().equals(route.pushUrl()) && sourceRemote.equals(route.sourceRemote())
                         && assignedPullRequest(worktree).equals(route.assignedPullRequest())

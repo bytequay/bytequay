@@ -117,7 +117,6 @@ import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireSelectedRepository;
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Ascii.truncate;
@@ -1808,7 +1807,7 @@ public class CiAutofixService
 
     private URI webBaseUrl(CiAutofixRun run)
     {
-        return WorkspaceException.requireWorkspace(workspaceStore, run.scope().workspaceId()).hostingServer().orElse(GITHUB_SERVER).webBaseUrl();
+        return WorkspaceException.requireWorkspace(workspaceStore, run.scope().workspaceId()).server().webBaseUrl();
     }
 
     private static void validateStartCommand(StartCiAutofixCommand command)

@@ -114,7 +114,7 @@ public class WorkspaceRelationships
 
     public List<BackportWorkspace> backportWorkspaces()
     {
-        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub).filter(workspace -> workspaces.isWatched(workspace.id()))
+        return workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows).filter(workspace -> workspaces.isWatched(workspace.id()))
                 .map(workspace -> new BackportWorkspace(workspace.id(), workspace.name(), workspace.monitoredRepository().fullName(),
                         list(workspace.id()).stream().filter(link -> link.kind() == Kind.FORK).collect(toImmutableList())))
                 .collect(toImmutableList());
@@ -199,7 +199,7 @@ public class WorkspaceRelationships
     public Map<String, RemoteSource> lineRemotes(String workspaceId)
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
-        if (!workspace.provider().capabilities().forkWorkflows()) {
+        if (!forkWorkflows(workspace)) {
             return ImmutableMap.of();
         }
         Map<String, List<Relationship>> links = watchedLinks();
@@ -250,7 +250,7 @@ public class WorkspaceRelationships
     {
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         Set<String> related = related(workspaceId).stream().map(Related::workspaceId).collect(toImmutableSet());
-        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub)
+        return workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows)
                 .filter(other -> workspaces.isWatched(other.id()) && !related.contains(other.id()) && other.monitoredRepositoryId() != workspace.monitoredRepositoryId()
                         && !matches(other, workspace.monitoredRepository()))
                 .collect(toImmutableList());
@@ -266,7 +266,7 @@ public class WorkspaceRelationships
     public void requireTransferAllowed(Optional<RepoRef> source, RepoRef target)
     {
         // ponytail: scan local settings; index repository pairs if large workspace catalogs make admission slow.
-        for (Workspace workspace : workspaces.findAllRetained().stream().filter(Workspace::isGitHub).collect(toImmutableList())) {
+        for (Workspace workspace : workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows).collect(toImmutableList())) {
             if (source.isPresent() && !matches(workspace, source.orElseThrow()) && !matches(workspace, target)) {
                 continue;
             }
@@ -324,8 +324,13 @@ public class WorkspaceRelationships
     private Map<String, List<Relationship>> watchedLinks()
     {
         // ponytail: reads every watched workspace's links per call; cache them if workspace catalogs grow large.
-        return workspaces.findAllRetained().stream().filter(Workspace::isGitHub).filter(workspace -> workspaces.isWatched(workspace.id()))
+        return workspaces.findAllRetained().stream().filter(WorkspaceRelationships::forkWorkflows).filter(workspace -> workspaces.isWatched(workspace.id()))
                 .collect(toImmutableMap(Workspace::id, workspace -> list(workspace.id())));
+    }
+
+    private static boolean forkWorkflows(Workspace workspace)
+    {
+        return workspace.provider().capabilities().forkWorkflows();
     }
 
     private static boolean matches(Workspace workspace, RepoRef repository)

@@ -31,12 +31,10 @@ import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.net.URI;
 import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -162,7 +160,7 @@ public class SqliteWorkspaceStore
         HostingAccountEntity accountEntity = hostingAccounts.findById(accountId).orElseThrow(() -> new IllegalArgumentException("Hosting account not found"));
         HostingAccount account = accountEntity.toDomain();
         HostingInstance instance = hostingInstances.findById(account.instanceId()).orElseThrow().toDomain();
-        HostingServer server = workspace.hostingServer().orElseGet(() -> new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")));
+        HostingServer server = workspace.server();
         checkArgument(new HostingServer(instance.provider(), instance.webBaseUrl(), instance.apiBaseUrl()).equals(server), "Hosting account belongs to another workspace server");
         HostingRepositoryEntity selected = bindingRepository(selectedRepositoryId, account.instanceId(), workspace.selectedRepositoryId());
         Optional<HostingRepositoryEntity> upstream = upstreamRepositoryId.map(id -> bindingRepository(id, account.instanceId(), workspace.upstreamRepositoryId().orElseThrow()));

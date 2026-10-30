@@ -439,8 +439,8 @@ class TestRecentService
                 ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 0, 0, 0, "open", null, null,
                 null, null, null, "feature", null, null, null, null);
         PullRequestStore pullRequests = mock(PullRequestStore.class);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
         when(workspaces.findHostingRepositoryId(workspace.id())).thenReturn(Optional.of(99L));
+        when(workspaces.findByHostingRepositoryId(99)).thenReturn(Optional.of(workspace));
         when(pullRequests.findByHostingRepository(99, 7)).thenReturn(Optional.of(request));
         when(pullRequests.findById(701)).thenReturn(Optional.of(request));
         when(pullRequests.findHostingIdentity(701)).thenReturn(Optional.of(new HostingPullRequest(701, 99, 7)));

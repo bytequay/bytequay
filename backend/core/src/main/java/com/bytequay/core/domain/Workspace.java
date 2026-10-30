@@ -21,6 +21,7 @@ import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -107,10 +108,15 @@ public record Workspace(
                 displayOrder, createdAt, updatedAt, Optional.empty());
     }
 
-    /** A workspace without a hosting server predates GitLab support and is a GitHub workspace. */
+    /** A workspace without a hosting server predates GitLab support and is a GitHub.com workspace. */
+    public HostingServer server()
+    {
+        return hostingServer.orElse(GITHUB_COM);
+    }
+
     public HostingProvider provider()
     {
-        return hostingServer.map(HostingServer::provider).orElse(GITHUB);
+        return server().provider();
     }
 
     public boolean isGitHub()

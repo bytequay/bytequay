@@ -43,7 +43,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.bytequay.core.hosting.HostingFailure.Kind.MISSING_OR_INACCESSIBLE;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
@@ -92,7 +91,7 @@ public class WorkspaceHostingService
         checkArgument(accountId > 0, "accountId must be positive");
         Workspace workspace = requireWorkspace(workspaces, workspaceId);
         HostingReadSession session = connections.readSession(accountId);
-        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        checkArgument(session.access().server().equals(workspace.server()), "Hosting account belongs to another workspace server");
         HostingRepository selected = connections.resolveRepositoryById(session, Long.toString(workspace.selectedRepositoryId()));
         Optional<Long> upstream = workspace.upstreamRepositoryId()
                 .map(id -> connections.resolveRepositoryById(session, id.toString()).id());
@@ -172,7 +171,7 @@ public class WorkspaceHostingService
     {
         HostingReadSession session = workspaces.findHostingBinding(workspace.id()).map(binding -> connections.readSession(binding.accountId()))
                 .orElseGet(() -> desktopCredentials.captureWorkspaceHostingRead(workspace.id()));
-        checkArgument(session.access().server().equals(workspace.hostingServer().orElse(GITHUB_SERVER)), "Hosting account belongs to another workspace server");
+        checkArgument(session.access().server().equals(workspace.server()), "Hosting account belongs to another workspace server");
         return session;
     }
 

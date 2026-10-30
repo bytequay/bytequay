@@ -45,6 +45,7 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
@@ -124,6 +125,8 @@ class TestAssistantRows
 
         when(pullRequests.findIdByRepoAndNumber("owner/repository", 31402)).thenReturn(Optional.of(7L));
         when(pullRequests.findById(7L)).thenReturn(Optional.of(pullRequest("clean")));
+        when(pullRequests.findHostingIdentity(7L)).thenReturn(Optional.of(new HostingPullRequest(7, 20, 31402)));
+        when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(WORKSPACE));
         PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
         when(raw.headSha()).thenReturn(HEAD);
         // A reviewer's later comment leaves their approval standing; GitHub counts verdicts only.

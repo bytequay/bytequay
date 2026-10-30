@@ -204,9 +204,8 @@ public class WorkspaceEntity
 
     public static String repositoryKey(Workspace workspace)
     {
-        String server = workspace.hostingServer().map(value -> value.provider() + "\n" + value.webBaseUrl() + "\n" + value.apiBaseUrl())
-                .orElse("GITHUB\nhttps://github.com\nhttps://api.github.com");
-        return server + "\n" + workspace.selectedRepositoryId();
+        HostingServer server = workspace.server();
+        return server.provider() + "\n" + server.webBaseUrl() + "\n" + server.apiBaseUrl() + "\n" + workspace.selectedRepositoryId();
     }
 
     public Workspace toDomain()

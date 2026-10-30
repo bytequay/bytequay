@@ -28,6 +28,7 @@ import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.TeamActivityEvent;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
@@ -45,6 +46,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.net.URI;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -53,6 +55,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
 
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -280,6 +283,25 @@ class TestTeamActivityService
     }
 
     @Test
+    void scansOnlyWatchedRepositoriesWhoseProviderHasTeamActivity()
+    {
+        Fixture fixture = fixture();
+        when(fixture.teams().directory()).thenReturn(new TeamDirectory("viewer", ImmutableList.of(
+                new TeamCircle("all", "All", "", Avatar.DEFAULT, ImmutableList.of(), ImmutableList.of(ALICE)))));
+        when(fixture.workspaces().findAll()).thenReturn(ImmutableList.of(workspace("github", RepoRef.of("owner", "repo"), Optional.empty()),
+                workspace("gitlab", RepoRef.of("group", "project"),
+                        Optional.of(new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"))))));
+        Observation empty = new Observation(ImmutableList.of(), ImmutableList.of(), false);
+        when(fixture.github().publicEvents(anyString(), anyString(), any())).thenReturn(empty);
+        when(fixture.github().repository(anyString(), anyString(), any(), anyInt(), any())).thenReturn(empty);
+
+        fixture.service().collect();
+
+        verify(fixture.github()).repository(eq("token"), eq("owner/repo"), any(), anyInt(), any());
+        verify(fixture.github(), never()).repository(anyString(), eq("group/project"), any(), anyInt(), any());
+    }
+
+    @Test
     void automaticCollectionRespectsSharedQuietHours()
     {
         TeamActivityService activity = mock(TeamActivityService.class);
@@ -289,6 +311,14 @@ class TestTeamActivityService
         when(settings.inQuietHours()).thenReturn(true);
         new TeamActivitySyncJob(activity, credentials, settings).tick();
         verify(activity, never()).collect();
+    }
+
+    private static Workspace workspace(String id, RepoRef repository, Optional<HostingServer> server)
+    {
+        Instant createdAt = Instant.now().minusSeconds(120);
+        return new Workspace(id, id, 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT, "main",
+                "https://example.com/" + repository.fullName() + ".git", Optional.empty(), Optional.empty(), "/tmp/" + id, Optional.empty(), Optional.empty(), 0,
+                createdAt, createdAt, server);
     }
 
     private static ObjectMapper mapper()

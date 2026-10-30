@@ -16,13 +16,10 @@ package com.bytequay.app.workspace;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingRepository;
-import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.HostingTarget;
 
-import java.net.URI;
-
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -58,8 +55,6 @@ public record WorkspaceHostingRead(HostingReadSession session, HostingRepository
 
     private void requireGitHub()
     {
-        HostingServer server = session.access().server();
-        checkArgument(server.provider() == GITHUB && server.webBaseUrl().equals(URI.create("https://github.com"))
-                && server.apiBaseUrl().equals(URI.create("https://api.github.com")), "This operation requires a GitHub.com workspace");
+        checkArgument(session.access().server().equals(GITHUB_COM), "This operation requires a GitHub.com workspace");
     }
 }

@@ -17,6 +17,7 @@ import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingCacheTarget;
 import com.bytequay.core.hosting.WorkspaceHostingBinding;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
@@ -54,6 +55,15 @@ public interface WorkspaceStore
     {
         return findHostingBinding(workspaceId).map(WorkspaceHostingBinding::monitoredRepositoryId)
                 .or(() -> findHostingCacheTarget(workspaceId).map(HostingCacheTarget::repositoryId));
+    }
+
+    /** The workspace that monitors this hosting repository, a watched one first. */
+    default Optional<Workspace> findByHostingRepositoryId(long repositoryId)
+    {
+        return findAllRetained().stream()
+                .filter(workspace -> findHostingRepositoryId(workspace.id()).filter(id -> id == repositoryId).isPresent())
+                .sorted(Comparator.comparing(workspace -> !isWatched(workspace.id())))
+                .findFirst();
     }
 
     void saveHostingCacheTarget(String workspaceId, HostingCacheTarget target);

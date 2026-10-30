@@ -38,14 +38,13 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import static com.bytequay.app.git.command.RepositoryUrls.isPlainHttps;
 import static com.bytequay.core.domain.Checks.checkText;
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Service
 public class CredentialService
 {
-    public static final HostingServer GITHUB_SERVER = new HostingServer(GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+    public static final HostingServer GITHUB_SERVER = HostingServer.GITHUB_COM;
     static final String GITHUB_CLI_SOURCE = "{\"source\":\"gh-cli\"}";
 
     private final CredentialStore credentialStore;

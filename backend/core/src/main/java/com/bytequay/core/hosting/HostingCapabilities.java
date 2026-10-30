@@ -21,9 +21,11 @@ package com.bytequay.core.hosting;
  * @param forkWorkflows workspaces can be related as upstreams, forks and backport targets
  * @param issueChildren an issue's child issues can be read
  * @param commitAvatars commit history shows account avatars and pull request links
+ * @param teamActivity circles follow their members' activity in the provider's watched repositories
  */
-public record HostingCapabilities(boolean requestChanges, boolean multiLineComments, boolean forkWorkflows, boolean issueChildren, boolean commitAvatars)
+public record HostingCapabilities(boolean requestChanges, boolean multiLineComments, boolean forkWorkflows, boolean issueChildren, boolean commitAvatars,
+        boolean teamActivity)
 {
-    public static final HostingCapabilities ALL = new HostingCapabilities(true, true, true, true, true);
-    public static final HostingCapabilities NONE = new HostingCapabilities(false, false, false, false, false);
+    public static final HostingCapabilities ALL = new HostingCapabilities(true, true, true, true, true, true);
+    public static final HostingCapabilities NONE = new HostingCapabilities(false, false, false, false, false, false);
 }

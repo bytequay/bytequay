@@ -21,7 +21,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
-import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
 
 public record WorkspaceSummary(
         String id,
@@ -71,6 +71,6 @@ public record WorkspaceSummary(
     @JsonProperty
     public HostingCapabilities capabilities()
     {
-        return (hostingServer == null ? GITHUB : hostingServer.provider()).capabilities();
+        return (hostingServer == null ? GITHUB_COM : hostingServer).provider().capabilities();
     }
 }

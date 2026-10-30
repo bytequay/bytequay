@@ -74,7 +74,9 @@ import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -146,6 +148,7 @@ class TestAssistantActions
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final InteractiveAgentTaskStarter starter = mock(InteractiveAgentTaskStarter.class);
     private final PullRequestTaskService pullRequestTasks = mock(PullRequestTaskService.class);
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final AppNoticeService notices = mock(AppNoticeService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -181,6 +184,10 @@ class TestAssistantActions
         });
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
         when(workspaces.findById("ws1")).thenReturn(Optional.of(repository));
+        when(pullRequests.findIdByRepoAndNumber("owner/repository", 31402)).thenReturn(Optional.of(5L));
+        when(pullRequests.findHostingIdentity(5)).thenReturn(Optional.of(new HostingPullRequest(5, 20, 31402)));
+        when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(repository));
+        when(workspaces.isWatched("ws1")).thenReturn(true);
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws1")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "opus", "Opus 5.5", Optional.of("high")));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(),
@@ -199,7 +206,7 @@ class TestAssistantActions
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         work = new AssistantWork(issueDevelopment, jira, epics, workItemService, workItems, workspaces, rows, attentionMarks);
         actions = new AssistantActions(store, permissions, approvals, approvalService, tasks, turns, new ItemTaskStarter(starter, models, settings, workspaces, workItems,
-                issues, jira), pullRequestTasks, workspaces, notices, reviews, work, mapper, clock);
+                issues, jira), pullRequestTasks, pullRequests, workspaces, notices, reviews, work, mapper, clock);
     }
 
     @Test

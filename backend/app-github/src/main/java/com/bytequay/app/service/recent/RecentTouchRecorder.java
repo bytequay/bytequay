@@ -251,10 +251,7 @@ public class RecentTouchRecorder
     private Optional<RecentItem> pullRequestItem(long prId)
     {
         return pullRequests.findById(prId).map(row -> {
-            long repositoryId = pullRequests.findHostingIdentity(prId).orElseThrow().repositoryId();
-            Optional<String> workspaceId = workspaces.findAll().stream()
-                    .filter(workspace -> workspaces.findHostingRepositoryId(workspace.id()).filter(id -> id == repositoryId).isPresent())
-                    .map(Workspace::id).findFirst();
+            Optional<String> workspaceId = workspaces.findByHostingRepositoryId(pullRequests.findHostingIdentity(prId).orElseThrow().repositoryId()).map(Workspace::id);
             return new RecentItem(RecentItemType.PULL_REQUEST, "pr:" + prId, Optional.of(row.number()), row.title(), Optional.of(row.repo()), workspaceId,
                     Optional.of(row.htmlUrl()), row.origin() == PullRequest.Origin.AUTHORED, Optional.of(prId), Optional.of(row.author()));
         });

@@ -107,6 +107,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -234,7 +235,7 @@ public class PullRequestService
     public String attentionVersion()
     {
         Optional<String> login = credentialService.cachedLogin();
-        Set<PullRequestRef> mentions = login.map(value -> desktopDiscovery().mentions(value)).orElse(ImmutableSet.of());
+        Set<PullRequestRef> mentions = polled(PullRequestDiscovery::mentions);
         Set<String> stamped = summaryStamps.entrySet().stream()
                 .flatMap(account -> account.getValue().keySet().stream().map(ref -> account.getKey() + ":" + ref))
                 .collect(toImmutableSet());
@@ -406,7 +407,7 @@ public class PullRequestService
     /** Reads the last polled activity feed, never the provider itself. */
     public Set<Long> findMentioned(List<PullRequest> pullRequests)
     {
-        Set<PullRequestRef> mentions = credentialService.cachedLogin().map(value -> desktopDiscovery().mentions(value)).orElse(ImmutableSet.of());
+        Set<PullRequestRef> mentions = polled(PullRequestDiscovery::mentions);
         return pullRequests.stream().filter(pullRequest -> mentions.contains(parseRef(pullRequest.repo(), pullRequest.number())))
                 .map(PullRequest::id).collect(toImmutableSet());
     }
@@ -546,7 +547,7 @@ public class PullRequestService
         RepoRef repository = RepoRef.of(ref.owner(), ref.repo());
         Optional<RepositoryMetadataSnapshot> localSnapshot = workspaceId != null && !workspaceId.isBlank()
                 ? Optional.of(metadata.getSnapshot(workspaceId))
-                : metadata.findSnapshot(repository);
+                : connections.findRepository(credentialService.captureHostingRead(), repo).flatMap(hosted -> metadata.findSnapshot(hosted.id()));
         if (localSnapshot.isPresent()) {
             RepositoryMetadataSnapshot snapshot = localSnapshot.orElseThrow();
             String avatarBaseUrl = "http://127.0.0.1:" + ((WebServerApplicationContext) applicationContext).getWebServer().getPort() + "/api/avatars/";
@@ -662,7 +663,7 @@ public class PullRequestService
         queries.put(DiscoveryQuery.of(Kind.INVOLVED, State.ANY), OTHER);
         // Watched repositories on this server are refreshed between their repository scans.
         workspaces.findAll().stream()
-                .filter(workspace -> workspaces.isWatched(workspace.id()) && workspace.hostingServer().orElse(GITHUB_SERVER).equals(session.access().server()))
+                .filter(workspace -> workspaces.isWatched(workspace.id()) && workspace.server().equals(session.access().server()))
                 .map(workspace -> workspace.monitoredRepository().fullName()).distinct()
                 .forEach(repo -> queries.put(DiscoveryQuery.repository(repo), OTHER));
         // One search per tick, in turn: back to back, a tick's searches land as one burst on the provider's rate limit.
@@ -738,7 +739,7 @@ public class PullRequestService
     {
         PullRequestRef ref = notice.ref();
         if (!notice.pullRequest()) {
-            issues.refreshNotifiedIssue(RepoRef.of(ref.owner(), ref.repo()), ref.number());
+            connections.findRepository(session, ref.repoFullName()).ifPresent(repository -> issues.refreshNotifiedIssue(repository.id(), ref.number()));
             return;
         }
         if (notice.reason() == ActivityNotice.Reason.FOLLOWED_REPOSITORY) {
@@ -1082,6 +1083,12 @@ public class PullRequestService
                 .forEach(row -> store.setDashboardVisible(row.id(), false));
     }
 
+    /** The workspace on the request's repository, a watched one first. */
+    public Optional<Workspace> findWorkspace(long prId)
+    {
+        return store.findHostingIdentity(prId).flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId()));
+    }
+
     /**
      * How each attention row opens: through a workspace on its repository, a watched one first, else through a connected account that
      * reads it, else through the desktop sign-in.
@@ -1131,10 +1138,17 @@ public class PullRequestService
         return integrations.of(session.access().server().provider()).discovery();
     }
 
-    /** The desktop account's discovery, which the global attention list follows. */
-    private PullRequestDiscovery desktopDiscovery()
+    /**
+     * What the last poll of every discovery account reported, read without a remote call: the desktop sign-in by its cached login, then each
+     * connected account by its stored login. Rows match by path and number, so a repository with the same path on another server matches too.
+     */
+    private Set<PullRequestRef> polled(BiFunction<PullRequestDiscovery, String, Set<PullRequestRef>> reported)
     {
-        return integrations.of(GITHUB_SERVER.provider()).discovery();
+        ImmutableSet.Builder<PullRequestRef> refs = ImmutableSet.builder();
+        credentialService.cachedLogin().ifPresent(login -> refs.addAll(reported.apply(integrations.of(GITHUB_SERVER.provider()).discovery(), login)));
+        connections.connections().stream().filter(HostingConnection::connected)
+                .forEach(connection -> refs.addAll(reported.apply(integrations.of(connection.instance().provider()).discovery(), connection.account().login())));
+        return refs.build();
     }
 
     /** A separate slow pass warms the newest configured number of PRs in each repository. */
@@ -1867,7 +1881,7 @@ public class PullRequestService
                 detail.raw().requestedReviewers(),
                 pullRequest.author().equalsIgnoreCase(currentLogin) ? AUTHORED
                         : detail.raw().requestedReviewers().stream().anyMatch(currentLogin::equalsIgnoreCase)
-                                || desktopDiscovery().reviewRequests(currentLogin).contains(parseRef(pullRequest.repo(), pullRequest.number())) ? REVIEW_REQUESTED : OTHER,
+                                || polled(PullRequestDiscovery::reviewRequests).contains(parseRef(pullRequest.repo(), pullRequest.number())) ? REVIEW_REQUESTED : OTHER,
                 detail.timeline().stream()
                         .filter(event -> "review_requested".equals(event.event()) && currentLogin.equalsIgnoreCase(event.payload().requestedReviewer()))
                         .map(PrTimelineEvent::timestamp)

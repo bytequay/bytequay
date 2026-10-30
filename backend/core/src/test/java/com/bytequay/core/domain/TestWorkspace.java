@@ -14,11 +14,17 @@
 package com.bytequay.core.domain;
 
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingServer;
 import org.junit.jupiter.api.Test;
 
+import java.net.URI;
 import java.time.Instant;
 import java.util.Optional;
 
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
+import static com.bytequay.core.hosting.HostingServer.GITHUB_COM;
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestWorkspace
@@ -50,5 +56,25 @@ class TestWorkspace
                 NOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("upstream ID");
+    }
+
+    @Test
+    void workspaceWithoutAHostingServerIsOnGitHubCom()
+    {
+        HostingServer gitlab = new HostingServer(GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+
+        assertThat(GITHUB_COM).isEqualTo(new HostingServer(GITHUB, URI.create("https://github.com/"), URI.create("https://api.github.com")));
+        assertThat(workspace(Optional.empty()).server()).isEqualTo(GITHUB_COM);
+        assertThat(workspace(Optional.empty()).provider()).isEqualTo(GITHUB);
+        assertThat(workspace(Optional.of(gitlab)).server()).isEqualTo(gitlab);
+        assertThat(workspace(Optional.of(gitlab)).provider()).isEqualTo(GITLAB);
+    }
+
+    private static Workspace workspace(Optional<HostingServer> server)
+    {
+        RepoRef repository = RepoRef.of("owner", "project");
+        return new Workspace("workspace", "owner/project", 100, repository, Optional.empty(), Optional.empty(), 100, repository, Topology.DIRECT, "main",
+                "https://example.com/owner/project.git", Optional.empty(), Optional.empty(), "/tmp/workspace/repository", Optional.empty(), Optional.empty(), 0,
+                NOW, NOW, server);
     }
 }

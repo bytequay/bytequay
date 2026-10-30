@@ -65,6 +65,7 @@ import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.ServedRef;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.AgendaStore;
 import com.bytequay.core.store.EpicStore;
@@ -187,6 +188,8 @@ class TestAssistantContext
                 Workspace.Topology.DIRECT, "master", "https://github.com/owner/repository.git", Optional.empty(), Optional.empty(), "/managed/repository", Optional.empty(),
                 Optional.empty(), 0, NOW, NOW);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(repository));
+        when(pullRequests.findHostingIdentity(7L)).thenReturn(Optional.of(new HostingPullRequest(7, 20, 31402)));
+        when(workspaces.findByHostingRepositoryId(20)).thenReturn(Optional.of(repository));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws1")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "claude", "Claude Code", "opus", "Opus 5.5", Optional.empty()));
         when(models.get()).thenReturn(new ModelSettingsService.ModelSettings(ImmutableList.of(),

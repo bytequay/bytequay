@@ -42,6 +42,9 @@ import static org.mockito.Mockito.when;
 
 class TestPullRequestSyncJob
 {
+    private static final HostingServer GITLAB = new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"),
+            URI.create("https://gitlab.example.com/api/v4"));
+
     @Test
     void refreshesEveryWorkspaceWhileDeduplicatingRepositoryMetadata()
     {
@@ -55,9 +58,13 @@ class TestPullRequestSyncJob
         Workspace first = workspace("first", 1, shared);
         Workspace second = workspace("second", 1, shared);
         Workspace third = workspace("third", 3, other);
-        Workspace gitlab = workspace("gitlab", 1, shared, Optional.of(new HostingServer(HostingProvider.GITLAB,
-                URI.create("https://gitlab.com"), URI.create("https://gitlab.com/api/v4"))));
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, first, second, third));
+        Workspace gitlab = workspace("gitlab", 1, shared, Optional.of(GITLAB));
+        Workspace unbound = workspace("unbound", 4, RepoRef.of("owner", "unbound"));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(gitlab, first, second, third, unbound));
+        when(workspaces.findHostingRepositoryId("gitlab")).thenReturn(Optional.of(10L));
+        when(workspaces.findHostingRepositoryId("first")).thenReturn(Optional.of(1L));
+        when(workspaces.findHostingRepositoryId("second")).thenReturn(Optional.of(1L));
+        when(workspaces.findHostingRepositoryId("third")).thenReturn(Optional.of(3L));
         PullRequestSyncJob job = new PullRequestSyncJob(refreshService, metadata, workspaces, credentials, idleSettings(), Clock.systemUTC());
 
         job.tick();
@@ -68,10 +75,12 @@ class TestPullRequestSyncJob
         order.verify(refreshService).refreshWorkspace(first.id());
         order.verify(refreshService).refreshWorkspace(second.id());
         order.verify(refreshService).refreshWorkspace(third.id());
-        verify(metadata, never()).synchronize(gitlab.id());
+        order.verify(refreshService).refreshWorkspace(unbound.id());
+        verify(metadata).synchronize(gitlab.id());
         verify(metadata).synchronize(first.id());
         verify(metadata, never()).synchronize(second.id());
         verify(metadata).synchronize(third.id());
+        verify(metadata, never()).synchronize(unbound.id());
     }
 
     @Test
@@ -115,12 +124,13 @@ class TestPullRequestSyncJob
     }
 
     @Test
-    void refreshesBoundWorkspacesWithoutGlobalGitHubCredentials()
+    void refreshesBoundWorkspacesAndTheirMetadataWithoutGlobalGitHubCredentials()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("bound", 1, RepoRef.of("owner", "repo"))));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("bound", 1, RepoRef.of("group", "project"), Optional.of(GITLAB))));
+        when(workspaces.findHostingRepositoryId("bound")).thenReturn(Optional.of(5L));
         CredentialService credentials = mock(CredentialService.class);
         MutableClock clock = new MutableClock(Instant.parse("2026-09-10T08:00:00Z"));
         PullRequestSyncJob job = new PullRequestSyncJob(refreshService, metadata, workspaces, credentials, idleSettings(), clock);
@@ -128,9 +138,9 @@ class TestPullRequestSyncJob
         job.tick();
 
         verify(refreshService).refreshWorkspace("bound");
+        verify(metadata).synchronize("bound");
         verify(refreshService, never()).refreshScheduledDashboard();
         verify(refreshService, never()).warmRecentDetails(30);
-        verifyNoInteractions(metadata);
 
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
         when(refreshService.hasDiscoveryAccounts()).thenReturn(true);

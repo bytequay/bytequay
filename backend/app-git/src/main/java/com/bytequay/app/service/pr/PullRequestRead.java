@@ -18,8 +18,6 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
-import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -50,22 +48,5 @@ public record PullRequestRead(HostingReadSession session, HostingRepository repo
     {
         int slash = repository.fullPath().lastIndexOf('/');
         return PullRequestRef.of(repository.fullPath().substring(0, slash), repository.fullPath().substring(slash + 1), number);
-    }
-
-    public PullRequestRef githubRef()
-    {
-        requireGitHub();
-        return parseRef(repository.fullPath(), number);
-    }
-
-    public String githubToken()
-    {
-        requireGitHub();
-        return session.access().token();
-    }
-
-    private void requireGitHub()
-    {
-        checkArgument(session.access().server().equals(GITHUB_SERVER), "This operation requires a GitHub.com account");
     }
 }

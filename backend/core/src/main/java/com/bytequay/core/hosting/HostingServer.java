@@ -29,4 +29,14 @@ public record HostingServer(HostingProvider provider, URI webBaseUrl, URI apiBas
         webBaseUrl = HostingUrls.canonicalBaseUrl(webBaseUrl);
         apiBaseUrl = HostingUrls.canonicalBaseUrl(apiBaseUrl);
     }
+
+    /**
+     * How stored keys and labels name the server: its web address, without the scheme when that is https, such as {@code github.com},
+     * the way a hosted issue source reads a host.
+     */
+    public String host()
+    {
+        String address = webBaseUrl.toASCIIString();
+        return webBaseUrl.getScheme().equals("https") ? address.substring("https://".length()) : address;
+    }
 }

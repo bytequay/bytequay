@@ -24,12 +24,20 @@ import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttemptId;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
+import com.bytequay.core.domain.FetchedPullRequest;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
-import com.bytequay.core.domain.RecentText;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.hosting.HostingAccount;
 import com.bytequay.core.hosting.HostingCacheTarget;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingServer;
+import com.bytequay.core.hosting.RemoteHostingAccount;
+import com.bytequay.core.hosting.RemoteHostingRepository;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
 import com.bytequay.core.review.LocalRun;
@@ -39,6 +47,7 @@ import com.bytequay.persistence.sqlite.entity.CiAutofixRunEntity;
 import com.bytequay.persistence.sqlite.entity.WorkspaceEntity;
 import com.bytequay.persistence.sqlite.repository.WorkspaceJpaRepository;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
@@ -48,16 +57,20 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 
+import java.net.URI;
 import java.nio.file.Path;
 import java.sql.DriverManager;
 import java.sql.SQLException;
 import java.time.Instant;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.UUID;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
+import static com.bytequay.core.hosting.HostingPullRequestSnapshot.CONNECTED_ACCOUNT;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -83,9 +96,6 @@ class TestSqliteWorkspaceStore
     private SqliteAgentTaskStore tasks;
 
     @Autowired
-    private SqliteRecentStore recent;
-
-    @Autowired
     private SqliteAppSettingsStore settings;
 
     @Autowired
@@ -93,6 +103,12 @@ class TestSqliteWorkspaceStore
 
     @Autowired
     private SqliteRepositoryIssueStore issueCache;
+
+    @Autowired
+    private SqliteHostingIdentityStore identities;
+
+    @Autowired
+    private SqliteHostingPullRequestStore hostingRequests;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -299,21 +315,51 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
-    void recentWordsAndTouchesFollowIssueOwnership()
+    void deleteDropsItsIssueRecentsAndMovesPullRequestTouchesToAnotherWorkspaceOnTheRepository()
     {
-        Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
-        Workspace retained = store.createOrGet(workspace(
-                "retained", 201, RepoRef.of("other", "project"), Optional.of(300L), Optional.of(RepoRef.of("upstream", "project")),
-                300, RepoRef.of("upstream", "project"), Topology.FORK, Optional.of("https://github.com/upstream/project.git"), 1));
-        insertRecent("issue:Contributor/Project#10", "ISSUE", "Contributor/Project", 10, removed.id());
-        insertRecent("issue:upstream/project#11", "ISSUE", "upstream/project", 11, removed.id());
+        HostingInstance instance = identities.upsertInstance(new HostingServer(HostingProvider.GITLAB, URI.create("https://gitlab.example.com"),
+                URI.create("https://gitlab.example.com/api/v4")));
+        HostingAccount account = identities.upsertAccount(instance.id(), new RemoteHostingAccount("1", "alice"));
+        HostingRepository shared = repository(instance, "91", "group/project");
+        HostingRepository alone = repository(instance, "92", "group/alone");
+        Workspace removed = store.createOrGet(direct("removed", 100, 0));
+        Workspace unwatched = store.createOrGet(direct("unwatched", 101, 1));
+        Workspace watched = store.createOrGet(direct("watched", 102, 2));
+        store.setWatched(unwatched.id(), false);
+        for (Workspace workspace : ImmutableList.of(removed, unwatched, watched)) {
+            store.saveHostingCacheTarget(workspace.id(), new HostingCacheTarget(account.id(), shared.id(), CONNECTED_ACCOUNT));
+        }
+        String sharedRequest = "pr:" + pullRequest(account, shared, 7);
+        String aloneRequest = "pr:" + pullRequest(account, alone, 8);
+        insertRecent(sharedRequest, "PULL_REQUEST", "group/project", 7, removed.id());
+        insertRecent(aloneRequest, "PULL_REQUEST", "group/alone", 8, removed.id());
+        insertRecent(removed.issueKey(11), "ISSUE", "group/project", 11, removed.id());
+        insertRecent(watched.issueKey(11), "ISSUE", "group/project", 11, watched.id());
 
         store.delete(removed.id());
 
-        assertThat(recent.findTextContaining("words", 30)).extracting(RecentText::itemKey).containsOnly("issue:upstream/project#11");
-        assertThat(jdbc.queryForObject("SELECT COUNT(*) FROM recent_text", Integer.class)).isEqualTo(2);
-        assertThat(jdbc.queryForList("SELECT item_key FROM recent_touch", String.class)).containsExactly("issue:upstream/project#11");
-        assertThat(jdbc.queryForObject("SELECT workspace_id FROM recent_touch WHERE item_key = 'issue:upstream/project#11'", String.class)).isEqualTo(retained.id());
+        Map<String, String> touches = new HashMap<>();
+        jdbc.query("SELECT item_key, workspace_id FROM recent_touch", row -> {
+            touches.put(row.getString(1), row.getString(2));
+        });
+        assertThat(touches).containsOnlyKeys(sharedRequest, aloneRequest, watched.issueKey(11))
+                .containsEntry(sharedRequest, watched.id()).containsEntry(aloneRequest, null).containsEntry(watched.issueKey(11), watched.id());
+        assertThat(jdbc.queryForList("SELECT DISTINCT item_key FROM recent_text", String.class)).containsExactlyInAnyOrder(sharedRequest, aloneRequest, watched.issueKey(11));
+    }
+
+    private HostingRepository repository(HostingInstance instance, String remoteId, String path)
+    {
+        return identities.upsertRepository(instance.id(), new RemoteHostingRepository(remoteId, path, URI.create(instance.webBaseUrl() + "/" + path),
+                URI.create(instance.webBaseUrl() + "/" + path + ".git"), Optional.empty(), Optional.of("main")));
+    }
+
+    private long pullRequest(HostingAccount account, HostingRepository repository, int number)
+    {
+        hostingRequests.savePage(account.id(), repository.id(), CONNECTED_ACCOUNT, ImmutableList.of(new FetchedPullRequest((long) number, repository.fullPath(), number, "Title",
+                "alice", repository.webUrl() + "/-/merge_requests/" + number, NOW.minusSeconds(60), NOW, PullRequest.Origin.AUTHORED, ImmutableList.of(), ImmutableMap.of(),
+                false, "open", null, null, ImmutableList.of(), null, null, "feature")));
+        entities.flush();
+        return jdbc.queryForObject("SELECT id FROM pull_requests WHERE hosting_repository_id = ? AND number = ?", Long.class, repository.id(), number);
     }
 
     private void insertRecent(String key, String type, String repo, int number, String workspaceId)

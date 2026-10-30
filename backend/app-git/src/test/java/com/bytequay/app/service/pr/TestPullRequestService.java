@@ -1398,12 +1398,13 @@ class TestPullRequestService
     }
 
     @Test
-    void routesAttentionRowsThroughAWorkspaceOnTheirRepositoryWatchedFirst()
+    void routesAttentionRowsThroughAWorkspaceOnTheirRepositoryWatchedFirstElseAnUnwatchedOne()
     {
         Workspace unwatched = workspace("unwatched");
         Workspace watched = workspace("watched");
         Workspace alone = workspace("alone");
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(unwatched, watched, alone));
+        when(workspaces.findByHostingRepositoryId(anyLong())).thenCallRealMethod();
+        when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(unwatched, watched, alone));
         when(workspaces.isWatched("watched")).thenReturn(true);
         when(workspaces.findHostingRepositoryId("unwatched")).thenReturn(Optional.of(30L));
         when(workspaces.findHostingRepositoryId("watched")).thenReturn(Optional.of(30L));

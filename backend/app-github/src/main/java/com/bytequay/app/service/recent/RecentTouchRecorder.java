@@ -23,6 +23,7 @@ import com.bytequay.core.domain.RecentTouch;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.hosting.HostingAccount;
+import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.store.HostingIdentityStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.RecentStore;
@@ -281,20 +282,18 @@ public class RecentTouchRecorder
         String repo = found.monitoredRepository().fullName();
         Optional<Long> accountId = workspaces.findHostingBinding(workspaceId).map(binding -> binding.accountId())
                 .or(() -> workspaces.findHostingCacheTarget(workspaceId).map(target -> target.accountId()));
+        // A workspace with no account of its own reads through the desktop sign-in, which only a github.com workspace can use.
         Optional<String> viewer = accountId.flatMap(hostingIdentities::findAccount).map(HostingAccount::login)
-                .or(() -> accountId.isEmpty() && found.isGitHub() ? credentials.cachedLogin() : Optional.empty());
+                .or(() -> accountId.isEmpty() && found.server().equals(HostingServer.GITHUB_COM) ? credentials.cachedLogin() : Optional.empty());
         boolean mine = issue.map(RepositoryIssue::author).flatMap(author -> viewer.map(author::equalsIgnoreCase)).orElse(false);
-        String itemKey = found.isGitHub() ? RecentItemType.ISSUE.itemKey(repo, number) : "issue:" + workspaceId + ":" + repo + "#" + number;
-        String fallbackUrl = found.hostingServer().map(server -> server.webBaseUrl() + "/" + repo + "/-/issues/" + number)
-                .orElse("https://github.com/" + repo + "/issues/" + number);
         return Optional.of(new RecentItem(
                 RecentItemType.ISSUE,
-                itemKey,
+                found.issueKey(number),
                 Optional.of(number),
                 issue.map(RepositoryIssue::title).orElseGet(() -> repo + " #" + number),
                 Optional.of(repo),
                 Optional.of(workspaceId),
-                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElse(fallbackUrl)),
+                Optional.of(issue.map(RepositoryIssue::htmlUrl).orElseGet(() -> found.provider().issueUrl(found.server().webBaseUrl(), repo, number).toString())),
                 mine,
                 Optional.empty(),
                 issue.map(RepositoryIssue::author)));

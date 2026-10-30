@@ -155,7 +155,7 @@ class TestAgendaReader
         PullRequest snoozed = pullRequest(31378, "marlo-t", PullRequest.Origin.REVIEW_REQUESTED, ImmutableList.of("me"), null, 10, 1);
         when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
         when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(asked, snoozed));
-        when(marks.snoozedKeys()).thenReturn(ImmutableSet.of("owner/repository#31378"));
+        when(marks.snoozedKeys()).thenReturn(ImmutableSet.of("pr:31378"));
 
         AgendaSnapshot snapshot = reader().read(LocalDate.parse("2026-10-16"), SINCE, false, ImmutableList.of(), AgendaCalendar.of("off"));
 

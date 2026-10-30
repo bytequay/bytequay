@@ -42,6 +42,24 @@ class TestHostingIdentity
         assertThat(repository.defaultBranch()).isEmpty();
     }
 
+    @Test
+    void namesAServerByItsAddressWithoutHttpsAndKeepsAnyOtherScheme()
+    {
+        assertThat(HostingServer.GITHUB_COM.host()).isEqualTo("github.com");
+        assertThat(new HostingServer(HostingProvider.GITLAB, URI.create("https://git.example.com:8443/Engineering/"), URI.create("https://git.example.com:8443/Engineering/api/v4"))
+                .host()).isEqualTo("git.example.com:8443/Engineering");
+        assertThat(new HostingServer(HostingProvider.GITLAB, URI.create("http://127.0.0.1:8080/gitlab"), URI.create("http://127.0.0.1:8080/gitlab/api/v4")).host())
+                .isEqualTo("http://127.0.0.1:8080/gitlab");
+    }
+
+    @Test
+    void buildsEachProvidersIssuePage()
+    {
+        assertThat(HostingProvider.GITHUB.issueUrl(URI.create("https://github.com"), "owner/repo", 7)).isEqualTo(URI.create("https://github.com/owner/repo/issues/7"));
+        assertThat(HostingProvider.GITLAB.issueUrl(URI.create("https://git.example.com/gitlab"), "group/subgroup/project", 7))
+                .isEqualTo(URI.create("https://git.example.com/gitlab/group/subgroup/project/-/issues/7"));
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"http://localhost:8080/gitlab", "http://127.0.0.1:8080", "http://127.1.2.3:8080", "http://[::1]:8080/gitlab"})
     void permitsExplicitLoopbackTestInstances(String value)

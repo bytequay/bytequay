@@ -246,7 +246,7 @@ public final class GitLabIssueClient
     private static HostedIssueSource source(HostingTarget target, GitLabIssueResponse response)
     {
         RepositoryIssue issue = card(target, response);
-        return new HostedIssueSource(target.access().server().webBaseUrl().toASCIIString(), issue.id(), target.repository().fullPath(), issue.number(), issue.htmlUrl(),
+        return new HostedIssueSource(target.access().server().host(), issue.id(), target.repository().fullPath(), issue.number(), issue.htmlUrl(),
                 issue.title(), issue.body(), issue.updatedAt());
     }
 

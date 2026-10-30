@@ -204,9 +204,7 @@ class AssistantRows
         return switch (AgendaRefs.kind(ref)) {
             case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
                     .map(this::pullRequest);
-            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> number.workspaceId().flatMap(workspaces::findById)
-                    .or(() -> number.workspaceId().isPresent() ? Optional.empty() : workspace(shared.watched.get(), number.repo()))
-                    .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(number.repo()))
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> AgendaRefs.issueWorkspace(number, workspaces)
                     .flatMap(workspace -> issues.find(workspaces, workspace, number.number()).map(issue -> issue(workspace, issue))));
             case "jira" -> Optional.of(Splitter.on(':').limit(2).splitToList(AgendaRefs.id(ref))).filter(parts -> parts.size() == 2)
                     .flatMap(parts -> jira.cachedIssue(parts.get(0), parts.get(1))).map(this::ticket);
@@ -271,7 +269,7 @@ class AssistantRows
     {
         String repo = workspace.monitoredRepository().fullName();
         // The store keeps a repository's open issues only.
-        return new AssistantRow(AgendaRefs.issue(workspace, repo, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()),
+        return new AssistantRow(AgendaRefs.issue(workspace, issue.number()), Kind.ISSUE, issue.title(), Optional.of("#" + issue.number()),
                 Optional.of("open"), Optional.empty(),
                 Optional.empty(), Optional.empty(), false, false, false, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
                 Optional.of(issue.updatedAt()), Optional.empty(), AgendaTarget.issue(repo, issue.number(), workspace.id()));
@@ -342,16 +340,14 @@ class AssistantRows
     }
 
     /**
-     * The key Needs attention keeps an item's mark under: a pull request or an issue by its repository as the list spells it, which a
-     * ref's lowercase may not match, and a ticket or a task by its ref. Empty for anything else, or a pull request ByteQuay does not have.
+     * The key Needs attention keeps an item's mark under, as the list builds it: a pull request by its row, an issue by its workspace's key,
+     * and a ticket or a task by its ref. Empty for anything else, or an item ByteQuay does not have.
      */
     Optional<String> attentionKey(String ref)
     {
         return switch (AgendaRefs.kind(ref)) {
-            case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).flatMap(pullRequests::findById)
-                    .map(pr -> pr.repo() + "#" + pr.number());
-            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> workspace(workspaces.findAll(), number.repo())
-                    .map(workspace -> workspace.monitoredRepository().fullName() + "#" + number.number()));
+            case "pr" -> AgendaRefs.numbered(ref).flatMap(number -> pullRequests.findIdByRepoAndNumber(number.repo(), number.number())).map(id -> "pr:" + id);
+            case "issue" -> AgendaRefs.numbered(ref).flatMap(number -> AgendaRefs.issueWorkspace(number, workspaces).map(workspace -> workspace.issueKey(number.number())));
             case "jira", "task" -> Optional.of(ref);
             default -> Optional.empty();
         };
@@ -472,7 +468,7 @@ class AssistantRows
     private static Found found(Workspace workspace, String repo, RepositoryIssue issue, boolean exact)
     {
         // The store keeps a repository's open issues only.
-        return new Found(AgendaRefs.issue(workspace, repo, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
+        return new Found(AgendaRefs.issue(workspace, issue.number()), issue.title(), Optional.of("open"), Optional.of(issue.updatedAt()),
                 AgendaTarget.issue(repo, issue.number(), workspace.id()), exact);
     }
 
@@ -513,11 +509,6 @@ class AssistantRows
     private Optional<String> workspace(PullRequest pr)
     {
         return pullRequests.findHostingIdentity(pr.id()).flatMap(identity -> workspaces.findByHostingRepositoryId(identity.repositoryId())).map(Workspace::id);
-    }
-
-    private static Optional<Workspace> workspace(List<Workspace> watched, String repo)
-    {
-        return watched.stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst();
     }
 
     static Optional<TaskId> taskId(String id)

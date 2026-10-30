@@ -110,13 +110,11 @@ final class SqliteWorkspacePurge
         update("DELETE FROM agent_review WHERE workspace_id = :workspaceId", parameters);
         update("DELETE FROM recent_text WHERE item_key IN (SELECT item_key FROM recent_touch WHERE workspace_id = :workspaceId AND item_type = 'TASK')", parameters);
         update("DELETE FROM recent_touch WHERE workspace_id = :workspaceId AND item_type IN ('TASK', 'COMMIT')", parameters);
-        update("""
-                UPDATE recent_touch SET workspace_id = (
-                    SELECT id FROM watched_repo_workspaces w WHERE w.id <> :workspaceId AND w.hosting_server IS NULL
-                        AND lower(w.monitored_owner || '/' || w.monitored_repo) = lower(recent_touch.repo)
-                    ORDER BY w.watched DESC, w.display_order, w.created_at LIMIT 1
-                ) WHERE workspace_id = :workspaceId
-                """, parameters);
+        // An issue's key names its workspace, so its Recent rows go with it.
+        for (String table : ImmutableList.of("recent_touch", "recent_text")) {
+            update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND item_key LIKE 'issue:' || :workspaceId || ':%'", parameters);
+        }
+        reassignPullRequestTouches(id);
         update("DELETE FROM work_item_identity WHERE work_item_id IN (SELECT id FROM work_item WHERE workspace_id = :workspaceId)", parameters);
         for (String table : ImmutableList.of(
                 "workspace_remote_sources", "workspace_credentials", "commit_refresh_metadata", "epic", "work_item",
@@ -132,12 +130,32 @@ final class SqliteWorkspacePurge
         update("DELETE FROM app_settings WHERE setting_key LIKE 'linked-work.source.%' AND setting_value = :workspaceId", parameters);
         for (Map.Entry<Long, RepoRef> repository : repositories.entrySet()) {
             if (!referencedElsewhere(id, repository.getKey(), repository.getValue(), others, remotes)) {
-                deleteRepositoryData(repository.getKey(), repository.getValue());
+                deleteRepositoryData(repository.getKey());
             }
         }
         deleteHostedRepositoryData(id);
         update("DELETE FROM watched_repo_workspaces WHERE id = :workspaceId", parameters);
         entities.clear();
+    }
+
+    /** A pull request's touches move to another workspace on its repository, a watched one first, else to none. */
+    private void reassignPullRequestTouches(String workspaceId)
+    {
+        Map<String, Object> parameters = ImmutableMap.of("workspaceId", workspaceId);
+        List<WorkspaceEntity> others = entities.createQuery("FROM WorkspaceEntity WHERE id <> :id ORDER BY watched DESC, displayOrder, createdAt", WorkspaceEntity.class)
+                .setParameter("id", workspaceId).getResultList();
+        List<?> repositories = query("""
+                SELECT DISTINCT p.hosting_repository_id FROM recent_touch t JOIN pull_requests p ON t.item_key = 'pr:' || p.id
+                WHERE t.workspace_id = :workspaceId AND t.item_type = 'PULL_REQUEST'
+                """, parameters).getResultList();
+        for (Object repository : repositories) {
+            long repositoryId = ((Number) repository).longValue();
+            others.stream().filter(other -> hostingRepositoryId(other).filter(id -> id == repositoryId).isPresent()).findFirst().ifPresent(heir -> update("""
+                    UPDATE recent_touch SET workspace_id = :heir WHERE workspace_id = :workspaceId AND item_type = 'PULL_REQUEST'
+                        AND item_key IN (SELECT 'pr:' || id FROM pull_requests WHERE hosting_repository_id = :repositoryId)
+                    """, ImmutableMap.of("heir", heir.getId(), "workspaceId", workspaceId, "repositoryId", repositoryId)));
+        }
+        update("UPDATE recent_touch SET workspace_id = NULL WHERE workspace_id = :workspaceId", parameters);
     }
 
     private String workspaceTaskIds()
@@ -208,13 +226,9 @@ final class SqliteWorkspacePurge
         return workspace.hostingBinding().map(binding -> binding.monitoredRepositoryId()).or(() -> workspace.hostingCacheTarget().map(target -> target.repositoryId()));
     }
 
-    private void deleteRepositoryData(long repositoryId, RepoRef repository)
+    private void deleteRepositoryData(long repositoryId)
     {
-        Map<String, Object> parameters = ImmutableMap.of("repositoryId", repositoryId, "repo", repository.fullName().toLowerCase(Locale.ROOT));
-        update("DELETE FROM commit_enrichment WHERE repository_id = :repositoryId", parameters);
-        for (String table : ImmutableList.of("recent_touch", "recent_text")) {
-            update("DELETE FROM " + table + " WHERE item_type = 'ISSUE' AND lower(repo) = :repo", parameters);
-        }
+        update("DELETE FROM commit_enrichment WHERE repository_id = :repositoryId", ImmutableMap.of("repositoryId", repositoryId));
     }
 
     private boolean exists(String statement, Map<String, Object> parameters)

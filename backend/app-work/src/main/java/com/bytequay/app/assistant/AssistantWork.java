@@ -90,7 +90,8 @@ class AssistantWork
         switch (AgendaRefs.kind(item)) {
             case "issue" -> {
                 AgendaRefs.Numbered numbered = AgendaRefs.numbered(item).orElseThrow(() -> new IllegalArgumentException("That issue ref is not valid"));
-                issues.setEpic(watched(numbered.repo()).id(), numbered.number(), true);
+                Workspace workspace = AgendaRefs.issueWorkspace(numbered, workspaces).orElseThrow(() -> new IllegalArgumentException("That repository is not watched"));
+                issues.setEpic(workspace.id(), numbered.number(), true);
             }
             case "jira" -> {
                 JiraIssue ticket = ticket(item);
@@ -186,12 +187,6 @@ class AssistantWork
     private Optional<AssistantRow> row(String ref)
     {
         return Optional.ofNullable(rows.rows(ImmutableList.of(ref)).get(ref));
-    }
-
-    private Workspace watched(String repo)
-    {
-        return workspaces.findAll().stream().filter(Workspace::isGitHub).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(repo)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("That repository is not watched"));
     }
 
     private JiraIssue ticket(String ref)

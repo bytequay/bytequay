@@ -199,7 +199,7 @@ public class AgendaReader
         // A snoozed item stays out of the agenda and the assistant's answers until its snooze ends, as it stays out of Needs attention.
         Set<String> snoozed = read("snoozes", marks::snoozedKeys, ImmutableSet.of());
         List<PullRequest> candidates = read("pull requests", () -> pullRequests.listAttentionCandidates().stream()
-                .filter(pr -> !snoozed.contains(markKey(pr.repo(), pr.number()))).collect(toImmutableList()), ImmutableList.of());
+                .filter(pr -> !snoozed.contains("pr:" + pr.id())).collect(toImmutableList()), ImmutableList.of());
         Set<Long> mentioned = read("mentions", () -> pullRequests.findMentioned(candidates), ImmutableSet.of());
         Map<Long, List<PrCommitLine>> afterReview = read("commits", () -> pullRequests.findCachedCommitsSinceReview(candidates), ImmutableMap.of());
         Map<Long, List<String>> failing = read("checks", () -> pullRequests.findCachedFailingChecks(candidates), ImmutableMap.of());
@@ -497,10 +497,10 @@ public class AgendaReader
         String repo = workspace.monitoredRepository().fullName();
         ImmutableList.Builder<Ask> asks = ImmutableList.builder();
         for (RepositoryIssue issue : issueDevelopment.attention(workspace.id()).issues()) {
-            if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase) || snoozed.contains(markKey(repo, issue.number()))) {
+            String ref = AgendaRefs.issue(workspace, issue.number());
+            if (issue.assignees().stream().noneMatch(viewer.orElseThrow()::equalsIgnoreCase) || snoozed.contains(lower(ref))) {
                 continue;
             }
-            String ref = AgendaRefs.issue(workspace, repo, issue.number());
             refs.putIfAbsent(ref, new RefInfo(Optional.of(issue.updatedAt()), Optional.of(workspace.id()), AgendaTarget.issue(repo, issue.number(), workspace.id())));
             asks.add(new Ask(ref, "assigned_issue", clip(issue.title(), TITLE), Optional.of(issue.author()), circle(circles, repo, issue.author()),
                     Optional.of(issue.updatedAt()), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
@@ -677,12 +677,6 @@ public class AgendaReader
     }
 
     /** One source's facts, or nothing when they cannot be read: a missing source narrows the agenda instead of failing it. */
-    /** A pull request's or an issue's key in Needs attention marks, lowercased as snoozedKeys gives them. */
-    private static String markKey(String repo, int number)
-    {
-        return (repo + "#" + number).toLowerCase(Locale.ROOT);
-    }
-
     private static <T> T read(String what, Supplier<T> source, T fallback)
     {
         try {

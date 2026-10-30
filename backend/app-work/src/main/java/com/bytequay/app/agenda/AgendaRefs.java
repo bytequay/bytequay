@@ -14,13 +14,18 @@
 package com.bytequay.app.agenda;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+
 /**
  * The short names the agenda's reading tool gives the things it lists, which its reply must repeat: {@code pr:owner/name#12},
- * {@code issue:owner/name#3}, {@code jira:cloud:issue}, {@code task:id}, {@code review:id}, {@code work:id} and {@code epic:id}.
+ * {@code issue:workspace:owner/name#3}, {@code jira:cloud:issue}, {@code task:id}, {@code review:id}, {@code work:id} and {@code epic:id}.
  */
 public final class AgendaRefs
 {
@@ -32,14 +37,9 @@ public final class AgendaRefs
         return "pr:" + repo.toLowerCase(Locale.ROOT) + "#" + number;
     }
 
-    public static String issue(String repo, int number)
+    public static String issue(Workspace workspace, int number)
     {
-        return "issue:" + repo.toLowerCase(Locale.ROOT) + "#" + number;
-    }
-
-    public static String issue(Workspace workspace, String repo, int number)
-    {
-        return workspace.isGitHub() ? issue(repo, number) : "issue:" + workspace.id() + ":" + repo.toLowerCase(Locale.ROOT) + "#" + number;
+        return workspace.issueKey(number);
     }
 
     public static String jira(String cloudId, String issueId)
@@ -80,7 +80,24 @@ public final class AgendaRefs
         return ref.substring(ref.indexOf(':') + 1);
     }
 
-    /** The repository and number of a {@code pr:} or {@code issue:} ref. */
+    /**
+     * The watched workspace an issue ref names: its own, or for a ref typed without one, such as {@code issue:owner/name#3}, the only
+     * watched workspace whose repository has that path, on any server. Empty when there is none.
+     *
+     * @throws IllegalArgumentException when several watched workspaces have that path
+     */
+    public static Optional<Workspace> issueWorkspace(Numbered ref, WorkspaceStore workspaces)
+    {
+        if (ref.workspaceId().isPresent()) {
+            return ref.workspaceId().flatMap(workspaces::findById).filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo()));
+        }
+        List<Workspace> named = workspaces.findAll().stream().filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo()))
+                .collect(toImmutableList());
+        checkArgument(named.size() <= 1, "%s#%s is ambiguous: more than one watched repository has that path; name the workspace", ref.repo(), ref.number());
+        return named.stream().findFirst();
+    }
+
+    /** The repository, number and, when the ref names one, workspace of a {@code pr:} or {@code issue:} ref. */
     public static Optional<Numbered> numbered(String ref)
     {
         String rest = id(ref);

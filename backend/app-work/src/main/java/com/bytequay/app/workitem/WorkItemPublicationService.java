@@ -122,7 +122,7 @@ public class WorkItemPublicationService
     private static String destination(Workspace workspace, Publication request)
     {
         return request.source() == UnifiedWorkItem.Source.GITHUB
-                ? (workspace.isGitHub() ? "GITHUB" : workspace.issueHost()) + " " + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)
+                ? workspace.server().host() + " " + workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)
                 : "JIRA " + request.connectionId().orElseThrow() + "/" + request.cloudId().orElseThrow() + "/" + request.project().orElseThrow().toUpperCase(Locale.ROOT);
     }
 

@@ -67,6 +67,7 @@ describe('the Today model', () => {
 
   it('matches today items to Needs attention rows by their keys', () => {
     expect(attentionKey(pull('Owner/Repository', 7))).toBe('owner/repository#7');
+    expect(attentionKey({ ...pull('Owner/Repository', 7), kind: 'ISSUE', workspaceId: 'ws' })).toBe('issue:ws:owner/repository#7');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'TASK', id: 't1' })).toBe('task:t1');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'JIRA', id: '10042', cloudId: 'cloud' })).toBe('jira:cloud:10042');
     expect(attentionKey({ ...pull('x/y', 1), kind: 'WORK', id: 'w1' })).toBeNull();

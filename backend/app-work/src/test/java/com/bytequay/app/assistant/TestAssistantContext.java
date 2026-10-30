@@ -388,7 +388,7 @@ class TestAssistantContext
         // Every word of the query in a title, the newest first, whichever store holds it.
         JsonNode snapshots = search(tool, "{\"kind\":\"search\",\"query\":\"Snapshot\"}");
         assertThat(keys(snapshots)).isEqualTo(ImmutableSet.of("kind", "query", "page", "entries", "nextPage"));
-        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:owner/repository#77", "task:" + ASKING.id(), "pr:owner/repository#31377");
+        assertThat(refs(snapshots)).containsExactly("work:w22", "epic:LOCAL:w1", "jira:cloud:10042", "issue:ws1:owner/repository#77", "task:" + ASKING.id(), "pr:owner/repository#31377");
         assertThat(keys(snapshots.path("entries").path(2))).isEqualTo(ImmutableSet.of("ref", "title", "state", "at"));
         assertThat(snapshots.path("entries").path(2).path("title").asText()).isEqualTo("ICE-7 Expire snapshots by branch");
         assertThat(snapshots.path("entries").path(2).path("state").asText()).isEqualTo("In progress");

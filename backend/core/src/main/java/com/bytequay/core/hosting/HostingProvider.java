@@ -13,18 +13,22 @@
  */
 package com.bytequay.core.hosting;
 
+import java.net.URI;
+
 public enum HostingProvider
 {
-    GITHUB(true, HostingCapabilities.ALL),
-    GITLAB(false, HostingCapabilities.NONE);
+    GITHUB(true, HostingCapabilities.ALL, "/issues/"),
+    GITLAB(false, HostingCapabilities.NONE, "/-/issues/");
 
     private final boolean pathsIgnoreCase;
     private final HostingCapabilities capabilities;
+    private final String issuesPath;
 
-    HostingProvider(boolean pathsIgnoreCase, HostingCapabilities capabilities)
+    HostingProvider(boolean pathsIgnoreCase, HostingCapabilities capabilities, String issuesPath)
     {
         this.pathsIgnoreCase = pathsIgnoreCase;
         this.capabilities = capabilities;
+        this.issuesPath = issuesPath;
     }
 
     public HostingCapabilities capabilities()
@@ -36,5 +40,11 @@ public enum HostingProvider
     public boolean pathsIgnoreCase()
     {
         return pathsIgnoreCase;
+    }
+
+    /** The web page of issue {@code number} in the repository at {@code path} on a server of this provider. */
+    public URI issueUrl(URI webBaseUrl, String path, int number)
+    {
+        return URI.create(webBaseUrl + "/" + path + issuesPath + number);
     }
 }

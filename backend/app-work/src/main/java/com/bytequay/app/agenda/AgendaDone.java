@@ -29,7 +29,6 @@ import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.WorkItem;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.EpicStore;
@@ -233,10 +232,7 @@ class AgendaDone
     /** An issue whose development task has started, from its row's Start or its own. */
     private Optional<Status> issue(AgendaRefs.Numbered ref)
     {
-        return ref.workspaceId().flatMap(workspaces::findById)
-                .or(() -> ref.workspaceId().isPresent() ? Optional.empty() : workspaces.findAll().stream().filter(Workspace::isGitHub)
-                        .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo())).findFirst())
-                .filter(workspace -> workspace.monitoredRepository().fullName().equalsIgnoreCase(ref.repo()))
+        return AgendaRefs.issueWorkspace(ref, workspaces)
                 .flatMap(workspace -> issues.find(workspaces, workspace, ref.number())
                         .flatMap(issue -> issueDevelopment.metadata(workspace.id(), issue.id()).developmentTask()))
                 .map(task -> Status.done("Started", Optional.empty()));

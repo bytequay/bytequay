@@ -113,8 +113,9 @@ function hasCommitsSinceReview(pr: PullRequestDto): boolean {
 
 export function pullRequestAttentionKey(pr: Pick<PullRequestDto, 'id'>): string { return `pr:${pr.id}`; }
 
-export function issueAttentionKey(repo: string, number: number, workspaceId: string | null): string {
-  return `issue:${workspaceId ?? repo}:${number}`;
+/** An issue's one key, as the backend's Workspace.issueKey writes it for agenda refs, Recent and Needs attention marks. */
+export function issueAttentionKey(repo: string, number: number, workspaceId: string): string {
+  return `issue:${workspaceId}:${repo.toLowerCase()}#${number}`;
 }
 
 /** Where a pull request card opens: its workspace, else the connected account that discovered it, else the desktop sign-in. */
@@ -150,9 +151,9 @@ export function pullRequestItem(pr: PullRequestDto, kind: AttentionKind = 'updat
 }
 
 /** The same source identity and snapshot for an issue card and its detail page. */
-export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string | null): AttentionItem {
+export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][number], repo: string, workspaceId: string): AttentionItem {
   return {
-    key: issueAttentionKey(repo, issue.number, workspaceId), sourceKey: `${URL.parse(issue.htmlUrl)?.origin ?? workspaceId ?? repo}:issue:${issue.id}`, type: 'issue', kind: 'updated',
+    key: issueAttentionKey(repo, issue.number, workspaceId), sourceKey: `${URL.parse(issue.htmlUrl)?.origin ?? workspaceId}:issue:${issue.id}`, type: 'issue', kind: 'updated',
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
     createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
     body: issue.body, commentCount: issue.commentCount, workspaceId,

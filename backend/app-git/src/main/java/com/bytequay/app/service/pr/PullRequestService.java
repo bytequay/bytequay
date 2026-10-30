@@ -1095,15 +1095,13 @@ public class PullRequestService
      */
     public Map<Long, PullRequestRoute> attentionRoutes(List<PullRequest> rows)
     {
-        Map<Long, String> workspaceByRepository = new HashMap<>();
-        workspaces.findAll().stream()
-                .sorted(Comparator.comparing(workspace -> !workspaces.isWatched(workspace.id())))
-                .forEach(workspace -> workspaces.findHostingRepositoryId(workspace.id()).ifPresent(id -> workspaceByRepository.putIfAbsent(id, workspace.id())));
+        Map<Long, Optional<String>> workspaceByRepository = new HashMap<>();
         List<Long> connected = connectedDiscoveryAccounts();
         Map<Long, Set<Long>> readers = requests.readingAccounts(rows.stream().map(PullRequest::id).collect(toImmutableSet()));
         // ponytail: one identity read per row; batch it if the attention rebuild shows up in a profile.
         return rows.stream().collect(toImmutableMap(PullRequest::id, row -> {
-            Optional<String> workspace = store.findHostingIdentity(row.id()).map(identity -> workspaceByRepository.get(identity.repositoryId()));
+            Optional<String> workspace = store.findHostingIdentity(row.id()).flatMap(identity -> workspaceByRepository.computeIfAbsent(identity.repositoryId(),
+                    repositoryId -> workspaces.findByHostingRepositoryId(repositoryId).map(Workspace::id)));
             if (workspace.isPresent()) {
                 return PullRequestRoute.of(workspace.orElseThrow(), null);
             }

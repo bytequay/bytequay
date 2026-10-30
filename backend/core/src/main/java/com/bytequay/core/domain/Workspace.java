@@ -17,6 +17,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 
 import java.time.Instant;
+import java.util.Locale;
 import java.util.Optional;
 
 import static com.bytequay.core.domain.Checks.checkText;
@@ -171,13 +172,21 @@ public record Workspace(
                 lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now, hostingServer);
     }
 
+    /** How stored issue and Epic sources name this workspace's server. */
+    public String issueHost()
+    {
+        return server().host();
+    }
+
+    /** The one key an issue of the monitored repository has in agenda and assistant refs, Recent, and Needs attention marks. */
+    public String issueKey(int number)
+    {
+        return "issue:" + id + ":" + monitoredRepository.fullName().toLowerCase(Locale.ROOT) + "#" + number;
+    }
+
     public enum Topology
     {
         DIRECT,
         FORK
-    }
-    public String issueHost()
-    {
-        return isGitHub() ? "github.com" : hostingServer.orElseThrow().webBaseUrl().toASCIIString();
     }
 }

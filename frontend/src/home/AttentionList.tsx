@@ -17,7 +17,6 @@ import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
 import AttentionRow from './AttentionRow';
 import { pullRequestIsMine } from '../pulls/model';
-import { usePinnedItems } from './pinned';
 import { useSnoozedAttention } from './useSnoozedAttention';
 import { useTeams } from '../teams/useTeams';
 import { teamAttentionMatch } from '../teams/priority';
@@ -93,7 +92,6 @@ export default function AttentionList({
   const [toast, setToast] = useState<ToastState | null>(null);
   const [session, setSession] = useState<string[]>([]);
   const toastId = useRef(0);
-  const pinned = usePinnedItems();
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
     const deadlines = Object.values(handled).flatMap(entry =>
@@ -110,13 +108,13 @@ export default function AttentionList({
     const at = Math.max(now, Date.now());
     const live = visibleAttention(reminders, handled, at)
       .filter(item => !(variant === 'workspace' && item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin))
-        && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null) && skip?.(item) !== true);
+        && (!openOnly || attentionEnded(item) === null) && skip?.(item) !== true);
     const filters = (variant === 'home' ? HOME_FILTERS : FILTERS).filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
     const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, at)
       : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, at);
     const approved = myPrs ? [] : approvedPullRequestCards(reminders, handled, viewerLogin, at);
     return { filters, cards, approved };
-  }, [reminders, handled, now, variant, viewerLogin, pinned, openOnly, skip, jiraConnected, myPrs, filter, circles, onlyTeam]);
+  }, [reminders, handled, now, variant, viewerLogin, openOnly, skip, jiraConnected, myPrs, filter, circles, onlyTeam]);
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);

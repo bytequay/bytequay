@@ -272,7 +272,7 @@ async function pinning(): Promise<void> {
   try {
     await settle();
     button(f.host, `Pin ${original.title}`).click(); await settle();
-    assert(f.cards().length === 0 && f.opens === 0 && loadPinned()[0]?.key === original.key, 'Pin must suppress attention without opening the card');
+    assert(f.cards().length === 1 && f.opens === 0 && loadPinned()[0]?.key === original.key, 'Pin must keep the card without opening it');
     color('rgb(26, 127, 55)');
     for (const [state, draft, expected] of [
       ['open', true, 'rgb(110, 119, 129)'],
@@ -299,11 +299,11 @@ async function pinning(): Promise<void> {
       assert(f.host.querySelector('[aria-label="Pinned navigation"]')?.textContent?.includes(original.title) === true, 'Global pin must remain visible when changing workspace');
     }
     await f.remount();
-    assert(f.cards().length === 0 && f.host.querySelector('[aria-label="Pinned navigation"]')?.textContent?.includes(original.title) === true,
-      'Persisted pins must survive a renderer remount and still suppress attention');
+    assert(f.cards().length === 1 && f.host.querySelector('[aria-label="Pinned navigation"]')?.textContent?.includes(original.title) === true,
+      'Persisted pins must survive a renderer remount and keep the card');
     color('rgb(130, 80, 223)');
     button(f.host, `Unpin ${original.title}`).click(); await settle();
-    assert(loadPinned().length === 0 && f.cards().length === 1 && f.opens === 0, 'Unpin must restore an otherwise unhandled card');
+    assert(loadPinned().length === 0 && f.cards().length === 1 && f.opens === 0, 'Unpin must keep the card');
   }
   finally { await f.dispose(); }
 }

@@ -91,12 +91,12 @@ describe('AttentionList', () => {
     expect(html).toContain('>Issues</button>');
   });
 
-  it('never brings pinned or snoozed team items back through preference', () => {
+  it('keeps pinned team items and never brings snoozed ones back through preference', () => {
     mockCircle();
     vi.stubGlobal('window', { localStorage: { getItem: () => JSON.stringify([{ key: 'owner/repository#1', title: 'Pinned', target: { kind: 'pull', repo: 'owner/repository', number: 1 } }]) } });
     const items = [1, 2, 3].map(number => prItem(number));
     const html = list(items, { [items[1].key]: handledEntry(items[1], 'snooze', Date.now() + 3_600_000, 'soon') });
-    expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([3]);
+    expect([...html.matchAll(/class="card-key">#(\d+)</g)].map(match => Number(match[1]))).toEqual([1, 3]);
   });
 
   it('names the actual member author without labeling the latest commenter as a teammate', () => {

@@ -20,7 +20,6 @@ import {
   attentionCandidates, handledEntry, issueAttentionItems, loadHandled, saveHandled, snoozeHint, snoozeUntil, visibleAttention,
   type AttentionItem, type Handled, type SnoozeId,
 } from '../home/attention';
-import { usePinnedItems } from '../home/pinned';
 import { useSnoozedAttention } from '../home/useSnoozedAttention';
 import { remoteErrorMessage } from '../remoteError';
 import { ago } from '@bytequay/ui/relativeTime';
@@ -89,8 +88,7 @@ export function useLiveAttention(accountLogin: string | undefined) {
   }, [handled, now]);
   const at = Math.max(now, Date.now());
   const reminders = useSnoozedAttention(candidates, handled, at);
-  const pinned = usePinnedItems();
-  const live = visibleAttention(reminders, handled, at).filter(item => !pinned.some(pin => pin.key === item.key));
+  const live = visibleAttention(reminders, handled, at);
   const setHandled = (next: Handled) => { setHandledState(next); saveHandled(next); };
   return { live, handled, setHandled, error };
 }

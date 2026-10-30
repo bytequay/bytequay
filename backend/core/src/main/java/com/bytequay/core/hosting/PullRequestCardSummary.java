@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github;
+package com.bytequay.core.hosting;
 
 import com.bytequay.core.domain.FetchedPullRequest;
 import com.bytequay.core.domain.PrActivitySummary;
@@ -25,7 +25,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Card and notification facts, deliberately independent of the full detail snapshot. */
-public record GitHubPullRequestSummary(
+public record PullRequestCardSummary(
         FetchedPullRequest pullRequest,
         CiStatus ciStatus,
         int additions,
@@ -40,7 +40,7 @@ public record GitHubPullRequestSummary(
         Instant discussionUpdatedAt,
         Optional<PrActivitySummary> latestActivity)
 {
-    public GitHubPullRequestSummary
+    public PullRequestCardSummary
     {
         requireNonNull(pullRequest, "pullRequest is null");
         requireNonNull(ciStatus, "ciStatus is null");

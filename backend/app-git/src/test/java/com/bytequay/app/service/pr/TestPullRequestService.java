@@ -21,7 +21,6 @@ import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestSummary;
 import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriter;
@@ -34,6 +33,7 @@ import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
+import com.bytequay.app.service.hosting.GitHubPullRequestDiscovery;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
@@ -89,6 +89,7 @@ import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestWriter;
@@ -182,6 +183,7 @@ class TestPullRequestService
     @Mock private WorkspaceIssueService issues;
     @Mock private GitHubPullRequestReadClient gitHub;
     @Mock private GitHubPullRequestSummaryClient summaries;
+    private GitHubPullRequestDiscovery discovery;
     @Mock private GitHubPullRequestWriteClient writes;
     @Mock private GitHubRepoClient repositories;
     @Mock private GitHubActionsClient actions;
@@ -213,7 +215,8 @@ class TestPullRequestService
     void setUp()
     {
         contents = new GitHubPullRequestContentReader(gitHub, actions, accounts, notifications, Runnable::run);
-        integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions)));
+        discovery = new GitHubPullRequestDiscovery(gitHub, notifications, summaries);
+        integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions), discovery));
         snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
@@ -428,7 +431,7 @@ class TestPullRequestService
                 .thenReturn(new PullRequestListPage(ImmutableList.of(fetched), false));
         when(store.saveObserved(any())).thenReturn(row);
         PrReviewState latest = dismissed ? new PrReviewState(1L, "me", null, false, "DISMISSED", REVIEWED_AT, null, null, "reviewed-head") : approval;
-        when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me"))).thenReturn(ImmutableList.of(new GitHubPullRequestSummary(
+        when(summaries.fetchSummaries(eq("pat"), anyList(), eq("me"))).thenReturn(ImmutableList.of(new PullRequestCardSummary(
                 fetched, PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head", Optional.of(REVIEWED_AT), Optional.empty(),
                 Optional.of(latest), dismissed ? Optional.empty() : Optional.of(REVIEWED_AT.plusSeconds(60)), "v2", fetched.updatedAt(), Optional.empty())));
 
@@ -704,7 +707,7 @@ class TestPullRequestService
     {
         PullRequest row = storedPullRequest();
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        GitHubPullRequestSummary summary = summary(pullRequest(), PullRequestDetail.CiStatus.FAILING, "checks-v1");
+        PullRequestCardSummary summary = summary(pullRequest(), PullRequestDetail.CiStatus.FAILING, "checks-v1");
         when(store.findById(row.id())).thenReturn(Optional.of(row));
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
         when(store.saveObserved(summary.pullRequest())).thenReturn(row);
@@ -738,7 +741,7 @@ class TestPullRequestService
     {
         PullRequest row = storedPullRequest();
         FetchedPullRequest merged = pullRequest("merged", row.updatedAt().plusSeconds(60), row.updatedAt().plusSeconds(60));
-        GitHubPullRequestSummary summary = summary(merged, PullRequestDetail.CiStatus.PASSING, "merged");
+        PullRequestCardSummary summary = summary(merged, PullRequestDetail.CiStatus.PASSING, "merged");
         when(store.findById(row.id())).thenReturn(Optional.of(row));
         when(summaries.fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me")).thenReturn(ImmutableList.of(summary));
         when(store.saveObserved(merged)).thenReturn(storedPullRequest(merged));
@@ -1141,7 +1144,7 @@ class TestPullRequestService
         FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null);
         PullRequest row = storedPullRequest(fetched);
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.FAILING, "checks-v2");
+        PullRequestCardSummary summary = summary(fetched, PullRequestDetail.CiStatus.FAILING, "checks-v2");
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
@@ -1166,7 +1169,7 @@ class TestPullRequestService
         service = spy(service);
         PullRequest row = storedPullRequest();
         Instant reviewedAt = REVIEWED_AT.plusSeconds(60);
-        GitHubPullRequestSummary summary = new GitHubPullRequestSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
+        PullRequestCardSummary summary = new PullRequestCardSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
                 Optional.of(REVIEWED_AT), Optional.of("APPROVED"),
                 Optional.of(new PrReviewState(1L, "me", null, false, "APPROVED", reviewedAt, null, null, "head")), Optional.empty(), "review-v2", REVIEWED_AT, Optional.empty());
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
@@ -1189,7 +1192,7 @@ class TestPullRequestService
     {
         service = spy(service);
         PullRequest row = storedPullRequest();
-        GitHubPullRequestSummary summary = new GitHubPullRequestSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
+        PullRequestCardSummary summary = new PullRequestCardSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
                 Optional.of(REVIEWED_AT), Optional.empty(),
                 Optional.of(new PrReviewState(1L, "me", null, false, "COMMENTED", REVIEWED_AT, null, null, "previous-head")), Optional.empty(), "review-v2", REVIEWED_AT,
                 Optional.empty());
@@ -1215,7 +1218,7 @@ class TestPullRequestService
         FetchedPullRequest fetched = pullRequest("open", REVIEWED_AT.plusSeconds(60), null).withViewerOrigin("me");
         PullRequest row = storedPullRequest(fetched);
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "reply-v2");
+        PullRequestCardSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "reply-v2");
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(fetched), false));
         when(summaries.fetchSummaries("pat", ImmutableList.of(ref), "me")).thenReturn(ImmutableList.of(summary));
@@ -1243,7 +1246,7 @@ class TestPullRequestService
         PullRequest row = storedPullRequest();
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         Instant changedAt = REVIEWED_AT.plusSeconds(60);
-        GitHubPullRequestSummary summary = new GitHubPullRequestSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
+        PullRequestCardSummary summary = new PullRequestCardSummary(pullRequest(), PullRequestDetail.CiStatus.PASSING, 4, 2, 1, "head",
                 Optional.of(REVIEWED_AT), Optional.empty(),
                 requestedAgain ? Optional.empty() : Optional.of(new PrReviewState(1L, "me", null, false, "DISMISSED", changedAt, null, null, "head")),
                 requestedAgain ? Optional.of(changedAt) : Optional.empty(), "review-v2", changedAt, Optional.empty());
@@ -1324,9 +1327,9 @@ class TestPullRequestService
         FetchedPullRequest fetched = pullRequest();
         PullRequest row = storedPullRequest(fetched);
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        GitHubPullRequestSummary stale = summary(fetched, PullRequestDetail.CiStatus.PASSING, "old-discussion");
+        PullRequestCardSummary stale = summary(fetched, PullRequestDetail.CiStatus.PASSING, "old-discussion");
         Instant notificationAt = fetched.updatedAt().plusSeconds(60);
-        GitHubPullRequestSummary caughtUp = new GitHubPullRequestSummary(fetched, stale.ciStatus(), 4, 2, 1, "head", stale.headCommittedAt(),
+        PullRequestCardSummary caughtUp = new PullRequestCardSummary(fetched, stale.ciStatus(), 4, 2, 1, "head", stale.headCommittedAt(),
                 stale.reviewDecision(), Optional.empty(), Optional.empty(), "new-discussion", notificationAt, Optional.empty());
         service = serviceAt(new AtomicReference<>(notificationAt.plusSeconds(5)));
         when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
@@ -1705,7 +1708,7 @@ class TestPullRequestService
         service = newService(Clock.fixed(REVIEWED_AT, ZoneOffset.UTC));
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         FetchedPullRequest fetched = pullRequest().withViewerOrigin("me");
-        GitHubPullRequestSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1");
+        PullRequestCardSummary summary = summary(fetched, PullRequestDetail.CiStatus.PASSING, "v1");
         when(requests.refreshPage(eq(route.session()), eq(1L), anyBoolean(), eq(1), eq(100))).thenAnswer(invocation ->
                 new PullRequestListPage(invocation.<Boolean>getArgument(2) ? ImmutableList.of() : ImmutableList.of(pullRequest()), false));
         when(notifications.reviewRequests("me")).thenReturn(notified ? ImmutableSet.of(ref) : ImmutableSet.of());
@@ -2354,7 +2357,7 @@ class TestPullRequestService
     void acceptedCommandClearsRemoteCachesAndSurvivesAFailedRefresh(String kind)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
-        integrations = integrations(pullRequests(GITHUB, contents, writer));
+        integrations = integrations(pullRequests(GITHUB, contents, writer, discovery));
         snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
@@ -2404,7 +2407,7 @@ class TestPullRequestService
     void commandOnlyCommentsReturnRefreshedDetailWithoutRecordingAReview(boolean review)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
-        integrations = integrations(pullRequests(GITHUB, contents, writer));
+        integrations = integrations(pullRequests(GITHUB, contents, writer, discovery));
         var comment = new InlineReviewComment("file.txt", "/close", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         PrTimelineEvent result = new PrTimelineEvent(null, "system_note", null, null, "Closed", Optional.empty());
         if (review) {
@@ -2865,7 +2868,7 @@ class TestPullRequestService
     void patchesActualSubmissionEventsWithoutInventingAReviewId(boolean approved, boolean commented)
     {
         PullRequestWriter writer = mock(PullRequestWriter.class);
-        integrations = integrations(pullRequests(GITHUB, contents, writer));
+        integrations = integrations(pullRequests(GITHUB, contents, writer, discovery));
         snapshots = new PullRequestSnapshotService(integrations, requests, detailStore, diffStore);
         service = newService(Clock.systemUTC());
         PrReviewState previous = new PrReviewState(null, "another-reviewer", null, false, "APPROVED", null, null, null, "head");
@@ -3724,8 +3727,8 @@ class TestPullRequestService
     {
         return new PullRequestService(gitHub, integrations, repositories, accounts, store, snapshots, detailStore, new PullRequestDetailFetcher(
                 integrations,
-                Runnable::run), viewStateStore, recent, credentialService, connections, requests, workspaceHosting, metadata, summaries, workspaces, applicationContext,
-                notifications, syncSettings, issues, writeVersion, clock);
+                Runnable::run), viewStateStore, recent, credentialService, connections, requests, workspaceHosting, metadata, workspaces, applicationContext,
+                syncSettings, issues, writeVersion, clock);
     }
 
     private PullRequestService serviceAt(AtomicReference<Instant> now)
@@ -3771,9 +3774,9 @@ class TestPullRequestService
                 fetched.mergeable(), fetched.mergeableState(), null, fetched.headRef(), null, null, null, null);
     }
 
-    private static GitHubPullRequestSummary summary(FetchedPullRequest fetched, PullRequestDetail.CiStatus ciStatus, String version)
+    private static PullRequestCardSummary summary(FetchedPullRequest fetched, PullRequestDetail.CiStatus ciStatus, String version)
     {
-        return new GitHubPullRequestSummary(fetched, ciStatus, 4, 2, 1, "head", Optional.of(REVIEWED_AT), Optional.of("APPROVED"),
+        return new PullRequestCardSummary(fetched, ciStatus, 4, 2, 1, "head", Optional.of(REVIEWED_AT), Optional.of("APPROVED"),
                 Optional.empty(), Optional.empty(), version, fetched.updatedAt(), Optional.empty());
     }
 

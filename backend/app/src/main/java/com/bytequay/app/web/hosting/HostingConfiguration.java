@@ -16,6 +16,7 @@ package com.bytequay.app.web.hosting;
 import com.bytequay.app.repository.github.GitHubPullRequestWriter;
 import com.bytequay.app.service.hosting.GitHubIssueClient;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
+import com.bytequay.app.service.hosting.GitHubPullRequestDiscovery;
 import com.bytequay.core.hosting.HostingIntegration;
 import com.bytequay.integration.github.GitHubIntegration;
 import com.bytequay.integration.gitlab.GitLabIntegration;
@@ -32,9 +33,9 @@ public class HostingConfiguration
 {
     @Bean
     HostingIntegration gitHubHostingIntegration(@Qualifier("hostingHttpClient") HttpClient http, ObjectMapper mapper, GitHubPullRequestContentReader contents,
-            GitHubPullRequestWriter writer, GitHubIssueClient issues)
+            GitHubPullRequestWriter writer, GitHubIssueClient issues, GitHubPullRequestDiscovery discovery)
     {
-        return GitHubIntegration.create(http, mapper, contents, writer, issues, issues);
+        return GitHubIntegration.create(http, mapper, contents, writer, issues, issues, discovery);
     }
 
     @Bean

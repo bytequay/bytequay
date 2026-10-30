@@ -49,8 +49,8 @@ commands run, test classes executed, test counts, pass/fail results, build or
 validation outcomes, logs, environment limitations, or a recap of the agent's
 work. These details belong only in the ByteQuay task conversation, even when a
 PR template has a Testing, Validation, or Test plan section. Leave such sections
-as the template provides them. Describe added or changed tests only by the
-behavior they cover, without reporting that they were run or passed.
+as the template provides them. Don't describe added or changed tests either;
+reviewers see them in the diff.
 
 ## Pull-request review
 

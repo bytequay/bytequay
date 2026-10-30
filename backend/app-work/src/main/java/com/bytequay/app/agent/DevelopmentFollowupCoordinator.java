@@ -702,7 +702,7 @@ public class DevelopmentFollowupCoordinator
 
                 For publicPublication=true, sanitize title/body against private sources using *** or synthetic examples.
                 Derive title and body from the actual change and repository PR template. Fill relevant sections only;
-                leave other sections exactly as the template leaves them. Describe changed tests by the behavior they cover.
+                leave other sections exactly as the template leaves them. Don't describe added or changed tests; they are in the diff.
                 Keep local execution details private to this task: commands run, test classes, counts, pass/fail results,
                 build or validation outcomes, logs, tooling, sandbox and environment limitations. Never put these in the PR,
                 including Testing, Validation or Test plan sections. Never add an attribution, co-authorship, or generated-with trailer.

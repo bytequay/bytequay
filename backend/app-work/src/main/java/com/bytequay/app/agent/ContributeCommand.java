@@ -49,8 +49,7 @@ final class ContributeCommand
             Write the pull-request title and description as any contributor would:
             - Use the repository's template. Keep its headings and checkboxes and fill in only what applies.
             - Stay under 100 words: the problem, who hits it, the evidence, and the fix.
-            - Keep local verification out: no commands, test runs, results, or "tested locally". Describe added tests only by the \
-            behavior they cover.
+            - Leave tests and local verification out: no description of added tests, commands, test runs, results, or "tested locally".
             - Add no AI attribution, disclosure, co-author, or generated-with text, and leave any AI-use question in the template unanswered.
             """;
 

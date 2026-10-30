@@ -39,7 +39,8 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.domain.PrRawDetail.UNKNOWN_COUNT;
 import static com.bytequay.core.domain.PullRequest.Origin.OTHER;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
-import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mergeRequestPath;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.projectPath;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -60,10 +61,9 @@ public final class GitLabPullRequestReader
     {
         requireNonNull(access, "access is null");
         requireNonNull(repository, "repository is null");
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "repository belongs to another hosting instance");
         checkArgument(page > 0, "page must be positive");
         checkArgument(pageSize > 0 && pageSize <= 100, "pageSize must be between 1 and 100");
-        String path = "projects/" + encode(repository.remoteId()) + "/merge_requests?scope=all&state=" + (openOnly ? "opened" : "all")
+        String path = projectPath(access, repository) + "/merge_requests?scope=all&state=" + (openOnly ? "opened" : "all")
                 + "&order_by=updated_at&sort=desc&per_page=" + pageSize + "&page=" + page;
         GitLabHttpClient.Response<GitLabMergeRequestResponse[]> response = http.get(access, path, Optional.empty(), GitLabMergeRequestResponse[].class);
         try {
@@ -80,10 +80,7 @@ public final class GitLabPullRequestReader
     {
         requireNonNull(access, "access is null");
         requireNonNull(repository, "repository is null");
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "repository belongs to another hosting instance");
-        checkArgument(number > 0, "number must be positive");
-        GitLabHttpClient.Response<GitLabMergeRequestResponse> response = http.get(access,
-                "projects/" + encode(repository.remoteId()) + "/merge_requests/" + number, validator, GitLabMergeRequestResponse.class);
+        var response = http.get(access, mergeRequestPath(access, repository, number), validator, GitLabMergeRequestResponse.class);
         if (response.body().isEmpty()) {
             return new PullRequestFetch(Optional.empty(), response.etag());
         }

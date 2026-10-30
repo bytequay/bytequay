@@ -46,6 +46,8 @@ import java.util.regex.Pattern;
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.bytequay.core.hosting.HostingFailure.Kind.REVISION_CONFLICT;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.mergeRequestPath;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.projectPath;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
@@ -72,7 +74,7 @@ public final class GitLabPullRequestWriter
     @Override
     public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
     {
-        Note note = http.post(access, request(access, repository, number) + "/notes", new Body(body), Note.class).body().orElseThrow();
+        Note note = http.post(access, mergeRequestPath(access, repository, number) + "/notes", new Body(body), Note.class).body().orElseThrow();
         return note(note, url(repository, number));
     }
 
@@ -80,7 +82,7 @@ public final class GitLabPullRequestWriter
     public PrTimelineEvent createReviewComment(HostingAccess access, HostingRepository repository, int number, InlineReviewComment comment)
     {
         validateComment(comment);
-        String path = request(access, repository, number);
+        String path = mergeRequestPath(access, repository, number);
         MergeRequest current = get(access, path, MergeRequest.class);
         if (comment.replyToCommentId().isPresent()) {
             Discussion discussion = discussion(access, repository, number, comment.replyToCommentId().orElseThrow());
@@ -101,20 +103,20 @@ public final class GitLabPullRequestWriter
     public void replyToReviewComment(HostingAccess access, HostingRepository repository, int number, long commentId, String body)
     {
         Discussion discussion = discussion(access, repository, number, commentId);
-        http.post(access, request(access, repository, number) + "/discussions/" + encode(discussion.id()) + "/notes", new Body(body), Void.class);
+        http.post(access, mergeRequestPath(access, repository, number) + "/discussions/" + encode(discussion.id()) + "/notes", new Body(body), Void.class);
     }
 
     @Override
     public void editComment(HostingAccess access, HostingRepository repository, int number, String target, long commentId, String body)
     {
         checkArgument("comment".equals(target) || "review_comment".equals(target) || "issue_comment".equals(target), "GitLab can edit note comments only");
-        http.put(access, request(access, repository, number) + "/notes/" + commentId, new Body(body), Void.class);
+        http.put(access, mergeRequestPath(access, repository, number) + "/notes/" + commentId, new Body(body), Void.class);
     }
 
     @Override
     public boolean toggleReaction(HostingAccess access, HostingRepository repository, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
     {
-        String path = request(access, repository, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
+        String path = mergeRequestPath(access, repository, number) + (commentId == null ? "" : "/notes/" + commentId) + "/award_emoji";
         User viewer = get(access, "user", User.class);
         String emoji = switch (content) {
             case "+1" -> "thumbsup";
@@ -135,25 +137,25 @@ public final class GitLabPullRequestWriter
     @Override
     public void updateTitle(HostingAccess access, HostingRepository repository, int number, String title)
     {
-        http.put(access, request(access, repository, number), new Title(title), Void.class);
+        http.put(access, mergeRequestPath(access, repository, number), new Title(title), Void.class);
     }
 
     @Override
     public void updateDescription(HostingAccess access, HostingRepository repository, int number, String description)
     {
-        http.put(access, request(access, repository, number), new Description(description), Void.class);
+        http.put(access, mergeRequestPath(access, repository, number), new Description(description), Void.class);
     }
 
     @Override
     public void close(HostingAccess access, HostingRepository repository, int number)
     {
-        http.put(access, request(access, repository, number), new State("close"), Void.class);
+        http.put(access, mergeRequestPath(access, repository, number), new State("close"), Void.class);
     }
 
     @Override
     public void markReady(HostingAccess access, HostingRepository repository, int number)
     {
-        String path = request(access, repository, number);
+        String path = mergeRequestPath(access, repository, number);
         MergeRequest current = get(access, path, MergeRequest.class);
         http.put(access, path, new Title(current.title().replaceFirst("(?i)^(?:draft|wip):\\s*|^\\[(?:draft|wip)\\]\\s*|^\\((?:draft|wip)\\)\\s*", "")), Void.class);
     }
@@ -162,13 +164,13 @@ public final class GitLabPullRequestWriter
     public void updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
     {
         List<Long> ids = assignees.stream().map(login -> user(access, login).id()).collect(toImmutableList());
-        http.put(access, request(access, repository, number), new Metadata(ids, String.join(",", labels)), Void.class);
+        http.put(access, mergeRequestPath(access, repository, number), new Metadata(ids, String.join(",", labels)), Void.class);
     }
 
     @Override
     public void updateReviewer(HostingAccess access, HostingRepository repository, int number, String login, boolean requested)
     {
-        String path = request(access, repository, number);
+        String path = mergeRequestPath(access, repository, number);
         MergeRequest current = get(access, path, MergeRequest.class);
         long reviewer = user(access, login).id();
         List<Long> ids = new ArrayList<>(current.reviewers().stream().map(User::id).filter(id -> id != reviewer).collect(toImmutableList()));
@@ -182,7 +184,7 @@ public final class GitLabPullRequestWriter
     public void resolveThread(HostingAccess access, HostingRepository repository, int number, long commentId, boolean resolved)
     {
         Discussion discussion = discussion(access, repository, number, commentId);
-        http.put(access, request(access, repository, number) + "/discussions/" + encode(discussion.id()), new Resolved(resolved), Void.class);
+        http.put(access, mergeRequestPath(access, repository, number) + "/discussions/" + encode(discussion.id()), new Resolved(resolved), Void.class);
     }
 
     @Override
@@ -191,7 +193,7 @@ public final class GitLabPullRequestWriter
     {
         checkArgument("APPROVE".equals(event) || "COMMENT".equals(event), "GitLab request-changes reviews are not supported by this connection");
         comments.forEach(GitLabPullRequestWriter::validateComment);
-        String path = request(access, repository, number);
+        String path = mergeRequestPath(access, repository, number);
         MergeRequest current = get(access, path, MergeRequest.class);
         checkHead(current, commitId);
         Optional<User> viewer = "APPROVE".equals(event) ? Optional.of(get(access, "user", User.class)) : Optional.empty();
@@ -236,14 +238,14 @@ public final class GitLabPullRequestWriter
         checkArgument("default".equals(strategy) || "merge".equals(strategy) || "squash".equals(strategy),
                 "GitLab's merge method is configured by the project; rebase merge is not a per-request choice");
         Object command = "default".equals(strategy) ? new Sha(headSha) : new Merge(headSha, "squash".equals(strategy));
-        MergeRequest result = http.put(access, request(access, repository, number) + "/merge", command, MergeRequest.class).body().orElseThrow();
+        MergeRequest result = http.put(access, mergeRequestPath(access, repository, number) + "/merge", command, MergeRequest.class).body().orElseThrow();
         return new MergeResult(result.mergeCommitSha(), "merged".equals(result.state()), "merged".equals(result.state()) ? "Merged" : "GitLab has not merged this request");
     }
 
     @Override
     public void rerunFailedChecks(HostingAccess access, HostingRepository repository, int number)
     {
-        MergeRequest current = get(access, request(access, repository, number), MergeRequest.class);
+        MergeRequest current = get(access, mergeRequestPath(access, repository, number), MergeRequest.class);
         if (current.headPipeline() == null) {
             throw new HostingFailure(REVISION_CONFLICT, "This request has no current pipeline");
         }
@@ -273,13 +275,13 @@ public final class GitLabPullRequestWriter
     public void removeFromMergeQueue(HostingAccess access, HostingRepository repository, int number, boolean autoMerge)
     {
         checkArgument(autoMerge, "GitLab merge trains are not supported by this connection");
-        http.post(access, request(access, repository, number) + "/cancel_merge_when_pipeline_succeeds", ImmutableMap.of(), Void.class);
+        http.post(access, mergeRequestPath(access, repository, number) + "/cancel_merge_when_pipeline_succeeds", ImmutableMap.of(), Void.class);
     }
 
     @Override
     public boolean hasMergeQueue(HostingAccess access, HostingRepository repository, String baseRef)
     {
-        project(access, repository);
+        projectPath(access, repository);
         return false;
     }
 
@@ -287,7 +289,7 @@ public final class GitLabPullRequestWriter
     public CreatedPullRequest create(HostingAccess access, HostingRepository repository, String head, String base, String title, String body, boolean draft)
     {
         checkArgument(!head.contains(":"), "Select the GitLab source project before creating a merge request from a fork");
-        MergeRequest created = http.post(access, project(access, repository) + "/merge_requests", new Create(head, base, draft ? "Draft: " + title : title, body),
+        MergeRequest created = http.post(access, projectPath(access, repository) + "/merge_requests", new Create(head, base, draft ? "Draft: " + title : title, body),
                 MergeRequest.class).body().orElseThrow();
         String url = HostingUrls.requireWithinBase(URI.create(created.webUrl()), access.server().webBaseUrl()).toASCIIString();
         return new CreatedPullRequest(created.id(), created.iid(), url);
@@ -295,7 +297,8 @@ public final class GitLabPullRequestWriter
 
     private PrTimelineEvent createDiscussion(HostingAccess access, HostingRepository repository, int number, String body, GitLabDiffPosition position, MergeRequest current)
     {
-        Discussion created = http.post(access, request(access, repository, number) + "/discussions", new DiscussionBody(body, position), Discussion.class).body().orElseThrow();
+        Discussion created = http.post(access, mergeRequestPath(access, repository, number) + "/discussions", new DiscussionBody(body, position), Discussion.class)
+                .body().orElseThrow();
         if (created.id() == null && created.summary() != null) {
             return commandResult(created.summary());
         }
@@ -335,7 +338,7 @@ public final class GitLabPullRequestWriter
 
     private Discussion discussion(HostingAccess access, HostingRepository repository, int number, long commentId)
     {
-        return http.pages(access, request(access, repository, number) + "/discussions", Discussion[].class).stream()
+        return http.pages(access, mergeRequestPath(access, repository, number) + "/discussions", Discussion[].class).stream()
                 .filter(discussion -> discussion.notes().stream().anyMatch(note -> note.id() == commentId)).findFirst()
                 .orElseThrow(() -> new HostingFailure(REVISION_CONFLICT, "The selected discussion no longer exists"));
     }
@@ -400,18 +403,6 @@ public final class GitLabPullRequestWriter
             position.applyTo(payload, current.sha(), current.diffRefs() == null ? null : current.diffRefs().startSha());
         }
         return new PrTimelineEvent(root.id(), "review_thread", root.author().username(), Instant.parse(root.createdAt()), root.body(), payload.build(), Optional.empty());
-    }
-
-    private static String request(HostingAccess access, HostingRepository repository, int number)
-    {
-        checkArgument(number > 0, "number must be positive");
-        return project(access, repository) + "/merge_requests/" + number;
-    }
-
-    private static String project(HostingAccess access, HostingRepository repository)
-    {
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "Repository belongs to another hosting instance");
-        return "projects/" + encode(repository.remoteId());
     }
 
     private static String url(HostingRepository repository, int number)

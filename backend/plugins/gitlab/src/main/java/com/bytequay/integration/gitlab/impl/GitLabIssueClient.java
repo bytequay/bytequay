@@ -52,6 +52,8 @@ import java.util.Optional;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.encode;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.issuePath;
+import static com.bytequay.integration.gitlab.impl.GitLabHttpClient.projectPath;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -77,7 +79,7 @@ public final class GitLabIssueClient
     public IssueSyncPage list(HostingAccess access, HostingRepository repository, Optional<Instant> since, int page)
     {
         checkArgument(page > 0, "page must be positive");
-        String path = path(access, repository) + "?scope=all&state=" + (since.isPresent() ? "all" : "opened")
+        String path = projectPath(access, repository) + "/issues?scope=all&state=" + (since.isPresent() ? "all" : "opened")
                 + "&order_by=updated_at&sort=asc&per_page=100&page=" + page + since.map(value -> "&updated_after=" + encode(value.toString())).orElse("");
         var response = http.get(access, path, Optional.empty(), GitLabIssueResponse[].class);
         ImmutableList.Builder<RepositoryIssue> open = ImmutableList.builder();
@@ -151,7 +153,7 @@ public final class GitLabIssueClient
     @Override
     public GitHubIssueSource create(HostingAccess access, HostingRepository repository, String title, String body)
     {
-        GitLabIssueResponse issue = http.post(access, path(access, repository), new CreateIssue(checkText(title, "title"), requireNonNull(body, "body is null")),
+        GitLabIssueResponse issue = http.post(access, projectPath(access, repository) + "/issues", new CreateIssue(checkText(title, "title"), requireNonNull(body, "body is null")),
                 GitLabIssueResponse.class).body().orElseThrow();
         return source(access, repository, issue);
     }
@@ -201,8 +203,7 @@ public final class GitLabIssueClient
     @Override
     public RepositoryOverview overview(HostingAccess access, HostingRepository repository)
     {
-        path(access, repository);
-        String project = "projects/" + encode(repository.remoteId());
+        String project = projectPath(access, repository);
         ProjectOverview overview = http.get(access, project, Optional.empty(), ProjectOverview.class).body().orElseThrow();
         checkArgument(repository.remoteId().equals(Long.toString(overview.id())), "Project identity changed");
         Languages languages = http.get(access, project + "/languages", Optional.empty(), Languages.class).body().orElseThrow();
@@ -213,7 +214,7 @@ public final class GitLabIssueClient
     @Override
     public Optional<List<RepositoryContributor>> contributors(HostingAccess access, HostingRepository repository)
     {
-        path(access, repository);
+        projectPath(access, repository);
         // GitLab commit authors have names/emails, not the account IDs required by this projection.
         return Optional.empty();
     }
@@ -221,15 +222,14 @@ public final class GitLabIssueClient
     @Override
     public List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository)
     {
-        path(access, repository);
-        return http.pages(access, "projects/" + encode(repository.remoteId()) + "/users", GitLabIssueUser[].class).stream()
+        return http.pages(access, projectPath(access, repository) + "/users", GitLabIssueUser[].class).stream()
                 .map(user -> new HostingRepositoryUser(user.id(), user.username(), user.avatarUrl(), user.bot())).collect(toImmutableList());
     }
 
     @Override
     public List<String> repositoryTeams(HostingAccess access, HostingRepository repository)
     {
-        path(access, repository);
+        projectPath(access, repository);
         // GitLab's reviewer field accepts users, not GitHub-style team review requests.
         return ImmutableList.of();
     }
@@ -237,8 +237,7 @@ public final class GitLabIssueClient
     @Override
     public List<RepositoryLabel> repositoryLabels(HostingAccess access, HostingRepository repository)
     {
-        path(access, repository);
-        return http.pages(access, "projects/" + encode(repository.remoteId()) + "/labels", Label[].class).stream()
+        return http.pages(access, projectPath(access, repository) + "/labels", Label[].class).stream()
                 .map(label -> new RepositoryLabel(label.id(), label.name(), color(label.color()))).collect(toImmutableList());
     }
 
@@ -266,19 +265,6 @@ public final class GitLabIssueClient
                 issue.author().username(), Optional.ofNullable(issue.author().avatarUrl()).orElse(""), url, issue.labels(),
                 issue.assignees().stream().map(GitLabIssueUser::username).collect(toImmutableList()), issue.commentCount(),
                 Instant.parse(issue.createdAt()), Instant.parse(issue.updatedAt()));
-    }
-
-    private static String path(HostingAccess access, HostingRepository repository)
-    {
-        checkArgument(access.server().provider() == GITLAB, "wrong hosting provider");
-        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "repository belongs to another hosting instance");
-        return "projects/" + encode(repository.remoteId()) + "/issues";
-    }
-
-    private static String issuePath(HostingAccess access, HostingRepository repository, int number)
-    {
-        checkArgument(number > 0, "number must be positive");
-        return path(access, repository) + "/" + number;
     }
 
     private static String color(String color)

@@ -16,6 +16,7 @@ package com.bytequay.integration.gitlab.impl;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingProvider;
+import com.bytequay.core.hosting.HostingRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -348,6 +349,24 @@ final class GitLabHttpClient
     static String encode(String value)
     {
         return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    static String projectPath(HostingAccess access, HostingRepository repository)
+    {
+        checkArgument(repository.instanceId() == access.instanceId().orElseThrow(), "Repository belongs to another hosting instance");
+        return "projects/" + encode(repository.remoteId());
+    }
+
+    static String mergeRequestPath(HostingAccess access, HostingRepository repository, int number)
+    {
+        checkArgument(number > 0, "number must be positive");
+        return projectPath(access, repository) + "/merge_requests/" + number;
+    }
+
+    static String issuePath(HostingAccess access, HostingRepository repository, int number)
+    {
+        checkArgument(number > 0, "number must be positive");
+        return projectPath(access, repository) + "/issues/" + number;
     }
 
     record Response<T>(Optional<T> body, Optional<String> etag, boolean hasNext) {}

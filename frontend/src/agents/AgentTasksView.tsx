@@ -17,7 +17,7 @@ import { BackportButton } from './BackportRequestHint';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, Circle, FileText, GitBranch, Link2, LoaderCircle, Trash2 } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, Circle, FileText, GitBranch, GitPullRequest, Link2, LoaderCircle, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Chevron } from '../Chevron';
 import RepoAvatar from '../RepoAvatar';
@@ -858,6 +858,7 @@ export type TaskComposerProps = {
 /** The @ commands the new-task composer completes, in the order it lists them. */
 const MENTIONS = [
   { name: 'backport', detail: 'Backport a PR through related workspaces', icon: GitBranch },
+  { name: 'contribute', detail: 'Find and fix one small, worthwhile problem', icon: GitPullRequest },
   { name: 'artifacts', detail: 'Ask about this repository in Artifacts', icon: FileText },
 ];
 

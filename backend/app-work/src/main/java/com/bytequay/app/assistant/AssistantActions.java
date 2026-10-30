@@ -105,7 +105,7 @@ class AssistantActions
             .put("snooze", Operation.SNOOZE)
             .buildOrThrow();
     private static final Map<Operation, Set<String>> FIELDS = ImmutableMap.<Operation, Set<String>>builder()
-            .put(Operation.START_TASK, ImmutableSet.of("op", "words", "workspace", "from", "agent"))
+            .put(Operation.START_TASK, ImmutableSet.of("op", "words", "workspace", "from", "agent", "command"))
             .put(Operation.ANSWER_APPROVAL, ImmutableSet.of("op", "words", "approval", "decision"))
             .put(Operation.ANSWER_QUESTION, ImmutableSet.of("op", "words", "approval", "answers"))
             .put(Operation.REPLY_TO_TASK, ImmutableSet.of("op", "words", "task"))
@@ -201,6 +201,8 @@ class AssistantActions
                         + "or the pr: ref of the user's own pull request, whose development task gets the user's words"))
                 .put("agent", ImmutableMap.of("type", "string", "description", "start_task: an agent id from start_options; the repository's default when absent; "
                         + "none for a pr: ref"))
+                .put("command", ImmutableMap.of("type", "string", "enum", ImmutableList.of("contribute"), "description", "start_task with workspace: "
+                        + "contribute when the user asks it to find and fix one small, worthwhile problem in the repository, as @contribute does"))
                 .put("approval", ImmutableMap.of("type", "string", "description", "answer_approval and answer_question: the card's approval: ref"))
                 .put("decision", ImmutableMap.of("type", "string", "enum", ImmutableList.of("allow_once", "deny")))
                 .put("answers", ImmutableMap.of("type", "object", "additionalProperties", ImmutableMap.of("type", "string"),
@@ -384,6 +386,8 @@ class AssistantActions
                 case START_TASK -> {
                     checkArgument(request.optional("from").isPresent() || request.optional("workspace").isPresent(), "start_task needs from or workspace");
                     checkArgument(!pullRequest(request) || request.optional("agent").isEmpty(), "start_task from a pr: ref takes no agent");
+                    checkArgument(request.optional("command").isEmpty() || (request.optional("from").isEmpty() && request.text("command").equals("contribute")),
+                            "command is contribute, with a workspace");
                 }
                 case ANSWER_APPROVAL -> checkArgument(ImmutableSet.of("allow_once", "deny").contains(request.text("decision")), "decision must be allow_once or deny");
                 case ANSWER_QUESTION -> checkArgument(body.path("answers").isObject() && !body.path("answers").isEmpty(), "answers are required");
@@ -627,7 +631,8 @@ class AssistantActions
                 return startOnPullRequest(request);
             }
             ItemTaskStarter.Start start = request.optional("from").map(from -> starts.item(from).followedBy(NOTE.formatted(request.words())))
-                    .orElseGet(() -> starts.freeText(request.text("workspace").substring("ws:".length()), request.words()));
+                    .orElseGet(() -> starts.freeText(request.text("workspace").substring("ws:".length()),
+                            request.optional("command").map(command -> "@" + command + " " + request.words()).orElse(request.words())));
             TaskId taskId = new TaskId(UUID.nameUUIDFromBytes(identity(request).getBytes(StandardCharsets.UTF_8)));
             String key = key(request);
             Optional<ItemTaskStarter.Started> started = starts.start(start, request.optional("agent"), taskId, key);

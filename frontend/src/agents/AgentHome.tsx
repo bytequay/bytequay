@@ -14,7 +14,7 @@
 
 import { useAgentAvailability } from './availability';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { CircleDot, Eye, EyeOff, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
+import { CircleDot, Eye, EyeOff, GitPullRequest, ListChecks, Pencil, SquareCheck, Sun, type LucideIcon } from 'lucide-react';
 import RepoAvatar from '../RepoAvatar';
 import AttentionList from '../home/AttentionList';
 import TodayList, { ACTION_ICONS, openTarget, useWideWindow } from '../home/TodayList';
@@ -48,6 +48,7 @@ import type {
 const SUGGESTIONS: { icon: LucideIcon; title: string; prompt: string }[] = [
   { icon: CircleDot, title: 'Fix issues and failures', prompt: 'Investigate a failing test and fix the root cause.' },
   { icon: ListChecks, title: 'Review code and suggest changes', prompt: 'Review recent changes and suggest safe improvements.' },
+  { icon: GitPullRequest, title: 'Contribute', prompt: '@contribute ' },
 ];
 
 /**

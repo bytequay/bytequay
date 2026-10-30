@@ -211,6 +211,12 @@ export async function runComposer() {
       assert(view.host.querySelector('.agt-compose__keyword')?.textContent === '@backport' && view.host.querySelector('.agt-backport-hint') === null,
         'Completed backport stays colored inline without the description row');
       assert(input.selectionStart === 10 && document.activeElement === input && option() === null, 'Selection keeps caret after command');
+      await type('@co');
+      assert(view.host.querySelectorAll('[role="option"]').length === 1 && option()?.querySelector('svg') !== null
+        && option()?.textContent === '@contributeFind and fix one small, worthwhile problem', `${surface}: prefix suggests contribute with its icon and description`);
+      await key('Enter');
+      assert(value() === '@contribute ' && option() === null && view.host.querySelector('.agt-backport-hint') === null && view.sends.length === 0,
+        'Choosing contribute leaves only the command, without its description');
       await type('@'); await key('Tab');
       assert(value() === '@backport ' && view.sends.length === 0, 'Tab completes bare @ without sending');
       await type('  @BACKP #1234');
@@ -246,9 +252,9 @@ export async function runComposer() {
       assert(view.sends.join() === '@backport #1234', 'Normal Enter sends the final request once');
       if (surface !== 'Home') continue;
       await type('@');
-      assert(view.host.querySelectorAll('[role="option"]').length === 2, 'Bare @ lists backport and artifacts on Home');
-      await key('ArrowDown');
-      assert(input.getAttribute('aria-activedescendant')?.endsWith('-artifacts') === true, 'ArrowDown moves to artifacts');
+      assert(view.host.querySelectorAll('[role="option"]').length === 3, 'Bare @ lists backport, contribute and artifacts on Home');
+      await key('ArrowDown'); await key('ArrowDown');
+      assert(input.getAttribute('aria-activedescendant')?.endsWith('-artifacts') === true, 'ArrowDown moves past contribute to artifacts');
       await key('Enter');
       assert(value() === '@artifacts ' && caret() === 11, 'Enter completes the chosen suggestion');
       await type('@Arti');

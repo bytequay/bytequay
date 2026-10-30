@@ -369,9 +369,10 @@ public class AgentConfiguration
                     @Override
                     public String prepare(AgentTask task, AgentTurn turn, String message)
                     {
+                        String expanded = ContributeCommand.expand(message);
                         String input = task.sessionReference().isEmpty()
-                                ? pullRequestTasks.findByTaskId(task.id().toString()).map(assignment -> PullRequestTaskService.appendContext(assignment, message)).orElse(message)
-                                : message;
+                                ? pullRequestTasks.findByTaskId(task.id().toString()).map(assignment -> PullRequestTaskService.appendContext(assignment, expanded)).orElse(expanded)
+                                : expanded;
                         return relatedContext.append(task, turn, input);
                     }
 

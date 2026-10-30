@@ -383,6 +383,16 @@ Existing tasks keep the account they started with.
 3. Check **Automation**, then **Send**. The task gets its own branch and
    working copy.
 
+To contribute to a repository, start the message with **@contribute**, choose
+**Contribute** on Home, or ask the Assistant to find a contribution there. The
+task looks for one small, worthwhile problem real users hit, fixes it with
+evidence and a regression test, and writes a short PR description in the
+repository's own template and style. Add words after the command to narrow the
+search. If nothing qualifies, the task says so instead of making a change. Your
+automation setting decides how far it goes. Leave **Auto-merge** off for these
+tasks: review and confirm the change yourself before it merges, so the
+contribution is your work, not only the agent's.
+
 **Steer** adds guidance, **Run next** queues a message, and **Stop this turn**
 interrupts. Check **WorkBench → Changes** and the tests before **Mark it
 complete**.

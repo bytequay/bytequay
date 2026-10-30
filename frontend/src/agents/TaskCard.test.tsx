@@ -146,10 +146,11 @@ describe('agent home and overview', () => {
     expect(markup).toContain('title="riley/repository · tasks start in this repo"');
     expect(markup).not.toContain('What should the agent do');
     expect(markup).not.toContain('❋');
-    expect(markup.match(/class="agt-start"/g)).toHaveLength(3);
+    expect(markup.match(/class="agt-start"/g)).toHaveLength(4);
     expect(markup).toContain('Add @backport to the composer');
     expect(markup).toContain('lucide-circle-dot');
     expect(markup).toContain('lucide-list-checks');
+    expect(markup).toContain('lucide-git-pull-request');
     expect(markup).toContain('Open tasks · 2');
     expect(markup).toContain('⇧⌘\\');
     // Open tasks are compact cards, each renamable and hideable from Home.

@@ -474,6 +474,17 @@ class TestAssistantActions
     }
 
     @Test
+    void startsAContributeTaskAsTheCommandFollowedByTheUsersWords()
+    {
+        AssistantItem message = message("find a contribution in repository around snapshot ids", ImmutableList.of());
+        act(message, ImmutableMap.of("ws:ws1", SERVED), "{\"op\":\"start_task\",\"workspace\":\"ws:ws1\",\"command\":\"contribute\",\"words\":\"around snapshot ids\"}");
+        assertThat(started().message()).isEqualTo("@contribute around snapshot ids");
+
+        assertThat(act(message, "{\"op\":\"start_task\",\"from\":\"work:w22\",\"command\":\"contribute\",\"words\":\"around snapshot ids\"}"))
+                .isEqualTo("{\"outcome\":\"error\",\"message\":\"command is contribute, with a workspace\"}");
+    }
+
+    @Test
     void startsAnItemWithItsOwnFirstMessageThenTheUsersNote()
     {
         when(workItems.find("w22")).thenReturn(Optional.of(new WorkItem("w22", "ws1", "Expose snapshot id in metadata", WorkItem.Kind.DEVELOP, "",

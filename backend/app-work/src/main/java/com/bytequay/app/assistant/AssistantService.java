@@ -116,6 +116,7 @@ public class AssistantService
             asks; it takes a few minutes and shows on Home and under Today, and an agenda already made stays until the new one is ready.
             Work on the user's own pull request goes to its development task: start_task from its pr: ref opens or makes that task, checked out
             at the PR's head and linked to it, and sends it the user's words. A task already started elsewhere cannot be linked to a PR.
+            To find and fix one small, worthwhile problem in a repository, start_task with its workspace and command contribute.
             Completing a task is the user's click: show the task with assistant_show list in the cards style, whose card has Complete task.
             A new GitHub issue as an Epic is the user's click too: draft it with assistant_show draft_epic for them to edit and create.
             """;

@@ -15,14 +15,24 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.git.command.GitCommandRunner.Result;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
+import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingAccess;
+import com.bytequay.core.hosting.HostingInstance;
+import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -35,14 +45,20 @@ import org.mockito.MockMakers;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 import static com.bytequay.app.git.GitTestSupport.configureUser;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.integrations;
+import static com.bytequay.app.service.hosting.HostingIntegrationFixtures.pullRequests;
+import static com.bytequay.core.hosting.HostingProvider.GITHUB;
+import static com.bytequay.core.hosting.HostingProvider.GITLAB;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -63,13 +79,24 @@ class TestPullRequestConflictService
     private static final PullRequestRef PR = PullRequestRef.of("owner", "repo", 7);
     private static final String FILE = "目录/file with spaces\nand newline.txt";
     private static final String URL = "https://github.com/owner/repo.git";
+    private static final HostingReadSession SESSION = new HostingReadSession(10, "desktop-scope",
+            new HostingAccess(new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com")), "test-token"));
+    private static final HostingRepository HOSTED = new HostingRepository(1, 1, "100", "owner/repo", URI.create("https://github.com/owner/repo"), URI.create(URL),
+            Optional.empty(), Optional.of("main"));
+    private static final HostingTarget TARGET = new HostingTarget(SESSION.access(), HOSTED);
     private final GitCommandRunner commands = new GitCommandRunner();
     private final GitCommandRunner git = spy(commands);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
-    private final GitHubPullRequestReadClient github = mock(GitHubPullRequestReadClient.class);
+    private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final PullRequestContentReader contents = mock(PullRequestContentReader.class);
+    private final PullRequestContentReader gitlabContents = mock(PullRequestContentReader.class);
+    private final HostingIntegrations integrations = integrations(pullRequests(GITHUB, contents, mock(PullRequestWriter.class)),
+            pullRequests(GITLAB, gitlabContents, mock(PullRequestWriter.class)));
     private final CredentialService credentials = mock(CredentialService.class);
-    private final PullRequestConflictService service = new PullRequestConflictService(workspaces, repositories, github, credentials, git);
+    private final PullRequestConflictService service = new PullRequestConflictService(workspaces, repositories, hosting, mock(HostingConnectionService.class),
+            integrations, credentials, git);
+    private String url = URL;
 
     @TempDir
     private Path repository;
@@ -88,11 +115,11 @@ class TestPullRequestConflictService
         when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace));
         when(repositories.requireLocalRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", repository, 1,
                 RepoRef.of("viewer", "fork"), OptionalLong.of(2), REPO, "upstream", "origin", "main", ImmutableList.of()));
-        when(credentials.resolveGitHubToken("workspace")).thenReturn("test-token");
+        when(hosting.captureRead("workspace")).thenReturn(new WorkspaceHostingRead(SESSION, HOSTED, "viewer"));
         when(credentials.gitAuthenticationEnvironment("workspace", ImmutableList.of(URL))).thenReturn(ImmutableMap.of());
         doAnswer(invocation -> {
             List<String> arguments = new ArrayList<>(invocation.<List<String>>getArgument(3));
-            assertThat(arguments).containsExactly("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--no-auto-maintenance", "--", URL,
+            assertThat(arguments).containsExactly("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--no-auto-maintenance", "--", url,
                     arguments.get(7), arguments.get(8));
             arguments.set(6, repository.toString());
             return commands.run(repository, Duration.ofMinutes(2), ImmutableMap.of(), arguments);
@@ -135,7 +162,7 @@ class TestPullRequestConflictService
         command("add", "-A");
         command("commit", "--quiet", "-m", "Target");
         String base = command("rev-parse", "HEAD").strip();
-        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(previousBase, head));
+        when(contents.identity(TARGET, 7)).thenReturn(identity(previousBase, head));
         Files.writeString(repository.resolve("staged.txt"), "staged\n");
         command("add", "staged.txt");
         Files.writeString(repository.resolve("staged.txt"), "unstaged\n");
@@ -145,7 +172,7 @@ class TestPullRequestConflictService
         String refs = command("show-ref");
         byte[] index = Files.readAllBytes(repository.resolve(".git/index"));
 
-        PullRequestConflicts result = service.read("OWNER/REPO", 7);
+        PullRequestConflicts result = service.read(null, "OWNER/REPO", 7);
 
         assertThat(result.baseRef()).isEqualTo("main");
         assertThat(result.files()).containsExactlyElementsOf(kind.equals("clean") ? ImmutableList.of() : ImmutableList.of(kind.equals("rename") ? "renamed.txt" : FILE));
@@ -163,34 +190,66 @@ class TestPullRequestConflictService
     {
         when(workspaces.findAll()).thenReturn(ImmutableList.of());
 
-        assertThatThrownBy(() -> service.read("owner/repo", 7)).isInstanceOf(ResponseStatusException.class)
+        assertThatThrownBy(() -> service.read(null, "owner/repo", 7)).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("Watch repository to list conflicted files");
-        verifyNoInteractions(repositories, github, credentials);
+        verifyNoInteractions(repositories, hosting, contents, credentials);
+    }
+
+    @Test
+    void comparesAGitLabMergeRequestThroughItsWorkspace()
+    {
+        String sha = command("rev-parse", "HEAD").strip();
+        HostingReadSession session = new HostingReadSession(11, "gitlab-account",
+                new HostingAccess(new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4")), "gitlab-token"));
+        url = "https://gitlab.example.com/group/sub/project.git";
+        HostingRepository project = new HostingRepository(21, 2, "200", "group/sub/project", URI.create("https://gitlab.example.com/group/sub/project"), URI.create(url),
+                Optional.empty(), Optional.of("main"));
+        RepoRef path = RepoRef.of("group/sub", "project");
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.id()).thenReturn("gitlab");
+        when(workspace.monitoredRepository()).thenReturn(path);
+        when(workspace.selectedRepository()).thenReturn(path);
+        when(workspaces.findById("gitlab")).thenReturn(Optional.of(workspace));
+        when(repositories.requireLocalRepository("gitlab")).thenReturn(new WorkspaceRepositoryContext("gitlab", repository, 21, path, OptionalLong.empty(), path,
+                "origin", "origin", "main", ImmutableList.of()));
+        when(hosting.captureRead("gitlab")).thenReturn(new WorkspaceHostingRead(session, project, "viewer"));
+        when(gitlabContents.identity(new HostingTarget(session.access(), project), 7)).thenReturn(new PullRequestIdentity(PullRequestRef.of("group/sub", "project", 7),
+                "https://gitlab.example.com/group/sub/project/-/merge_requests/7", path, "feature", sha, path, "main", sha, PullRequestIdentity.State.OPEN, false, "contributor"));
+        when(credentials.gitAuthenticationEnvironment("gitlab", ImmutableList.of(url))).thenReturn(ImmutableMap.of());
+        doAnswer(invocation -> commands.run(repository, "ls-remote", "--exit-code", "--refs", "--", repository.toString(), "refs/heads/main"))
+                .when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(), eq(ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", url, "refs/heads/main")));
+
+        PullRequestConflicts result = service.read("gitlab", "group/sub/project", 7);
+
+        assertThat(result.files()).isEmpty();
+        verify(credentials).gitAuthenticationEnvironment("gitlab", ImmutableList.of(url));
+        verifyNoInteractions(contents);
     }
 
     @Test
     void reportsFetchFailureInsteadOfAnEmptyConflictList()
     {
         String sha = command("rev-parse", "HEAD").strip();
-        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(sha, sha));
+        when(contents.identity(TARGET, 7)).thenReturn(identity(sha, sha));
         doReturn(Result.failed("authentication failed")).when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(),
                 eq(ImmutableList.of("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", "--no-auto-maintenance", "--", URL, sha, sha)));
 
-        assertThatThrownBy(() -> service.read("owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Could not fetch");
+        assertThatThrownBy(() -> service.read(null, "owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Could not fetch");
     }
 
     @Test
     void rejectsMissingOrInvalidTargetBranchInsteadOfUsingTheOldBase()
     {
         String sha = command("rev-parse", "HEAD").strip();
-        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(sha, sha));
+        when(contents.identity(TARGET, 7)).thenReturn(identity(sha, sha));
         for (Result result : ImmutableList.of(Result.failed("authentication failed"), new Result(2, "", false),
                 new Result(0, sha + "\trefs/heads/main\n", true), new Result(0, "invalid\trefs/heads/main\n", false),
                 new Result(0, sha + "\trefs/heads/other\n", false), new Result(0, sha + "\trefs/heads/main\n" + sha + "\trefs/heads/other\n", false))) {
             doReturn(result).when(git).run(eq(repository), eq(Duration.ofMinutes(2)), anyMap(),
                     eq(ImmutableList.of("ls-remote", "--exit-code", "--refs", "--", URL, "refs/heads/main")));
 
-            assertThatThrownBy(() -> service.read("owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Could not read the current target branch");
+            assertThatThrownBy(() -> service.read(null, "owner/repo", 7)).isInstanceOf(ResponseStatusException.class)
+                    .hasMessageContaining("Could not read the current target branch");
         }
     }
 
@@ -199,10 +258,10 @@ class TestPullRequestConflictService
             throws IOException
     {
         String sha = command("rev-parse", "HEAD").strip();
-        when(github.fetchPullRequestIdentity("test-token", PR)).thenReturn(identity(sha, sha));
+        when(contents.identity(TARGET, 7)).thenReturn(identity(sha, sha));
         Files.writeString(repository.resolve(".git/shallow"), sha + "\n");
 
-        assertThatThrownBy(() -> service.read("owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Complete repository history");
+        assertThatThrownBy(() -> service.read(null, "owner/repo", 7)).isInstanceOf(ResponseStatusException.class).hasMessageContaining("Complete repository history");
     }
 
     @Test

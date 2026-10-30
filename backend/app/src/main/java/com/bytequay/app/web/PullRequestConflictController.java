@@ -32,8 +32,8 @@ public class PullRequestConflictController
     }
 
     @GetMapping("/prs/conflicts")
-    public PullRequestConflicts conflicts(@RequestParam String repo, @RequestParam int number)
+    public PullRequestConflicts conflicts(@RequestParam String repo, @RequestParam int number, @RequestParam(required = false) String workspaceId)
     {
-        return conflicts.read(repo, number);
+        return conflicts.read(workspaceId, repo, number);
     }
 }

@@ -25,6 +25,7 @@ import com.bytequay.core.store.HostingPullRequestStore;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
@@ -78,6 +79,12 @@ public class HostingPullRequestService
         PullRequestListPage result = new PullRequestListPage(fetched.items().stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList()), fetched.hasNext());
         snapshots.savePage(session.accountId(), repositoryId, session.credentialScope(), result.items());
         return result;
+    }
+
+    /** Stores summaries found outside a repository listing, such as account discovery, beside that repository's listed ones. */
+    public void saveSummaries(HostingReadSession session, long repositoryId, List<FetchedPullRequest> pullRequests)
+    {
+        snapshots.savePage(session.accountId(), repositoryId, session.credentialScope(), pullRequests);
     }
 
     public PullRequestListPage cachedPage(HostingReadSession session, long repositoryId, int page, int pageSize)

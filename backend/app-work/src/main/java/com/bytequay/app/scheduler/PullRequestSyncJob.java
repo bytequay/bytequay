@@ -71,19 +71,21 @@ public class PullRequestSyncJob
     public void tick()
     {
         if (appSettings.inQuietHours()) {
-            log.debug("Sync skipped: GitHub quiet hours");
+            log.debug("Sync skipped: quiet hours");
             return;
         }
         Instant now = Instant.now(clock);
         boolean globalConfigured = credentials.isGitHubAccountConfigured();
-        if (globalConfigured && !now.isBefore(lastRefreshedAt.plus(Duration.ofMinutes(30)))) {
+        if (refreshService.hasDiscoveryAccounts() && !now.isBefore(lastRefreshedAt.plus(Duration.ofMinutes(30)))) {
             lastRefreshedAt = now;
             refreshQuietly(log, "Pull request refresh for global dashboard", refreshService::refreshScheduledDashboard);
-            Set<Long> metadataRepositories = new HashSet<>();
-            workspaces.findAll().stream()
-                    .filter(Workspace::isGitHub)
-                    .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
-                    .forEach(workspace -> metadata.synchronize(workspace.id()));
+            if (globalConfigured) {
+                Set<Long> metadataRepositories = new HashSet<>();
+                workspaces.findAll().stream()
+                        .filter(Workspace::isGitHub)
+                        .filter(workspace -> metadataRepositories.add(workspace.monitoredRepositoryId()))
+                        .forEach(workspace -> metadata.synchronize(workspace.id()));
+            }
         }
         if (!now.isBefore(lastWorkspaceRefreshedAt.plus(Duration.ofMinutes(30)))) {
             lastWorkspaceRefreshedAt = now;

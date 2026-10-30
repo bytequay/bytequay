@@ -14,7 +14,6 @@
 package com.bytequay.app.scheduler;
 
 import com.bytequay.app.repository.github.GitHubRateLimitException;
-import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
@@ -22,6 +21,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -32,14 +32,13 @@ class TestPullRequestAttentionSyncJob
 {
     private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
-    private final CredentialService credentials = mock(CredentialService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
-    private final PullRequestAttentionSyncJob job = new PullRequestAttentionSyncJob(pullRequests, credentials, settings, issues);
+    private final PullRequestAttentionSyncJob job = new PullRequestAttentionSyncJob(pullRequests, settings, issues);
 
     @Test
     void everyTickReadsOnlySummariesWithoutWaitingForTheDetailInterval()
     {
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(pullRequests.hasDiscoveryAccounts()).thenReturn(true);
 
         job.tick();
         job.tick();
@@ -47,6 +46,7 @@ class TestPullRequestAttentionSyncJob
         verify(pullRequests, times(2)).syncAttentionSummaries();
         verify(settings, times(2)).inQuietHours();
         verify(issues, times(2)).refreshRecentIssues();
+        verify(pullRequests, times(2)).hasDiscoveryAccounts();
         verifyNoMoreInteractions(pullRequests, settings, issues);
     }
 
@@ -54,18 +54,18 @@ class TestPullRequestAttentionSyncJob
     void refreshesWorkspaceIssuesWithoutGlobalGitHubCredentialsAndSkipsQuietHours()
     {
         job.tick();
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(pullRequests.hasDiscoveryAccounts()).thenReturn(true);
         when(settings.inQuietHours()).thenReturn(true);
         job.tick();
 
-        verifyNoInteractions(pullRequests);
+        verify(pullRequests, never()).syncAttentionSummaries();
         verify(issues).refreshRecentIssues();
     }
 
     @Test
     void failedReadDoesNotStopFollowingTicks()
     {
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(pullRequests.hasDiscoveryAccounts()).thenReturn(true);
         doThrow(new IllegalStateException("temporary failure")).doNothing().when(pullRequests).syncAttentionSummaries();
 
         job.tick();
@@ -78,7 +78,7 @@ class TestPullRequestAttentionSyncJob
     @Test
     void rateLimitStopsTheTickBeforeIssueRequests()
     {
-        when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(pullRequests.hasDiscoveryAccounts()).thenReturn(true);
         doThrow(new GitHubRateLimitException("core", 123L)).when(pullRequests).syncAttentionSummaries();
 
         job.tick();

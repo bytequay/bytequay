@@ -46,6 +46,7 @@ class TestPullRequestSyncJob
     void refreshesEveryWorkspaceWhileDeduplicatingRepositoryMetadata()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        when(refreshService.hasDiscoveryAccounts()).thenReturn(true);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CredentialService credentials = configuredCredentials();
@@ -93,6 +94,7 @@ class TestPullRequestSyncJob
     void warmsEveryTenMinutesAndReconcilesEveryThirtyMinutes()
     {
         PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        when(refreshService.hasDiscoveryAccounts()).thenReturn(true);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.preferences()).thenReturn(AppPreferences.DEFAULT);
         MutableClock clock = new MutableClock(Instant.parse("2026-09-10T08:00:00Z"));
@@ -131,12 +133,29 @@ class TestPullRequestSyncJob
         verifyNoInteractions(metadata);
 
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(refreshService.hasDiscoveryAccounts()).thenReturn(true);
         clock.advance(Duration.ofMinutes(1));
         job.tick();
 
         verify(refreshService).refreshScheduledDashboard();
         verify(refreshService).warmRecentDetails(30);
         verify(refreshService).refreshWorkspace("bound");
+    }
+
+    @Test
+    void discoversThroughConnectedAccountsWithoutAGitHubSignIn()
+    {
+        PullRequestRefreshService refreshService = mock(PullRequestRefreshService.class);
+        when(refreshService.hasDiscoveryAccounts()).thenReturn(true);
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
+        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, metadata, mock(WorkspaceStore.class), mock(CredentialService.class), idleSettings(),
+                Clock.systemUTC());
+
+        job.tick();
+
+        verify(refreshService).refreshScheduledDashboard();
+        verify(refreshService, never()).warmRecentDetails(30);
+        verifyNoInteractions(metadata);
     }
 
     /** Settings whose refresh interval has already elapsed, so the tick under test is the one being asserted. */

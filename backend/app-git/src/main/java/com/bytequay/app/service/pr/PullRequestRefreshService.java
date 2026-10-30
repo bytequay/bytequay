@@ -30,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -151,11 +152,11 @@ public class PullRequestRefreshService
         return pullRequests.getPullRequestDiffFileContent(route, path, baseSha, headSha);
     }
 
-    /** Reuses a recent or in-flight dashboard refresh instead of queuing the same GitHub scan again. */
+    /** Reuses a recent or in-flight dashboard refresh instead of queuing the same account scan again. */
     public void refreshDashboard()
     {
-        GitHubCredential credential = credentials.resolveGitHubCredential();
-        if (!dashboardIsFresh(credential)) {
+        DiscoveryAccounts accounts = discoveryAccounts();
+        if (!dashboardIsFresh(accounts)) {
             refresh(this::refreshDashboardIfStale);
             events.publishEvent(new PullRequestsRefreshed());
         }
@@ -165,10 +166,10 @@ public class PullRequestRefreshService
     public void refreshScheduledDashboard()
     {
         refresh(() -> {
-            GitHubCredential credential = credentials.resolveGitHubCredential();
-            pullRequests.syncFromGitHub();
-            if (credentials.resolveGitHubCredential() == credential) {
-                dashboardSnapshot = new DashboardSnapshot(credential, Instant.now());
+            DiscoveryAccounts accounts = discoveryAccounts();
+            pullRequests.discoverAccountPullRequests();
+            if (discoveryAccounts().sameAs(accounts)) {
+                dashboardSnapshot = new DashboardSnapshot(accounts, Instant.now());
             }
         });
         events.publishEvent(new PullRequestsRefreshed());
@@ -181,7 +182,7 @@ public class PullRequestRefreshService
             throw new ResponseStatusException(HttpStatus.CONFLICT, "A pull request refresh is already in progress; try again shortly");
         }
         try {
-            pullRequests.syncFromGitHub();
+            pullRequests.discoverAccountPullRequests();
         }
         finally {
             refreshLock.unlock();
@@ -192,14 +193,14 @@ public class PullRequestRefreshService
 
     private void refreshDashboardIfStale()
     {
-        GitHubCredential credential = credentials.resolveGitHubCredential();
-        if (dashboardIsFresh(credential)) {
+        DiscoveryAccounts accounts = discoveryAccounts();
+        if (dashboardIsFresh(accounts)) {
             return;
         }
-        pullRequests.syncFromGitHub();
+        pullRequests.discoverAccountPullRequests();
         // A credential change during the scan must leave the new account stale.
-        if (credentials.resolveGitHubCredential() == credential) {
-            dashboardSnapshot = new DashboardSnapshot(credential, Instant.now());
+        if (discoveryAccounts().sameAs(accounts)) {
+            dashboardSnapshot = new DashboardSnapshot(accounts, Instant.now());
         }
     }
 
@@ -227,14 +228,34 @@ public class PullRequestRefreshService
         });
     }
 
-    private boolean dashboardIsFresh(GitHubCredential credential)
+    public boolean hasDiscoveryAccounts()
+    {
+        return pullRequests.hasDiscoveryAccounts();
+    }
+
+    private DiscoveryAccounts discoveryAccounts()
+    {
+        // Resolving the desktop credential also keeps its cached profile current.
+        Optional<GitHubCredential> desktop = credentials.isGitHubAccountConfigured() ? Optional.of(credentials.resolveGitHubCredential()) : Optional.empty();
+        return new DiscoveryAccounts(desktop, pullRequests.connectedDiscoveryAccounts());
+    }
+
+    private boolean dashboardIsFresh(DiscoveryAccounts accounts)
     {
         DashboardSnapshot snapshot = dashboardSnapshot;
         return snapshot != null
-                // CredentialService replaces the cached record when the token generation changes.
-                && snapshot.credential() == credential
+                && snapshot.accounts().sameAs(accounts)
                 && snapshot.refreshedAt().isAfter(Instant.now().minus(DASHBOARD_FRESHNESS));
     }
 
-    private record DashboardSnapshot(GitHubCredential credential, Instant refreshedAt) {}
+    private record DiscoveryAccounts(Optional<GitHubCredential> desktop, List<Long> connected)
+    {
+        boolean sameAs(DiscoveryAccounts other)
+        {
+            // CredentialService replaces the cached record when the token generation changes.
+            return desktop.orElse(null) == other.desktop().orElse(null) && connected.equals(other.connected());
+        }
+    }
+
+    private record DashboardSnapshot(DiscoveryAccounts accounts, Instant refreshedAt) {}
 }

@@ -102,6 +102,7 @@ class TestSchedulingConfig
         CredentialService credentials = mock(CredentialService.class);
         AppSettingsService settings = mock(AppSettingsService.class);
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
+        when(refresh.hasDiscoveryAccounts()).thenReturn(true);
         when(settings.preferences()).thenReturn(AppPreferences.DEFAULT);
         doAnswer(invocation -> {
             refreshing.countDown();

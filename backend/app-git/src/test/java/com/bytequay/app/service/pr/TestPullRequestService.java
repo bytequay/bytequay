@@ -34,6 +34,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
 import com.bytequay.app.service.hosting.GitHubPullRequestDiscovery;
+import com.bytequay.app.service.hosting.HostingConnection;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
@@ -91,6 +92,7 @@ import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestWriter;
 import com.bytequay.core.hosting.ReviewVerdict;
@@ -222,6 +224,7 @@ class TestPullRequestService
         HostingInstance instance = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
         session = new HostingReadSession(10, "desktop-scope", new HostingAccess(instance, "pat"));
         lenient().when(credentialService.captureHostingRead()).thenReturn(session);
+        lenient().when(credentialService.isGitHubAccountConfigured()).thenReturn(true);
         lenient().when(connections.account(session)).thenReturn(new HostingAccount(10, 1, "100", "me"));
         lenient().when(connections.resolveRepository(eq(session), anyString())).thenAnswer(invocation -> hostingRepository(invocation.getArgument(1)));
         lenient().when(connections.findRepository(eq(session), anyString())).thenAnswer(invocation -> Optional.of(hostingRepository(invocation.getArgument(1))));
@@ -1018,7 +1021,7 @@ class TestPullRequestService
             return new PullRequestHistoryPage(page == 1 ? rows.subList(0, 100) : rows.subList(100, 120), page == 1);
         });
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         verify(store).saveDashboardSyncPage(eq(rows));
         verify(store, times(120)).saveObserved(any());
@@ -1038,7 +1041,7 @@ class TestPullRequestService
         when(gitHub.searchPullRequestsPaged(eq("pat"), eq("is:pr is:open author:@me"), anyInt(), eq(100)))
                 .thenReturn(new PullRequestHistoryPage(ImmutableList.of(pullRequest()), true));
 
-        assertThatThrownBy(service::syncFromGitHub).isInstanceOf(ResponseStatusException.class)
+        assertThatThrownBy(service::discoverAccountPullRequests).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("search result limit");
 
         verify(gitHub, times(10)).searchPullRequestsPaged(eq("pat"), eq("is:pr is:open author:@me"), anyInt(), eq(100));
@@ -1065,7 +1068,7 @@ class TestPullRequestService
                     .collect(toImmutableList());
         });
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         verify(store).saveDashboardSyncPage(eq(rows));
         ArgumentCaptor<FetchedPullRequest> saved = ArgumentCaptor.forClass(FetchedPullRequest.class);
@@ -1092,7 +1095,7 @@ class TestPullRequestService
         ResponseStatusException failure = new ResponseStatusException(HttpStatus.valueOf(status), "GitHub rejected the request");
         when(summaries.fetchSummaries("pat", firstBatch, "me")).thenThrow(failure);
 
-        assertThatThrownBy(service::syncFromGitHub).isSameAs(failure);
+        assertThatThrownBy(service::discoverAccountPullRequests).isSameAs(failure);
 
         verify(store).saveDashboardSyncPage(eq(rows));
         ArgumentCaptor<FetchedPullRequest> saved = ArgumentCaptor.forClass(FetchedPullRequest.class);
@@ -1152,7 +1155,7 @@ class TestPullRequestService
         PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, action, "previous-head");
         when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         verify(store).updateEnrichment(eq(row.id()), eq(fetched.updatedAt()), eq(PullRequestDetail.CiStatus.FAILING), eq(4), eq(2), eq(1),
                 isNull(), isNull(), any(Instant.class), eq("feature"), eq(ImmutableList.of()), eq(row.origin()), eq(Optional.empty()), eq(Optional.of("APPROVED")),
@@ -1180,7 +1183,7 @@ class TestPullRequestService
         PrViewState updated = new PrViewState(row.id(), REVIEWED_AT, reviewedAt, HandledAction.APPROVED, "head");
         when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), previous), ImmutableMap.of(row.id(), updated));
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         verify(viewStateStore).markReviewed(row.id(), HandledAction.APPROVED, "head", reviewedAt);
         verify(viewStateStore, never()).markNeedsReview(row.id());
@@ -1203,7 +1206,7 @@ class TestPullRequestService
         PrViewState cleared = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, null, "previous-head");
         when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), cleared));
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         // Re-applying the recorded review would be cleared again at once, two writes a refresh that each rebuild the attention list.
         verify(viewStateStore, never()).markReviewed(anyLong(), any(), any(), any());
@@ -1229,7 +1232,7 @@ class TestPullRequestService
             when(summaries.hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2")).thenReturn(authorReplied);
         }
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         verify(summaries, times(action == HandledAction.APPROVED ? 0 : 1)).hasAuthorReplyAfter("pat", ref, "me", "alice", REVIEWED_AT, "reply-v2");
         verify(viewStateStore, times(action != HandledAction.APPROVED && authorReplied ? 1 : 0)).markNeedsReview(row.id());
@@ -1257,7 +1260,7 @@ class TestPullRequestService
         PrViewState reviewed = new PrViewState(row.id(), REVIEWED_AT, REVIEWED_AT, HandledAction.APPROVED, "head");
         when(viewStateStore.findByPrIds(ImmutableSet.of(row.id()))).thenReturn(ImmutableMap.of(row.id(), reviewed));
 
-        service.syncFromGitHub();
+        service.discoverAccountPullRequests();
 
         verify(viewStateStore).markNeedsReview(row.id());
     }
@@ -1301,6 +1304,42 @@ class TestPullRequestService
         verify(syncSettings).put(anyString(), anyString());
         verify(gitHub, times(2)).searchPullRequestsPaged(eq("pat"), startsWith("is:pr author:@me updated:>="), anyInt(), eq(100));
         verifyNoInteractions(detailStore, diffStore, actions);
+    }
+
+    @Test
+    void discoversEachConnectedAccountIntoItsOwnRowsAndReportsAFailureAfterTheOthers()
+    {
+        HostingInstance gitlab = new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        HostingReadSession gitlabSession = new HostingReadSession(11, "hosting-account", new HostingAccess(gitlab, "gitlab-token"));
+        HostingAccount account = new HostingAccount(11, 2, "200", "me");
+        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(account, gitlab, true, Optional.empty()),
+                new HostingConnection(new HostingAccount(12, 1, "300", "other"), new HostingInstance(1, GITHUB, URI.create("https://github.com"),
+                        URI.create("https://api.github.com")), true, Optional.empty())));
+        when(connections.readSession(11)).thenReturn(gitlabSession);
+        when(connections.account(gitlabSession)).thenReturn(account);
+        FetchedPullRequest merge = new FetchedPullRequest(400L, "group/project", 4, "Title", "me", "https://gitlab.example.com/group/project/-/merge_requests/4",
+                Instant.parse("2026-08-20T00:00:00Z"), Instant.parse("2026-08-21T00:00:00Z"), PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(),
+                false, "open", null, null, ImmutableList.of(), null, null, "feature");
+        PullRequestDiscovery gitlabDiscovery = mock(PullRequestDiscovery.class);
+        when(gitlabDiscovery.find(eq(gitlabSession.access()), any(), eq(1), eq(100))).thenReturn(new PullRequestListPage(ImmutableList.of(merge), false));
+        when(gitlabDiscovery.summaryBatchSize()).thenReturn(5);
+        HostingRepository project = new HostingRepository(21, 2, "500", "group/project", URI.create("https://gitlab.example.com/group/project"),
+                URI.create("https://gitlab.example.com/group/project.git"), Optional.empty(), Optional.of("main"));
+        when(connections.findRepository(gitlabSession, "group/project")).thenReturn(Optional.of(project));
+        when(store.findByHostingRepository(21, 4)).thenReturn(Optional.of(storedPullRequest(merge)));
+        integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions), discovery),
+                pullRequests(GITLAB, mock(PullRequestContentReader.class), mock(PullRequestWriter.class), gitlabDiscovery));
+        service = newService(Clock.systemUTC());
+        RuntimeException failure = new IllegalStateException("search failed");
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100))).thenThrow(failure);
+
+        assertThatThrownBy(service::discoverAccountPullRequests).isSameAs(failure);
+
+        verify(requests).saveSummaries(gitlabSession, 21, ImmutableList.of(merge.withOrigin(PullRequest.Origin.AUTHORED)));
+        verify(gitlabDiscovery).summaries(gitlabSession.access(), ImmutableList.of(PullRequestRef.of("group", "project", 4)), "me");
+        verify(connections, never()).readSession(12);
+        verify(store, never()).saveObserved(any());
+        verify(store, never()).saveDashboardSyncPage(any());
     }
 
     @Test

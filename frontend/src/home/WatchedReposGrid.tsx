@@ -15,7 +15,7 @@ import { useEffect, useState } from 'react';
 import { getCached } from '../dataCache';
 import type { PullRequestDto, WorkspaceDto, WorkspaceHostingAttentionDto } from '../types';
 import { pullRequestNeedsReview } from '../pulls/model';
-import RepoAvatar from '../RepoAvatar';
+import RepoAvatar, { HostMark, shortWorkspaceName } from '../RepoAvatar';
 import { syncStateColor, workspaceSyncState } from '../workspaces/model';
 
 type Props = {
@@ -91,12 +91,13 @@ function WatchedReposGrid({ workspaces, loading, onOpenWorkspace, onWatch }: Pro
                 }}
               >
                 <div className="home-repo-tile__head">
+                  <HostMark gitlab={workspace.hostingServer?.provider === 'GITLAB'} />
                   <RepoAvatar github={workspace.hostingServer?.provider !== 'GITLAB'}
                     owner={workspace.monitoredOwner}
                     repo={workspace.monitoredRepo}
                     size={18}
                   />
-                  <span className="home-repo-tile__name">{fullName}</span>
+                  <span className="home-repo-tile__name">{shortWorkspaceName(workspace.name)}</span>
                   <span
                     className="home-repo-tile__dot"
                     style={{ background: syncStateColor(state) }}

@@ -107,7 +107,8 @@ describe('watched repository workspace UI', () => {
       expect(html).not.toContain('src="https://github.com/upstream.png');
       expect(html).not.toContain('contributor.png');
     }
-    expect(home).toContain('class="home-repo-tile__name">upstream/project</span>');
+    expect(home).toContain('class="home-repo-tile__name">project</span>');
+    expect(home).toContain('aria-label="GitHub"');
     expect(list).toContain('class="ws-card-path">master · follows upstream/project</div>');
     expect(list).not.toContain('main · follows');
     // Nothing has synced yet, so the card reports the queued state.

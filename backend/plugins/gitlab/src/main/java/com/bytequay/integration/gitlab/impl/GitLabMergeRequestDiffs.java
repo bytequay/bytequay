@@ -15,6 +15,7 @@ package com.bytequay.integration.gitlab.impl;
 
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingFailure;
+import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.DiffRefs;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.collect.ImmutableList;
@@ -62,7 +63,7 @@ final class GitLabMergeRequestDiffs
     private List<GitLabFileDiff> legacyChanges(HostingAccess access, String path)
     {
         // A missing modern endpoint is not proof of an old server; independently verify the requested merge request.
-        MergeRequest current = http.get(access, path, Optional.empty(), MergeRequest.class).body().orElseThrow();
+        GitLabMergeRequestResponse current = http.get(access, path, Optional.empty(), GitLabMergeRequestResponse.class).body().orElseThrow();
         validateIdentity(path, current.projectId(), current.iid(), current.sha());
         validateRefs(current.sha(), current.diffRefs());
         Changes changes = http.get(access, path + "/changes", Optional.empty(), Changes.class).body().orElseThrow();
@@ -80,9 +81,9 @@ final class GitLabMergeRequestDiffs
         return validateFiles(changes.changes());
     }
 
-    private static void validateIdentity(String path, long projectId, long iid, String sha)
+    private static void validateIdentity(String path, Long projectId, Long iid, String sha)
     {
-        if (projectId <= 0 || iid <= 0 || !path.equals("projects/" + projectId + "/merge_requests/" + iid) || sha == null || sha.isBlank()) {
+        if (projectId == null || iid == null || projectId <= 0 || iid <= 0 || !path.equals("projects/" + projectId + "/merge_requests/" + iid) || sha == null || sha.isBlank()) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned incomplete or mismatched merge request metadata. Refresh and try again.");
         }
     }
@@ -109,12 +110,6 @@ final class GitLabMergeRequestDiffs
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record MergeRequest(@JsonProperty("project_id") long projectId, long iid, String sha, @JsonProperty("diff_refs") DiffRefs diffRefs) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Changes(@JsonProperty("project_id") long projectId, long iid, String sha, @JsonProperty("diff_refs") DiffRefs diffRefs,
+    private record Changes(@JsonProperty("project_id") Long projectId, Long iid, String sha, @JsonProperty("diff_refs") DiffRefs diffRefs,
             List<GitLabFileDiff> changes, Boolean overflow) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}
 }

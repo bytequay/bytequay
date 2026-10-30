@@ -13,6 +13,7 @@
  */
 package com.bytequay.integration.gitlab.impl;
 
+import com.bytequay.core.hosting.HostingFailure;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonParser;
@@ -23,12 +24,16 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Optional;
+
+import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitLabMergeRequestResponse(
         Long id,
         Long iid,
         @JsonProperty("project_id") Long projectId,
+        @JsonProperty("source_project_id") Long sourceProjectId,
         @JsonProperty("target_project_id") Long targetProjectId,
         String title,
         String state,
@@ -40,26 +45,37 @@ record GitLabMergeRequestResponse(
         @JsonDeserialize(using = DraftDeserializer.class) Boolean draft,
         @JsonProperty("work_in_progress") Boolean workInProgress,
         String description,
-        User author,
+        GitLabUser author,
         List<String> labels,
-        List<User> assignees,
+        List<GitLabUser> assignees,
+        List<GitLabUser> reviewers,
         Milestone milestone,
         @JsonProperty("source_branch") String sourceBranch,
         @JsonProperty("target_branch") String targetBranch,
         String sha,
+        @JsonProperty("merge_commit_sha") String mergeCommitSha,
         @JsonProperty("diff_refs") DiffRefs diffRefs,
+        @JsonProperty("head_pipeline") Pipeline headPipeline,
         @JsonProperty("changes_count") String changesCount,
         @JsonProperty("merge_status") String mergeStatus,
         @JsonProperty("detailed_merge_status") String detailedMergeStatus)
 {
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record User(String username, @JsonProperty("avatar_url") String avatarUrl) {}
+    // Servers before the draft field report only work_in_progress.
+    boolean isDraft()
+    {
+        return Optional.ofNullable(draft).or(() -> Optional.ofNullable(workInProgress))
+                .orElseThrow(() -> new HostingFailure(INVALID_RESPONSE, "GitLab returned no merge request draft status"));
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Milestone(String title) {}
 
+    /** start_sha is the target tip; base_sha is the merge base. */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha) {}
+    record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Pipeline(long id, @JsonProperty("project_id") Long projectId, String status, @JsonProperty("web_url") String webUrl) {}
 
     /** Explicit null is malformed; only a missing draft field can use the older work_in_progress field. */
     static final class DraftDeserializer

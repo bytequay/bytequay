@@ -20,6 +20,6 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitLabIssueResponse(Long id, Integer iid, @JsonProperty("project_id") Long projectId, String title, String description, String state,
-        @JsonProperty("web_url") String webUrl, GitLabIssueUser author, List<String> labels, List<GitLabIssueUser> assignees,
+        @JsonProperty("web_url") String webUrl, GitLabUser author, List<String> labels, List<GitLabUser> assignees,
         @JsonProperty("user_notes_count") Integer commentCount, @JsonProperty("created_at") String createdAt,
         @JsonProperty("updated_at") String updatedAt, @JsonProperty("issue_type") String issueType) {}

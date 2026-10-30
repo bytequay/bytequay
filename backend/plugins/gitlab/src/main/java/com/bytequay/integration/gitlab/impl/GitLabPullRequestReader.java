@@ -22,6 +22,8 @@ import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestFetch;
 import com.bytequay.core.hosting.PullRequestListPage;
 import com.bytequay.core.hosting.PullRequestReader;
+import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.DiffRefs;
+import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.Milestone;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -88,17 +90,17 @@ public final class GitLabPullRequestReader
             GitLabMergeRequestResponse mr = response.body().orElseThrow();
             FetchedPullRequest summary = summary(access, repository, mr);
             checkArgument(summary.number() == number, "invalid merge request identity");
-            String authorAvatar = Optional.ofNullable(mr.author()).map(GitLabMergeRequestResponse.User::avatarUrl).orElse(null);
+            String authorAvatar = Optional.ofNullable(mr.author()).map(GitLabUser::avatarUrl).orElse(null);
             String headSha = optionalSha(mr.sha());
-            Optional<GitLabMergeRequestResponse.DiffRefs> diffRefs = Optional.ofNullable(mr.diffRefs());
-            String diffHead = diffRefs.map(GitLabMergeRequestResponse.DiffRefs::headSha).map(GitLabPullRequestReader::optionalSha).orElse(null);
+            Optional<DiffRefs> diffRefs = Optional.ofNullable(mr.diffRefs());
+            String diffHead = diffRefs.map(DiffRefs::headSha).map(GitLabPullRequestReader::optionalSha).orElse(null);
             // start_sha is the target tip. GitLab's base_sha is a different coordinate: the merge base.
             String baseSha = headSha != null && headSha.equals(diffHead)
-                    ? diffRefs.map(GitLabMergeRequestResponse.DiffRefs::startSha).map(GitLabPullRequestReader::optionalSha).orElse(null) : null;
+                    ? diffRefs.map(DiffRefs::startSha).map(GitLabPullRequestReader::optionalSha).orElse(null) : null;
             List<String> assignees = mr.assignees().stream().map(user -> checkText(user.username(), "username")).collect(toImmutableList());
             PrRawDetail detail = new PrRawDetail(summary.title(), summary.htmlUrl(), summary.state(), summary.author(), authorAvatar,
                     summary.createdAt(), summary.updatedAt(), summary.mergedAt(), mr.description(), summary.labels(), summary.labelColors(), assignees,
-                    Optional.ofNullable(mr.milestone()).map(GitLabMergeRequestResponse.Milestone::title).orElse(null),
+                    Optional.ofNullable(mr.milestone()).map(Milestone::title).orElse(null),
                     summary.draft(), summary.mergeable(), summary.mergeableState(), UNKNOWN_COUNT, UNKNOWN_COUNT, baseSha == null ? UNKNOWN_COUNT : changedFiles(mr.changesCount()),
                     UNKNOWN_COUNT, summary.requestedReviewers(), headSha, mr.sourceBranch(), mr.targetBranch(), baseSha);
             return new PullRequestFetch(Optional.of(summary), response.etag(), Optional.of(detail));
@@ -120,9 +122,8 @@ public final class GitLabPullRequestReader
             default -> throw new IllegalArgumentException("invalid merge request state");
         };
         String url = HostingUrls.requireWithinBase(URI.create(checkText(mr.webUrl(), "webUrl")), access.server().webBaseUrl()).toASCIIString();
-        boolean draft = Optional.ofNullable(mr.draft()).or(() -> Optional.ofNullable(mr.workInProgress()))
-                .orElseThrow(() -> new IllegalArgumentException("missing draft status"));
-        String author = Optional.ofNullable(mr.author()).map(GitLabMergeRequestResponse.User::username).orElse(null);
+        boolean draft = mr.isDraft();
+        String author = Optional.ofNullable(mr.author()).map(GitLabUser::username).orElse(null);
         List<String> labels = mr.labels().stream().map(label -> checkText(label, "label")).collect(toImmutableList());
         // Assigned reviewers include people who already reviewed; this read cannot establish pending requests or approvals.
         List<String> requestedReviewers = ImmutableList.of();

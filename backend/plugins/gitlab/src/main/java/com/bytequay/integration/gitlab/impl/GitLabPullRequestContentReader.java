@@ -36,6 +36,8 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingUrls;
 import com.bytequay.core.hosting.PullRequestContentReader;
+import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.DiffRefs;
+import com.bytequay.integration.gitlab.impl.GitLabMergeRequestResponse.Pipeline;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -100,7 +102,7 @@ public final class GitLabPullRequestContentReader
     @Override
     public GitHubPullRequestIdentity identity(HostingAccess access, HostingRepository repository, int number)
     {
-        MergeRequest request = get(access, mergeRequestPath(access, repository, number), MergeRequest.class);
+        GitLabMergeRequestResponse request = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
         checkArgument(request.iid() == number && repository.remoteId().equals(String.valueOf(request.targetProjectId())), "GitLab returned another merge request");
         Project source = get(access, "projects/" + request.sourceProjectId(), Project.class);
         RepoRef target = repositoryRef(repository.fullPath());
@@ -121,9 +123,10 @@ public final class GitLabPullRequestContentReader
     public List<GitHubPullRequestIdentity> identitiesByHead(HostingAccess access, HostingRepository repository, RepoRef sourceRepository, String branch)
     {
         Project source = get(access, "projects/" + encode(sourceRepository.fullName()), Project.class);
-        return http.pages(access, projectPath(access, repository) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch), MergeRequest[].class).stream()
+        String path = projectPath(access, repository) + "/merge_requests?scope=all&state=all&source_branch=" + encode(branch);
+        return http.pages(access, path, GitLabMergeRequestResponse[].class).stream()
                 .filter(request -> request.sourceProjectId() != null && request.sourceProjectId() == source.id())
-                .map(request -> identity(access, repository, request.iid())).collect(toImmutableList());
+                .map(request -> identity(access, repository, toIntExact(request.iid()))).collect(toImmutableList());
     }
 
     private static RepoRef repositoryRef(String path)
@@ -171,17 +174,17 @@ public final class GitLabPullRequestContentReader
 
     private List<PrTimelineEvent> discussions(HostingAccess access, String path, PrRawDetail raw, List<String> unavailable)
     {
-        List<Discussion> discussions = http.pages(access, path + "/discussions", Discussion[].class);
+        List<GitLabDiscussion> discussions = http.pages(access, path + "/discussions", GitLabDiscussion[].class);
         Map<Long, List<PrReaction>> reactions = noteReactions(access, path, discussions, unavailable);
         List<PrTimelineEvent> events = new ArrayList<>();
         String url = raw.htmlUrl();
-        for (Discussion discussion : discussions) {
+        for (GitLabDiscussion discussion : discussions) {
             if (discussion.notes().isEmpty()) {
                 continue;
             }
-            Note root = discussion.notes().getFirst();
+            GitLabNote root = discussion.notes().getFirst();
             if (discussion.individualNote() || root.system()) {
-                for (Note note : discussion.notes()) {
+                for (GitLabNote note : discussion.notes()) {
                     events.add(new PrTimelineEvent(note.id(), note.system() ? "system_note" : "commented", note.author().username(), instant(note.createdAt()), note.body(),
                             PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(url + "#note_" + note.id())
                                     .reactions(reactions.getOrDefault(note.id(), ImmutableList.of())).build(), Optional.empty()));
@@ -202,7 +205,7 @@ public final class GitLabPullRequestContentReader
         return ImmutableList.copyOf(events);
     }
 
-    private Map<Long, List<PrReaction>> noteReactions(HostingAccess access, String path, List<Discussion> discussions, List<String> unavailable)
+    private Map<Long, List<PrReaction>> noteReactions(HostingAccess access, String path, List<GitLabDiscussion> discussions, List<String> unavailable)
     {
         Map<Long, Future<List<PrReaction>>> pending = new LinkedHashMap<>();
         try (var executor = Executors.newFixedThreadPool(4, Thread.ofVirtual().factory())) {
@@ -238,7 +241,7 @@ public final class GitLabPullRequestContentReader
     public Checks checks(HostingAccess access, HostingRepository repository, int number, String headSha,
             List<PrCheckRunState> existing, Optional<String> checksEtag, Optional<String> statusesEtag)
     {
-        MergeRequest request = get(access, mergeRequestPath(access, repository, number), MergeRequest.class);
+        GitLabMergeRequestResponse request = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
         checkArgument(headSha.equals(request.sha()), "Merge request head changed while reading checks");
         if (request.headPipeline() == null) {
             return new Checks(ImmutableList.of(), Optional.empty(), Optional.empty(), true);
@@ -247,9 +250,9 @@ public final class GitLabPullRequestContentReader
         String path = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId()) + "/pipelines/" + pipeline.id();
         // Pipeline access can differ from merge request access, especially for fork pipelines.
         List<String> unavailable = new ArrayList<>();
-        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/jobs", Job[].class)).stream()
+        List<PrCheckRunState> checks = new ArrayList<>(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/jobs", GitLabJob[].class)).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "job", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
-        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/bridges", Job[].class)).stream()
+        checks.addAll(optional(StoredPrDetail.CHECKS, unavailable, () -> http.pages(access, path + "/bridges", GitLabJob[].class)).stream()
                 .map(job -> check(job.id(), job.name(), job.status(), job.webUrl(), "status", job.startedAt(), job.finishedAt(), job.allowFailure())).collect(toImmutableList()));
         if (checks.isEmpty() || !unavailable.isEmpty()) {
             // A summary has no job identity; null replaces it on the next partial refresh.
@@ -304,13 +307,13 @@ public final class GitLabPullRequestContentReader
     @Override
     public PullRequestCheckLog readCheckLog(HostingAccess access, HostingRepository repository, int number, long jobId)
     {
-        MergeRequest current = get(access, mergeRequestPath(access, repository, number), MergeRequest.class);
+        GitLabMergeRequestResponse current = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
         if (current.headPipeline() == null) {
             throw new HostingFailure(REVISION_CONFLICT, "This request has no current pipeline");
         }
         Pipeline pipeline = current.headPipeline();
         String project = "projects/" + (pipeline.projectId() == null ? repository.remoteId() : pipeline.projectId());
-        boolean failed = http.pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", Job[].class).stream()
+        boolean failed = http.pages(access, project + "/pipelines/" + pipeline.id() + "/jobs", GitLabJob[].class).stream()
                 .anyMatch(job -> job.id() == jobId && "failed".equals(job.status()));
         if (!failed) {
             throw new HostingFailure(REVISION_CONFLICT, "This failed job is no longer part of the current request checks");
@@ -330,7 +333,7 @@ public final class GitLabPullRequestContentReader
     public DiffFileContent fileContent(HostingAccess access, HostingRepository repository, int number, String path, String baseSha, String headSha, boolean fullDiff)
     {
         String target = projectPath(access, repository);
-        MergeRequest request = get(access, mergeRequestPath(access, repository, number), MergeRequest.class);
+        GitLabMergeRequestResponse request = get(access, mergeRequestPath(access, repository, number), GitLabMergeRequestResponse.class);
         String source = request.sourceProjectId() == null ? target : "projects/" + request.sourceProjectId();
         String contentBase = baseSha;
         if (fullDiff) {
@@ -379,7 +382,7 @@ public final class GitLabPullRequestContentReader
 
     private List<PrReaction> reactions(HostingAccess access, String path)
     {
-        Map<String, Long> counts = http.pages(access, path + "/award_emoji", Award[].class).stream().collect(groupingBy(Award::name, counting()));
+        Map<String, Long> counts = http.pages(access, path + "/award_emoji", GitLabAward[].class).stream().collect(groupingBy(GitLabAward::name, counting()));
         return counts.entrySet().stream().map(entry -> new PrReaction(switch (entry.getKey()) {
             case "thumbsup" -> "+1";
             case "thumbsdown" -> "-1";
@@ -435,50 +438,14 @@ public final class GitLabPullRequestContentReader
     private record Access(@JsonProperty("access_level") int level) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record User(long id, String username, @JsonProperty("avatar_url") String avatarUrl) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Approval(User user) {}
+    private record Approval(GitLabUser user) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Approvals(@JsonProperty("approved_by") List<Approval> approvedBy) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Discussion(String id, @JsonProperty("individual_note") boolean individualNote, List<Note> notes) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Note(long id, String body, User author, @JsonProperty("created_at") String createdAt, boolean system, boolean resolved, GitLabDiffPosition position) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
     private record Commit(String id, @JsonProperty("parent_ids") List<String> parentIds, String message,
             @JsonProperty("author_name") String authorName, @JsonProperty("authored_date") String authoredDate) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Award(String name) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Pipeline(long id, @JsonProperty("project_id") Long projectId, String status, @JsonProperty("web_url") String webUrl) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record MergeRequest(int iid, String sha, String state, Boolean draft, @JsonProperty("work_in_progress") Boolean workInProgress, User author,
-            @JsonProperty("web_url") String webUrl, @JsonProperty("source_project_id") Long sourceProjectId, @JsonProperty("target_project_id") Long targetProjectId,
-            @JsonProperty("source_branch") String sourceBranch, @JsonProperty("target_branch") String targetBranch,
-            @JsonProperty("diff_refs") DiffRefs diffRefs, @JsonProperty("head_pipeline") Pipeline headPipeline)
-    {
-        // Servers before the draft field report only work_in_progress.
-        boolean isDraft()
-        {
-            return Optional.ofNullable(draft).or(() -> Optional.ofNullable(workInProgress))
-                    .orElseThrow(() -> new HostingFailure(INVALID_RESPONSE, "GitLab returned no merge request draft status"));
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record DiffRefs(@JsonProperty("head_sha") String headSha, @JsonProperty("start_sha") String startSha, @JsonProperty("base_sha") String baseSha) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Job(long id, String name, String status, @JsonProperty("web_url") String webUrl,
-            @JsonProperty("started_at") String startedAt, @JsonProperty("finished_at") String finishedAt, @JsonProperty("allow_failure") boolean allowFailure) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record Compare(List<GitLabFileDiff> diffs, List<Commit> commits, @JsonProperty("compare_timeout") boolean compareTimeout) {}

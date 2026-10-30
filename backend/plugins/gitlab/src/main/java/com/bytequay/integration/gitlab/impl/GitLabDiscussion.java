@@ -16,5 +16,7 @@ package com.bytequay.integration.gitlab.impl;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
+import java.util.List;
+
 @JsonIgnoreProperties(ignoreUnknown = true)
-record GitLabIssueUser(Long id, String username, @JsonProperty("avatar_url") String avatarUrl, boolean bot) {}
+record GitLabDiscussion(String id, @JsonProperty("individual_note") boolean individualNote, List<GitLabNote> notes, List<String> summary) {}

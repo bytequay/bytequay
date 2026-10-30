@@ -119,8 +119,8 @@ public final class GitLabIssueClient
         GitLabIssueResponse issue = read(access, repository, number);
         String path = issuePath(access, repository, number);
         ImmutableList.Builder<PrTimelineEvent> events = ImmutableList.builder();
-        for (Note note : http.pages(access, path + "/notes?sort=asc&order_by=created_at", Note[].class)) {
-            events.add(note.event(issue.webUrl()));
+        for (GitLabNote note : http.pages(access, path + "/notes?sort=asc&order_by=created_at", GitLabNote[].class)) {
+            events.add(event(note, issue.webUrl()));
         }
         for (ResourceEvent event : http.pages(access, path + "/resource_state_events", ResourceEvent[].class)) {
             events.add(event.event("closed".equals(event.state()) ? "closed" : "reopened", PrTimelinePayload.empty()));
@@ -161,8 +161,8 @@ public final class GitLabIssueClient
     @Override
     public PrTimelineEvent comment(HostingAccess access, HostingRepository repository, int number, String body)
     {
-        return http.post(access, issuePath(access, repository, number) + "/notes", new Comment(checkText(body, "body")), Note.class).body().orElseThrow()
-                .event(repository.webUrl() + "/-/issues/" + number);
+        GitLabNote note = http.post(access, issuePath(access, repository, number) + "/notes", new Comment(checkText(body, "body")), GitLabNote.class).body().orElseThrow();
+        return event(note, repository.webUrl() + "/-/issues/" + number);
     }
 
     @Override
@@ -183,8 +183,8 @@ public final class GitLabIssueClient
     public IssueMetadata updateMetadata(HostingAccess access, HostingRepository repository, int number, List<String> assignees, List<String> labels)
     {
         List<Long> ids = assignees == null ? null : assignees.stream().map(login -> {
-            GitLabIssueUser[] users = http.get(access, "users?username=" + encode(login), Optional.empty(), GitLabIssueUser[].class).body().orElseThrow();
-            return Arrays.stream(users).filter(user -> login.equalsIgnoreCase(user.username())).map(GitLabIssueUser::id).findFirst()
+            GitLabUser[] users = http.get(access, "users?username=" + encode(login), Optional.empty(), GitLabUser[].class).body().orElseThrow();
+            return Arrays.stream(users).filter(user -> login.equalsIgnoreCase(user.username())).map(GitLabUser::id).findFirst()
                     .orElseThrow(() -> new IllegalArgumentException("GitLab user not found: " + login));
         }).collect(toImmutableList());
         GitLabIssueResponse updated = http.put(access, issuePath(access, repository, number),
@@ -222,7 +222,7 @@ public final class GitLabIssueClient
     @Override
     public List<HostingRepositoryUser> repositoryUsers(HostingAccess access, HostingRepository repository)
     {
-        return http.pages(access, projectPath(access, repository) + "/users", GitLabIssueUser[].class).stream()
+        return http.pages(access, projectPath(access, repository) + "/users", GitLabUser[].class).stream()
                 .map(user -> new HostingRepositoryUser(user.id(), user.username(), user.avatarUrl(), user.bot())).collect(toImmutableList());
     }
 
@@ -263,8 +263,17 @@ public final class GitLabIssueClient
         String url = HostingUrls.requireWithinBase(URI.create(issue.webUrl()), access.server().webBaseUrl()).toASCIIString();
         return new RepositoryIssue(issue.id(), issue.iid(), issue.title(), Optional.ofNullable(issue.description()).orElse(""),
                 issue.author().username(), Optional.ofNullable(issue.author().avatarUrl()).orElse(""), url, issue.labels(),
-                issue.assignees().stream().map(GitLabIssueUser::username).collect(toImmutableList()), issue.commentCount(),
+                issue.assignees().stream().map(GitLabUser::username).collect(toImmutableList()), issue.commentCount(),
                 Instant.parse(issue.createdAt()), Instant.parse(issue.updatedAt()));
+    }
+
+    private static PrTimelineEvent event(GitLabNote note, String issueUrl)
+    {
+        if (note.id() == null && note.summary() != null) {
+            return new PrTimelineEvent(null, "system", null, null, String.join("\n", note.summary()), PrTimelinePayload.empty(), Optional.empty());
+        }
+        return new PrTimelineEvent(note.id(), note.system() ? "system" : "commented", note.author().username(), Instant.parse(note.createdAt()), note.body(),
+                PrTimelinePayload.builder().actorAvatarUrl(note.author().avatarUrl()).htmlUrl(issueUrl + "#note_" + note.id()).build(), Optional.empty());
     }
 
     private static String color(String color)
@@ -302,20 +311,7 @@ public final class GitLabIssueClient
     private record Milestone(String title) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record Note(Long id, String body, GitLabIssueUser author, boolean system, @JsonProperty("created_at") String createdAt, List<String> summary)
-    {
-        PrTimelineEvent event(String issueUrl)
-        {
-            if (id == null && summary != null) {
-                return new PrTimelineEvent(null, "system", null, null, String.join("\n", summary), PrTimelinePayload.empty(), Optional.empty());
-            }
-            return new PrTimelineEvent(id, system ? "system" : "commented", author.username(), Instant.parse(createdAt), body,
-                    PrTimelinePayload.builder().actorAvatarUrl(author.avatarUrl()).htmlUrl(issueUrl + "#note_" + id).build(), Optional.empty());
-        }
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ResourceEvent(long id, GitLabIssueUser user, @JsonProperty("created_at") String createdAt, String state, String action, Label label, Milestone milestone)
+    private record ResourceEvent(long id, GitLabUser user, @JsonProperty("created_at") String createdAt, String state, String action, Label label, Milestone milestone)
     {
         PrTimelineEvent event(String kind, PrTimelinePayload payload)
         {

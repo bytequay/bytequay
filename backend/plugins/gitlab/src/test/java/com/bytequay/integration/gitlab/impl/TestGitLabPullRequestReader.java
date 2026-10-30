@@ -379,7 +379,7 @@ class TestGitLabPullRequestReader
             throws IOException
     {
         ObjectMapper shared = new ObjectMapper().enable(DeserializationFeature.ACCEPT_EMPTY_ARRAY_AS_NULL_OBJECT);
-        assertThat(shared.readValue("[]", GitLabMergeRequestResponse.User.class)).isNull();
+        assertThat(shared.readValue("[]", GitLabUser.class)).isNull();
         ObjectNode body = mr();
         body.set(field, MAPPER.createArrayNode());
         reply.set(new Reply(200, body.toString(), Optional.empty()));

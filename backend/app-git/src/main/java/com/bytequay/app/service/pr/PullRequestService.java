@@ -152,6 +152,7 @@ public class PullRequestService
     private final GitHubRepoClient repositories;
     private final GitHubAccountClient accounts;
     private final PullRequestStore store;
+    private final PullRequestRows rows;
     private final PullRequestSnapshotService snapshots;
     private final PrDetailStore details;
     private final PullRequestDetailFetcher detailFetcher;
@@ -199,6 +200,7 @@ public class PullRequestService
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
+        this.rows = new PullRequestRows(store, workspaces);
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
         this.details = requireNonNull(details, "details is null");
         this.detailFetcher = requireNonNull(detailFetcher, "detailFetcher is null");
@@ -308,7 +310,7 @@ public class PullRequestService
         prepareRead(route);
         HostingPullRequestSnapshot metadata = requests.cached(route.session(), route.repository().id(), route.number())
                 .orElseGet(() -> refreshMetadata(route, false));
-        return project(route, metadata.pullRequest().withViewerOrigin(route.login()));
+        return rows.observe(route, metadata.pullRequest().withViewerOrigin(route.login()));
     }
 
     /** Reads the cached description the same way, so it is empty until a detail read has stored the pull request once. */
@@ -484,7 +486,7 @@ public class PullRequestService
     {
         WorkspaceHostingRead route = workspaceHosting.captureRead(workspaceId);
         FetchedPullRequest pullRequest = workspaceHosting.readPullRequest(route, number).pullRequest().withViewerOrigin(route.login());
-        project(new PullRequestRead(route.session(), route.repository(), number, route.login()), pullRequest);
+        rows.observe(new PullRequestRead(route.session(), route.repository(), number, route.login()), pullRequest);
     }
 
     /**
@@ -509,14 +511,14 @@ public class PullRequestService
     private void syncRepository(HostingReadSession session, HostingRepository repository, String login)
     {
         String pat = session.access().token();
-        boolean github = session.access().server().provider() == GITHUB;
-        if (github) {
+        boolean pathKeyed = PullRequestRows.pathKeyed(session.access().server().provider());
+        if (pathKeyed) {
             baselineSummaries(pat);
         }
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         Consumer<List<FetchedPullRequest>> save = page -> {
             List<FetchedPullRequest> rows = page.stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList());
-            if (github) {
+            if (pathKeyed) {
                 store.saveRepositorySyncPage(repository.fullPath(), rows);
             }
             rows.forEach(row -> seen.put(row.repo() + "#" + row.number(), row));
@@ -526,7 +528,7 @@ public class PullRequestService
         // Deleting the last workspace of a repository hides its rows, so watching it again needs the full pass.
         Optional<Instant> synced = syncSettings.get(key).map(Instant::parse)
                 .filter(at -> at.isAfter(started.minus(Duration.ofDays(CLOSED_RETENTION_DAYS))) && !at.isAfter(started))
-                .filter(ignored -> github ? store.findRepositoryPage(repository.fullPath(), 0, 1).totalPullRequests() > 0
+                .filter(ignored -> pathKeyed ? store.findRepositoryPage(repository.fullPath(), 0, 1).totalPullRequests() > 0
                         : !requests.cachedPage(session, repository.id(), 1, 1).items().isEmpty());
         if (synced.isPresent()) {
             discoverRepository(session, repository.id(), false, synced.orElseThrow().minusSeconds(300), save);
@@ -538,7 +540,7 @@ public class PullRequestService
             discoverRepository(session, repository.id(), true, Instant.MIN, save);
         }
         syncSettings.put(key, started.toString());
-        if (github) {
+        if (pathKeyed) {
             enrichCards(pat, login, seen.values().stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
         }
         // Discovery never deletes cached rows or local marks.
@@ -1152,26 +1154,17 @@ public class PullRequestService
 
     public Optional<PullRequest> findStored(PullRequestRead route)
     {
-        return route.session().access().server().provider() == GITHUB
-                ? findStored(route.repository().fullPath(), route.number()) : store.findByHostingRepository(route.repository().id(), route.number());
+        return rows.find(route);
     }
 
     public Optional<Long> findStoredId(PullRequestRead route)
     {
-        return route.session().access().server().provider() == GITHUB
-                ? store.findIdByRepoAndNumber(route.repository().fullPath(), route.number())
-                : store.findByHostingRepository(route.repository().id(), route.number()).map(PullRequest::id);
+        return rows.findId(route);
     }
 
     public long storedPullRequestId(PullRequestRead route)
     {
         return findStoredId(route).orElseThrow(() -> PullRequestSnapshotService.missing("Pull request"));
-    }
-
-    private PullRequest project(PullRequestRead route, FetchedPullRequest summary)
-    {
-        return route.session().access().server().provider() == GITHUB ? store.saveObserved(summary)
-                : store.findByHostingRepository(route.repository().id(), route.number()).orElseGet(() -> store.saveHosted(route.repository().id(), summary));
     }
 
     public List<PullRequest> listWorkspaceAttentionCandidates(String workspaceId)
@@ -1349,7 +1342,7 @@ public class PullRequestService
             if (route.session().access().server().provider() == GITHUB && observed.origin() != AUTHORED && notifications.reviewRequests(login).contains(ref)) {
                 observed = observed.withOrigin(REVIEW_REQUESTED);
             }
-            row = project(route, observed);
+            row = rows.observe(route, observed);
             PrRawDetail raw = fetched.detail();
             full |= previous.filter(value -> !value.raw().equals(raw)).isPresent();
             boolean viewerCanWrite = detailFetcher.viewerCanWrite(route);
@@ -1831,8 +1824,7 @@ public class PullRequestService
     {
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
         checkArgument(workspace.monitoredRepository().fullName().equalsIgnoreCase(repo), "Request belongs to another workspace repository");
-        return workspace.isGitHub() ? findStored(repo, number)
-                : workspaceHosting.cachedRepositoryId(workspaceId).flatMap(id -> store.findByHostingRepository(id, number));
+        return rows.find(workspace, repo, number);
     }
 
     public Optional<Long> findWorkspaceHostingRepositoryId(String workspaceId)
@@ -1848,8 +1840,7 @@ public class PullRequestService
     public List<PullRequest> findWorkspacePullRequestsByHeadRef(String workspaceId, String headRef)
     {
         Workspace workspace = workspaces.findById(workspaceId).orElseThrow();
-        return workspace.isGitHub() ? store.findByHeadRef(workspace.monitoredRepository().fullName(), headRef)
-                : workspaceHosting.cachedRepositoryId(workspaceId).map(id -> store.findByHostingHeadRef(id, headRef)).orElse(ImmutableList.of());
+        return rows.findByHead(workspace, workspace.monitoredRepository().fullName(), headRef);
     }
 
     public Optional<PullRequestDetail> findPullRequestDetail(PullRequestRead route)

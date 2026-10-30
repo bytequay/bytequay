@@ -19,8 +19,8 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.PullRequestContextBridge;
+import com.bytequay.app.service.pr.PullRequestRows;
 import com.bytequay.core.domain.PrDetailFreshness;
-import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
@@ -46,6 +46,7 @@ public class PullRequestContextBridgeResolverImpl
     private final PullRequestTaskStore assignments;
     private final WorkspaceStore workspaces;
     private final PullRequestStore rows;
+    private final PullRequestRows requestRows;
     private final PrDetailStore details;
     private final ObjectMapper mapper;
 
@@ -56,6 +57,7 @@ public class PullRequestContextBridgeResolverImpl
         this.assignments = requireNonNull(assignments, "assignments is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.rows = requireNonNull(rows, "rows is null");
+        this.requestRows = new PullRequestRows(rows, workspaces);
         this.details = requireNonNull(details, "details is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -88,10 +90,8 @@ public class PullRequestContextBridgeResolverImpl
             text = assignment.initialContext();
         }
         else {
-            Optional<Long> row = workspaces.findById(assignment.workspaceId()).flatMap(workspace -> workspace.isGitHub()
-                    ? rows.findIdByRepoAndNumber(assignment.repo(), assignment.number())
-                    : workspaces.findHostingRepositoryId(workspace.id())
-                            .flatMap(repositoryId -> rows.findByHostingRepository(repositoryId, assignment.number())).map(PullRequest::id));
+            Optional<Long> row = workspaces.findById(assignment.workspaceId())
+                    .flatMap(workspace -> requestRows.findId(workspace, assignment.repo(), assignment.number()));
             Optional<StoredPrDetail> cached = row.flatMap(details::find);
             PrDetailFreshness freshness = row.map(details::findFreshness).orElseGet(PrDetailFreshness::unknown);
             result.put("status", cached.isPresent() ? "cached" : "missing").put("mayBeStale", true);

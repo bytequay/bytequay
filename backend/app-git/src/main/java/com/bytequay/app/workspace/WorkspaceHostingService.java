@@ -17,6 +17,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestService;
 import com.bytequay.app.service.hosting.HostingReadSession;
+import com.bytequay.app.service.pr.PullRequestRows;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -60,6 +61,7 @@ public class WorkspaceHostingService
     private final HostingConnectionService connections;
     private final HostingPullRequestService requests;
     private final PullRequestStore pullRequests;
+    private final PullRequestRows rows;
     private final CredentialService desktopCredentials;
     private final WorkspacePaths paths;
     private final Clock clock;
@@ -73,6 +75,7 @@ public class WorkspaceHostingService
         this.connections = requireNonNull(connections, "connections is null");
         this.requests = requireNonNull(requests, "requests is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.rows = new PullRequestRows(pullRequests, workspaces);
         this.desktopCredentials = requireNonNull(desktopCredentials, "desktopCredentials is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -161,12 +164,7 @@ public class WorkspaceHostingService
         PullRequestListPage found = target.map(value -> requests.cachedPage(value, page, pageSize))
                 .orElseGet(() -> new PullRequestListPage(ImmutableList.of(), false));
         return new WorkspacePullRequestPage(found.items().stream().map(summary -> {
-            PullRequest row = workspace.isGitHub()
-                    ? pullRequests.findIdByRepoAndNumber(summary.repo(), summary.number()).flatMap(pullRequests::findById)
-                            .orElseGet(() -> pullRequests.saveObserved(summary))
-                    : pullRequests.findByHostingRepository(target.orElseThrow().repositoryId(), summary.number())
-                            .orElseGet(() -> pullRequests.saveHosted(target.orElseThrow().repositoryId(), summary));
-            return new WorkspacePullRequestRow(summary, row);
+            return new WorkspacePullRequestRow(summary, rows.findOrCreate(workspace, target.orElseThrow().repositoryId(), summary));
         }).collect(toImmutableList()), found.hasNext());
     }
 

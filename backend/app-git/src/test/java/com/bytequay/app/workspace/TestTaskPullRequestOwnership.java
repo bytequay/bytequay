@@ -65,6 +65,7 @@ class TestTaskPullRequestOwnership
     void setUp()
     {
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.id()).thenReturn("workspace");
         when(workspace.isGitHub()).thenReturn(true);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("owner", "repo"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));

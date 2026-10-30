@@ -1412,6 +1412,10 @@ public class AgentReviewService
         }
         catch (RuntimeException failure) {
             if (turns.findTurnByIdempotencyKey(task.id(), key).isEmpty()) {
+                // A queued question or a Send can take the task between steps. Its end reconciles this review, which starts the step then.
+                if (failure instanceof AgentConflictException && turnStore.findActive(task.id()).isPresent()) {
+                    return;
+                }
                 endRun(requireReview(run.reviewId()), store.findRun(run.id()).orElseThrow(), ReviewRun.State.FAILED,
                         Optional.of("Cannot continue the review: " + failure.getMessage()), Instant.now(clock));
             }

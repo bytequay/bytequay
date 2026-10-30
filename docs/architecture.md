@@ -565,20 +565,21 @@ that authority. An Assistant action counts as the user's direct action only with
 the bounds above: the user's own words, in the message that asked for it. Preview and execution must remain bound to the accepted target;
 uncertain remote outcomes are reconciled instead of blindly repeated.
 
-Task publication checks private source context before writing Git objects or public
-text. The work layer supplies retained issue/Jira context and a tool-free review
-using the task's selected model; a shared port below review and delivery makes
-normal publication, CI pushes, description repairs and recovered review replies
-use the same check. When both push and target are the workspace's own verified
-private repository, the check skips loading source context, outgoing objects and
-model review, including its credential screening. Internal, public and other
-repository destinations retain review. Reviewed calls read exact immutable outgoing
-objects, including intermediate commits, rather than trusting a previous verdict.
-Missing coverage or destination visibility holds the write. Private-source
-identifiers and review input remain local application data or model context,
-never remote receipts.
+The existing draft-publication turn receives a `publicPublication` flag resolved
+by ByteQuay through the selected hosting account. Either a public push repository
+or public PR target makes the flag true; private and internal destinations skip
+the publication privacy inspection. Unknown visibility holds publication without
+asking the agent to discover it. The publication tool rechecks visibility and
+refuses a changed flag, so a private destination becoming public needs a new turn.
+For a public destination, the working agent uses local Git/file tools and retained
+source context to inspect outgoing history, paths, branch and PR text before
+publishing. Unresolved disclosures stop that publication turn without editing its
+verified revision. No separate model reviewer or content size limit is involved.
+CI repair agents also inspect their commits and proposed descriptions within their
+repair scope.
 Source-backed provider sessions withhold direct GitHub commands; ByteQuay's own
 publication action retains destination, revision, lease and authorization checks.
+Cancellation and uncertain remote outcomes still hold delivery.
 
 A development task's automation level is that scope for its delivery, accepted
 when the task starts and fixed afterwards; each level includes the ones before

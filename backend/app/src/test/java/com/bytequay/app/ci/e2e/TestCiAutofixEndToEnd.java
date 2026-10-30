@@ -51,7 +51,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingReadSession;
-import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
 import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
@@ -66,6 +65,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.hosting.HostingAccess;
 import com.bytequay.core.hosting.HostingInstance;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.bytequay.core.store.CredentialStore;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.WorkspaceCredentialStore;
@@ -179,11 +179,11 @@ class TestCiAutofixEndToEnd
     @MockitoBean
     private GhCliService gh;
 
-    @MockitoBean
-    private PublicationPrivacy privacy;
-
     @MockitoSpyBean
     private WorkspaceHostingService hosting;
+
+    @MockitoSpyBean
+    private HostingConnectionService connections;
 
     @Autowired
     private AgentEventService events;
@@ -225,6 +225,7 @@ class TestCiAutofixEndToEnd
     {
         gitHub.reset();
         agent.reset();
+        doReturn(RepositoryVisibility.PUBLIC).when(connections).visibility(any(), any());
         when(publicationReads.fetchPullRequestIdentity(any(), any())).thenAnswer(invocation -> gitHub.identity(invocation.getArgument(1)));
         harness = new CiAutofixE2eHarness(
                 mvc,
@@ -251,7 +252,7 @@ class TestCiAutofixEndToEnd
     }
 
     @Test
-    void deliversDevelopmentThroughCommitAndDraftThenRepairsCiBesideTheOpenTask()
+    void deliversLargeDevelopmentThroughCommitAndDraftThenRepairsCiBesideTheOpenTask()
             throws Exception
     {
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("development-delivery");
@@ -293,7 +294,8 @@ class TestCiAutofixEndToEnd
             return null;
         }).when(publicationWrites).markReadyForReview("test-token", "development-pr-node");
         agent.bind(pr);
-        agent.enqueueCompleted(pr, "The requested code change is ready.", worktree -> writeDevelopmentFile(worktree, "implementation\n"),
+        String implementation = "Synthetic example row\n".repeat(12_000);
+        agent.enqueueCompleted(pr, "The requested code change is ready.", worktree -> writeDevelopmentFile(worktree, implementation),
                 "development-edit", Optional.empty(), Optional.of("development.txt"));
         agent.enqueueCompleted(pr, "Committed the implementation.", worktree -> {
             E2eGitRepository.git(worktree, "add", "development.txt");
@@ -311,14 +313,14 @@ class TestCiAutofixEndToEnd
         }, "refine-summary", Optional.empty(), Optional.empty());
         agent.enqueueCompleted(pr, "Root cause: the implementation missed the checked case. Repair applied and local check passed.", worktree -> {
             assertThat(worktree).isNotEqualTo(sourceWorktree);
-            writeDevelopmentFile(worktree, "implementation\nCI repair\n");
+            writeDevelopmentFile(worktree, implementation + "CI repair\n");
             E2eGitRepository.git(worktree, "add", "development.txt");
             E2eGitRepository.git(worktree, "commit", "--amend", "--no-edit");
         }, "ci-repair", Optional.empty(), Optional.of("development.txt"));
         agent.enqueueCompleted(pr, "The repair keeps the checked case.", worktree -> {
             assertThat(worktree).isEqualTo(sourceWorktree);
             assertThat(E2eGitRepository.git(worktree, "rev-parse", "HEAD")).isEqualTo(remoteHead.get()).isNotEqualTo(initialPublishedHead.get());
-            assertThat(E2eGitRepository.git(worktree, "show", "HEAD:development.txt")).isEqualTo("implementation\nCI repair");
+            assertThat(E2eGitRepository.git(worktree, "show", "HEAD:development.txt")).isEqualTo(implementation + "CI repair");
         }, "development-question", Optional.empty(), Optional.empty());
 
         try {
@@ -337,6 +339,7 @@ class TestCiAutofixEndToEnd
                 assertThat(turn.settings().orElseThrow().developmentAutomation()).contains(automation);
             });
             assertThat(sourceTurns.get(1).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, initial.id()));
+            assertThat(agent.turns().get(2).message()).contains("publicPublication: true", "do not look up repository visibility");
             assertThat(sourceTurns.get(2).developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, initial.id()));
             assertThat(sourceTurns.getLast().developmentOrigin()).contains(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, initial.id()));
 
@@ -354,7 +357,7 @@ class TestCiAutofixEndToEnd
             awaitSettled(source.id());
             assertThat(E2eGitRepository.git(sourceWorktree, "rev-parse", "HEAD")).isEqualTo(repaired);
             assertThat(E2eGitRepository.git(sourceWorktree, "branch", "--show-current")).isEqualTo(branch);
-            assertThat(Files.readString(sourceWorktree.resolve("development.txt"))).isEqualTo("implementation\nCI repair\n");
+            assertThat(Files.readString(sourceWorktree.resolve("development.txt"))).isEqualTo(implementation + "CI repair\n");
             assertThat(agent.gitActions()).extracting(ScriptedAgentDriver.GitAction::name)
                     .containsExactly("development-edit", "development-commit", "development-draft", "refine-summary", "ci-repair", "development-question");
             assertThat(agent.turns().get(4).instructions()).contains(request, "Development request scope for this CI task")

@@ -32,7 +32,6 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
@@ -41,9 +40,8 @@ import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestWrites;
-import com.bytequay.app.workspace.PublicationPrivacy;
-import com.bytequay.app.workspace.PublicationPrivacyException;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRunId;
@@ -54,6 +52,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingServer;
 import com.bytequay.core.hosting.PullRequestWriter;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -94,7 +93,6 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -106,7 +104,6 @@ import static org.mockito.Mockito.when;
 
 class TestDevelopmentFollowupCoordinator
 {
-    private final PublicationPrivacy privacy = mock(PublicationPrivacy.class);
     private static final Instant NOW = Instant.EPOCH;
     private static final DevelopmentAutomation FULL = new DevelopmentAutomation(true, AutomationLevel.CI_FIX, Optional.of(AgentLaneId.CLAUDE_CLI));
     private static final DevelopmentAutomation DRAFT_ONLY = new DevelopmentAutomation(true, AutomationLevel.DRAFT_PR, Optional.empty());
@@ -118,6 +115,7 @@ class TestDevelopmentFollowupCoordinator
     private final DevelopmentGitInspector git = mock(DevelopmentGitInspector.class);
     private final CiAutofixService ci = mock(CiAutofixService.class);
     private final WorkspaceHostingService hosting = mock(WorkspaceHostingService.class);
+    private final HostingConnectionService connections = mock(HostingConnectionService.class);
     private final HostingPullRequestWrites dispatch = mock(HostingPullRequestWrites.class);
     private final PullRequestWriter writes = mock(PullRequestWriter.class);
     private final Clock clock = mock(Clock.class);
@@ -129,7 +127,7 @@ class TestDevelopmentFollowupCoordinator
     private final ReviewFixService reviewFixes = mock(ReviewFixService.class);
     private List<ReviewThreadReply> reviewReplies = ImmutableList.of();
     private final DevelopmentFollowupCoordinator coordinator = new DevelopmentFollowupCoordinator(
-            turns, turnStore, git, pending::add, ci, hosting, dispatch, clock, branches, reviewFixes, privacy);
+            turns, turnStore, git, pending::add, ci, hosting, dispatch, clock, branches, reviewFixes, connections);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("owner", "repo"),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -166,6 +164,7 @@ class TestDevelopmentFollowupCoordinator
         when(ci.startDevelopment(any(), any(), any(), any())).thenAnswer(ignored -> ciRun());
         when(hosting.captureRead("workspace")).thenAnswer(ignored -> HostingTestFixture.route(route.server(), route.baseRepository().fullName(), "token"));
         when(dispatch.forSession(any())).thenReturn(writes);
+        when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PUBLIC);
         doAnswer(call -> {
             Runnable action = call.getArgument(2);
             action.run();
@@ -1039,7 +1038,7 @@ class TestDevelopmentFollowupCoordinator
         var rejected = new DevelopmentFollowupCoordinator(turns, turnStore, git, ignored -> {
             throw new RejectedExecutionException("stopped");
         },
-                ci, hosting, dispatch, clock, branches, reviewFixes, privacy);
+                ci, hosting, dispatch, clock, branches, reviewFixes, connections);
         rejected.completed(outcome);
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("Could not start"));
     }
@@ -1067,7 +1066,7 @@ class TestDevelopmentFollowupCoordinator
         var baseline = new DevelopmentBaseline(worktree, route, local(BASE, false));
         String summary = DevelopmentFollowupCoordinator.summaryPrompt(baseline, local(HEAD, true));
         String commit = DevelopmentFollowupCoordinator.commitPrompt(baseline, local(HEAD, true));
-        String publication = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
+        String publication = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty(), true);
         for (String prompt : ImmutableList.of(summary, commit, publication)) {
             assertThat(prompt).contains(worktree.canonicalWorktree().toString(), route.headBranch(), HEAD, "report_development_result");
         }
@@ -1089,13 +1088,13 @@ class TestDevelopmentFollowupCoordinator
                 "readyForDelivery=false if a user decision is needed");
         assertThat(summary.length()).isLessThan(1600);
         assertThat(commit.length()).isLessThan(1250);
-        assertThat(publication.length()).isLessThan(2100);
+        assertThat(publication.length()).isLessThan(3000);
     }
 
     @Test
     void publicationPromptAsksForNoToolingNotesAndNoSignOff()
     {
-        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)), local(HEAD, false), Optional.empty());
+        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)), local(HEAD, false), Optional.empty(), true);
         assertThat(prompt).contains(
                 "Fill relevant sections only", "leave other sections exactly as the template leaves them",
                 "attribution, co-authorship, or generated-with trailer");
@@ -1110,81 +1109,138 @@ class TestDevelopmentFollowupCoordinator
         verifyNoInteractions(writes);
     }
 
-    @Test
-    void aHeadChangedDuringPrivacyReviewCannotBePushed()
+    @ParameterizedTest
+    @CsvSource({"PUBLIC,true", "PRIVATE,false", "INTERNAL,false"})
+    void publicationTurnReceivesVerifiedVisibility(RepositoryVisibility visibility, boolean publicPublication)
     {
+        when(connections.visibility(any(), anyString())).thenReturn(visibility);
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
-        trackedRemote(Optional.empty(), Optional.empty());
-        doAnswer(call -> {
-            when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false));
-            return null;
-        }).when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
-        generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
-                coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("checked revision changed"));
+        generated(CREATE_DRAFT_PR, false);
+
         advance();
-        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("publicPublication: " + publicPublication));
+        verify(connections).visibility(any(), eq(route.baseRepository().fullName()));
         verifyNoInteractions(writes);
     }
 
-    @Test
-    void cancellationDuringPrivacyReviewCannotPublish()
+    @ParameterizedTest
+    @CsvSource({"PUBLIC,PRIVATE,true", "PRIVATE,PUBLIC,true", "PUBLIC,PUBLIC,true", "PRIVATE,PRIVATE,false", "INTERNAL,PRIVATE,false"})
+    void eitherPublicForkDestinationRequiresPrivacyInspection(RepositoryVisibility push, RepositoryVisibility target, boolean publicPublication)
     {
+        route = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"),
+                "https://github.com/forker/repo.git", "upstream", "main", BASE, worktree.generatedBranch(), Optional.empty());
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
+        when(connections.visibility(any(), eq("forker/repo"))).thenReturn(push);
+        when(connections.visibility(any(), eq("upstream/repo"))).thenReturn(target);
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
-        trackedRemote(Optional.empty(), Optional.empty());
-        doAnswer(call -> {
-            history.set(history.size() - 1, history.getLast().requestCancellation(NOW));
-            return null;
-        }).when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq("Title\nBody"));
-        generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
-                coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("stopped during privacy review"));
+        generated(CREATE_DRAFT_PR, false);
+
         advance();
-        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+
+        verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), contains("publicPublication: " + publicPublication));
+        verify(connections).visibility(any(), eq("forker/repo"));
+        verify(connections).visibility(any(), eq("upstream/repo"));
         verifyNoInteractions(writes);
     }
 
-    @Test
-    void unavailablePrivacyReviewStopsWithoutRepairOrPublication()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unknownOrUnavailableVisibilityDoesNotAskTheAgentToGuess(boolean unavailable)
     {
+        if (unavailable) {
+            when(connections.visibility(any(), anyString())).thenThrow(new IllegalStateException("Repository visibility unavailable"));
+        }
+        else {
+            when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.UNKNOWN);
+        }
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
-        trackedRemote(Optional.empty(), Optional.empty());
-        doThrow(new AgentUnavailableException("Privacy review unavailable: The model did not answer in time"))
-                .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
 
         advance();
 
-        verify(turns).failDevelopmentContinuation(taskId, source.id(),
-                "Automation stopped. Check for private information: Privacy review unavailable: The model did not answer in time. Send another message to retry.");
+        verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("visibility"));
         noFollowup();
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verifyNoInteractions(writes);
     }
 
     @Test
-    void blockedPrivacyCheckHoldsPublicationWithoutStartingAnotherTurn()
+    void privateDestinationBecomingPublicRequiresANewPublicationTurn()
     {
+        when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PRIVATE);
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
-        doThrow(new PublicationPrivacyException("Privacy check blocked"))
-                .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), eq(HEAD), any(), any(), anyString(), eq(""));
+        generated(CREATE_DRAFT_PR, false, () -> {
+            when(connections.visibility(any(), anyString())).thenReturn(RepositoryVisibility.PUBLIC);
+            assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("Publication visibility changed");
+        });
 
         advance();
 
-        verify(turns).failDevelopmentContinuation(taskId, source.id(),
-                "Automation stopped. Check for private information: Privacy check blocked. Send another message to retry.");
-        noFollowup();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void publicationReminderUsesTheFlagWithoutRemoteVisibilitySearch(boolean publicPublication)
+    {
+        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
+                local(HEAD, false), Optional.empty(), publicPublication);
+
+        assertThat(prompt).contains("publicPublication: " + publicPublication, "do not look up repository visibility",
+                "If publicPublication=false, skip the publication privacy inspection", "If publicPublication=true, before calling the publication tool inspect",
+                BASE + ".." + HEAD, "file versions, commit messages, paths, branch name and proposed PR title/body",
+                "Use local Git/file tools and retained source context", "do not publish: report readyForDelivery=false");
+    }
+
+    @Test
+    void aHeadChangedDuringPublicationInspectionCannotBePushed()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        generated(CREATE_DRAFT_PR, true, () -> {
+            when(git.inspectPublication(worktree, route)).thenAnswer(call -> {
+                when(git.inspectLocal(worktree, route)).thenReturn(local(NEXT, false));
+                return publication(Optional.empty(), Optional.empty());
+            });
+            assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("checked revision changed");
+        });
+        advance();
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verifyNoInteractions(writes);
     }
 
     @Test
-    void privacyRefusalPreventsPushAndDraftCreation()
+    void cancellationDuringPublicationInspectionCannotPublish()
     {
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
-        doThrow(new IllegalStateException("Privacy check blocked"))
-                .when(privacy).checkGit(eq(taskId), any(), any(), anyString(), anyString(), any(), any(), anyString(), eq("Add a thing\nPrivate body"));
-        generated(CREATE_DRAFT_PR, true, () -> assertThatThrownBy(() ->
-                coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Private body")).hasMessageContaining("Privacy check blocked"));
+        generated(CREATE_DRAFT_PR, true, () -> {
+            when(git.inspectPublication(worktree, route)).thenAnswer(call -> {
+                history.set(history.size() - 1, history.getLast().requestCancellation(NOW));
+                return publication(Optional.empty(), Optional.empty());
+            });
+            assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("Publication was stopped");
+        });
+        advance();
+        verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
+        verifyNoInteractions(writes);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void aChangedPublicationDestinationCannotBePushed(boolean changedServer)
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        trackedRemote(Optional.empty(), Optional.empty());
+        generated(CREATE_DRAFT_PR, true, () -> {
+            var server = changedServer
+                    ? new HostingServer(HostingProvider.GITLAB, URI.create("https://git.example.invalid"), URI.create("https://git.example.invalid/api/v4"))
+                    : route.server();
+            when(hosting.captureRead(worktree.workspaceId())).thenReturn(HostingTestFixture.route(server, changedServer ? "owner/repo" : "other/repo", "token"));
+            assertThatThrownBy(() -> coordinator.publishDraftPullRequest(taskId.toString(), "Title", "Body")).hasMessageContaining("publication repository changed");
+        });
         advance();
         verify(git, never()).pushDevelopmentHead(any(), any(), anyString(), any());
         verifyNoInteractions(writes);
@@ -1208,9 +1264,6 @@ class TestDevelopmentFollowupCoordinator
 
         advance();
 
-        verify(privacy).checkGit(taskId, route.server(), worktree.canonicalWorktree(), BASE, HEAD, route.headRepository(), route.baseRepository(), route.headBranch(), "");
-        verify(privacy).checkGit(taskId, route.server(), worktree.canonicalWorktree(), BASE, HEAD, route.headRepository(), route.baseRepository(),
-                route.headBranch(), "Add a thing\nBody");
         verify(git).pushDevelopmentHead(worktree, route, HEAD, Optional.empty());
         verifyCreated(route.headBranch(), route.baseBranch(), "Add a thing", "Body", true);
         assertThat(remote.get().remoteHeadSha()).contains(HEAD);
@@ -1355,7 +1408,7 @@ class TestDevelopmentFollowupCoordinator
 
         assertThat(DevelopmentFollowupCoordinator.commitPrompt(baseline, local(HEAD, false))).contains("Branch: '" + worktree.generatedBranch() + "'");
         assertThat(DevelopmentFollowupCoordinator.summaryPrompt(baseline, local(HEAD, false))).contains("Branch: '" + worktree.generatedBranch() + "'");
-        assertThat(DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.of(pr(BASE, false))))
+        assertThat(DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.of(pr(BASE, false)), true))
                 .contains("Branch: '" + worktree.generatedBranch() + "'", "Push repository/branch: owner/repo / 'existing-pr'", "creates no second one");
     }
 
@@ -1409,7 +1462,7 @@ class TestDevelopmentFollowupCoordinator
         var fork = new DevelopmentPublicationRoute(GITHUB_SERVER, new RepoRef("forker", "repo"), new RepoRef("upstream", "repo"), "https://github.com/forker/repo.git",
                 "upstream", "release", BASE, route.headBranch(), Optional.empty());
         var baseline = new DevelopmentBaseline(worktree, fork, local(BASE, false));
-        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
+        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty(), true);
         assertThat(prompt).contains(HEAD, "upstream/repo", "'release'", "forker/repo", DevelopmentResultBridge.PUBLISH_TOOL_NAME, "Do not commit", "stop without");
         assertThat(prompt).doesNotContain("--force-with-lease", "pr create", "--repo", "--base '");
     }
@@ -1418,7 +1471,7 @@ class TestDevelopmentFollowupCoordinator
     void publicationPromptTellsTheAgentToPublishThroughTheToolWithoutCredentials()
     {
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
-                local(HEAD, false), Optional.of(pr(BASE, true)));
+                local(HEAD, false), Optional.of(pr(BASE, true)), true);
         assertThat(prompt).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME, "already tracks this branch",
                 "ByteQuay owns the push and the GitHub write", "never read or ask for credentials");
         assertThat(prompt).contains("Never run git push, a GitHub CLI command");

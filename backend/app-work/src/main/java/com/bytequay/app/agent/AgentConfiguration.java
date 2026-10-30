@@ -81,13 +81,13 @@ import com.bytequay.app.git.command.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
 import com.bytequay.app.memory.RecipeChecks;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestContents;
 import com.bytequay.app.service.hosting.HostingPullRequestWrites;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccounts;
-import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.review.AgentReview;
@@ -410,9 +410,9 @@ public class AgentConfiguration
     public DevelopmentFollowupCoordinator developmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore,
             DevelopmentGitInspector git,
             CiAutofixService ci, WorkspaceHostingService hosting, HostingPullRequestWrites writes, Clock agentClock, DevelopmentBranchService branches,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor, ReviewFixService reviewFixes, PublicationPrivacy privacy)
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor, ReviewFixService reviewFixes, HostingConnectionService connections)
     {
-        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, hosting, writes, agentClock, branches, reviewFixes, privacy);
+        return new DevelopmentFollowupCoordinator(turns, turnStore, git, ioExecutor, ci, hosting, writes, agentClock, branches, reviewFixes, connections);
     }
 
     @Bean

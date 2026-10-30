@@ -331,7 +331,7 @@ final class ScriptedAgentDriver
                                     ImmutableList.of(new DevelopmentLearningCommit(
                                             E2eGitRepository.git(context.worktree(), "rev-parse", "HEAD"),
                                             E2eGitRepository.git(context.worktree(), "log", "-1", "--format=%s"),
-                                            E2eGitRepository.git(context.worktree(), "show", "--format=", "--no-ext-diff", "HEAD"))),
+                                            E2eGitRepository.git(context.worktree(), "show", "--format=", "--stat", "--no-ext-diff", "HEAD"))),
                                     Optional.empty(),
                                     "Read the synchronized committed diff.",
                                     ImmutableList.of("This scripted report does not execute tests.")));

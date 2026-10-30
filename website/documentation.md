@@ -454,33 +454,23 @@ Open **Work items**. **Local** items stay on your Mac; **GitHub issues** and
 
 **Link work item** in a Local item’s **Context** references other work.
 
-Before a task pushes changes or opens a PR on GitHub.com, ByteQuay checks outgoing files,
-intermediate commits, messages, branch names and public text for private source
-information. Repository visibility is checked through the selected account.
-When both the push and PR target the workspace’s own verified private repository,
-ByteQuay skips this review, including its credential screening, without loading
-source context or outgoing file history. Internal-visibility repositories and
-other destinations still receive the review. It keeps Jira and local context
-private for public destinations, permits internal references in the workspace’s
-own internal-visibility repository, and rejects credentials wherever it runs.
+In the existing draft-publication turn, ByteQuay supplies the working agent with
+a `publicPublication` flag. ByteQuay reads repository visibility using
+the selected hosting account; the agent does not search GitHub or GitLab for it.
+If either the push repository or PR target is public, the agent inspects outgoing
+commits, files, paths, branch name and PR text for credentials and private source
+information before publishing. For private or internal destinations, it skips
+that publication privacy inspection. Quoted private traces use `***`; examples
+use synthetic data.
 
-The development agent checks privacy and completes any cleanup while preparing changes
-for publication; this need not be the last step of a turn or run on every turn.
-ByteQuay checks the final outgoing content before publication.
-A blocked check holds publication without adding a repair turn;
-send a follow-up message when ready to address it.
-Quoted private traces use `***`; executable examples use synthetic data. CI repair
-pushes, PR-description repairs and automatic review replies are checked too.
-Blocked CI repairs and replies wait for a sanitized retry. A CI retry inspects the
-updated commits again. Replies recovered after a restart wait for the next authorized
-delivery; stopping a task during its privacy check prevents publication.
-Unknown visibility always holds publication. When review is required, unavailable
-review, oversized changes, unreadable binary or LFS objects, and new or changed
-submodules hold publication. Unchanged submodules do not block an otherwise
-inspectable change. Fix the reported problem and retry;
-source-backed agents cannot bypass the check with a direct push. The check uses
-the task’s selected model and retained source context; it reduces disclosure risk
-but cannot guarantee detection of every sensitive detail.
+This reminder runs in the existing publication turn, with no separate reviewer
+or review character limit. If the agent finds an unresolved disclosure, it holds
+publication and explains the issue without exposing private values. ByteQuay holds
+publication if visibility is unknown or the public/non-public flag changes before
+the write. Publication still requires your direct action or accepted automation
+scope and passes the destination, revision and Git safety checks. Source-backed
+tasks publish through ByteQuay's publication action. Replies recovered after a
+restart wait for the next authorized delivery.
 
 <a id="epics"></a>
 

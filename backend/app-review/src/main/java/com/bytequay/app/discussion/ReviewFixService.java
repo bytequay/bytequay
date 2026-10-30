@@ -28,12 +28,10 @@ import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.app.agent.runtime.TaskInput;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.ReviewFixReply;
 import com.bytequay.core.discussion.ReviewFixStore;
 import com.bytequay.core.domain.PullRequest;
-import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableMap;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -52,7 +50,6 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Function;
 
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -70,7 +67,6 @@ public class ReviewFixService
 {
     static final int MAXIMUM_THREADS = 10;
     static final int MAXIMUM_ROUNDS = 3;
-    private static final String PRIVACY_HOLD = "Privacy check held this reply. Submit a sanitized reply before publication; nothing was posted.";
     private static final Duration POST_OUTCOME_WAIT = Duration.ofMinutes(5);
     private static final Duration DETAIL_FRESHNESS = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(ReviewFixService.class);
@@ -84,11 +80,10 @@ public class ReviewFixService
     private final ReviewFixStore store;
     private final PullRequestService pullRequests;
     private final Clock clock;
-    private final PublicationPrivacy privacy;
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-fix-", 0).factory());
 
     public ReviewFixService(AgentTaskStore tasks, AgentServingGate gate, AgentTurnService turns, AgentTurnStore turnStore, TaskPullRequestOwnership ownership,
-            ReviewCommentReader comments, ReviewFixStore store, PullRequestService pullRequests, Clock clock, PublicationPrivacy privacy)
+            ReviewCommentReader comments, ReviewFixStore store, PullRequestService pullRequests, Clock clock)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.gate = requireNonNull(gate, "gate is null");
@@ -98,7 +93,6 @@ public class ReviewFixService
         this.comments = requireNonNull(comments, "comments is null");
         this.store = requireNonNull(store, "store is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.privacy = requireNonNull(privacy, "privacy is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -189,14 +183,6 @@ public class ReviewFixService
             if (!reply.waiting() || reply.reply().isEmpty() || reply.postStartedAt().isPresent() || (reply.fixed() && !pushed)) {
                 continue;
             }
-            try {
-                privacy.checkText(taskId, GITHUB_SERVER, RepoRef.of(reply.repo().split("/", 2)[0], reply.repo().split("/", 2)[1]), reply.reply().orElseThrow());
-            }
-            catch (RuntimeException blocked) {
-                store.update(reply.failed(PRIVACY_HOLD));
-                continue;
-            }
-            // The privacy helper can outlive Stop; only still-owned continuations may record or send a reply.
             turns.executeDevelopmentAction(taskId, turnId, () -> post(reply));
         }
     }
@@ -210,7 +196,7 @@ public class ReviewFixService
         for (ReviewFixReply reply : store.listByTask(taskId.toString())) {
             ReviewThreadReply answer = answers.get(reply.commentId());
             if (answer != null && reply.postStartedAt().isEmpty() && reply.postedAt().isEmpty()
-                    && (reply.waiting() || reply.failure().filter(PRIVACY_HOLD::equals).isPresent())
+                    && reply.waiting()
                     && (reply.reply().isEmpty() || !reply.reply().orElseThrow().equals(answer.body()))) {
                 store.update(reply.answered(answer.body(), answer.fixed()));
             }

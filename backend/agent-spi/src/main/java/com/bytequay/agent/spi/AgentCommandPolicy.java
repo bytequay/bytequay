@@ -133,7 +133,7 @@ public final class AgentCommandPolicy
     {
         if (scope.publicationProtected()) {
             return """
-                    Publication privacy is enforced by ByteQuay. Build and test locally, but never push, create or edit PRs,
+                    Publication authorization is enforced by ByteQuay. Build and test locally, but never push, create or edit PRs,
                     or post comments through shell, scripts, HTTP or other remote tools, even when the user asks to publish.
                     Route publication through ByteQuay's checked publication action. Do not request credentials or bypass this gate.
                     """ + VERIFICATION_SCOPE;

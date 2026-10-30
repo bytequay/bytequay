@@ -29,11 +29,12 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.StartCiAutofixCommand;
 import com.bytequay.app.discussion.ReviewFixService;
+import com.bytequay.app.service.hosting.HostingConnectionService;
 import com.bytequay.app.service.hosting.HostingPullRequestWrites;
-import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.GitHubPullRequestIdentity;
+import com.bytequay.core.hosting.RepositoryVisibility;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,19 +66,18 @@ public class DevelopmentFollowupCoordinator
     private final Executor executor;
     private final CiAutofixService ci;
     private final WorkspaceHostingService hosting;
+    private final HostingConnectionService connections;
     private final HostingPullRequestWrites writes;
     private final Clock clock;
     private final DevelopmentBranchService branches;
     private final ReviewFixService reviewFixes;
-    private final PublicationPrivacy privacy;
     private final ConcurrentMap<TaskId, Accepted> accepted = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, PendingPublication> publications = new ConcurrentHashMap<>();
 
     public DevelopmentFollowupCoordinator(AgentTurnService turns, AgentTurnStore turnStore, DevelopmentGitInspector git,
             Executor executor, CiAutofixService ci, WorkspaceHostingService hosting, HostingPullRequestWrites writes, Clock clock, DevelopmentBranchService branches,
-            ReviewFixService reviewFixes, PublicationPrivacy privacy)
+            ReviewFixService reviewFixes, HostingConnectionService connections)
     {
-        this.privacy = requireNonNull(privacy, "privacy is null");
         this.reviewFixes = requireNonNull(reviewFixes, "reviewFixes is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
@@ -85,6 +85,7 @@ public class DevelopmentFollowupCoordinator
         this.executor = requireNonNull(executor, "executor is null");
         this.ci = requireNonNull(ci, "ci is null");
         this.hosting = requireNonNull(hosting, "hosting is null");
+        this.connections = requireNonNull(connections, "connections is null");
         this.writes = requireNonNull(writes, "writes is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.branches = requireNonNull(branches, "branches is null");
@@ -269,15 +270,13 @@ public class DevelopmentFollowupCoordinator
                     checkState(git.branchHeld(baseline.worktree(), publication.remoteHeadSha().orElseThrow()),
                             "The PR branch has commits this task never had; ask the agent to rebase onto it first");
                 }
-                action = "Check for private information";
-                progress(completion, "Checking for private information…");
-                checkPrivacy(completion, baseline, local);
+                boolean publicPublication = publicPublication(baseline);
                 action = "Create draft PR";
-                PendingPublication window = new PendingPublication(completion.turn().id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr);
+                PendingPublication window = new PendingPublication(completion.turn().id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr, publicPublication);
                 publications.put(completion.task().id(), window);
                 DevelopmentTurnCompletion published;
                 try {
-                    published = followup(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, publicationPrompt(baseline, local, currentPr));
+                    published = followup(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, publicationPrompt(baseline, local, currentPr, publicPublication));
                 }
                 finally {
                     // The window authorizes exactly this follow-up; a later turn must not publish.
@@ -540,14 +539,6 @@ public class DevelopmentFollowupCoordinator
         }
     }
 
-    private void checkPrivacy(DevelopmentTurnCompletion completion, DevelopmentBaseline baseline, DevelopmentLocalFacts local)
-    {
-        DevelopmentPublicationRoute route = baseline.route();
-        privacy.checkGit(completion.task().id(), route.server(), baseline.worktree().canonicalWorktree(), route.baseSha(), local.headSha(),
-                route.headRepository(), route.baseRepository(), route.headBranch(), "");
-        checkState(owns(completion), "Publication was stopped during privacy review");
-    }
-
     static String commitPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local)
     {
         return """
@@ -602,13 +593,12 @@ public class DevelopmentFollowupCoordinator
         TaskWorktree worktree = window.baseline().worktree();
         DevelopmentLocalFacts local = git.inspectLocal(worktree, route);
         checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0, "The verified local revision changed; publication was not attempted");
-        privacy.checkGit(id, route.server(), worktree.canonicalWorktree(), route.baseSha(), window.localHead(), route.headRepository(), route.baseRepository(),
-                route.headBranch(), withoutAttribution(title) + "\n" + withoutAttribution(body));
+        checkState(publicPublication(window.baseline()) == window.publicPublication(), "Publication visibility changed; retry with the current visibility flag");
+        DevelopmentPublicationFacts facts = git.inspectPublication(worktree, route);
         checkState(publications.get(id) == window && turnStore.findActive(id).filter(turn -> turn.cancellationRequestedAt().isEmpty()).flatMap(AgentTurn::developmentOrigin)
-                        .filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR).isPresent(), "Publication was stopped during privacy review");
+                        .filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR).isPresent(), "Publication was stopped");
         local = git.inspectLocal(worktree, route);
         checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0, "The checked revision changed; publication is held");
-        DevelopmentPublicationFacts facts = git.inspectPublication(worktree, route);
         Optional<GitHubPullRequestIdentity> existing = matchingPr(route, facts);
         if (existing.filter(pr -> pr.state() == GitHubPullRequestIdentity.State.MERGED).isEmpty()
                 && facts.remoteHeadSha().filter(window.localHead()::equals).isEmpty()) {
@@ -655,7 +645,8 @@ public class DevelopmentFollowupCoordinator
             DevelopmentBaseline baseline,
             String localHead,
             Optional<String> expectedRemoteSha,
-            Optional<GitHubPullRequestIdentity> existingPr)
+            Optional<GitHubPullRequestIdentity> existingPr,
+            boolean publicPublication)
     {
         private PendingPublication
         {
@@ -667,7 +658,20 @@ public class DevelopmentFollowupCoordinator
         }
     }
 
-    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local, Optional<GitHubPullRequestIdentity> pullRequest)
+    private boolean publicPublication(DevelopmentBaseline baseline)
+    {
+        DevelopmentPublicationRoute route = baseline.route();
+        var selected = hosting.captureRead(baseline.worktree().workspaceId());
+        checkState(selected.session().access().server().equals(route.server()) && selected.repository().fullPath().equals(route.baseRepository().fullName()),
+                "The publication repository changed");
+        RepositoryVisibility push = requireNonNull(connections.visibility(selected.session(), route.headRepository().fullName()), "push visibility is null");
+        RepositoryVisibility target = route.headRepository().equals(route.baseRepository()) ? push
+                : requireNonNull(connections.visibility(selected.session(), route.baseRepository().fullName()), "target visibility is null");
+        checkState(push != RepositoryVisibility.UNKNOWN && target != RepositoryVisibility.UNKNOWN, "Publication repository visibility is unknown; retry publication");
+        return push == RepositoryVisibility.PUBLIC || target == RepositoryVisibility.PUBLIC;
+    }
+
+    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local, Optional<GitHubPullRequestIdentity> pullRequest, boolean publicPublication)
     {
         DevelopmentPublicationRoute route = baseline.route();
         String prInstruction = pullRequest
@@ -678,7 +682,16 @@ public class DevelopmentFollowupCoordinator
                 The accepted Auto draft PR setting authorizes this single publication of the verified revision.
                 Worktree: %s. Branch: %s. Exact clean HEAD to publish: %s.
                 Base repository/branch: %s / %s. Push repository/branch: %s / %s.
+                publicPublication: %s (ByteQuay-verified visibility of the push repository and PR target).
                 %s
+
+                Use this flag; do not look up repository visibility through GitHub, GitLab, gh, browsers or APIs.
+                If publicPublication=false, skip the publication privacy inspection; both destinations are non-public.
+                If publicPublication=true, before calling the publication tool inspect outgoing history %s..%s,
+                including file versions, commit messages, paths, branch name and proposed PR title/body, for credentials
+                and private source information. Use local Git/file tools and retained source context as needed.
+                If anything sensitive is unresolved, do not publish: report readyForDelivery=false and explain without
+                quoting private values. Leave code/history cleanup for a development turn; this turn cannot edit them.
 
                 Recheck branch, exact HEAD, clean staged/unstaged/untracked status (excluding ignored build output),
                 and no open Git operation. Stop and report any mismatch.
@@ -687,8 +700,7 @@ public class DevelopmentFollowupCoordinator
                 ByteQuay owns the push and the GitHub write: exact HEAD, its own lease, draft PR creation or existing PR update.
                 Never run git push, a GitHub CLI command, or other remote writes; never read or ask for credentials.
 
-                Sanitize title/body against private sources: remove issue/Jira links, customer/repository/user identifiers and identifying
-                traces. Use *** or synthetic examples. Never bypass a privacy refusal.
+                For publicPublication=true, sanitize title/body against private sources using *** or synthetic examples.
                 Derive title and body from the actual change and repository PR template. Fill relevant sections only;
                 leave other sections exactly as the template leaves them. Describe changed tests by the behavior they cover.
                 Keep local execution details private to this task: commands run, test classes, counts, pass/fail results,
@@ -700,7 +712,7 @@ public class DevelopmentFollowupCoordinator
                 otherwise report readiness.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.worktree().generatedBranch()), local.headSha(),
                         route.baseRepository().fullName(), quote(route.baseBranch()), route.headRepository().fullName(), quote(route.headBranch()),
-                        prInstruction, DevelopmentResultBridge.PUBLISH_TOOL_NAME);
+                        publicPublication, prInstruction, route.baseSha(), local.headSha(), DevelopmentResultBridge.PUBLISH_TOOL_NAME);
     }
 
     private static String quote(String value)

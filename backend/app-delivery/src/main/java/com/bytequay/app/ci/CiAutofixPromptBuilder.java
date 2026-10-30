@@ -44,6 +44,11 @@ final class CiAutofixPromptBuilder
             commit order, at most one fixup immediately after each target, and a clean index/worktree
             with no rebase or conflict state.
 
+            Inspect outgoing files, intermediate commit versions, messages, paths and proposed PR descriptions
+            for credentials and private source information. Use Git and file tools as needed; keep private
+            issue/Jira/local details out of public changes, use synthetic test data and *** in quoted traces.
+            Complete privacy cleanup as part of the repair, preserve published history, and rerun affected checks.
+
             Never push, post comments, approve, merge, or call a GitHub write API. ByteQuay verifies
             the repository and performs authorized publication. Briefly report the cause, repair,
             local checks and unresolved blockers to the user. Your final answer is not parsed for

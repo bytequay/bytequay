@@ -39,7 +39,6 @@ import com.bytequay.agent.spi.ReviewThreadReply;
 import com.bytequay.app.agent.runtime.AgentServingGate;
 import com.bytequay.app.agent.runtime.ReviewFixTurns;
 import com.bytequay.app.service.pr.PullRequestService;
-import com.bytequay.app.workspace.PublicationPrivacy;
 import com.bytequay.app.workspace.TaskPullRequestOwnership;
 import com.bytequay.core.discussion.ReviewFixReply;
 import com.bytequay.core.discussion.ReviewFixStore;
@@ -70,10 +69,8 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.bytequay.agent.core.AgentTaskFixtures.created;
-import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -84,7 +81,6 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -95,7 +91,6 @@ import static org.mockito.Mockito.withSettings;
 
 class TestReviewFixService
 {
-    private final PublicationPrivacy privacy = mock(PublicationPrivacy.class);
     private static final Instant CREATED = Instant.parse("2026-10-01T00:00:00Z");
     private static final Instant NOW = CREATED.plus(Duration.ofDays(1));
     private static final String REPO = "owner/repo";
@@ -109,7 +104,7 @@ class TestReviewFixService
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final Map<String, ReviewFixReply> rows = new LinkedHashMap<>();
     private final ReviewFixService service = new ReviewFixService(mock(AgentTaskStore.class), mock(AgentServingGate.class, withSettings().mockMaker(MockMakers.INLINE)),
-            turns, turnStore, ownership, new ReviewCommentReader(pullRequestStore, details), new MemoryStore(), pullRequests, Clock.fixed(NOW, ZoneOffset.UTC), privacy);
+            turns, turnStore, ownership, new ReviewCommentReader(pullRequestStore, details), new MemoryStore(), pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
     private final AgentTask task = task(AutomationLevel.REVIEW_FIX);
 
     @BeforeEach
@@ -212,42 +207,15 @@ class TestReviewFixService
         assertThat(service.awaitingPost(task.id())).isFalse();
     }
 
-    @Test
-    void privacyBlocksFixedAndDeclinedRepliesIncludingRetry()
-    {
-        cache(thread(10, comment(11L, "bob", false, "Rename it.")));
-        service.request(task);
-        TurnId turnId = answered(new ReviewThreadReply(11, "Private reply", false));
-        doThrow(new IllegalStateException("Privacy check blocked")).when(privacy).checkText(any(), eq(GITHUB_SERVER), any(), anyString());
-        service.publish(task.id(), turnId, false);
-        service.publish(task.id(), turnId, true);
-        assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.failure()).hasValueSatisfying(value -> assertThat(value).contains("Privacy")));
-        verify(pullRequests, never()).replyToReviewComment(anyString(), anyInt(), anyLong(), anyString());
-        assertThat(rows.values()).allSatisfy(reply -> assertThat(reply.postStartedAt()).isEmpty());
-        doNothing().when(privacy).checkText(any(), eq(GITHUB_SERVER), any(), anyString());
-        service.publish(task.id(), answered(new ReviewThreadReply(11, "Generic reply", false)), false);
-        verify(pullRequests).replyToReviewComment(REPO, 12, 10, "Generic reply");
-    }
-
     @ParameterizedTest
     @ValueSource(booleans = {true, false})
-    void stopDuringPrivacyCheckPreventsReplyAndReceipt(boolean fixed)
+    void stoppedAutomationPreventsReplyAndReceipt(boolean fixed)
     {
         cache(thread(10, comment(11L, "bob", false, "Rename it.")));
         service.request(task);
         TurnId turnId = answered(new ReviewThreadReply(11, "Generic answer", fixed));
-        AtomicBoolean authorized = new AtomicBoolean(true);
-        doAnswer(call -> {
-            authorized.set(false);
-            return null;
-        }).when(privacy).checkText(any(), eq(GITHUB_SERVER), any(), anyString());
-        doAnswer(call -> {
-            if (!authorized.get()) {
-                throw new AgentConflictException("Development automation stopped");
-            }
-            call.<Runnable>getArgument(2).run();
-            return null;
-        }).when(turns).executeDevelopmentAction(eq(task.id()), eq(turnId), any());
+        doThrow(new AgentConflictException("Development automation stopped"))
+                .when(turns).executeDevelopmentAction(eq(task.id()), eq(turnId), any());
 
         assertThatThrownBy(() -> service.publish(task.id(), turnId, true))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("stopped");

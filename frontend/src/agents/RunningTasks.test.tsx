@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { RunningTaskList, runningTaskRoute } from './RunningTasks';
+import { pinIsWorking, RunningTaskList, runningTaskRoute } from './RunningTasks';
 import { parseRunningTasks, visibleRunningTasks, type RunningTask } from './runningTaskModel';
 
 const now = Date.parse('2026-10-01T10:00:00Z');
@@ -36,7 +36,8 @@ describe('Working sidebar', () => {
     expect(html).toContain('is-completed');
     expect(html).toContain('Finished');
     expect(html).toContain('Fix the connector, Running, owner/repo');
-    expect(html).toMatch(/Fix the connector<\/span><span class="app-sidebar__running-status" role="status" aria-label="Running">/);
+    expect(html).toContain('<span class="app-sidebar__label is-working">Fix the connector<span class="app-sidebar__shimmer" aria-hidden="true"><span>Fix the connector</span></span></span></button>');
+    expect(html).not.toContain('aria-label="Running"');
     expect(visibleRunningTasks([done], now + eightHours - 1)).toHaveLength(1);
     expect(visibleRunningTasks([done], now + eightHours)).toEqual([]);
     expect(visibleRunningTasks([task], now + eightHours)).toEqual([task]);
@@ -53,6 +54,16 @@ describe('Working sidebar', () => {
     const html = renderToStaticMarkup(<RunningTaskList tasks={[{ ...task, kind: 'REVIEW', title: 'Review owner/repository#31710' }]} />);
     expect(html).toContain('lucide-eye');
     expect(html).toContain('>owner/repository#31710</span>');
+  });
+
+  it('lights a pinned task, review or pull request only while its work runs', () => {
+    const review: RunningTask = { ...task, id: 'review-task', kind: 'REVIEW', targetId: 'review-1', pullRequestNumber: 7 };
+    expect(pinIsWorking({ kind: 'task', workspaceId: 'ws-1', taskId: 'one' }, [task])).toBe(true);
+    expect(pinIsWorking({ kind: 'task', workspaceId: 'ws-1', taskId: 'one' }, [{ ...task, status: 'WAITING' }])).toBe(false);
+    expect(pinIsWorking({ kind: 'review', workspaceId: 'ws-1', reviewId: 'review-1' }, [review])).toBe(true);
+    expect(pinIsWorking({ kind: 'pull', repo: 'Owner/Repo', number: 7 }, [review])).toBe(true);
+    expect(pinIsWorking({ kind: 'pull', repo: 'owner/other', number: 7 }, [review])).toBe(false);
+    expect(pinIsWorking({ kind: 'issue', repo: 'owner/repo', number: 7, workspaceId: 'ws-1' }, [review])).toBe(false);
   });
 
   it('opens each kind in its owning workspace', () => {

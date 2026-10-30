@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { CheckCircle2, ChevronDown, ChevronRight, CirclePause, CircleX, LoaderCircle, TriangleAlert } from 'lucide-react';
+import type { PinnedItem } from '../home/pinned';
 import { workspaceAgentTaskRoute, workspaceCherryPickRoute, workspacePullRequestRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { RUNNING_TASK_LABELS, RUNNING_TASK_TYPES, visibleRunningTasks, type RunningTask } from './runningTaskModel';
 import { TaskTypeIcon } from './TaskListCards';
@@ -20,7 +21,8 @@ import '../css/running-tasks.css';
 
 const POLL_MS = 5000;
 
-export default function RunningTasks() {
+/** The sidebar's Working rows; pinned rows read the same snapshot to mark their own work. */
+export function useRunningTasks(): RunningTask[] {
   const [tasks, setTasks] = useState<RunningTask[]>([]);
   const [now, setNow] = useState(Date.now);
   useEffect(() => {
@@ -54,7 +56,21 @@ export default function RunningTasks() {
     const timer = window.setTimeout(() => setNow(Date.now()), Math.max(0, Math.min(...deadlines) - Date.now()));
     return () => window.clearTimeout(timer);
   }, [tasks, now]);
-  return <RunningTaskList tasks={visibleRunningTasks(tasks, now)} />;
+  return visibleRunningTasks(tasks, now);
+}
+
+/** A pinned task or review runs itself; a pinned pull request works while any task on it runs. */
+export function pinIsWorking(target: PinnedItem['target'], tasks: RunningTask[]): boolean {
+  return tasks.some(task => task.status === 'RUNNING' && (target.kind === 'task' ? task.id === target.taskId
+    : target.kind === 'review' ? task.kind === 'REVIEW' && task.targetId === target.reviewId
+    : target.kind === 'pull' && task.pullRequestNumber === target.number && task.repository.toLowerCase() === target.repo.toLowerCase()));
+}
+
+/** A working name carries a sweep of light; the copy under the moving window is what lights up. */
+export function WorkingLabel({ text }: { text: string }) {
+  return <span className="app-sidebar__label is-working">
+    {text}<span className="app-sidebar__shimmer" aria-hidden="true"><span>{text}</span></span>
+  </span>;
 }
 
 export function runningTaskRoute(task: RunningTask): string {
@@ -79,15 +95,17 @@ export function RunningTaskList({ tasks }: { tasks: RunningTask[] }) {
     {expanded && <nav id="running-tasks" className="app-sidebar__nav app-sidebar__running-list" aria-label="Working task navigation">
       {tasks.map(task => {
         const label = RUNNING_TASK_LABELS[task.status];
-        const Icon = task.status === 'RUNNING' ? LoaderCircle : task.status === 'COMPLETED' ? CheckCircle2
-          : task.status === 'FAILED' ? CircleX : task.status === 'STOPPED' ? CirclePause : TriangleAlert;
+        // The eye icon already says "Review".
+        const name = task.kind === 'REVIEW' ? task.title.replace(/^Review:? /, '') : task.title;
+        const Icon = task.status === 'COMPLETED' ? CheckCircle2 : task.status === 'FAILED' ? CircleX : task.status === 'STOPPED' ? CirclePause : TriangleAlert;
         return <button key={task.id} type="button" className={`app-sidebar__item app-sidebar__running-item is-${task.status.toLowerCase()}`}
           aria-label={`${task.title}, ${label}, ${task.repository}`} title={`${task.title} · ${task.repository} · ${label}`}
           onClick={() => { window.location.hash = runningTaskRoute(task); }}>
           <span aria-hidden="true"><TaskTypeIcon type={RUNNING_TASK_TYPES[task.kind]} size={16} /></span>
-          {/* The eye icon already says "Review". */}
-          <span className="app-sidebar__label">{task.kind === 'REVIEW' ? task.title.replace(/^Review:? /, '') : task.title}</span>
-          <span className="app-sidebar__running-status" role="status" aria-label={label}><Icon size={14} aria-hidden="true" /></span>
+          {task.status === 'RUNNING' ? <WorkingLabel text={name} /> : <>
+            <span className="app-sidebar__label">{name}</span>
+            <span className="app-sidebar__running-status" role="status" aria-label={label}><Icon size={14} aria-hidden="true" /></span>
+          </>}
         </button>;
       })}
     </nav>}

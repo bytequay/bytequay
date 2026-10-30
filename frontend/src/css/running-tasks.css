@@ -21,11 +21,34 @@
 .app-sidebar__running-item.is-failed .app-sidebar__running-status { color: var(--fg-danger); }
 .app-sidebar__running-item.is-waiting .app-sidebar__running-status,
 .app-sidebar__running-item.is-blocked .app-sidebar__running-status { color: var(--fg-warning); }
-/* The status box holds only the icon, so the box itself spins. */
-.app-sidebar__running-item.is-running .app-sidebar__running-status { animation: bq-spin 1.2s linear infinite; }
-/* The collapsed rail has room for one icon; the status matters more than the kind there. */
-.app-sidebar.is-collapsed .app-sidebar__running-item > span:first-child { display: none; }
+/* The collapsed rail has room for one icon; a settled status matters more than the kind there. */
+.app-sidebar.is-collapsed .app-sidebar__running-item:has(.app-sidebar__running-status) > span:first-child { display: none; }
+
+/*
+ * A working name: a window moves across while the bright copy inside it moves back, so the copy stays
+ * over the dim text. Only transforms animate, which the compositor runs without repainting the sidebar.
+ */
+.app-sidebar__label.is-working { position: relative; color: var(--text-3); }
+.app-sidebar__shimmer {
+  position: absolute;
+  inset: 0;
+  color: var(--text-1);
+  mask-image: linear-gradient(90deg, transparent calc(100% - 64px), #000 calc(100% - 32px), transparent);
+  animation: app-sidebar-shimmer 2.4s linear infinite;
+}
+.app-sidebar__shimmer > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: app-sidebar-shimmer-text 2.4s linear infinite;
+}
+.is-app-blurred .app-sidebar__shimmer,
+.is-app-blurred .app-sidebar__shimmer > span { animation-play-state: paused; }
+@keyframes app-sidebar-shimmer { from { transform: translateX(-100%); } 75%, to { transform: translateX(64px); } }
+@keyframes app-sidebar-shimmer-text { from { transform: translateX(100%); } 75%, to { transform: translateX(-64px); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .app-sidebar__running-item.is-running .app-sidebar__running-status { animation: none; }
+  .app-sidebar__label.is-working { color: inherit; }
+  .app-sidebar__shimmer { display: none; }
 }

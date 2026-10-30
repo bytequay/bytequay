@@ -13,9 +13,13 @@
  */
 import { createRoot } from 'react-dom/client';
 import { assert, settle } from '../../fixtures/harness';
-import RunningTasks from '../RunningTasks';
+import { RunningTaskList, useRunningTasks } from '../RunningTasks';
 import type { RunningTask } from '../runningTaskModel';
 import '../../index.css';
+
+function RunningTasks() {
+  return <RunningTaskList tasks={useRunningTasks()} />;
+}
 
 export async function run() {
   const host = document.createElement('div');
@@ -52,6 +56,10 @@ export async function run() {
   snapshot = [task]; await refresh();
   const row = () => host.querySelector<HTMLButtonElement>('.app-sidebar__running-item');
   assert(row()?.getAttribute('aria-label')?.includes('Running'), 'Running task should appear');
+  const shimmer = row()?.querySelector('.app-sidebar__shimmer');
+  assert(row()?.querySelector('[role="status"]') === null && shimmer !== null && shimmer !== undefined, 'A running name should shimmer instead of spinning');
+  assert(getComputedStyle(shimmer).animationName === 'app-sidebar-shimmer'
+    && getComputedStyle(shimmer.firstElementChild as Element).animationName === 'app-sidebar-shimmer-text', 'The shimmer should run on transforms only');
   row()?.click();
   assert(window.location.hash === '#/workspaces/ws-2/tasks/agent/one', 'Click should navigate to the owning workspace');
   const button = host.querySelector<HTMLButtonElement>('[aria-controls="running-tasks"]');

@@ -35,7 +35,7 @@ import { useMemoryNeeds } from './memory/needs';
 import { openPinned, usePinnedItems } from './home/pinned';
 import { useLabLaunch, useLabLink } from '@bytequay/lab/renderer';
 import { openLab } from './lab';
-import RunningTasks from './agents/RunningTasks';
+import { pinIsWorking, RunningTaskList, useRunningTasks, WorkingLabel } from './agents/RunningTasks';
 import { APP_NAVIGATION_SHORTCUTS } from './appNavigation';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
@@ -157,6 +157,7 @@ export default function AppSidebar({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pinsExpanded, setPinsExpanded] = useState(true);
   const pinnedItems = usePinnedItems();
+  const runningTasks = useRunningTasks();
   const lab = useLabLink();
   const labLaunch = useLabLaunch();
   const pickerMenu = useRef<HTMLDivElement>(null);
@@ -174,7 +175,7 @@ export default function AppSidebar({
   );
 
   /** Every sidebar row, whichever shape renders it. */
-  const row = ({ key, label, icon, active, pressed, disabled, busy, title, hint, badge, unread, onClick }: {
+  const row = ({ key, label, icon, active, pressed, disabled, busy, working, title, hint, badge, unread, onClick }: {
     key: string;
     label: string;
     icon: ReactNode;
@@ -183,6 +184,8 @@ export default function AppSidebar({
     pressed?: boolean;
     disabled?: boolean;
     busy?: boolean;
+    /** Something running behind the row lights its name. */
+    working?: boolean;
     title?: string;
     /** Dim text after the label, such as a shortcut. */
     hint?: string;
@@ -195,7 +198,7 @@ export default function AppSidebar({
       key={key}
       type="button"
       className={`app-sidebar__item${active || pressed ? ' is-active' : ''}`}
-      aria-label={badge !== undefined ? `${label}, ${badge.label}` : unread ? `${label}, unread` : label}
+      aria-label={badge !== undefined ? `${label}, ${badge.label}` : unread ? `${label}, unread` : working ? `${label}, working` : label}
       aria-current={active ? 'page' : undefined}
       aria-pressed={pressed}
       aria-busy={busy}
@@ -204,7 +207,7 @@ export default function AppSidebar({
       onClick={onClick}
     >
       <span aria-hidden="true">{icon}</span>
-      <span className="app-sidebar__label">{label}</span>
+      {working ? <WorkingLabel text={label} /> : <span className="app-sidebar__label">{label}</span>}
       {hint !== undefined && <span className="app-sidebar__hint" aria-hidden="true">{hint}</span>}
       {badge !== undefined ? <span className="app-sidebar__badge" aria-hidden="true">{badge.count}</span>
         : unread && <span className="app-sidebar__dot" aria-hidden="true" />}
@@ -403,13 +406,14 @@ export default function AppSidebar({
               icon: item.target.kind === 'pull' ? <PinnedPullRequestIcon repo={item.target.repo} number={item.target.number} workspaceId={item.target.workspaceId} /> : item.target.kind === 'jira' ? <JiraIcon size={16} />
                 : item.target.kind === 'task' || item.target.kind === 'review' ? <SquareCheck size={16} /> : <CircleDot size={16} />,
               active: false,
+              working: pinIsWorking(item.target, runningTasks),
               onClick: () => openPinned(item),
             })}
             <PinButton item={item} />
           </div>)}
         </nav>}
       </section>}
-      <RunningTasks />
+      <RunningTaskList tasks={runningTasks} />
       </div>
       </>}
       {settingsBody === null && <div className="app-sidebar__spacer" />}

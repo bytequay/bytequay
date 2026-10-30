@@ -22,6 +22,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.CredentialController;
 import com.bytequay.app.web.PullRequestController;
@@ -259,7 +260,7 @@ class TestAgentRequestFilter
         URI repositoryUrl = URI.create("https://github.com/owner/repo");
         PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "account", new HostingAccess(server, "token")),
                 new HostingRepository(1, 1, "repository", "owner/repo", repositoryUrl, repositoryUrl, Optional.empty(), Optional.of("main")), 123, "viewer");
-        when(pullRequests.prepareRead(null, "owner/repo", 123)).thenReturn(route);
+        when(pullRequests.prepareRead(PullRequestRoute.of(null, null), "owner/repo", 123)).thenReturn(route);
         when(credentials.gitHubTokenValue()).thenReturn(Optional.of("test-github-token"));
         mvc.perform(get("/api/auth/github/token/value").header(AgentController.SESSION_HEADER, SESSION))
                 .andExpect(status().isOk())

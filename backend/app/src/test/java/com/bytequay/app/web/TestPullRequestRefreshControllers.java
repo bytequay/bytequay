@@ -19,6 +19,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRead;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
@@ -98,7 +99,7 @@ class TestPullRequestRefreshControllers
 
         verify(refresh).refreshOpenedDetail(read("owner/repo", 7));
         verifyNoMoreInteractions(refresh);
-        verify(pullRequests).prepareRead(null, "owner/repo", 7);
+        verify(pullRequests).prepareRead(PullRequestRoute.of(null, null), "owner/repo", 7);
         verifyNoMoreInteractions(pullRequests);
     }
 
@@ -185,6 +186,19 @@ class TestPullRequestRefreshControllers
                 .andExpect(header().string("ETag", "\"boot-8-42\""));
 
         verify(pullRequests, times(2)).listAttentionCandidates();
+    }
+
+    @Test
+    void readsAStoredRequestThroughTheAccountItNames()
+            throws Exception
+    {
+        PullRequestService pullRequests = pullRequests();
+        var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
+
+        mvc.perform(get("/prs/stored").param("repo", "group/project").param("number", "4").param("accountId", "11"))
+                .andExpect(status().isOk());
+
+        verify(pullRequests).prepareRead(PullRequestRoute.account(11), "group/project", 4);
     }
 
     @Test
@@ -492,7 +506,7 @@ class TestPullRequestRefreshControllers
         PullRequestDetail detail = detail();
         when(pullRequests.commentOnPullRequest(read("owner/repo", 7), "hello")).thenReturn(detail);
 
-        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"), null)).isSameAs(detail);
+        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"), null, null)).isSameAs(detail);
     }
 
     @Test
@@ -606,7 +620,7 @@ class TestPullRequestRefreshControllers
     private static PullRequestService pullRequests()
     {
         PullRequestService service = mock(PullRequestService.class);
-        when(service.prepareRead(any(), anyString(), anyInt())).thenAnswer(call -> read(call.getArgument(1), call.getArgument(2)));
+        when(service.prepareRead(any(PullRequestRoute.class), anyString(), anyInt())).thenAnswer(call -> read(call.getArgument(1), call.getArgument(2)));
         return service;
     }
 

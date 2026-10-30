@@ -51,6 +51,7 @@ import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.app.service.hosting.HostingReadSession;
 import com.bytequay.app.service.pr.PullRequestRead;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
@@ -285,7 +286,7 @@ class TestReviewRuntimeRecovery
         URI repositoryUrl = URI.create("https://github.com/owner/repo");
         PullRequestRead route = new PullRequestRead(new HostingReadSession(1, "account", new HostingAccess(server, "token")),
                 new HostingRepository(1, 1, "repository", "owner/repo", repositoryUrl, repositoryUrl, Optional.empty(), Optional.of("main")), 7, "viewer");
-        when(pullRequests.prepareRead(null, "owner/repo", 7)).thenReturn(route);
+        when(pullRequests.prepareRead(PullRequestRoute.of(null, null), "owner/repo", 7)).thenReturn(route);
         String key = "6f1c2e3a-5b7d-4c8e-9a0b-1c2d3e4f5a6b";
         // The comment box's own shape, startSide included.
         String comment = """

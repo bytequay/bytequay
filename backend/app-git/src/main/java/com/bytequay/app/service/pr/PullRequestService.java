@@ -62,6 +62,7 @@ import com.bytequay.core.hosting.DiscussionProbe;
 import com.bytequay.core.hosting.HostingFailure;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestListPage;
@@ -434,7 +435,7 @@ public class PullRequestService
         return setMonitored(prId, monitored, null);
     }
 
-    public PullRequest setMonitored(long prId, boolean monitored, String workspaceId)
+    public PullRequest setMonitored(long prId, boolean monitored, PullRequestRoute routing)
     {
         PullRequest row = store.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found"));
@@ -443,7 +444,7 @@ public class PullRequestService
         }
         if (store.findHostingIdentity(prId).isPresent()) {
             if (monitored && row.monitoredAt() == null) {
-                PullRequestRead route = prepareRead(workspaceId, row.repo(), row.number());
+                PullRequestRead route = prepareRead(routing, row.repo(), row.number());
                 checkArgument(storedPullRequestId(route) == prId, "Pull request belongs to another workspace");
                 refreshPullRequestDetailFromRemote(route);
             }
@@ -571,8 +572,15 @@ public class PullRequestService
         }
     }
 
-    public List<RepoUser> listRepositoryUsers(String repo, String workspaceId)
+    public List<RepoUser> listRepositoryUsers(String repo, PullRequestRoute routing)
     {
+        if (routing.accountId().isPresent()) {
+            HostingTarget target = accountTarget(routing.accountId().getAsLong(), repo);
+            return integrations.of(target).metadata().repositoryUsers(target).stream()
+                    .map(user -> new RepoUser(user.login(), user.avatarUrl(), user.bot()))
+                    .collect(toImmutableList());
+        }
+        String workspaceId = routing.workspaceId().orElse(null);
         PullRequestRef ref = parseRef(repo, 1);
         RepoRef repository = RepoRef.of(ref.owner(), ref.repo());
         Optional<RepositoryMetadataSnapshot> localSnapshot = workspaceId != null && !workspaceId.isBlank()
@@ -605,17 +613,25 @@ public class PullRequestService
         return repositories.fetchLabels(pat, RepoRef.of(ref.owner(), ref.repo()));
     }
 
-    public List<String> listRepositoryTeams(String repo, String workspaceId)
+    public List<String> listRepositoryTeams(String repo, PullRequestRoute routing)
     {
-        return workspaceId == null || workspaceId.isBlank() ? listRepositoryTeams(repo) : metadata.listTeams(workspaceId);
+        if (routing.accountId().isPresent()) {
+            HostingTarget target = accountTarget(routing.accountId().getAsLong(), repo);
+            return integrations.of(target).metadata().repositoryTeams(target);
+        }
+        return routing.workspaceId().map(metadata::listTeams).orElseGet(() -> listRepositoryTeams(repo));
     }
 
-    public List<RepositoryLabel> listRepositoryLabels(String repo, String workspaceId)
+    public List<RepositoryLabel> listRepositoryLabels(String repo, PullRequestRoute routing)
     {
-        if (workspaceId == null || workspaceId.isBlank()) {
+        if (routing.accountId().isPresent()) {
+            HostingTarget target = accountTarget(routing.accountId().getAsLong(), repo);
+            return integrations.of(target).metadata().repositoryLabels(target);
+        }
+        if (routing.workspaceId().isEmpty()) {
             return listRepositoryLabels(repo);
         }
-        RepositoryMetadataSnapshot snapshot = metadata.getSnapshot(workspaceId);
+        RepositoryMetadataSnapshot snapshot = metadata.getSnapshot(routing.workspaceId().orElseThrow());
         checkArgument(snapshot.repository().fullName().equalsIgnoreCase(repo), "Request belongs to another workspace repository");
         return snapshot.labels();
     }
@@ -647,9 +663,9 @@ public class PullRequestService
         snapshots.rerunFailedChecks(route);
     }
 
-    public boolean hasMergeQueue(String repo, String baseRef, String workspaceId)
+    public boolean hasMergeQueue(String repo, String baseRef, PullRequestRoute routing)
     {
-        return actions.hasMergeQueue(prepareRead(workspaceId, repo, 1), baseRef);
+        return actions.hasMergeQueue(prepareRead(routing, repo, 1), baseRef);
     }
 
     /** Notification ingestion and incremental discovery never wait for full detail warming. */
@@ -1094,8 +1110,7 @@ public class PullRequestService
         if (pathKeyed(session)) {
             return store.saveObserved(pullRequest);
         }
-        HostingRepository repository = connections.findRepository(session, pullRequest.repo())
-                .orElseGet(() -> connections.resolveRepository(session, pullRequest.repo()));
+        HostingRepository repository = accountRepository(session, pullRequest.repo());
         requests.saveSummaries(session, repository.id(), ImmutableList.of(pullRequest));
         return store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
     }
@@ -1230,6 +1245,36 @@ public class PullRequestService
         PullRequestRead route = requestRead(credentialService.captureHostingRead(), repo, number);
         prepareRead(route);
         return route;
+    }
+
+    public PullRequestRead prepareRead(PullRequestRoute routing, String repo, int number)
+    {
+        if (routing.accountId().isEmpty()) {
+            return prepareRead(routing.workspaceId().orElse(null), repo, number);
+        }
+        HostingReadSession session = accountSession(routing.accountId().getAsLong());
+        PullRequestRead route = new PullRequestRead(session, accountRepository(session, repo), number, connections.account(session).login());
+        prepareRead(route);
+        return route;
+    }
+
+    /** Path-keyed rows cannot tell two accounts' requests apart, so only a provider with hosted rows is read through an account. */
+    private HostingReadSession accountSession(long accountId)
+    {
+        HostingReadSession session = connections.readSession(accountId);
+        checkArgument(!pathKeyed(session), "Requests on this provider open through the desktop sign-in or a workspace");
+        return session;
+    }
+
+    private HostingRepository accountRepository(HostingReadSession session, String repo)
+    {
+        return connections.findRepository(session, repo).orElseGet(() -> connections.resolveRepository(session, repo));
+    }
+
+    private HostingTarget accountTarget(long accountId, String repo)
+    {
+        HostingReadSession session = accountSession(accountId);
+        return new HostingTarget(session.access(), accountRepository(session, repo));
     }
 
     public PullRequestRead prepareRead(String workspaceId, String repo, int number)

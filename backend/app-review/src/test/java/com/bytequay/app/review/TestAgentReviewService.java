@@ -158,6 +158,7 @@ import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.clearInvocations;
@@ -2689,13 +2690,13 @@ class TestAgentReviewService
         when(fixture.publications.findDraft(20, NUMBER)).thenReturn(Optional.of(saved));
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         clearInvocations(fixture.pullRequests, fixture.publications);
-        when(fixture.pullRequests.prepareRead(any(), anyString(), anyInt())).thenThrow(new IllegalStateException("Account disconnected"));
+        when(fixture.pullRequests.prepareRead(nullable(String.class), anyString(), anyInt())).thenThrow(new IllegalStateException("Account disconnected"));
 
         AgentReviewProjection projection = fixture.service.get(reviewId);
 
         assertThat(projection.draft()).contains(saved);
         verify(fixture.publications).findDraft(20, NUMBER);
-        verify(fixture.pullRequests, never()).prepareRead(any(), anyString(), anyInt());
+        verify(fixture.pullRequests, never()).prepareRead(nullable(String.class), anyString(), anyInt());
     }
 
     @Test

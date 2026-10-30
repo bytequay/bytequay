@@ -91,6 +91,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingPullRequest;
 import com.bytequay.core.hosting.HostingPullRequestSnapshot;
 import com.bytequay.core.hosting.HostingRepository;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.PullRequestCardSummary;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestDiscovery;
@@ -1310,6 +1311,35 @@ class TestPullRequestService
     }
 
     @Test
+    void readsARequestThroughTheConnectedAccountThatRouteNames()
+    {
+        HostingInstance gitlab = new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        HostingReadSession gitlabSession = new HostingReadSession(11, "hosting-account", new HostingAccess(gitlab, "gitlab-token"));
+        HostingRepository project = new HostingRepository(21, 2, "500", "group/project", URI.create("https://gitlab.example.com/group/project"),
+                URI.create("https://gitlab.example.com/group/project.git"), Optional.empty(), Optional.of("main"));
+        when(connections.readSession(11)).thenReturn(gitlabSession);
+        when(connections.account(gitlabSession)).thenReturn(new HostingAccount(11, 2, "200", "me"));
+        when(connections.findRepository(gitlabSession, "group/project")).thenReturn(Optional.of(project));
+
+        PullRequestRead route = service.prepareRead(PullRequestRoute.account(11), "group/project", 4);
+
+        assertThat(route.target()).isEqualTo(new HostingTarget(gitlabSession.access(), project));
+        assertThat(route.number()).isEqualTo(4);
+        assertThat(route.login()).isEqualTo("me");
+        verify(credentialService, never()).captureHostingRead();
+    }
+
+    @Test
+    void refusesAnAccountRouteForPathKeyedRows()
+    {
+        HostingInstance github = new HostingInstance(1, GITHUB, URI.create("https://github.com"), URI.create("https://api.github.com"));
+        when(connections.readSession(12)).thenReturn(new HostingReadSession(12, "hosting-account", new HostingAccess(github, "other-token")));
+
+        assertThatThrownBy(() -> service.prepareRead(PullRequestRoute.account(12), "owner/repo", 7)).isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("Requests on this provider open through the desktop sign-in or a workspace");
+    }
+
+    @Test
     void listsHostedRequestsOnlyForWatchedWorkspacesWithHostedRows()
     {
         Workspace gitlab = hostedWorkspace("gitlab", GITLAB);
@@ -1656,7 +1686,7 @@ class TestPullRequestService
         when(applicationContext.getWebServer()).thenReturn(server);
         when(server.getPort()).thenReturn(41234);
 
-        assertThat(service.listRepositoryUsers("owner/repo", "workspace"))
+        assertThat(service.listRepositoryUsers("owner/repo", PullRequestRoute.of("workspace", null)))
                 .extracting(user -> user.login() + ":" + user.avatarUrl() + ":" + user.bot())
                 .containsExactly("alice:http://127.0.0.1:41234/api/avatars/avatar-key:false", "robot[bot]:null:true");
         verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
@@ -1670,7 +1700,7 @@ class TestPullRequestService
         when(applicationContext.getWebServer()).thenReturn(server);
         when(server.getPort()).thenReturn(41234);
 
-        assertThat(service.listRepositoryUsers("owner/repo", null))
+        assertThat(service.listRepositoryUsers("owner/repo", PullRequestRoute.of(null, null)))
                 .extracting(RepoUser::login)
                 .containsExactly("alice", "robot[bot]");
         verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
@@ -1684,7 +1714,7 @@ class TestPullRequestService
         when(metadata.findSnapshot(repository)).thenReturn(Optional.empty());
         when(gitHub.fetchAssignableUsers("pat", repository)).thenReturn(ImmutableList.of(user));
 
-        assertThat(service.listRepositoryUsers("owner/repo", null)).containsExactly(user);
+        assertThat(service.listRepositoryUsers("owner/repo", PullRequestRoute.of(null, null))).containsExactly(user);
         verify(gitHub).fetchAssignableUsers("pat", repository);
     }
 

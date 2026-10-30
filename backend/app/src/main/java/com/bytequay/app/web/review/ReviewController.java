@@ -30,6 +30,7 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.app.review.ReviewPublicationService;
+import com.bytequay.app.service.pr.PullRequestRoute;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
@@ -402,9 +403,10 @@ public class ReviewController
     // ---- the user's local pending review ----
 
     @GetMapping("/drafts")
-    public ReviewHttpModels.DraftResponse draft(@RequestParam String repo, @RequestParam int number, @RequestParam(required = false) String workspaceId)
+    public ReviewHttpModels.DraftResponse draft(@RequestParam String repo, @RequestParam int number,
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ReviewHttpModels.draft(publications.draft(pullRequests.prepareRead(workspaceId, repo, number)));
+        return ReviewHttpModels.draft(publications.draft(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number)));
     }
 
     @PostMapping("/drafts/items")
@@ -412,10 +414,10 @@ public class ReviewController
             @RequestParam String repo,
             @RequestParam int number,
             @RequestBody ReviewHttpModels.DraftItemRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         return ReviewHttpModels.draft(publications.addManual(
-                pullRequests.prepareRead(workspaceId, repo, number), required(request.expectedVersion(), "expectedVersion"), manual(request)));
+                pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), required(request.expectedVersion(), "expectedVersion"), manual(request)));
     }
 
     @PostMapping("/drafts/findings")
@@ -423,12 +425,13 @@ public class ReviewController
             @RequestParam String repo,
             @RequestParam int number,
             @RequestBody ReviewHttpModels.PromoteFindingRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         checkText(request.reviewId(), "reviewId");
         checkText(request.findingId(), "findingId");
         return ReviewHttpModels.draft(publications.addFinding(
-                pullRequests.prepareRead(workspaceId, repo, number), required(request.expectedVersion(), "expectedVersion"), request.reviewId(), request.findingId()));
+                pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number),
+                required(request.expectedVersion(), "expectedVersion"), request.reviewId(), request.findingId()));
     }
 
     @PutMapping("/drafts/items/{itemId}")
@@ -437,11 +440,11 @@ public class ReviewController
             @RequestParam int number,
             @PathVariable String itemId,
             @RequestBody ReviewHttpModels.DraftItemRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         checkText(request.body(), "body");
         return ReviewHttpModels.draft(publications.editItem(
-                pullRequests.prepareRead(workspaceId, repo, number),
+                pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number),
                 required(request.expectedVersion(), "expectedVersion"),
                 itemId,
                 request.body(),
@@ -454,9 +457,9 @@ public class ReviewController
             @RequestParam int number,
             @RequestParam long expectedVersion,
             @PathVariable String itemId,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ReviewHttpModels.draft(publications.removeItem(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
+        return ReviewHttpModels.draft(publications.removeItem(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/items/{itemId}/confirm-not-posted")
@@ -465,9 +468,9 @@ public class ReviewController
             @RequestParam int number,
             @RequestParam long expectedVersion,
             @PathVariable String itemId,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ReviewHttpModels.draft(publications.confirmNotPosted(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
+        return ReviewHttpModels.draft(publications.confirmNotPosted(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/items/{itemId}/confirm-posted")
@@ -476,9 +479,9 @@ public class ReviewController
             @RequestParam int number,
             @RequestParam long expectedVersion,
             @PathVariable String itemId,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ReviewHttpModels.draft(publications.confirmPosted(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
+        return ReviewHttpModels.draft(publications.confirmPosted(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/review/confirm")
@@ -487,9 +490,9 @@ public class ReviewController
             @RequestParam int number,
             @RequestParam long expectedVersion,
             @RequestParam boolean posted,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ReviewHttpModels.draft(publications.confirmReview(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, posted));
+        return ReviewHttpModels.draft(publications.confirmReview(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), expectedVersion, posted));
     }
 
     @PutMapping("/drafts/review")
@@ -497,10 +500,10 @@ public class ReviewController
             @RequestParam String repo,
             @RequestParam int number,
             @RequestBody ReviewHttpModels.DraftReviewRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         return ReviewHttpModels.draft(publications.saveReview(
-                pullRequests.prepareRead(workspaceId, repo, number),
+                pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number),
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
                 Optional.ofNullable(request.event()).orElse("COMMENT")));
@@ -512,9 +515,9 @@ public class ReviewController
             @RequestParam int number,
             @RequestParam long expectedVersion,
             @PathVariable String itemId,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
-        return ReviewHttpModels.publish(publications.publishItem(pullRequests.prepareRead(workspaceId, repo, number), expectedVersion, itemId));
+        return ReviewHttpModels.publish(publications.publishItem(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), expectedVersion, itemId));
     }
 
     /** Posts one comment now; its comment box's key names it in the draft, so a retry after an unknown outcome cannot post it twice. */
@@ -524,12 +527,12 @@ public class ReviewController
             @RequestParam int number,
             @PathVariable String itemId,
             @RequestBody ReviewHttpModels.DraftItemRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         if (!itemId.matches("[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}")) {
             throw new ReviewInvalidRequestException("The comment key must be a UUID");
         }
-        return publications.postComment(pullRequests.prepareRead(workspaceId, repo, number), itemId, manual(request));
+        return publications.postComment(pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number), itemId, manual(request));
     }
 
     @PostMapping("/drafts/submit")
@@ -537,10 +540,10 @@ public class ReviewController
             @RequestParam String repo,
             @RequestParam int number,
             @RequestBody ReviewHttpModels.DraftSubmitRequest request,
-            @RequestParam(required = false) String workspaceId)
+            @RequestParam(required = false) String workspaceId, @RequestParam(required = false) Long accountId)
     {
         return ReviewHttpModels.publish(publications.submit(
-                pullRequests.prepareRead(workspaceId, repo, number),
+                pullRequests.prepareRead(PullRequestRoute.of(workspaceId, accountId), repo, number),
                 required(request.expectedVersion(), "expectedVersion"),
                 request.body(),
                 Optional.ofNullable(request.event()).orElse("COMMENT"),

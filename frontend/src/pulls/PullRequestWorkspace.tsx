@@ -13,15 +13,15 @@
  */
 
 import { createContext, useContext, useMemo, type ReactNode } from 'react';
-import type { Bridge, HostingServerDto, PullRequestViewer } from '../types';
+import type { Bridge, HostingCapabilitiesDto, HostingServerDto, PullRequestViewer } from '../types';
 
-type HostingWorkspace = { workspaceId?: string; server?: HostingServerDto; repository?: string };
+type HostingWorkspace = { workspaceId?: string; server?: HostingServerDto; capabilities?: HostingCapabilitiesDto; repository?: string };
 const PullRequestWorkspace = createContext<HostingWorkspace>({});
 
-export function PullRequestWorkspaceProvider({ workspaceId, server, repository, children }: HostingWorkspace & { children: ReactNode }) {
+export function PullRequestWorkspaceProvider({ workspaceId, server, capabilities, repository, children }: HostingWorkspace & { children: ReactNode }) {
   const parent = useContext(PullRequestWorkspace);
-  const value = useMemo(() => ({ workspaceId, server: server ?? parent.server, repository: repository ?? parent.repository }),
-    [parent.repository, parent.server, repository, server, workspaceId]);
+  const value = useMemo(() => ({ workspaceId, server: server ?? parent.server, capabilities: capabilities ?? parent.capabilities,
+    repository: repository ?? parent.repository }), [capabilities, parent.capabilities, parent.repository, parent.server, repository, server, workspaceId]);
   return <PullRequestWorkspace value={value}>{children}</PullRequestWorkspace>;
 }
 

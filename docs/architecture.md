@@ -259,9 +259,11 @@ identity for log reads and explicit retry actions.
 
 GitLab approval, notes and discussions map to the existing review DTOs. GitLab
 has no atomic equivalent of a GitHub review containing several comments: if a
-later write fails, the adapter reports which earlier writes succeeded. Unsupported
-request-changes reviews, multi-line review comments and merge-train operations
-fail explicitly. The GitLab project's merge method remains authoritative.
+later write fails, the adapter reports which earlier writes succeeded. Each
+provider declares `HostingCapabilities`; the app hides request-changes reviews,
+multi-line selection and fork/backport workflows where a provider lacks them, and
+publishes a saved range on its last line. Merge-train operations fail explicitly.
+The GitLab project's merge method remains authoritative.
 
 Global GitHub personal discovery, GitHub-specific CI automation, fork/backport
 operations and remote epic-child synchronization still have native GitHub

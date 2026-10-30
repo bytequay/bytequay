@@ -364,6 +364,10 @@ export type WatchRepositoryCommand = {
 };
 
 export type HostingServerDto = { provider: 'GITHUB' | 'GITLAB'; webBaseUrl: string; apiBaseUrl: string };
+/** What ByteQuay supports for a workspace's provider; an absent value means supported. */
+export type HostingCapabilitiesDto = {
+  requestChanges: boolean; multiLineComments: boolean; forkWorkflows: boolean; issueChildren: boolean; commitAvatars: boolean;
+};
 export type GitLabCliStatusDto = { ready: boolean; homebrewAvailable: boolean };
 export type HostingPermissionsDto = { status: 'VERIFIED' | 'MISSING' | 'UNAVAILABLE'; scopes: string[]; detail: string };
 export type HostingConnectionDto = {
@@ -400,6 +404,7 @@ export type HostingPullRequestSnapshotDto = {
 
 export type WorkspaceDto = {
   hostingServer?: HostingServerDto | null;
+  capabilities?: HostingCapabilitiesDto;
   id: string;
   name: string;
   selectedRepositoryId: number;

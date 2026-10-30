@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { usePullRequestBridge } from './PullRequestWorkspace';
+import { useHostingPresentation, usePullRequestBridge } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
 import { Fragment, useEffect, useId, useMemo, useReducer, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject } from 'react';
@@ -755,6 +755,8 @@ function DiffFileCard({
   onToggle: () => void;
 }) {
   const bridge = usePullRequestBridge();
+  // A provider without multi-line review comments selects one line at a time.
+  const multiLine = useHostingPresentation().capabilities?.multiLineComments !== false;
   const hunks = useMemo(() => open ? parseUnifiedDiff(file.patch) : [], [file.patch, open]);
   const blocks = changeBlocks(file.additions, file.deletions);
   const filenameStart = file.filename.lastIndexOf('/') + 1;
@@ -771,6 +773,7 @@ function DiffFileCard({
   // The press can collapse the composer above it, moving rows under a still pointer; only real movement drags.
   const pressPoint = useRef<{ x: number; y: number } | null>(null);
   const dragOverRow = (oldLine: number | null, newLine: number | null, row: number) => (event: ReactMouseEvent) => {
+    if (!multiLine) return;
     const press = pressPoint.current;
     if (press !== null && Math.hypot(event.clientX - press.x, event.clientY - press.y) <= 3) return;
     pressPoint.current = null;
@@ -881,7 +884,7 @@ function DiffFileCard({
   const selectLine = (side: ReviewSide, line: number, extend: boolean, row: number) => {
     if (submitting) return;
     setReviewError(null);
-    dispatchRange({ type: 'select', side, line, extend, row });
+    dispatchRange({ type: 'select', side, line, extend: extend && multiLine, row });
   };
 
   const startLineSelection = (
@@ -895,7 +898,7 @@ function DiffFileCard({
     if (submitting) return;
     setReviewError(null);
     pressPoint.current = { x: press.clientX, y: press.clientY };
-    dispatchRange({ type: 'start', side, line, extend: press.shiftKey, oldLine, newLine, row });
+    dispatchRange({ type: 'start', side, line, extend: press.shiftKey && multiLine, oldLine, newLine, row });
   };
 
   const comment = () => selection === null ? null : inlineReviewComment(file.filename, reviewBody, selection, headSha ?? null);

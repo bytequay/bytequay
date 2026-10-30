@@ -103,10 +103,12 @@ interface AgentHomeProps {
   onOpenPullRequest?: (number: number) => void;
   onOpenIssue?: (number: number) => void;
   onStartIssue?: (number: number) => void;
+  /** Whether the workspace's provider supports backports; the composer offers @backport only then. */
+  backports?: boolean;
 }
 
 export default function AgentHome({
-  workspaceId, headerAction, repository, taskAttention, attention, bridge: explicitBridge, onOpenTask, onOpenReview, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue,
+  workspaceId, headerAction, repository, taskAttention, attention, bridge: explicitBridge, onOpenTask, onOpenReview, onOpenSettings, onShowAll, onOpenPullRequest, onOpenIssue, onStartIssue, backports,
 }: AgentHomeProps): React.JSX.Element {
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, bridge: live, onOpenTask, taskAttention });
@@ -157,6 +159,7 @@ export default function AgentHome({
   return (
     <AgentHomeView
       headerAction={headerAction}
+      backports={backports}
       {...creation.composer}
       onAskArtifacts={askArtifacts}
       repository={repository}
@@ -194,9 +197,10 @@ export function AgentHomeView({
   repository, workspaceId = '', headerAction, tasks, reviews = [], onOpenTask, onOpenReview, onShowAll,
   activity = {}, changes = {}, hiddenTasks, onHideTask, onRenameTask, now = Date.now(),
   attention = [], handled = {}, viewerLogin = null, onHandledChange = () => {}, onOpenAttention = () => {},
-  onStartIssue, attentionError, jiraConnected = false, startup = null, error = null, today, ...composer
+  onStartIssue, attentionError, jiraConnected = false, startup = null, error = null, today, backports = true, ...composer
 }: TaskComposerProps & {
   repository: string;
+  backports?: boolean;
   /** The open tasks, drawn as compact cards above the composer. */
   tasks: AgentTaskDto[];
   reviews?: AgentReviewDto[];
@@ -320,7 +324,7 @@ export function AgentHomeView({
             })}
             <span className="today-start-divider" aria-hidden="true" />
           </>}
-          <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />
+          {backports && <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />}
           {SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon;
             return (
@@ -332,7 +336,7 @@ export function AgentHomeView({
           })}
         </> : undefined}>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
-          <TaskComposer {...composer} workspaceId={workspaceId} backport />
+          <TaskComposer {...composer} workspaceId={workspaceId} backport={backports} />
         </ComposerDock>
       </div>
       {wide && todayCard !== null && <aside className="agt-today">{todayCard}</aside>}

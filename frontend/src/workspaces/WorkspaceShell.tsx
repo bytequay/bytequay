@@ -79,7 +79,7 @@ type Props = {
 export default function WorkspaceShell(props: Props) {
   const repository = `${props.workspace.monitoredOwner}/${props.workspace.monitoredRepo}`;
   if (props.tab === 'prs') return <PullsScreen key={props.workspace.id}
-    repositoryScope={{ workspaceId: props.workspace.id, repository, server: props.workspace.hostingServer ?? undefined }}
+    repositoryScope={{ workspaceId: props.workspace.id, repository, server: props.workspace.hostingServer ?? undefined, capabilities: props.workspace.capabilities }}
     initialPr={props.initialPullRequestNumber === null ? undefined : { repo: repository, number: props.initialPullRequestNumber }}
     browserOpen={props.browserOpen}
     onSelectPullRequest={(reference, mode) => props.onSelectPullRequest(reference.number, mode)} />;
@@ -182,7 +182,7 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
           key={openReview.id}
           initialPr={openReview}
           initialReviewId={openReview.id}
-          repositoryScope={{ workspaceId: workspace.id, repository: openReview.repo }}
+          repositoryScope={{ workspaceId: workspace.id, repository: openReview.repo, capabilities: workspace.capabilities }}
           browserOpen={browserOpen}
           onClose={() => setOpenReview(null)}
         />
@@ -302,6 +302,7 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
           <AgentTasksView
             key={sourceIssueNumber ?? startWork?.key ?? 'new-task'}
             workspaceId={workspace.id}
+            backports={workspace.capabilities?.forkWorkflows !== false}
             active={openTaskPage === null}
             repository={monitoredRepository}
             sourceIssueNumber={sourceIssueNumber}
@@ -361,6 +362,7 @@ function WorkspaceContent({ workspace, taskAttention, tab, relatedWorkspaceId = 
         }} />}
       <AgentHome
         workspaceId={workspace.id}
+        backports={workspace.capabilities?.forkWorkflows !== false}
         headerAction={overviewOpen ? undefined : overviewToggle}
         repository={monitoredRepository}
         taskAttention={taskAttention}

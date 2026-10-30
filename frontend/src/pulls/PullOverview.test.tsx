@@ -25,6 +25,7 @@ import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewDraftFixture, reviewFixture, runningReviewFixture } from './agent-review/fixtures/review';
 import { timelineActivity, timelineComment, pr, prDetail } from './fixtures/pullRequest';
 import type { PrivateThreads } from './PrivateThread';
+import { PullRequestWorkspaceProvider } from './PullRequestWorkspace';
 import { activeMention, matchingMentions, replaceMention } from './useMentions';
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
@@ -551,6 +552,18 @@ describe('PullOverview', () => {
     expect(html).toContain('>Clarify the cancellation commit message.</textarea>');
     expect(html).toContain('<input type="radio" name="review-event" checked=""/><span><strong>Request Changes</strong>');
     expect(html).toContain('class="pr-better-words" type="button" aria-busy="false"');
+  });
+
+  it('turns a saved change request into a comment where the provider has no change requests', () => {
+    const review = reviewFixture();
+    review.draft = reviewDraftFixture({ repo: 'owner/repo', number: 42, event: 'REQUEST_CHANGES', version: 7, updatedAt: review.createdAt });
+    const capabilities = { requestChanges: false, multiLineComments: false, forkWorkflows: false, issueChildren: false, commitAvatars: false };
+    const html = renderToStaticMarkup(<PullRequestWorkspaceProvider capabilities={capabilities}>
+      <ReviewDialog pr={{ ...pullRequest(), origin: 'OTHER' }} detail={detail()} review={review} onClose={() => {}} onReviewSubmitted={() => {}} />
+    </PullRequestWorkspaceProvider>);
+
+    expect(html).not.toContain('Request Changes');
+    expect(html).toContain('<input type="radio" name="review-event" checked=""/><span><strong>Comment</strong>');
   });
 
   it.each(['pending', 'draft'] as const)('requires review text before requesting changes with only earlier %s comments', source => {

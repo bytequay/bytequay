@@ -89,7 +89,7 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onUnlinkUp
         )}
       </SettingsCard>
 
-      <RelatedWorkspaceSettings key={workspace.id} workspace={workspace} />
+      {workspace.capabilities?.forkWorkflows !== false && <RelatedWorkspaceSettings key={workspace.id} workspace={workspace} />}
 
       <div className="setw-section"><span className="setw-section-title">Commits</span></div>
       <SettingsCard>

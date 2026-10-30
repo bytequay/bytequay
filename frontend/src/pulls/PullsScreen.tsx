@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { PullRequestWorkspaceProvider, readPullRequestViewer, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
+import { PullRequestWorkspaceProvider, readPullRequestViewer, useHostingPresentation, usePullRequestBridge, usePullRequestWorkspace } from './PullRequestWorkspace';
 import { shortSha } from '@bytequay/ui/displayText';
 import type { LucideIcon } from 'lucide-react';
 import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
@@ -33,7 +33,7 @@ import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from
 import type { NavigationMode } from '../navigationHistory';
 import { useRecentTouch } from '../recent/useRecentTouch';
 import Toast from '../Toast';
-import type { AgentTaskDto, Bridge, HostingServerDto, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, PullRequestViewer } from '../types';
+import type { AgentTaskDto, Bridge, HostingCapabilitiesDto, HostingServerDto, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullRequestTaskLink, PullRequestViewer } from '../types';
 import { usePopoverDismiss } from '@bytequay/ui/usePopoverDismiss';
 import UserAvatar from '../UserAvatar';
 import { useResizablePane } from '../useResizablePane';
@@ -332,7 +332,7 @@ export function PullFilterTabs({ tab, searching, counts, width, panelId, onSelec
 }
 
 export default function PullsScreen(props: Parameters<typeof PullsContent>[0]) {
-  return <PullRequestWorkspaceProvider workspaceId={props.repositoryScope?.workspaceId} server={props.repositoryScope?.server} repository={props.repositoryScope?.repository}><PullsContent {...props} /></PullRequestWorkspaceProvider>;
+  return <PullRequestWorkspaceProvider workspaceId={props.repositoryScope?.workspaceId} server={props.repositoryScope?.server} capabilities={props.repositoryScope?.capabilities} repository={props.repositoryScope?.repository}><PullsContent {...props} /></PullRequestWorkspaceProvider>;
 }
 
 function PullsContent({
@@ -350,7 +350,7 @@ function PullsContent({
   initialReviewId?: string;
   /** That review when the caller has just read it; only the first load uses it, so a retry reads it again. */
   initialReview?: AgentReviewDto;
-  repositoryScope?: { workspaceId: string; repository: string; server?: HostingServerDto };
+  repositoryScope?: { workspaceId: string; repository: string; server?: HostingServerDto; capabilities?: HostingCapabilitiesDto };
   browserOpen?: boolean;
   onSelectPullRequest?: (reference: { repo: string; number: number }, mode: NavigationMode) => void;
   /** Opens only initialPr over the current page, without list reads or navigation. */
@@ -1721,8 +1721,9 @@ export function ReviewDialog({
     onChange: text => { edited.current = true; setBody(text); }, textareaRef: bodyRef });
   const inFlight = useRef(false);
   const authored = pr.origin === 'AUTHORED';
+  const requestChanges = useHostingPresentation().capabilities?.requestChanges !== false;
   const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : draft?.event ?? 'COMMENT');
-  const event = authored ? 'COMMENT' : selectedEvent;
+  const event = authored || (!requestChanges && selectedEvent === 'REQUEST_CHANGES') ? 'COMMENT' : selectedEvent;
   const [submitting, setSubmitting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unsavedClose, setUnsavedClose] = useState(false);
@@ -2067,7 +2068,7 @@ export function ReviewDialog({
           title="Approve"
           description="Submit feedback and approve merging these changes."
           onChange={() => { edited.current = true; setEvent('APPROVE'); }} />}
-        {!authored && <ReviewChoice
+        {!authored && requestChanges && <ReviewChoice
           disabled={busy || reviewSend !== null}
           checked={event === 'REQUEST_CHANGES'}
           title="Request Changes"

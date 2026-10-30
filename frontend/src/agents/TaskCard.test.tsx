@@ -170,6 +170,12 @@ describe('agent home and overview', () => {
     expect(markup).not.toContain('master');
   });
 
+  it('offers no backport where the provider has no fork workflows', () => {
+    const markup = renderToStaticMarkup(<AgentHomeView {...homeProps} blocker={null} tasks={[]} backports={false} />);
+
+    expect(markup).not.toContain('Add @backport to the composer');
+  });
+
   it('draws each open task as a compact card: its state, why it waits or what it last said, and its checkout', () => {
     const markup = renderToStaticMarkup(
       <AgentHomeView

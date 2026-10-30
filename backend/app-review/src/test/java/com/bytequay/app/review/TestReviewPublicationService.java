@@ -672,6 +672,30 @@ class TestReviewPublicationService
     }
 
     @Test
+    void aRangeIsAnchoredOnItsLastLineWhereTheProviderHasNoMultiLineComments()
+    {
+        HostingInstance gitLab = new HostingInstance(2, HostingProvider.GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        PullRequestRead route = new PullRequestRead(new HostingReadSession(11, "account", new HostingAccess(gitLab, "token")),
+                new HostingRepository(21, 2, "repository", REPO, URI.create("https://gitlab.example.com/" + REPO),
+                        URI.create("https://gitlab.example.com/" + REPO + ".git"), Optional.empty(), Optional.of("main")), NUMBER, "viewer");
+        ReviewDraft draft = service.addManual(route, 0, new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/Service.java", "RIGHT", 119,
+                OptionalInt.of(118), "Guard the empty value.", true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty()));
+        when(pullRequests.findHeadSha(route)).thenReturn(Optional.of(REVIEWED_HEAD));
+        when(pullRequests.getPullRequestDetail(route)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(route), eq(PR_ID), eq("COMMENT"), eq(""), any(), anyString())).thenReturn(posted());
+
+        service.submit(route, draft.version(), "", "COMMENT", REVIEWED_HEAD);
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(route), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture(), anyString());
+        assertThat(sent.getValue()).singleElement().satisfies(comment -> {
+            assertThat(comment.line()).isEqualTo(119);
+            assertThat(comment.startLine()).isNull();
+            assertThat(comment.startSide()).isNull();
+        });
+    }
+
+    @Test
     void repliesRetainTheirThreadWhenEditedAndJoinTheFinalReviewBatch()
     {
         ReviewDraftItem reply = new ReviewDraftItem("reply", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "old.java", "RIGHT", 1,

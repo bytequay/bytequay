@@ -45,6 +45,7 @@ import org.springframework.orm.jpa.JpaSystemException;
 
 import java.net.URI;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
@@ -317,6 +318,23 @@ class TestSqliteHostingPullRequestStore
         assertThat(requests.findById(updated.request().id()).orElseThrow().getRepo()).isEqualTo("NewGroup/Subgroup/NewProject");
         assertThat(store.find(scope.account().id(), scope.repository().id(), 7)).contains(updated);
         assertThat(snapshots.count()).isEqualTo(1);
+    }
+
+    @Test
+    void showsDiscoveredRequestsWithTheAccountsThatReadThem()
+    {
+        Scope scope = scope(GITHUB, "https://github.com");
+        HostingPullRequestSnapshot hosted = save(scope, "Hosted title", "new-body");
+        long id = hosted.request().id();
+        entities.flush();
+        entities.clear();
+
+        assertThat(desktop.findDashboardHosted()).isEmpty();
+        desktop.setDashboardVisible(id, true);
+        assertThat(desktop.findDashboardHosted()).extracting(PullRequest::id).containsExactly(id);
+        assertThat(store.findReadingAccounts(ImmutableSet.of(id))).containsExactly(Map.entry(id, ImmutableSet.of(hosted.accountId())));
+        desktop.setDashboardVisible(id, false);
+        assertThat(desktop.findDashboardHosted()).isEmpty();
     }
 
     @Test

@@ -26,7 +26,9 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.core.hosting.HostingFailure.Kind.AUTHENTICATION_REQUIRED;
 import static com.bytequay.core.hosting.HostingFailure.Kind.FORBIDDEN;
@@ -79,6 +81,11 @@ public class HostingPullRequestService
         PullRequestListPage result = new PullRequestListPage(fetched.items().stream().map(row -> row.withViewerOrigin(login)).collect(toImmutableList()), fetched.hasNext());
         snapshots.savePage(session.accountId(), repositoryId, session.credentialScope(), result.items());
         return result;
+    }
+
+    public Map<Long, Set<Long>> readingAccounts(Set<Long> prIds)
+    {
+        return snapshots.findReadingAccounts(prIds);
     }
 
     /** Stores summaries found outside a repository listing, such as account discovery, beside that repository's listed ones. */

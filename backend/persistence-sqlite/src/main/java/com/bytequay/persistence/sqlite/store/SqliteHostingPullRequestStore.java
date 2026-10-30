@@ -25,8 +25,10 @@ import com.bytequay.persistence.sqlite.entity.HostingRepositoryEntity;
 import com.bytequay.persistence.sqlite.entity.PullRequestEntity;
 import com.bytequay.persistence.sqlite.repository.HostingAccountJpaRepository;
 import com.bytequay.persistence.sqlite.repository.HostingPullRequestSnapshotJpaRepository;
+import com.bytequay.persistence.sqlite.repository.HostingPullRequestSnapshotJpaRepository.ReadingAccount;
 import com.bytequay.persistence.sqlite.repository.HostingRepositoryJpaRepository;
 import com.bytequay.persistence.sqlite.repository.PullRequestJpaRepository;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -35,8 +37,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
@@ -44,6 +48,9 @@ import static com.bytequay.core.hosting.HostingFailure.Kind.INVALID_RESPONSE;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.mapping;
+import static java.util.stream.Collectors.toSet;
 
 @Repository
 @Transactional(readOnly = true)
@@ -135,6 +142,17 @@ public class SqliteHostingPullRequestStore
         checkArgument(repositoryId > 0, "repositoryId must be positive");
         checkArgument(number > 0, "number must be positive");
         snapshots.deleteByRequestHostingRepositoryIdAndRequestNumber(repositoryId, number);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, Set<Long>> findReadingAccounts(Set<Long> prIds)
+    {
+        if (prIds.isEmpty()) {
+            return ImmutableMap.of();
+        }
+        return snapshots.findReadingAccounts(prIds).stream()
+                .collect(groupingBy(ReadingAccount::getRequestId, mapping(ReadingAccount::getAccountId, toSet())));
     }
 
     private PullRequestEntity request(Target target, FetchedPullRequest pullRequest, Instant observedAt)

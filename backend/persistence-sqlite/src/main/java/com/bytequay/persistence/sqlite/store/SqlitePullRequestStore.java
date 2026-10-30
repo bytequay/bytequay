@@ -139,6 +139,27 @@ public class SqlitePullRequestStore
     }
 
     @Override
+    @Transactional
+    public void setDashboardVisible(long prId, boolean visible)
+    {
+        PullRequestEntity row = jpaRepository.findById(prId).orElseThrow();
+        checkArgument(row.getHostingRepository() != null, "Only a hosted request is shown by account discovery");
+        // An unchanged mark must not count as a write, or every discovery pass would refresh the attention list.
+        if (!Objects.equals(row.getDashboardVisible(), visible)) {
+            row.setDashboardVisible(visible);
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PullRequest> findDashboardHosted()
+    {
+        List<PullRequestEntity> rows = jpaRepository.findDashboardHosted();
+        Map<Long, PrViewState> states = viewStateStore.findByPrIds(rows.stream().map(PullRequestEntity::getId).collect(toImmutableSet()));
+        return rows.stream().map(row -> row.toDomain(states.get(row.getId()))).collect(toImmutableList());
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Map<Long, PrActivitySummary> findActivities(Set<Long> prIds)
     {

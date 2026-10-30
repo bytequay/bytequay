@@ -37,6 +37,9 @@ public interface PullRequestJpaRepository
             + "ORDER BY e.updatedAt DESC, e.id DESC")
     List<PullRequestEntity> findAttentionCandidates();
 
+    @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NOT NULL AND e.dashboardVisible = true ORDER BY e.updatedAt DESC, e.id DESC")
+    List<PullRequestEntity> findDashboardHosted();
+
     @Query("SELECT e FROM PullRequestEntity e WHERE e.hostingRepository IS NULL AND ("
             + "(e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
             + "OR (e.workspaceVisible = true AND EXISTS (SELECT w.id FROM WorkspaceEntity w "

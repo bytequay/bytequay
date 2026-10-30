@@ -90,6 +90,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -786,6 +787,9 @@ public class PullRequestService
         FetchedPullRequest fetched = refreshMetadata(route, false).pullRequest().withViewerOrigin(login);
         FetchedPullRequest observed = notice.reason() == ActivityNotice.Reason.REVIEW_REQUESTED && fetched.origin() != AUTHORED ? fetched.withOrigin(REVIEW_REQUESTED) : fetched;
         PullRequest row = rows.observe(route, observed);
+        if (!pathKeyed(session)) {
+            store.setDashboardVisible(row.id(), true);
+        }
         // Save the dirty marker before enrichment: a comment request failure cannot hide the notification.
         if (notice.reason() != ActivityNotice.Reason.CI) {
             store.observeActivity(row.id(), Optional.empty(), notice.updatedAt());
@@ -847,6 +851,9 @@ public class PullRequestService
         List<FetchedPullRequest> fresh = ImmutableList.copyOf(seen.values());
         if (pathKeyed(session)) {
             store.saveDashboardSyncPage(fresh);
+        }
+        else {
+            hideUndiscovered(session, login, fresh);
         }
         enrichCards(session, login, fresh.stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
     }
@@ -1104,6 +1111,39 @@ public class PullRequestService
         return pathKeyed(session) ? store.findAttentionCandidates() : ImmutableList.of();
     }
 
+    /** A full pass hides this account's discovered requests that it no longer finds or is notified about, as the path-keyed dashboard page does. */
+    private void hideUndiscovered(HostingReadSession session, String login, List<FetchedPullRequest> fresh)
+    {
+        PullRequestDiscovery discovery = discovery(session);
+        Set<Long> kept = Stream.of(fresh.stream().map(row -> parseRef(row.repo(), row.number())), discovery.reviewRequests(login).stream(),
+                        discovery.mentions(login).stream())
+                .flatMap(refs -> refs)
+                .map(ref -> findDiscovered(session, ref))
+                .flatMap(Optional::stream)
+                .map(PullRequest::id)
+                .collect(toImmutableSet());
+        List<PullRequest> shown = store.findDashboardHosted();
+        Map<Long, Set<Long>> readers = requests.readingAccounts(shown.stream().map(PullRequest::id).collect(toImmutableSet()));
+        shown.stream()
+                .filter(row -> readers.getOrDefault(row.id(), ImmutableSet.of()).contains(session.accountId()) && !kept.contains(row.id()))
+                .forEach(row -> store.setDashboardVisible(row.id(), false));
+    }
+
+    /** Requests account discovery shows, each under a connected account that can read it; the caller drops those a watched workspace lists. */
+    public Map<Long, List<PullRequest>> listDiscoveredAttentionCandidates()
+    {
+        List<Long> connected = connectedDiscoveryAccounts();
+        List<PullRequest> shown = store.findDashboardHosted();
+        Map<Long, Set<Long>> readers = requests.readingAccounts(shown.stream().map(PullRequest::id).collect(toImmutableSet()));
+        Map<Long, List<PullRequest>> byAccount = new LinkedHashMap<>();
+        for (PullRequest row : shown) {
+            Set<Long> accounts = readers.getOrDefault(row.id(), ImmutableSet.of());
+            connected.stream().filter(accounts::contains).findFirst()
+                    .ifPresent(account -> byAccount.computeIfAbsent(account, ignored -> new ArrayList<>()).add(row));
+        }
+        return byAccount.entrySet().stream().collect(toImmutableMap(Map.Entry::getKey, entry -> ImmutableList.copyOf(entry.getValue())));
+    }
+
     /** A discovered request is stored as its provider keys rows: by path, or under its repository's hosting identity. */
     private PullRequest saveDiscovered(HostingReadSession session, FetchedPullRequest pullRequest)
     {
@@ -1112,7 +1152,9 @@ public class PullRequestService
         }
         HostingRepository repository = accountRepository(session, pullRequest.repo());
         requests.saveSummaries(session, repository.id(), ImmutableList.of(pullRequest));
-        return store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
+        PullRequest row = store.findByHostingRepository(repository.id(), pullRequest.number()).orElseThrow();
+        store.setDashboardVisible(row.id(), true);
+        return row;
     }
 
     private Optional<PullRequest> findDiscovered(HostingReadSession session, PullRequestRef ref)

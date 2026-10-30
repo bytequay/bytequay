@@ -159,6 +159,7 @@ class TestPullRequestRefreshControllers
         verify(pullRequests).findMentioned(candidates);
         verify(pullRequests).attentionVersion();
         verify(pullRequests).listHostedAttentionCandidates();
+        verify(pullRequests).listDiscoveredAttentionCandidates();
         verifyNoMoreInteractions(ignoreStubs(pullRequests));
         verifyNoInteractions(refresh);
     }
@@ -209,13 +210,18 @@ class TestPullRequestRefreshControllers
         when(pullRequests.attentionVersion()).thenReturn("boot-7-42");
         when(pullRequests.listAttentionCandidates()).thenReturn(ImmutableList.of(attentionPullRequest(1)));
         when(pullRequests.listHostedAttentionCandidates()).thenReturn(ImmutableMap.of("gitlab-workspace", ImmutableList.of(attentionPullRequest(2))));
+        // A discovered request a watched workspace also lists opens through the workspace, once.
+        when(pullRequests.listDiscoveredAttentionCandidates()).thenReturn(ImmutableMap.of(11L, ImmutableList.of(attentionPullRequest(2), attentionPullRequest(3))));
         var mvc = standaloneSetup(new PullRequestController(pullRequests, mock(PullRequestRefreshService.class))).build();
 
         mvc.perform(get("/prs/attention"))
                 .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
                 .andExpect(jsonPath("$[0].id").value(1))
                 .andExpect(jsonPath("$[1].id").value(2))
-                .andExpect(jsonPath("$[1].workspaceId").value("gitlab-workspace"));
+                .andExpect(jsonPath("$[1].workspaceId").value("gitlab-workspace"))
+                .andExpect(jsonPath("$[2].id").value(3))
+                .andExpect(jsonPath("$[2].accountId").value(11));
     }
 
     private static PullRequest attentionPullRequest(long id)

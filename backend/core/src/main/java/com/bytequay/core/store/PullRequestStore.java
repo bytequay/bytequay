@@ -45,6 +45,12 @@ public interface PullRequestStore
 
     void setMonitored(long prId, boolean monitored);
 
+    /** Shows or hides a hosted request that account discovery found; a hidden one stays stored. */
+    void setDashboardVisible(long prId, boolean visible);
+
+    /** The hosted requests account discovery currently shows, newest first. */
+    List<PullRequest> findDashboardHosted();
+
     Map<Long, PrActivitySummary> findActivities(Set<Long> prIds);
 
     Optional<Instant> findDiscussionActivityAt(long prId);

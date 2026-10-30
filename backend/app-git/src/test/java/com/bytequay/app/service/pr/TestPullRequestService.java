@@ -1376,6 +1376,9 @@ class TestPullRequestService
                 URI.create("https://gitlab.example.com/group/project.git"), Optional.empty(), Optional.of("main"));
         when(connections.findRepository(gitlabSession, "group/project")).thenReturn(Optional.of(project));
         when(store.findByHostingRepository(21, 4)).thenReturn(Optional.of(storedPullRequest(merge)));
+        PullRequest stale = rowWithId(99);
+        when(store.findDashboardHosted()).thenReturn(ImmutableList.of(stale));
+        when(requests.readingAccounts(ImmutableSet.of(99L))).thenReturn(ImmutableMap.of(99L, ImmutableSet.of(11L)));
         integrations = integrations(pullRequests(GITHUB, contents, new GitHubPullRequestWriter(gitHub, writes, actions), discovery),
                 pullRequests(GITLAB, mock(PullRequestContentReader.class), mock(PullRequestWriter.class), gitlabDiscovery));
         service = newService(Clock.systemUTC());
@@ -1389,6 +1392,21 @@ class TestPullRequestService
         verify(connections, never()).readSession(12);
         verify(store, never()).saveObserved(any());
         verify(store, never()).saveDashboardSyncPage(any());
+        verify(store).setDashboardVisible(12L, true);
+        verify(store).setDashboardVisible(99L, false);
+    }
+
+    @Test
+    void listsDiscoveredRequestsUnderAConnectedAccountThatCanReadThem()
+    {
+        HostingInstance gitlab = new HostingInstance(2, GITLAB, URI.create("https://gitlab.example.com"), URI.create("https://gitlab.example.com/api/v4"));
+        when(connections.connections()).thenReturn(ImmutableList.of(new HostingConnection(new HostingAccount(11, 2, "200", "me"), gitlab, true, Optional.empty())));
+        PullRequest readable = storedPullRequest();
+        PullRequest unreadable = rowWithId(99);
+        when(store.findDashboardHosted()).thenReturn(ImmutableList.of(readable, unreadable));
+        when(requests.readingAccounts(ImmutableSet.of(12L, 99L))).thenReturn(ImmutableMap.of(12L, ImmutableSet.of(9L, 11L), 99L, ImmutableSet.of(9L)));
+
+        assertThat(service.listDiscoveredAttentionCandidates()).containsExactly(Map.entry(11L, ImmutableList.of(readable)));
     }
 
     @Test
@@ -3785,6 +3803,13 @@ class TestPullRequestService
     {
         return new PrRawDetail(null, null, null, null, null, null, updatedAt, null, "body", ImmutableList.of(), null, ImmutableList.of(), null,
                 false, mergeable, mergeableState, 4, 2, 1, 0, ImmutableList.of(), "head", "feature", "main", "base");
+    }
+
+    private static PullRequest rowWithId(long id)
+    {
+        PullRequest row = mock(PullRequest.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(row.id()).thenReturn(id);
+        return row;
     }
 
     private static Workspace hostedWorkspace(String id, HostingProvider provider)

@@ -11,23 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.app.service.ci;
 
-import static com.bytequay.core.domain.Checks.checkText;
-import static java.util.Objects.requireNonNull;
-
-public record CiRerunResult(Outcome outcome, String reason)
-{
-    public CiRerunResult
-    {
-        requireNonNull(outcome, "outcome is null");
-        checkText(reason, "reason", 500);
-    }
-
-    public enum Outcome
-    {
-        ACCEPTED,
-        OBSOLETE,
-        REJECTED
-    }
-}
+/** One lossless UTF-8 page from a cached complete log; nextOffset equals totalBytes at EOF. */
+public record CiRawLogPage(String text, long nextOffset, long totalBytes) {}

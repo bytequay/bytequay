@@ -20,6 +20,7 @@ import com.bytequay.core.hosting.HostingRepositories;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.PullRequestCi;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestReader;
@@ -53,7 +54,7 @@ public final class HostingIntegrationFixtures
     public static HostingIntegration connections(HostingProvider provider, HostingAccounts accounts, HostingRepositories repositories, PullRequestReader pullRequests)
     {
         return new HostingIntegration(provider, accounts, repositories, pullRequests, mock(PullRequestContentReader.class), mock(PullRequestWriter.class),
-                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class));
+                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class));
     }
 
     public static HostingIntegration pullRequests(HostingProvider provider, PullRequestContentReader contents, PullRequestWriter writer)
@@ -64,18 +65,26 @@ public final class HostingIntegrationFixtures
     public static HostingIntegration pullRequests(HostingProvider provider, PullRequestContentReader contents, PullRequestWriter writer, PullRequestDiscovery discovery)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class), contents, writer,
-                mock(IssueClient.class), mock(RepositoryMetadataReader.class), discovery);
+                mock(IssueClient.class), mock(RepositoryMetadataReader.class), discovery, mock(PullRequestCi.class));
+    }
+
+    public static HostingIntegration ci(HostingProvider provider, PullRequestContentReader contents, PullRequestWriter writer, PullRequestCi ci)
+    {
+        return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class), contents, writer,
+                mock(IssueClient.class), mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), ci);
     }
 
     public static HostingIntegration issues(HostingProvider provider, IssueClient issues)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class),
-                mock(PullRequestContentReader.class), mock(PullRequestWriter.class), issues, mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class));
+                mock(PullRequestContentReader.class), mock(PullRequestWriter.class), issues, mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class),
+                mock(PullRequestCi.class));
     }
 
     public static HostingIntegration metadata(HostingProvider provider, RepositoryMetadataReader metadata)
     {
         return new HostingIntegration(provider, mock(HostingAccounts.class), mock(HostingRepositories.class), mock(PullRequestReader.class),
-                mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class), metadata, mock(PullRequestDiscovery.class));
+                mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class), metadata, mock(PullRequestDiscovery.class),
+                mock(PullRequestCi.class));
     }
 }

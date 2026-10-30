@@ -436,20 +436,37 @@ class TestGitLabPullRequestContentReader
     }
 
     @Test
+    void readsTheExactDescriptionAndAnEmptyOne()
+    {
+        responses.put(PREFIX, "{\"iid\":7,\"description\":\"Fixes #1.\\n\\nRelease notes \"}");
+        assertThat(reader.description(target(), 7)).isEqualTo("Fixes #1.\n\nRelease notes ");
+
+        responses.put(PREFIX, "{\"iid\":7,\"description\":null}");
+        assertThat(reader.description(target(), 7)).isEmpty();
+
+        responses.put(PREFIX, "{\"iid\":8,\"description\":\"Another request\"}");
+        assertThatThrownBy(() -> reader.description(target(), 7)).isInstanceOf(HostingFailure.class);
+    }
+
+    @Test
     void readsPlainTextTraceOnlyForCurrentFailedJob()
     {
         responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
-        responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
+        responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?include_retried=true&per_page=100&page=1", """
+                [{"id":14,"name":"lint","status":"success"},{"id":12,"name":"test","status":"failed"},{"id":11,"name":"lint","status":"failed"}]
+                """);
         responses.put("/gitlab/api/v4/projects/42/jobs/12/trace", "test failed\n");
 
         assertThat(reader.readCheckLog(target(), 7, 12).text()).isEqualTo("test failed\n");
+        assertThatThrownBy(() -> reader.readCheckLog(target(), 7, 11))
+                .isInstanceOfSatisfying(HostingFailure.class, failure -> assertThat(failure.kind()).isEqualTo(REVISION_CONFLICT));
     }
 
     @Test
     void unavailableJobLogKeepsSafeApiDiagnostics()
     {
         responses.put(PREFIX, "{\"sha\":\"" + HEAD + "\",\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
-        responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
+        responses.put("/gitlab/api/v4/projects/42/pipelines/9/jobs?include_retried=true&per_page=100&page=1", "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"}]");
         statuses.put("/gitlab/api/v4/projects/42/jobs/12/trace", 404);
 
         var result = reader.readCheckLog(target(), 7, 12);

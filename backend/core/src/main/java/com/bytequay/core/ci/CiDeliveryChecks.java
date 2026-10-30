@@ -11,22 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github;
+package com.bytequay.core.ci;
 
 import com.bytequay.core.domain.PullRequestIdentity;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
-/** Fresh check evidence for one exact PR revision, separate from the Actions repair result. */
-public record GitHubDeliveryChecks(String nodeId, PullRequestIdentity pullRequest, List<String> waiting, List<String> failures)
+/** Fresh check evidence for one exact request revision, separate from the CI repair result. */
+public record CiDeliveryChecks(PullRequestIdentity pullRequest, List<String> waiting, List<String> failures)
 {
-    public GitHubDeliveryChecks
+    public CiDeliveryChecks
     {
-        checkText(nodeId, "nodeId", 255);
         requireNonNull(pullRequest, "pullRequest is null");
         waiting = ImmutableList.copyOf(waiting);
         failures = ImmutableList.copyOf(failures);

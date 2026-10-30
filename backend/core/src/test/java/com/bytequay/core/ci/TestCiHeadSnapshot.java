@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -28,45 +28,46 @@ class TestCiHeadSnapshot
     private static final String SHA = "a".repeat(40);
 
     @Test
-    void passingJobsCannotHidePendingOrEmptyWorkflows()
+    void passingJobsCannotHidePendingOrEmptyRuns()
     {
-        CiWorkflowRun passing = workflow(1, "completed", Optional.of("success"), true);
+        CiRun passing = run(1, "completed", Optional.of("success"), true);
         for (String status : ImmutableList.of("queued", "in_progress", "waiting", "requested", "unknown")) {
-            CiHeadSnapshot snapshot = snapshot(ImmutableList.of(passing, workflow(2, status, Optional.empty(), false)));
+            CiHeadSnapshot snapshot = snapshot(ImmutableList.of(passing, run(2, status, Optional.empty(), false)));
             assertThat(snapshot.pending()).isTrue();
             assertThat(snapshot.green()).isFalse();
         }
-        assertThat(snapshot(ImmutableList.of(passing, workflow(2, "completed", Optional.of("success"), false))).green()).isFalse();
+        assertThat(snapshot(ImmutableList.of(passing, run(2, "completed", Optional.of("success"), false))).green()).isFalse();
         assertThat(snapshot(ImmutableList.of()).green()).isFalse();
     }
 
     @Test
-    void passingJobsCannotHideFailedOrUnknownWorkflowConclusions()
+    void passingJobsCannotHideFailedOrUnknownRunConclusions()
     {
         for (String conclusion : ImmutableList.of("failure", "cancelled", "timed_out", "unknown")) {
-            assertThat(snapshot(ImmutableList.of(workflow(1, "completed", Optional.of(conclusion), true))).green()).isFalse();
+            assertThat(snapshot(ImmutableList.of(run(1, "completed", Optional.of(conclusion), true))).green()).isFalse();
         }
-        assertThat(snapshot(ImmutableList.of(workflow(1, "completed", Optional.empty(), true))).green()).isFalse();
+        assertThat(snapshot(ImmutableList.of(run(1, "completed", Optional.empty(), true))).green()).isFalse();
     }
 
     @Test
     void acceptsCompletedNonemptySuccessNeutralAndSkippedEvidence()
     {
         for (String conclusion : ImmutableList.of("success", "neutral", "skipped")) {
-            assertThat(snapshot(ImmutableList.of(workflow(1, "completed", Optional.of(conclusion), true))).green()).isTrue();
+            assertThat(snapshot(ImmutableList.of(run(1, "completed", Optional.of(conclusion), true))).green()).isTrue();
         }
     }
 
-    private static CiWorkflowRun workflow(long id, String status, Optional<String> conclusion, boolean withJob)
+    private static CiRun run(long id, String status, Optional<String> conclusion, boolean withJob)
     {
         List<CiJob> jobs = withJob
                 ? ImmutableList.of(new CiJob(id, id, "build", 1, "completed", Optional.of("success"), "https://github.com/job/" + id, ImmutableList.of()))
                 : ImmutableList.of();
-        return new CiWorkflowRun(id, id, "build", 1, status, conclusion, SHA, "https://github.com/run/" + id, jobs);
+        return new CiRun(id, id, "build", 1, status, conclusion, SHA, "https://github.com/run/" + id, jobs);
     }
 
-    private static CiHeadSnapshot snapshot(List<CiWorkflowRun> workflows)
+    private static CiHeadSnapshot snapshot(List<CiRun> runs)
     {
-        return new CiHeadSnapshot(PullRequestRef.of("owner", "repo", 1), true, "owner", RepoRef.of("owner", "repo"), "feature", SHA, "main", SHA, "https://github.com/owner/repo/pull/1", workflows);
+        return new CiHeadSnapshot(PullRequestRef.of("owner", "repo", 1), true, "owner", RepoRef.of("owner", "repo"), "feature", SHA, "main", SHA,
+                "https://github.com/owner/repo/pull/1", runs);
     }
 }

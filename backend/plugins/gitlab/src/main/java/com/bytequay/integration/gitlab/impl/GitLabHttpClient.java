@@ -320,6 +320,7 @@ final class GitLabHttpClient
             case "pipelines" -> parts.length > 4 ? switch (parts[4]) {
                 case "jobs" -> "pipeline jobs";
                 case "bridges" -> "pipeline trigger jobs";
+                case "retry" -> "pipeline retry";
                 default -> "pipeline details";
             } : "pipeline details";
             case "jobs" -> parts.length > 4 && parts[4].equals("trace") ? "pipeline job log" : "pipeline job";

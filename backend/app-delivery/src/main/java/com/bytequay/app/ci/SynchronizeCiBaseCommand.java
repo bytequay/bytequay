@@ -15,6 +15,7 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
 
+import java.net.URI;
 import java.nio.file.Path;
 
 import static com.bytequay.core.domain.Checks.checkSha;
@@ -22,7 +23,11 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Exact remote base object and private local branch required by one CI run. */
+/**
+ * Exact remote base object and private local branch required by one CI run.
+ *
+ * @param webBaseUrl the workspace hosting server's web base URL, which the checkout's remotes must point into
+ */
 public record SynchronizeCiBaseCommand(
         String workspaceId,
         Path worktree,
@@ -30,6 +35,7 @@ public record SynchronizeCiBaseCommand(
         String localBranch,
         String sourceRemote,
         RepositoryIdentity remoteRepository,
+        URI webBaseUrl,
         String baseRef,
         String expectedBaseSha,
         String localBaseBranch)
@@ -44,6 +50,7 @@ public record SynchronizeCiBaseCommand(
         checkText(sourceRemote, "sourceRemote", 255);
         checkArgument(!sourceRemote.startsWith("-"), "sourceRemote is invalid");
         requireNonNull(remoteRepository, "remoteRepository is null");
+        requireNonNull(webBaseUrl, "webBaseUrl is null");
         checkText(baseRef, "baseRef", 255);
         checkSha(expectedBaseSha, "expectedBaseSha");
         checkText(localBaseBranch, "localBaseBranch", 255);

@@ -22,6 +22,7 @@ import com.bytequay.core.hosting.HostingProvider;
 import com.bytequay.core.hosting.HostingRepository;
 import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.hosting.IssueClient;
+import com.bytequay.core.hosting.PullRequestCi;
 import com.bytequay.core.hosting.PullRequestContentReader;
 import com.bytequay.core.hosting.PullRequestDiscovery;
 import com.bytequay.core.hosting.PullRequestFetch;
@@ -715,6 +716,6 @@ class TestGitHubIntegration
     private static HostingIntegration connections(HttpClient http, ObjectMapper mapper)
     {
         return GitHubIntegration.create(http, mapper, mock(PullRequestContentReader.class), mock(PullRequestWriter.class), mock(IssueClient.class),
-                mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class));
+                mock(RepositoryMetadataReader.class), mock(PullRequestDiscovery.class), mock(PullRequestCi.class));
     }
 }

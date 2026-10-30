@@ -64,11 +64,13 @@ public final class GitLabPullRequestWriter
     private static final Pattern HUNK = Pattern.compile("^@@ -(\\d+)(?:,\\d+)? [+](\\d+)(?:,\\d+)? @@.*");
     private final GitLabHttpClient http;
     private final GitLabMergeRequestDiffs diffs;
+    private final GitLabPullRequestCi ci;
 
     public GitLabPullRequestWriter(HttpClient http, ObjectMapper mapper)
     {
         this.http = new GitLabHttpClient(http, mapper);
         this.diffs = new GitLabMergeRequestDiffs(this.http);
+        this.ci = new GitLabPullRequestCi(this.http);
     }
 
     @Override
@@ -248,24 +250,10 @@ public final class GitLabPullRequestWriter
     public void rerunFailedChecks(HostingTarget target, int number)
     {
         Pipeline pipeline = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
-        List<GitLabJob> failed = http.pages(target.access(), pipeline.path(target.repository()) + "/jobs", GitLabJob[].class).stream()
-                .filter(job -> "failed".equals(job.status())).collect(toImmutableList());
-        if (failed.isEmpty()) {
+        if (ci.currentJobs(target, pipeline).stream().noneMatch(job -> "failed".equals(job.status()))) {
             throw new HostingFailure(REVISION_CONFLICT, "No failed jobs are available to rerun");
         }
-        int accepted = 0;
-        try {
-            for (GitLabJob job : failed) {
-                http.post(target.access(), pipeline.projectPath(target.repository()) + "/jobs/" + job.id() + "/retry", ImmutableMap.of(), Void.class);
-                accepted++;
-            }
-        }
-        catch (RuntimeException failure) {
-            if (accepted > 0) {
-                throw new HostingFailure(INVALID_RESPONSE, "GitLab accepted " + accepted + " job retry(s), but remaining retries failed. Refresh before retrying.");
-            }
-            throw failure;
-        }
+        ci.retry(target, pipeline);
     }
 
     @Override

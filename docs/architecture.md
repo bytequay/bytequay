@@ -159,8 +159,8 @@ by that target's provider; `app` composes the concrete implementations. The
 adapters depend on `core`, not application services or persistence.
 
 The contracts cover accounts, repository metadata, paginated PR/MR and issue
-reads, request discussion, checks, diffs, and explicit remote actions. Existing
-GitHub clients implement the rich contracts through adapters in `app-github`;
+reads, request discussion, checks, CI runs and logs, diffs, and explicit remote
+actions. Existing GitHub clients implement the rich contracts through adapters in `app-github`;
 GitLab implements them in `plugins/gitlab`. GitLab.com and company servers use the same adapter
 with configured web/API base URLs, including path prefixes and ports. Credentials
 are encrypted separately from retained object identities. Redirects cannot
@@ -258,7 +258,10 @@ state and timeline storage. Tokens remain in the backend.
 Issue refresh, comments, editing and publication use the shared issue client.
 Development task import fetches the provider's request head reference, and draft
 publication uses the selected workspace's writer. CI jobs expose a normalized job
-identity for log reads and explicit retry actions.
+identity for log reads and explicit retry actions. CI Autofix reads runs, job logs
+and delivery checks, and reruns failed jobs, through the workspace integration's
+`PullRequestCi`; the raw-log cache and excerpt selection are shared by every
+provider.
 
 ### Provider differences and remaining integration
 

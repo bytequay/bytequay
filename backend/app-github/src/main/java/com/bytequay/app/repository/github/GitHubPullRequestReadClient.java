@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.core.ci.CiDeliveryChecks;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -220,13 +221,12 @@ public class GitHubPullRequestReadClient
     }
 
     /** Reads complete current-head checks and both classic and ruleset requirements without a cached success fallback. */
-    public GitHubDeliveryChecks fetchDeliveryChecks(String pat, PullRequestRef pullRequest)
+    public CiDeliveryChecks fetchDeliveryChecks(String pat, PullRequestRef pullRequest)
     {
         requirePat(pat);
         requireNonNull(pullRequest, "pullRequest is null");
         JsonNode first = fetchDeliveryCheckPage(pat, pullRequest, Optional.empty());
         PullRequestIdentity identity = deliveryIdentity(first, pullRequest);
-        String nodeId = deliveryText(first, "id");
         List<String> waiting = new ArrayList<>();
         List<String> failures = new ArrayList<>();
         try {
@@ -261,7 +261,7 @@ public class GitHubPullRequestReadClient
                     if (!"SUCCESS".equals(state)) {
                         waiting.add("GitHub's current-head check rollup is " + state);
                     }
-                    return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
+                    return new CiDeliveryChecks(identity, waiting, failures);
                 }
                 String nextCursor = deliveryText(pageInfo, "endCursor");
                 checkState(!cursor.filter(nextCursor::equals).isPresent(), "GitHub check pagination did not advance");
@@ -273,7 +273,7 @@ public class GitHubPullRequestReadClient
         catch (IllegalArgumentException | IllegalStateException invalid) {
             waiting.add(invalid.getMessage());
         }
-        return new GitHubDeliveryChecks(nodeId, identity, waiting, failures);
+        return new CiDeliveryChecks(identity, waiting, failures);
     }
 
     private JsonNode fetchDeliveryCheckPage(String pat, PullRequestRef pullRequest, Optional<String> cursor)
@@ -281,7 +281,7 @@ public class GitHubPullRequestReadClient
         String query = """
                 query($owner:String!,$name:String!,$number:Int!,$cursor:String){
                   repository(owner:$owner,name:$name){pullRequest(number:$number){
-                    id number url state isDraft author{login} headRefName headRefOid baseRefName baseRefOid
+                    number url state isDraft author{login} headRefName headRefOid baseRefName baseRefOid
                     headRepository{nameWithOwner} baseRepository{nameWithOwner}
                     headRef{target{oid}}
                     baseRef{target{oid} branchProtectionRule{requiresStatusChecks requiredStatusChecks{context app{databaseId}}}}

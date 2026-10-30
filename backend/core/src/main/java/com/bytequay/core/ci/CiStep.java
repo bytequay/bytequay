@@ -11,16 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
 import java.util.Optional;
 
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.isActionableConclusion;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.normalizeConclusion;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.normalizeState;
+import static com.bytequay.core.ci.CiChecks.isActionableConclusion;
+import static com.bytequay.core.ci.CiChecks.normalizeConclusion;
+import static com.bytequay.core.ci.CiChecks.normalizeState;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
+/** One step of a {@link CiJob}, with the same status and conclusion vocabulary. */
 public record CiStep(int number, String name, String status, Optional<String> conclusion)
 {
     public CiStep

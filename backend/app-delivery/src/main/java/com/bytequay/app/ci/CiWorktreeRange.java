@@ -15,6 +15,7 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.RepositoryIdentity;
 
+import java.net.URI;
 import java.nio.file.Path;
 
 import static com.bytequay.core.domain.Checks.checkSha;
@@ -25,15 +26,17 @@ import static java.util.Objects.requireNonNull;
 /**
  * A CI Autofix worktree's pull-request range.
  *
+ * @param webBaseUrl the workspace hosting server's web base URL, which the checkout's origin must point into
  * @param remoteHeadSha the remote head the run expects, which is also the attempt input
  */
-public record CiWorktreeRange(Path worktree, RepositoryIdentity repository, String localBranch, String baseSha, String remoteHeadSha)
+public record CiWorktreeRange(Path worktree, RepositoryIdentity repository, URI webBaseUrl, String localBranch, String baseSha, String remoteHeadSha)
 {
     public CiWorktreeRange
     {
         requireNonNull(worktree, "worktree is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         requireNonNull(repository, "repository is null");
+        requireNonNull(webBaseUrl, "webBaseUrl is null");
         checkText(localBranch, "localBranch", 255);
         checkSha(baseSha, "baseSha");
         checkSha(remoteHeadSha, "remoteHeadSha");

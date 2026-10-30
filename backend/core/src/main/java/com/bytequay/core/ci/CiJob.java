@@ -11,33 +11,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.checkUrl;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.isActionableConclusion;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.isPassingConclusion;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.normalizeConclusion;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.normalizeState;
+import static com.bytequay.core.ci.CiChecks.checkUrl;
+import static com.bytequay.core.ci.CiChecks.isActionableConclusion;
+import static com.bytequay.core.ci.CiChecks.isPassingConclusion;
+import static com.bytequay.core.ci.CiChecks.normalizeConclusion;
+import static com.bytequay.core.ci.CiChecks.normalizeState;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.util.Objects.requireNonNull;
 
-public record CiJob(long id, long workflowRunId, String name, int attempt, String status, Optional<String> conclusion, String url, List<CiStep> steps)
+/**
+ * One job of a {@link CiRun}, in the vocabulary every provider maps into.
+ *
+ * <p>{@code status} is {@code queued}, {@code in_progress} or {@code completed}. A completed job's {@code conclusion} is
+ * {@code success}, {@code failure}, {@code cancelled}, {@code timed_out}, {@code skipped}, {@code neutral},
+ * {@code action_required}, {@code stale} or {@code startup_failure}. {@link CiRun} and {@link CiStep} use the same values.
+ */
+public record CiJob(long id, long runId, String name, int attempt, String status, Optional<String> conclusion, String url, List<CiStep> steps)
 {
     public CiJob
     {
-        checkArgument(id > 0 && workflowRunId > 0 && attempt > 0, "job IDs and attempt must be positive");
+        checkArgument(id > 0 && runId > 0 && attempt > 0, "job IDs and attempt must be positive");
         checkText(name, "name", 500);
         status = normalizeState(status, "status");
         conclusion = normalizeConclusion(conclusion);
         checkUrl(url, "url");
-        requireNonNull(steps, "steps is null");
         steps = ImmutableList.copyOf(steps);
         checkArgument(steps.size() <= 500, "steps exceeds 500 values");
     }

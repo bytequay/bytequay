@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
 import com.google.common.collect.ImmutableSet;
@@ -26,12 +26,12 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-final class CiActionsChecks
+final class CiChecks
 {
     private static final Set<String> ACTIONABLE_CONCLUSIONS = ImmutableSet.of("action_required", "cancelled", "failure", "stale", "startup_failure", "timed_out");
     private static final Set<String> PASSING_CONCLUSIONS = ImmutableSet.of("neutral", "skipped", "success");
 
-    private CiActionsChecks() {}
+    private CiChecks() {}
 
     static PullRequestRef checkPullRequest(PullRequestRef pullRequest)
     {

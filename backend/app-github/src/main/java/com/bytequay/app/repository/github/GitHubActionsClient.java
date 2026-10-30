@@ -14,25 +14,21 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.RepositoryIdentity;
-import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.repository.github.GitHubPaginator.Page;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiLogExcerpt;
-import com.bytequay.app.repository.github.actions.CiRawLogStore;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiStep;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.ci.CiLogExcerpt;
+import com.bytequay.core.ci.CiDeliveryChecks;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.CiStep;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingTarget;
+import com.bytequay.core.hosting.PullRequestCi;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.google.common.base.Ascii;
 import com.google.common.cache.Cache;
@@ -40,7 +36,6 @@ import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpHeaders;
@@ -61,7 +56,6 @@ import java.io.InputStreamReader;
 import java.io.PrintWriter;
 import java.io.UncheckedIOException;
 import java.net.URI;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -77,69 +71,50 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
-import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.repository.github.GitHubApiSupport.authorization;
 import static com.bytequay.app.repository.github.GitHubApiSupport.extractGitHubErrorMessage;
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
-import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableException;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.app.repository.github.GitHubPaginator.forEachCompletePage;
-import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.ACCEPTED;
-import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.OBSOLETE;
-import static com.bytequay.app.repository.github.actions.CiRerunResult.Outcome.REJECTED;
+import static com.bytequay.app.service.ci.CiLogReader.normalizeLine;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
+import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
+import static com.bytequay.core.ci.CiRerunResult.Outcome.ACCEPTED;
+import static com.bytequay.core.ci.CiRerunResult.Outcome.OBSOLETE;
+import static com.bytequay.core.ci.CiRerunResult.Outcome.REJECTED;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
+/** GitHub Actions runs and logs, and the pull request page's checks, read with each target's own token. */
 @Component
 public class GitHubActionsClient
-        implements com.bytequay.app.repository.github.actions.GitHubActionsClient
+        implements PullRequestCi
 {
     private static final int PAGE_SIZE = 100;
     private static final int MAX_PAGES = 10;
-    private static final int MAX_TERMINAL_ERRORS = 20;
-    private static final int MAX_ERROR_LINE = 500;
     private static final int MAX_ANNOTATIONS = 10;
     /** The job log already ends with this line. */
     private static final Pattern EXIT_STATUS_ANNOTATION = Pattern.compile("Process completed with exit code \\d+\\.?");
-    private static final String TAIL_NOTE = "No diagnostic keywords or stack trace matched. Showing only the log tail (at most 32 KiB); "
-            + "request the cached raw log for complete evidence.\n";
-    private static final String LOG_MEDIA_TYPE = "text/plain; charset=utf-8";
-    private static final Pattern ANSI_ESCAPE = Pattern.compile("\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])");
-    private static final Pattern TIMESTAMP_PREFIX = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");
     private static final Pattern AUTHORIZATION_VALUE = Pattern.compile("(?i)(authorization\\s*[:=]\\s*(?:bearer|token)\\s+)[^\\s]+");
     private static final Pattern GITHUB_TOKEN = Pattern.compile("\\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)\\b");
 
     private final RestClient gitHubRestClient;
     private final RestClient logRestClient;
-    private final Supplier<String> tokenSupplier;
-    private final LogBlobWriter blobWriter;
-    private final CiRawLogStore rawLogs;
+    private final GitHubPullRequestReadClient pullRequests;
     /** CI polls reread mostly unchanged evidence, and GitHub does not count a 304 against the rate limit. */
     private final Cache<String, ConditionalRead> conditionalReads = CacheBuilder.newBuilder().maximumSize(256).build();
 
-    @Autowired
-    public GitHubActionsClient(
-            RestClient gitHubRestClient,
-            @Qualifier("gitHubLogRestClient") RestClient logRestClient,
-            CredentialService credentials,
-            TaskLogStore taskLogStore,
-            CiRawLogStore rawLogs)
-    {
-        this(gitHubRestClient, logRestClient, credentials::resolveGitHubToken, taskLogStore::writeBlob, rawLogs);
-    }
-
-    GitHubActionsClient(RestClient gitHubRestClient, RestClient logRestClient, Supplier<String> tokenSupplier, LogBlobWriter blobWriter, CiRawLogStore rawLogs)
+    public GitHubActionsClient(RestClient gitHubRestClient, @Qualifier("gitHubLogRestClient") RestClient logRestClient, GitHubPullRequestReadClient pullRequests)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.logRestClient = requireNonNull(logRestClient, "logRestClient is null");
-        this.tokenSupplier = requireNonNull(tokenSupplier, "tokenSupplier is null");
-        this.blobWriter = requireNonNull(blobWriter, "blobWriter is null");
-        this.rawLogs = requireNonNull(rawLogs, "rawLogs is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
     public PrCheckRunsFetch refreshPrCheckRuns(
@@ -230,21 +205,17 @@ public class GitHubActionsClient
         }
     }
 
-    @Override
-    public String readDescription(PullRequestRef pullRequest)
+    /** Reads the complete current description; an empty body is returned as an empty string. */
+    public String description(String pat, PullRequestRef pullRequest)
     {
-        return Optional.ofNullable(fetchPullRequest(token(), pullRequest).body()).orElse("");
+        return Optional.ofNullable(fetchPullRequest(pat, pullRequest).body()).orElse("");
     }
 
     @Override
-    public CiHeadSnapshot inspect(PullRequestRef pullRequest)
+    public CiHeadSnapshot inspect(HostingTarget target, int number)
     {
-        return inspect(token(), pullRequest);
-    }
-
-    public CiHeadSnapshot inspect(String pat, PullRequestRef pullRequest)
-    {
-        requireNonNull(pullRequest, "pullRequest is null");
+        String pat = target.access().token();
+        PullRequestRef pullRequest = ref(target, number);
         PullRequestResponse response = fetchPullRequest(pat, pullRequest);
         if (response.user() == null || response.head() == null || response.base() == null
                 || response.user().login() == null || response.head().sha() == null
@@ -260,7 +231,7 @@ public class GitHubActionsClient
         catch (IllegalArgumentException invalid) {
             throw badGateway("GitHub returned an invalid pull-request head repository");
         }
-        List<CiWorkflowRun> runs = fetchWorkflowRuns(pat, pullRequest, response.head().sha());
+        List<CiRun> runs = fetchWorkflowRuns(pat, pullRequest, response.head().sha());
         return new CiHeadSnapshot(
                 pullRequest,
                 "open".equalsIgnoreCase(response.state()),
@@ -275,38 +246,18 @@ public class GitHubActionsClient
     }
 
     @Override
-    public BoundedCiLog readLog(ReadCiLogQuery query)
+    public Optional<String> downloadLog(HostingTarget target, int number, long jobId, Path destination)
     {
-        requireNonNull(query, "query is null");
-        Optional<String> unavailable = rawLogs.cache(query, path -> retrieveLog(token(), query.pullRequest(), query.job().id(), path));
-        if (unavailable.isPresent()) {
-            return BoundedCiLog.unavailable(unavailable.orElseThrow());
-        }
-        String logId = CiRawLogStore.id(query);
-        String text = rawLogs.read(query.taskId(), logId);
-        String rawNote = "Raw log: read_ci_raw_log({\"logId\":\"" + logId + "\"}).\n";
-        int budget = query.maximumBytes() - rawNote.length() - TAIL_NOTE.length();
-        if (budget <= 0) {
-            return BoundedCiLog.unavailable("CI log byte limit is too small to include log retrieval details");
-        }
-        CiLogExcerpt excerpt = CiLogExcerpt.from(text, Math.min(budget, 32 * 1024), budget);
-        byte[] stored = (rawNote + (excerpt.diagnosticsMatched() ? "" : TAIL_NOTE) + excerpt.text()).getBytes(StandardCharsets.UTF_8);
-        BlobRef blob = blobWriter.write(query.taskId(), ByteBuffer.wrap(stored), LOG_MEDIA_TYPE);
-        return new BoundedCiLog(Optional.of(blob), excerpt.compacted(), terminalErrors(text), Optional.empty(), Optional.of(logId), excerpt.diagnosticsMatched());
+        return retrieveLog(target.access().token(), ref(target, number), jobId, destination);
     }
 
-    /** Uses the same full download and excerpt selection without creating task-owned storage. */
-    public String readJobLog(PullRequestRef pullRequest, long jobId)
-    {
-        return readJobLog(token(), pullRequest, jobId);
-    }
-
-    public String readJobLog(String pat, PullRequestRef pullRequest, long jobId)
+    /** Uses the same full download and excerpt selection as a CI repair without creating task-owned storage. */
+    public String readJobLog(HostingTarget target, int number, long jobId)
     {
         try {
             Path temporary = Files.createTempFile("bytequay-ci-", ".log");
             try {
-                Optional<String> unavailable = retrieveLog(pat, pullRequest, jobId, temporary);
+                Optional<String> unavailable = downloadLog(target, number, jobId, temporary);
                 if (unavailable.isPresent()) {
                     throw new ResponseStatusException(HttpStatus.NOT_FOUND, unavailable.orElseThrow());
                 }
@@ -323,14 +274,10 @@ public class GitHubActionsClient
     }
 
     @Override
-    public List<String> readFailureAnnotations(PullRequestRef pullRequest, long jobId)
+    public List<String> failureNotes(HostingTarget target, int number, long jobId)
     {
-        return readFailureAnnotations(token(), pullRequest, jobId);
-    }
-
-    public List<String> readFailureAnnotations(String pat, PullRequestRef pullRequest, long jobId)
-    {
-        requireNonNull(pullRequest, "pullRequest is null");
+        String pat = target.access().token();
+        PullRequestRef pullRequest = ref(target, number);
         List<AnnotationResponse> annotations;
         try {
             // An Actions job is its own check run.
@@ -346,7 +293,7 @@ public class GitHubActionsClient
         return Optional.ofNullable(annotations).orElse(ImmutableList.of()).stream()
                 .filter(annotation -> "failure".equals(annotation.level()) && annotation.message() != null)
                 .map(annotation -> Optional.ofNullable(annotation.title()).filter(title -> !title.isBlank()).map(title -> title + ": ").orElse("") + annotation.message())
-                .map(message -> normalizeLogLine(redact(message, redactor)))
+                .map(message -> normalizeLine(redact(message, redactor)))
                 .filter(message -> !message.isBlank() && !EXIT_STATUS_ANNOTATION.matcher(message).matches())
                 .distinct()
                 .limit(MAX_ANNOTATIONS)
@@ -386,19 +333,19 @@ public class GitHubActionsClient
     }
 
     @Override
-    public Set<String> failedJobsOnBranch(PullRequestRef pullRequest, long workflowId, String branch)
+    public Set<String> failedJobsOnBranch(HostingTarget target, long definitionId, String branch)
     {
-        requireNonNull(pullRequest, "pullRequest is null");
-        String pat = token();
+        PullRequestRef pullRequest = ref(target, 1);
+        String pat = target.access().token();
         // Push runs only: a fork's pull request may come from a branch with the same name.
         WorkflowRunsResponse runs = translating(() -> requireBody(conditional(
-                "branch-runs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + workflowId + "/" + branch,
+                "branch-runs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + definitionId + "/" + branch,
                 get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/workflows/{workflowId}/runs")
                         .queryParam("branch", branch)
                         .queryParam("event", "push")
                         .queryParam("status", "completed")
                         .queryParam("per_page", 1)
-                        .build(pullRequest.owner(), pullRequest.repo(), workflowId)),
+                        .build(pullRequest.owner(), pullRequest.repo(), definitionId)),
                 WorkflowRunsResponse.class), "GitHub returned empty base-branch workflow runs"));
         return Optional.ofNullable(runs.rows()).orElse(ImmutableList.of()).stream().findFirst()
                 .map(run -> fetchJobs(pat, pullRequest, run.id(), positiveOrOne(run.runAttempt()), run.htmlUrl()).stream()
@@ -409,18 +356,15 @@ public class GitHubActionsClient
     }
 
     @Override
-    public CiRerunResult rerunFailedJobs(RerunFailedJobsCommand command)
-    {
-        return rerunFailedJobs(token(), command);
-    }
-
-    public CiRerunResult rerunFailedJobs(String pat, RerunFailedJobsCommand command)
+    public CiRerunResult rerunFailedJobs(HostingTarget target, int number, RerunFailedJobsCommand command)
     {
         requireNonNull(command, "command is null");
+        String pat = target.access().token();
+        PullRequestRef pullRequest = ref(target, number);
         if (!command.authorized()) {
             return new CiRerunResult(REJECTED, "Failed-job rerun was not authorized");
         }
-        WorkflowRunResponse run = fetchWorkflowRun(pat, command.pullRequest(), command.workflowRunId());
+        WorkflowRunResponse run = fetchWorkflowRun(pat, pullRequest, command.runId());
         Optional<String> conclusion = Optional.ofNullable(run.conclusion())
                 .map(value -> value.toLowerCase(Locale.ROOT));
         if (!command.headSha().equals(run.headSha())
@@ -431,7 +375,7 @@ public class GitHubActionsClient
         }
         try {
             gitHubRestClient.post()
-                    .uri("/repos/{owner}/{repo}/actions/runs/{runId}/rerun-failed-jobs", command.pullRequest().owner(), command.pullRequest().repo(), command.workflowRunId())
+                    .uri("/repos/{owner}/{repo}/actions/runs/{runId}/rerun-failed-jobs", pullRequest.owner(), pullRequest.repo(), command.runId())
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .toBodilessEntity();
@@ -447,6 +391,18 @@ public class GitHubActionsClient
             }
             throw toReadableException(e);
         }
+    }
+
+    @Override
+    public CiDeliveryChecks deliveryChecks(HostingTarget target, int number)
+    {
+        return pullRequests.fetchDeliveryChecks(target.access().token(), ref(target, number));
+    }
+
+    private static PullRequestRef ref(HostingTarget target, int number)
+    {
+        checkArgument(target.access().server().equals(GITHUB_SERVER), "GitHub Actions requires a GitHub.com account");
+        return parseRef(target.repository().fullPath(), number);
     }
 
     /**
@@ -484,7 +440,7 @@ public class GitHubActionsClient
                 PullRequestResponse.class), "GitHub returned an empty pull request"));
     }
 
-    private List<CiWorkflowRun> fetchWorkflowRuns(String pat, PullRequestRef pullRequest, String headSha)
+    private List<CiRun> fetchWorkflowRuns(String pat, PullRequestRef pullRequest, String headSha)
     {
         Map<Long, WorkflowRunResponse> latest = new LinkedHashMap<>();
         Set<String> observedAttempts = new HashSet<>();
@@ -503,7 +459,7 @@ public class GitHubActionsClient
                 (first, second) -> first.id() > second.id() ? first : second));
         return workflows.values().stream()
                 .map(run -> toWorkflowRun(pat, pullRequest, run))
-                .sorted(Comparator.comparing(CiWorkflowRun::name).thenComparingLong(CiWorkflowRun::id))
+                .sorted(Comparator.comparing(CiRun::name).thenComparingLong(CiRun::id))
                 .collect(toImmutableList());
     }
 
@@ -519,10 +475,10 @@ public class GitHubActionsClient
                 WorkflowRunsResponse.class));
     }
 
-    private CiWorkflowRun toWorkflowRun(String pat, PullRequestRef pullRequest, WorkflowRunResponse run)
+    private CiRun toWorkflowRun(String pat, PullRequestRef pullRequest, WorkflowRunResponse run)
     {
         int attempt = positiveOrOne(run.runAttempt());
-        return new CiWorkflowRun(
+        return new CiRun(
                 run.id(),
                 run.workflowId(),
                 firstNonBlank(run.name(), run.displayTitle(), "Workflow " + run.workflowId()),
@@ -686,38 +642,6 @@ public class GitHubActionsClient
         return GITHUB_TOKEN.matcher(text).replaceAll("[REDACTED]");
     }
 
-    private static List<String> terminalErrors(String log)
-    {
-        List<String> errors = log.lines()
-                .map(GitHubActionsClient::normalizeLogLine)
-                .filter(line -> {
-                    String lower = line.toLowerCase(Locale.ROOT);
-                    return lower.contains("error")
-                            || lower.contains("exception")
-                            || lower.contains("fail")
-                            || lower.contains("fatal");
-                })
-                .filter(line -> !line.isBlank())
-                .collect(toImmutableList());
-        int first = Math.max(0, errors.size() - MAX_TERMINAL_ERRORS);
-        return ImmutableList.copyOf(errors.subList(first, errors.size()));
-    }
-
-    private static String normalizeLogLine(String value)
-    {
-        String normalized = ANSI_ESCAPE.matcher(value).replaceAll("");
-        normalized = TIMESTAMP_PREFIX.matcher(normalized).replaceFirst("");
-        normalized = normalized.strip().replaceAll("\\s+", " ");
-        return Ascii.truncate(normalized, MAX_ERROR_LINE, "");
-    }
-
-    private String token()
-    {
-        String pat = tokenSupplier.get();
-        requirePat(pat);
-        return pat;
-    }
-
     private static boolean safeLogLocation(URI location)
     {
         return "https".equalsIgnoreCase(location.getScheme())
@@ -772,12 +696,6 @@ public class GitHubActionsClient
     private static ResponseStatusException badGateway(String message)
     {
         return new ResponseStatusException(HttpStatusCode.valueOf(502), message);
-    }
-
-    @FunctionalInterface
-    interface LogBlobWriter
-    {
-        BlobRef write(TaskId taskId, ByteBuffer content, String mediaType);
     }
 
     private record LogHop(Optional<URI> redirect, Optional<String> unavailableReason)

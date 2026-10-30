@@ -340,15 +340,22 @@ class TestGitLabPullRequestWriter
     }
 
     @Test
-    void retriesOnlyFailedJobsFromCurrentPipeline()
+    void retriesTheCurrentPipelineOnlyWhileACurrentJobFailed()
     {
-        responses.put("GET " + PREFIX, "{\"head_pipeline\":{\"id\":9,\"project_id\":42}}");
-        responses.put("GET /gitlab/api/v4/projects/42/pipelines/9/jobs?per_page=100&page=1", "[{\"id\":12,\"status\":\"failed\"},{\"id\":13,\"status\":\"success\"}]");
-        responses.put("POST /gitlab/api/v4/projects/42/jobs/12/retry", "{}");
+        String jobs = "GET /gitlab/api/v4/projects/43/pipelines/9/jobs?include_retried=true&per_page=100&page=1";
+        responses.put("GET " + PREFIX, "{\"head_pipeline\":{\"id\":9,\"project_id\":43}}");
+        responses.put(jobs, "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"},{\"id\":13,\"name\":\"lint\",\"status\":\"success\"}]");
+        responses.put("POST /gitlab/api/v4/projects/43/pipelines/9/retry", "{}");
 
         writer.rerunFailedChecks(target(), 7);
 
-        assertThat(received.stream().filter(request -> request.key().startsWith("POST")).map(Request::key)).containsExactly("POST /gitlab/api/v4/projects/42/jobs/12/retry");
+        assertThat(received.stream().filter(request -> request.key().startsWith("POST")).map(Request::key)).containsExactly("POST /gitlab/api/v4/projects/43/pipelines/9/retry");
+
+        received.clear();
+        responses.put(jobs, "[{\"id\":12,\"name\":\"test\",\"status\":\"failed\"},{\"id\":14,\"name\":\"test\",\"status\":\"running\"}]");
+
+        assertThatThrownBy(() -> writer.rerunFailedChecks(target(), 7)).isInstanceOf(HostingFailure.class).hasMessageContaining("No failed jobs");
+        assertThat(received).noneMatch(request -> request.key().startsWith("POST"));
     }
 
     @Test

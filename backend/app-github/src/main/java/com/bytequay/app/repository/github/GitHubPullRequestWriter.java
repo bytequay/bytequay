@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.repository.github;
 
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.CreatedPullRequest;
 import com.bytequay.core.domain.InlineReviewComment;
 import com.bytequay.core.domain.MergePullRequestCommand;
@@ -241,9 +241,8 @@ public class GitHubPullRequestWriter
     @Override
     public void rerunFailedChecks(HostingTarget target, int number)
     {
-        PullRequestRef pullRequest = ref(target, number);
-        CiHeadSnapshot head = actions.inspect(target.access().token(), pullRequest);
-        List<CiWorkflowRun> failedRuns = head.workflowRuns().stream()
+        CiHeadSnapshot head = actions.inspect(target, number);
+        List<CiRun> failedRuns = head.runs().stream()
                 .filter(run -> run.jobs().stream().anyMatch(job -> job.actionableFailure()))
                 .collect(ImmutableList.toImmutableList());
         if (failedRuns.isEmpty()) {
@@ -251,8 +250,8 @@ public class GitHubPullRequestWriter
         }
         int accepted = 0;
         String rejection = "GitHub did not accept the failed-job rerun";
-        for (CiWorkflowRun run : failedRuns) {
-            CiRerunResult result = actions.rerunFailedJobs(target.access().token(), new RerunFailedJobsCommand(pullRequest, run.id(), head.headSha(), run.attempt(), true));
+        for (CiRun run : failedRuns) {
+            CiRerunResult result = actions.rerunFailedJobs(target, number, new RerunFailedJobsCommand(run.id(), head.headSha(), run.attempt(), true));
             if (result.outcome() == CiRerunResult.Outcome.ACCEPTED) {
                 accepted++;
             }

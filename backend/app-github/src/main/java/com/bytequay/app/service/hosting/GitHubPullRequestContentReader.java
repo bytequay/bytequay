@@ -17,7 +17,7 @@ import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
+import com.bytequay.core.ci.CiHeadSnapshot;
 import com.bytequay.core.domain.DiffFileContent;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrDiffEtags;
@@ -118,6 +118,12 @@ public class GitHubPullRequestContentReader
     }
 
     @Override
+    public String description(HostingTarget target, int number)
+    {
+        return actions.description(target.access().token(), ref(target, number));
+    }
+
+    @Override
     public List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch)
     {
         PullRequestRef ref = ref(target, 1);
@@ -201,19 +207,18 @@ public class GitHubPullRequestContentReader
     @Override
     public PullRequestCheckLog readCheckLog(HostingTarget target, int number, long jobId)
     {
-        PullRequestRef pullRequest = ref(target, number);
-        CiHeadSnapshot head = actions.inspect(target.access().token(), pullRequest);
-        boolean failedJob = head.workflowRuns().stream()
+        CiHeadSnapshot head = actions.inspect(target, number);
+        boolean failedJob = head.runs().stream()
                 .flatMap(run -> run.jobs().stream())
                 .anyMatch(job -> job.id() == jobId && job.actionableFailure());
         if (!failedJob) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "This failed job is no longer part of the current PR checks. Refresh the pull request.");
         }
-        String annotations = actions.readFailureAnnotations(target.access().token(), pullRequest, jobId).stream()
+        String annotations = actions.failureNotes(target, number, jobId).stream()
                 .map(message -> "GitHub annotation: " + message + "\n")
                 .collect(joining());
         try {
-            String log = actions.readJobLog(target.access().token(), pullRequest, jobId);
+            String log = actions.readJobLog(target, number, jobId);
             return new PullRequestCheckLog(annotations.isEmpty() ? log : annotations + "\n" + log, Optional.empty());
         }
         catch (ResponseStatusException failure) {

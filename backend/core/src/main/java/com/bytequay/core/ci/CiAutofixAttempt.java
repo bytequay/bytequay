@@ -209,7 +209,7 @@ public record CiAutofixAttempt(
         {
             checkText(signature, "signature", 200);
             checkText(summary, "summary", 4 * 1024);
-            checkArgument(workflowRunId > 0 && jobId > 0, "GitHub workflow and job IDs must be positive");
+            checkArgument(workflowRunId > 0 && jobId > 0, "workflow and job IDs must be positive");
             checkArgument(workflowAttempt > 0 && jobAttempt > 0, "workflow and job attempts must be positive");
             requireNonNull(log, "log is null");
         }

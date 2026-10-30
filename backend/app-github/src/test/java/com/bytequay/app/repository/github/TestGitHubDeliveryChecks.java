@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.core.ci.CiDeliveryChecks;
 import com.bytequay.core.domain.PullRequestRef;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -62,10 +63,9 @@ class TestGitHubDeliveryChecks
                 .andRespond(withSuccess(response.toString(), MediaType.APPLICATION_JSON));
         fixture.api().expect(requestTo(RULES)).andRespond(withSuccess(requiredRule("external", "null"), MediaType.APPLICATION_JSON));
 
-        GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+        CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
 
         assertThat(result.green()).isTrue();
-        assertThat(result.nodeId()).isEqualTo("PR_7");
         assertThat(result.pullRequest().headSha()).isEqualTo(HEAD);
         assertThat(result.pullRequest().baseSha()).isEqualTo(BASE);
         assertThat(result.pullRequest().draft()).isTrue();
@@ -78,7 +78,7 @@ class TestGitHubDeliveryChecks
         for (String state : ImmutableList.of("PENDING", "EXPECTED", "UNKNOWN")) {
             Fixture fixture = fixture();
             fixture.expect(response(status("external", state), 1, false), requiredRule("external", "null"));
-            GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+            CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
             assertThat(result.green()).isFalse();
             assertThat(result.waiting()).anySatisfy(value -> assertThat(value).contains("external"));
             assertThat(result.failures()).isEmpty();
@@ -96,7 +96,7 @@ class TestGitHubDeliveryChecks
         for (String state : ImmutableList.of("FAILURE", "ERROR")) {
             Fixture fixture = fixture();
             fixture.expect(response(status("external", state), 1, false), "[]");
-            GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+            CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
             assertThat(result.green()).isFalse();
             assertThat(result.failures()).singleElement().asString().contains("External CI check external", "cannot repair");
             fixture.verify();
@@ -110,7 +110,7 @@ class TestGitHubDeliveryChecks
                 checkRun("build", "COMPLETED", "SUCCESS", 123, false), status("build", "SUCCESS"))) {
             Fixture fixture = fixture();
             fixture.expect(response(checks, 1, false), requiredRule("build", "123"));
-            GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+            CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
             assertThat(result.green()).isFalse();
             assertThat(result.waiting()).anySatisfy(value -> assertThat(value).contains("required source"));
             fixture.verify();
@@ -155,7 +155,7 @@ class TestGitHubDeliveryChecks
             pr(changed).put(field, "c".repeat(40));
             ((ObjectNode) pr(changed).path(field.equals("headRefOid") ? "headRef" : "baseRef").path("target")).put("oid", "c".repeat(40));
             fixture.graph().expect(requestTo("https://api.github.test/graphql")).andRespond(withSuccess(changed.toString(), MediaType.APPLICATION_JSON));
-            GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+            CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
             assertThat(result.green()).isFalse();
             assertThat(result.waiting()).anySatisfy(value -> assertThat(value).contains("revision changed"));
             fixture.verify();
@@ -169,7 +169,7 @@ class TestGitHubDeliveryChecks
         ObjectNode moved = response(checkRun("build", "COMPLETED", "SUCCESS", 123, false), 1, false);
         ((ObjectNode) pr(moved).path("baseRef").path("target")).put("oid", "c".repeat(40));
         fixture.expect(moved, "[]");
-        GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+        CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
         assertThat(result.green()).isTrue();
         assertThat(result.pullRequest().baseSha()).isEqualTo(BASE);
         fixture.verify();
@@ -203,7 +203,7 @@ class TestGitHubDeliveryChecks
             if (validProtection) {
                 fixture.api().expect(requestTo(RULES)).andRespond(withSuccess("[]", MediaType.APPLICATION_JSON));
             }
-            GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+            CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
             assertThat(result.green()).isFalse();
             assertThat(result.waiting()).isNotEmpty();
             fixture.verify();
@@ -215,7 +215,7 @@ class TestGitHubDeliveryChecks
     {
         Fixture fixture = fixture();
         fixture.expect(response("", 0, false), "[{\"type\":\"workflows\"}]");
-        GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+        CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
         assertThat(result.green()).isFalse();
         assertThat(result.waiting()).anySatisfy(value -> assertThat(value).contains("not supported"));
         assertThat(result.waiting()).anySatisfy(value -> assertThat(value).contains("No current-head", "draft"));
@@ -232,7 +232,7 @@ class TestGitHubDeliveryChecks
                     {"oid":"%s","statusCheckRollup":{"commit":{"oid":"%s"},"state":"%s","contexts":{"totalCount":1}}}
                     """.formatted("c".repeat(40), "c".repeat(40), state)));
             fixture.expect(response, "[]");
-            GitHubDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
+            CiDeliveryChecks result = fixture.client().fetchDeliveryChecks("token", PR);
             assertThat(result.green()).isFalse();
             assertThat(ImmutableList.<String>builder().addAll(result.waiting()).addAll(result.failures()).build())
                     .anySatisfy(value -> assertThat(value).contains("Test merge commit", state));
@@ -306,7 +306,7 @@ class TestGitHubDeliveryChecks
     {
         return (ObjectNode) json("""
                 {"data":{"repository":{"pullRequest":{
-                  "id":"PR_7","number":7,"url":"https://github.com/owner/repo/pull/7","state":"OPEN","isDraft":true,"author":{"login":"owner"},
+                  "number":7,"url":"https://github.com/owner/repo/pull/7","state":"OPEN","isDraft":true,"author":{"login":"owner"},
                   "headRefName":"feature","headRefOid":"%s","baseRefName":"main","baseRefOid":"%s",
                   "headRepository":{"nameWithOwner":"owner/repo"},"baseRepository":{"nameWithOwner":"owner/repo"},
                   "headRef":{"target":{"oid":"%s"}},"baseRef":{"target":{"oid":"%s"},

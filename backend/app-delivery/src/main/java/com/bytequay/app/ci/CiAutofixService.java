@@ -46,17 +46,11 @@ import com.bytequay.app.agent.runtime.AgentStartupRecovery;
 import com.bytequay.app.pr.PullRequestTimelineService;
 import com.bytequay.app.rebase.BranchRebaseService;
 import com.bytequay.app.rebase.StartBranchRebaseCommand;
-import com.bytequay.app.repository.github.GitHubDeliveryChecks;
-import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
-import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.GitHubActionsClient;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
+import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.app.workspace.WorkspaceHostingRead;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -80,13 +74,22 @@ import com.bytequay.core.ci.CiAutofixRun.Status;
 import com.bytequay.core.ci.CiAutofixRun.Warning;
 import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.ci.CiDeliveryChecks;
 import com.bytequay.core.ci.CiDescriptionChange;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
 import com.bytequay.core.ci.CiRerunAssessment;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.PullRequestIdentity;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.rebase.BranchRebase;
 import com.bytequay.core.rebase.BranchRebaseId;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.Striped;
@@ -95,6 +98,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -113,6 +117,7 @@ import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.createOrGet;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.repositoryIdentity;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireReady;
 import static com.bytequay.app.agent.runtime.WorkflowAgentTasks.requireSelectedRepository;
+import static com.bytequay.app.service.credentials.CredentialService.GITHUB_SERVER;
 import static com.bytequay.app.utils.Locks.withLock;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Ascii.truncate;
@@ -133,9 +138,9 @@ public class CiAutofixService
     private static final Duration RERUN_OBSERVATION_PERIOD = Duration.ofMinutes(2);
 
     private final CiAutofixStore store;
-    private final GitHubActionsClient gitHub;
-    private final GitHubPullRequestWriteClient writes;
-    private final GitHubPullRequestReadClient pullRequestReads;
+    private final WorkspaceHostingService hosting;
+    private final HostingIntegrations integrations;
+    private final WorkspaceStore workspaceStore;
     private final AgentTaskService taskService;
     private final AgentTurnService turnService;
     private final AgentCompletionService completionService;
@@ -147,7 +152,6 @@ public class CiAutofixService
     private final CiGitService gitService;
     private final BranchRebaseService rebaseService;
     private final PullRequestTimelineService timelineService;
-    private final CredentialService credentials;
     private final Clock clock;
     private final DevelopmentCiOwnership ownership;
     private final ObjectProvider<AgentStartupRecovery> recovery;
@@ -157,9 +161,9 @@ public class CiAutofixService
 
     CiAutofixService(
             CiAutofixStore store,
-            GitHubActionsClient gitHub,
-            GitHubPullRequestWriteClient writes,
-            GitHubPullRequestReadClient pullRequestReads,
+            WorkspaceHostingService hosting,
+            HostingIntegrations integrations,
+            WorkspaceStore workspaceStore,
             AgentTaskService taskService,
             AgentTurnService turnService,
             AgentCompletionService completionService,
@@ -171,15 +175,14 @@ public class CiAutofixService
             CiGitService gitService,
             BranchRebaseService rebaseService,
             PullRequestTimelineService timelineService,
-            CredentialService credentials,
             Clock clock,
             DevelopmentCiOwnership ownership,
             ObjectProvider<AgentStartupRecovery> recovery)
     {
         this.store = requireNonNull(store, "store is null");
-        this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.writes = requireNonNull(writes, "writes is null");
-        this.pullRequestReads = requireNonNull(pullRequestReads, "pullRequestReads is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
+        this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.turnService = requireNonNull(turnService, "turnService is null");
         this.completionService = requireNonNull(completionService, "completionService is null");
@@ -191,24 +194,23 @@ public class CiAutofixService
         this.gitService = requireNonNull(gitService, "gitService is null");
         this.rebaseService = requireNonNull(rebaseService, "rebaseService is null");
         this.timelineService = requireNonNull(timelineService, "timelineService is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.recovery = requireNonNull(recovery, "recovery is null");
     }
 
-    /** Stores one exact description repair from this run's active turn; does not write to GitHub. */
+    /** Stores one exact description repair from this run's active turn; does not write remotely. */
     public void proposeDescription(TaskId taskId, TurnId turnId, CiDescriptionProposal proposal)
     {
         requireNonNull(proposal, "proposal is null");
         updateRepairProposal(taskId, turnId, (run, snapshot) -> {
             CiAutofixAttempt attempt = run.attempts().getLast();
-            CiWorkflowRun workflow = proposalWorkflow(attempt, snapshot, proposal.jobId());
+            CiRun workflow = proposalWorkflow(attempt, snapshot, proposal.jobId());
             CiDescriptionChange change = new CiDescriptionChange(
-                    proposal.expectedBody(), proposal.body(), workflow.workflowId(), workflow.id(), Optional.empty(), Optional.empty());
+                    proposal.expectedBody(), proposal.body(), workflow.definitionId(), workflow.id(), Optional.empty(), Optional.empty());
             checkState(attempt.descriptionChange().isEmpty() || attempt.descriptionChange().orElseThrow().equals(change), "This attempt already has another description proposal");
             checkState(attempt.rerunAssessment().isEmpty(), "This attempt already requested a rerun");
-            checkState(gitHub.readDescription(run.scope().pullRequest()).equals(change.expectedBody()), "The PR description changed; read it again before proposing a repair");
+            checkState(description(remote(run), run).equals(change.expectedBody()), "The PR description changed; read it again before proposing a repair");
             store.update(run.updateAttempt(attempt.withDescriptionChange(change, clock.instant()), clock.instant()));
         });
     }
@@ -226,10 +228,10 @@ public class CiAutofixService
         });
     }
 
-    private static CiWorkflowRun proposalWorkflow(CiAutofixAttempt attempt, CiHeadSnapshot snapshot, long jobId)
+    private static CiRun proposalWorkflow(CiAutofixAttempt attempt, CiHeadSnapshot snapshot, long jobId)
     {
         checkArgument(attempt.failures().stream().anyMatch(failure -> failure.jobId() == jobId), "jobId is not part of this repair attempt");
-        return snapshot.workflowRuns().stream()
+        return snapshot.runs().stream()
                 .filter(value -> value.jobs().stream().anyMatch(job -> job.id() == jobId && job.actionableFailure()))
                 .findFirst().orElseThrow(() -> new CiAutofixConflictException("The failed job has been replaced"));
     }
@@ -240,12 +242,13 @@ public class CiAutofixService
         withLock(advanceLocks.get(found.id()), () -> {
             return ownership.execute(get(found.id()), () -> {
                 CiAutofixRun run = get(found.id());
-                repairToken(run);
+                Remote remote = remote(run);
+                requireRepairAuthority(run, remote);
                 checkState(run.status() == Status.ACTIVE && run.currentTurnId().filter(turnId.toString()::equals).isPresent(), "CI repair turn is no longer current");
                 AgentTurn turn = turnService.get(turnId);
                 checkState(turn.taskId().equals(taskId) && turn.state().active(), "CI repair turn is no longer active");
                 inspectWorktree(requireOpenTask(run), run);
-                CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
+                CiHeadSnapshot snapshot = inspect(remote, run);
                 checkState(snapshot.open() && matchesPullRequestScope(run, snapshot) && snapshot.headSha().equals(run.expectedRemoteHead()), "CI pull request changed");
                 update.accept(run, snapshot);
                 return null;
@@ -259,7 +262,7 @@ public class CiAutofixService
      * <p>Verifies the authenticated user is the PR author, the PR is open and
      * its head has a verified workspace remote, and the commit/push and
      * failed-job-rerun permissions are explicit. Creates one durable run and
-     * one agent task in a fresh managed worktree. Does not write to GitHub.
+     * one agent task in a fresh managed worktree. Does not write remotely.
      *
      * @param command PR, workspace, lane, and idempotency key
      * @return the created or existing run
@@ -313,8 +316,9 @@ public class CiAutofixService
         requireReady(drivers, command.laneId(), AgentPermissionPolicy.CI_AUTOFIX);
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(command.workspaceId());
         PullRequestRef pullRequest = PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), command.pullRequestNumber());
-        CiHeadSnapshot snapshot = gitHub.inspect(pullRequest);
-        String currentUser = currentUser();
+        Remote remote = remote(command.workspaceId());
+        CiHeadSnapshot snapshot = remote.integration().ci().inspect(remote.target(), command.pullRequestNumber());
+        String currentUser = remote.login();
         validatePullRequest(snapshot, pullRequest, currentUser);
         validateStartWorkspace(workspace, snapshot);
         expectedPr.ifPresent(value -> requireExpectedPullRequest(snapshot, value));
@@ -580,7 +584,7 @@ public class CiAutofixService
      *
      * <p>Rechecks author, authorization, remote head, task readiness, and
      * worktree lease before starting a turn. The message cannot expand the
-     * stored GitHub-write scope.
+     * stored remote-write scope.
      *
      * @param command run ID, bounded message, and idempotency key
      * @return run linked to the accepted turn
@@ -621,9 +625,10 @@ public class CiAutofixService
         }
 
         // Only the head facts matter here; reading every CI job takes seconds on a large matrix, and the next poll reads them.
-        PullRequestIdentity head = pullRequestReads.fetchPullRequestIdentity(credentials.resolveGitHubToken(), run.scope().pullRequest());
+        Remote remote = remote(run);
+        PullRequestIdentity head = remote.integration().contents().identity(remote.target(), run.scope().pullRequest().number());
         checkArgument(head.state() == PullRequestIdentity.State.OPEN, "Pull request is not open");
-        checkArgument(head.author().equalsIgnoreCase(currentUser()), "CI Autofix is available only to the pull request author");
+        checkArgument(head.author().equalsIgnoreCase(remote.login()), "CI Autofix is available only to the pull request author");
         if (!head.headRepository().fullName().equalsIgnoreCase(run.scope().headRepository().fullName())
                 || !head.headBranch().equals(run.scope().headRef())
                 || !head.baseBranch().equals(run.scope().baseRef())
@@ -676,7 +681,7 @@ public class CiAutofixService
      * Cancels a run and any active agent turn.
      *
      * <p>Cancellation is idempotent. It never resets local history or writes
-     * to GitHub.
+     * remotely.
      *
      * @param runId run to cancel
      * @return finished run
@@ -705,7 +710,7 @@ public class CiAutofixService
      * Reconciles one run and performs at most one next action.
      *
      * <p>Uses only durable program facts: provider turn state, inspected Git,
-     * exact push and rerun journals, and GitHub checks for the expected head.
+     * exact push and rerun journals, and CI checks for the expected head.
      * Agent prose is retained for display but cannot select a branch. Calls
      * for one run are serialized in-process and every store update remains
      * optimistic for restart and cross-process safety.
@@ -766,7 +771,7 @@ public class CiAutofixService
         if (unpublishedTimeline.isPresent()) {
             return recordTimelineEvent(run, unpublishedTimeline.orElseThrow(), now);
         }
-        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
+        CiHeadSnapshot snapshot = inspect(remote(run), run);
         Optional<CiAutofixRun> rejected = rejectMovedPullRequest(run, snapshot, run.expectedRemoteHead(), "Pull request head changed outside this CI Autofix run", now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
@@ -947,12 +952,12 @@ public class CiAutofixService
             if (attempt.gitResult().isPresent() && attempt.pushedSha().isEmpty()) {
                 return inspectCompletedAttempt(run, attempt, snapshot, now);
             }
-            boolean oldEventPresent = snapshot.workflowRuns().stream().anyMatch(workflow -> workflow.id() == change.previousRunId());
-            Optional<CiWorkflowRun> replacement = snapshot.workflowRuns().stream()
-                    .filter(workflow -> !oldEventPresent && workflow.workflowId() == change.workflowId() && workflow.id() > change.previousRunId()).findFirst();
+            boolean oldEventPresent = snapshot.runs().stream().anyMatch(workflow -> workflow.id() == change.previousRunId());
+            Optional<CiRun> replacement = snapshot.runs().stream()
+                    .filter(workflow -> !oldEventPresent && workflow.definitionId() == change.workflowId() && workflow.id() > change.previousRunId()).findFirst();
             if (replacement.isEmpty()) {
                 return now.isBefore(change.appliedAt().orElseThrow().plus(RERUN_OBSERVATION_PERIOD)) ? run
-                        : pause(run, PauseReason.RERUN_UNAVAILABLE, "Description updated, but GitHub has not started a new check; the old event will not be rerun", now);
+                        : pause(run, PauseReason.RERUN_UNAVAILABLE, "Description updated, but CI has not started a new check; the old event will not be rerun", now);
             }
             if (!"completed".equals(replacement.orElseThrow().status())) {
                 return run;
@@ -966,7 +971,8 @@ public class CiAutofixService
         if (inspection.outcome() == CiGitInspection.Outcome.READY && attempt.gitResult().isEmpty()) {
             return store.update(run.updateAttempt(attempt.withGitResult(inspection.result().orElseThrow(), now), now));
         }
-        String currentBody = gitHub.readDescription(run.scope().pullRequest());
+        Remote remote = remote(run);
+        String currentBody = description(remote, run);
         if (change.writeStartedAt().isPresent()) {
             if (!currentBody.equals(change.body())) {
                 return pause(run, PauseReason.ERROR, "PR description write could not be verified; it will not be repeated or overwrite another edit", now);
@@ -976,27 +982,27 @@ public class CiAutofixService
         if (!currentBody.equals(change.expectedBody())) {
             return pause(run, PauseReason.ERROR, "PR description changed after the repair was proposed; no edit was applied", now);
         }
-        CiHeadSnapshot latest = gitHub.inspect(run.scope().pullRequest());
+        CiHeadSnapshot latest = inspect(remote, run);
         Optional<CiAutofixRun> rejected = rejectMovedPullRequest(run, latest, run.expectedRemoteHead(), "Pull request head changed before its description repair", now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
         }
-        if (!gitHub.readDescription(run.scope().pullRequest()).equals(change.expectedBody())) {
+        if (!description(remote, run).equals(change.expectedBody())) {
             return pause(run, PauseReason.ERROR, "PR description changed while validating the repair; no edit was applied", now);
         }
-        repairToken(run);
+        requireRepairAuthority(run, remote);
         CiAutofixRun journaled = store.update(run.updateAttempt(attempt.withDescriptionChange(change.startingWrite(now), now), now));
-        writes.updatePullRequestDescription(repairToken(journaled), run.scope().pullRequest(), change.body());
+        requireRepairAuthority(journaled, remote);
+        remote.integration().writer().updateDescription(remote.target(), run.scope().pullRequest().number(), change.body());
         return journaled;
     }
 
-    private String repairToken(CiAutofixRun run)
+    /** A repair writes only while the run holds its authority and the route's account is still the pull request author. */
+    private void requireRepairAuthority(CiAutofixRun run, Remote remote)
     {
-        CredentialService.GitHubCredential credential = credentials.resolveGitHubCredential();
         ownership.require(run);
         checkState(run.status() == Status.ACTIVE, "CI repair authorization stopped");
-        checkState(run.scope().author().equalsIgnoreCase(credential.profile().login()), "The authenticated GitHub account changed");
-        return credential.token();
+        checkState(run.scope().author().equalsIgnoreCase(remote.login()), "The authenticated hosting account changed");
     }
 
     private CiAutofixRun handleNoChange(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
@@ -1007,7 +1013,7 @@ public class CiAutofixService
         if (attempt.observedCiResult() == CiResult.FAILED) {
             return startNextAttemptOrFinish(run, snapshot, now);
         }
-        Optional<CiWorkflowRun> failedWorkflow = failedWorkflow(snapshot);
+        Optional<CiRun> failedWorkflow = failedWorkflow(snapshot);
         if (failedWorkflow.isEmpty()) {
             return attempt.observedCiResult() == CiResult.PENDING ? run : observeCi(run, attempt, CiResult.PENDING, snapshot, now);
         }
@@ -1019,15 +1025,15 @@ public class CiAutofixService
         if (attempt.rerunAssessment().isEmpty()) {
             return pause(run, PauseReason.ERROR, "Agent produced no repair and did not request a rerun with evidence of a flaky or transient failure", now);
         }
-        Optional<CiWorkflowRun> requested = snapshot.workflowRuns().stream()
+        Optional<CiRun> requested = snapshot.runs().stream()
                 .filter(workflow -> workflow.jobs().stream().anyMatch(job -> job.id() == attempt.rerunAssessment().orElseThrow().jobId() && job.actionableFailure()))
                 .findFirst();
         if (requested.isEmpty()) {
             return startNextAttemptOrFinish(run, snapshot, now);
         }
-        CiWorkflowRun workflow = requested.orElseThrow();
+        CiRun workflow = requested.orElseThrow();
         if (!"completed".equals(workflow.status())) {
-            // GitHub reruns failed jobs only once every job in the workflow run has finished.
+            // Failed jobs are rerun only once every job in the run has finished.
             return run;
         }
         RerunJournal journal = new RerunJournal(attempt.id(), workflow.id(), snapshot.headSha(), workflow.attempt(), now, Optional.empty());
@@ -1036,9 +1042,9 @@ public class CiAutofixService
         if (latest.version() != journaled.version() || latest.status() != Status.ACTIVE) {
             return latest;
         }
+        Remote remote = remote(run);
         ownership.require(run);
-        CiRerunResult result = gitHub.rerunFailedJobs(new RerunFailedJobsCommand(
-                run.scope().pullRequest(),
+        CiRerunResult result = remote.integration().ci().rerunFailedJobs(remote.target(), run.scope().pullRequest().number(), new RerunFailedJobsCommand(
                 workflow.id(),
                 snapshot.headSha(),
                 workflow.attempt(),
@@ -1058,7 +1064,7 @@ public class CiAutofixService
         if (latest.version() != run.version() || latest.status() != Status.ACTIVE) {
             return latest;
         }
-        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
+        CiHeadSnapshot snapshot = inspect(remote(run), run);
         Optional<CiAutofixRun> rejected = rejectChangedPullRequest(run, snapshot, now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
@@ -1076,6 +1082,7 @@ public class CiAutofixService
                 worktree.worktree().generatedBranch(),
                 run.scope().headRepository().fullName().equalsIgnoreCase(run.scope().pullRequest().repoFullName()) ? workspace.sourceRemote() : workspace.targetRemote(),
                 new RepositoryIdentity(run.scope().headRepository().owner(), run.scope().headRepository().repo()),
+                webBaseUrl(run),
                 run.scope().headRef(),
                 run.pushJournal().orElseThrow()));
         return switch (result.outcome()) {
@@ -1105,15 +1112,15 @@ public class CiAutofixService
     private CiAutofixRun reconcileRerun(CiAutofixRun run, Instant now)
     {
         RerunJournal journal = run.rerunJournal().orElseThrow();
-        CiHeadSnapshot snapshot = gitHub.inspect(run.scope().pullRequest());
+        CiHeadSnapshot snapshot = inspect(remote(run), run);
         Optional<CiAutofixRun> rejected = rejectMovedPullRequest(run, snapshot, journal.headSha(), "Pull request head changed while a failed-job rerun was being observed", now);
         if (rejected.isPresent()) {
             return rejected.orElseThrow();
         }
-        Optional<CiWorkflowRun> later = snapshot.workflowRuns().stream()
+        Optional<CiRun> later = snapshot.runs().stream()
                 .filter(workflow -> workflow.id() == journal.workflowRunId())
                 .filter(workflow -> workflow.attempt() > journal.previousAttempt())
-                .max(Comparator.comparingInt(CiWorkflowRun::attempt));
+                .max(Comparator.comparingInt(CiRun::attempt));
         if (journal.observedAttempt().isEmpty()) {
             if (later.isPresent()) {
                 return store.update(run.observeRerunAttempt(later.orElseThrow().attempt(), now));
@@ -1121,12 +1128,12 @@ public class CiAutofixService
             if (!now.isBefore(journal.startedAt().plus(RERUN_OBSERVATION_PERIOD))) {
                 return store.update(run.clearRerunJournal(now).pause(
                         PauseReason.RERUN_UNAVAILABLE,
-                        "GitHub did not expose a later workflow attempt; the rerun will not be repeated blindly",
+                        "CI did not expose a later run attempt; the rerun will not be repeated blindly",
                         now));
             }
             return run;
         }
-        Optional<CiWorkflowRun> observed = later
+        Optional<CiRun> observed = later
                 .filter(workflow -> workflow.attempt() >= journal.observedAttempt().orElseThrow());
         if (observed.isEmpty() || !"completed".equals(observed.orElseThrow().status())) {
             return run;
@@ -1137,7 +1144,7 @@ public class CiAutofixService
     private CiAutofixRun startNextAttemptOrFinish(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
     {
         if (run.attemptsUsed() >= CiAutofixRun.MAX_FIX_ATTEMPTS) {
-            return finishRun(run, FinishReason.MAX_ATTEMPTS, "GitHub Actions still fails after " + run.attemptsUsed() + " fix attempts", now);
+            return finishRun(run, FinishReason.MAX_ATTEMPTS, "CI still fails after " + run.attemptsUsed() + " fix attempts", now);
         }
         return snapshot.actionableFailures().isEmpty() ? run : prepareFixAttempt(run, requireOpenTask(run), snapshot);
     }
@@ -1168,12 +1175,13 @@ public class CiAutofixService
 
     /**
      * A development run marks its draft ready for review once every pull request check passes at the head it verified, including
-     * checks outside GitHub Actions. Marking ready twice is harmless, so a failed write is simply tried again on the next check.
+     * checks outside the provider's CI. Marking ready twice is harmless, so a failed write is simply tried again on the next check.
      */
     private Optional<CiAutofixRun> markDraftReady(CiAutofixRun run, Instant now)
     {
-        String token = credentials.resolveGitHubToken(run.scope().workspaceId());
-        GitHubDeliveryChecks checks = pullRequestReads.fetchDeliveryChecks(token, run.scope().pullRequest());
+        Remote remote = remote(run);
+        int number = run.scope().pullRequest().number();
+        CiDeliveryChecks checks = remote.integration().ci().deliveryChecks(remote.target(), number);
         if (!checks.pullRequest().headSha().equals(run.expectedRemoteHead())) {
             // The next check reads the new head and ends this run.
             return Optional.of(run);
@@ -1187,7 +1195,7 @@ public class CiAutofixService
         }
         if (checks.pullRequest().draft()) {
             ownership.require(run);
-            writes.markReadyForReview(token, checks.nodeId());
+            remote.integration().writer().markReady(remote.target(), number);
         }
         return Optional.empty();
     }
@@ -1196,7 +1204,7 @@ public class CiAutofixService
     {
         TaskCompletion completion = completionService.complete(new CompleteAgentTaskCommand(
                 TaskId.valueOf(run.agentTaskId().orElseThrow()),
-                Optional.of("CI Autofix verified GitHub Actions at " + run.expectedRemoteHead())));
+                Optional.of("CI Autofix verified CI at " + run.expectedRemoteHead())));
         CiAutofixRun finished = store.update(run.finish(FinishReason.GREEN, completionSummary(run, completion), now));
         cleanupFinishedTask(finished);
         return finished;
@@ -1390,6 +1398,7 @@ public class CiAutofixService
                 worktree.worktree().generatedBranch(),
                 workspace.sourceRemote(),
                 repository(run.scope().pullRequest()),
+                webBaseUrl(run),
                 run.scope().baseRef(),
                 baseSha,
                 localBaseBranch(run));
@@ -1487,16 +1496,17 @@ public class CiAutofixService
         return snapshot.pending() ? CiResult.PENDING : CiResult.UNKNOWN;
     }
 
-    private static Optional<CiWorkflowRun> failedWorkflow(CiHeadSnapshot snapshot)
+    private static Optional<CiRun> failedWorkflow(CiHeadSnapshot snapshot)
     {
-        return snapshot.workflowRuns().stream()
+        return snapshot.runs().stream()
                 .filter(workflow -> workflow.jobs().stream().anyMatch(CiJob::actionableFailure))
                 .findFirst();
     }
 
     private CiAutofixRun prepareFixAttempt(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot)
     {
-        List<FailureEvidence> failures = logReader.readFailures(task.id(), snapshot);
+        Remote remote = remote(run);
+        List<FailureEvidence> failures = logReader.readFailures(task.id(), remote.target(), remote.integration().ci(), snapshot);
         checkArgument(!failures.isEmpty(), "CI snapshot has no readable actionable failure");
         WorktreeSnapshot workspace = inspectWorktree(task, run);
         checkArgument(!workspace.uncommitted() && !workspace.gitOperationInProgress(), "CI Autofix worktree is dirty or another Git operation is open before the fix attempt");
@@ -1548,7 +1558,7 @@ public class CiAutofixService
     private static String completionSummary(CiAutofixRun run, TaskCompletion completion)
     {
         var metrics = completion.summary().metrics();
-        return "GitHub Actions passed for " + run.expectedRemoteHead()
+        return "CI passed for " + run.expectedRemoteHead()
                 + "; agent totals: " + metrics.inputTokens() + " input tokens, "
                 + metrics.outputTokens() + " output tokens, " + metrics.elapsed().toSeconds() + " seconds";
     }
@@ -1602,7 +1612,7 @@ public class CiAutofixService
         return attempt.pushedSha().isPresent() && attempt.observedCiResult() == CiResult.FAILED;
     }
 
-    /** Failed jobs, by ID, that also failed in the latest completed run of the same workflow on the base branch. */
+    /** Failed jobs, by ID, that also failed in the latest completed run of the same definition on the base branch. */
     private Map<Long, String> inheritedFailures(CiAutofixRun run, CiHeadSnapshot snapshot)
     {
         Set<Long> failing = snapshot.actionableFailures().stream().map(CiJob::id).collect(toImmutableSet());
@@ -1610,13 +1620,14 @@ public class CiAutofixService
         if (known != null && known.headSha().equals(snapshot.headSha()) && known.failingJobs().equals(failing)) {
             return known.inherited();
         }
+        Remote remote = remote(run);
         ImmutableMap.Builder<Long, String> inherited = ImmutableMap.builder();
-        for (CiWorkflowRun workflow : snapshot.workflowRuns()) {
+        for (CiRun workflow : snapshot.runs()) {
             List<CiJob> failed = workflow.jobs().stream().filter(CiJob::actionableFailure).collect(toImmutableList());
             if (failed.isEmpty()) {
                 continue;
             }
-            Set<String> onBase = gitHub.failedJobsOnBranch(run.scope().pullRequest(), workflow.workflowId(), run.scope().baseRef());
+            Set<String> onBase = remote.integration().ci().failedJobsOnBranch(remote.target(), workflow.definitionId(), run.scope().baseRef());
             failed.stream().filter(job -> onBase.contains(job.name())).forEach(job -> inherited.put(job.id(), workflow.name() + " / " + job.name()));
         }
         Map<Long, String> result = inherited.buildOrThrow();
@@ -1725,7 +1736,7 @@ public class CiAutofixService
     private CiWorktreeRange worktreeRange(CiAutofixRun run, String baseSha)
     {
         TaskWorktree worktree = inspectWorktree(requireOpenTask(run), run).worktree();
-        return new CiWorktreeRange(worktree.canonicalWorktree(), worktree.physicalRepository(), worktree.generatedBranch(), baseSha, run.expectedRemoteHead());
+        return new CiWorktreeRange(worktree.canonicalWorktree(), worktree.physicalRepository(), webBaseUrl(run), worktree.generatedBranch(), baseSha, run.expectedRemoteHead());
     }
 
     private WorkspaceRepositoryContext requireWorkspace(CiAutofixRun run)
@@ -1763,11 +1774,36 @@ public class CiAutofixService
         return turn.idempotencyKey().equals(idempotencyKey);
     }
 
-    private String currentUser()
+    /** The workspace's current hosting route; every remote step reads it again, so an account change applies to the next call. */
+    private Remote remote(String workspaceId)
     {
-        String login = credentials.resolveGitHubCredential().profile().login();
-        checkArgument(login != null && !login.isBlank(), "Authenticated GitHub account has no login");
-        return login;
+        WorkspaceHostingRead read = hosting.captureRead(workspaceId);
+        HostingTarget target = read.target();
+        return new Remote(integrations.of(target), target, read.login());
+    }
+
+    private Remote remote(CiAutofixRun run)
+    {
+        Remote remote = remote(run.scope().workspaceId());
+        if (!remote.target().repository().fullPath().equalsIgnoreCase(run.scope().pullRequest().repoFullName())) {
+            throw new CiAutofixConflictException("Workspace repository routing no longer matches the CI Autofix run");
+        }
+        return remote;
+    }
+
+    private static CiHeadSnapshot inspect(Remote remote, CiAutofixRun run)
+    {
+        return remote.integration().ci().inspect(remote.target(), run.scope().pullRequest().number());
+    }
+
+    private static String description(Remote remote, CiAutofixRun run)
+    {
+        return remote.integration().contents().description(remote.target(), run.scope().pullRequest().number());
+    }
+
+    private URI webBaseUrl(CiAutofixRun run)
+    {
+        return WorkspaceException.requireWorkspace(workspaceStore, run.scope().workspaceId()).hostingServer().orElse(GITHUB_SERVER).webBaseUrl();
     }
 
     private static void validateStartCommand(StartCiAutofixCommand command)
@@ -1826,7 +1862,7 @@ public class CiAutofixService
 
     private static void validatePullRequest(CiHeadSnapshot snapshot, PullRequestRef expectedPullRequest, String currentUser)
     {
-        checkArgument(snapshot.pullRequest().equals(expectedPullRequest), "GitHub returned another pull request");
+        checkArgument(snapshot.pullRequest().equals(expectedPullRequest), "The hosting server returned another pull request");
         checkArgument(snapshot.open(), "Pull request is not open");
         checkArgument(snapshot.author().equalsIgnoreCase(currentUser), "CI Autofix is available only to the pull request author");
     }
@@ -1864,6 +1900,8 @@ public class CiAutofixService
     }
 
     private record DevelopmentStart(TaskId parentTaskId, Instant activatedAt) {}
+
+    private record Remote(HostingIntegration integration, HostingTarget target, String login) {}
 
     private record InheritedFailures(String headSha, Set<Long> failingJobs, Map<Long, String> inherited) {}
 

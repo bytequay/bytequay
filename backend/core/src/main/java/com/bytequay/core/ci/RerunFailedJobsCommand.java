@@ -11,7 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
-/** One lossless UTF-8 page from a cached complete log; nextOffset equals totalBytes at EOF. */
-public record CiRawLogPage(String text, long nextOffset, long totalBytes) {}
+import static com.bytequay.core.domain.Checks.checkSha;
+import static com.google.common.base.Preconditions.checkArgument;
+
+/** One exact completed run attempt whose failed jobs to rerun, and whether the user authorized it. */
+public record RerunFailedJobsCommand(long runId, String headSha, int previousAttempt, boolean authorized)
+{
+    public RerunFailedJobsCommand
+    {
+        checkArgument(runId > 0 && previousAttempt > 0, "runId and previousAttempt must be positive");
+        checkSha(headSha, "headSha");
+    }
+}

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.app.service.ci;
 
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentStorageException;
@@ -52,8 +52,8 @@ public class CiRawLogStore
 
     public static String id(ReadCiLogQuery query)
     {
-        return Hashing.sha256().hashString(query.pullRequest().repoFullName() + "/" + query.workflowRun().id() + "/" + query.workflowRun().attempt()
-                + "/" + query.workflowRun().headSha() + "/" + query.job().id() + "/" + query.job().attempt(), UTF_8).toString();
+        return Hashing.sha256().hashString(query.pullRequest().repoFullName() + "/" + query.run().id() + "/" + query.run().attempt()
+                + "/" + query.run().headSha() + "/" + query.job().id() + "/" + query.job().attempt(), UTF_8).toString();
     }
 
     /** Publishes only a complete download. An unavailable or interrupted attempt leaves no cached file. */

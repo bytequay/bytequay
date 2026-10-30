@@ -80,11 +80,13 @@ public final class GitLabPullRequestContentReader
 {
     private final GitLabHttpClient http;
     private final GitLabMergeRequestDiffs mergeRequestDiffs;
+    private final GitLabPullRequestCi ci;
 
     public GitLabPullRequestContentReader(HttpClient http, ObjectMapper mapper)
     {
         this.http = new GitLabHttpClient(http, mapper);
         this.mergeRequestDiffs = new GitLabMergeRequestDiffs(this.http);
+        this.ci = new GitLabPullRequestCi(this.http);
     }
 
     @Override
@@ -97,7 +99,12 @@ public final class GitLabPullRequestContentReader
     @Override
     public PullRequestIdentity identity(HostingTarget target, int number)
     {
-        GitLabMergeRequestResponse request = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class);
+        return identity(http, target, number, get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class));
+    }
+
+    /** The identity of a request already read, so its other facts describe the same revision. */
+    static PullRequestIdentity identity(GitLabHttpClient http, HostingTarget target, int number, GitLabMergeRequestResponse request)
+    {
         if (!Long.valueOf(number).equals(request.iid()) || !target.repository().remoteId().equals(String.valueOf(request.targetProjectId()))) {
             throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another merge request");
         }
@@ -105,7 +112,7 @@ public final class GitLabPullRequestContentReader
         if (refs == null || request.sha() == null || !request.sha().equals(refs.headSha())) {
             throw new HostingFailure(REVISION_CONFLICT, "GitLab has not prepared the current merge request diff");
         }
-        Project source = get(target.access(), "projects/" + request.sourceProjectId(), Project.class);
+        Project source = http.get(target.access(), "projects/" + request.sourceProjectId(), Optional.empty(), Project.class).body().orElseThrow();
         RepoRef targetRepository = repositoryRef(target.repository().fullPath());
         return mapped("merge request", () -> {
             String url = HostingUrls.requireWithinBase(URI.create(request.webUrl()), target.access().server().webBaseUrl()).toASCIIString();
@@ -113,6 +120,16 @@ public final class GitLabPullRequestContentReader
             return new PullRequestIdentity(PullRequestRef.of(targetRepository.owner(), targetRepository.repo(), number), url, repositoryRef(source.pathWithNamespace()),
                     request.sourceBranch(), request.sha(), targetRepository, request.targetBranch(), refs.startSha(), state, request.isDraft(), request.author().username());
         });
+    }
+
+    @Override
+    public String description(HostingTarget target, int number)
+    {
+        GitLabMergeRequestResponse request = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class);
+        if (!Long.valueOf(number).equals(request.iid())) {
+            throw new HostingFailure(INVALID_RESPONSE, "GitLab returned another merge request");
+        }
+        return Optional.ofNullable(request.description()).orElse("");
     }
 
     @Override
@@ -261,15 +278,7 @@ public final class GitLabPullRequestContentReader
 
     private static PrCheckRunState check(Long id, String name, String state, String url, String source, String startedAt, String completedAt, boolean allowFailure)
     {
-        String conclusion = switch (state) {
-            case "success" -> "success";
-            case "failed" -> allowFailure ? "neutral" : "failure";
-            case "manual" -> allowFailure ? "skipped" : null;
-            case "canceled" -> "cancelled";
-            case "skipped" -> "skipped";
-            default -> null;
-        };
-        return new PrCheckRunState(id, name, conclusion != null ? "completed" : "running".equals(state) ? "in_progress" : "queued", conclusion,
+        return new PrCheckRunState(id, name, GitLabJob.state(state, allowFailure), GitLabJob.conclusion(state, allowFailure).orElse(null),
                 url, source, instant(startedAt), instant(completedAt));
     }
 
@@ -306,20 +315,10 @@ public final class GitLabPullRequestContentReader
     public PullRequestCheckLog readCheckLog(HostingTarget target, int number, long jobId)
     {
         Pipeline pipeline = get(target.access(), mergeRequestPath(target, number), GitLabMergeRequestResponse.class).requireHeadPipeline();
-        boolean failed = http.pages(target.access(), pipeline.path(target.repository()) + "/jobs", GitLabJob[].class).stream()
-                .anyMatch(job -> job.id() == jobId && "failed".equals(job.status()));
-        if (!failed) {
+        if (ci.currentJobs(target, pipeline).stream().noneMatch(job -> job.id() == jobId && "failed".equals(job.status()))) {
             throw new HostingFailure(REVISION_CONFLICT, "This failed job is no longer part of the current request checks");
         }
-        try {
-            return new PullRequestCheckLog(http.getText(target.access(), pipeline.projectPath(target.repository()) + "/jobs/" + jobId + "/trace"), Optional.empty());
-        }
-        catch (HostingFailure failure) {
-            if (failure.kind() == MISSING_OR_INACCESSIBLE) {
-                return new PullRequestCheckLog("", Optional.of(failure.getMessage()));
-            }
-            throw failure;
-        }
+        return ci.log(target, pipeline, jobId);
     }
 
     @Override

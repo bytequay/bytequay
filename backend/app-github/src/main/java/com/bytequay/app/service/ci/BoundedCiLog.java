@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.app.service.ci;
 
 import com.bytequay.agent.core.BlobRef;
 import com.google.common.collect.ImmutableList;

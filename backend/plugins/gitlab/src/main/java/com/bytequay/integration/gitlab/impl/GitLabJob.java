@@ -16,7 +16,29 @@ package com.bytequay.integration.gitlab.impl;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-/** A pipeline job or trigger job (bridge). */
+import java.util.Optional;
+
+/** A pipeline job, trigger job (bridge) or commit status. */
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitLabJob(long id, String name, String status, @JsonProperty("web_url") String webUrl, @JsonProperty("started_at") String startedAt,
-        @JsonProperty("finished_at") String finishedAt, @JsonProperty("allow_failure") boolean allowFailure) {}
+        @JsonProperty("finished_at") String finishedAt, @JsonProperty("allow_failure") boolean allowFailure, @JsonProperty("failure_reason") String failureReason)
+{
+    /** The shared check conclusion of a job or pipeline status, empty while it can still run; a blocking manual job holds its pipeline. */
+    static Optional<String> conclusion(String status, boolean allowFailure)
+    {
+        return Optional.ofNullable(switch (status) {
+            case "success" -> "success";
+            case "failed" -> allowFailure ? "neutral" : "failure";
+            case "manual" -> allowFailure ? "skipped" : null;
+            case "canceled" -> "cancelled";
+            case "skipped" -> "skipped";
+            default -> null;
+        });
+    }
+
+    /** The shared check status: queued, in_progress or completed. */
+    static String state(String status, boolean allowFailure)
+    {
+        return conclusion(status, allowFailure).isPresent() ? "completed" : "running".equals(status) ? "in_progress" : "queued";
+    }
+}

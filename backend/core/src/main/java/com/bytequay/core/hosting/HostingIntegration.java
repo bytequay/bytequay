@@ -25,7 +25,8 @@ public record HostingIntegration(
         PullRequestWriter writer,
         IssueClient issues,
         RepositoryMetadataReader metadata,
-        PullRequestDiscovery discovery)
+        PullRequestDiscovery discovery,
+        PullRequestCi ci)
 {
     public HostingIntegration
     {
@@ -38,5 +39,6 @@ public record HostingIntegration(
         requireNonNull(issues, "issues is null");
         requireNonNull(metadata, "metadata is null");
         requireNonNull(discovery, "discovery is null");
+        requireNonNull(ci, "ci is null");
     }
 }

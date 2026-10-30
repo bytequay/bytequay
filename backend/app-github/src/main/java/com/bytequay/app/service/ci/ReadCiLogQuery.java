@@ -11,27 +11,28 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.app.service.ci;
 
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRun;
 import com.bytequay.core.domain.PullRequestRef;
 
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.checkPullRequest;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** The byte limit bounds the returned excerpt, not the complete raw download. */
-public record ReadCiLogQuery(TaskId taskId, PullRequestRef pullRequest, CiWorkflowRun workflowRun, CiJob job, int maximumBytes)
+public record ReadCiLogQuery(TaskId taskId, PullRequestRef pullRequest, CiRun run, CiJob job, int maximumBytes)
 {
     public static final int MAXIMUM_BYTES = 10 * 1024 * 1024;
 
     public ReadCiLogQuery
     {
         requireNonNull(taskId, "taskId is null");
-        checkPullRequest(pullRequest);
-        requireNonNull(workflowRun, "workflowRun is null");
+        requireNonNull(pullRequest, "pullRequest is null");
+        requireNonNull(run, "run is null");
         requireNonNull(job, "job is null");
-        checkArgument(job.workflowRunId() == workflowRun.id() && job.attempt() <= workflowRun.attempt(), "job does not belong to workflowRun");
+        checkArgument(job.runId() == run.id() && job.attempt() <= run.attempt(), "job does not belong to run");
         checkArgument(maximumBytes > 0 && maximumBytes <= MAXIMUM_BYTES, "maximumBytes must be between 1 and " + MAXIMUM_BYTES);
     }
 }

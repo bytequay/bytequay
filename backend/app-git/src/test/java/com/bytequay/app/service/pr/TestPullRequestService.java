@@ -25,11 +25,6 @@ import com.bytequay.app.repository.github.GitHubPullRequestSummaryClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriter;
 import com.bytequay.app.repository.github.GitHubRepoClient;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiRerunResult;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.RerunFailedJobsCommand;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.hosting.GitHubPullRequestContentReader;
@@ -44,6 +39,11 @@ import com.bytequay.app.workspace.WorkspaceHostingRead;
 import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRerunResult;
+import com.bytequay.core.ci.CiRun;
+import com.bytequay.core.ci.RerunFailedJobsCommand;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.domain.DiffFileContent;
@@ -165,6 +165,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.startsWith;
@@ -1780,25 +1781,25 @@ class TestPullRequestService
         String headSha = "1111111111111111111111111111111111111111";
         CiJob failed = new CiJob(301, 101, "test", 3, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
         CiJob passing = new CiJob(302, 101, "build", 3, "completed", Optional.of("success"), "https://github.com/owner/repo/actions/runs/101/job/302", ImmutableList.of());
-        CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
+        CiRun run = new CiRun(101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed, passing));
-        when(actions.inspect("pat", ref)).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(pat(), eq(7))).thenReturn(new CiHeadSnapshot(
                 ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
-        when(actions.readJobLog("pat", ref, 301)).thenReturn("test failed");
+        when(actions.readJobLog(pat(), eq(7), eq(301L))).thenReturn("test failed");
 
         assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo(new PullRequestCheckLog("test failed", Optional.empty()));
-        when(actions.readFailureAnnotations("pat", ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
+        when(actions.failureNotes(pat(), eq(7), eq(301L))).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."));
         assertThat(service.readCheckLog("owner/repo", 7, 301))
                 .isEqualTo(new PullRequestCheckLog("GitHub annotation: The self-hosted runner lost communication with the server.\n\ntest failed", Optional.empty()));
         for (long jobId : ImmutableList.of(302L, 999L)) {
             assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, jobId))
                     .isInstanceOf(ResponseStatusException.class)
                     .hasMessageContaining("no longer part of the current PR checks");
-            verify(actions, never()).readJobLog(ref, jobId);
+            verify(actions, never()).readJobLog(any(), anyInt(), eq(jobId));
         }
         assertThatThrownBy(() -> service.readCheckLog("owner/repo", 7, 0)).isInstanceOf(IllegalArgumentException.class);
-        verify(actions, never()).rerunFailedJobs(any());
+        verify(actions, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @ParameterizedTest
@@ -1808,17 +1809,17 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         String headSha = "1111111111111111111111111111111111111111";
         CiJob failed = new CiJob(301, 101, "test", 1, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
-        CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 1, "completed", Optional.of("failure"), headSha,
+        CiRun run = new CiRun(101, 201, "CI", 1, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed));
-        when(actions.inspect("pat", ref)).thenReturn(new CiHeadSnapshot(ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
+        when(actions.inspect(pat(), eq(7))).thenReturn(new CiHeadSnapshot(ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222", "https://github.com/owner/repo/pull/7", ImmutableList.of(run)));
-        when(actions.readFailureAnnotations("pat", ref, 301)).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."), ImmutableList.of());
-        when(actions.readJobLog("pat", ref, 301)).thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Log unavailable"));
+        when(actions.failureNotes(pat(), eq(7), eq(301L))).thenReturn(ImmutableList.of("The self-hosted runner lost communication with the server."), ImmutableList.of());
+        when(actions.readJobLog(pat(), eq(7), eq(301L))).thenThrow(new ResponseStatusException(HttpStatus.valueOf(status), "Log unavailable"));
 
         assertThat(service.readCheckLog("owner/repo", 7, 301))
                 .isEqualTo(new PullRequestCheckLog("GitHub annotation: The self-hosted runner lost communication with the server.\n", Optional.of("Log unavailable")));
         assertThat(service.readCheckLog("owner/repo", 7, 301)).isEqualTo(new PullRequestCheckLog("", Optional.of("Log unavailable")));
-        verify(actions, never()).rerunFailedJobs(any());
+        verify(actions, never()).rerunFailedJobs(any(), anyInt(), any());
     }
 
     @Test
@@ -1827,20 +1828,20 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         String headSha = "1111111111111111111111111111111111111111";
         CiJob failedJob = new CiJob(301, 101, "test", 3, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
-        CiWorkflowRun failedRun = new CiWorkflowRun(
+        CiRun failedRun = new CiRun(
                 101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failedJob));
-        when(actions.inspect("pat", ref)).thenReturn(new CiHeadSnapshot(
+        when(actions.inspect(pat(), eq(7))).thenReturn(new CiHeadSnapshot(
                 ref, true, "alice", RepoRef.of("owner", "repo"), "feature", headSha, "main",
                 "2222222222222222222222222222222222222222",
                 "https://github.com/owner/repo/pull/7", ImmutableList.of(failedRun)));
-        when(actions.rerunFailedJobs(eq("pat"), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
+        when(actions.rerunFailedJobs(pat(), eq(7), any())).thenReturn(new CiRerunResult(CiRerunResult.Outcome.ACCEPTED, "accepted"));
 
         service.rerunFailedChecks("owner/repo", 7);
 
         ArgumentCaptor<RerunFailedJobsCommand> command = ArgumentCaptor.forClass(RerunFailedJobsCommand.class);
-        verify(actions).rerunFailedJobs(eq("pat"), command.capture());
-        assertThat(command.getValue()).isEqualTo(new RerunFailedJobsCommand(ref, 101, headSha, 3, true));
+        verify(actions).rerunFailedJobs(pat(), eq(7), command.capture());
+        assertThat(command.getValue()).isEqualTo(new RerunFailedJobsCommand(101, headSha, 3, true));
     }
 
     @ParameterizedTest
@@ -3865,6 +3866,12 @@ class TestPullRequestService
         return new Workspace("workspace", "Repository", 1, repository, Optional.empty(), Optional.empty(), 1, repository, Workspace.Topology.DIRECT,
                 "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(), "/tmp/repo", Optional.empty(), Optional.empty(),
                 0, REVIEWED_AT, REVIEWED_AT);
+    }
+
+    /** A target read with the token these tests sign in with. */
+    private static HostingTarget pat()
+    {
+        return argThat(target -> target != null && target.access().token().equals("pat"));
     }
 
     private WorkspaceHostingRead workspaceRoute()

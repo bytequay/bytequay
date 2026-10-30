@@ -25,25 +25,29 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.app.ci.CiAutofixService;
-import com.bytequay.app.repository.github.actions.BoundedCiLog;
-import com.bytequay.app.repository.github.actions.CiHeadSnapshot;
-import com.bytequay.app.repository.github.actions.CiJob;
-import com.bytequay.app.repository.github.actions.CiLogExcerpt;
-import com.bytequay.app.repository.github.actions.CiRawLogPage;
-import com.bytequay.app.repository.github.actions.CiRawLogStore;
-import com.bytequay.app.repository.github.actions.CiWorkflowRun;
-import com.bytequay.app.repository.github.actions.GitHubActionsClient;
-import com.bytequay.app.repository.github.actions.ReadCiLogQuery;
+import com.bytequay.app.service.ci.BoundedCiLog;
+import com.bytequay.app.service.ci.CiLogExcerpt;
+import com.bytequay.app.service.ci.CiLogReader;
+import com.bytequay.app.service.ci.CiRawLogPage;
+import com.bytequay.app.service.ci.CiRawLogStore;
+import com.bytequay.app.service.ci.ReadCiLogQuery;
+import com.bytequay.app.service.hosting.HostingIntegrations;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
+import com.bytequay.app.workspace.WorkspaceHostingService;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixStore;
+import com.bytequay.core.ci.CiHeadSnapshot;
+import com.bytequay.core.ci.CiJob;
+import com.bytequay.core.ci.CiRun;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.hosting.HostingIntegration;
+import com.bytequay.core.hosting.HostingTarget;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
@@ -68,7 +72,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Reads GitHub evidence through the task's existing worktree and upstream PR association. */
+/** Reads CI evidence through the task's existing worktree, upstream PR association and workspace hosting route. */
 @Component
 public class PullRequestCiBridgeResolverImpl
         implements BridgeResolver<PullRequestCiBridge>
@@ -84,7 +88,9 @@ public class PullRequestCiBridgeResolverImpl
     private final PullRequestTaskStore assignments;
     private final PullRequestService pullRequestCatalog;
     private final PrDetailStore details;
-    private final GitHubActionsClient actions;
+    private final WorkspaceHostingService hosting;
+    private final HostingIntegrations integrations;
+    private final CiLogReader ciLogs;
     private final TaskLogStore logs;
     private final ObjectMapper objectMapper;
     private final CiRawLogStore rawLogs;
@@ -94,8 +100,8 @@ public class PullRequestCiBridgeResolverImpl
 
     public PullRequestCiBridgeResolverImpl(
             AgentTaskStore tasks, WorkspaceStore workspaces, ManagedWorktreeService worktrees,
-            PullRequestStore pullRequests, PullRequestService pullRequestCatalog, PrDetailStore details,
-            GitHubActionsClient actions, TaskLogStore logs, ObjectMapper objectMapper, CiRawLogStore rawLogs, CiAutofixStore ciRuns,
+            PullRequestStore pullRequests, PullRequestService pullRequestCatalog, PrDetailStore details, WorkspaceHostingService hosting,
+            HostingIntegrations integrations, CiLogReader ciLogs, TaskLogStore logs, ObjectMapper objectMapper, CiRawLogStore rawLogs, CiAutofixStore ciRuns,
             AgentTurnStore turns, ObjectProvider<CiAutofixService> ci, PullRequestTaskStore assignments)
     {
         this.assignments = requireNonNull(assignments, "assignments is null");
@@ -105,7 +111,9 @@ public class PullRequestCiBridgeResolverImpl
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.pullRequestCatalog = requireNonNull(pullRequestCatalog, "pullRequestCatalog is null");
         this.details = requireNonNull(details, "details is null");
-        this.actions = requireNonNull(actions, "actions is null");
+        this.hosting = requireNonNull(hosting, "hosting is null");
+        this.integrations = requireNonNull(integrations, "integrations is null");
+        this.ciLogs = requireNonNull(ciLogs, "ciLogs is null");
         this.logs = requireNonNull(logs, "logs is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.rawLogs = requireNonNull(rawLogs, "rawLogs is null");
@@ -122,12 +130,12 @@ public class PullRequestCiBridgeResolverImpl
             Optional<Function<CiDescriptionProposal, String>> propose = task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX
                     ? turns.findActive(id).map(turn -> proposal -> {
                         ci.getObject().proposeDescription(id, turn.id(), proposal);
-                        return "Description proposal saved. ByteQuay will apply and verify it after this turn completes; this tool has not changed GitHub.";
+                        return "Description proposal saved. ByteQuay will apply and verify it after this turn completes; this tool has not changed the pull request.";
                     }) : Optional.empty();
             return new PullRequestCiBridge(jobId -> read(id, jobId), (logId, offset) -> readRaw(id, logId, offset), PullRequestCiBridge.INSTRUCTION, propose,
                     task.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX ? turns.findActive(id).map(turn -> (jobId, reason) -> {
                         ci.getObject().requestRerun(id, turn.id(), jobId, reason);
-                        return "Rerun assessment saved. ByteQuay will consider one failed-job rerun after this turn; this tool has not rerun GitHub Actions.";
+                        return "Rerun assessment saved. ByteQuay will consider one failed-job rerun after this turn; this tool has not rerun CI.";
                     }) : Optional.empty());
         });
     }
@@ -175,9 +183,10 @@ public class PullRequestCiBridgeResolverImpl
                 return message("unavailable", "The task is no longer open with an available worktree.");
             }
             Scope scope = resolved.orElseThrow();
+            Remote remote = remote(scope.worktree().workspaceId());
             List<Candidate> candidates;
             if (scope.pullRequest().isPresent()) {
-                CiHeadSnapshot head = actions.inspect(scope.pullRequest().orElseThrow());
+                CiHeadSnapshot head = remote.inspect(scope.pullRequest().orElseThrow().number());
                 if (!head.pullRequest().equals(scope.pullRequest().orElseThrow()) || !matches(scope, head)) {
                     return message("stale", "The pull request no longer matches this task's authorized scope.");
                 }
@@ -189,7 +198,7 @@ public class PullRequestCiBridgeResolverImpl
                 for (String branch : scope.branches()) {
                     pullRequestCatalog.syncRepositoryBranch(scope.worktree().workspaceId(), scope.worktree().physicalRepository().owner(), branch);
                 }
-                candidates = candidates(scope);
+                candidates = candidates(remote, scope);
             }
             if (!scope(taskId).filter(scope::equals).isPresent()) {
                 return message("unavailable", "The task or worktree changed while reading its pull request.");
@@ -201,7 +210,7 @@ public class PullRequestCiBridgeResolverImpl
                 return message("ambiguous_pull_request", "More than one open pull request matches this task's branches.");
             }
             Candidate candidate = candidates.getFirst();
-            return jobId.isPresent() ? readLog(taskId, scope, candidate.head(), jobId.orElseThrow()) : overview(taskId, scope, candidate);
+            return jobId.isPresent() ? readLog(taskId, remote, scope, candidate.head(), jobId.orElseThrow()) : overview(taskId, remote, scope, candidate);
         }
         catch (RuntimeException failure) {
             // Provider exceptions can contain authenticated URLs or response bodies; never pass them to the model.
@@ -209,7 +218,13 @@ public class PullRequestCiBridgeResolverImpl
         }
     }
 
-    private List<Candidate> candidates(Scope scope)
+    private Remote remote(String workspaceId)
+    {
+        HostingTarget target = hosting.captureRead(workspaceId).target();
+        return new Remote(integrations.of(target), target);
+    }
+
+    private List<Candidate> candidates(Remote remote, Scope scope)
     {
         List<PullRequest> rows = scope.branches().stream()
                 .flatMap(branch -> pullRequests.findByHeadRef(scope.repository().fullName(), branch).stream())
@@ -220,7 +235,7 @@ public class PullRequestCiBridgeResolverImpl
         ImmutableList.Builder<Candidate> matches = ImmutableList.builder();
         for (PullRequest row : rows) {
             PullRequestRef ref = PullRequestRef.of(scope.repository().owner(), scope.repository().repo(), row.number());
-            CiHeadSnapshot head = actions.inspect(ref);
+            CiHeadSnapshot head = remote.inspect(row.number());
             if (head.pullRequest().equals(ref) && matches(scope, head)) {
                 matches.add(new Candidate(row.id(), head));
             }
@@ -239,17 +254,17 @@ public class PullRequestCiBridgeResolverImpl
                         && scope.expectedHead().map(head.headSha()::equals).orElse(true));
     }
 
-    private String overview(TaskId taskId, Scope scope, Candidate candidate)
+    private String overview(TaskId taskId, Remote remote, Scope scope, Candidate candidate)
     {
         CiHeadSnapshot head = candidate.head();
         ObjectNode result = anchor(head);
         ObjectNode ci = result.putObject("actions")
                 .put("green", head.green()).put("pending", head.pending()).put("requiredChecksVerified", false)
-                .put("workflowsOmitted", head.workflowRuns().size()).put("jobsOmitted", head.jobs().size());
+                .put("workflowsOmitted", head.runs().size()).put("jobsOmitted", head.jobs().size());
         ArrayNode workflows = ci.putArray("workflows");
         int includedJobs = 0;
-        for (CiWorkflowRun workflow : head.workflowRuns().stream()
-                .sorted(Comparator.comparing((CiWorkflowRun run) -> run.jobs().stream().anyMatch(CiJob::actionableFailure)).reversed()).toList()) {
+        for (CiRun workflow : head.runs().stream()
+                .sorted(Comparator.comparing((CiRun run) -> run.jobs().stream().anyMatch(CiJob::actionableFailure)).reversed()).toList()) {
             ObjectNode value = workflow(workflow);
             ArrayNode jobs = value.putArray("jobs");
             workflows.add(value);
@@ -266,11 +281,11 @@ public class PullRequestCiBridgeResolverImpl
                 includedJobs++;
             }
         }
-        ci.put("workflowsOmitted", head.workflowRuns().size() - workflows.size());
+        ci.put("workflowsOmitted", head.runs().size() - workflows.size());
         ci.put("jobsOmitted", head.jobs().size() - includedJobs);
         cachedChecks(result, candidate);
         if (scope.expectedHead().isPresent()) {
-            String description = actions.readDescription(head.pullRequest());
+            String description = remote.integration().contents().description(remote.target(), head.pullRequest().number());
             text(result, "description", description, 60_000);
         }
         if (!scope(taskId).filter(scope::equals).isPresent()) {
@@ -313,22 +328,22 @@ public class PullRequestCiBridgeResolverImpl
         }
     }
 
-    private String readLog(TaskId taskId, Scope scope, CiHeadSnapshot head, long jobId)
+    private String readLog(TaskId taskId, Remote remote, Scope scope, CiHeadSnapshot head, long jobId)
     {
         // A partial rerun retains the latest result of jobs that were not rerun, including earlier-attempt failures.
-        Optional<CiWorkflowRun> workflow = head.workflowRuns().stream()
+        Optional<CiRun> workflow = head.runs().stream()
                 .filter(run -> run.jobs().stream().anyMatch(job -> job.id() == jobId && job.actionableFailure()))
                 .findFirst();
         if (workflow.isEmpty()) {
-            return message("unknown_job", "No current failed Actions job in this task's pull request matches that jobId.");
+            return message("unknown_job", "No current failed CI job in this task's pull request matches that jobId.");
         }
-        CiWorkflowRun run = workflow.orElseThrow();
+        CiRun run = workflow.orElseThrow();
         CiJob job = run.jobs().stream().filter(value -> value.id() == jobId).findFirst().orElseThrow();
-        BoundedCiLog fetched = actions.readLog(new ReadCiLogQuery(taskId, head.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
-        List<String> annotations = actions.readFailureAnnotations(head.pullRequest(), job.id());
+        BoundedCiLog fetched = ciLogs.read(remote.target(), remote.integration().ci(), new ReadCiLogQuery(taskId, head.pullRequest(), run, job, MAXIMUM_LOG_BYTES));
+        List<String> annotations = remote.integration().ci().failureNotes(remote.target(), head.pullRequest().number(), job.id());
         String contents = fetched.rawLogId().map(logId -> rawLogs.read(taskId, logId))
                 .orElseGet(() -> fetched.blob().map(blob -> StandardCharsets.UTF_8.decode(logs.readBlob(taskId, blob)).toString()).orElse(""));
-        CiHeadSnapshot after = actions.inspect(head.pullRequest());
+        CiHeadSnapshot after = remote.inspect(head.pullRequest().number());
         if (!scope(taskId).filter(scope::equals).isPresent()) {
             return message("unavailable", "The task or worktree changed while reading the CI log.");
         }
@@ -336,7 +351,7 @@ public class PullRequestCiBridgeResolverImpl
                 || !head.headSha().equals(after.headSha()) || !head.headRef().equals(after.headRef())
                 || !head.baseRef().equals(after.baseRef())
                 || !head.baseSha().equals(after.baseSha())
-                || after.workflowRuns().stream().noneMatch(value -> value.id() == run.id() && value.attempt() == run.attempt()
+                || after.runs().stream().noneMatch(value -> value.id() == run.id() && value.attempt() == run.attempt()
                         && value.jobs().stream().anyMatch(current -> current.id() == job.id() && current.attempt() == job.attempt() && current.actionableFailure()))) {
             return message("stale", "The pull request head or workflow attempt changed while reading the log. Read the current CI summary again.");
         }
@@ -420,7 +435,7 @@ public class PullRequestCiBridgeResolverImpl
         return result;
     }
 
-    private ObjectNode workflow(CiWorkflowRun run)
+    private ObjectNode workflow(CiRun run)
     {
         ObjectNode result = objectMapper.createObjectNode().put("id", run.id()).put("attempt", run.attempt())
                 .put("status", run.status()).put("conclusion", run.conclusion().orElse(null));
@@ -478,4 +493,12 @@ public class PullRequestCiBridgeResolverImpl
             Optional<PullRequestRef> pullRequest, Optional<String> expectedHead) {}
 
     private record Candidate(long rowId, CiHeadSnapshot head) {}
+
+    private record Remote(HostingIntegration integration, HostingTarget target)
+    {
+        private CiHeadSnapshot inspect(int number)
+        {
+            return integration.ci().inspect(target, number);
+        }
+    }
 }

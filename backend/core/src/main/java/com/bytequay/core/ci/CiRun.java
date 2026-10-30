@@ -11,34 +11,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
 
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.checkUrl;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.normalizeConclusion;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.normalizeState;
+import static com.bytequay.core.ci.CiChecks.checkUrl;
+import static com.bytequay.core.ci.CiChecks.normalizeConclusion;
+import static com.bytequay.core.ci.CiChecks.normalizeState;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
-import static java.util.Objects.requireNonNull;
 
-public record CiWorkflowRun(long id, long workflowId, String name, int attempt, String status, Optional<String> conclusion, String headSha, String url, List<CiJob> jobs)
+/**
+ * One latest attempt of a CI run on a request head. Status and conclusion use the {@link CiJob} vocabulary.
+ *
+ * @param definitionId what produced the run, such as a GitHub workflow or another provider's project, so runs of the same
+ *         definition compare across heads and branches
+ */
+public record CiRun(long id, long definitionId, String name, int attempt, String status, Optional<String> conclusion, String headSha, String url, List<CiJob> jobs)
 {
-    public CiWorkflowRun
+    public CiRun
     {
-        checkArgument(id > 0 && workflowId > 0 && attempt > 0, "workflow IDs and attempt must be positive");
+        checkArgument(id > 0 && definitionId > 0 && attempt > 0, "run IDs and attempt must be positive");
         checkText(name, "name", 500);
         status = normalizeState(status, "status");
         conclusion = normalizeConclusion(conclusion);
         checkSha(headSha, "headSha");
         checkUrl(url, "url");
-        requireNonNull(jobs, "jobs is null");
         jobs = ImmutableList.copyOf(jobs);
         checkArgument(jobs.size() <= 1000, "jobs exceeds 1000 values");
-        checkArgument(jobs.stream().allMatch(job -> job.workflowRunId() == id && job.attempt() <= attempt), "job does not belong to this workflow attempt");
+        checkArgument(jobs.stream().allMatch(job -> job.runId() == id && job.attempt() <= attempt), "job does not belong to this run attempt");
     }
 }

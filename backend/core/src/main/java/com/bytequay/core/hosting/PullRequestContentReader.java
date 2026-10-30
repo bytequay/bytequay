@@ -36,6 +36,9 @@ public interface PullRequestContentReader
 
     PullRequestIdentity identity(HostingTarget target, int number);
 
+    /** The request's exact current description; an empty description is an empty string. */
+    String description(HostingTarget target, int number);
+
     List<PullRequestIdentity> identitiesByHead(HostingTarget target, RepoRef sourceRepository, String branch);
 
     boolean viewerCanWrite(HostingTarget target);

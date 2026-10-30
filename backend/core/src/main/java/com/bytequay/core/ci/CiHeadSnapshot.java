@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository.github.actions;
+package com.bytequay.core.ci;
 
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -19,15 +19,16 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.checkPullRequest;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.checkUrl;
-import static com.bytequay.app.repository.github.actions.CiActionsChecks.isPassingConclusion;
+import static com.bytequay.core.ci.CiChecks.checkPullRequest;
+import static com.bytequay.core.ci.CiChecks.checkUrl;
+import static com.bytequay.core.ci.CiChecks.isPassingConclusion;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
+/** A request's current head, target branch and latest CI attempts for that head. */
 public record CiHeadSnapshot(
         PullRequestRef pullRequest,
         boolean open,
@@ -38,7 +39,7 @@ public record CiHeadSnapshot(
         String baseRef,
         String baseSha,
         String url,
-        List<CiWorkflowRun> workflowRuns)
+        List<CiRun> runs)
 {
     public CiHeadSnapshot
     {
@@ -52,15 +53,14 @@ public record CiHeadSnapshot(
         checkText(baseRef, "baseRef", 255);
         checkSha(baseSha, "baseSha");
         checkUrl(url, "url");
-        requireNonNull(workflowRuns, "workflowRuns is null");
-        workflowRuns = ImmutableList.copyOf(workflowRuns);
-        checkArgument(workflowRuns.size() <= 1000, "workflowRuns exceeds 1000 values");
-        checkArgument(workflowRuns.stream().allMatch(run -> run.headSha().equals(headSha)), "workflow run belongs to another head");
+        runs = ImmutableList.copyOf(runs);
+        checkArgument(runs.size() <= 1000, "runs exceeds 1000 values");
+        checkArgument(runs.stream().allMatch(run -> run.headSha().equals(headSha)), "run belongs to another head");
     }
 
     public List<CiJob> jobs()
     {
-        return workflowRuns.stream()
+        return runs.stream()
                 .flatMap(run -> run.jobs().stream())
                 .collect(toImmutableList());
     }
@@ -74,7 +74,7 @@ public record CiHeadSnapshot(
 
     public boolean pending()
     {
-        return workflowRuns.stream().anyMatch(run -> !"completed".equals(run.status()))
+        return runs.stream().anyMatch(run -> !"completed".equals(run.status()))
                 || jobs().stream().anyMatch(CiJob::pending);
     }
 
@@ -82,7 +82,7 @@ public record CiHeadSnapshot(
     {
         List<CiJob> jobs = jobs();
         return !jobs.isEmpty()
-                && workflowRuns.stream().allMatch(run -> "completed".equals(run.status()) && isPassingConclusion(run.conclusion()) && !run.jobs().isEmpty())
+                && runs.stream().allMatch(run -> "completed".equals(run.status()) && isPassingConclusion(run.conclusion()) && !run.jobs().isEmpty())
                 && jobs.stream().allMatch(CiJob::passing);
     }
 }
